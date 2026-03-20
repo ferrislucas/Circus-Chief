@@ -219,6 +219,20 @@ export const useKanbanStore = defineStore('kanban', {
     },
 
     /**
+     * Find a card in the board's lanes and return its lane and index.
+     * @returns {{ lane: Object, index: number } | null}
+     */
+    _findCardInLanes(cardId) {
+      for (const lane of this.board?.lanes || []) {
+        const index = lane.cards?.findIndex((c) => c.id === cardId);
+        if (index !== -1 && index !== undefined) {
+          return { lane, index };
+        }
+      }
+      return null;
+    },
+
+    /**
      * Move a card to a different lane
      */
     async moveCard(projectId, cardId, targetLaneId, options = {}) {
@@ -228,22 +242,15 @@ export const useKanbanStore = defineStore('kanban', {
       let oldSourceLane = null;
       let oldCard = null;
 
-      if (this.board) {
-        for (const lane of this.board.lanes) {
-          const cardIndex = lane.cards?.findIndex((c) => c.id === cardId);
-          if (cardIndex !== -1 && cardIndex !== undefined) {
-            oldSourceLane = lane;
-            oldCard = lane.cards[cardIndex];
-            // Remove from source lane
-            lane.cards.splice(cardIndex, 1);
-            // Add to target lane
-            const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
-            if (targetLane) {
-              targetLane.cards = targetLane.cards || [];
-              targetLane.cards.push({ ...oldCard, laneId: targetLaneId });
-            }
-            break;
-          }
+      const found = this.board ? this._findCardInLanes(cardId) : null;
+      if (found) {
+        oldSourceLane = found.lane;
+        oldCard = found.lane.cards[found.index];
+        found.lane.cards.splice(found.index, 1);
+        const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
+        if (targetLane) {
+          targetLane.cards = targetLane.cards || [];
+          targetLane.cards.push({ ...oldCard, laneId: targetLaneId });
         }
       }
 
@@ -253,25 +260,19 @@ export const useKanbanStore = defineStore('kanban', {
           ...options,
         });
         // Update card in state with server response
-        if (this.board) {
-          const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
-          if (targetLane) {
-            const cardIndex = targetLane.cards?.findIndex((c) => c.id === cardId);
-            if (cardIndex !== -1 && cardIndex !== undefined) {
-              targetLane.cards[cardIndex] = movedCard;
-            }
-          }
+        const targetLane = this.board?.lanes?.find((l) => l.id === targetLaneId);
+        const cardIndex = targetLane?.cards?.findIndex((c) => c.id === cardId);
+        if (cardIndex !== -1 && cardIndex !== undefined) {
+          targetLane.cards[cardIndex] = movedCard;
         }
         return movedCard;
       } catch (err) {
         // Revert on error
         if (oldSourceLane && oldCard && this.board) {
-          // Remove from target
           const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
           if (targetLane) {
             targetLane.cards = targetLane.cards?.filter((c) => c.id !== cardId) || [];
           }
-          // Add back to source
           oldSourceLane.cards = oldSourceLane.cards || [];
           oldSourceLane.cards.push(oldCard);
         }

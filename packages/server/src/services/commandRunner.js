@@ -164,6 +164,159 @@ export class CommandRunner {
   }
 
   /**
+   * Create a database record for a command run, logging warnings on failure
+   * @param {string} runId
+   * @param {string} sessionId
+   * @param {string} buttonId
+   */
+  #createDbRecord(runId, sessionId, buttonId) {
+    if (commandRuns && typeof commandRuns.create === 'function') {
+      try {
+        commandRuns.create({ id: runId, sessionId, buttonId });
+        console.log(`[commandRunner.run] Created run record in database for runId: ${runId}`);
+      } catch (dbErr) {
+        console.warn(
+          `[commandRunner.run] Warning: Failed to create database record for runId: ${runId}`,
+          dbErr.message
+        );
+      }
+    }
+  }
+
+  /**
+   * Wrap a command with 'script' to allocate a pseudo-TTY for real-time output
+   * @param {string} command
+   * @returns {string} Wrapped command
+   */
+  #wrapCommandForTTY(command) {
+    const isLinux = platform() === 'linux';
+    if (isLinux) {
+      return `script -q -e -c ${JSON.stringify(command)} /dev/null`;
+    }
+    // macOS and other Unix-like systems use different script syntax
+    return `script -q /dev/null sh -c ${JSON.stringify(command)}`;
+  }
+
+  /**
+   * Create a process entry object for tracking a running command
+   * @param {Object} child - Child process
+   * @param {string} sessionId
+   * @param {string} buttonId
+   * @returns {Object} Process entry
+   */
+  #createProcessEntry(child, sessionId, buttonId) {
+    return {
+      process: child,
+      startTime: Date.now(),
+      sessionId,
+      buttonId,
+      output: '',
+      outputBuffer: '',
+      lastDbWrite: Date.now(),
+      bufferFlushTimer: null,
+      outputProcessor: new TerminalOutputProcessor(),
+    };
+  }
+
+  /**
+   * Flush buffered output to database for a given run
+   * @param {string} runId
+   * @param {Object} entry - Process entry
+   * @param {string} sessionId
+   * @param {string} buttonId
+   */
+  #flushOutputBuffer(runId, entry, sessionId, buttonId) {
+    if (entry.outputBuffer && sessionId && buttonId && commandRuns && typeof commandRuns.appendOutput === 'function') {
+      try {
+        commandRuns.appendOutput(runId, entry.outputBuffer);
+        entry.lastDbWrite = Date.now();
+      } catch (err) {
+        console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
+      }
+      entry.outputBuffer = '';
+    }
+  }
+
+  /**
+   * Clear the periodic buffer flush timer for a process entry
+   * @param {Object} entry - Process entry
+   */
+  #clearBufferTimer(entry) {
+    if (entry.bufferFlushTimer) {
+      clearInterval(entry.bufferFlushTimer);
+      entry.bufferFlushTimer = null;
+    }
+  }
+
+  /**
+   * Flush remaining terminal processor content into the entry's output/buffer
+   * @param {Object} entry - Process entry
+   * @param {function|null} onOutput - Output callback
+   * @param {boolean} notifyOutput - Whether to call onOutput with remaining text
+   */
+  #flushRemainingProcessorContent(entry, onOutput, notifyOutput) {
+    const remainingText = entry.outputProcessor.flush();
+    if (remainingText) {
+      entry.output += remainingText;
+      entry.outputBuffer += remainingText;
+      if (notifyOutput && onOutput) onOutput(remainingText);
+    }
+  }
+
+  /**
+   * Mark a run as error in the database
+   * @param {string} runId
+   * @param {string} output
+   */
+  #markRunAsError(runId, output) {
+    if (commandRuns && typeof commandRuns.complete === 'function') {
+      try {
+        commandRuns.complete(runId, 1, output);
+      } catch (dbErr) {
+        console.warn(`[commandRunner.run] Warning: Error marking run as error in database for runId: ${runId}`, dbErr.message);
+      }
+    }
+  }
+
+  /**
+   * Mark a run as complete (or killed) in the database
+   * @param {string} runId
+   * @param {number|null} exitCode
+   * @param {string|null} signal
+   * @param {string} output
+   */
+  #markRunAsComplete(runId, exitCode, signal, output) {
+    if (commandRuns && typeof commandRuns.complete === 'function' && typeof commandRuns.markKilled === 'function') {
+      try {
+        if (signal) {
+          commandRuns.markKilled(runId, output);
+        } else {
+          commandRuns.complete(runId, exitCode || 0, output);
+        }
+        console.log(`[commandRunner.run] Marked run as complete in database for runId: ${runId}`);
+      } catch (dbErr) {
+        console.warn(`[commandRunner.run] Warning: Error marking run as complete in database for runId: ${runId}`, dbErr.message);
+      }
+    }
+  }
+
+  /**
+   * Handle data events from stdout or stderr by processing through TerminalOutputProcessor
+   * @param {Object} entry - Process entry
+   * @param {Buffer} data - Raw data
+   * @param {function|null} onOutput - Output callback
+   */
+  #handleStreamData(entry, data, onOutput) {
+    const rawText = data.toString();
+    const text = entry.outputProcessor.process(rawText);
+    if (text) {
+      entry.output += text;
+      entry.outputBuffer += text;
+      if (onOutput) onOutput(text);
+    }
+  }
+
+  /**
    * Run a command and stream output via callback
    *
    * @param {{ runId: string, command: string, workingDirectory: string }} params - Command parameters
@@ -178,191 +331,55 @@ export class CommandRunner {
 
     return new Promise((resolve) => {
       try {
-        // Create database record for this run (if database is available)
-        if (commandRuns && typeof commandRuns.create === 'function') {
-          try {
-            commandRuns.create({ id: runId, sessionId, buttonId });
-            console.log(`[commandRunner.run] Created run record in database for runId: ${runId}`);
-          } catch (dbErr) {
-            console.warn(
-              `[commandRunner.run] Warning: Failed to create database record for runId: ${runId}`,
-              dbErr.message
-            );
-            // Continue without database persistence - the run will still work
-          }
-        }
+        this.#createDbRecord(runId, sessionId, buttonId);
 
-        // Wrap command with 'script' to allocate a pseudo-TTY
-        // This ensures line-buffered output like a normal terminal, so output
-        // streams in real-time instead of being block-buffered
-        //
-        // Platform-specific syntax (script command differs significantly between Linux and macOS):
-        // - Linux: script -q -e -c "command" /dev/null
-        //   * -q = quiet mode (no header/footer messages)
-        //   * -e = return exit code of the child process (Linux only)
-        //   * -c = run command
-        //   * /dev/null = don't save to file
-        // - macOS: script -q /dev/null sh -c "command"
-        //   * -q = quiet mode
-        //   * /dev/null = don't save to file
-        //   * sh -c = execute command via shell (macOS doesn't support -c flag on script itself)
-        const osType = platform();
-        const isLinux = osType === 'linux';
-        let wrappedCommand;
-
-        if (isLinux) {
-          wrappedCommand = `script -q -e -c ${JSON.stringify(command)} /dev/null`;
-        } else {
-          // macOS and other Unix-like systems use different script syntax
-          wrappedCommand = `script -q /dev/null sh -c ${JSON.stringify(command)}`;
-        }
-
+        const wrappedCommand = this.#wrapCommandForTTY(command);
         const child = spawn('sh', ['-c', wrappedCommand], {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
-          detached: true, // Create a new process group for proper signal handling
-          env: createRobustEnv(), // Ensure node is in PATH for npx users with nvm/fnm
+          detached: true,
+          env: createRobustEnv(),
         });
 
-        // Store process with metadata and output buffer
-        const entry = {
-          process: child,
-          startTime: Date.now(),
-          sessionId,
-          buttonId,
-          output: '',
-          outputBuffer: '', // Accumulate output for batch writes
-          lastDbWrite: Date.now(),
-          bufferFlushTimer: null,
-          outputProcessor: new TerminalOutputProcessor(), // Simulates terminal cursor behavior
-        };
+        const entry = this.#createProcessEntry(child, sessionId, buttonId);
         this.processes.set(runId, entry);
 
-        // Helper to flush buffered output to database
-        const flushOutputBuffer = () => {
-          if (entry.outputBuffer && sessionId && buttonId && commandRuns && typeof commandRuns.appendOutput === 'function') {
-            try {
-              commandRuns.appendOutput(runId, entry.outputBuffer);
-              entry.lastDbWrite = Date.now();
-            } catch (err) {
-              console.warn(`[commandRunner.run] Warning: Error flushing output to database for runId: ${runId}`, err.message);
-            }
-            entry.outputBuffer = '';
-          }
-        };
+        entry.bufferFlushTimer = setInterval(
+          () => this.#flushOutputBuffer(runId, entry, sessionId, buttonId),
+          this.outputBufferFlushInterval
+        );
 
-        // Set up periodic buffer flushing
-        const setupBufferTimer = () => {
-          entry.bufferFlushTimer = setInterval(flushOutputBuffer, this.outputBufferFlushInterval);
-        };
-
-        const clearBufferTimer = () => {
-          if (entry.bufferFlushTimer) {
-            clearInterval(entry.bufferFlushTimer);
-            entry.bufferFlushTimer = null;
-          }
-        };
-
-        setupBufferTimer();
-
-        child.stdout.on('data', (data) => {
-          const rawText = data.toString();
-          // Use the terminal output processor to simulate cursor behavior
-          // This handles overwrite-style progress animations correctly
-          const text = entry.outputProcessor.process(rawText);
-          if (text) {
-            entry.output += text;
-            entry.outputBuffer += text;
-            if (onOutput) onOutput(text);
-          }
-        });
-
-        child.stderr.on('data', (data) => {
-          const rawText = data.toString();
-          // Use the terminal output processor to simulate cursor behavior
-          const text = entry.outputProcessor.process(rawText);
-          if (text) {
-            entry.output += text;
-            entry.outputBuffer += text;
-            if (onOutput) onOutput(text);
-          }
-        });
+        child.stdout.on('data', (data) => this.#handleStreamData(entry, data, onOutput));
+        child.stderr.on('data', (data) => this.#handleStreamData(entry, data, onOutput));
 
         child.on('error', (err) => {
-          clearBufferTimer();
-          // Flush any remaining content from the terminal processor
-          const remainingText = entry.outputProcessor.flush();
-          if (remainingText) {
-            entry.output += remainingText;
-            entry.outputBuffer += remainingText;
-          }
-          flushOutputBuffer(); // Flush any remaining output to database
+          this.#clearBufferTimer(entry);
+          this.#flushRemainingProcessorContent(entry, onOutput, false);
+          this.#flushOutputBuffer(runId, entry, sessionId, buttonId);
           const msg = `Failed to execute command: ${err.message}`;
           console.error(`[commandRunner.run] Error for runId: ${runId}`, err);
           if (onError) onError(msg);
-          // Mark as error in database (if available)
-          if (commandRuns && typeof commandRuns.complete === 'function') {
-            try {
-              commandRuns.complete(runId, 1, entry.output);
-            } catch (dbErr) {
-              console.warn(`[commandRunner.run] Warning: Error marking run as error in database for runId: ${runId}`, dbErr.message);
-            }
-          }
+          this.#markRunAsError(runId, entry.output);
           this.processes.delete(runId);
           resolve(1);
         });
 
         child.on('close', (exitCode, signal) => {
-          clearBufferTimer();
-          // Flush any remaining content from the terminal processor (incomplete final line)
-          const remainingText = entry.outputProcessor.flush();
-          if (remainingText) {
-            entry.output += remainingText;
-            entry.outputBuffer += remainingText;
-            if (onOutput) onOutput(remainingText);
-          }
-          flushOutputBuffer(); // Flush any remaining output to database
-          console.log(
-            `[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`
-          );
+          this.#clearBufferTimer(entry);
+          this.#flushRemainingProcessorContent(entry, onOutput, true);
+          this.#flushOutputBuffer(runId, entry, sessionId, buttonId);
+          console.log(`[commandRunner.run] Process closed for runId: ${runId}, exitCode: ${exitCode}, signal: ${signal}`);
 
-          // Mark as complete in database (if available)
-          if (commandRuns && typeof commandRuns.complete === 'function' && typeof commandRuns.markKilled === 'function') {
-            try {
-              if (signal) {
-                // Process was killed by signal, treat as error
-                commandRuns.markKilled(runId, entry.output);
-              } else {
-                // Normal completion
-                commandRuns.complete(runId, exitCode || 0, entry.output);
-              }
-              console.log(`[commandRunner.run] Marked run as complete in database for runId: ${runId}`);
-            } catch (dbErr) {
-              console.warn(`[commandRunner.run] Warning: Error marking run as complete in database for runId: ${runId}`, dbErr.message);
-            }
-          }
-
+          this.#markRunAsComplete(runId, exitCode, signal, entry.output);
           this.processes.delete(runId);
-          // If killed by signal, exitCode is null. Call onComplete with null to trigger error status
           if (onComplete) onComplete(exitCode, entry.output);
-          // Return non-zero exit code for signal termination (143 for SIGTERM)
-          if (signal) {
-            resolve(143);
-          }
-          resolve(exitCode || 0);
+          resolve(signal ? 143 : (exitCode || 0));
         });
       } catch (err) {
         const msg = `Error running command: ${err.message}`;
         console.error(`[commandRunner.run] Exception for runId: ${runId}`, err);
         if (onError) onError(msg);
-        // Mark as error in database (if available) and persist the error message
-        if (commandRuns && typeof commandRuns.complete === 'function') {
-          try {
-            commandRuns.complete(runId, 1, `[Error] ${msg}`);
-          } catch (dbErr) {
-            console.warn(`[commandRunner.run] Warning: Error marking failed run in database for runId: ${runId}`, dbErr.message);
-          }
-        }
+        this.#markRunAsError(runId, `[Error] ${msg}`);
         this.processes.delete(runId);
         resolve(1);
       }

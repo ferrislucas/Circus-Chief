@@ -3,93 +3,161 @@ import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
 
 /**
- * Composable that manages all ProviderForm state and logic:
- * form data, validation, model list, env-var helpers, test-connection, save & reconcile.
- *
- * @param {import('vue').Ref<boolean>} isOpenRef - reactive ref for modal open state
- * @param {import('vue').Ref<Object|null>} providerRef - reactive ref for provider being edited (null = create)
- * @param {Function} onSaved - callback invoked after a successful save
+ * Create default empty form values.
  */
-export function useProviderForm(isOpenRef, providerRef, onSaved) {
-  const providersStore = useProvidersStore();
-  const uiStore = useUiStore();
-
-  // ── Form state ────────────────────────────────────────────────
-  const form = ref({
+function createEmptyForm() {
+  return {
     name: '',
     baseUrl: null,
     authToken: null,
     apiTimeoutMs: null,
     additionalEnvVars: {},
-  });
+  };
+}
 
-  const localModels = ref([]);
-  const envVarKeys = ref([]);
-  const showAuthToken = ref(false);
-  const saving = ref(false);
-  const testing = ref(false);
-  const error = ref(null);
-  const testResult = ref(null);
-  const authTokenModified = ref(false);
+/**
+ * Populate form state from an existing provider.
+ */
+function populateFormFromProvider(provider) {
+  return {
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    authToken: provider.authToken === '••••••••' ? null : provider.authToken,
+    apiTimeoutMs: provider.apiTimeoutMs,
+    additionalEnvVars: provider.additionalEnvVars ? { ...provider.additionalEnvVars } : {},
+  };
+}
 
-  // ── Computed ──────────────────────────────────────────────────
-  const isEditing = computed(() => !!providerRef.value);
-  const isValid = computed(() => form.value.name.trim().length > 0);
-  const canTest = computed(() => form.value.baseUrl || form.value.authToken);
+/**
+ * Map provider models to local model objects for editing.
+ */
+function mapProviderModels(provider) {
+  return (provider.models || []).map((m) => ({
+    _serverId: m.id,
+    modelId: m.modelId,
+    displayName: m.displayName,
+    tier: m.tier || 'custom',
+  }));
+}
 
-  // ── Watcher: reset form when modal opens / provider changes ──
+/**
+ * Build a model payload for API submission.
+ */
+function buildModelPayload(model) {
+  return {
+    modelId: model.modelId.trim(),
+    displayName: model.displayName.trim() || model.modelId.trim(),
+    tier: model.tier || 'custom',
+  };
+}
+
+/**
+ * Check if a model has changed compared to the original server model.
+ */
+function hasModelChanged(model, original) {
+  return (
+    model.modelId.trim() !== original.modelId ||
+    model.displayName.trim() !== original.displayName ||
+    model.tier !== original.tier
+  );
+}
+
+/**
+ * Reconcile a single model (create or update as needed).
+ */
+async function reconcileModel(providersStore, providerId, model, originalModelMap) {
+  const isNew = !model._serverId && model.modelId.trim();
+  if (isNew) {
+    await providersStore.addModel(providerId, buildModelPayload(model));
+    return;
+  }
+  const isExisting = model._serverId && originalModelMap.has(model._serverId);
+  if (!isExisting) return;
+
+  const original = originalModelMap.get(model._serverId);
+  if (hasModelChanged(model, original)) {
+    await providersStore.updateModel(providerId, model._serverId, buildModelPayload(model));
+  }
+}
+
+/**
+ * Reconcile all models: delete removed, create new, update changed.
+ */
+async function reconcileModels(providersStore, providerId, localModels, providerRef) {
+  const serverModelIds = new Set(
+    localModels.value.filter((m) => m._serverId).map((m) => m._serverId),
+  );
+
+  const originalModels = providerRef.value?.models || [];
+  const originalModelMap = new Map(originalModels.map((m) => [m.id, m]));
+
+  for (const serverModel of originalModels) {
+    if (!serverModelIds.has(serverModel.id)) {
+      await providersStore.removeModel(providerId, serverModel.id);
+    }
+  }
+
+  for (const model of localModels.value) {
+    await reconcileModel(providersStore, providerId, model, originalModelMap);
+  }
+
+  await providersStore.fetchProviders();
+}
+
+/**
+ * Set up watcher that resets form when modal opens or provider changes.
+ */
+function setupFormWatcher(isOpenRef, providerRef, state) {
   watch(
     () => [isOpenRef.value, providerRef.value],
     ([isOpen, provider]) => {
       if (!isOpen) return;
 
       if (provider) {
-        form.value = {
-          name: provider.name,
-          baseUrl: provider.baseUrl,
-          authToken: provider.authToken === '••••••••' ? null : provider.authToken,
-          apiTimeoutMs: provider.apiTimeoutMs,
-          additionalEnvVars: provider.additionalEnvVars ? { ...provider.additionalEnvVars } : {},
-        };
-        envVarKeys.value = Object.keys(form.value.additionalEnvVars);
-        authTokenModified.value = false;
-
-        localModels.value = (provider.models || []).map((m) => ({
-          _serverId: m.id,
-          modelId: m.modelId,
-          displayName: m.displayName,
-          tier: m.tier || 'custom',
-        }));
+        state.form.value = populateFormFromProvider(provider);
+        state.envVarKeys.value = Object.keys(state.form.value.additionalEnvVars);
+        state.authTokenModified.value = false;
+        state.localModels.value = mapProviderModels(provider);
       } else {
-        form.value = {
-          name: '',
-          baseUrl: null,
-          authToken: null,
-          apiTimeoutMs: null,
-          additionalEnvVars: {},
-        };
-        envVarKeys.value = [];
-        localModels.value = [];
-        authTokenModified.value = true;
+        state.form.value = createEmptyForm();
+        state.envVarKeys.value = [];
+        state.localModels.value = [];
+        state.authTokenModified.value = true;
       }
 
-      showAuthToken.value = false;
-      error.value = null;
-      testResult.value = null;
+      state.showAuthToken.value = false;
+      state.error.value = null;
+      state.testResult.value = null;
     },
     { deep: true },
   );
+}
 
-  // ── Model helpers ─────────────────────────────────────────────
-  function addLocalModel() {
-    localModels.value.push({ modelId: '', displayName: '', tier: 'custom' });
+/**
+ * Build provider data payload from form values.
+ */
+function buildProviderPayload(form, authTokenModified) {
+  const data = {
+    name: form.value.name.trim(),
+    baseUrl: form.value.baseUrl?.trim() || null,
+    apiTimeoutMs: form.value.apiTimeoutMs || null,
+    additionalEnvVars:
+      Object.keys(form.value.additionalEnvVars).length > 0
+        ? form.value.additionalEnvVars
+        : null,
+  };
+
+  if (authTokenModified.value) {
+    data.authToken = form.value.authToken?.trim() || null;
   }
 
-  function removeLocalModel(index) {
-    localModels.value.splice(index, 1);
-  }
+  return data;
+}
 
-  // ── Env-var helpers ───────────────────────────────────────────
+/**
+ * Create env-var management functions.
+ */
+function createEnvVarHelpers(form, envVarKeys) {
   function addEnvVar() {
     const newKey = `ENV_VAR_${Object.keys(form.value.additionalEnvVars).length + 1}`;
     form.value.additionalEnvVars[newKey] = '';
@@ -110,93 +178,54 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
     }
   }
 
-  // ── Test connection ───────────────────────────────────────────
-  async function testConnection() {
-    testing.value = true;
-    error.value = null;
-    testResult.value = null;
+  return { addEnvVar, removeEnvVar, updateEnvVarKey };
+}
+
+/**
+ * Create test connection function.
+ */
+function createTestConnection(providersStore, state) {
+  return async function testConnection() {
+    state.testing.value = true;
+    state.error.value = null;
+    state.testResult.value = null;
 
     try {
-      const sonnetModel = localModels.value.find((m) => m.tier === 'sonnet');
+      const sonnetModel = state.localModels.value.find((m) => m.tier === 'sonnet');
       const config = {
-        baseUrl: form.value.baseUrl || undefined,
-        authToken: form.value.authToken || undefined,
+        baseUrl: state.form.value.baseUrl || undefined,
+        authToken: state.form.value.authToken || undefined,
         defaultSonnetModel: sonnetModel?.modelId || undefined,
-        apiTimeoutMs: form.value.apiTimeoutMs || undefined,
+        apiTimeoutMs: state.form.value.apiTimeoutMs || undefined,
       };
-      testResult.value = await providersStore.testConnection(config);
+      state.testResult.value = await providersStore.testConnection(config);
     } catch (err) {
-      error.value = err.message;
+      state.error.value = err.message;
     } finally {
-      testing.value = false;
+      state.testing.value = false;
     }
-  }
+  };
+}
 
-  // ── Reconcile models ─────────────────────────────────────────
-  async function reconcileModels(providerId) {
-    const serverModelIds = new Set(
-      localModels.value.filter((m) => m._serverId).map((m) => m._serverId),
-    );
+/**
+ * Create save function.
+ * @param {Object} deps - Dependencies { providersStore, uiStore }
+ * @param {Object} state - Reactive state refs
+ * @param {Object} ctx - Context { providerRef, onSaved }
+ */
+function createSaveFunction(deps, state, ctx) {
+  const { providersStore, uiStore } = deps;
+  const { providerRef, onSaved } = ctx;
 
-    const originalModels = providerRef.value?.models || [];
-    const originalModelMap = new Map(originalModels.map((m) => [m.id, m]));
-
-    for (const serverModel of originalModels) {
-      if (!serverModelIds.has(serverModel.id)) {
-        await providersStore.removeModel(providerId, serverModel.id);
-      }
-    }
-
-    for (const model of localModels.value) {
-      if (!model._serverId && model.modelId.trim()) {
-        await providersStore.addModel(providerId, {
-          modelId: model.modelId.trim(),
-          displayName: model.displayName.trim() || model.modelId.trim(),
-          tier: model.tier || 'custom',
-        });
-      } else if (model._serverId && originalModelMap.has(model._serverId)) {
-        const original = originalModelMap.get(model._serverId);
-        const changed =
-          model.modelId.trim() !== original.modelId ||
-          model.displayName.trim() !== original.displayName ||
-          model.tier !== original.tier;
-
-        if (changed) {
-          await providersStore.updateModel(providerId, model._serverId, {
-            modelId: model.modelId.trim(),
-            displayName: model.displayName.trim() || model.modelId.trim(),
-            tier: model.tier || 'custom',
-          });
-        }
-      }
-    }
-
-    await providersStore.fetchProviders();
-  }
-
-  // ── Save ──────────────────────────────────────────────────────
-  async function save() {
-    saving.value = true;
-    error.value = null;
+  return async function save() {
+    state.saving.value = true;
+    state.error.value = null;
 
     try {
-      const data = {
-        name: form.value.name.trim(),
-        baseUrl: form.value.baseUrl?.trim() || null,
-        apiTimeoutMs: form.value.apiTimeoutMs || null,
-        additionalEnvVars:
-          Object.keys(form.value.additionalEnvVars).length > 0
-            ? form.value.additionalEnvVars
-            : null,
-      };
-
-      if (authTokenModified.value) {
-        data.authToken = form.value.authToken?.trim() || null;
-      }
-
+      const data = buildProviderPayload(state.form, state.authTokenModified);
       let savedProvider;
 
-      if (isEditing.value) {
+      if (state.isEditing.value) {
         savedProvider = await providersStore.updateProvider(providerRef.value.id, data);
         uiStore.success('Provider updated successfully');
       } else {
@@ -204,34 +233,62 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
         uiStore.success('Provider created successfully');
       }
 
-      await reconcileModels(savedProvider.id);
+      await reconcileModels(providersStore, savedProvider.id, state.localModels, providerRef);
       onSaved();
     } catch (err) {
-      error.value = err.message;
+      state.error.value = err.message;
     } finally {
-      saving.value = false;
+      state.saving.value = false;
     }
+  };
+}
+
+/**
+ * Composable that manages all ProviderForm state and logic:
+ * form data, validation, model list, env-var helpers, test-connection, save & reconcile.
+ *
+ * @param {import('vue').Ref<boolean>} isOpenRef - reactive ref for modal open state
+ * @param {import('vue').Ref<Object|null>} providerRef - reactive ref for provider being edited (null = create)
+ * @param {Function} onSaved - callback invoked after a successful save
+ */
+export function useProviderForm(isOpenRef, providerRef, onSaved) {
+  const providersStore = useProvidersStore();
+  const uiStore = useUiStore();
+
+  const form = ref(createEmptyForm());
+  const localModels = ref([]);
+  const envVarKeys = ref([]);
+  const showAuthToken = ref(false);
+  const saving = ref(false);
+  const testing = ref(false);
+  const error = ref(null);
+  const testResult = ref(null);
+  const authTokenModified = ref(false);
+
+  const isEditing = computed(() => !!providerRef.value);
+  const isValid = computed(() => form.value.name.trim().length > 0);
+  const canTest = computed(() => form.value.baseUrl || form.value.authToken);
+
+  const state = { form, localModels, envVarKeys, showAuthToken, saving, testing, error, testResult, authTokenModified, isEditing };
+
+  setupFormWatcher(isOpenRef, providerRef, state);
+
+  const { addEnvVar, removeEnvVar, updateEnvVarKey } = createEnvVarHelpers(form, envVarKeys);
+  const testConnection = createTestConnection(providersStore, state);
+  const save = createSaveFunction({ providersStore, uiStore }, state, { providerRef, onSaved });
+
+  function addLocalModel() {
+    localModels.value.push({ modelId: '', displayName: '', tier: 'custom' });
+  }
+
+  function removeLocalModel(index) {
+    localModels.value.splice(index, 1);
   }
 
   return {
-    form,
-    localModels,
-    envVarKeys,
-    showAuthToken,
-    saving,
-    testing,
-    error,
-    testResult,
-    authTokenModified,
-    isEditing,
-    isValid,
-    canTest,
-    addLocalModel,
-    removeLocalModel,
-    addEnvVar,
-    removeEnvVar,
-    updateEnvVarKey,
-    testConnection,
-    save,
+    form, localModels, envVarKeys, showAuthToken, saving, testing,
+    error, testResult, authTokenModified, isEditing, isValid, canTest,
+    addLocalModel, removeLocalModel, addEnvVar, removeEnvVar,
+    updateEnvVarKey, testConnection, save,
   };
 }

@@ -26,15 +26,17 @@ module.exports = {
         'no-unused-vars': 'off',
         'vue/no-unused-vars': ['error', { ignorePattern: '^_' }],
         // Vue components often need more lines due to template/script/style sections
-        'max-lines': ['warn', { max: 600, skipBlankLines: true, skipComments: true }],
+        'max-lines': ['error', { max: 500, skipBlankLines: true, skipComments: true }],
       },
     },
     {
-      // Test files have relaxed rules for max-lines and max-params
+      // Test files have relaxed rules for max-lines, max-params, and max-nested-callbacks
       files: ['**/*.test.js'],
       rules: {
         'max-lines': 'off',
         'max-params': 'off',
+        'max-nested-callbacks': ['warn', 5],
+        'max-lines-per-function': 'off',
       },
     },
   ],
@@ -46,13 +48,19 @@ module.exports = {
     // Phase 1: max-depth enforced (all violations fixed)
     'max-depth': ['error', 4],
 
-    // Phase 2: max-params as warning (most critical violations fixed)
-    'max-params': ['warn', 4],
+    // max-params enforced (all violations fixed)
+    'max-params': ['error', 4],
 
-    // Phase 3: complexity as warning at 20 (catches worst offenders)
-    'complexity': ['warn', 20],
+    // complexity enforced at 15 (industry standard: 10-15)
+    'complexity': ['error', 15],
 
-    // Phase 4: max-lines as warning at 500 (catches egregious files)
-    'max-lines': ['warn', { max: 500, skipBlankLines: true, skipComments: true }],
+    // max-nested-callbacks enforced at 3
+    'max-nested-callbacks': ['error', 3],
+
+    // max-lines-per-function enforced at 80
+    'max-lines-per-function': ['error', { max: 80, skipBlankLines: true, skipComments: true }],
+
+    // max-lines enforced at 400
+    'max-lines': ['error', { max: 400, skipBlankLines: true, skipComments: true }],
   },
 };

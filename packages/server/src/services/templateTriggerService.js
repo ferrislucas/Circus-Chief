@@ -59,6 +59,93 @@ export async function renderTemplatePrompt(templatePrompt, sessionContext) {
 }
 
 /**
+ * Resolve template settings, using template overrides where set, falling back to root session.
+ * @param {Object} template - The template object
+ * @param {Object} rootSession - The root session to inherit from
+ * @returns {Object} Resolved settings
+ */
+function resolveTemplateSettings(template, rootSession) {
+  return {
+    thinkingEnabled: template.thinkingEnabled !== null ? template.thinkingEnabled : rootSession.thinkingEnabled,
+    gitBranch: template.gitBranch || rootSession.gitBranch,
+    gitMode: template.gitMode || null,
+    model: template.model !== null ? template.model : rootSession.model,
+    mode: template.mode !== null ? template.mode : rootSession.mode,
+  };
+}
+
+/**
+ * Extract rescheduling settings from the root session to inherit on child sessions.
+ * @param {Object} rootSession - The root session
+ * @returns {Object} Rescheduling settings
+ */
+function extractRescheduleSettings(rootSession) {
+  return {
+    autoRescheduleEnabled: rootSession.autoRescheduleEnabled,
+    rescheduleOnTokenLimit: rootSession.rescheduleOnTokenLimit,
+    rescheduleOnServiceError: rootSession.rescheduleOnServiceError,
+    rescheduleDelayMinutes: rootSession.rescheduleDelayMinutes,
+    rescheduleAtTokenCount: rootSession.rescheduleAtTokenCount,
+    maxRescheduleCount: rootSession.maxRescheduleCount,
+    maxTotalTokens: rootSession.maxTotalTokens,
+  };
+}
+
+/**
+ * Resolve the git working directory for a child session, inheriting worktree from parent if set.
+ * @param {Object} options
+ * @param {Object} options.parentSession - The parent session
+ * @param {Object} options.project - The project
+ * @param {string} options.gitMode - Git mode
+ * @param {string} options.gitBranch - Git branch
+ * @param {string} options.newSessionId - New session ID
+ * @returns {Promise<{ workingDirectory: string, gitWorktree: string|null }>}
+ */
+async function resolveChildWorkingDirectory({ parentSession, project, gitMode, gitBranch, newSessionId }) {
+  if (parentSession.gitWorktree) {
+    console.log(`Template trigger: Inheriting parent worktree: ${parentSession.gitWorktree}`);
+    return { workingDirectory: parentSession.gitWorktree, gitWorktree: parentSession.gitWorktree };
+  }
+  const gitSetup = await setupGitForSession({
+    projectDir: project.workingDirectory,
+    gitMode,
+    gitBranch,
+    sessionId: newSessionId,
+  });
+  return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
+}
+
+/**
+ * Broadcast a newly created session and start it, with error handling.
+ * @param {Object} options
+ * @param {string} options.newSessionId - The new session ID
+ * @param {string} options.projectId - The project ID
+ * @param {string} options.renderedPrompt - The rendered prompt
+ * @param {string} options.workingDirectory - The working directory
+ * @param {string} options.systemPrompt - Project system prompt
+ * @param {string} options.model - Model to use
+ */
+function broadcastAndStartChildSession({ newSessionId, projectId, renderedPrompt, workingDirectory, systemPrompt, model }) {
+  const updatedSession = sessions.getById(newSessionId);
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
+    projectId,
+    session: updatedSession,
+  });
+
+  runSession(newSessionId, renderedPrompt, workingDirectory, { systemPrompt, model }).catch((error) => {
+    console.error(`Template trigger: Error running session ${newSessionId}:`, error);
+    const errorSession = sessions.update(newSessionId, { status: 'error', error: error.message });
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId,
+      sessionId: newSessionId,
+      session: errorSession,
+    });
+  });
+
+  console.log(`Template trigger: Created and started session ${newSessionId}`);
+}
+
+/**
  * Check if a session should trigger its next template and do so
  * Called when a session completes (status changes to completed, error, or stopped)
  * @param {string} sessionId - The session that just completed
@@ -70,7 +157,6 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     return;
   }
 
-  // Only trigger if session has a next template configured
   if (!session.nextTemplateId) {
     return;
   }
@@ -90,109 +176,37 @@ export async function checkAndTriggerNextTemplate(sessionId) {
   console.log(`Template trigger: Triggering template "${template.name}" after session "${session.name}"`);
 
   try {
-    // Get the parent session's summary for the template context
     const parentSummary = sessionSummaries.getBySessionId(sessionId);
-
-    // Get the root session and its summary
     const rootSession = getRootSession(session);
     const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
 
-    // Render the template prompt with parent and root session context
-    const renderedPrompt = await renderTemplatePrompt(template.prompt, { parentSession: session, parentSummary, rootSession, rootSummary });
+    const renderedPrompt = await renderTemplatePrompt(template.prompt, {
+      parentSession: session, parentSummary, rootSession, rootSummary,
+    });
 
-    // Determine settings: use template overrides if set, otherwise inherit from root session
-    const thinkingEnabled = template.thinkingEnabled !== null ? template.thinkingEnabled : rootSession.thinkingEnabled;
-    const gitBranch = template.gitBranch || rootSession.gitBranch;
-    const gitMode = template.gitMode || null;
-    const model = template.model !== null ? template.model : rootSession.model;
-    const mode = template.mode !== null ? template.mode : rootSession.mode;
+    const settings = resolveTemplateSettings(template, rootSession);
+    const rescheduleSettings = extractRescheduleSettings(rootSession);
 
-    // Inherit rescheduling settings from root session (templates have no rescheduling fields)
-    const autoRescheduleEnabled = rootSession.autoRescheduleEnabled;
-    const rescheduleOnTokenLimit = rootSession.rescheduleOnTokenLimit;
-    const rescheduleOnServiceError = rootSession.rescheduleOnServiceError;
-    const rescheduleDelayMinutes = rootSession.rescheduleDelayMinutes;
-    const rescheduleAtTokenCount = rootSession.rescheduleAtTokenCount;
-    const maxRescheduleCount = rootSession.maxRescheduleCount;
-    const maxTotalTokens = rootSession.maxTotalTokens;
+    const newSession = sessions.create(session.projectId, `${template.name} (from: ${session.name})`, renderedPrompt, {
+      mode: settings.mode, thinkingEnabled: settings.thinkingEnabled,
+      gitBranch: settings.gitBranch, parentSessionId: null, status: 'starting', model: settings.model,
+    });
 
-    // Generate a name for the new session
-    const newSessionName = `${template.name} (from: ${session.name})`;
-
-    // Create the new session
-    const newSession = sessions.create(
-      session.projectId,
-      newSessionName,
-      renderedPrompt,
-      {
-        mode, // Use mode from template or parent
-        thinkingEnabled,
-        gitBranch,
-        parentSessionId: null, // Will be set below
-        status: 'starting',
-        model, // Use model from template or parent
-      }
-    );
-
-    // Set the parent session reference and inherit the template's next template for chaining
     sessions.update(newSession.id, {
       parentSessionId: session.id,
       nextTemplateId: template.nextTemplateId || null,
-      autoRescheduleEnabled,
-      rescheduleOnTokenLimit,
-      rescheduleOnServiceError,
-      rescheduleDelayMinutes,
-      rescheduleAtTokenCount,
-      maxRescheduleCount,
-      maxTotalTokens,
+      ...rescheduleSettings,
     });
 
-    // Determine working directory: inherit from parent if it has a worktree
-    let workingDirectory;
-    let gitWorktree = null;
+    const { workingDirectory, gitWorktree } = await resolveChildWorkingDirectory({
+      parentSession: session, project, gitMode: settings.gitMode, gitBranch: settings.gitBranch, newSessionId: newSession.id,
+    });
 
-    if (session.gitWorktree) {
-      // Parent is in a worktree - child should run in the same worktree
-      workingDirectory = session.gitWorktree;
-      gitWorktree = session.gitWorktree;
-      console.log(`Template trigger: Inheriting parent worktree: ${gitWorktree}`);
-    } else {
-      // Parent is not in a worktree - set up git environment normally
-      const gitSetup = await setupGitForSession({
-        projectDir: project.workingDirectory,
-        gitMode: gitMode,
-        gitBranch: gitBranch,
-        sessionId: newSession.id,
-      });
-      workingDirectory = gitSetup.workingDirectory;
-      gitWorktree = gitSetup.gitWorktree;
-    }
-
-    // Update session with worktree path if set
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
 
-    // Get the fully updated session and broadcast to project subscribers
-    const updatedSession = sessions.getById(newSession.id);
-    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
-      projectId: session.projectId,
-      session: updatedSession,
-    });
-
-    // Start the new session (non-blocking)
-    runSession(newSession.id, renderedPrompt, workingDirectory, { systemPrompt: project.systemPrompt, model: template.model }).catch((error) => {
-      console.error(`Template trigger: Error running session ${newSession.id}:`, error);
-      const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
-      // Broadcast error status to project subscribers for session list updates
-      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-        projectId: session.projectId,
-        sessionId: newSession.id,
-        session: errorSession,
-      });
-    });
-
-    console.log(`Template trigger: Created and started session ${newSession.id}`);
+    broadcastAndStartChildSession({ newSessionId: newSession.id, projectId: session.projectId, renderedPrompt, workingDirectory, systemPrompt: project.systemPrompt, model: template.model });
   } catch (error) {
     console.error(`Template trigger: Failed to trigger template for session ${sessionId}:`, error);
   }

@@ -2,6 +2,67 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 
 /**
+ * Convert a nullable integer column to a nullable boolean.
+ * Returns null if the value is null, otherwise coerces to boolean.
+ * @param {number|null} value
+ * @returns {boolean|null}
+ */
+function nullableBool(value) {
+  return value === null ? null : !!value;
+}
+
+/** Fields that use `value || null` normalization */
+const NULLABLE_FIELDS = [
+  'onEnterTemplateId', 'onEnterPrompt', 'onEnterMode',
+  'onEnterModel', 'onEnterEffortLevel',
+];
+
+/** Fields that use `value ?? null` normalization (preserving falsy values like 0) */
+const NULLABLE_COALESCE_FIELDS = [
+  'onEnterMaxRescheduleCount', 'onEnterMaxTotalTokens', 'onEnterRescheduleAtTokenCount',
+];
+
+/**
+ * Convert a value to a nullable SQLite integer (1/0/null).
+ * Returns null if undefined, otherwise 1 or 0.
+ */
+function nullableIntBool(value) {
+  return value === undefined ? null : (value ? 1 : 0);
+}
+
+/**
+ * Convert a value to a nullable SQLite integer that defaults to 1 when undefined.
+ */
+function defaultTrueIntBool(value) {
+  return value === undefined ? 1 : (value ? 1 : 0);
+}
+
+/**
+ * Normalize lane data fields for database insertion.
+ * Converts JS values to their SQLite-compatible representations.
+ * @param {Object} data - The lane creation data
+ * @returns {Object} Normalized values for SQL parameters
+ */
+function normalizeLaneInsertValues(data) {
+  const result = {};
+
+  for (const field of NULLABLE_FIELDS) {
+    result[field] = data[field] || null;
+  }
+  for (const field of NULLABLE_COALESCE_FIELDS) {
+    result[field] = data[field] ?? null;
+  }
+
+  result.onEnterThinkingEnabled = nullableIntBool(data.onEnterThinkingEnabled);
+  result.onEnterAutoRescheduleEnabled = data.onEnterAutoRescheduleEnabled ? 1 : 0;
+  result.onEnterRescheduleDelayMinutes = data.onEnterRescheduleDelayMinutes ?? 15;
+  result.onEnterRescheduleOnTokenLimit = defaultTrueIntBool(data.onEnterRescheduleOnTokenLimit);
+  result.onEnterRescheduleOnServiceError = defaultTrueIntBool(data.onEnterRescheduleOnServiceError);
+
+  return result;
+}
+
+/**
  * Kanban lane repository class
  */
 export class KanbanLaneRepository extends BaseRepository {
@@ -20,11 +81,11 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMode: row.on_enter_mode,
       onEnterModel: row.on_enter_model,
       onEnterEffortLevel: row.on_enter_effort_level,
-      onEnterThinkingEnabled: row.on_enter_thinking_enabled === null ? null : !!row.on_enter_thinking_enabled,
+      onEnterThinkingEnabled: nullableBool(row.on_enter_thinking_enabled),
       onEnterAutoRescheduleEnabled: !!row.on_enter_auto_reschedule_enabled,
       onEnterRescheduleDelayMinutes: row.on_enter_reschedule_delay_minutes,
-      onEnterRescheduleOnTokenLimit: row.on_enter_reschedule_on_token_limit === null ? null : !!row.on_enter_reschedule_on_token_limit,
-      onEnterRescheduleOnServiceError: row.on_enter_reschedule_on_service_error === null ? null : !!row.on_enter_reschedule_on_service_error,
+      onEnterRescheduleOnTokenLimit: nullableBool(row.on_enter_reschedule_on_token_limit),
+      onEnterRescheduleOnServiceError: nullableBool(row.on_enter_reschedule_on_service_error),
       onEnterMaxRescheduleCount: row.on_enter_max_reschedule_count,
       onEnterMaxTotalTokens: row.on_enter_max_total_tokens,
       onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
@@ -68,6 +129,8 @@ export class KanbanLaneRepository extends BaseRepository {
       sortOrder = (maxRow?.max_order ?? -1) + 1;
     }
 
+    const v = normalizeLaneInsertValues(data);
+
     this.db
       .prepare(
         `INSERT INTO kanban_lanes (
@@ -82,19 +145,19 @@ export class KanbanLaneRepository extends BaseRepository {
       )
       .run(
         id, boardId, data.name, sortOrder,
-        data.onEnterTemplateId || null,
-        data.onEnterPrompt || null,
-        data.onEnterMode || null,
-        data.onEnterModel || null,
-        data.onEnterEffortLevel || null,
-        data.onEnterThinkingEnabled === undefined ? null : (data.onEnterThinkingEnabled ? 1 : 0),
-        data.onEnterAutoRescheduleEnabled ? 1 : 0,
-        data.onEnterRescheduleDelayMinutes ?? 15,
-        data.onEnterRescheduleOnTokenLimit === undefined ? 1 : (data.onEnterRescheduleOnTokenLimit ? 1 : 0),
-        data.onEnterRescheduleOnServiceError === undefined ? 1 : (data.onEnterRescheduleOnServiceError ? 1 : 0),
-        data.onEnterMaxRescheduleCount ?? null,
-        data.onEnterMaxTotalTokens ?? null,
-        data.onEnterRescheduleAtTokenCount ?? null,
+        v.onEnterTemplateId,
+        v.onEnterPrompt,
+        v.onEnterMode,
+        v.onEnterModel,
+        v.onEnterEffortLevel,
+        v.onEnterThinkingEnabled,
+        v.onEnterAutoRescheduleEnabled,
+        v.onEnterRescheduleDelayMinutes,
+        v.onEnterRescheduleOnTokenLimit,
+        v.onEnterRescheduleOnServiceError,
+        v.onEnterMaxRescheduleCount,
+        v.onEnterMaxTotalTokens,
+        v.onEnterRescheduleAtTokenCount,
         now, now
       );
 

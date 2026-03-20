@@ -3,6 +3,41 @@ import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
 
 /**
+ * Map token usage fields from a database row.
+ * @param {Object} row - Database row
+ * @returns {Object} Token usage fields
+ */
+function mapTokenUsage(row) {
+  return {
+    inputTokens: row.input_tokens || 0,
+    outputTokens: row.output_tokens || 0,
+    cacheReadInputTokens: row.cache_read_input_tokens || 0,
+    cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
+    webSearchRequests: row.web_search_requests || 0,
+    contextWindow: row.context_window || 200000,
+  };
+}
+
+/**
+ * Map scheduling-related fields from a database row.
+ * @param {Object} row - Database row
+ * @returns {Object} Scheduling fields
+ */
+function mapSchedulingFields(row) {
+  return {
+    scheduledAt: row.scheduled_at || null,
+    rescheduleDelayMinutes: row.reschedule_delay_minutes || 15,
+    autoRescheduleEnabled: Boolean(row.auto_reschedule_enabled),
+    rescheduleOnTokenLimit: Boolean(row.reschedule_on_token_limit),
+    rescheduleOnServiceError: Boolean(row.reschedule_on_service_error),
+    maxRescheduleCount: row.max_reschedule_count,
+    maxTotalTokens: row.max_total_tokens,
+    rescheduleCount: row.reschedule_count || 0,
+    rescheduleAtTokenCount: row.reschedule_at_token_count,
+  };
+}
+
+/**
  * Session repository class
  */
 export class SessionRepository extends BaseRepository {
@@ -39,23 +74,8 @@ export class SessionRepository extends BaseRepository {
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       slashCommands: row.slash_commands || null,
-      // Token usage fields
-      inputTokens: row.input_tokens || 0,
-      outputTokens: row.output_tokens || 0,
-      cacheReadInputTokens: row.cache_read_input_tokens || 0,
-      cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
-      webSearchRequests: row.web_search_requests || 0,
-      contextWindow: row.context_window || 200000,
-      // Scheduling fields
-      scheduledAt: row.scheduled_at || null,
-      rescheduleDelayMinutes: row.reschedule_delay_minutes || 15,
-      autoRescheduleEnabled: Boolean(row.auto_reschedule_enabled),
-      rescheduleOnTokenLimit: Boolean(row.reschedule_on_token_limit),
-      rescheduleOnServiceError: Boolean(row.reschedule_on_service_error),
-      maxRescheduleCount: row.max_reschedule_count,
-      maxTotalTokens: row.max_total_tokens,
-      rescheduleCount: row.reschedule_count || 0,
-      rescheduleAtTokenCount: row.reschedule_at_token_count,
+      ...mapTokenUsage(row),
+      ...mapSchedulingFields(row),
       // Kanban fields
       targetLaneId: row.target_lane_id || null,
       laneTriggerDepth: row.lane_trigger_depth || 0,
@@ -97,36 +117,55 @@ export class SessionRepository extends BaseRepository {
    * @param {string|null} [options.effortLevel=null] - Effort level
    * @returns {Object} Created session
    */
-  create(projectId, name, prompt, options = {}) {
-    // Support legacy positional arguments for backward compatibility
-    // If options is a string, it's the old 'mode' parameter
-    let config;
+  /** Default values for session creation options */
+  static #CREATE_DEFAULTS = {
+    mode: 'standard',
+    thinkingEnabled: false,
+    gitBranch: null,
+    parentSessionId: null,
+    status: 'starting',
+    model: null,
+    effortLevel: null,
+  };
+
+  /**
+   * Apply defaults to a raw options object.
+   * @param {Object} raw - Raw options with potentially missing keys
+   * @returns {Object} Options with all keys filled in
+   */
+  static #applyDefaults(raw) {
+    const result = {};
+    for (const [key, defaultVal] of Object.entries(SessionRepository.#CREATE_DEFAULTS)) {
+      result[key] = raw[key] || defaultVal;
+    }
+    return result;
+  }
+
+  /**
+   * Normalize creation options, supporting both legacy positional args and modern object form.
+   * @param {string|Object} options - Options object or legacy 'mode' string
+   * @param {Arguments} allArgs - The full arguments object from create() for legacy support
+   * @returns {Object} Normalized config with mode, thinkingEnabled, gitBranch, parentSessionId, status, model, effortLevel
+   */
+  static #normalizeCreateOptions(options, allArgs) {
     if (typeof options === 'string') {
       // Legacy call: create(projectId, name, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, status, model, { effortLevel })
-      const [mode, thinkingEnabled, gitBranch, parentSessionId, status, model] = [
-        options, arguments[4], arguments[5], arguments[6], arguments[7], arguments[8]
-      ];
-      const legacyOpts = arguments[9] || {};
-      config = {
-        mode: mode || 'standard',
-        thinkingEnabled: thinkingEnabled || false,
-        gitBranch: gitBranch || null,
-        parentSessionId: parentSessionId || null,
-        status: status || 'starting',
-        model: model || null,
-        effortLevel: legacyOpts.effortLevel || null,
-      };
-    } else {
-      config = {
-        mode: options.mode || 'standard',
-        thinkingEnabled: options.thinkingEnabled || false,
-        gitBranch: options.gitBranch || null,
-        parentSessionId: options.parentSessionId || null,
-        status: options.status || 'starting',
-        model: options.model || null,
-        effortLevel: options.effortLevel || null,
-      };
+      const legacyOpts = allArgs[9] || {};
+      return SessionRepository.#applyDefaults({
+        mode: options,
+        thinkingEnabled: allArgs[4],
+        gitBranch: allArgs[5],
+        parentSessionId: allArgs[6],
+        status: allArgs[7],
+        model: allArgs[8],
+        effortLevel: legacyOpts.effortLevel,
+      });
     }
+    return SessionRepository.#applyDefaults(options);
+  }
+
+  create(projectId, name, prompt, options = {}) {
+    const config = SessionRepository.#normalizeCreateOptions(options, arguments);
 
     const id = databaseManager.generateId();
     const now = Date.now();

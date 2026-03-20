@@ -80,43 +80,14 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
-import { ansiToHtml, stripAnsi } from '../utils/ansi.js';
-import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { useUiStore } from '../stores/ui.js';
+import { defineProps, defineEmits, computed } from 'vue';
 import ActionMenu from './ActionMenu.vue';
-
-/**
- * Debounce with leading edge - first call is immediate, subsequent calls are debounced
- * This provides instant feedback on first render while throttling rapid updates
- * @param {Function} fn - Function to debounce
- * @param {number} delay - Delay in milliseconds
- * @returns {Function} Debounced function with leading edge
- */
-const debounceLeading = (fn, delay) => {
-  let timeoutId = null;
-  let lastCalled = 0;
-  return (...args) => {
-    const now = Date.now();
-    if (timeoutId) clearTimeout(timeoutId);
-
-    // If enough time has passed, call immediately (leading edge)
-    if (now - lastCalled >= delay) {
-      lastCalled = now;
-      fn(...args);
-    } else {
-      // Otherwise schedule for later (trailing edge)
-      timeoutId = setTimeout(() => {
-        lastCalled = Date.now();
-        fn(...args);
-      }, delay);
-    }
-  };
-};
-
-// Display limit: only render last 200 lines in DOM for performance
-// Full output is still available via props.run.output for copy/canvas
-const DISPLAY_LINE_LIMIT = 200;
+import {
+  useCommandOutputFormatting,
+  useCommandOutputScroll,
+  useCommandTimer,
+  useCommandActions,
+} from '../composables/useCommandButtonActions.js';
 
 const props = defineProps({
   button: {
@@ -135,42 +106,28 @@ const props = defineProps({
 
 const emit = defineEmits(['run', 'kill', 'send-to-canvas']);
 
-// Initialize stores
-const commandButtonsStore = useCommandButtonsStore();
-const uiStore = useUiStore();
+const { showOutput, formattedOutput, outputIsTruncatedForDisplay, outputContainerRef } =
+  useCommandOutputFormatting(props);
 
-// Use store to persist collapse state across tab navigation
-// Computed property syncs with store: get returns !isCollapsed, set updates store
-const showOutput = computed({
-  get() {
-    if (!props.run?.runId) {
-      return false;
-    }
-    return !commandButtonsStore.isOutputCollapsed(props.run.runId);
-  },
-  set(value) {
-    if (props.run?.runId) {
-      commandButtonsStore.setOutputCollapsed(props.run.runId, !value);
-    }
-  }
-});
+useCommandOutputScroll(props, showOutput, outputContainerRef);
 
-// Track if button click is in flight (prevents double-clicks)
-const isSubmitting = ref(false);
+const { elapsedTime } = useCommandTimer(props);
 
-// Menu items for ActionMenu component
+const {
+  isSubmitting,
+  handleRun,
+  handleKill,
+  handleMenuAction,
+  handleCopyOutput,
+  handleSendToCanvas,
+  handleCopyCommand,
+} = useCommandActions(props, emit);
+
 const menuItems = computed(() => [
   { icon: '📋', label: 'Copy output', action: 'copy-output' },
   { icon: '🎨', label: 'Send to canvas', action: 'send-to-canvas' },
   { icon: '📄', label: 'Copy command', action: 'copy-command' }
 ]);
-
-// Template ref for output container (used for auto-scroll)
-const outputContainerRef = ref(null);
-
-// NEW: Elapsed time for running commands
-const elapsedTime = ref('0:00');
-let timerInterval = null;
 
 const truncateCommand = (command) => {
   const maxLength = 80;
@@ -179,193 +136,6 @@ const truncateCommand = (command) => {
   }
   return command;
 };
-
-/**
- * Update the elapsed time display for running commands
- * Calculates time since startedAt and formats as MM:SS
- */
-const updateElapsedTime = () => {
-  if (!props.run || props.run.status !== 'running') {
-    return;
-  }
-
-  const elapsed = Date.now() - props.run.startedAt;
-  const seconds = Math.floor(elapsed / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  elapsedTime.value = `${minutes}:${secs.toString().padStart(2, '0')}`;
-};
-
-/**
- * Start the timer for running commands
- * Updates elapsed time every 1 second
- */
-const startTimer = () => {
-  if (!props.run || props.run.status !== 'running') {
-    return;
-  }
-
-  // Clear any existing timer
-  if (timerInterval) {
-    clearInterval(timerInterval);
-  }
-
-  // Update immediately
-  updateElapsedTime();
-
-  // Update every 1 second
-  timerInterval = setInterval(() => {
-    updateElapsedTime();
-  }, 1000);
-};
-
-/**
- * Stop the timer and reset elapsed time
- */
-const stopTimer = () => {
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-  elapsedTime.value = '0:00';
-};
-
-/**
- * Ref for formatted HTML output (debounced for performance)
- *
- * This converts raw terminal output containing ANSI escape codes
- * (colors, bold, dim, etc.) into styled HTML that renders correctly.
- * Debounced to avoid excessive re-renders during rapid output streaming.
- */
-const formattedOutput = ref('');
-
-/**
- * Track if the display output is truncated (different from store truncation)
- * True when we have more than DISPLAY_LINE_LIMIT lines
- */
-const outputIsTruncatedForDisplay = ref(false);
-
-/**
- * Debounced function to update formatted output
- * Only formats last DISPLAY_LINE_LIMIT lines for performance
- * Full output is still in props.run.output for copy/canvas
- */
-const updateFormattedOutput = debounceLeading((output) => {
-  const lines = output.split('\n');
-  if (lines.length > DISPLAY_LINE_LIMIT) {
-    outputIsTruncatedForDisplay.value = true;
-    const displayOutput = lines.slice(-DISPLAY_LINE_LIMIT).join('\n');
-    formattedOutput.value = ansiToHtml(displayOutput);
-  } else {
-    outputIsTruncatedForDisplay.value = false;
-    formattedOutput.value = ansiToHtml(output);
-  }
-}, 250);
-
-/**
- * Watch for output changes and update formatted output (debounced)
- * Only processes when output section is expanded (lazy loading)
- * Simplified - no spinner logic needed
- */
-watch(
-  () => [props.run?.output, showOutput.value],
-  ([newOutput, isVisible]) => {
-    // Fetch output from server if pane is expanded but output isn't loaded yet.
-    // Note: empty string is falsy, so this triggers for runs loaded from list
-    // queries (which exclude output). Runs that genuinely produced no output
-    // will re-fetch each time, which is an acceptable single lightweight GET.
-    if (isVisible && !newOutput && props.run?.runId && props.run?.status !== 'running') {
-      commandButtonsStore.fetchRunOutput(props.sessionId, props.run.runId);
-      return; // Output will arrive reactively once fetch completes, triggering this watcher again
-    }
-
-    if (!newOutput) {
-      formattedOutput.value = '';
-      outputIsTruncatedForDisplay.value = false;
-      return;
-    }
-    // Only process ANSI conversion when output is visible (lazy load)
-    if (isVisible) {
-      updateFormattedOutput(newOutput);
-    }
-  },
-  { immediate: true }
-);
-
-/**
- * Scroll to bottom of output container
- * Uses requestAnimationFrame after nextTick for reliable timing
- */
-const scrollToBottom = () => {
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      const el = outputContainerRef.value;
-      if (el) {
-        el.scrollTop = el.scrollHeight;
-      }
-    });
-  });
-};
-
-/**
- * Check if user is near the bottom of the output container
- * Returns true if within 100px of bottom
- */
-const isNearBottom = () => {
-  const el = outputContainerRef.value;
-  if (!el) return true; // Default to true if element not mounted
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-};
-
-/**
- * Watch for output changes and auto-scroll to bottom
- * Only auto-scrolls if user is near the bottom (not scrolled up)
- */
-watch(
-  () => props.run?.output,
-  () => {
-    // Only auto-scroll if user hasn't scrolled up to read earlier output
-    // Check on next tick when DOM is ready
-    nextTick(() => {
-      if (showOutput.value && isNearBottom()) {
-        scrollToBottom();
-      }
-    });
-  },
-  { immediate: false }
-);
-
-/**
- * Watch for new run ID and scroll to bottom for fresh output
- */
-watch(
-  () => props.run?.runId,
-  () => {
-    if (showOutput.value) {
-      scrollToBottom();
-    }
-  },
-  { immediate: false }
-);
-
-/**
- * Watch for run status changes to start/stop the timer
- *
- * When status changes to 'running', start the elapsed time timer.
- * When status changes away from 'running', stop the timer.
- * Note: Output pane remains collapsed by default; user can expand manually.
- */
-watch(
-  () => props.run?.status,
-  (newStatus) => {
-    if (newStatus === 'running') {
-      startTimer();
-    } else {
-      stopTimer();
-    }
-  },
-  { immediate: false } // Don't fire on component mount
-);
 
 const statusIcon = computed(() => {
   if (!props.run) return '';
@@ -381,176 +151,6 @@ const statusIcon = computed(() => {
   }
 });
 
-const handleRun = async () => {
-  if (isSubmitting.value) return; // Prevent double-click
-
-  isSubmitting.value = true;
-  try {
-    emit('run');
-  } finally {
-    // Reset after a brief delay to let state updates propagate
-    // If store immediately creates run, button will disable via run.status
-    // This is a safety timeout to reset if something goes wrong
-    setTimeout(() => {
-      isSubmitting.value = false;
-    }, 100);
-  }
-};
-
-const handleKill = () => {
-  emit('kill');
-};
-
-/**
- * Handle menu action selection
- * Dispatches to appropriate handler based on action type
- */
-const handleMenuAction = async (action) => {
-  switch (action) {
-    case 'copy-output':
-      await handleCopyOutput();
-      break;
-    case 'send-to-canvas':
-      await handleSendToCanvas();
-      break;
-    case 'copy-command':
-      await handleCopyCommand();
-      break;
-  }
-};
-
-/**
- * Copy command output to clipboard
- * Shows toast notification on success
- */
-const handleCopyOutput = async () => {
-  // Fetch output if not loaded yet
-  if (!props.run?.output && props.run?.runId) {
-    await commandButtonsStore.fetchRunOutput(props.sessionId, props.run.runId);
-  }
-  // Read from store directly to avoid reactivity timing issues with props
-  const runData = commandButtonsStore.runs[props.run?.runId];
-  const output = runData?.output;
-  if (!output) return;
-
-  const textToCopy = stripAnsi(output);
-  let copySucceeded = false;
-
-  // Try modern Clipboard API first
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      copySucceeded = true;
-    } catch (err) {
-      console.error('Clipboard API failed:', err);
-    }
-  }
-
-  // Fallback for older browsers
-  if (!copySucceeded) {
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = textToCopy;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      copySucceeded = true;
-    } catch (fallbackErr) {
-      console.error('Fallback copy failed:', fallbackErr);
-    }
-  }
-
-  // Show toast if copy succeeded
-  if (copySucceeded) {
-    uiStore.success('Output copied to clipboard');
-  }
-};
-
-/**
- * Send command output to canvas
- * Toast is shown in parent component (CommandsTab.vue)
- */
-const handleSendToCanvas = async () => {
-  // Fetch output if not loaded yet
-  if (!props.run?.output && props.run?.runId) {
-    await commandButtonsStore.fetchRunOutput(props.sessionId, props.run.runId);
-  }
-  const runData = commandButtonsStore.runs[props.run?.runId];
-  const output = runData?.output;
-  if (!output) return;
-
-  emit('send-to-canvas', props.button.label, output);
-};
-
-/**
- * Copy command text to clipboard
- * Shows toast notification on success
- */
-const handleCopyCommand = async () => {
-  if (!props.button?.command) {
-    return;
-  }
-
-  const textToCopy = props.button.command;
-  let copySucceeded = false;
-
-  // Try modern Clipboard API first
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      copySucceeded = true;
-    } catch (err) {
-      console.error('Clipboard API failed:', err);
-    }
-  }
-
-  // Fallback for older browsers
-  if (!copySucceeded) {
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = textToCopy;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      copySucceeded = true;
-    } catch (fallbackErr) {
-      console.error('Fallback copy failed:', fallbackErr);
-    }
-  }
-
-  // Show toast if copy succeeded
-  if (copySucceeded) {
-    uiStore.success('Command copied to clipboard');
-  }
-};
-
-/**
- * Lifecycle hook: On component mount
- *
- * If a command is already running, start the timer.
- */
-onMounted(() => {
-  if (props.run?.status === 'running') {
-    startTimer();
-  }
-});
-
-/**
- * Lifecycle hook: Before component unmount
- *
- * Clean up the timer to prevent memory leaks.
- */
-onBeforeUnmount(() => {
-  stopTimer();
-});
-
-// Expose methods and state for testing
 defineExpose({
   handleRun,
   handleKill,
@@ -562,7 +162,6 @@ defineExpose({
   showOutput,
   outputIsTruncatedForDisplay,
 });
-
 </script>
 
 <style scoped>

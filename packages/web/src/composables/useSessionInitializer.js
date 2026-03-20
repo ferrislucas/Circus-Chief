@@ -9,9 +9,291 @@ import { useTemplatesStore } from '../stores/templates.js';
 import { api } from './useApi.js';
 
 /**
+ * Register core session event handlers (status, messages, partials, thinking, errors).
+ */
+function registerCoreHandlers(subscription, sessionId, stores, polling) {
+  const { sessionsStore, canvasStore, uiStore } = stores;
+  const { startPolling, stopPolling, checkForChanges } = polling;
+  const cleanups = [];
+
+  cleanups.push(
+    subscription.onStatus((status) => {
+      sessionsStore.updateSessionStatus(sessionId, status);
+      if (status === 'running' || status === 'starting') {
+        startPolling();
+      } else {
+        stopPolling();
+        if (status === 'waiting' || status === 'completed') {
+          checkForChanges();
+        }
+      }
+    })
+  );
+
+  cleanups.push(
+    subscription.onMessage((message) => {
+      sessionsStore.addMessage(message);
+      sessionsStore.clearPartialText();
+    })
+  );
+
+  cleanups.push(
+    subscription.onPartial((text) => {
+      sessionsStore.setPartialText(text);
+    })
+  );
+
+  cleanups.push(
+    subscription.onWorkLog((log) => {
+      sessionsStore.addWorkLog(log);
+    })
+  );
+
+  cleanups.push(
+    subscription.onWorkLogsAssociated((messageId) => {
+      sessionsStore.associateWorkLogs(messageId);
+    })
+  );
+
+  cleanups.push(
+    subscription.onThinkingPartial((thinking) => {
+      if (thinking === null) {
+        sessionsStore.clearPartialThinking(sessionId);
+      } else {
+        sessionsStore.setPartialThinking(thinking, sessionId);
+      }
+    })
+  );
+
+  cleanups.push(
+    subscription.onError((error) => {
+      uiStore.error(error);
+    })
+  );
+
+  return cleanups;
+}
+
+/**
+ * Register canvas, todos, conversation, and session update handlers.
+ */
+function registerDataHandlers(subscription, sessionId, stores, stateRefs) {
+  const { sessionsStore, canvasStore, todosStore } = stores;
+  const { summary, hasChanges, changesFileCount } = stateRefs;
+  const cleanups = [];
+
+  cleanups.push(
+    subscription.onConversationCreated((conversation) => {
+      sessionsStore.addConversation(conversation);
+    })
+  );
+
+  cleanups.push(
+    subscription.onCanvasAdd((item) => {
+      canvasStore.addItem(item);
+    })
+  );
+
+  cleanups.push(
+    subscription.onCanvasRemove((itemId) => {
+      canvasStore.removeItem(itemId);
+    })
+  );
+
+  cleanups.push(
+    subscription.onTodosUpdate((todos, conversationId) => {
+      todosStore.updateTodos(todos, conversationId);
+    })
+  );
+
+  cleanups.push(
+    subscription.onSessionUpdate((session) => {
+      sessionsStore.updateSession(session);
+    })
+  );
+
+  cleanups.push(
+    subscription.onSummaryUpdate((newSummary) => {
+      summary.value = newSummary;
+    })
+  );
+
+  cleanups.push(
+    subscription.onConversationUpdated((conversation) => {
+      sessionsStore.updateConversation(conversation);
+    })
+  );
+
+  cleanups.push(
+    subscription.onConversationDeleted((conversationId, newActiveConv) => {
+      sessionsStore.removeConversation(conversationId, newActiveConv, sessionId);
+      if (newActiveConv) {
+        sessionsStore.fetchMessages(sessionId, false);
+      }
+    })
+  );
+
+  cleanups.push(
+    subscription.onUsageUpdate((msg) => {
+      if (msg.isFinal) {
+        sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
+      } else {
+        sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
+      }
+    })
+  );
+
+  cleanups.push(
+    subscription.onChangesUpdate((changeCount, hasChangesUpdate) => {
+      changesFileCount.value = changeCount;
+      if (typeof hasChangesUpdate === 'boolean') {
+        hasChanges.value = hasChangesUpdate;
+      } else {
+        hasChanges.value = changeCount > 0;
+      }
+    })
+  );
+
+  return cleanups;
+}
+
+/**
+ * Register command run event handlers for session detail view.
+ */
+function registerCommandHandlers(subscription, sessionId, sessionsStore, commandButtonsStore) {
+  const cleanups = [];
+
+  cleanups.push(
+    subscription.onCommandOutput((runId, buttonId, output) => {
+      const existingRun = commandButtonsStore.runs[runId];
+      const existingSessionRun = sessionsStore.currentSession?.latestCommandRuns?.find(r => r.runId === runId);
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status: 'running',
+        runId,
+        startedAt: existingRun?.startedAt || existingSessionRun?.startedAt || Date.now(),
+      });
+    })
+  );
+
+  cleanups.push(
+    subscription.onCommandComplete((runId, buttonId, exitCode, output) => {
+      const status = exitCode === 0 ? 'success' : 'error';
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status,
+        exitCode,
+        runId,
+        completedAt: Date.now(),
+      });
+    })
+  );
+
+  cleanups.push(
+    subscription.onCommandError((runId, buttonId, error) => {
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status: 'error',
+        runId,
+        completedAt: Date.now(),
+      });
+    })
+  );
+
+  cleanups.push(
+    subscription.onCommandRunDeleted(async (runId, buttonId) => {
+      console.log('[onCommandRunDeleted] Run deleted:', runId, 'for button:', buttonId);
+      commandButtonsStore.clearRun(runId);
+
+      // Refetch the session to get the updated latestCommandRuns array
+      try {
+        await sessionsStore.fetchSession(sessionId, false);
+        console.log('[onCommandRunDeleted] Session refetched, latestCommandRuns:', sessionsStore.currentSession?.latestCommandRuns);
+        sessionsStore.commandRunVersion++;
+        console.log('[onCommandRunDeleted] commandRunVersion incremented to:', sessionsStore.commandRunVersion);
+      } catch (error) {
+        console.error('Failed to fetch session after run deletion:', error);
+        sessionsStore.removeSessionCommandRun(sessionId, buttonId);
+      }
+    })
+  );
+
+  return cleanups;
+}
+
+/**
+ * Fetch remaining session data after handlers are registered.
+ */
+async function fetchRemainingData(sessionId, stores, stateRefs, checkForChanges) {
+  const { sessionsStore, canvasStore, todosStore, templatesStore } = stores;
+  const { summary } = stateRefs;
+
+  await sessionsStore.fetchMessages(sessionId);
+  await sessionsStore.fetchWorkLogs(sessionId);
+  await canvasStore.fetchItems(sessionId);
+  todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
+
+  // Fetch summary for PR indicators (don't await, not critical)
+  api.getSessionSummary(sessionId).then((s) => {
+    summary.value = s;
+  }).catch(() => {
+    // Ignore errors - summary may not exist yet
+  });
+
+  // Check for file system changes initially
+  checkForChanges();
+
+  // Fetch templates for the selector
+  if (sessionsStore.currentSession?.projectId) {
+    templatesStore.fetchProjectTemplates(sessionsStore.currentSession.projectId);
+  }
+}
+
+/**
+ * Reset all session-related stores and state.
+ * @param {Object} ctx - Context { stores, stateRefs, cleanupsList, subscriptionRef, resetPolling }
+ */
+function resetSessionState({ stores, stateRefs, cleanupsList, subscriptionRef, resetPolling }) {
+  resetPolling();
+  if (subscriptionRef.current) {
+    subscriptionRef.current.unsubscribe();
+    subscriptionRef.current = null;
+  }
+  cleanupsList.forEach((c) => c());
+  cleanupsList.length = 0;
+
+  const { sessionsStore, canvasStore, todosStore } = stores;
+  sessionsStore.clearRunningUsage();
+  sessionsStore.messages = [];
+  sessionsStore.conversations = [];
+  sessionsStore.workLogs = {};
+  sessionsStore.clearPartialText();
+  todosStore.clearTodos();
+  canvasStore.items = [];
+  stateRefs.summary.value = null;
+  canvasStore.$reset();
+}
+
+/**
+ * Register a reconnect handler that re-fetches all critical data.
+ */
+function setupReconnectHandler(sessionId, stores, checkForChanges) {
+  const { sessionsStore, canvasStore } = stores;
+  const { onReconnect } = useWebSocket();
+
+  return onReconnect(async () => {
+    await sessionsStore.fetchSession(sessionId);
+    await sessionsStore.fetchConversations(sessionId);
+    await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
+    await sessionsStore.fetchWorkLogs(sessionId);
+    await canvasStore.fetchItems(sessionId);
+    checkForChanges();
+  });
+}
+
+/**
  * Composable for initializing and managing WebSocket subscriptions and data
- * fetching for a session. Encapsulates all 21 WebSocket handler registrations,
- * subscription lifecycle, data fetching, and cleanup.
+ * fetching for a session.
  *
  * @param {Object} options
  * @param {import('vue').Ref<Object>} options.summary - Ref for the session summary
@@ -39,59 +321,22 @@ export function useSessionInitializer({
   const commandButtonsStore = useCommandButtonsStore();
   const templatesStore = useTemplatesStore();
 
-  // Track current subscription instance - recreated on session change
-  let currentSubscription = null;
-  let cleanups = [];
+  const subscriptionRef = { current: null };
+  const cleanups = [];
 
-  /**
-   * Cleanup function - called on unmount AND on route change (session navigation).
-   * Ensures WebSocket subscriptions don't leak between sessions.
-   */
+  const stores = { sessionsStore, canvasStore, todosStore, uiStore, commandButtonsStore, templatesStore };
+  const stateRefs = { summary, hasChanges, changesFileCount };
+  const polling = { startPolling, stopPolling, checkForChanges };
+
   function cleanup() {
-    // Reset polling state via composable
-    resetPolling();
-    if (currentSubscription) {
-      currentSubscription.unsubscribe();
-      currentSubscription = null;
-    }
-    cleanups.forEach((c) => c());
-    cleanups = [];
-    sessionsStore.clearRunningUsage();
-    // Clear all session-specific store state to prevent stale data during transitions
-    sessionsStore.messages = [];
-    sessionsStore.conversations = [];
-    sessionsStore.workLogs = {};
-    sessionsStore.clearPartialText();
-    todosStore.clearTodos();
-    canvasStore.items = [];
-    // Reset local state
-    summary.value = null;
-    canvasStore.$reset();
+    resetSessionState({ stores, stateRefs, cleanupsList: cleanups, subscriptionRef, resetPolling });
   }
 
-  /**
-   * Initialize session - called on mount AND on route change (session navigation).
-   * Sets up WebSocket subscription and handlers for the given session.
-   *
-   * @param {string} sessionId - The session ID to initialize
-   */
   async function initializeSession(sessionId) {
-    // STEP 1: Create new subscription for this session
-    currentSubscription = useSessionSubscription(sessionId);
-    const {
-      subscribe, unsubscribe,
-      onStatus, onMessage, onPartial, onError,
-      onCanvasAdd, onCanvasRemove,
-      onTodosUpdate, onSessionUpdate, onSummaryUpdate,
-      onConversationCreated, onConversationUpdated, onConversationDeleted,
-      onUsageUpdate, onChangesUpdate,
-      onWorkLog, onWorkLogsAssociated,
-      onThinkingPartial,
-      onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted,
-    } = currentSubscription;
+    subscriptionRef.current = useSessionSubscription(sessionId);
+    const subscription = subscriptionRef.current;
 
-    // STEP 2: Subscribe via the subscription object AND await connection
-    subscribe();
+    subscription.subscribe();
     try {
       await ensureSubscribed(sessionId);
     } catch (error) {
@@ -99,11 +344,9 @@ export function useSessionInitializer({
       uiStore.error('Failed to subscribe to session updates');
     }
 
-    // STEP 3: Fetch critical data BEFORE registering handlers
     await sessionsStore.fetchSession(sessionId);
     await sessionsStore.fetchConversations(sessionId);
 
-    // Fetch command buttons for the project
     const projectId = sessionsStore.currentSession?.projectId;
     if (projectId) {
       try {
@@ -113,235 +356,18 @@ export function useSessionInitializer({
       }
     }
 
-    // STEP 4: Register all handlers
-    cleanups.push(
-      onStatus((status) => {
-        sessionsStore.updateSessionStatus(sessionId, status);
-        if (status === 'running' || status === 'starting') {
-          startPolling();
-        } else {
-          stopPolling();
-          if (status === 'waiting' || status === 'completed') {
-            checkForChanges();
-          }
-        }
-      })
-    );
+    cleanups.push(...registerCoreHandlers(subscription, sessionId, stores, polling));
+    cleanups.push(...registerDataHandlers(subscription, sessionId, stores, stateRefs));
+    cleanups.push(...registerCommandHandlers(subscription, sessionId, sessionsStore, commandButtonsStore));
 
-    cleanups.push(
-      onMessage((message) => {
-        sessionsStore.addMessage(message);
-        sessionsStore.clearPartialText();
-      })
-    );
+    await fetchRemainingData(sessionId, stores, stateRefs, checkForChanges);
+    cleanups.push(setupReconnectHandler(sessionId, stores, checkForChanges));
 
-    cleanups.push(
-      onPartial((text) => {
-        sessionsStore.setPartialText(text);
-      })
-    );
-
-    cleanups.push(
-      onWorkLog((log) => {
-        sessionsStore.addWorkLog(log);
-      })
-    );
-
-    cleanups.push(
-      onWorkLogsAssociated((messageId) => {
-        sessionsStore.associateWorkLogs(messageId);
-      })
-    );
-
-    cleanups.push(
-      onThinkingPartial((thinking) => {
-        if (thinking === null) {
-          sessionsStore.clearPartialThinking(sessionId);
-        } else {
-          sessionsStore.setPartialThinking(thinking, sessionId);
-        }
-      })
-    );
-
-    cleanups.push(
-      onConversationCreated((conversation) => {
-        sessionsStore.addConversation(conversation);
-      })
-    );
-
-    cleanups.push(
-      onError((error) => {
-        uiStore.error(error);
-      })
-    );
-
-    cleanups.push(
-      onCanvasAdd((item) => {
-        canvasStore.addItem(item);
-      })
-    );
-
-    cleanups.push(
-      onCanvasRemove((itemId) => {
-        canvasStore.removeItem(itemId);
-      })
-    );
-
-    cleanups.push(
-      onTodosUpdate((todos, conversationId) => {
-        todosStore.updateTodos(todos, conversationId);
-      })
-    );
-
-    cleanups.push(
-      onSessionUpdate((session) => {
-        sessionsStore.updateSession(session);
-      })
-    );
-
-    cleanups.push(
-      onSummaryUpdate((newSummary) => {
-        summary.value = newSummary;
-      })
-    );
-
-    cleanups.push(
-      onConversationUpdated((conversation) => {
-        sessionsStore.updateConversation(conversation);
-      })
-    );
-
-    cleanups.push(
-      onConversationDeleted((conversationId, newActiveConv) => {
-        sessionsStore.removeConversation(conversationId, newActiveConv, sessionId);
-        if (newActiveConv) {
-          sessionsStore.fetchMessages(sessionId, false);
-        }
-      })
-    );
-
-    cleanups.push(
-      onUsageUpdate((msg) => {
-        if (msg.isFinal) {
-          sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
-        } else {
-          sessionsStore.updateRunningUsage(msg.usage, msg.conversationId);
-        }
-      })
-    );
-
-    cleanups.push(
-      onChangesUpdate((changeCount, hasChangesUpdate) => {
-        changesFileCount.value = changeCount;
-        if (typeof hasChangesUpdate === 'boolean') {
-          hasChanges.value = hasChangesUpdate;
-        } else {
-          hasChanges.value = changeCount > 0;
-        }
-      })
-    );
-
-    cleanups.push(
-      onCommandOutput((runId, buttonId, output) => {
-        const existingRun = commandButtonsStore.runs[runId];
-        const existingSessionRun = sessionsStore.currentSession?.latestCommandRuns?.find(r => r.runId === runId);
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status: 'running',
-          runId,
-          startedAt: existingRun?.startedAt || existingSessionRun?.startedAt || Date.now(),
-        });
-      })
-    );
-
-    cleanups.push(
-      onCommandComplete((runId, buttonId, exitCode, output) => {
-        const status = exitCode === 0 ? 'success' : 'error';
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status,
-          exitCode,
-          runId,
-          completedAt: Date.now(),
-        });
-      })
-    );
-
-    cleanups.push(
-      onCommandError((runId, buttonId, error) => {
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status: 'error',
-          runId,
-          completedAt: Date.now(),
-        });
-      })
-    );
-
-    cleanups.push(
-      onCommandRunDeleted(async (runId, buttonId) => {
-        console.log('[onCommandRunDeleted] Run deleted:', runId, 'for button:', buttonId);
-        commandButtonsStore.clearRun(runId);
-
-        // Refetch the session to get the updated latestCommandRuns array
-        // (which will include the previous run for this button if it exists)
-        try {
-          await sessionsStore.fetchSession(sessionId, false);
-          console.log('[onCommandRunDeleted] Session refetched, latestCommandRuns:', sessionsStore.currentSession?.latestCommandRuns);
-          // Increment commandRunVersion to trigger UI reactivity
-          sessionsStore.commandRunVersion++;
-          console.log('[onCommandRunDeleted] commandRunVersion incremented to:', sessionsStore.commandRunVersion);
-        } catch (error) {
-          console.error('Failed to fetch session after run deletion:', error);
-          // Fallback: just remove the deleted run from the array
-          sessionsStore.removeSessionCommandRun(sessionId, buttonId);
-        }
-      })
-    );
-
-    // STEP 5: Fetch remaining data
-    await sessionsStore.fetchMessages(sessionId);
-    await sessionsStore.fetchWorkLogs(sessionId);
-    await canvasStore.fetchItems(sessionId);
-    todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
-
-    // Fetch summary for PR indicators (don't await, not critical)
-    api.getSessionSummary(sessionId).then((s) => {
-      summary.value = s;
-    }).catch(() => {
-      // Ignore errors - summary may not exist yet
-    });
-
-    // Check for file system changes initially
-    checkForChanges();
-
-    // Re-fetch all critical data when WebSocket reconnects (e.g., after wake-from-sleep)
-    const { onReconnect } = useWebSocket();
-    cleanups.push(
-      onReconnect(async () => {
-        await sessionsStore.fetchSession(sessionId);
-        await sessionsStore.fetchConversations(sessionId);
-        await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
-        await sessionsStore.fetchWorkLogs(sessionId);
-        await canvasStore.fetchItems(sessionId);
-        checkForChanges();
-      })
-    );
-
-    // Fetch templates for the selector
-    if (sessionsStore.currentSession?.projectId) {
-      templatesStore.fetchProjectTemplates(sessionsStore.currentSession.projectId);
-    }
-
-    // STEP 6: Start polling if session is actively processing
     const status = sessionsStore.currentSession?.status;
     if (status === 'running' || status === 'starting') {
       startPolling();
     }
   }
 
-  return {
-    cleanup,
-    initializeSession,
-  };
+  return { cleanup, initializeSession };
 }

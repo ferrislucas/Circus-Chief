@@ -1,10 +1,9 @@
 import { Router } from 'express';
-import { projects, sessions, sessionTemplates, attachments, commandButtons, projectDefaults, commandRuns } from '../database.js';
+import { projects, sessions, sessionTemplates, attachments, projectDefaults, commandRuns } from '../database.js';
 import { commandRunner } from '../services/commandRunner.js';
-import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsRequest } from '@claudetools/shared/contracts/projects';
+import { CreateProjectRequest, UpdateProjectRequest } from '@claudetools/shared/contracts/projects';
 import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
-import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { isGitRepo } from '../services/gitService.js';
@@ -12,8 +11,12 @@ import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
+import commandButtonsRouter from './projects-command-buttons.js';
 
 const router = Router();
+
+// Mount sub-router for command buttons and session defaults
+router.use('/', commandButtonsRouter);
 
 /**
  * Generate an initial session name from the prompt
@@ -55,6 +58,40 @@ function resolveDefault(explicit, projectDefault, systemDefault) {
 }
 
 /**
+ * Resolve thinkingEnabled with special boolean handling and cascading defaults.
+ * @param {object} body - Request body
+ * @param {object|null} projectDefs - Project defaults
+ * @param {object} systemDefaults - System defaults
+ * @returns {boolean}
+ */
+function resolveThinkingEnabled(body, projectDefs, systemDefaults) {
+  const thinkingParsed = parseBooleanField(body.thinkingEnabled);
+  if (thinkingParsed.provided) return thinkingParsed.explicit;
+  if (projectDefs?.thinkingEnabled !== undefined && projectDefs?.thinkingEnabled !== null) {
+    return projectDefs.thinkingEnabled;
+  }
+  return systemDefaults.thinkingEnabled;
+}
+
+/**
+ * Parse scheduling-related fields from the request body.
+ * @param {object} body - The request body
+ * @returns {object} Scheduling configuration fields
+ */
+function parseSchedulingFields(body) {
+  return {
+    scheduledAt: body.scheduledAt ? parseInt(body.scheduledAt, 10) : undefined,
+    autoRescheduleEnabled: body.autoRescheduleEnabled === true || body.autoRescheduleEnabled === 'true',
+    rescheduleDelayMinutes: body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : 15,
+    rescheduleOnTokenLimit: body.rescheduleOnTokenLimit !== false && body.rescheduleOnTokenLimit !== 'false',
+    rescheduleOnServiceError: body.rescheduleOnServiceError !== false && body.rescheduleOnServiceError !== 'false',
+    maxRescheduleCount: body.maxRescheduleCount ? parseInt(body.maxRescheduleCount, 10) : null,
+    maxTotalTokens: body.maxTotalTokens ? parseInt(body.maxTotalTokens, 10) : null,
+    rescheduleAtTokenCount: body.rescheduleAtTokenCount ? parseInt(body.rescheduleAtTokenCount, 10) : null,
+  };
+}
+
+/**
  * Build session configuration from request body, project defaults, and system defaults.
  * @param {object} body - The request body
  * @param {object|null} projectDefs - Project-level defaults
@@ -62,45 +99,25 @@ function resolveDefault(explicit, projectDefault, systemDefault) {
  * @returns {object} Session configuration
  */
 function prepareSessionConfig(body, projectDefs, systemDefaults) {
-  const config = {};
-
-  config.prompt = body.prompt;
-  config.name = body.name;
-  config.mode = resolveDefault(body.mode, projectDefs?.mode, systemDefaults.mode);
-  config.model = resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null);
-  config.effortLevel = resolveDefault(body.effortLevel || null, projectDefs?.effortLevel, systemDefaults.effortLevel);
+  let effortLevel = resolveDefault(body.effortLevel || null, projectDefs?.effortLevel, systemDefaults.effortLevel);
   // Normalize 'auto' to null
-  if (config.effortLevel === 'auto') {
-    config.effortLevel = null;
-  }
-  config.gitBranch = resolveDefault(body.gitBranch, projectDefs?.gitBranch, null);
-  config.gitMode = resolveDefault(body.gitMode, projectDefs?.gitMode, null);
-  config.templateId = body.templateId;
-  config.parentSessionId = body.parentSessionId || null;
-  config.files = [];
+  if (effortLevel === 'auto') effortLevel = null;
 
-  // thinkingEnabled requires special boolean handling
-  const thinkingParsed = parseBooleanField(body.thinkingEnabled);
-  if (thinkingParsed.provided) {
-    config.thinkingEnabled = thinkingParsed.explicit;
-  } else if (projectDefs?.thinkingEnabled !== undefined && projectDefs?.thinkingEnabled !== null) {
-    config.thinkingEnabled = projectDefs.thinkingEnabled;
-  } else {
-    config.thinkingEnabled = systemDefaults.thinkingEnabled;
-  }
-
-  // startImmediately requires special boolean handling (defaults to true)
-  config.startImmediately = resolveStartImmediately(body, projectDefs, systemDefaults);
-
-  // Scheduling fields
-  config.scheduledAt = body.scheduledAt ? parseInt(body.scheduledAt, 10) : undefined;
-  config.autoRescheduleEnabled = body.autoRescheduleEnabled === true || body.autoRescheduleEnabled === 'true';
-  config.rescheduleDelayMinutes = body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : 15;
-  config.rescheduleOnTokenLimit = body.rescheduleOnTokenLimit !== false && body.rescheduleOnTokenLimit !== 'false';
-  config.rescheduleOnServiceError = body.rescheduleOnServiceError !== false && body.rescheduleOnServiceError !== 'false';
-  config.maxRescheduleCount = body.maxRescheduleCount ? parseInt(body.maxRescheduleCount, 10) : null;
-  config.maxTotalTokens = body.maxTotalTokens ? parseInt(body.maxTotalTokens, 10) : null;
-  config.rescheduleAtTokenCount = body.rescheduleAtTokenCount ? parseInt(body.rescheduleAtTokenCount, 10) : null;
+  const config = {
+    prompt: body.prompt,
+    name: body.name,
+    mode: resolveDefault(body.mode, projectDefs?.mode, systemDefaults.mode),
+    model: resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null),
+    effortLevel,
+    gitBranch: resolveDefault(body.gitBranch, projectDefs?.gitBranch, null),
+    gitMode: resolveDefault(body.gitMode, projectDefs?.gitMode, null),
+    templateId: body.templateId,
+    parentSessionId: body.parentSessionId || null,
+    files: [],
+    thinkingEnabled: resolveThinkingEnabled(body, projectDefs, systemDefaults),
+    startImmediately: resolveStartImmediately(body, projectDefs, systemDefaults),
+    ...parseSchedulingFields(body),
+  };
 
   return config;
 }
@@ -533,133 +550,6 @@ router.post('/:id/templates', (req, res) => {
     ...result.data,
   });
   res.status(201).json(template);
-});
-
-// GET /api/projects/:id/command-buttons - List all command buttons for project
-router.get('/:id/command-buttons', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-
-  const buttons = commandButtons.getByProjectId(req.params.id);
-  res.json(buttons);
-});
-
-// POST /api/projects/:id/command-buttons - Create new command button
-router.post('/:id/command-buttons', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-
-  const result = CreateCommandButtonRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const button = commandButtons.create({
-    projectId: req.params.id,
-    label: result.data.label,
-    command: result.data.command,
-    sortOrder: result.data.sortOrder,
-    showOnList: result.data.showOnList,
-  });
-
-  res.status(201).json(button);
-});
-
-// GET /api/projects/:id/command-buttons/:buttonId - Get single button
-router.get('/:id/command-buttons/:buttonId', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-
-  const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
-  }
-  res.json(button);
-});
-
-// PATCH /api/projects/:id/command-buttons/:buttonId - Update button
-router.patch('/:id/command-buttons/:buttonId', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-
-  const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
-  }
-
-  const result = UpdateCommandButtonRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const updated = commandButtons.update(req.params.buttonId, result.data);
-  res.json(updated);
-});
-
-// DELETE /api/projects/:id/command-buttons/:buttonId - Delete button
-router.delete('/:id/command-buttons/:buttonId', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-
-  const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
-  }
-
-  commandButtons.delete(req.params.buttonId);
-  res.status(204).send();
-});
-
-// GET /api/projects/:id/session-defaults - Get session defaults for project
-router.get('/:id/session-defaults', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-
-  const defaults = projectDefaults.getByProjectId(req.params.id);
-  if (!defaults) {
-    return res.json(null);
-  }
-
-  res.json(defaults);
-});
-
-// POST /api/projects/:id/session-defaults - Update/create session defaults for project
-router.post('/:id/session-defaults', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-
-  const result = ProjectSessionDefaultsRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const updated = projectDefaults.upsert(req.params.id, result.data);
-  res.status(200).json(updated);
-});
-
-// DELETE /api/projects/:id/session-defaults - Reset session defaults for project
-router.delete('/:id/session-defaults', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
-  }
-
-  projectDefaults.resetToDefaults(req.params.id);
-  res.json({ message: 'Session defaults reset to system defaults' });
 });
 
 export default router;

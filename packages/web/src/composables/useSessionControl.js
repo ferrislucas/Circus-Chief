@@ -4,6 +4,31 @@ import { useUiStore } from '../stores/ui.js';
 import { api } from './useApi.js';
 
 /**
+ * Execute an action with a loading guard and error toast.
+ * @param {import('vue').Ref<boolean>} loadingRef - Ref to guard against double-invocation
+ * @param {Object} uiStore - UI store for error toasts
+ * @param {Function} action - Async action to execute
+ * @param {string} [successMessage] - Optional success message to toast
+ * @returns {Promise<*>} Result of the action
+ */
+async function guardedAction(loadingRef, uiStore, action, successMessage) {
+  if (loadingRef.value) return;
+
+  loadingRef.value = true;
+  try {
+    const result = await action();
+    if (successMessage) {
+      uiStore.success(successMessage);
+    }
+    return result;
+  } catch (err) {
+    uiStore.error(err.message);
+  } finally {
+    loadingRef.value = false;
+  }
+}
+
+/**
  * Composable for session control actions (stop, restart, start, thinking toggle).
  *
  * Encapsulates the loading states and API calls for session lifecycle actions.
@@ -21,65 +46,19 @@ export function useSessionControl({ getSessionId }) {
   const restarting = ref(false);
   const togglingThinking = ref(false);
 
-  /**
-   * Stop the current session.
-   */
   async function handleStop() {
-    if (stopping.value) return;
-
-    stopping.value = true;
-    try {
-      await sessionsStore.stopSession(getSessionId());
-      uiStore.success('Session stopped');
-    } catch (err) {
-      uiStore.error(err.message);
-    } finally {
-      stopping.value = false;
-    }
+    await guardedAction(stopping, uiStore, () => sessionsStore.stopSession(getSessionId()), 'Session stopped');
   }
 
-  /**
-   * Restart the current session.
-   */
   async function handleRestart() {
-    if (restarting.value) return;
-
-    restarting.value = true;
-    try {
-      await sessionsStore.restartSession(getSessionId());
-      uiStore.success('Session restarted');
-    } catch (err) {
-      uiStore.error(err.message);
-    } finally {
-      restarting.value = false;
-    }
+    await guardedAction(restarting, uiStore, () => sessionsStore.restartSession(getSessionId()), 'Session restarted');
   }
 
-  /**
-   * Start a draft session with the given prompt and model.
-   * @param {string} prompt - The prompt to send
-   * @param {string} model - The model to use
-   */
   async function handleStart(prompt, model) {
-    if (restarting.value || !prompt?.trim()) return;
-
-    restarting.value = true;
-    try {
-      await sessionsStore.startSession(getSessionId(), prompt, model);
-    } catch (err) {
-      uiStore.error(err.message);
-    } finally {
-      restarting.value = false;
-    }
+    if (!prompt?.trim()) return;
+    await guardedAction(restarting, uiStore, () => sessionsStore.startSession(getSessionId(), prompt, model));
   }
 
-  /**
-   * Send a follow-up message.
-   * @param {string} message - The message text
-   * @param {Array} attachedFiles - File attachments
-   * @param {string} selectedModel - The model to use
-   * @returns {boolean} Whether the send was successful
-   */
   async function handleSend(message, attachedFiles, selectedModel) {
     if (!message?.trim() || sending.value) return false;
 
@@ -99,10 +78,6 @@ export function useSessionControl({ getSessionId }) {
     }
   }
 
-  /**
-   * Toggle extended thinking mode.
-   * @param {Event} event - The change event from the checkbox
-   */
   async function handleThinkingToggle(event) {
     if (togglingThinking.value) return;
 

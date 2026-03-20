@@ -218,42 +218,61 @@ export const sessionActions = {
     } catch (err) { this.error = err.message; throw err; }
   },
 
+  /**
+   * Merge sessionData into the given list at the matching index, or unshift a fallback entry.
+   * @param {Array} list - The session list to upsert into
+   * @param {Object} sessionData - The data to merge
+   * @param {Object|null} fallback - Existing session copy to merge with, or null
+   */
+  _upsertIntoList(list, sessionData, fallback) {
+    const index = list.findIndex((s) => s.id === sessionData.id);
+    if (index !== -1) {
+      list[index] = { ...list[index], ...sessionData };
+    } else {
+      list.unshift(fallback ? { ...fallback, ...sessionData } : sessionData);
+    }
+  },
+
+  /**
+   * Merge sessionData into the given list at the matching index (if found).
+   */
+  _mergeIfPresent(list, sessionData) {
+    const index = list.findIndex((s) => s.id === sessionData.id);
+    if (index !== -1) list[index] = { ...list[index], ...sessionData };
+  },
+
+  _handleArchived(sessionData) {
+    const existing = this.sessions.find(s => s.id === sessionData.id);
+    const existingCopy = existing ? { ...existing } : null;
+    this.sessions = this.sessions.filter((s) => s.id !== sessionData.id);
+    this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
+    this._upsertIntoList(this.archivedSessions, sessionData, existingCopy);
+  },
+
+  _handleUnarchived(sessionData) {
+    const existing = this.archivedSessions.find(s => s.id === sessionData.id);
+    const existingCopy = existing ? { ...existing } : null;
+    this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionData.id);
+    this._upsertIntoList(this.sessions, sessionData, existingCopy);
+  },
+
   updateSession(sessionData) {
     if (!sessionData?.id) return;
+
     if (sessionData.archived === true) {
-      const existingSession = this.sessions.find(s => s.id === sessionData.id);
-      const existingSessionCopy = existingSession ? { ...existingSession } : null;
-      this.sessions = this.sessions.filter((s) => s.id !== sessionData.id);
-      this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
-      const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
-      if (archivedIndex !== -1) {
-        this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
-      } else {
-        this.archivedSessions.unshift(existingSessionCopy ? { ...existingSessionCopy, ...sessionData } : sessionData);
-      }
+      this._handleArchived(sessionData);
     } else if (sessionData.archived === false) {
-      const existingSession = this.archivedSessions.find(s => s.id === sessionData.id);
-      const existingSessionCopy = existingSession ? { ...existingSession } : null;
-      this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionData.id);
-      const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
-      if (sessionIndex !== -1) {
-        this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
-      } else {
-        this.sessions.unshift(existingSessionCopy ? { ...existingSessionCopy, ...sessionData } : sessionData);
-      }
+      this._handleUnarchived(sessionData);
     } else {
-      const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
-      if (sessionIndex !== -1) this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
-      const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
-      if (archivedIndex !== -1) this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
+      this._mergeIfPresent(this.sessions, sessionData);
+      this._mergeIfPresent(this.archivedSessions, sessionData);
     }
+
     if (this.currentSession?.id === sessionData.id) this.currentSession = { ...this.currentSession, ...sessionData };
-    const activeIndex = this.activeSessions.findIndex((s) => s.id === sessionData.id);
-    if (activeIndex !== -1) this.activeSessions[activeIndex] = { ...this.activeSessions[activeIndex], ...sessionData };
+    this._mergeIfPresent(this.activeSessions, sessionData);
+
     if (sessionData.status === 'scheduled') {
-      const scheduledIndex = this.scheduledSessions.findIndex((s) => s.id === sessionData.id);
-      if (scheduledIndex === -1) this.scheduledSessions.push(sessionData);
-      else this.scheduledSessions[scheduledIndex] = { ...this.scheduledSessions[scheduledIndex], ...sessionData };
+      this._upsertIntoList(this.scheduledSessions, sessionData, null);
       this.scheduledSessions.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
     } else {
       this.scheduledSessions = this.scheduledSessions.filter((s) => s.id !== sessionData.id);

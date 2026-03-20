@@ -1,10 +1,41 @@
 /**
- * Miscellaneous API resource mixin
- * Adds git, todos, summaries, notes, filesystem, slash commands,
- * agent logs, and session defaults methods to ApiClient
+ * Build query params for agent call log requests.
+ * @param {Object} options - Filter/sort/pagination options
+ * @returns {Object} Non-null params
+ */
+function buildAgentCallParams({
+  limit,
+  offset,
+  agentType,
+  callType,
+  status,
+  startDate,
+  endDate,
+  sessionId,
+  model,
+  sortBy,
+  sortOrder,
+} = {}) {
+  const params = {};
+  if (limit != null) params.limit = limit;
+  if (offset != null) params.offset = offset;
+  if (agentType) params.agentType = agentType;
+  if (callType) params.callType = callType;
+  if (status) params.status = status;
+  if (startDate) params.startDate = startDate;
+  if (endDate) params.endDate = endDate;
+  if (sessionId) params.sessionId = sessionId;
+  if (model) params.model = model;
+  if (sortBy) params.sortBy = sortBy;
+  if (sortOrder) params.sortOrder = sortOrder;
+  return params;
+}
+
+/**
+ * Add git and todo methods to ApiClient
  * @param {import('../ApiClient.js').ApiClient} ApiClient
  */
-export function MiscApi(ApiClient) {
+function GitAndTodosApi(ApiClient) {
   Object.assign(ApiClient.prototype, {
     // Git
 
@@ -39,9 +70,15 @@ export function MiscApi(ApiClient) {
         conversation_id: conversationId || undefined,
       }));
     },
+  });
+}
 
-    // Summaries
-
+/**
+ * Add summary methods to ApiClient
+ * @param {import('../ApiClient.js').ApiClient} ApiClient
+ */
+function SummariesApi(ApiClient) {
+  Object.assign(ApiClient.prototype, {
     /**
      * Get session summary
      * @param {string} sessionId - Session ID
@@ -81,7 +118,15 @@ export function MiscApi(ApiClient) {
     async generateSessionSummary(sessionId) {
       return this._post(`/sessions/${sessionId}/summary`);
     },
+  });
+}
 
+/**
+ * Add notes and filesystem methods to ApiClient
+ * @param {import('../ApiClient.js').ApiClient} ApiClient
+ */
+function NotesAndFilesystemApi(ApiClient) {
+  Object.assign(ApiClient.prototype, {
     // Notes
 
     /**
@@ -136,7 +181,15 @@ export function MiscApi(ApiClient) {
         path: path || undefined,
       }));
     },
+  });
+}
 
+/**
+ * Add slash command and agent call log methods to ApiClient
+ * @param {import('../ApiClient.js').ApiClient} ApiClient
+ */
+function CommandsAndLogsApi(ApiClient) {
+  Object.assign(ApiClient.prototype, {
     // Slash Commands
 
     /**
@@ -179,31 +232,8 @@ export function MiscApi(ApiClient) {
      * @param {Object} options - Filter/sort/pagination options
      * @returns {Promise<{logs: Array, pagination: Object}>}
      */
-    async getAgentCallLogs({
-      limit,
-      offset,
-      agentType,
-      callType,
-      status,
-      startDate,
-      endDate,
-      sessionId,
-      model,
-      sortBy,
-      sortOrder,
-    } = {}) {
-      const params = {};
-      if (limit != null) params.limit = limit;
-      if (offset != null) params.offset = offset;
-      if (agentType) params.agentType = agentType;
-      if (callType) params.callType = callType;
-      if (status) params.status = status;
-      if (startDate) params.startDate = startDate;
-      if (endDate) params.endDate = endDate;
-      if (sessionId) params.sessionId = sessionId;
-      if (model) params.model = model;
-      if (sortBy) params.sortBy = sortBy;
-      if (sortOrder) params.sortOrder = sortOrder;
+    async getAgentCallLogs(options = {}) {
+      const params = buildAgentCallParams(options);
       return this._get(this._buildQueryPath('/agent-calls', params));
     },
 
@@ -222,9 +252,15 @@ export function MiscApi(ApiClient) {
     async deleteAllAgentCallLogs() {
       return this._delete('/agent-calls');
     },
+  });
+}
 
-    // Project Session Defaults
-
+/**
+ * Add session defaults methods to ApiClient
+ * @param {import('../ApiClient.js').ApiClient} ApiClient
+ */
+function SessionDefaultsApi(ApiClient) {
+  Object.assign(ApiClient.prototype, {
     /**
      * Get session defaults for a project
      * @param {string} projectId - Project ID
@@ -253,4 +289,18 @@ export function MiscApi(ApiClient) {
       return this._delete(`/projects/${projectId}/session-defaults`);
     },
   });
+}
+
+/**
+ * Miscellaneous API resource mixin
+ * Adds git, todos, summaries, notes, filesystem, slash commands,
+ * agent logs, and session defaults methods to ApiClient
+ * @param {import('../ApiClient.js').ApiClient} ApiClient
+ */
+export function MiscApi(ApiClient) {
+  GitAndTodosApi(ApiClient);
+  SummariesApi(ApiClient);
+  NotesAndFilesystemApi(ApiClient);
+  CommandsAndLogsApi(ApiClient);
+  SessionDefaultsApi(ApiClient);
 }

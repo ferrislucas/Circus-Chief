@@ -18,6 +18,22 @@ export class ScheduleError extends Error {
 }
 
 /**
+ * Field mapping for schedule options: [sourceKey, transform].
+ * Each entry maps a scheduleData key to a transform that produces the updateData value.
+ * @type {Array<[string, (v: any) => any]>}
+ */
+const SCHEDULE_OPTION_FIELDS = [
+  ['autoRescheduleEnabled', (v) => Boolean(v)],
+  ['rescheduleDelayMinutes', (v) => parseInt(v, 10)],
+  ['rescheduleOnTokenLimit', (v) => Boolean(v)],
+  ['rescheduleOnServiceError', (v) => Boolean(v)],
+  ['maxRescheduleCount', (v) => (v ? parseInt(v, 10) : null)],
+  ['maxTotalTokens', (v) => (v ? parseInt(v, 10) : null)],
+  ['rescheduleAtTokenCount', (v) => (v ? parseInt(v, 10) : null)],
+  ['pendingModel', (v) => v],
+];
+
+/**
  * Configures a schedule for a follow-up message on an existing session.
  *
  * @param {object} session - The session object (from req.session_)
@@ -61,30 +77,11 @@ export function configureSchedule(session, scheduleData) {
     scheduledAt,
   };
 
-  // Apply scheduling options if provided
-  if (scheduleData.autoRescheduleEnabled !== undefined) {
-    updateData.autoRescheduleEnabled = Boolean(scheduleData.autoRescheduleEnabled);
-  }
-  if (scheduleData.rescheduleDelayMinutes !== undefined) {
-    updateData.rescheduleDelayMinutes = parseInt(scheduleData.rescheduleDelayMinutes, 10);
-  }
-  if (scheduleData.rescheduleOnTokenLimit !== undefined) {
-    updateData.rescheduleOnTokenLimit = Boolean(scheduleData.rescheduleOnTokenLimit);
-  }
-  if (scheduleData.rescheduleOnServiceError !== undefined) {
-    updateData.rescheduleOnServiceError = Boolean(scheduleData.rescheduleOnServiceError);
-  }
-  if (scheduleData.maxRescheduleCount !== undefined) {
-    updateData.maxRescheduleCount = scheduleData.maxRescheduleCount ? parseInt(scheduleData.maxRescheduleCount, 10) : null;
-  }
-  if (scheduleData.maxTotalTokens !== undefined) {
-    updateData.maxTotalTokens = scheduleData.maxTotalTokens ? parseInt(scheduleData.maxTotalTokens, 10) : null;
-  }
-  if (scheduleData.rescheduleAtTokenCount !== undefined) {
-    updateData.rescheduleAtTokenCount = scheduleData.rescheduleAtTokenCount ? parseInt(scheduleData.rescheduleAtTokenCount, 10) : null;
-  }
-  if (scheduleData.pendingModel !== undefined) {
-    updateData.pendingModel = scheduleData.pendingModel;
+  // Apply scheduling options if provided, using the field mapping table
+  for (const [key, transform] of SCHEDULE_OPTION_FIELDS) {
+    if (scheduleData[key] !== undefined) {
+      updateData[key] = transform(scheduleData[key]);
+    }
   }
 
   const updated = sessions.update(session.id, updateData);

@@ -1,22 +1,18 @@
 import { defineConfig } from 'vitest/config';
-import vue from '@vitejs/plugin-vue';
 
 export default defineConfig({
-  plugins: [vue()],
   test: {
     globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./vitest.setup.js'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],
-      include: ['src/**/*.js', 'src/**/*.vue'],
+      include: ['src/**/*.js'],
       exclude: ['src/**/*.test.js'],
       thresholds: {
-        statements: 40,
-        branches: 30,
-        functions: 40,
-        lines: 40,
+        statements: 60,
+        branches: 50,
+        functions: 60,
+        lines: 60,
       },
     },
   },

@@ -321,6 +321,94 @@ export async function runSession(sessionId, prompt, workingDirectory, options = 
 }
 
 /**
+ * Initialize a continue session: validate, set up abort controller, create user message, broadcast.
+ * @param {string} sessionId
+ * @param {string} content
+ * @param {Array} fileAttachments
+ * @returns {{ session: Object, controller: AbortController, activeConversation: Object, promptWithAttachments: string }}
+ */
+function initContinueSession(sessionId, content, fileAttachments) {
+  if (activeSessions.has(sessionId)) {
+    throw new Error('Session is already processing');
+  }
+
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller });
+
+  const activeConversation = conversations.ensureActiveConversation(sessionId);
+  activeConversationIds.set(sessionId, activeConversation.id);
+  console.log(`[SESSION] continueSession: ensured active conversation ${activeConversation.id} for session ${sessionId}`);
+
+  const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
+  console.log(`[SESSION] continueSession: created user message ${message.id} in conversation ${activeConversation.id}`);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
+    message,
+    conversationId: activeConversation.id,
+  });
+  console.log(`[SESSION] continueSession: broadcast user message ${message.id} to conversation ${activeConversation.id}`);
+
+  if (fileAttachments.length > 0) {
+    attachments.updateMessageIdForSession(sessionId, message.id);
+  }
+
+  const promptWithAttachments = buildPromptWithAttachments(content, fileAttachments);
+
+  sessions.update(sessionId, { status: 'running' });
+  broadcastSessionStatus(sessionId, 'running');
+
+  return { session, controller, activeConversation, promptWithAttachments };
+}
+
+/**
+ * Resolve model change state and build the final prompt with conversation context.
+ * @param {Object} options
+ * @param {string} options.sessionId
+ * @param {Object} options.session
+ * @param {string|null} options.model
+ * @param {Object} options.activeConversation
+ * @param {string} options.promptWithAttachments
+ * @returns {{ session: Object, modelChanged: boolean, canResume: boolean, promptWithContext: string }}
+ */
+function resolveModelAndPrompt({ sessionId, session, model, activeConversation, promptWithAttachments }) {
+  const modelChanged = !!(model && session.model && model !== session.model);
+
+  let currentSession = session;
+  if (model) {
+    sessions.update(sessionId, { model });
+    currentSession = sessions.getById(sessionId);
+  }
+
+  console.log(`[MODEL AUDIT - SessionManager] Model change check:`, {
+    requestedModel: model, sessionModel: currentSession.model, modelChanged,
+    conversationClaudeSessionId: activeConversation.claudeSessionId,
+  });
+
+  if (modelChanged) {
+    console.log(`[SESSION] Model changed to "${model}" - including conversation context`);
+  }
+
+  const canResume = !!(activeConversation.claudeSessionId && !modelChanged);
+  console.log(`[MODEL AUDIT - SessionManager] Resume decision: canResume=${canResume}`);
+
+  const conversationContext = modelChanged
+    ? buildConversationContextForModelSwitch(activeConversation.id)
+    : '';
+  const promptWithContext = conversationContext + promptWithAttachments;
+
+  console.log(`[MODEL AUDIT - SessionManager] SDK query options:`, {
+    model, resume: canResume ? activeConversation.claudeSessionId : null,
+    hasConversationContext: conversationContext.length > 0,
+  });
+
+  return { session: currentSession, modelChanged, canResume, promptWithContext };
+}
+
+/**
  * Continue a session with a follow-up message
  * @param {string} sessionId
  * @param {string} content
@@ -329,139 +417,72 @@ export async function runSession(sessionId, prompt, workingDirectory, options = 
  */
 export async function continueSession(sessionId, content, workingDirectory, options = {}) {
   const { systemPrompt = null, fileAttachments = [], model = null } = options;
-  // [MODEL AUDIT] Log model received in continueSession
   console.log(`[MODEL AUDIT - SessionManager] continueSession called with model: "${model}"`);
 
-  // Check if session is already running
-  if (activeSessions.has(sessionId)) {
-    throw new Error('Session is already processing');
-  }
+  const { session: initialSession, controller, activeConversation, promptWithAttachments } =
+    initContinueSession(sessionId, content, fileAttachments);
 
-  // Get the session to retrieve the Claude session ID and settings
-  let session = sessions.getById(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-
-  const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
-
-  // Ensure there's an active conversation for this session
-  const activeConversation = conversations.ensureActiveConversation(sessionId);
-  activeConversationIds.set(sessionId, activeConversation.id);
-  console.log(`[SESSION] continueSession: ensured active conversation ${activeConversation.id} for session ${sessionId}`);
-
-  // Each conversation has its own Claude session context
-  // If null, Claude will start a fresh session (no resume)
-
-  // Store the user message with conversation ID
-  const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
-  console.log(`[SESSION] continueSession: created user message ${message.id} in conversation ${activeConversation.id}`);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
-    message,
-    conversationId: activeConversation.id, // Include conversation context
-  });
-  console.log(`[SESSION] continueSession: broadcast user message ${message.id} to conversation ${activeConversation.id}`);
-
-  // Associate any pending attachments with the message
-  if (fileAttachments.length > 0) {
-    attachments.updateMessageIdForSession(sessionId, message.id);
-  }
-
-  // Build prompt with attachment context
-  const promptWithAttachments = buildPromptWithAttachments(content, fileAttachments);
-
-  // Update status to running
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
-
-  // Create agent via gateway (or mock agent in mock mode)
-  const agentType = session.agentType || 'claude-code';
+  const agentType = initialSession.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
 
-  // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(model);
-  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
+  const sessionEnv = buildSessionEnv(provider, initialSession.thinkingEnabled, initialSession.effortLevel);
 
-  // Check if model changed from the session's last requested model
-  // When model changes, we can't resume the previous session - thinking blocks and
-  // session context may be incompatible between different models/providers
-  const modelChanged = model && session.model && model !== session.model;
-
-  // Update session.model to track the user-requested model (short format)
-  // This must happen AFTER modelChanged detection so we compare old vs new
-  if (model) {
-    sessions.update(sessionId, { model });
-    session = sessions.getById(sessionId); // refresh
-  }
-
-  // [MODEL AUDIT] Log model change detection
-  console.log(`[MODEL AUDIT - SessionManager] Model change check:`, {
-    requestedModel: model,
-    sessionModel: session.model,
-    modelChanged,
-    conversationClaudeSessionId: activeConversation.claudeSessionId,
-  });
-
-  if (modelChanged) {
-    console.log(`[SESSION] Model changed to "${model}" - including conversation context`);
-  }
-
-  // Only resume if we have a session ID AND model hasn't changed
-  const canResume = activeConversation.claudeSessionId && !modelChanged;
-
-  // [MODEL AUDIT] Log resume decision
-  console.log(`[MODEL AUDIT - SessionManager] Resume decision: canResume=${canResume}`);
-
-  // When model changes, include conversation history as context so the new model
-  // can continue naturally without needing to resume the incompatible session
-  const conversationContext = modelChanged
-    ? buildConversationContextForModelSwitch(activeConversation.id)
-    : '';
-  const promptWithContext = conversationContext + promptWithAttachments;
-
-  // [MODEL AUDIT] Log SDK query options
-  console.log(`[MODEL AUDIT - SessionManager] SDK query options:`, {
-    model: model,
-    resume: canResume ? activeConversation.claudeSessionId : null,
-    hasConversationContext: conversationContext.length > 0,
-  });
+  const { session, canResume, promptWithContext } =
+    resolveModelAndPrompt({ sessionId, session: initialSession, model, activeConversation, promptWithAttachments });
 
   const queryParams = buildQueryParams({
-    prompt: promptWithContext,
-    workingDirectory,
-    controller,
-    session,
-    sessionId,
-    systemPrompt,
-    model,
-    sessionEnv,
+    prompt: promptWithContext, workingDirectory, controller, session, sessionId,
+    systemPrompt, model, sessionEnv,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
   });
 
-  // Logging metadata for agent call tracking
   const agentCallMeta = {
-    sessionId,
-    conversationId: activeConversation.id,
-    callType: 'continueSession',
-    agentType,
-    model,
-    effortLevel: session.effortLevel,
-    isResume: canResume,
-    promptLength: promptWithContext.length,
+    sessionId, conversationId: activeConversation.id, callType: 'continueSession',
+    agentType, model, effortLevel: session.effortLevel,
+    isResume: canResume, promptLength: promptWithContext.length,
   };
 
   await _executeSession({
-    sessionId,
-    agent,
-    queryParams,
-    agentCallMeta,
-    controller,
-    workingDirectory,
-    broadcastConversationStateOnError: true,
-    cleanupConversationId: true,
+    sessionId, agent, queryParams, agentCallMeta, controller, workingDirectory,
+    broadcastConversationStateOnError: true, cleanupConversationId: true,
     errorLabel: 'Continue session error',
   });
+}
+
+/**
+ * Detect whether the model has changed and update the session record if a new model is set.
+ * Returns { modelChanged, session } where session is the refreshed session if updated.
+ * @param {string} sessionId
+ * @param {Object} session - Current session object
+ * @param {string|null} model - Requested model
+ * @returns {{ modelChanged: boolean, session: Object }}
+ */
+function detectAndApplyModelChange(sessionId, session, model) {
+  const modelChanged = !!(model && session.model && model !== session.model);
+
+  if (model) {
+    sessions.update(sessionId, { model });
+    return { modelChanged, session: sessions.getById(sessionId) };
+  }
+  return { modelChanged, session };
+}
+
+/**
+ * Build conversation context string based on model change or branched conversation state.
+ * @param {string} conversationId
+ * @param {boolean} modelChanged
+ * @param {boolean} isBranchedWithoutSession
+ * @returns {string}
+ */
+function resolveConversationContext(conversationId, modelChanged, isBranchedWithoutSession) {
+  if (modelChanged) {
+    return buildConversationContextForModelSwitch(conversationId);
+  }
+  if (isBranchedWithoutSession) {
+    return buildConversationContextForBranch(conversationId);
+  }
+  return '';
 }
 
 /**
@@ -522,41 +543,26 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   const provider = resolveProviderFromModel(model);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
-  // Check if model changed from the session's last requested model
-  // When model changes, we can't resume the previous session - thinking blocks and
-  // session context may be incompatible between different models/providers
-  const modelChanged = model && session.model && model !== session.model;
-
-  // Update session.model to track the user-requested model (short format)
-  // This must happen AFTER modelChanged detection so we compare old vs new
-  if (model) {
-    sessions.update(sessionId, { model });
-    session = sessions.getById(sessionId); // refresh
-  }
+  // Detect model change and update session record (must happen before resume decision)
+  const modelChangeResult = detectAndApplyModelChange(sessionId, session, model);
+  const modelChanged = modelChangeResult.modelChanged;
+  session = modelChangeResult.session;
 
   if (modelChanged) {
     console.log(`[SESSION] Model changed to "${model}" - including conversation context`);
   }
 
   // Check if this is a branched conversation without a claudeSessionId (can't resume)
-  // Branched conversations have a parentConversationId but may not have their own claudeSessionId yet
-  const isBranchedWithoutSession = conversation.parentConversationId && !conversation.claudeSessionId;
+  const isBranchedWithoutSession = !!(conversation.parentConversationId && !conversation.claudeSessionId);
   if (isBranchedWithoutSession) {
     console.log(`[SESSION] Branched conversation without claudeSessionId - including conversation history`);
   }
 
   // Only resume if we have a session ID AND model hasn't changed
-  const canResume = conversation.claudeSessionId && !modelChanged;
+  const canResume = !!(conversation.claudeSessionId && !modelChanged);
 
-  // Build conversation context when either:
-  // 1. Model changed - context needed because we can't resume with incompatible session
-  // 2. Branched conversation without session - context needed because there's no session to resume
-  let conversationContext = '';
-  if (modelChanged) {
-    conversationContext = buildConversationContextForModelSwitch(conversationId);
-  } else if (isBranchedWithoutSession) {
-    conversationContext = buildConversationContextForBranch(conversationId);
-  }
+  // Build conversation context when model changed or branched without session
+  const conversationContext = resolveConversationContext(conversationId, modelChanged, isBranchedWithoutSession);
   const promptWithContext = conversationContext + lastUserMessage.content;
 
   const queryParams = buildQueryParams({

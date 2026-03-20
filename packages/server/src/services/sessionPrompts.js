@@ -186,23 +186,13 @@ Where version 1 = oldest, and higher numbers are newer versions.`;
 }
 
 /**
- * Build session API instructions for Claude to create/modify sessions
- * @param {string} sessionId - Current session ID
+ * Build session CRUD API instructions
+ * @param {string} apiUrl - Base API URL
  * @param {string} projectId - Current project ID
  * @returns {string}
  */
-function buildSessionApiInstructions(sessionId, projectId) {
-  const apiUrl = getApiBaseUrl();
-
-  return `## Session Management API
-
-You can create and modify sessions in this system using curl or similar HTTP tools. Use the Bash tool to execute these commands.
-
-**Base URL:** ${apiUrl}
-**Current Session ID:** ${sessionId}
-**Current Project ID:** ${projectId}
-
-### Create a New Session
+function buildSessionCrudInstructions(apiUrl, projectId) {
+  return `### Create a New Session
 \`\`\`bash
 curl -X POST ${apiUrl}/api/projects/${projectId}/sessions \\
   -H "Content-Type: application/json" \\
@@ -252,9 +242,16 @@ curl -X PATCH ${apiUrl}/api/sessions/<session_id> \\
 ### Delete a Session
 \`\`\`bash
 curl -X DELETE ${apiUrl}/api/sessions/<session_id>
-\`\`\`
+\`\`\``;
+}
 
-### Project Operations
+/**
+ * Build project and notes/summary API instructions
+ * @param {string} apiUrl - Base API URL
+ * @returns {string}
+ */
+function buildProjectAndNotesInstructions(apiUrl) {
+  return `### Project Operations
 
 #### List All Projects
 \`\`\`bash
@@ -304,6 +301,29 @@ curl "${apiUrl}/api/sessions/<session_id>/summary?generate=true"
 \`\`\`bash
 curl -X POST ${apiUrl}/api/sessions/<session_id>/summary
 \`\`\``;
+}
+
+/**
+ * Build session API instructions for Claude to create/modify sessions
+ * @param {string} sessionId - Current session ID
+ * @param {string} projectId - Current project ID
+ * @returns {string}
+ */
+function buildSessionApiInstructions(sessionId, projectId) {
+  const apiUrl = getApiBaseUrl();
+
+  const header = `## Session Management API
+
+You can create and modify sessions in this system using curl or similar HTTP tools. Use the Bash tool to execute these commands.
+
+**Base URL:** ${apiUrl}
+**Current Session ID:** ${sessionId}
+**Current Project ID:** ${projectId}`;
+
+  const sessionCrud = buildSessionCrudInstructions(apiUrl, projectId);
+  const projectAndNotes = buildProjectAndNotesInstructions(apiUrl);
+
+  return `${header}\n\n${sessionCrud}\n\n${projectAndNotes}`;
 }
 
 /**

@@ -23,6 +23,72 @@ export function validateDraftSession(session) {
 }
 
 /**
+ * Validates that a prompt string is non-empty.
+ * @param {string} prompt
+ * @returns {boolean}
+ */
+function isValidPrompt(prompt) {
+  return !!prompt && typeof prompt === 'string' && prompt.trim() !== '';
+}
+
+/**
+ * Creates the initial user message for a draft session that has no messages yet.
+ * @param {object} session - The session object
+ * @param {string|undefined} optionsPrompt - Optional prompt from caller
+ * @returns {object} The created message
+ */
+function createInitialMessage(session, optionsPrompt) {
+  const promptToUse = optionsPrompt || session.pendingPrompt;
+  if (!isValidPrompt(promptToUse)) {
+    throw new DraftSessionError('No initial prompt found', 400);
+  }
+
+  const activeConv = conversations.getActiveBySessionId(session.id);
+  if (!activeConv) {
+    throw new DraftSessionError('No active conversation found', 500);
+  }
+
+  const initialMessage = messages.create(session.id, 'user', promptToUse, { toolUse: null, conversationId: activeConv.id });
+
+  // Clear pendingPrompt since we've created the message
+  sessions.update(session.id, { pendingPrompt: null });
+
+  // Broadcast the new message
+  broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
+    sessionId: session.id,
+    message: initialMessage,
+  });
+
+  return initialMessage;
+}
+
+/**
+ * Returns the existing user message, optionally updating it with a new prompt.
+ * @param {object} session - The session object
+ * @param {object} existingMessage - The existing first user message
+ * @param {string|undefined} optionsPrompt - Optional prompt from caller
+ * @returns {object} The (possibly updated) message
+ */
+function resolveExistingMessage(session, existingMessage, optionsPrompt) {
+  if (optionsPrompt === undefined) {
+    return existingMessage;
+  }
+
+  if (!isValidPrompt(optionsPrompt)) {
+    throw new DraftSessionError('Prompt must be a non-empty string', 400);
+  }
+
+  const updatedMessage = messages.updateContent(existingMessage.id, optionsPrompt);
+
+  broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
+    sessionId: session.id,
+    message: updatedMessage,
+  });
+
+  return updatedMessage;
+}
+
+/**
  * Starts a draft session by resolving the prompt, creating messages if needed,
  * and kicking off the session manager.
  *
@@ -47,56 +113,12 @@ export async function startDraft(session, options = {}) {
 
   // Get all messages to find user messages
   const allMessages = messages.getBySessionId(session.id);
+  const userMessages = allMessages.filter(msg => msg.role === 'user');
 
   // Get or create the initial user message (prompt)
-  let userMessages = allMessages.filter(msg => msg.role === 'user');
-  let initialMessage;
-
-  if (userMessages.length === 0) {
-    // For draft/scheduled sessions, there may not be an initial message yet
-    // Create it from the provided prompt or pendingPrompt
-    const promptToUse = options.prompt || session.pendingPrompt;
-    if (!promptToUse || typeof promptToUse !== 'string' || promptToUse.trim() === '') {
-      throw new DraftSessionError('No initial prompt found', 400);
-    }
-
-    // Get the active conversation
-    const activeConv = conversations.getActiveBySessionId(session.id);
-    if (!activeConv) {
-      throw new DraftSessionError('No active conversation found', 500);
-    }
-
-    // Create the initial message
-    initialMessage = messages.create(session.id, 'user', promptToUse, { toolUse: null, conversationId: activeConv.id });
-
-    // Clear pendingPrompt since we've created the message
-    sessions.update(session.id, { pendingPrompt: null });
-
-    // Broadcast the new message
-    broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
-      sessionId: session.id,
-      message: initialMessage,
-    });
-  } else {
-    initialMessage = userMessages[0];
-
-    // If a new prompt is provided, update the message
-    if (options.prompt !== undefined) {
-      // Validate provided prompt
-      if (!options.prompt || typeof options.prompt !== 'string' || options.prompt.trim() === '') {
-        throw new DraftSessionError('Prompt must be a non-empty string', 400);
-      }
-      // Update the message with the new prompt
-      const updatedMessage = messages.updateContent(initialMessage.id, options.prompt);
-      initialMessage = updatedMessage;
-
-      // Broadcast the update to session subscribers
-      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
-        sessionId: session.id,
-        message: updatedMessage,
-      });
-    }
-  }
+  const initialMessage = userMessages.length === 0
+    ? createInitialMessage(session, options.prompt)
+    : resolveExistingMessage(session, userMessages[0], options.prompt);
 
   const finalPrompt = initialMessage.content;
 

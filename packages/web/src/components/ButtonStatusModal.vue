@@ -147,11 +147,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
-import { ansiToHtml } from '../utils/ansi.js';
-import { useCommandButtonsStore } from '../stores/commandButtons.js';
-
-const commandButtonsStore = useCommandButtonsStore();
+import { useButtonStatusModal } from '../composables/useButtonStatusModal.js';
 
 const props = defineProps({
   button: {
@@ -174,183 +170,21 @@ const props = defineProps({
 
 const emit = defineEmits(['close']);
 
-const elapsedTime = ref('0:00');
-const showConfirmation = ref(false);
-const deleting = ref(false);
-let timerInterval = null;
-
-// Output section state
-const showOutput = ref(false);
-const formattedOutput = ref('');
-const outputIsTruncatedForDisplay = ref(false);
-const outputContainerRef = ref(null);
-const DISPLAY_LINE_LIMIT = 200;
-
-const updateFormattedOutput = () => {
-  const output = props.latestRun?.output || '';
-  if (!output) {
-    formattedOutput.value = '';
-    outputIsTruncatedForDisplay.value = false;
-    return;
-  }
-
-  const lines = output.split('\n');
-  if (lines.length > DISPLAY_LINE_LIMIT) {
-    outputIsTruncatedForDisplay.value = true;
-    const displayOutput = lines.slice(-DISPLAY_LINE_LIMIT).join('\n');
-    formattedOutput.value = ansiToHtml(displayOutput);
-  } else {
-    outputIsTruncatedForDisplay.value = false;
-    formattedOutput.value = ansiToHtml(output);
-  }
-};
-
-// Simple debounce for output updates
-const debounce = (fn, delay) => {
-  let timeoutId;
-  return (...args) => {
-    if (timeoutId) clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn(...args), delay);
-  };
-};
-
-const debouncedUpdateOutput = debounce(updateFormattedOutput, 250);
-
-const canRemoveRun = computed(() => {
-  return props.latestRun && props.latestRun.status !== 'running';
-});
-
-const statusDisplay = computed(() => {
-  if (!props.latestRun) {
-    return { text: 'Never Run', color: 'pending' };
-  }
-
-  switch (props.latestRun.status) {
-    case 'running':
-      return { text: 'Running', color: 'running' };
-    case 'success':
-      return { text: 'Success', color: 'success' };
-    case 'error':
-      return { text: 'Error', color: 'error' };
-    default:
-      return { text: 'Unknown', color: 'pending' };
-  }
-});
-
-const duration = computed(() => {
-  if (!props.latestRun?.completedAt || !props.latestRun?.startedAt) {
-    return null;
-  }
-  const durationMs = props.latestRun.completedAt - props.latestRun.startedAt;
-  const seconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  }
-  return `${secs}s`;
-});
-
-const updateElapsedTime = () => {
-  if (!props.latestRun || props.latestRun.status !== 'running') {
-    return;
-  }
-
-  const elapsed = Date.now() - props.latestRun.startedAt;
-  const seconds = Math.floor(elapsed / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  elapsedTime.value = `${minutes}:${secs.toString().padStart(2, '0')}`;
-};
-
-const formatTime = (timestamp) => {
-  if (!timestamp) return 'N/A';
-  const date = new Date(timestamp);
-  return date.toLocaleString();
-};
-
-const startTimer = () => {
-  if (!props.latestRun || props.latestRun.status !== 'running') {
-    return;
-  }
-
-  updateElapsedTime();
-  timerInterval = setInterval(() => {
-    updateElapsedTime();
-  }, 1000);
-};
-
-const stopTimer = () => {
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-};
-
-const close = () => {
-  emit('close');
-};
-
-const handleRemoveRun = async () => {
-  deleting.value = true;
-  try {
-    await commandButtonsStore.deleteRun(props.sessionId, props.latestRun.runId);
-    emit('close');
-  } catch (err) {
-    console.error('Failed to remove run:', err);
-  } finally {
-    deleting.value = false;
-    showConfirmation.value = false;
-  }
-};
-
-watch(
-  () => props.isOpen,
-  (newValue) => {
-    if (newValue) {
-      startTimer();
-    } else {
-      stopTimer();
-    }
-  }
-);
-
-watch(
-  () => props.latestRun?.status,
-  (newStatus) => {
-    if (newStatus === 'running' && props.isOpen) {
-      startTimer();
-    } else {
-      stopTimer();
-    }
-  }
-);
-
-// Watch for output changes and update formatted output
-let isFirstOutputUpdate = true;
-watch(
-  () => props.latestRun?.output,
-  () => {
-    // Call immediately on first update to avoid delay, debounce subsequent updates
-    if (isFirstOutputUpdate) {
-      isFirstOutputUpdate = false;
-      updateFormattedOutput();
-    } else {
-      debouncedUpdateOutput();
-    }
-  },
-  { immediate: true }
-);
-
-onMounted(() => {
-  if (props.isOpen && props.latestRun?.status === 'running') {
-    startTimer();
-  }
-});
-
-onBeforeUnmount(() => {
-  stopTimer();
-});
+const {
+  elapsedTime,
+  showConfirmation,
+  deleting,
+  showOutput,
+  formattedOutput,
+  outputIsTruncatedForDisplay,
+  outputContainerRef,
+  canRemoveRun,
+  statusDisplay,
+  duration,
+  formatTime,
+  close,
+  handleRemoveRun,
+} = useButtonStatusModal(props, emit);
 </script>
 
 <style scoped>

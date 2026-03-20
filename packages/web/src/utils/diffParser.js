@@ -150,6 +150,26 @@ function finalizeFile(file, hunk, files) {
 }
 
 /**
+ * Build a DiffLine with proper line numbers from a change, and update
+ * the file's addition/deletion counters.
+ * @param {{ type: string, content: string }} change
+ * @param {{ oldLineNum: number, newLineNum: number }} lineNums - mutated in place
+ * @param {DiffFile} file - mutated to increment additions/deletions
+ * @returns {DiffLine}
+ */
+function buildDiffLine(change, lineNums, file) {
+  if (change.type === 'addition') {
+    file.additions++;
+    return { ...change, oldLineNumber: null, newLineNumber: lineNums.newLineNum++ };
+  }
+  if (change.type === 'deletion') {
+    file.deletions++;
+    return { ...change, oldLineNumber: lineNums.oldLineNum++, newLineNumber: null };
+  }
+  return { ...change, oldLineNumber: lineNums.oldLineNum++, newLineNumber: lineNums.newLineNum++ };
+}
+
+/**
  * Parse a unified diff string into structured file objects
  * @param {string} diffText - Raw git diff output
  * @returns {DiffFile[]}
@@ -163,8 +183,7 @@ export function parseDiff(diffText) {
   const lines = diffText.split('\n');
   let currentFile = null;
   let currentHunk = null;
-  let oldLineNum = 0;
-  let newLineNum = 0;
+  const lineNums = { oldLineNum: 0, newLineNum: 0 };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -192,8 +211,8 @@ export function parseDiff(diffText) {
       const parsed = parseHunkHeader(line);
       if (parsed) {
         currentHunk = parsed.hunk;
-        oldLineNum = parsed.oldLineNum;
-        newLineNum = parsed.newLineNum;
+        lineNums.oldLineNum = parsed.oldLineNum;
+        lineNums.newLineNum = parsed.newLineNum;
       }
       continue;
     }
@@ -204,27 +223,7 @@ export function parseDiff(diffText) {
     const change = parseLineChange(line);
     if (!change) continue;
 
-    if (change.type === 'addition') {
-      currentHunk.lines.push({
-        ...change,
-        oldLineNumber: null,
-        newLineNumber: newLineNum++,
-      });
-      currentFile.additions++;
-    } else if (change.type === 'deletion') {
-      currentHunk.lines.push({
-        ...change,
-        oldLineNumber: oldLineNum++,
-        newLineNumber: null,
-      });
-      currentFile.deletions++;
-    } else {
-      currentHunk.lines.push({
-        ...change,
-        oldLineNumber: oldLineNum++,
-        newLineNumber: newLineNum++,
-      });
-    }
+    currentHunk.lines.push(buildDiffLine(change, lineNums, currentFile));
   }
 
   // Don't forget the last file/hunk

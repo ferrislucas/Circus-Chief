@@ -1,9 +1,40 @@
 /**
- * Sessions API resource mixin
- * Adds session-related methods to ApiClient
+ * Build FormData for session creation with file attachments.
+ * @param {Object} jsonData - The session data (excluding files)
+ * @param {Array} files - Array of File objects
+ * @returns {FormData}
+ */
+function buildSessionFormData(jsonData, files) {
+  const formData = new FormData();
+  formData.append('prompt', jsonData.prompt);
+  if (jsonData.name !== undefined) formData.append('name', jsonData.name);
+  if (jsonData.mode !== undefined) formData.append('mode', jsonData.mode);
+  if (jsonData.model !== undefined) formData.append('model', jsonData.model);
+  if (jsonData.thinkingEnabled !== undefined) {
+    formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
+  }
+  if (jsonData.effortLevel !== undefined) {
+    formData.append('effortLevel', jsonData.effortLevel);
+  }
+  if (jsonData.startImmediately !== undefined) {
+    formData.append('startImmediately', String(jsonData.startImmediately));
+  }
+  if (jsonData.gitBranch !== undefined) formData.append('gitBranch', jsonData.gitBranch);
+  if (jsonData.gitMode !== undefined) formData.append('gitMode', jsonData.gitMode);
+  if (jsonData.templateId !== undefined) formData.append('templateId', jsonData.templateId);
+
+  for (const file of files) {
+    formData.append('files', file);
+  }
+
+  return formData;
+}
+
+/**
+ * Add core session CRUD methods to ApiClient
  * @param {import('../ApiClient.js').ApiClient} ApiClient
  */
-export function SessionsApi(ApiClient) {
+function SessionsCoreApi(ApiClient) {
   Object.assign(ApiClient.prototype, {
     /**
      * Get all active/waiting sessions across all projects
@@ -27,12 +58,10 @@ export function SessionsApi(ApiClient) {
     /**
      * Get all sessions for a project
      * @param {string} projectId - Project ID
-     * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)
-     * @param {string|null} starred - Filter by starred status (null = all, 'starred' = starred only, 'unstarred' = unstarred only)
+     * @param {boolean|null} archived - Filter by archived status
+     * @param {string|null} starred - Filter by starred status
      * @param {Object} paginationOptions - Pagination options
-     * @param {number|null} paginationOptions.limit - Number of sessions to fetch (null = all)
-     * @param {number} paginationOptions.offset - Offset for pagination (default: 0)
-     * @returns {Promise<Array|{sessions: Array, pagination: Object}>} Array when no pagination, object with pagination metadata when limit is specified
+     * @returns {Promise<Array|{sessions: Array, pagination: Object}>}
      */
     async getProjectSessions(projectId, archived = null, starred = null, { limit = null, offset = 0 } = {}) {
       const params = {};
@@ -62,28 +91,7 @@ export function SessionsApi(ApiClient) {
 
       // Use FormData if files are attached, otherwise JSON
       if (files && files.length > 0) {
-        const formData = new FormData();
-        formData.append('prompt', jsonData.prompt);
-        if (jsonData.name !== undefined) formData.append('name', jsonData.name);
-        if (jsonData.mode !== undefined) formData.append('mode', jsonData.mode);
-        if (jsonData.model !== undefined) formData.append('model', jsonData.model);
-        if (jsonData.thinkingEnabled !== undefined) {
-          formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
-        }
-        if (jsonData.effortLevel !== undefined) {
-          formData.append('effortLevel', jsonData.effortLevel);
-        }
-        if (jsonData.startImmediately !== undefined) {
-          formData.append('startImmediately', String(jsonData.startImmediately));
-        }
-        if (jsonData.gitBranch !== undefined) formData.append('gitBranch', jsonData.gitBranch);
-        if (jsonData.gitMode !== undefined) formData.append('gitMode', jsonData.gitMode);
-        if (jsonData.templateId !== undefined) formData.append('templateId', jsonData.templateId);
-
-        for (const file of files) {
-          formData.append('files', file);
-        }
-
+        const formData = buildSessionFormData(jsonData, files);
         return this._uploadFormData(`/projects/${projectId}/sessions`, formData);
       }
 
@@ -116,7 +124,15 @@ export function SessionsApi(ApiClient) {
     async getSessionWorkLogs(sessionId) {
       return this._get(`/sessions/${sessionId}/work-logs`);
     },
+  });
+}
 
+/**
+ * Add messaging and lifecycle methods to ApiClient
+ * @param {import('../ApiClient.js').ApiClient} ApiClient
+ */
+function SessionsMessagingApi(ApiClient) {
+  Object.assign(ApiClient.prototype, {
     /**
      * Send a message to a session
      * @param {string} sessionId - Session ID
@@ -157,10 +173,42 @@ export function SessionsApi(ApiClient) {
     },
 
     /**
+     * Restart a completed or errored session
+     * @param {string} id - Session ID
+     * @returns {Promise<Object>}
+     */
+    async restartSession(id) {
+      return this._post(`/sessions/${id}/restart`);
+    },
+
+    /**
+     * Start a draft session (waiting status with no assistant messages)
+     * @param {string} id - Session ID
+     * @param {string|undefined} prompt - Optional updated prompt to use when starting
+     * @param {string|undefined} model - Optional model override
+     * @returns {Promise<Object>}
+     */
+    async startSession(id, prompt, model) {
+      const data = {};
+      if (prompt !== undefined) data.prompt = prompt;
+      if (model !== undefined) data.model = model;
+      return this._post(`/sessions/${id}/start`,
+        Object.keys(data).length > 0 ? data : undefined);
+    },
+  });
+}
+
+/**
+ * Add git changes and session management methods to ApiClient
+ * @param {import('../ApiClient.js').ApiClient} ApiClient
+ */
+function SessionsManagementApi(ApiClient) {
+  Object.assign(ApiClient.prototype, {
+    /**
      * Get git changes for a session
      * @param {string} sessionId - Session ID
      * @param {string} compareMode - 'local' (default) or 'branch'
-     * @param {string|null} branch - Branch to compare against (only used if compareMode is 'branch')
+     * @param {string|null} branch - Branch to compare against
      * @returns {Promise<{staged: string, unstaged: string, untracked: string}>}
      */
     async getSessionChanges(sessionId, compareMode = 'local', branch = null) {
@@ -193,37 +241,13 @@ export function SessionsApi(ApiClient) {
     },
 
     /**
-     * Get a file from the session's working directory (for displaying images in diffs)
+     * Get a file from the session's working directory
      * @param {string} sessionId - Session ID
      * @param {string} filePath - Relative path to file
      * @returns {Promise<{data: string, mimeType: string, filename: string}>}
      */
     async getSessionFile(sessionId, filePath) {
       return this._get(`/sessions/${sessionId}/file?path=${encodeURIComponent(filePath)}`);
-    },
-
-    /**
-     * Restart a completed or errored session
-     * @param {string} id - Session ID
-     * @returns {Promise<Object>}
-     */
-    async restartSession(id) {
-      return this._post(`/sessions/${id}/restart`);
-    },
-
-    /**
-     * Start a draft session (waiting status with no assistant messages)
-     * @param {string} id - Session ID
-     * @param {string|undefined} prompt - Optional updated prompt to use when starting
-     * @param {string|undefined} model - Optional model override
-     * @returns {Promise<Object>}
-     */
-    async startSession(id, prompt, model) {
-      const data = {};
-      if (prompt !== undefined) data.prompt = prompt;
-      if (model !== undefined) data.model = model;
-      return this._post(`/sessions/${id}/start`,
-        Object.keys(data).length > 0 ? data : undefined);
     },
 
     /**
@@ -239,7 +263,7 @@ export function SessionsApi(ApiClient) {
     /**
      * Update session settings
      * @param {string} id - Session ID
-     * @param {Object} data - Update data (e.g., { thinkingEnabled: true })
+     * @param {Object} data - Update data
      * @returns {Promise<Object>}
      */
     async updateSession(id, data) {
@@ -247,7 +271,7 @@ export function SessionsApi(ApiClient) {
     },
 
     /**
-     * Update the pending prompt for a session (auto-save input field)
+     * Update the pending prompt for a session
      * @param {string} id - Session ID
      * @param {string|null} pendingPrompt - The pending prompt (or null to clear)
      * @returns {Promise<Object>}
@@ -296,9 +320,6 @@ export function SessionsApi(ApiClient) {
      * Duplicate a session (clone with all data)
      * @param {string} id - Session ID to duplicate
      * @param {Object} options - Duplication options
-     * @param {string} [options.name] - Custom name for duplicated session
-     * @param {string} [options.gitMode] - Git mode (none|branch|worktree)
-     * @param {string} [options.gitBranch] - Git branch name (if gitMode is branch)
      * @returns {Promise<Object>}
      */
     async duplicateSession(id, options = {}) {
@@ -315,4 +336,15 @@ export function SessionsApi(ApiClient) {
       return this._post(`/sessions/${id}/schedule`, data);
     },
   });
+}
+
+/**
+ * Sessions API resource mixin
+ * Adds session-related methods to ApiClient
+ * @param {import('../ApiClient.js').ApiClient} ApiClient
+ */
+export function SessionsApi(ApiClient) {
+  SessionsCoreApi(ApiClient);
+  SessionsMessagingApi(ApiClient);
+  SessionsManagementApi(ApiClient);
 }

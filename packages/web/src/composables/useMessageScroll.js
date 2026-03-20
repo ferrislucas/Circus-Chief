@@ -1,5 +1,47 @@
 import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue';
 
+// Utility: find last index matching predicate
+function findLastIndex(arr, predicate) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (predicate(arr[i])) return i;
+  }
+  return -1;
+}
+
+/**
+ * Set up watchers for auto-scrolling on messages and partial text changes.
+ */
+function setupScrollWatchers({ messages, partialText, activeConversationId, scrollToBottom, isNearBottom, hasNewMessages }) {
+  // Auto-scroll when messages are added
+  watch(
+    () => (messages.value || []).length,
+    (newLen, oldLen) => {
+      if (oldLen === 0 && newLen > 0) {
+        scrollToBottom(true);
+      } else {
+        scrollToBottom();
+      }
+    }
+  );
+
+  // Auto-scroll on streaming text
+  watch(
+    () => partialText?.value,
+    () => {
+      scrollToBottom();
+    }
+  );
+
+  // Reset scroll state on conversation switch
+  watch(
+    () => activeConversationId?.value,
+    () => {
+      isNearBottom.value = true;
+      hasNewMessages.value = false;
+    }
+  );
+}
+
 /**
  * Composable for managing message scroll behavior in conversation view.
  * Handles auto-scrolling, scroll position tracking, and new message detection.
@@ -65,42 +107,8 @@ export function useMessageScroll({ messages, partialText, activeConversationId }
     });
   }
 
-  // Utility: find last index matching predicate
-  function findLastIndex(arr, predicate) {
-    for (let i = arr.length - 1; i >= 0; i--) {
-      if (predicate(arr[i])) return i;
-    }
-    return -1;
-  }
-
-  // Auto-scroll when messages are added
-  watch(
-    () => (messages.value || []).length,
-    (newLen, oldLen) => {
-      if (oldLen === 0 && newLen > 0) {
-        scrollToBottom(true);
-      } else {
-        scrollToBottom();
-      }
-    }
-  );
-
-  // Auto-scroll on streaming text
-  watch(
-    () => partialText?.value,
-    () => {
-      scrollToBottom();
-    }
-  );
-
-  // Reset scroll state on conversation switch
-  watch(
-    () => activeConversationId?.value,
-    () => {
-      isNearBottom.value = true;
-      hasNewMessages.value = false;
-    }
-  );
+  // Set up watchers
+  setupScrollWatchers({ messages, partialText, activeConversationId, scrollToBottom, isNearBottom, hasNewMessages });
 
   // Lifecycle management
   onMounted(() => {

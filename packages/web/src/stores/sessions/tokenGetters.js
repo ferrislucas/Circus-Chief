@@ -2,6 +2,43 @@ import { calculateBillableTokens, formatTokenCount } from '@claudetools/shared';
 import { useSettingsStore } from '../settings.js';
 
 /**
+ * Format a token count for display.
+ * @param {number|null|undefined} n
+ * @returns {string}
+ */
+function formatCount(n) {
+  if (n === null || n === undefined) return '-';
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
+/**
+ * Check if runningUsage is relevant to the active conversation.
+ */
+function isRunningUsageRelevant(state) {
+  return state.runningUsage && (
+    !state.activeConversationId ||
+    state.runningUsage.conversationId === state.activeConversationId
+  );
+}
+
+/**
+ * Build a formatted tokens object from raw token values.
+ */
+function buildFormattedTokens(input, output, cacheRead, cacheCreation) {
+  return {
+    input: formatCount(input),
+    output: formatCount(output),
+    total: formatCount((input || 0) + (output || 0)),
+    cacheRead: formatCount(cacheRead),
+    cacheCreation: formatCount(cacheCreation),
+  };
+}
+
+const EMPTY_FORMATTED_TOKENS = { input: '-', output: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
+
+/**
  * Token usage getters for the sessions store.
  * Each getter is a function that receives the Pinia state.
  */
@@ -24,38 +61,22 @@ export const tokenGetters = {
     return (state.currentSession.inputTokens || 0) + (state.currentSession.outputTokens || 0);
   },
   formattedTokens: (state) => {
-    const format = (n) => {
-      if (n === null || n === undefined) return '-';
-      if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-      if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-      return String(n);
-    };
-    if (state.runningUsage) {
-      const isRelevant = !state.activeConversationId ||
-                         state.runningUsage.conversationId === state.activeConversationId;
-      if (isRelevant) {
-        const conv = state.conversations.find(c => c.id === state.activeConversationId);
-        const totalInput = (conv?.inputTokens || 0) + (state.runningUsage.inputTokens || 0);
-        const totalOutput = (conv?.outputTokens || 0) + (state.runningUsage.outputTokens || 0);
-        return {
-          input: format(totalInput), output: format(totalOutput),
-          total: format(totalInput + totalOutput),
-          cacheRead: format((conv?.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0)),
-          cacheCreation: format((conv?.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0)),
-        };
-      }
+    if (isRunningUsageRelevant(state)) {
+      const conv = state.conversations.find(c => c.id === state.activeConversationId);
+      return buildFormattedTokens(
+        (conv?.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
+        (conv?.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
+        (conv?.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
+        (conv?.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
+      );
     }
     if (state.activeConversationId && state.conversations.length > 0) {
       const conv = state.conversations.find((c) => c.id === state.activeConversationId);
       if (conv) {
-        return {
-          input: format(conv.inputTokens), output: format(conv.outputTokens),
-          total: format((conv.inputTokens || 0) + (conv.outputTokens || 0)),
-          cacheRead: format(conv.cacheReadInputTokens), cacheCreation: format(conv.cacheCreationInputTokens),
-        };
+        return buildFormattedTokens(conv.inputTokens, conv.outputTokens, conv.cacheReadInputTokens, conv.cacheCreationInputTokens);
       }
     }
-    return { input: '-', output: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
+    return EMPTY_FORMATTED_TOKENS;
   },
   contextPercentage: (state) => {
     if (state.runningUsage) {

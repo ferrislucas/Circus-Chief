@@ -193,24 +193,18 @@ async function ensureButtonsLoadedForSessions() {
   }
 }
 
-onMounted(async () => {
-  sessionsStore.restoreStatusFilter();
-  sessionsStore.restoreStarredFilter();
-  await sessionsStore.fetchActiveSessions();
+/**
+ * Register session event handlers (created, updated, deleted, summary).
+ */
+function registerSessionEventHandlers(handlers, summaryState) {
+  const { onSessionCreated, onSessionUpdated, onSessionDeleted, onSessionSummaryUpdated } = handlers;
 
-  // Fetch buttons for projects with active sessions
-  await ensureButtonsLoadedForSessions();
-
-  // Set up WebSocket listeners for real-time updates
   cleanups.push(
     onSessionCreated((session) => {
-      // Add if it's an active session (running/waiting/starting)
       if (['running', 'waiting', 'starting'].includes(session.status)) {
-        // Check if session already exists to avoid duplicates
         const exists = sessionsStore.activeSessions.some((s) => s.id === session.id);
         if (!exists) {
           sessionsStore.activeSessions.unshift(session);
-          // Fetch buttons for this project if we haven't already
           if (session.projectId && !fetchedProjectIds.value.has(session.projectId)) {
             commandButtonsStore.fetchButtons(session.projectId);
             fetchedProjectIds.value.add(session.projectId);
@@ -222,27 +216,20 @@ onMounted(async () => {
 
   cleanups.push(
     onSessionUpdated((session) => {
-      // Handle status transitions: add to active if becoming active, remove if not
       const isActive = ['running', 'waiting', 'starting'].includes(session.status);
       const existingIndex = sessionsStore.activeSessions.findIndex((s) => s.id === session.id);
 
       if (isActive) {
         if (existingIndex >= 0) {
-          // Update existing session
           sessionsStore.activeSessions[existingIndex] = session;
         } else {
-          // Add to active sessions
           sessionsStore.activeSessions.unshift(session);
         }
-      } else {
-        // Remove from active sessions if no longer active
-        if (existingIndex >= 0) {
-          sessionsStore.activeSessions.splice(existingIndex, 1);
-          // Clean up summary data
-          delete summaries[session.id];
-          delete loadingSummaries[session.id];
-          delete summaryErrors[session.id];
-        }
+      } else if (existingIndex >= 0) {
+        sessionsStore.activeSessions.splice(existingIndex, 1);
+        delete summaryState.summaries[session.id];
+        delete summaryState.loading[session.id];
+        delete summaryState.errors[session.id];
       }
     })
   );
@@ -253,86 +240,79 @@ onMounted(async () => {
       if (existingIndex >= 0) {
         sessionsStore.activeSessions.splice(existingIndex, 1);
       }
-      // Clean up summary data
-      delete summaries[sessionId];
-      delete loadingSummaries[sessionId];
-      delete summaryErrors[sessionId];
+      delete summaryState.summaries[sessionId];
+      delete summaryState.loading[sessionId];
+      delete summaryState.errors[sessionId];
     })
   );
 
-  // Handle session summary updated (real-time updates when summaries are generated)
   cleanups.push(
     onSessionSummaryUpdated((sessionId, summary) => {
-      summaries[sessionId] = summary;
-      loadingSummaries[sessionId] = false;
-      summaryErrors[sessionId] = false;
+      summaryState.summaries[sessionId] = summary;
+      summaryState.loading[sessionId] = false;
+      summaryState.errors[sessionId] = false;
     })
   );
+}
 
-  // Set up global WebSocket handlers for command run events (for all projects)
-  const { on, off } = useWebSocket();
+/**
+ * Ensure a command run entry exists in the store, creating one if needed.
+ */
+function ensureCommandRunExists(runId, buttonId, sessionId) {
+  if (!commandButtonsStore.runs[runId]) {
+    commandButtonsStore.runs[runId] = {
+      runId,
+      buttonId,
+      sessionId,
+      status: 'running',
+      output: '',
+      exitCode: null,
+      startedAt: Date.now(),
+      outputTruncated: false,
+    };
+  }
+}
 
-  // Handle command run output (for real-time status icon updates)
+/**
+ * Register command run WebSocket handlers.
+ */
+function registerCommandRunHandlers(ws) {
+  const { on, off } = ws;
+
   const commandOutputHandler = (msg) => {
-    const { runId, sessionId, buttonId, output } = msg;
-    if (!commandButtonsStore.runs[runId]) {
-      commandButtonsStore.runs[runId] = {
-        runId,
-        buttonId,
-        sessionId,
-        status: 'running',
-        output: '',
-        exitCode: null,
-        startedAt: Date.now(),
-        outputTruncated: false,
-      };
-    }
-    commandButtonsStore.appendOutput(runId, output);
+    ensureCommandRunExists(msg.runId, msg.buttonId, msg.sessionId);
+    commandButtonsStore.appendOutput(msg.runId, msg.output);
   };
   on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, commandOutputHandler);
   cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, commandOutputHandler));
 
-  // Handle command run complete
   const commandCompleteHandler = (msg) => {
-    const { runId, sessionId, buttonId, exitCode, output } = msg;
-    // Create run if it doesn't exist (handles edge case of no output before completion)
-    if (!commandButtonsStore.runs[runId]) {
-      commandButtonsStore.runs[runId] = {
-        runId,
-        buttonId,
-        sessionId,
-        status: 'running',
-        output: '',
-        exitCode: null,
-        startedAt: Date.now(),
-        outputTruncated: false,
-      };
-    }
-    commandButtonsStore.completeRun(runId, exitCode, output);
+    ensureCommandRunExists(msg.runId, msg.buttonId, msg.sessionId);
+    commandButtonsStore.completeRun(msg.runId, msg.exitCode, msg.output);
   };
   on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, commandCompleteHandler);
   cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, commandCompleteHandler));
 
-  // Handle command run error
   const commandErrorHandler = (msg) => {
-    const { runId, sessionId, buttonId, error } = msg;
-    // Create run if it doesn't exist (handles edge case of no output before error)
-    if (!commandButtonsStore.runs[runId]) {
-      commandButtonsStore.runs[runId] = {
-        runId,
-        buttonId,
-        sessionId,
-        status: 'running',
-        output: '',
-        exitCode: null,
-        startedAt: Date.now(),
-        outputTruncated: false,
-      };
-    }
-    commandButtonsStore.errorRun(runId, error);
+    ensureCommandRunExists(msg.runId, msg.buttonId, msg.sessionId);
+    commandButtonsStore.errorRun(msg.runId, msg.error);
   };
   on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, commandErrorHandler);
   cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, commandErrorHandler));
+}
+
+onMounted(async () => {
+  sessionsStore.restoreStatusFilter();
+  sessionsStore.restoreStarredFilter();
+  await sessionsStore.fetchActiveSessions();
+  await ensureButtonsLoadedForSessions();
+
+  const summaryState = { summaries, loading: loadingSummaries, errors: summaryErrors };
+  registerSessionEventHandlers(
+    { onSessionCreated, onSessionUpdated, onSessionDeleted, onSessionSummaryUpdated },
+    summaryState
+  );
+  registerCommandRunHandlers(useWebSocket());
 
   // Keep polling as a fallback (increased to 30s since we have real-time updates)
   refreshInterval = setInterval(() => {

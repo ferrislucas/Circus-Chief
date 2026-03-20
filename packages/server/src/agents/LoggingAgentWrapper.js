@@ -1,6 +1,35 @@
 import { agentCallLogger } from '../services/agentCallLogger.js';
 
 /**
+ * Extract usage data from a result event's modelUsage or usage fields.
+ * @param {Object} event - A result event
+ * @returns {Object|null} Normalized usage object, or null if no usage data found
+ */
+function extractUsageFromEvent(event) {
+  const modelUsageEntry = event.modelUsage
+    ? Object.values(event.modelUsage)[0]
+    : null;
+
+  if (!modelUsageEntry && !event.usage) return null;
+
+  return {
+    inputTokens:
+      modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
+    outputTokens:
+      modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
+    thinkingTokens: 0, // Not exposed in result event
+    cacheReadInputTokens:
+      modelUsageEntry?.cacheReadInputTokens ||
+      event.usage?.cache_read_input_tokens ||
+      0,
+    cacheCreationInputTokens:
+      modelUsageEntry?.cacheCreationInputTokens ||
+      event.usage?.cache_creation_input_tokens ||
+      0,
+  };
+}
+
+/**
  * Decorator that wraps a BaseAgent's execute() to log call start/end/errors.
  * The wrapper is transparent to the consumer -- it yields the same events.
  */
@@ -25,25 +54,9 @@ export class LoggingAgentWrapper {
       for await (const event of this.agent.execute(queryParams, meta)) {
         // Capture final usage from 'result' events
         if (event.type === 'result' && event.subtype !== 'error') {
-          const modelUsageEntry = event.modelUsage
-            ? Object.values(event.modelUsage)[0]
-            : null;
-          if (modelUsageEntry || event.usage) {
-            agentCallLogger.updateUsage(callId, {
-              inputTokens:
-                modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
-              outputTokens:
-                modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
-              thinkingTokens: 0, // Not exposed in result event
-              cacheReadInputTokens:
-                modelUsageEntry?.cacheReadInputTokens ||
-                event.usage?.cache_read_input_tokens ||
-                0,
-              cacheCreationInputTokens:
-                modelUsageEntry?.cacheCreationInputTokens ||
-                event.usage?.cache_creation_input_tokens ||
-                0,
-            });
+          const usage = extractUsageFromEvent(event);
+          if (usage) {
+            agentCallLogger.updateUsage(callId, usage);
           }
         }
 

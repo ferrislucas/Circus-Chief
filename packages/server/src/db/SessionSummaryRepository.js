@@ -81,6 +81,26 @@ export class SessionSummaryRepository extends BaseRepository {
   }
 
   /**
+   * Field mapping from camelCase data keys to [column_name, transform] pairs.
+   * The transform converts a JS value to the DB value.
+   * @type {Array<[string, string, (v: any) => any]>}
+   */
+  static #updateFieldMap = [
+    ['shortSummary', 'short_summary', (v) => v],
+    ['fullSummary', 'full_summary', (v) => v],
+    ['keyActions', 'key_actions', (v) => JSON.stringify(v)],
+    ['filesModified', 'files_modified', (v) => JSON.stringify(v)],
+    ['outcome', 'outcome', (v) => v],
+    ['messageCount', 'message_count', (v) => v],
+    ['lastSummarizedMessageId', 'last_summarized_message_id', (v) => v],
+    ['prMerged', 'pr_merged', (v) => (v ? 1 : 0)],
+    ['prState', 'pr_state', (v) => v],
+    ['hasMergeConflicts', 'has_merge_conflicts', (v) => (v ? 1 : 0)],
+    ['ciStatus', 'ci_status', (v) => v],
+    ['ciFailures', 'ci_failures', (v) => JSON.stringify(v)],
+  ];
+
+  /**
    * Update an existing session summary
    * @param {string} id
    * @param {Object} data
@@ -90,53 +110,11 @@ export class SessionSummaryRepository extends BaseRepository {
     const updates = [];
     const values = [];
 
-    if (data.shortSummary !== undefined) {
-      updates.push('short_summary = ?');
-      values.push(data.shortSummary);
-    }
-    if (data.fullSummary !== undefined) {
-      updates.push('full_summary = ?');
-      values.push(data.fullSummary);
-    }
-    if (data.keyActions !== undefined) {
-      updates.push('key_actions = ?');
-      values.push(JSON.stringify(data.keyActions));
-    }
-    if (data.filesModified !== undefined) {
-      updates.push('files_modified = ?');
-      values.push(JSON.stringify(data.filesModified));
-    }
-    if (data.outcome !== undefined) {
-      updates.push('outcome = ?');
-      values.push(data.outcome);
-    }
-    if (data.messageCount !== undefined) {
-      updates.push('message_count = ?');
-      values.push(data.messageCount);
-    }
-    if (data.lastSummarizedMessageId !== undefined) {
-      updates.push('last_summarized_message_id = ?');
-      values.push(data.lastSummarizedMessageId);
-    }
-    if (data.prMerged !== undefined) {
-      updates.push('pr_merged = ?');
-      values.push(data.prMerged ? 1 : 0);
-    }
-    if (data.prState !== undefined) {
-      updates.push('pr_state = ?');
-      values.push(data.prState);
-    }
-    if (data.hasMergeConflicts !== undefined) {
-      updates.push('has_merge_conflicts = ?');
-      values.push(data.hasMergeConflicts ? 1 : 0);
-    }
-    if (data.ciStatus !== undefined) {
-      updates.push('ci_status = ?');
-      values.push(data.ciStatus);
-    }
-    if (data.ciFailures !== undefined) {
-      updates.push('ci_failures = ?');
-      values.push(JSON.stringify(data.ciFailures));
+    for (const [key, column, transform] of SessionSummaryRepository.#updateFieldMap) {
+      if (data[key] !== undefined) {
+        updates.push(`${column} = ?`);
+        values.push(transform(data[key]));
+      }
     }
 
     if (updates.length === 0) return this.getById(id);

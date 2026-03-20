@@ -158,7 +158,7 @@ import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { api } from '../composables/useApi.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
-import { generateWorktreeBranch } from '@claudetools/shared';
+import { useGitBranch, useTextareaSync, useTemplateApply } from '../composables/useNewSessionForm.js';
 import FileAttachment from '../components/FileAttachment.vue';
 import SessionFormOptions from '../components/SessionFormOptions.vue';
 import GitOptionsPanel from '../components/GitOptionsPanel.vue';
@@ -180,9 +180,7 @@ const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
 
 const prompt = ref('');
-const promptHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
 const textareaRef = ref(null);
-let inputSyncTimer = null;
 let debounceTimer = null;
 const mode = ref('yolo');
 const model = ref(null);
@@ -190,8 +188,6 @@ const providerId = ref(null);
 const loading = ref(false);
 const quickResponseSettingsOpen = ref(false);
 const showSlashCommandWizard = ref(false);
-
-// Track which fields are using project defaults
 const usingDefaults = ref({
   mode: false,
   model: false,
@@ -201,9 +197,7 @@ const usingDefaults = ref({
   quickWorktreeBranch: false,
 });
 
-// Create keyboard shortcut handler for form submission
 const handleKeydown = useSubmitShortcut(() => {
-  // Read directly from textarea to avoid reactivity lag
   const currentValue = textareaRef.value?.value || prompt.value;
   if (!loading.value && currentValue.trim()) {
     handleSubmit();
@@ -230,16 +224,11 @@ const schedulingData = ref({
 const projectTemplates = computed(() => templatesStore.projectTemplates);
 const globalTemplates = computed(() => templatesStore.globalTemplates);
 const allTemplates = computed(() => [...projectTemplates.value, ...globalTemplates.value]);
-
 const storageKey = computed(() => `new-session-draft-${route.params.id}`);
-
-// Get working directory for slash commands
 const workingDirectory = computed(() => {
   const project = projectsStore.getProjectById(route.params.id);
   return project?.workingDirectory || null;
 });
-
-// Get available sessions that can be parents (completed sessions only)
 const availableSessions = computed(() => {
   return sessionsStore.sessions
     .filter((s) => s.status === 'completed')
@@ -251,90 +240,25 @@ const error = ref(null);
 const thinkingEnabled = ref(true);
 const effortLevel = ref(null);
 
-// Quick git feature
-const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
-const quickWorktreeBranch = ref('');
-const editingBranch = ref(false);
-let branchDebounceTimer = null;
+const {
+  quickGitMode, quickWorktreeBranch, editingBranch, autoBranchName,
+  updateBranchNameFromPrompt, handleBranchEdit, resetBranchName,
+} = useGitBranch(prompt, gitStatus);
 
-// Store the branch name (debounced to avoid regenerating random ID on every keystroke)
-const autoBranchName = ref('');
+const { promptHasContent, handleInput } = useTextareaSync(prompt, textareaRef, gitStatus, updateBranchNameFromPrompt);
 
-// Debounced function to update branch name from prompt
-function updateBranchNameFromPrompt(promptValue) {
-  if (branchDebounceTimer) clearTimeout(branchDebounceTimer);
-  branchDebounceTimer = setTimeout(() => {
-    autoBranchName.value = generateWorktreeBranch('', promptValue);
-    // Also update the input field if user hasn't manually edited it
-    if (!editingBranch.value) {
-      quickWorktreeBranch.value = autoBranchName.value;
-    }
-  }, 300);
-}
-
-// Handle textarea input with debounced sync to reactive state
-// This prevents Vue reactivity from firing on every keystroke
-function handleInput(event) {
-  const value = event.target.value;
-  const hasContent = value.trim().length > 0;
-
-  // Only update the reactive flag if it changed (minimizes re-renders)
-  if (promptHasContent.value !== hasContent) {
-    promptHasContent.value = hasContent;
-  }
-
-  // Debounce the sync to reactive state
-  if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  inputSyncTimer = setTimeout(() => {
-    // Sync to reactive state (for handleSubmit to access as fallback)
-    prompt.value = value;
-  }, 150);
-
-  // Update branch name (already has its own debounce)
-  if (gitStatus.value?.isGitRepo) {
-    updateBranchNameFromPrompt(value);
-  }
-}
-
-// Initialize quick worktree branch when git status loads
-watch(
-  () => gitStatus.value,
-  (status) => {
-    if (status?.isGitRepo && !autoBranchName.value) {
-      // Generate initial branch name
-      autoBranchName.value = generateWorktreeBranch('', prompt.value);
-      quickWorktreeBranch.value = autoBranchName.value;
-    }
-  },
-  { immediate: true }
-);
-
-// Track when fields are overridden by user
-watch(mode, () => {
-  usingDefaults.value.mode = false;
+const { applyProjectDefaults } = useTemplateApply({
+  mode, model, thinkingEnabled, startImmediately,
+  quickGitMode, quickWorktreeBranch, editingBranch, effortLevel, usingDefaults,
 });
 
-watch(model, () => {
-  usingDefaults.value.model = false;
-});
+watch(mode, () => { usingDefaults.value.mode = false; });
+watch(model, () => { usingDefaults.value.model = false; });
+watch(thinkingEnabled, () => { usingDefaults.value.thinkingEnabled = false; });
+watch(startImmediately, () => { usingDefaults.value.startImmediately = false; });
+watch(quickGitMode, () => { usingDefaults.value.quickGitMode = false; });
+watch(quickWorktreeBranch, () => { usingDefaults.value.quickWorktreeBranch = false; });
 
-watch(thinkingEnabled, () => {
-  usingDefaults.value.thinkingEnabled = false;
-});
-
-watch(startImmediately, () => {
-  usingDefaults.value.startImmediately = false;
-});
-
-watch(quickGitMode, () => {
-  usingDefaults.value.quickGitMode = false;
-});
-
-watch(quickWorktreeBranch, () => {
-  usingDefaults.value.quickWorktreeBranch = false;
-});
-
-// Watch prompt for localStorage persistence with debouncing
 watch(prompt, (newValue) => {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
@@ -343,13 +267,10 @@ watch(prompt, (newValue) => {
     } else {
       localStorage.removeItem(storageKey.value);
     }
-  }, 500); // 500ms debounce to avoid excessive writes
+  }, 500);
 });
 
-// Cleanup timers on unmount
 onUnmounted(() => {
-  if (branchDebounceTimer) clearTimeout(branchDebounceTimer);
-  if (inputSyncTimer) clearTimeout(inputSyncTimer);
   if (debounceTimer) clearTimeout(debounceTimer);
 });
 
@@ -376,38 +297,7 @@ onMounted(async () => {
     const defaults = defaultsStore.getDefaultsForProject(projectId);
 
     if (defaults) {
-      // Pre-fill form with project defaults
-      if (defaults.mode) {
-        mode.value = defaults.mode;
-        usingDefaults.value.mode = true;
-      }
-      if (defaults.model) {
-        model.value = defaults.model;
-        usingDefaults.value.model = true;
-      } else {
-        // No project default set, use system default
-        model.value = 'sonnet';
-        usingDefaults.value.model = true;
-      }
-      if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
-        thinkingEnabled.value = defaults.thinkingEnabled;
-        usingDefaults.value.thinkingEnabled = true;
-      }
-      if (defaults.effortLevel) {
-        effortLevel.value = defaults.effortLevel;
-      }
-      if (defaults.startImmediately !== null && defaults.startImmediately !== undefined) {
-        startImmediately.value = defaults.startImmediately;
-        usingDefaults.value.startImmediately = true;
-      }
-      if (defaults.gitMode) {
-        quickGitMode.value = defaults.gitMode;
-        usingDefaults.value.quickGitMode = true;
-      }
-      if (defaults.gitBranch) {
-        quickWorktreeBranch.value = defaults.gitBranch;
-        usingDefaults.value.quickWorktreeBranch = true;
-      }
+      applyProjectDefaults(defaults);
     } else {
       // No defaults at all, use system default for model
       model.value = 'sonnet';
@@ -443,15 +333,6 @@ onMounted(async () => {
     parentSessionId.value = route.query.parentSessionId;
   }
 });
-
-function handleBranchEdit() {
-  editingBranch.value = true;
-}
-
-function resetBranchName() {
-  editingBranch.value = false;
-  quickWorktreeBranch.value = autoBranchName.value;
-}
 
 function handleSlashCommandInsert({ text }) {
   // Insert the slash command text at the cursor position in the prompt field
