@@ -154,6 +154,7 @@ export const allMigrations = validateMigrations([
   // --- Session templates ---
   m.get('session_templates-add-model'),
   m.get('session_templates-add-mode'),
+  m.get('session_templates-add-effort_level'),
 
   // --- Conversation messages model ---
   c.get('conversation_messages-add-model'),

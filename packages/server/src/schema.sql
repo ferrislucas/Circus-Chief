@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS session_templates (
   git_mode TEXT,
   model TEXT,
   mode TEXT DEFAULT 'yolo' CHECK(mode IN ('plan', 'standard', 'yolo')),
+  effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
