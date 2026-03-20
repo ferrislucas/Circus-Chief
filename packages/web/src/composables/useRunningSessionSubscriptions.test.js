@@ -430,4 +430,344 @@ describe('useRunningSessionSubscriptions', () => {
     expect(sub1.unsubscribe).toHaveBeenCalled();
     expect(sub2.unsubscribe).toHaveBeenCalled();
   });
+
+  describe('hydration retry logic', () => {
+    it('retries hydration after 1.5s when initial fetch returns empty data', async () => {
+      let fetchCallCount = 0;
+      const retrySnapshot = {
+        workLogs: [{ id: '1', type: 'tool_use', content: 'test' }],
+        partialText: 'hello',
+        thinking: null,
+      };
+
+      globalThis.fetch = vi.fn(() => {
+        fetchCallCount++;
+        if (fetchCallCount === 1) {
+          // First call: return empty data
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ workLogs: [], partialText: '', thinking: null }),
+          });
+        }
+        // Retry call: return data
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(retrySnapshot),
+        });
+      });
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      // Wait for the initial fetch promise chain to resolve
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      // hydrateSessionState should NOT have been called yet (empty data)
+      expect(mockStreamingStore.hydrateSessionState).not.toHaveBeenCalled();
+
+      // Advance past the 1.5s retry delay — use advanceTimersByTimeAsync
+      // so that microtasks (Promise callbacks) within the timer are flushed
+      await vi.advanceTimersByTimeAsync(1500);
+
+      // Wait for retry fetch promise to resolve
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      });
+      await vi.waitFor(() => {
+        expect(mockStreamingStore.hydrateSessionState).toHaveBeenCalledWith('session-1', retrySnapshot);
+      });
+    });
+
+    it('retries hydration after 1.5s when initial fetch fails', async () => {
+      let fetchCallCount = 0;
+      const retrySnapshot = {
+        workLogs: [{ id: '1', type: 'tool_use', content: 'retry data' }],
+        partialText: 'retried',
+        thinking: null,
+      };
+
+      globalThis.fetch = vi.fn(() => {
+        fetchCallCount++;
+        if (fetchCallCount === 1) {
+          return Promise.reject(new Error('Network error'));
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(retrySnapshot),
+        });
+      });
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      // Wait for the initial fetch rejection to be handled
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      // Advance past the 1.5s retry delay
+      vi.advanceTimersByTime(1500);
+
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      });
+      await vi.waitFor(() => {
+        expect(mockStreamingStore.hydrateSessionState).toHaveBeenCalledWith('session-1', retrySnapshot);
+      });
+    });
+
+    it('does not retry hydration if session is no longer running', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ workLogs: [], partialText: '', thinking: null }),
+        })
+      );
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      // Session becomes completed before retry fires
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'completed' }];
+      await nextTick();
+
+      // Advance past the 1.5s retry delay
+      vi.advanceTimersByTime(1500);
+
+      // Should NOT have made a second fetch because session stopped and was unsubscribed
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry hydration when initial fetch returns data with content', async () => {
+      const snapshot = {
+        workLogs: [{ id: '1', type: 'tool_use', content: 'test' }],
+        partialText: 'hello',
+        thinking: null,
+      };
+
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(snapshot),
+        })
+      );
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      await vi.waitFor(() => {
+        expect(mockStreamingStore.hydrateSessionState).toHaveBeenCalledWith('session-1', snapshot);
+      });
+
+      // Advance past potential retry delay
+      vi.advanceTimersByTime(2000);
+
+      // Should have only called fetch once (no retry needed)
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('handles hydration fetch failure without breaking real-time updates', async () => {
+      // Both initial and retry fail
+      globalThis.fetch = vi.fn(() => Promise.reject(new Error('Network error')));
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+
+      // Subscription should still work
+      const sub = mockSubscriptionInstances['session-1'];
+      expect(sub.subscribe).toHaveBeenCalled();
+
+      // Advance past retry delay
+      vi.advanceTimersByTime(1500);
+
+      // Wait for retry promise to resolve (and fail)
+      await nextTick();
+      await nextTick();
+
+      // Real-time callbacks should still function
+      const workLogHandler = sub._handlers.onWorkLog[0];
+      const log = { id: '1', type: 'tool_use', tool: 'Read' };
+      workLogHandler(log);
+
+      expect(mockStreamingStore.addSessionWorkLog).toHaveBeenCalledWith('session-1', log);
+    });
+  });
+
+  describe('child session subscription', () => {
+    it('subscribes to child session when it appears in store with "starting" status', async () => {
+      mockSessionsStore.sessions = [];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+
+      // Add a child session with starting status
+      mockSessionsStore.sessions = [
+        { id: 'parent-1', status: 'waiting', parentSessionId: null },
+        { id: 'child-1', status: 'starting', parentSessionId: 'parent-1' },
+      ];
+
+      await nextTick();
+
+      expect(useSessionSubscription).toHaveBeenCalledWith('child-1');
+      expect(mockSubscriptionInstances['child-1'].subscribe).toHaveBeenCalled();
+      // Parent should not be subscribed (status is 'waiting')
+      expect(useSessionSubscription).not.toHaveBeenCalledWith('parent-1');
+    });
+
+    it('subscribes to child session when its status transitions from "waiting" to "running"', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'child-1', status: 'waiting', parentSessionId: 'parent-1' },
+      ];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+
+      // Should not subscribe while waiting
+      expect(useSessionSubscription).not.toHaveBeenCalledWith('child-1');
+
+      // Update status to running
+      mockSessionsStore.sessions = [
+        { id: 'child-1', status: 'running', parentSessionId: 'parent-1' },
+      ];
+
+      await nextTick();
+
+      expect(useSessionSubscription).toHaveBeenCalledWith('child-1');
+      expect(mockSubscriptionInstances['child-1'].subscribe).toHaveBeenCalled();
+    });
+
+    it('unsubscribes when child session transitions from "running" to "completed"', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'child-1', status: 'running', parentSessionId: 'parent-1' },
+      ];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+
+      const sub = mockSubscriptionInstances['child-1'];
+      expect(sub.subscribe).toHaveBeenCalled();
+
+      // Child session completes
+      mockSessionsStore.sessions = [
+        { id: 'child-1', status: 'completed', parentSessionId: 'parent-1' },
+      ];
+
+      await nextTick();
+
+      expect(sub.unsubscribe).toHaveBeenCalled();
+    });
+
+    it('hydrates streaming state for newly subscribed child session', async () => {
+      const snapshot = {
+        workLogs: [{ id: '1', type: 'tool_use', content: 'child work' }],
+        partialText: 'hello from child',
+        thinking: null,
+      };
+
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(snapshot),
+        })
+      );
+
+      mockSessionsStore.sessions = [
+        { id: 'child-1', status: 'running', parentSessionId: 'parent-1' },
+      ];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      await vi.waitFor(() => {
+        expect(mockStreamingStore.hydrateSessionState).toHaveBeenCalledWith('child-1', snapshot);
+      });
+    });
+
+    it('does not double-subscribe when child session is already subscribed', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'child-1', status: 'running', parentSessionId: 'parent-1' },
+      ];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+
+      // Trigger the watch again with the same running child session
+      mockSessionsStore.sessions = [
+        { id: 'child-1', status: 'running', parentSessionId: 'parent-1' },
+        { id: 'some-other', status: 'completed' },
+      ];
+
+      await nextTick();
+
+      const callsForChild = useSessionSubscription.mock.calls.filter(c => c[0] === 'child-1');
+      expect(callsForChild).toHaveLength(1);
+    });
+
+    it('clears child session streaming state after 2s delay when child session stops', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'child-1', status: 'running', parentSessionId: 'parent-1' },
+      ];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+
+      const sub = mockSubscriptionInstances['child-1'];
+      const statusHandler = sub._handlers.onStatus[0];
+
+      // Child session completes
+      statusHandler('completed');
+
+      // Should not clear immediately
+      expect(mockStreamingStore.clearSessionStreamingState).not.toHaveBeenCalled();
+
+      // After 2 seconds
+      vi.advanceTimersByTime(2000);
+
+      expect(mockStreamingStore.clearSessionStreamingState).toHaveBeenCalledWith('child-1');
+    });
+  });
 });
