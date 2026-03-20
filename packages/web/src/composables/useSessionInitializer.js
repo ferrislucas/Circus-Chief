@@ -81,7 +81,7 @@ export function useSessionInitializer({
     const {
       subscribe, unsubscribe,
       onStatus, onMessage, onPartial, onError,
-      onCanvasAdd, onCanvasRemove,
+      onCanvasAdd, onCanvasRemove, onCanvasUpdate,
       onTodosUpdate, onSessionUpdate, onSummaryUpdate,
       onConversationCreated, onConversationUpdated, onConversationDeleted,
       onUsageUpdate, onChangesUpdate,
@@ -184,6 +184,12 @@ export function useSessionInitializer({
     cleanups.push(
       onCanvasRemove((itemId) => {
         canvasStore.removeItem(itemId);
+      })
+    );
+
+    cleanups.push(
+      onCanvasUpdate((item) => {
+        canvasStore.patchItem(item);
       })
     );
 

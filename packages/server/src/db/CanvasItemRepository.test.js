@@ -834,5 +834,43 @@ describe('CanvasItemRepository', () => {
         expect(targetItems[0].content).toBe('Keep');
       });
     });
+
+    describe('updateContent', () => {
+      it('updates the content of an existing canvas item', () => {
+        const item = repo.create(sessionId, { type: 'markdown', content: '# Original' });
+        const updated = repo.updateContent(item.id, '# Updated');
+        expect(updated.content).toBe('# Updated');
+      });
+
+      it('updates the updated_at timestamp', () => {
+        const item = repo.create(sessionId, { type: 'markdown', content: '# Original' });
+        const originalUpdatedAt = item.updatedAt;
+        // Small delay to ensure timestamp differs
+        const updated = repo.updateContent(item.id, '# Updated');
+        expect(updated.updatedAt).toBeGreaterThanOrEqual(originalUpdatedAt);
+      });
+
+      it('does not create a new row (total row count stays the same)', () => {
+        const item = repo.create(sessionId, { type: 'markdown', content: '# Original' });
+        const countBefore = repo.getBySessionId(sessionId).length;
+        repo.updateContent(item.id, '# Updated');
+        const countAfter = repo.getBySessionId(sessionId).length;
+        expect(countAfter).toBe(countBefore);
+      });
+
+      it('returns the updated item with new content and timestamp', () => {
+        const item = repo.create(sessionId, { type: 'text', content: 'old' });
+        const updated = repo.updateContent(item.id, 'new');
+        expect(updated).toBeDefined();
+        expect(updated.id).toBe(item.id);
+        expect(updated.content).toBe('new');
+        expect(updated.updatedAt).toBeTypeOf('number');
+      });
+
+      it('returns undefined when itemId does not exist', () => {
+        const result = repo.updateContent('nonexistent-id', 'new content');
+        expect(result).toBeUndefined();
+      });
+    });
   });
 });

@@ -96,6 +96,16 @@ export function useSessionSubscription(sessionId) {
     return () => off(WS_MESSAGE_TYPES.CANVAS_REMOVE, handler);
   };
 
+  const onCanvasUpdate = (callback) => {
+    const handler = (msg) => {
+      if (msg.item?.sessionId === sessionId) {
+        callback(msg.item);
+      }
+    };
+    on(WS_MESSAGE_TYPES.CANVAS_UPDATE, handler);
+    return () => off(WS_MESSAGE_TYPES.CANVAS_UPDATE, handler);
+  };
+
   const onPartial = (callback) => {
     const handler = (msg) => {
       if (msg.sessionId === sessionId) {
@@ -281,6 +291,7 @@ export function useSessionSubscription(sessionId) {
     onError,
     onCanvasAdd,
     onCanvasRemove,
+    onCanvasUpdate,
     onTodosUpdate,
     onWorkLog,
     onWorkLogsAssociated,

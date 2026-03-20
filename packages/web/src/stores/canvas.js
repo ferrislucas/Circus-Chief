@@ -9,6 +9,7 @@ export const useCanvasStore = defineStore('canvas', {
     error: null,
     selectedItemIds: new Set(),
     bulkOperationInProgress: false,
+    editingSessionMap: {},  // { [filename]: latestItemId } — tracks "active editing session"
   }),
 
   getters: {
@@ -297,6 +298,79 @@ export const useCanvasStore = defineStore('canvas', {
         throw err;
       } finally {
         this.bulkOperationInProgress = false;
+      }
+    },
+
+    // --- Markdown editing actions ---
+
+    /**
+     * Update a canvas item's content in-place via PUT
+     */
+    async updateItemContent(sessionId, itemId, content) {
+      try {
+        const result = await api.updateCanvasItem(sessionId, itemId, { content });
+        // Patch local item
+        const item = this.items.find((i) => i.id === itemId);
+        if (item) {
+          item.content = result.content;
+          item.updatedAt = result.updatedAt;
+        }
+        return result;
+      } catch (err) {
+        this.error = `Failed to update content: ${err.message}`;
+        throw err;
+      }
+    },
+
+    /**
+     * Record that we're in an active editing session for this file
+     */
+    startEditing(filename, itemId) {
+      this.editingSessionMap[filename] = itemId;
+    },
+
+    /**
+     * Clear the editing session entry (called when navigating away)
+     */
+    endEditing(filename) {
+      delete this.editingSessionMap[filename];
+    },
+
+    /**
+     * Main save logic for markdown content.
+     * If editingSessionMap has an entry → in-place update (PUT)
+     * If no entry → create new version (POST), then start editing the new version
+     */
+    async saveMarkdownContent(sessionId, filename, content) {
+      try {
+        const existingItemId = this.editingSessionMap[filename];
+        if (existingItemId) {
+          // In-place update — no new version
+          await this.updateItemContent(sessionId, existingItemId, content);
+        } else {
+          // Create a new version
+          const newItem = await api.createCanvasItem(sessionId, {
+            type: 'markdown',
+            content,
+            filename,
+          });
+          this.addItem(newItem);
+          this.startEditing(filename, newItem.id);
+        }
+      } catch (err) {
+        this.error = `Failed to save markdown: ${err.message}`;
+        // Don't throw — user should not lose work. Debounce will retry.
+      }
+    },
+
+    /**
+     * Patch an item in the local store (used by WebSocket handler)
+     */
+    patchItem(item) {
+      const existing = this.items.find((i) => i.id === item.id);
+      if (existing) {
+        existing.content = item.content;
+        existing.updatedAt = item.updatedAt;
       }
     },
   },
