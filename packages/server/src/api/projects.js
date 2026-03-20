@@ -145,6 +145,13 @@ function applyTemplateOverrides(config) {
   if (template.gitMode) {
     config.gitMode = template.gitMode;
   }
+  if (template.effortLevel !== null && template.effortLevel !== undefined) {
+    config.effortLevel = template.effortLevel;
+    // Normalize 'auto' to null (same as prepareSessionConfig)
+    if (config.effortLevel === 'auto') {
+      config.effortLevel = null;
+    }
+  }
   config.nextTemplateId = config.templateId;
 }
 

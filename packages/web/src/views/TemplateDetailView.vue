@@ -82,6 +82,12 @@
           </select>
         </div>
 
+        <!-- Effort Level Field -->
+        <div class="form-group">
+          <label for="effort-level">Effort Level</label>
+          <EffortLevelSelector v-model="formData.effortLevel" />
+        </div>
+
         <!-- Git Branch Field -->
         <div class="form-group">
           <label for="gitBranch">Git Branch (Optional)</label>
@@ -144,6 +150,7 @@ import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../api/index.js';
 import ModelSelector from '../components/ModelSelector.vue';
+import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
 
 const route = useRoute();
@@ -166,6 +173,7 @@ const formData = ref({
   gitBranch: '',
   model: null,
   mode: null,
+  effortLevel: null,
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -193,6 +201,7 @@ const loadTemplate = async () => {
         gitBranch: template.gitBranch || '',
         model: template.model,                      // Preserve null (inherit) or model ID
         mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
+        effortLevel: template.effortLevel ?? null,
       };
     }
   } catch (err) {
@@ -215,6 +224,7 @@ const onSubmit = async () => {
       gitBranch: formData.value.gitBranch || undefined,
       model: formData.value.model,                      // null = inherit
       mode: formData.value.mode,                        // null = inherit
+      effortLevel: formData.value.effortLevel,          // null = inherit
     };
 
     await templatesStore.updateTemplate(templateId.value, data);

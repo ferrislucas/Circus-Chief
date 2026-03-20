@@ -366,6 +366,10 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     // Use the shared helper which waits for the quick-responses API call
     await navigateToSessionAndExpandPanel(page, session.id);
 
+    // Wait for the empty text element to be visible before checking its content
+    // This fixes a race condition where .empty-state is visible but .empty-text hasn't rendered yet
+    await expect(page.locator('.empty-text')).toBeVisible({ timeout: 5000 });
+
     // Verify empty state text
     await expect(page.locator('.empty-text')).toContainText('No quick responses yet');
   });

@@ -71,6 +71,7 @@ describe('SessionTemplateRepository', () => {
         gitMode: 'worktree',
         model: 'claude-sonnet-4-5',
         mode: 'plan',
+        effortLevel: 'medium',
       });
 
       expect(template.nextTemplateId).toBe(otherTemplate.id);
@@ -79,6 +80,7 @@ describe('SessionTemplateRepository', () => {
       expect(template.gitMode).toBe('worktree');
       expect(template.model).toBe('claude-sonnet-4-5');
       expect(template.mode).toBe('plan');
+      expect(template.effortLevel).toBe('medium');
     });
 
     it('creates template with thinkingEnabled false', () => {
@@ -122,6 +124,35 @@ describe('SessionTemplateRepository', () => {
       });
 
       expect(template.mode).toBeNull();
+    });
+
+    it('creates template with effortLevel', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'Effort Template',
+        prompt: 'Prompt',
+        effortLevel: 'high',
+      });
+      expect(template.effortLevel).toBe('high');
+    });
+
+    it('creates template with effortLevel auto', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'Auto Effort',
+        prompt: 'Prompt',
+        effortLevel: 'auto',
+      });
+      expect(template.effortLevel).toBe('auto');
+    });
+
+    it('defaults effortLevel to null when not provided', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'No Effort',
+        prompt: 'Prompt',
+      });
+      expect(template.effortLevel).toBeNull();
     });
   });
 
@@ -333,6 +364,18 @@ describe('SessionTemplateRepository', () => {
       const updated = repo.update(template.id, { mode: null });
 
       expect(updated.mode).toBeNull();
+    });
+
+    it('updates effortLevel', () => {
+      const template = repo.create({ projectId: null, name: 'Test', prompt: 'Prompt' });
+      const updated = repo.update(template.id, { effortLevel: 'max' });
+      expect(updated.effortLevel).toBe('max');
+    });
+
+    it('clears effortLevel when set to null', () => {
+      const template = repo.create({ projectId: null, name: 'Test', prompt: 'Prompt', effortLevel: 'high' });
+      const updated = repo.update(template.id, { effortLevel: null });
+      expect(updated.effortLevel).toBeNull();
     });
 
     it('updates multiple fields at once', () => {
