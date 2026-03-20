@@ -172,7 +172,7 @@ test.describe('Command Button Status Modal', () => {
     await page.click('[data-testid="button-status-indicator"]');
     await expect(page.locator('[data-testid="button-status-modal"]')).toBeVisible({ timeout: 5000 });
 
-    // Click close button in footer (use .btn-primary to target the Close button, not Remove Run)
+    // Click close button in footer (use btn-primary to avoid hitting "Remove Run" button)
     await page.click('.modal-footer .btn-primary');
     await expect(page.locator('[data-testid="button-status-modal"]')).not.toBeVisible();
   });

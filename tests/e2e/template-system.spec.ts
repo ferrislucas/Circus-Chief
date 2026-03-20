@@ -556,3 +556,325 @@ test.describe('Auto-Trigger Mechanism', () => {
     expect(sessionC.parentSessionId).toBe(childB.id);
   });
 });
+
+// ============================================================
+// Category 4: Template Effort Level Configuration Tests
+// ============================================================
+
+test.describe('Template Effort Level Configuration', () => {
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+    project = await seedProject('Template Effort Level Test', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+  });
+
+  test('saves and returns effortLevel field correctly', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Effort Level Template',
+      prompt: 'Test prompt',
+      effortLevel: 'high',
+    });
+    expect(template.effortLevel).toBe('high');
+
+    const fetched = await getTemplate(template.id);
+    expect(fetched.effortLevel).toBe('high');
+  });
+
+  test('saves all valid effortLevel values', async () => {
+    for (const level of ['low', 'medium', 'high', 'max', 'auto']) {
+      const template = await seedProjectTemplate(project.id, {
+        name: `[TEST] Effort ${level}`,
+        prompt: 'Test prompt',
+        effortLevel: level,
+      });
+      expect(template.effortLevel).toBe(level);
+    }
+  });
+
+  test('saves effortLevel as null when not provided', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] No Effort Level',
+      prompt: 'Test prompt',
+    });
+    expect(template.effortLevel).toBeNull();
+  });
+
+  test('updates effortLevel via PATCH', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Update Effort Template',
+      prompt: 'Test prompt',
+      effortLevel: 'low',
+    });
+
+    const updated = await updateTemplate(template.id, { effortLevel: 'max' });
+    expect(updated.effortLevel).toBe('max');
+
+    const fetched = await getTemplate(template.id);
+    expect(fetched.effortLevel).toBe('max');
+  });
+
+  test('clears effortLevel when set to null via PATCH', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Clear Effort Template',
+      prompt: 'Test prompt',
+      effortLevel: 'high',
+    });
+
+    const updated = await updateTemplate(template.id, { effortLevel: null });
+    expect(updated.effortLevel).toBeNull();
+
+    const fetched = await getTemplate(template.id);
+    expect(fetched.effortLevel).toBeNull();
+  });
+
+  test('updates multiple fields including effortLevel', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Multi Update Template',
+      prompt: 'Test prompt',
+    });
+
+    const updated = await updateTemplate(template.id, {
+      mode: 'plan',
+      thinkingEnabled: true,
+      effortLevel: 'medium',
+    });
+
+    expect(updated.mode).toBe('plan');
+    expect(updated.thinkingEnabled).toBe(true);
+    expect(updated.effortLevel).toBe('medium');
+  });
+});
+
+// ============================================================
+// Category 5: Template Effort Level Inheritance Tests
+// ============================================================
+
+test.describe('Template Effort Level Inheritance', () => {
+  test.describe.configure({ timeout: 60000 });
+
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+    project = await seedProject('Template Inheritance Test', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+  });
+
+  test('child session inherits template effortLevel', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] High Effort Template',
+      prompt: 'Child with high effort',
+      effortLevel: 'high',
+    });
+
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent for inheritance test',
+      name: '[TEST] Inheritance Parent',
+      startImmediately: false,
+    });
+
+    await setNextTemplate(parent.id, template.id);
+    await sendSessionMessage(parent.id, 'Go');
+
+    const child = await waitForChildSession(parent.id, 20000);
+    const childSession = await getSession(child.id);
+
+    expect(childSession.effortLevel).toBe('high');
+  });
+
+  test('child session inherits effortLevel="low" from template', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Low Effort Template',
+      prompt: 'Child with low effort',
+      effortLevel: 'low',
+    });
+
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent for low effort test',
+      name: '[TEST] Low Parent',
+      startImmediately: false,
+    });
+
+    await setNextTemplate(parent.id, template.id);
+    await sendSessionMessage(parent.id, 'Go');
+
+    const child = await waitForChildSession(parent.id, 20000);
+    const childSession = await getSession(child.id);
+
+    expect(childSession.effortLevel).toBe('low');
+  });
+
+  test('child session inherits effortLevel="max" from template', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Max Effort Template',
+      prompt: 'Child with max effort',
+      effortLevel: 'max',
+    });
+
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent for max effort test',
+      name: '[TEST] Max Parent',
+      startImmediately: false,
+    });
+
+    await setNextTemplate(parent.id, template.id);
+    await sendSessionMessage(parent.id, 'Go');
+
+    const child = await waitForChildSession(parent.id, 20000);
+    const childSession = await getSession(child.id);
+
+    expect(childSession.effortLevel).toBe('max');
+  });
+
+  test('child session gets null effortLevel when template has null', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Null Effort Template',
+      prompt: 'Child with null effort',
+      effortLevel: null,
+    });
+
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent for null effort test',
+      name: '[TEST] Null Parent',
+      startImmediately: false,
+    });
+
+    await setNextTemplate(parent.id, template.id);
+    await sendSessionMessage(parent.id, 'Go');
+
+    const child = await waitForChildSession(parent.id, 20000);
+    const childSession = await getSession(child.id);
+
+    expect(childSession.effortLevel).toBeNull();
+  });
+
+  test('child session inherits effortLevel="medium" from template with other settings', async () => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Multi Settings Template',
+      prompt: 'Child with multiple settings',
+      effortLevel: 'medium',
+      thinkingEnabled: true,
+    });
+    await updateTemplate(template.id, {
+      mode: 'plan',
+    });
+
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent for multi settings test',
+      name: '[TEST] Multi Parent',
+      startImmediately: false,
+    });
+
+    await setNextTemplate(parent.id, template.id);
+    await sendSessionMessage(parent.id, 'Go');
+
+    const child = await waitForChildSession(parent.id, 20000);
+    const childSession = await getSession(child.id);
+
+    expect(childSession.effortLevel).toBe('medium');
+    expect(childSession.thinkingEnabled).toBe(true);
+    expect(childSession.mode).toBe('plan');
+  });
+});
+
+// ============================================================
+// Category 6: Template Detail View Effort Level UI Tests
+// ============================================================
+
+test.describe('Template Detail View - Effort Level UI', () => {
+  test.use({ viewport: { width: 1280, height: 720 } });
+
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+    project = await seedProject('Template UI Test', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+  });
+
+  test('effort level selector is visible on template detail view', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] UI Template',
+      prompt: 'Test prompt',
+    });
+
+    await page.goto(`/projects/${project.id}/templates/${template.id}`);
+    await expect(page.locator('label:has-text("Effort Level")')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('effort level selector shows current template value', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] High Effort UI Template',
+      prompt: 'Test prompt',
+      effortLevel: 'high',
+    });
+
+    await page.goto(`/projects/${project.id}/templates/${template.id}`);
+
+    // Wait for the effort level selector to be visible
+    const selector = page.locator('.effort-selector');
+    await expect(selector).toBeVisible({ timeout: 10000 });
+
+    // Check that "high" is selected
+    const selectedValue = await page.locator('#effort-select').inputValue();
+    expect(selectedValue).toBe('high');
+  });
+
+  test('effort level selector shows "auto" for null effortLevel', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Auto Effort UI Template',
+      prompt: 'Test prompt',
+      effortLevel: null,
+    });
+
+    await page.goto(`/projects/${project.id}/templates/${template.id}`);
+
+    // Wait for the effort level selector to be visible
+    const selector = page.locator('.effort-selector');
+    await expect(selector).toBeVisible({ timeout: 10000 });
+
+    // Check that "auto" is selected (null maps to auto in UI)
+    const selectedValue = await page.locator('#effort-select').inputValue();
+    expect(selectedValue).toBe('auto');
+  });
+
+  test('can update template effortLevel via UI', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Update Effort UI Template',
+      prompt: 'Test prompt',
+      effortLevel: 'low',
+    });
+
+    await page.goto(`/projects/${project.id}/templates/${template.id}`);
+
+    // Change effort level to "max"
+    await page.locator('#effort-select').selectOption('max');
+
+    // Click save button
+    await page.click('button:has-text("Save")');
+
+    // Wait for save to complete (button text changes back or success message appears)
+    await expect(page.getByText('Template updated')).toBeVisible({ timeout: 10000 });
+
+    // Verify via API
+    const updated = await getTemplate(template.id);
+    expect(updated.effortLevel).toBe('max');
+  });
+});

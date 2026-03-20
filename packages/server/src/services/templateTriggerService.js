@@ -106,6 +106,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     const gitMode = template.gitMode || null;
     const model = template.model !== null ? template.model : rootSession.model;
     const mode = template.mode !== null ? template.mode : rootSession.mode;
+    const effortLevel = template.effortLevel !== null ? template.effortLevel : rootSession.effortLevel;
 
     // Inherit rescheduling settings from root session (templates have no rescheduling fields)
     const autoRescheduleEnabled = rootSession.autoRescheduleEnabled;
@@ -131,6 +132,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
         parentSessionId: null, // Will be set below
         status: 'starting',
         model, // Use model from template or parent
+        effortLevel, // Use effortLevel from template or parent
       }
     );
 
