@@ -373,7 +373,8 @@ Please review the above work.
         nextTemplateId: templateId,
         status: 'stopped',
         model: 'claude-sonnet-4-20250514',
-        mode: 'plan'
+        mode: 'plan',
+        effortLevel: 'low'
       });
     });
 
@@ -901,6 +902,131 @@ Please review the above work.
       );
       // Template gitBranch is null, so inherits from root
       expect(sessionCreatedCalls[0][2].session.gitBranch).toBe('root-branch');
+    });
+
+    it('inherits effortLevel from root when template effortLevel is null', async () => {
+      // Template has null effortLevel by default
+      // Update root with effortLevel: 'high'
+      sessions.update(parentSessionId, { effortLevel: 'high' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCreatedCalls[0][2].session.effortLevel).toBe('high');
+    });
+
+    it('template effortLevel overrides root effortLevel when set', async () => {
+      sessionTemplates.update(templateId, { effortLevel: 'max' });
+      sessions.update(parentSessionId, { effortLevel: 'low' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCreatedCalls[0][2].session.effortLevel).toBe('max');
+    });
+
+    it('uses effortLevel from template when set', async () => {
+      // Update template to have a specific effortLevel
+      sessionTemplates.update(templateId, { effortLevel: 'medium' });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Verify the broadcasted session has the template's effortLevel
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      expect(sessionCreatedCalls[0][2].session.effortLevel).toBe('medium');
+    });
+
+    it('inherits effortLevel from root session when template has no effortLevel', async () => {
+      // Template has no effortLevel set (null)
+      // Parent session has effortLevel: 'low' — which is also the root session
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Verify the broadcasted session has the root session's effortLevel
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      // Template effortLevel is null, so child inherits effortLevel from root session ('low')
+      expect(sessionCreatedCalls[0][2].session.effortLevel).toBe('low');
+    });
+
+    it('uses both effortLevel and mode from template when both are set', async () => {
+      // Update template to have both effortLevel and mode
+      sessionTemplates.update(templateId, {
+        effortLevel: 'high',
+        mode: 'plan'
+      });
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Verify the broadcasted session was created with both values
+      const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+
+      expect(sessionCreatedCalls.length).toBe(1);
+      expect(sessionCreatedCalls[0][2].session.effortLevel).toBe('high');
+      expect(sessionCreatedCalls[0][2].session.mode).toBe('plan');
+    });
+
+    it('template effortLevel overrides root effortLevel in a multi-level chain', async () => {
+      // Create a 3-level chain: root (A) -> parent (B) -> child (C)
+      // Session A is the root already set up as parentSessionId with mode: 'plan', model: 'claude-sonnet-4-20250514'
+      // Set root effortLevel to 'medium'
+      sessions.update(parentSessionId, { effortLevel: 'medium' });
+
+      // Create template B
+      const templateB = sessionTemplates.create({
+        projectId,
+        name: 'Template B',
+        prompt: 'Template B prompt',
+      });
+      sessions.update(parentSessionId, { nextTemplateId: templateB.id, status: 'stopped' });
+      broadcastToProject.mockClear();
+
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Get the created session B
+      const sessionBCreatedCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionBCreatedCalls.length).toBe(1);
+      const sessionB = sessionBCreatedCalls[0][2].session;
+
+      // Verify B inherited effortLevel from root A
+      expect(sessionB.effortLevel).toBe('medium');
+
+      // Now create template C with explicit effortLevel override
+      const templateC = sessionTemplates.create({
+        projectId,
+        name: 'Template C Override',
+        prompt: 'Template C prompt',
+      });
+      sessionTemplates.update(templateC.id, { effortLevel: 'max' });
+
+      sessions.update(sessionB.id, { nextTemplateId: templateC.id, status: 'stopped' });
+      broadcastToProject.mockClear();
+
+      await checkAndTriggerNextTemplate(sessionB.id);
+
+      const sessionCCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      expect(sessionCCalls.length).toBe(1);
+      const sessionC = sessionCCalls[0][2].session;
+
+      // C's template overrides root A's effortLevel
+      expect(sessionC.effortLevel).toBe('max');
     });
   });
 });

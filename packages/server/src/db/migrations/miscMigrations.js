@@ -84,6 +84,15 @@ export const miscMigrations = [
       );
     },
   },
+  {
+    name: 'session_templates-add-effort_level',
+    up(db) {
+      addColumnIfMissing(
+        db, 'session_templates', 'effort_level',
+        "TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto'))"
+      );
+    },
+  },
 
   // --- App settings table ---
   {
