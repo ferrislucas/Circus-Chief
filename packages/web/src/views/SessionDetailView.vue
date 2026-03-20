@@ -135,7 +135,7 @@ const { cleanup, initializeSession } = useSessionInitializer({
   resetPolling,
 });
 
-const activeTab = computed(() => route.params.tab || 'conversation');
+const activeTab = computed(() => route.params.tab || 'summary');
 
 // Get the session hierarchy path (for breadcrumbs)
 const sessionPath = computed(() => {
