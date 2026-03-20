@@ -226,11 +226,11 @@ async function switchToSession(newSessionId) {
 
 async function loadSessionData(sessionId) {
   try {
-    // Fetch session details if not in store
-    const existing = sessionsStore.getSessionById(sessionId);
-    if (!existing) {
-      await sessionsStore.fetchSession(sessionId, false);
-    }
+    // Always fetch session to ensure currentSession is set to the overlay's active session.
+    // This is critical because ConversationTab reads sessionsStore.currentSession for
+    // isDraft checks, status watchers, etc. Without this, currentSession could remain
+    // pointed at the parent session after switching to a child in the overlay.
+    await sessionsStore.fetchSession(sessionId, false);
     // Fetch conversations for this session
     await sessionsStore.fetchConversations(sessionId);
   } catch (err) {
