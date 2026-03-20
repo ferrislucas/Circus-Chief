@@ -70,7 +70,7 @@
                 >
                   {{ truncateName(session.name) }}
                 </span>
-                <span v-if="index < activeSessionPath.length - 1" class="breadcrumb-separator">›</span>
+                <span v-if="index < activeSessionPath.length - 1" class="breadcrumb-separator">/</span>
               </li>
             </ol>
           </nav>
@@ -398,8 +398,21 @@ function handleClickOutsidePicker(event) {
   }
 }
 
+// Body scroll lock to prevent horizontal layout shift when overlay is open
+let savedBodyOverflow = '';
+
+function lockBodyScroll() {
+  savedBodyOverflow = document.body.style.overflow;
+  document.body.style.overflow = 'hidden';
+}
+
+function unlockBodyScroll() {
+  document.body.style.overflow = savedBodyOverflow;
+}
+
 // Lifecycle
 onMounted(async () => {
+  lockBodyScroll();
   document.addEventListener('keydown', handleEscape);
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
@@ -412,6 +425,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  unlockBodyScroll();
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
@@ -437,6 +451,7 @@ defineExpose({
   justify-content: center;
   align-items: flex-start;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .overlay-content {
@@ -453,14 +468,18 @@ defineExpose({
   padding: 1rem 0.5rem;
   background: var(--color-background-secondary, #1f2937);
   border-radius: var(--border-radius, 6px);
-  margin-top: 1rem;
-  height: 60px;
+  padding-top: 1.5rem;
+  min-height: 60px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .overlay-header-left {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex: 1;
   min-width: 0;
 }
 
@@ -468,9 +487,7 @@ defineExpose({
   font-size: 1.25rem;
   font-weight: 600;
   color: var(--color-primary, #06b6d4);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: break-word;
 }
 
 .overlay-header-right {
@@ -548,7 +565,7 @@ defineExpose({
 .breadcrumb-link {
   background: none;
   border: none;
-  color: var(--color-primary, #06b6d4);
+  color: var(--color-text-soft, #9ca3af);
   cursor: pointer;
   font-size: 0.8rem;
   padding: 0;
@@ -557,7 +574,7 @@ defineExpose({
 }
 
 .breadcrumb-link:hover {
-  color: var(--color-primary-bright, #06ffff);
+  color: var(--color-primary, #06b6d4);
   text-decoration: underline;
 }
 
@@ -628,18 +645,12 @@ defineExpose({
 
 /* ConversationMessages height override per wireframe spec */
 .session-tree-overlay :deep(.messages) {
-  max-height: 70vh;
-}
-
-@media (max-width: 1200px) {
-  .session-tree-overlay :deep(.messages) {
-    max-height: 65vh;
-  }
+  max-height: calc(100vh - 200px); /* header + breadcrumb + dropdown */
 }
 
 @media (max-width: 768px) {
   .session-tree-overlay :deep(.messages) {
-    max-height: 50vh;
+    max-height: calc(100vh - 160px);
   }
 
   .overlay-content {
