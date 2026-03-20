@@ -115,17 +115,6 @@ h1 {
   width: 100%;
 }
 
-.tab-select {
-  width: 100%;
-  padding: 0.75rem;
-  font-size: 0.9rem;
-  background: var(--color-bg);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius);
-  cursor: pointer;
-}
-
 @media (max-width: 480px) {
   .tabs-desktop {
     display: none !important;
