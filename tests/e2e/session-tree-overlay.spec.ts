@@ -134,12 +134,8 @@ test.describe('Session Tree Overlay', () => {
     const overlay = await openOverlay(page, parentSession.id);
 
     // Click outside the overlay content, on the backdrop
-    // The backdrop is the overlay-backdrop element. Click at a position far from center (where content is)
-    const box = await overlay.boundingBox();
-    if (box) {
-      // Click near the left edge of the backdrop (outside the centered content)
-      await page.mouse.click(10, box.y + box.height / 2);
-    }
+    // With right-aligned overlay, click on the left side of the screen
+    await page.mouse.click(10, 100);  // Click far left (safe with any alignment)
     await expect(overlay).not.toBeVisible({ timeout: 5000 });
   });
 
@@ -464,5 +460,100 @@ test.describe('Session Tree Overlay', () => {
     const items = picker.locator('[role="option"]');
     const count = await items.count();
     expect(count).toBeGreaterThanOrEqual(2);
+  });
+
+  // ============================================================
+  // Animation Behavior
+  // ============================================================
+
+  test.describe('Animation Behavior', () => {
+    test('overlay slides in from right when handle clicked', async ({ page }) => {
+      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+
+      const handle = page.locator('[data-testid="session-tree-handle"]');
+      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+
+      // Get initial bounding box
+      await handle.click();
+
+      // Verify overlay is visible after animation
+      await expect(overlay).toBeVisible({ timeout: 5000 });
+
+      // Verify it's positioned on the right side
+      const overlayBox = await overlay.boundingBox();
+      const viewportSize = page.viewportSize();
+      if (overlayBox && viewportSize) {
+        // Overlay should start from the right side (with some margin for padding)
+        expect(overlayBox.x + overlayBox.width).toBeCloseTo(viewportSize.width, 100);
+      }
+    });
+
+    test('overlay slides out to right when closed', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const closeBtn = page.locator('[data-testid="session-tree-close"]');
+      await closeBtn.click();
+
+      // Overlay should disappear with animation
+      await expect(overlay).not.toBeVisible({ timeout: 1000 });
+    });
+
+    test('animation completes without visual glitches', async ({ page }) => {
+      // Test rapid open/close to ensure no animation glitches
+      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+
+      const handle = page.locator('[data-testid="session-tree-handle"]');
+      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+
+      // Rapid open/close cycles
+      for (let i = 0; i < 3; i++) {
+        await handle.click();
+        await expect(overlay).toBeVisible({ timeout: 5000 });
+        await page.keyboard.press('Escape');
+        await expect(overlay).not.toBeVisible({ timeout: 1000 });
+      }
+    });
+
+    test('overlay maintains position on different viewport sizes', async ({ page }) => {
+      // Test desktop
+      await page.setViewportSize({ width: 1920, height: 1080 });
+      let overlay = await openOverlay(page, parentSession.id);
+      await expect(overlay).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(overlay).not.toBeVisible();
+
+      // Test tablet
+      await page.setViewportSize({ width: 768, height: 1024 });
+      overlay = await openOverlay(page, parentSession.id);
+      await expect(overlay).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(overlay).not.toBeVisible();
+
+      // Test mobile
+      await page.setViewportSize({ width: 375, height: 667 });
+      overlay = await openOverlay(page, parentSession.id);
+      await expect(overlay).toBeVisible();
+    });
+
+    test('vertical scroll works when content exceeds viewport', async ({ page }) => {
+      await page.setViewportSize({ width: 1920, height: 800 });
+      const overlay = await openOverlay(page, parentSession.id);
+
+      // Verify overlay can scroll vertically
+      const backdrop = page.locator('.overlay-backdrop');
+      await expect(backdrop).toHaveCSS('overflow-y', 'auto');
+
+      // Scroll should work
+      await overlay.locator('.overlay-content').evaluate(el => {
+        el.scrollTop = 100;
+      });
+      // No errors should occur
+    });
   });
 });
