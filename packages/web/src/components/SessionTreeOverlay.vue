@@ -345,6 +345,7 @@ async function buildSessionChain() {
   const chain = [root];
   let currentId = root.id;
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     const children = sessionsStore.getChildSessions(currentId);
     if (children.length === 0) break;
