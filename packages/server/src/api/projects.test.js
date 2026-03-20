@@ -6,7 +6,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
-import { projects, sessions, sessionTemplates, commandButtons, commandRuns } from '../database.js';
+import { projects, sessions, sessionTemplates, commandButtons, commandRuns, kanbanBoards, kanbanLanes } from '../database.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -20,6 +20,11 @@ vi.mock('../services/sessionManager.js', () => ({
 // Mock gitSessionSetup to control git behavior
 vi.mock('../services/gitSessionSetup.js', () => ({
   setupGitForSession: vi.fn().mockResolvedValue({ workingDirectory: '/tmp/test', gitWorktree: null }),
+}));
+
+// Mock kanbanService
+vi.mock('../services/kanbanService.js', () => ({
+  addSessionToTemplateTargetLane: vi.fn(),
 }));
 
 // Import after mocks are set up
@@ -632,6 +637,92 @@ describe('Projects API', () => {
 
         // Clean up
         sessionTemplates.delete(template.id);
+      });
+    });
+
+    describe('with template targetLaneId', () => {
+      let templateWithLane;
+      let targetLane;
+
+      beforeEach(() => {
+        // Get or create kanban board for the project
+        const kanbanBoard = kanbanBoards.getOrCreateForProject(projectId);
+
+        // Get the default lanes
+        const lanes = kanbanLanes.getByBoardId(kanbanBoard.id);
+        targetLane = lanes.find((l) => l.name === 'In Progress');
+
+        // Create a template with a target lane
+        templateWithLane = sessionTemplates.create({
+          name: 'Template with Target Lane',
+          prompt: 'Template prompt',
+          projectId: projectId,
+          targetLaneId: targetLane.id,
+          gitBranch: 'feature/from-template', // Required since project is a git repo
+          gitMode: 'worktree',
+        });
+      });
+
+      afterEach(() => {
+        if (templateWithLane) {
+          sessionTemplates.delete(templateWithLane.id);
+        }
+      });
+
+      it('persists targetLaneId on session when creating from template', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: templateWithLane.id,
+        });
+
+        if (res.status !== 201) {
+          throw new Error(`Failed with status ${res.status}: ${JSON.stringify(res.body)}`);
+        }
+
+        const session = sessions.getById(res.body.id);
+        expect(session.targetLaneId).toBe(templateWithLane.targetLaneId);
+      });
+
+      it('clears targetLaneId when template has no targetLaneId', async () => {
+        // Create template without targetLaneId
+        const templateWithoutLane = sessionTemplates.create({
+          name: 'Template without Target Lane',
+          prompt: 'Template prompt',
+          projectId: projectId,
+          gitBranch: 'feature/no-lane', // Required since project is a git repo
+          gitMode: 'worktree',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: templateWithoutLane.id,
+        });
+
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        expect(session.targetLaneId).toBeNull();
+
+        // Clean up
+        sessionTemplates.delete(templateWithoutLane.id);
+      });
+
+      it('template targetLaneId takes precedence over explicit targetLaneId in request', async () => {
+        const lanes = kanbanLanes.getByBoardId(kanbanBoards.getOrCreateForProject(projectId).id);
+        const explicitLane = lanes.find((l) => l.name === 'Done');
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: templateWithLane.id,
+          targetLaneId: explicitLane.id, // Try to override template's target lane
+        });
+
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        // Template's targetLaneId should take precedence over explicit value in request
+        expect(session.targetLaneId).toBe(templateWithLane.targetLaneId);
+        expect(session.targetLaneId).not.toBe(explicitLane.id);
       });
     });
   });
