@@ -525,6 +525,9 @@ function handleStartFromTemplateChange() {
   if (template.gitMode) {
     quickGitMode.value = template.gitMode;
   }
+  if (template.effortLevel !== null && template.effortLevel !== undefined) {
+    effortLevel.value = template.effortLevel;
+  }
 
   // IMPORTANT: Also set the "Next Template" dropdown to the template's nextTemplateId
   if (template.nextTemplateId) {

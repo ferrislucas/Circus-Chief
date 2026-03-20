@@ -9,6 +9,7 @@ export const CreateSessionTemplateRequest = z.object({
   gitMode: z.enum(['branch', 'worktree']).nullable().optional(),
   model: z.string().nullable().optional(),
   mode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
+  effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
   targetLaneId: z.string().uuid().nullable().optional(), // Lane to place session in when created from this template
 });
 
@@ -21,6 +22,7 @@ export const UpdateSessionTemplateRequest = z.object({
   gitMode: z.enum(['branch', 'worktree']).nullable().optional(),
   model: z.string().nullable().optional(),
   mode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
+  effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
   targetLaneId: z.string().uuid().nullable().optional(),
 });
 
@@ -35,6 +37,7 @@ export const SessionTemplateResponse = z.object({
   gitMode: z.string().nullable(),
   model: z.string().nullable(),
   mode: z.string().nullable(),
+  effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable(),
   targetLaneId: z.string().uuid().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
