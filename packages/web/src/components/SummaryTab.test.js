@@ -135,10 +135,13 @@ describe('SummaryTab', () => {
 
     it('renders SessionCardWorkflowPanel when child sessions exist', async () => {
       // Add a child session that has parentSessionId matching 'sess-123'
-      sessionsStore.sessions = [
-        { id: 'sess-123', status: 'waiting' },
-        { id: 'child-1', name: 'Child Session', status: 'completed', parentSessionId: 'sess-123' },
-      ];
+      // Use $patch for proper Pinia reactivity
+      sessionsStore.$patch({
+        sessions: [
+          { id: 'sess-123', status: 'waiting' },
+          { id: 'child-1', name: 'Child Session', status: 'completed', parentSessionId: 'sess-123' },
+        ],
+      });
 
       const wrapper = mountForChildSessions();
       await flushAll(wrapper);
