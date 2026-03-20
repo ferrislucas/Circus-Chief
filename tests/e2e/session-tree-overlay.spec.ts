@@ -51,6 +51,8 @@ test.describe('Session Tree Overlay', () => {
     await handle.click();
     const overlay = page.locator('[data-testid="session-tree-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
+    // Wait for slide-in animation to complete (300ms + buffer)
+    await page.waitForTimeout(400);
     return overlay;
   }
 
@@ -120,6 +122,9 @@ test.describe('Session Tree Overlay', () => {
     await expect(closeBtn).toBeVisible();
     await closeBtn.click();
 
+    // Wait for slide-out animation to complete (250ms + buffer)
+    await page.waitForTimeout(300);
+
     await expect(overlay).not.toBeVisible({ timeout: 5000 });
   });
 
@@ -127,6 +132,10 @@ test.describe('Session Tree Overlay', () => {
     const overlay = await openOverlay(page, parentSession.id);
 
     await page.keyboard.press('Escape');
+
+    // Wait for slide-out animation to complete (250ms + buffer)
+    await page.waitForTimeout(300);
+
     await expect(overlay).not.toBeVisible({ timeout: 5000 });
   });
 
@@ -136,6 +145,10 @@ test.describe('Session Tree Overlay', () => {
     // Click outside the overlay content, on the backdrop
     // With right-aligned overlay, click on the left side of the screen
     await page.mouse.click(10, 100);  // Click far left (safe with any alignment)
+
+    // Wait for slide-out animation to complete (250ms + buffer)
+    await page.waitForTimeout(300);
+
     await expect(overlay).not.toBeVisible({ timeout: 5000 });
   });
 
@@ -482,6 +495,9 @@ test.describe('Session Tree Overlay', () => {
       // Verify overlay is visible after animation
       await expect(overlay).toBeVisible({ timeout: 5000 });
 
+      // Wait for slide-in animation to complete (300ms + buffer)
+      await page.waitForTimeout(400);
+
       // Verify it's positioned on the right side
       const overlayBox = await overlay.boundingBox();
       const viewportSize = page.viewportSize();
@@ -497,7 +513,10 @@ test.describe('Session Tree Overlay', () => {
       const closeBtn = page.locator('[data-testid="session-tree-close"]');
       await closeBtn.click();
 
-      // Overlay should disappear with animation (300ms)
+      // Wait for slide-out animation to complete (250ms + buffer)
+      await page.waitForTimeout(300);
+
+      // Overlay should disappear with animation
       await expect(overlay).not.toBeVisible({ timeout: 1500 });
     });
 
@@ -515,7 +534,13 @@ test.describe('Session Tree Overlay', () => {
       for (let i = 0; i < 3; i++) {
         await handle.click();
         await expect(overlay).toBeVisible({ timeout: 5000 });
+        // Wait for slide-in animation
+        await page.waitForTimeout(400);
+
         await page.keyboard.press('Escape');
+        // Wait for slide-out animation
+        await page.waitForTimeout(300);
+
         await expect(overlay).not.toBeVisible({ timeout: 1500 });
       }
     });
@@ -525,14 +550,19 @@ test.describe('Session Tree Overlay', () => {
       await page.setViewportSize({ width: 1920, height: 1080 });
       let overlay = await openOverlay(page, parentSession.id);
       await expect(overlay).toBeVisible();
+
       await page.keyboard.press('Escape');
+      // Wait for slide-out animation
+      await page.waitForTimeout(300);
       await expect(overlay).not.toBeVisible();
 
       // Test tablet
       await page.setViewportSize({ width: 768, height: 1024 });
       overlay = await openOverlay(page, parentSession.id);
       await expect(overlay).toBeVisible();
+
       await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
       await expect(overlay).not.toBeVisible();
 
       // Test mobile
