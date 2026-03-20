@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <Transition name="slide-left">
+    <Transition name="slide-left" appear>
       <div
         v-if="visible"
         class="overlay-backdrop"
@@ -442,6 +442,49 @@ defineExpose({
 });
 </script>
 
+<!-- Transition styles must be unscoped because Teleport moves the DOM outside this component's scope -->
+<style>
+/* Slide-left transition (unscoped for Teleport compatibility) */
+.slide-left-enter-active,
+.slide-left-leave-active {
+  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-left-enter-from {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.slide-left-enter-to {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.slide-left-leave-from {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.slide-left-leave-to {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .slide-left-enter-active,
+  .slide-left-leave-active {
+    transition: opacity 0.15s ease;
+  }
+
+  .slide-left-enter-from,
+  .slide-left-leave-to {
+    transform: none;
+  }
+}
+</style>
+
 <style scoped>
 .overlay-backdrop {
   position: fixed;
@@ -624,46 +667,6 @@ defineExpose({
   color: var(--color-text-soft, #9ca3af);
   margin-left: 0.5rem;
   flex-shrink: 0;
-}
-
-/* Slide-left transition */
-.slide-left-enter-active,
-.slide-left-leave-active {
-  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-              transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.slide-left-enter-from {
-  opacity: 0;
-  transform: translateX(100%);
-}
-
-.slide-left-enter-to {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-.slide-left-leave-from {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-.slide-left-leave-to {
-  opacity: 0;
-  transform: translateX(100%);
-}
-
-/* Respect user's motion preferences */
-@media (prefers-reduced-motion: reduce) {
-  .slide-left-enter-active,
-  .slide-left-leave-active {
-    transition: opacity 0.15s ease;
-  }
-
-  .slide-left-enter-from,
-  .slide-left-leave-to {
-    transform: none;
-  }
 }
 
 /* ConversationMessages height override per wireframe spec */
