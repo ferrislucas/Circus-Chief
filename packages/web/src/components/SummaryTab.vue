@@ -9,13 +9,13 @@
     />
 
     <!-- Session Overview Section -->
-    <div class="session-overview card">
+    <div v-if="hasPrInfo" class="session-overview card">
       <div class="overview-header">
         <h3>Session Overview</h3>
       </div>
 
       <!-- PR Info in Overview -->
-      <div v-if="hasPrInfo" class="overview-pr" data-testid="pr-overview-badge">
+      <div class="overview-pr" data-testid="pr-overview-badge">
         <a :href="prUrl" target="_blank" class="pr-link">
           {{ extractPrNumber(prUrl) }}
         </a>
