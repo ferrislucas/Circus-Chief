@@ -134,6 +134,7 @@
     :button="{ label: selectedButtonForModal.label, command: selectedButtonForModal.command }"
     :latest-run="selectedButtonForModal.latestRun"
     :is-open="!!selectedButtonForModal"
+    :session-id="session.id"
     @close="selectedButtonForModal = null"
   />
 </template>
