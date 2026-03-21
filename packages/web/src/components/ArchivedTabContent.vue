@@ -22,6 +22,7 @@
         :summary-loading="loadingSummaries[session.id]"
         :summary-error="summaryErrors[session.id]"
         :show-unarchive="true"
+        :kanban-enabled="false"
         :pr-url="session.prUrl"
         :pr-summary="summaries[session.id]"
         @retry-summary="$emit('retrySummary', $event)"
