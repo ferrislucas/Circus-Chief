@@ -6,7 +6,16 @@ import ButtonStatusModal from './ButtonStatusModal.vue';
 
 // Mock the commandButtons store
 const mockDeleteRun = vi.fn().mockResolvedValue(undefined);
-const mockCommandButtonsStore = { deleteRun: mockDeleteRun };
+const mockFetchRunOutput = vi.fn().mockResolvedValue(undefined);
+const mockRuns = {};
+// Default getRun implementation that reads from mockRuns
+const mockGetRun = vi.fn((runId) => mockRuns[runId] || null);
+const mockCommandButtonsStore = {
+  deleteRun: mockDeleteRun,
+  fetchRunOutput: mockFetchRunOutput,
+  getRun: mockGetRun,
+  runs: mockRuns,
+};
 
 vi.mock('../stores/commandButtons.js', () => ({
   useCommandButtonsStore: vi.fn(() => mockCommandButtonsStore),
@@ -41,6 +50,16 @@ describe('ButtonStatusModal.vue', () => {
     startedAt: Date.now() - 5000,
     completedAt: Date.now(),
   };
+
+  beforeEach(() => {
+    mockDeleteRun.mockClear();
+    mockFetchRunOutput.mockClear();
+    mockGetRun.mockClear();
+    // Reset getRun to use default implementation that reads from mockRuns
+    mockGetRun.mockImplementation((runId) => mockRuns[runId] || null);
+    // Clear mock runs
+    Object.keys(mockRuns).forEach(key => delete mockRuns[key]);
+  });
 
   describe('rendering', () => {
     it('does not render when isOpen is false', () => {
@@ -1242,6 +1261,205 @@ describe('ButtonStatusModal.vue', () => {
 
       expect(mockDeleteRun).toHaveBeenCalledWith('test-session-1', 'run-1');
       expect(closeEmitted).toBe(true);
+    });
+  });
+
+  describe('on-demand output fetching', () => {
+    it('fetches output when modal opens and run has no output in store', async () => {
+      mockFetchRunOutput.mockClear();
+      // mockRuns is empty, so getRun returns null initially
+
+      const runWithoutOutput = {
+        ...baseRun,
+        output: null, // No output from props
+      };
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: runWithoutOutput,
+          isOpen: false,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      // Open the modal
+      await wrapper.setProps({ isOpen: true });
+      await flushPromises();
+      await nextTick();
+
+      // Should have called fetchRunOutput
+      expect(mockFetchRunOutput).toHaveBeenCalledWith('test-session-1', 'run-1');
+    });
+
+    it('does not fetch output when run already has output in store', async () => {
+      mockFetchRunOutput.mockClear();
+      // Store already has the run with output
+      mockRuns['run-1'] = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'success',
+        output: 'Already loaded output',
+        exitCode: 0,
+      };
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: baseRun,
+          isOpen: false,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      // Open the modal
+      await wrapper.setProps({ isOpen: true });
+      await flushPromises();
+      await nextTick();
+
+      // Should not have called fetchRunOutput since store already has output
+      expect(mockFetchRunOutput).not.toHaveBeenCalled();
+    });
+
+    it('does not fetch output for running commands', async () => {
+      mockFetchRunOutput.mockClear();
+      // Store has a running command
+      mockRuns['run-1'] = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'running',
+        output: '',
+        exitCode: null,
+      };
+
+      const runningRun = {
+        ...baseRun,
+        status: 'running',
+        output: null,
+      };
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: runningRun,
+          isOpen: false,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      // Open the modal
+      await wrapper.setProps({ isOpen: true });
+      await flushPromises();
+      await nextTick();
+
+      // Should not have called fetchRunOutput for running commands
+      expect(mockFetchRunOutput).not.toHaveBeenCalled();
+    });
+
+    it('seeds the store with run metadata when run is not in store', async () => {
+      mockFetchRunOutput.mockClear();
+      mockGetRun.mockReturnValue(null);
+
+      const runWithoutOutput = {
+        ...baseRun,
+        output: null,
+      };
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: runWithoutOutput,
+          isOpen: false,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      // Open the modal
+      await wrapper.setProps({ isOpen: true });
+      await flushPromises();
+      await nextTick();
+
+      // Check that the run was added to the store
+      expect(mockRuns['run-1']).toBeDefined();
+      expect(mockRuns['run-1'].runId).toBe('run-1');
+      expect(mockRuns['run-1'].sessionId).toBe('test-session-1');
+    });
+
+    it('uses output from store when available', async () => {
+      // Store has output that was fetched on-demand
+      mockRuns['run-1'] = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        status: 'success',
+        output: 'Output from store',
+        exitCode: 0,
+      };
+
+      const runWithoutOutput = {
+        ...baseRun,
+        output: null, // Props have no output
+      };
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: runWithoutOutput,
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      await nextTick();
+
+      // Output section should be shown since store has output
+      expect(wrapper.find('.output-section').exists()).toBe(true);
+
+      // Expand output section
+      await wrapper.find('[data-testid="output-header"]').trigger('click');
+      await nextTick();
+
+      // Should show output from store
+      expect(wrapper.find('[data-testid="output-text"]').html()).toContain('Output from store');
+    });
+
+    it('shows loading indicator while output is being fetched', async () => {
+      mockFetchRunOutput.mockClear();
+      // mockRuns is empty, so getRun returns null initially
+
+      // Make fetchRunOutput take some time
+      let resolveFetch;
+      mockFetchRunOutput.mockImplementation(() => new Promise(resolve => {
+        resolveFetch = resolve;
+      }));
+
+      const runWithoutOutput = {
+        ...baseRun,
+        output: null,
+      };
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: runWithoutOutput,
+          isOpen: false,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      // Open the modal - this starts the fetch
+      await wrapper.setProps({ isOpen: true });
+      await nextTick();
+
+      // Loading indicator should be shown in the header
+      expect(wrapper.find('[data-testid="output-loading"]').exists()).toBe(true);
+
+      // Resolve the fetch
+      resolveFetch();
+      await flushPromises();
+      await nextTick();
+
+      // Loading indicator should be hidden
+      expect(wrapper.find('[data-testid="output-loading"]').exists()).toBe(false);
     });
   });
 });
