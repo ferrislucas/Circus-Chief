@@ -65,13 +65,14 @@ describe('ghService', () => {
         }
 
         // Handle PR view commands
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(null, {
             stdout: JSON.stringify({
               state: 'OPEN',
               mergedAt: null,
               mergeable: 'MERGEABLE',
               isDraft: false,
+              title: 'Test PR Title',
             }),
             stderr: '',
           });
@@ -107,7 +108,66 @@ describe('ghService', () => {
         hasMergeConflicts: false,
         ciStatus: 'success',
         ciFailures: [],
+        title: 'Test PR Title',
       });
+    });
+
+    it('returns PR title in the result', async () => {
+      let callCount = 0;
+      exec.mockImplementation((cmd, callback) => {
+        callCount++;
+        if (callCount <= 2) {
+          callback(null, { stdout: 'ok', stderr: '' });
+          return;
+        }
+
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
+          callback(null, {
+            stdout: JSON.stringify({
+              state: 'OPEN',
+              mergedAt: null,
+              mergeable: 'MERGEABLE',
+              isDraft: false,
+              title: 'Fix critical bug in authentication',
+            }),
+            stderr: '',
+          });
+        } else if (cmd.includes('--json statusCheckRollup')) {
+          callback(null, { stdout: JSON.stringify({ statusCheckRollup: [] }), stderr: '' });
+        }
+      });
+
+      const result = await getPrInfo('https://github.com/org/repo/pull/123');
+      expect(result.title).toBe('Fix critical bug in authentication');
+    });
+
+    it('returns null title when gh CLI returns no title', async () => {
+      let callCount = 0;
+      exec.mockImplementation((cmd, callback) => {
+        callCount++;
+        if (callCount <= 2) {
+          callback(null, { stdout: 'ok', stderr: '' });
+          return;
+        }
+
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
+          callback(null, {
+            stdout: JSON.stringify({
+              state: 'OPEN',
+              mergedAt: null,
+              mergeable: 'MERGEABLE',
+              isDraft: false,
+              // No title field
+            }),
+            stderr: '',
+          });
+        } else if (cmd.includes('--json statusCheckRollup')) {
+          callback(null, { stdout: JSON.stringify({ statusCheckRollup: [] }), stderr: '' });
+        }
+      });
+
+      const result = await getPrInfo('https://github.com/org/repo/pull/123');
+      expect(result.title).toBeNull();
     });
 
     it('returns merged state when mergedAt is set', async () => {
@@ -119,13 +179,14 @@ describe('ghService', () => {
           return;
         }
 
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(null, {
             stdout: JSON.stringify({
               state: 'MERGED',
               mergedAt: '2024-01-15T10:00:00Z',
               mergeable: 'UNKNOWN',
               isDraft: false,
+              title: 'Merged PR',
             }),
             stderr: '',
           });
@@ -148,13 +209,14 @@ describe('ghService', () => {
           return;
         }
 
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(null, {
             stdout: JSON.stringify({
               state: 'OPEN',
               mergedAt: null,
               mergeable: 'MERGEABLE',
               isDraft: true,
+              title: 'Draft PR',
             }),
             stderr: '',
           });
@@ -176,13 +238,14 @@ describe('ghService', () => {
           return;
         }
 
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(null, {
             stdout: JSON.stringify({
               state: 'OPEN',
               mergedAt: null,
               mergeable: 'CONFLICTING',
               isDraft: false,
+              title: 'Conflicting PR',
             }),
             stderr: '',
           });
@@ -204,13 +267,14 @@ describe('ghService', () => {
           return;
         }
 
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(null, {
             stdout: JSON.stringify({
               state: 'OPEN',
               mergedAt: null,
               mergeable: 'MERGEABLE',
               isDraft: false,
+              title: 'CI Failure PR',
             }),
             stderr: '',
           });
@@ -242,13 +306,14 @@ describe('ghService', () => {
           return;
         }
 
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(null, {
             stdout: JSON.stringify({
               state: 'OPEN',
               mergedAt: null,
               mergeable: 'MERGEABLE',
               isDraft: false,
+              title: 'Pending CI PR',
             }),
             stderr: '',
           });
@@ -278,13 +343,14 @@ describe('ghService', () => {
           return;
         }
 
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(null, {
             stdout: JSON.stringify({
               state: 'OPEN',
               mergedAt: null,
               mergeable: 'MERGEABLE',
               isDraft: false,
+              title: 'Permission Error PR',
             }),
             stderr: '',
           });
@@ -318,7 +384,7 @@ describe('ghService', () => {
           return;
         }
 
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(new Error('Could not resolve to a PullRequest'), null);
         }
       });
@@ -336,13 +402,14 @@ describe('ghService', () => {
           return;
         }
 
-        if (cmd.includes('--json state,mergedAt,mergeable,isDraft')) {
+        if (cmd.includes('--json state,mergedAt,mergeable,isDraft,title')) {
           callback(null, {
             stdout: JSON.stringify({
               state: 'OPEN',
               mergedAt: null,
               mergeable: 'MERGEABLE',
               isDraft: false,
+              title: 'Empty CI PR',
             }),
             stderr: '',
           });
