@@ -79,12 +79,12 @@ describe('SummaryContent', () => {
       expect(wrapper.find('.summary-date').text()).toContain('Last updated:');
     });
 
-    it('shows Regenerate button in footer', () => {
+    it('shows Generate summary button in footer', () => {
       const wrapper = mountComponent();
 
       const regenButton = wrapper.find('.summary-footer .btn-link');
       expect(regenButton.exists()).toBe(true);
-      expect(regenButton.text()).toContain('Regenerate');
+      expect(regenButton.text()).toContain('Generate summary');
     });
 
     it('Regenerate button is enabled and clickable when not regenerating', () => {
