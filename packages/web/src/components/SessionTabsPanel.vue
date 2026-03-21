@@ -59,7 +59,7 @@ const props = defineProps({
   /** The currently active tab ID */
   activeTab: {
     type: String,
-    default: 'conversation',
+    default: 'summary',
   },
   /** Tab definitions: array of { id, label } */
   tabs: {

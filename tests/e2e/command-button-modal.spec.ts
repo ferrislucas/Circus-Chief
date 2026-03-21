@@ -201,4 +201,117 @@ test.describe('Command Button Status Modal', () => {
     await page.locator('.modal-overlay').click({ position: { x: 10, y: 10 } });
     await expect(page.locator('[data-testid="button-status-modal"]')).not.toBeVisible();
   });
+
+  test('modal height is constrained to viewport with large output', async ({ page }) => {
+    // Create command with large output (> 200 lines)
+    const largeOutput = Array.from({ length: 200 }, (_, i) => `Line ${i + 1}: Output text here`).join('\n');
+    const button = await seedCommandButton(project.id, {
+      label: 'Large Output Test',
+      command: `echo "${largeOutput}"`,
+      showOnList: true,
+    });
+
+    const { runId } = await runCommandButton(session.id, button.id);
+    await waitForCommandRunComplete(session.id, runId);
+
+    await navigateAndWait(page, `/sessions/${session.id}`);
+    await page.click('[data-testid="button-status-indicator"]');
+    await expect(page.locator('[data-testid="button-status-modal"]')).toBeVisible();
+
+    // Expand output
+    await page.click('[data-testid="output-header"]');
+    await expect(page.locator('[data-testid="output-content"]')).toBeVisible();
+
+    // Verify modal height is constrained
+    const modalInfo = await page.evaluate(() => {
+      const modal = document.querySelector('.modal-dialog');
+      if (!modal) return null;
+      const rect = modal.getBoundingClientRect();
+      return {
+        height: rect.height,
+        viewportHeight: window.innerHeight,
+        maxHeightRatio: rect.height / window.innerHeight
+      };
+    });
+
+    expect(modalInfo).not.toBeNull();
+    expect(modalInfo!.maxHeightRatio).toBeLessThanOrEqual(0.9); // ≤ 90vh
+
+    // Verify footer buttons are visible and clickable
+    await expect(page.locator('.modal-footer .btn-primary')).toBeVisible();
+    await expect(page.locator('.modal-footer .btn-danger')).toBeVisible();
+  });
+
+  test('modal body is scrollable when content overflows', async ({ page }) => {
+    // Create command with very large output
+    const largeOutput = Array.from({ length: 300 }, (_, i) => `Line ${i + 1}: Output text here`).join('\n');
+    const button = await seedCommandButton(project.id, {
+      label: 'Scrollable Body Test',
+      command: `echo "${largeOutput}"`,
+      showOnList: true,
+    });
+
+    const { runId } = await runCommandButton(session.id, button.id);
+    await waitForCommandRunComplete(session.id, runId);
+
+    await navigateAndWait(page, `/sessions/${session.id}`);
+    await page.click('[data-testid="button-status-indicator"]');
+    await expect(page.locator('[data-testid="button-status-modal"]')).toBeVisible();
+
+    // Verify modal-body is scrollable
+    const bodyInfo = await page.evaluate(() => {
+      const body = document.querySelector('.modal-body');
+      if (!body) return null;
+      return {
+        scrollHeight: body.scrollHeight,
+        clientHeight: body.clientHeight,
+        isScrollable: body.scrollHeight > body.clientHeight,
+        overflowY: window.getComputedStyle(body).overflowY
+      };
+    });
+
+    expect(bodyInfo).not.toBeNull();
+    expect(bodyInfo!.isScrollable).toBe(true);
+    expect(bodyInfo!.overflowY).toBe('auto');
+  });
+
+  test('footer buttons are always accessible regardless of content size', async ({ page }) => {
+    const largeOutput = Array.from({ length: 500 }, (_, i) => `Line ${i + 1}: Output text here`).join('\n');
+    const button = await seedCommandButton(project.id, {
+      label: 'Footer Accessibility Test',
+      command: `echo "${largeOutput}"`,
+      showOnList: true,
+    });
+
+    const { runId } = await runCommandButton(session.id, button.id);
+    await waitForCommandRunComplete(session.id, runId);
+
+    await navigateAndWait(page, `/sessions/${session.id}`);
+    await page.click('[data-testid="button-status-indicator"]');
+    await expect(page.locator('[data-testid="button-status-modal"]')).toBeVisible();
+
+    // Expand output to maximize content
+    await page.click('[data-testid="output-header"]');
+
+    // Verify footer is within viewport
+    const footerPosition = await page.evaluate(() => {
+      const modal = document.querySelector('.modal-dialog');
+      const footer = document.querySelector('.modal-footer');
+      if (!modal || !footer) return null;
+      const modalRect = modal.getBoundingClientRect();
+      const footerRect = footer.getBoundingClientRect();
+      return {
+        footerBottom: footerRect.bottom,
+        modalBottom: modalRect.bottom,
+        footerWithinModal: footerRect.bottom <= modalRect.bottom
+      };
+    });
+
+    expect(footerPosition).not.toBeNull();
+    expect(footerPosition!.footerWithinModal).toBe(true);
+
+    // Verify buttons are clickable
+    await page.click('.modal-footer .btn-primary');
+    await expect(page.locator('[data-testid="button-status-modal"]')).not.toBeVisible();
+  });
 });
