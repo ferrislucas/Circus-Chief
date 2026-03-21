@@ -1,7 +1,7 @@
 <template>
   <div v-if="shouldShowCard" class="what-just-happened-card card" data-testid="what-just-happened-card">
     <div class="card-header">
-      <h3>What Just Happened</h3>
+      <h3>Activity Log</h3>
     </div>
 
     <!-- Chain Trail -->
