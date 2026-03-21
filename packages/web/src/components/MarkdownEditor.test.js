@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
-import { nextTick, defineComponent, ref, watch, onMounted, onUnmounted } from 'vue';
+import { nextTick, defineComponent, ref, watch, onUnmounted } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
 
 // Mock md-editor-v3 — it has heavy browser DOM dependencies
@@ -43,13 +43,25 @@ function createTestableEditor() {
     setup(props, { emit }) {
       const editorContent = ref(props.content || '');
       let debounceTimer = null;
+      let lastSavedContent = props.content || '';
 
       function onContentChange(newVal) {
         editorContent.value = newVal;
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
+          lastSavedContent = newVal;
           emit('save', newVal);
         }, 1000);
+      }
+
+      function flushPendingSave() {
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
+        }
+        if (editorContent.value !== lastSavedContent) {
+          emit('save', editorContent.value);
+        }
       }
 
       watch(() => props.content, (newContent) => {
@@ -58,16 +70,14 @@ function createTestableEditor() {
         }
       });
 
-      onMounted(() => {
-        mockStartEditing(props.filename, props.itemId);
-      });
+      // No startEditing on mount — the store's saveMarkdownContent handles it
 
       onUnmounted(() => {
-        if (debounceTimer) clearTimeout(debounceTimer);
+        flushPendingSave();
         mockEndEditing(props.filename);
       });
 
-      return { editorContent, onContentChange };
+      return { editorContent, onContentChange, flushPendingSave };
     },
     template: '<div class="canvas-md-editor"><textarea class="mock-md-editor" :value="editorContent" @input="onContentChange($event.target.value)" /></div>',
   });
@@ -104,13 +114,14 @@ describe('MarkdownEditor', () => {
     expect(wrapper.find('.canvas-md-editor').exists()).toBe(true);
   });
 
-  it('calls canvasStore.startEditing(filename, itemId) on mount', () => {
+  it('does NOT call canvasStore.startEditing on mount', () => {
     mountComponent({
       filename: 'readme.md',
       itemId: 'item-42',
     });
 
-    expect(mockStartEditing).toHaveBeenCalledWith('readme.md', 'item-42');
+    // startEditing is now handled by the store's saveMarkdownContent, not the component
+    expect(mockStartEditing).not.toHaveBeenCalled();
   });
 
   it('calls canvasStore.endEditing(filename) on unmount', () => {
@@ -162,17 +173,73 @@ describe('MarkdownEditor', () => {
     expect(wrapper.emitted('save')).toBeUndefined();
   });
 
-  it('clears debounce timer on unmount', async () => {
-    const wrapper = mountComponent();
+  it('flushes pending save on unmount (emits unsaved content)', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: '# Hello World',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
 
-    wrapper.vm.onContentChange('Changed content');
+    // Change content but don't let debounce fire
+    wrapper.vm.onContentChange('Unsaved changes');
     await nextTick();
 
-    // Unmount before debounce fires
+    expect(onSave).not.toHaveBeenCalled();
+
+    // Unmount before debounce fires — should flush the pending save
     wrapper.unmount();
 
-    // Advance timers — should not throw or emit after unmount
-    vi.advanceTimersByTime(2000);
+    // The save should have been called with the unsaved content
+    expect(onSave).toHaveBeenCalledWith('Unsaved changes');
+  });
+
+  it('does NOT emit duplicate save on unmount if content was already saved', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: '# Hello World',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // Change content and let debounce fire
+    wrapper.vm.onContentChange('Already saved');
+    vi.runAllTimers();
+    await nextTick();
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+
+    // Unmount — should NOT call save again since content matches lastSavedContent
+    wrapper.unmount();
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT emit save on unmount if content was never changed', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: '# Hello World',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // Unmount without making any changes
+    wrapper.unmount();
+
+    // Save should not have been called
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it('updates editor content when content prop changes externally', async () => {

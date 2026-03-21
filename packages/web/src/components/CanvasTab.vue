@@ -164,7 +164,8 @@ const shouldShowViewer = computed(() => {
 });
 
 const showBackButton = computed(() => {
-  return groupedItems.value.length > 1;
+  // Always show back button in detail view so users can navigate to the list
+  return true;
 });
 
 // Navigation handlers

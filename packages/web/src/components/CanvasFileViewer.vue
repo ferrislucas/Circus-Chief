@@ -154,7 +154,7 @@ function toggleEditing() {
 }
 
 function handleSave(content) {
-  canvasStore.saveMarkdownContent(props.sessionId, props.item.filename, content);
+  canvasStore.saveMarkdownContent(props.sessionId, props.item.filename, content, props.item.id);
 }
 
 function handleBack() {

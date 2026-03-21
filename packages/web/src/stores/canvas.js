@@ -330,25 +330,48 @@ export const useCanvasStore = defineStore('canvas', {
     },
 
     /**
-     * Clear the editing session entry (called when navigating away)
+     * Clear the editing session entry (called when navigating away).
+     * Sets a flag so that saveMarkdownContent knows to create a new version
+     * next time the user edits this file.
      */
     endEditing(filename) {
       delete this.editingSessionMap[filename];
+      // Track that this file had an editing session that ended,
+      // so the next edit creates a new version instead of in-place update.
+      if (!this._hasEndedEditing) this._hasEndedEditing = {};
+      this._hasEndedEditing[filename] = true;
     },
 
     /**
      * Main save logic for markdown content.
-     * If editingSessionMap has an entry → in-place update (PUT)
-     * If no entry → create new version (POST), then start editing the new version
+     * If editingSessionMap has an entry that matches currentItemId → in-place update (PUT)
+     * If editingSessionMap has an entry but currentItemId differs → user switched versions, update the new version (PUT)
+     * If no entry but currentItemId provided → first edit of existing item, in-place update (PUT)
+     * If no entry and no currentItemId → create new version (POST)
+     *
+     * @param {string} sessionId
+     * @param {string} filename
+     * @param {string} content
+     * @param {string} [currentItemId] - The ID of the item currently being edited
      */
-    async saveMarkdownContent(sessionId, filename, content) {
+    async saveMarkdownContent(sessionId, filename, content, currentItemId) {
       try {
         const existingItemId = this.editingSessionMap[filename];
-        if (existingItemId) {
-          // In-place update — no new version
+        if (existingItemId && existingItemId === currentItemId) {
+          // Same version as active editing session — in-place update
           await this.updateItemContent(sessionId, existingItemId, content);
+        } else if (existingItemId && currentItemId) {
+          // User switched to a different version — reset session, update new version
+          this.endEditing(filename);
+          delete this._hasEndedEditing?.[filename]; // Don't create a new version, just switch target
+          await this.updateItemContent(sessionId, currentItemId, content);
+          this.startEditing(filename, currentItemId);
+        } else if (currentItemId && !this._hasEndedEditing?.[filename]) {
+          // First-ever edit of this file — in-place update, register session
+          await this.updateItemContent(sessionId, currentItemId, content);
+          this.startEditing(filename, currentItemId);
         } else {
-          // Create a new version
+          // Returned after navigating away — create a new version (POST)
           const newItem = await api.createCanvasItem(sessionId, {
             type: 'markdown',
             content,
@@ -356,6 +379,9 @@ export const useCanvasStore = defineStore('canvas', {
           });
           this.addItem(newItem);
           this.startEditing(filename, newItem.id);
+          if (this._hasEndedEditing) {
+            delete this._hasEndedEditing[filename];
+          }
         }
       } catch (err) {
         this.error = `Failed to save markdown: ${err.message}`;
