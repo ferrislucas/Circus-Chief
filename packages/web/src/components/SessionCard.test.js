@@ -1273,4 +1273,39 @@ describe('SessionCard', () => {
       expect(scheduledTime.exists()).toBe(false);
     });
   });
+
+  describe('kanbanEnabled prop', () => {
+    it('passes kanbanEnabled=true to SessionCardHeaderActions by default', () => {
+      const wrapper = mountComponent();
+      // The Add to Board button should be visible by default (kanbanEnabled defaults to true)
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
+    });
+
+    it('hides Add to Board button when kanbanEnabled=false', () => {
+      const wrapper = mountComponent({
+        kanbanEnabled: false,
+      });
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+    });
+
+    it('shows Add to Board button when kanbanEnabled=true and session is not on board', () => {
+      const wrapper = mountComponent({
+        kanbanEnabled: true,
+      });
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
+    });
+
+    it('hides Add to Board button when session is already on board (regardless of kanbanEnabled)', async () => {
+      // Update mock to return isOnBoard=true
+      const { useKanbanStore } = await import('../stores/kanban.js');
+      vi.mocked(useKanbanStore).mockReturnValue({
+        isSessionOnBoard: vi.fn(() => true),
+      });
+
+      const wrapper = mountComponent({
+        kanbanEnabled: true,
+      });
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+    });
+  });
 });
