@@ -140,7 +140,7 @@ test.describe('Session Summaries', () => {
       await expect(items.nth(2)).toContainText('Set up JWT tokens');
     });
 
-    test('displays files modified with code formatting', async ({ page }) => {
+    test('files modified section is no longer rendered (removed)', async ({ page }) => {
       const session = await seedSession(project.id, {
         prompt: 'Test files modified display',
         name: 'Files Modified Test',
@@ -157,15 +157,12 @@ test.describe('Session Summaries', () => {
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
+      // The summary content should be visible
+      await expect(page.locator('.summary-content')).toBeVisible();
+
+      // Files Modified section was removed from the summary tab
       const filesList = page.locator('.files-list');
-      await expect(filesList).toBeVisible();
-
-      const fileItems = filesList.locator('.file-item');
-      await expect(fileItems).toHaveCount(2);
-
-      // Verify code formatting
-      await expect(fileItems.nth(0).locator('code')).toHaveText('src/auth.js');
-      await expect(fileItems.nth(1).locator('code')).toHaveText('src/models/user.js');
+      await expect(filesList).toHaveCount(0);
     });
 
     // Outcome badge tests removed: the Outcome section was removed from SummaryContent
@@ -350,7 +347,7 @@ test.describe('Session Summaries', () => {
       await expect(overviewHeader).toBeVisible();
 
       // Regenerate button should NOT be in the overview header
-      const regenButton = overviewHeader.locator('.btn-link').filter({ hasText: 'Regenerate' });
+      const regenButton = overviewHeader.locator('.btn-link').filter({ hasText: 'Generate summary' });
       await expect(regenButton).toHaveCount(0);
     });
 
@@ -373,7 +370,7 @@ test.describe('Session Summaries', () => {
       const summaryFooter = page.locator('.summary-footer');
       await expect(summaryFooter).toBeVisible();
 
-      const regenButton = summaryFooter.locator('.btn-link').filter({ hasText: 'Regenerate' });
+      const regenButton = summaryFooter.locator('.btn-link').filter({ hasText: 'Generate summary' });
       await expect(regenButton).toBeVisible();
     });
 
@@ -398,7 +395,7 @@ test.describe('Session Summaries', () => {
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
       // Click the Regenerate button in the summary footer
-      const regenButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Regenerate' });
+      const regenButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Generate summary' });
       await expect(regenButton).toBeVisible();
       await regenButton.click();
 
@@ -659,10 +656,10 @@ test.describe('Session Summaries', () => {
       await expect(prOverviewBadge).toContainText('Open');
     });
 
-    test('displays PR section in summary content', async ({ page }) => {
+    test('PR section is no longer rendered in summary content (removed)', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test PR section',
-        name: 'PR Section Test',
+        prompt: 'Test PR section removed',
+        name: 'PR Section Removed Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
@@ -673,28 +670,24 @@ test.describe('Session Summaries', () => {
       seedSessionSummaryWithPR(session.id, {
         prState: 'open',
         shortSummary: 'PR section test',
-        fullSummary: 'Testing PR section in summary content',
+        fullSummary: 'Testing PR section removed from summary content',
       });
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
+      // PR section was removed from SummaryContent component
       const prSection = page.locator('[data-testid="pr-section"]');
-      await expect(prSection).toBeVisible();
+      await expect(prSection).toHaveCount(0);
 
-      // Verify PR link
-      const prLink = prSection.locator('a.pr-link');
-      await expect(prLink).toBeVisible();
-      await expect(prLink).toContainText('PR #55');
-
-      // Verify state badge
-      const stateBadge = prSection.locator('.pr-open');
-      await expect(stateBadge).toBeVisible();
+      // PR info still shows in overview badge (SummaryTab)
+      const prOverviewBadge = page.locator('[data-testid="pr-overview-badge"]');
+      await expect(prOverviewBadge).toBeVisible();
     });
 
-    test('shows merge conflict warning', async ({ page }) => {
+    test('PR warnings are no longer rendered in summary content (removed)', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test merge conflict warning',
-        name: 'Merge Conflict Warning Test',
+        prompt: 'Test merge conflict warning removed',
+        name: 'Merge Conflict Warning Removed Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
@@ -706,20 +699,20 @@ test.describe('Session Summaries', () => {
         prState: 'open',
         hasMergeConflicts: true,
         shortSummary: 'Merge conflict test',
-        fullSummary: 'Testing merge conflict warning display',
+        fullSummary: 'Testing merge conflict warning removed',
       });
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
+      // PR warnings section was removed from SummaryContent
       const warnings = page.locator('[data-testid="pr-warnings"]');
-      await expect(warnings).toBeVisible();
-      await expect(warnings).toContainText('Merge conflicts detected');
+      await expect(warnings).toHaveCount(0);
     });
 
-    test('shows CI failure warnings with failure details', async ({ page }) => {
+    test('CI failure details are no longer rendered in summary content (removed)', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test CI failure warnings',
-        name: 'CI Failure Warnings Test',
+        prompt: 'Test CI failure warnings removed',
+        name: 'CI Failure Warnings Removed Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
@@ -732,25 +725,23 @@ test.describe('Session Summaries', () => {
         ciStatus: 'failure',
         ciFailures: ['Build failed', 'Lint errors'],
         shortSummary: 'CI failure test',
-        fullSummary: 'Testing CI failure details display',
+        fullSummary: 'Testing CI failure details removed',
       });
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
+      // PR warnings/CI failure section was removed from SummaryContent
       const warnings = page.locator('[data-testid="pr-warnings"]');
-      await expect(warnings).toBeVisible();
-      await expect(warnings).toContainText('CI checks failing');
+      await expect(warnings).toHaveCount(0);
 
       const failureItems = page.locator('[data-testid="pr-ci-failure-item"]');
-      await expect(failureItems).toHaveCount(2);
-      await expect(failureItems.nth(0)).toContainText('Build failed');
-      await expect(failureItems.nth(1)).toContainText('Lint errors');
+      await expect(failureItems).toHaveCount(0);
     });
 
-    test('shows CI passing badge when ciStatus is success', async ({ page }) => {
+    test('CI status badge is no longer rendered in summary content (removed)', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test CI passing badge',
-        name: 'CI Passing Badge Test',
+        prompt: 'Test CI passing badge removed',
+        name: 'CI Passing Badge Removed Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
@@ -762,14 +753,14 @@ test.describe('Session Summaries', () => {
         prState: 'open',
         ciStatus: 'success',
         shortSummary: 'CI passing test',
-        fullSummary: 'Testing CI passing badge display',
+        fullSummary: 'Testing CI passing badge removed',
       });
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
+      // CI status section was removed from SummaryContent
       const ciStatus = page.locator('[data-testid="ci-status"]');
-      await expect(ciStatus).toBeVisible();
-      await expect(ciStatus).toContainText('CI Passing');
+      await expect(ciStatus).toHaveCount(0);
     });
   });
 

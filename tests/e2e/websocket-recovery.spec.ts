@@ -34,8 +34,8 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await seedUserMessage(session.id, 'hello');
     await seedAssistantMessage(session.id, 'hi there');
 
-    // Navigate to session detail
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    // Navigate to session detail (conversation tab for messages)
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await waitForPageReady(page);
 
     // Verify initial data is visible
@@ -91,7 +91,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await waitForPageReady(page);
 
     // Simulate sleep
@@ -188,7 +188,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await waitForPageReady(page);
 
     // Wait for everything to settle
@@ -226,7 +226,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
     await waitForPageReady(page);
 
     const cdp = await page.context().newCDPSession(page);
