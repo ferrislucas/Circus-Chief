@@ -265,16 +265,98 @@ describe('sessionPrompts', () => {
       expect(result).not.toContain(DEFAULT_SYSTEM_PROMPT);
     });
 
-    it('includes canvas write instructions with sessionId', () => {
-      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
-      expect(result).toContain(`/api/sessions/${sessionId}/canvas`);
+    it('includes canvas write instructions for root session (no parent)', () => {
+      sessions.getById.mockReturnValue({
+        id: 'root-123',
+        parentSessionId: null,
+        gitWorktree: null,
+        gitBranch: null,
+      });
+      sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
+
+      const result = buildSystemPromptConfig('root-123', projectId, null, 'standard');
+      expect(result).toContain('/api/sessions/root-123/canvas');
       expect(result).toContain('POST');
+      expect(sessions.getRootSessionId).toHaveBeenCalledWith('root-123');
+    });
+
+    it('includes canvas write instructions for child session (uses root ID)', () => {
+      sessions.getById.mockReturnValue({
+        id: 'child-456',
+        parentSessionId: 'parent-789',
+        gitWorktree: null,
+        gitBranch: null,
+      });
+      sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
+
+      const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
+      expect(result).toContain('/api/sessions/root-123/canvas');
+      expect(result).not.toContain('/api/sessions/child-456/canvas');
+      expect(sessions.getRootSessionId).toHaveBeenCalledWith('child-456');
     });
 
     it('includes canvas read instructions', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
       expect(result).toContain('Reading from Canvas');
       expect(result).toContain('curl');
+    });
+
+    it('handles null session gracefully in canvas prompts', () => {
+      sessions.getById.mockReturnValue(null);
+      sessions.getRootSessionId = vi.fn();
+
+      const result = buildSystemPromptConfig('unknown-session', projectId, null, 'standard');
+      expect(result).toContain('/api/sessions/unknown-session/canvas');
+      expect(sessions.getRootSessionId).not.toHaveBeenCalled();
+    });
+
+    it('uses root session ID for all canvas endpoints including history', () => {
+      sessions.getById.mockReturnValue({
+        id: 'child-456',
+        parentSessionId: 'parent-789',
+        gitWorktree: null,
+        gitBranch: null,
+      });
+      sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
+
+      const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
+      expect(result).toContain('/api/sessions/root-123/canvas/file/');
+      expect(result).toContain('/history/');
+      expect(result).not.toMatch(/\/api\/sessions\/child-456\/canvas\/file\/.*\/history\//);
+    });
+
+    it('falls back to session.id when getRootSessionId returns null', () => {
+      sessions.getById.mockReturnValue({
+        id: 'orphan-123',
+        parentSessionId: 'nonexistent-parent',
+        gitWorktree: null,
+        gitBranch: null,
+      });
+      sessions.getRootSessionId = vi.fn().mockReturnValue(null);
+
+      const result = buildSystemPromptConfig('orphan-123', projectId, null, 'standard');
+      expect(result).toContain('/api/sessions/orphan-123/canvas');
+      expect(result).toBeDefined();
+      expect(result).not.toContain('/api/sessions/null/canvas');
+    });
+
+    it('maintains correct prompt ordering with child session context', () => {
+      sessions.getById.mockReturnValue({
+        id: 'child-456',
+        parentSessionId: 'parent-789',
+        gitWorktree: null,
+        gitBranch: null,
+      });
+      sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
+
+      const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
+      const childCtxIdx = result.indexOf('## Child Session');
+      const canvasWriteIdx = result.indexOf('When you generate artifacts');
+      const canvasReadIdx = result.indexOf('## Reading from Canvas');
+
+      expect(childCtxIdx).toBeGreaterThanOrEqual(0);
+      expect(canvasWriteIdx).toBeGreaterThan(childCtxIdx);
+      expect(canvasReadIdx).toBeGreaterThan(canvasWriteIdx);
     });
 
     it('includes session API instructions with sessionId and projectId', () => {
