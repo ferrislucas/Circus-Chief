@@ -13,6 +13,7 @@ import {
   updateSessionStatus,
   updateSessionFields,
   updatePendingPrompt,
+  openConversationOverlay,
 } from './helpers';
 
 // ============================================================
@@ -40,9 +41,9 @@ test.describe('Queue Prompt - Input Form Visibility During Running', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
-    const textarea = page.locator('textarea');
+    const textarea = overlay.locator('textarea');
     await expect(textarea).toBeVisible();
 
     await textarea.fill('My queued prompt');
@@ -101,12 +102,12 @@ test.describe('Queue Prompt - Auto-Send Checkbox', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
-    await page.locator('textarea').fill('My prompt');
+    await overlay.locator('textarea').fill('My prompt');
 
-    await expect(page.locator('.auto-send-row')).toBeVisible();
-    await expect(page.locator('.auto-send-text')).toContainText('Send automatically when Claude finishes');
+    await expect(overlay.locator('.auto-send-row')).toBeVisible();
+    await expect(overlay.locator('.auto-send-text')).toContainText('Send automatically when Claude finishes');
   });
 
   test('auto-send checkbox is hidden when textarea is empty during running', async ({ page }) => {
@@ -118,12 +119,12 @@ test.describe('Queue Prompt - Auto-Send Checkbox', () => {
     // Clear the pending prompt so the textarea starts empty
     await updatePendingPrompt(session.id, '');
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Ensure textarea is empty
-    await page.locator('textarea').fill('');
+    await overlay.locator('textarea').fill('');
 
-    await expect(page.locator('.auto-send-row')).not.toBeVisible();
+    await expect(overlay.locator('.auto-send-row')).not.toBeVisible();
   });
 
   test('auto-send checkbox is hidden when session is not running', async ({ page }) => {
@@ -133,11 +134,11 @@ test.describe('Queue Prompt - Auto-Send Checkbox', () => {
       startImmediately: false,
     });
     // Session stays in waiting state (startImmediately: false sets to waiting by default)
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
-    await page.locator('textarea').fill('Some content');
+    await overlay.locator('textarea').fill('Some content');
 
-    await expect(page.locator('.auto-send-row')).not.toBeVisible();
+    await expect(overlay.locator('.auto-send-row')).not.toBeVisible();
   });
 
   test('auto-send checkbox defaults to unchecked', async ({ page }) => {
@@ -147,11 +148,11 @@ test.describe('Queue Prompt - Auto-Send Checkbox', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
-    await page.locator('textarea').fill('Prompt');
+    await overlay.locator('textarea').fill('Prompt');
 
-    const checkbox = page.locator('.auto-send-checkbox');
+    const checkbox = overlay.locator('.auto-send-checkbox');
     await expect(checkbox).not.toBeChecked();
   });
 });
@@ -181,10 +182,10 @@ test.describe('Queue Prompt - Auto-Send Toggle Persistence', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
-    await page.locator('textarea').fill('My prompt');
-    await page.locator('.auto-send-checkbox').check();
+    await overlay.locator('textarea').fill('My prompt');
+    await overlay.locator('.auto-send-checkbox').check();
 
     // Wait for the API call to complete
     await page.waitForTimeout(1500);
@@ -202,12 +203,12 @@ test.describe('Queue Prompt - Auto-Send Toggle Persistence', () => {
     await updatePendingPrompt(session.id, 'test');
     await updateSessionFields(session.id, { autoSendPendingPrompt: true });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // The textarea should show the pendingPrompt, and checkbox should be checked
-    await expect(page.locator('.auto-send-checkbox')).toBeChecked();
+    await expect(overlay.locator('.auto-send-checkbox')).toBeChecked();
 
-    await page.locator('.auto-send-checkbox').uncheck();
+    await overlay.locator('.auto-send-checkbox').uncheck();
     await page.waitForTimeout(1500);
 
     const updatedSession = await getSession(session.id);
@@ -242,9 +243,9 @@ test.describe('Queue Prompt - OrchestrationPanel During Running', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
-    await expect(page.locator('.orchestration-panel')).toBeVisible();
+    await expect(overlay.locator('.orchestration-panel')).toBeVisible();
   });
 
   test('template selector is interactive during running', async ({ page }) => {
@@ -258,14 +259,14 @@ test.describe('Queue Prompt - OrchestrationPanel During Running', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand orchestration panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Select the template
-    await page.locator('.template-selector select.form-input').selectOption(template.id);
+    await overlay.locator('.template-selector select.form-input').selectOption(template.id);
     await page.waitForTimeout(1500);
 
     const updatedSession = await getSession(session.id);
@@ -300,10 +301,10 @@ test.describe('Queue Prompt - Auto-Send Reset on Transitions', () => {
     await updatePendingPrompt(session.id, 'test');
     await updateSessionFields(session.id, { autoSendPendingPrompt: true });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Verify checkbox is checked
-    await expect(page.locator('.auto-send-checkbox')).toBeChecked();
+    await expect(overlay.locator('.auto-send-checkbox')).toBeChecked();
 
     // Stop the session (triggers WebSocket broadcast)
     await updateSessionStatus(session.id, 'stopped');
@@ -321,11 +322,11 @@ test.describe('Queue Prompt - Auto-Send Reset on Transitions', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Type a prompt and enable auto-send
-    await page.locator('textarea').fill('My important prompt');
-    await page.locator('.auto-send-checkbox').check();
+    await overlay.locator('textarea').fill('My important prompt');
+    await overlay.locator('.auto-send-checkbox').check();
     await page.waitForTimeout(500);
 
     // Stop the session — the pendingPrompt is still set on the server,
@@ -334,7 +335,7 @@ test.describe('Queue Prompt - Auto-Send Reset on Transitions', () => {
     await page.waitForTimeout(2000);
 
     // Prompt should still be in the textarea
-    await expect(page.locator('textarea')).toHaveValue('My important prompt');
+    await expect(overlay.locator('textarea')).toHaveValue('My important prompt');
   });
 });
 

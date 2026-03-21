@@ -15,6 +15,7 @@ import {
   navigateAndWait,
   API_URL,
   waitForSessionToExist,
+  openConversationOverlay,
 } from './helpers';
 
 /**
@@ -431,10 +432,10 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'high',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      const overlay = await openConversationOverlay(page, session.id);
 
       // Check that effort level dropdown is visible in input form
-      const dropdown = page.locator('.input-form #effort-select');
+      const dropdown = overlay.locator('.input-form #effort-select');
       await expect(dropdown).toBeVisible();
     });
 
@@ -445,10 +446,10 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'medium',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      const overlay = await openConversationOverlay(page, session.id);
 
       // Check that dropdown shows "medium"
-      const dropdown = page.locator('.input-form #effort-select');
+      const dropdown = overlay.locator('.input-form #effort-select');
       const value = await dropdown.inputValue();
       expect(value).toBe('medium');
     });
@@ -460,10 +461,10 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         // effortLevel defaults to null (auto)
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      const overlay = await openConversationOverlay(page, session.id);
 
       // Check that dropdown shows "auto"
-      const dropdown = page.locator('.input-form #effort-select');
+      const dropdown = overlay.locator('.input-form #effort-select');
       const value = await dropdown.inputValue();
       expect(value).toBe('auto');
     });
@@ -475,10 +476,10 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'low',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      const overlay = await openConversationOverlay(page, session.id);
 
       // Change dropdown to "max"
-      await page.locator('.input-form #effort-select').selectOption('max');
+      await overlay.locator('.input-form #effort-select').selectOption('max');
 
       // Wait for session update via polling (more reliable than waitForResponse)
       const startTime = Date.now();
@@ -503,10 +504,10 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'high',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      const overlay = await openConversationOverlay(page, session.id);
 
       // Change dropdown to "low"
-      await page.locator('.input-form #effort-select').selectOption('low');
+      await overlay.locator('.input-form #effort-select').selectOption('low');
 
       // Wait for session update via polling
       const startTime = Date.now();
@@ -530,10 +531,10 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'medium',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      let overlay = await openConversationOverlay(page, session.id);
 
       // Change dropdown to "high"
-      await page.locator('.input-form #effort-select').selectOption('high');
+      await overlay.locator('.input-form #effort-select').selectOption('high');
 
       // Wait for session update via polling
       const startTime = Date.now();
@@ -545,14 +546,12 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      // Reload page
+      // Reload page and re-open overlay
       await page.reload();
-
-      // Wait for page to be ready
-      await page.waitForSelector('.input-form #effort-select');
+      overlay = await openConversationOverlay(page, session.id);
 
       // Check that dropdown still shows "high"
-      const dropdown = page.locator('.input-form #effort-select');
+      const dropdown = overlay.locator('.input-form #effort-select');
       const value = await dropdown.inputValue();
       expect(value).toBe('high');
 
@@ -877,9 +876,9 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         startImmediately: false,
       });
 
-      await navigateAndWait(page, `${API_URL}/sessions/${session.id}`);
+      const overlay = await openConversationOverlay(page, session.id);
 
-      const dropdown = page.locator('.input-form #effort-select');
+      const dropdown = overlay.locator('.input-form #effort-select');
 
       // Check for aria-label
       const ariaLabel = await dropdown.getAttribute('aria-label');

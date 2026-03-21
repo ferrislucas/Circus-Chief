@@ -9,6 +9,7 @@ import {
   cleanupAll,
   cleanupTemplates,
   navigateAndWait,
+  openConversationOverlay,
 } from './helpers';
 
 // ============================================================
@@ -36,12 +37,12 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
-    const panel = page.locator('.orchestration-panel');
+    const panel = overlay.locator('.orchestration-panel');
     await expect(panel).toBeVisible();
 
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await expect(panelHeader).toBeVisible();
     await expect(panelHeader).toContainText('Orchestration');
   });
@@ -53,21 +54,21 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Panel content should NOT be visible (collapsed by default)
-    const content = page.locator('.orchestration-content');
+    const content = overlay.locator('.orchestration-content');
     await expect(content).not.toBeVisible();
 
     // Click the panel header to expand
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Now the content should be visible
     await expect(content).toBeVisible();
 
     // Toggle button should indicate expanded state (scoped to orchestration panel)
-    const toggleButton = page.locator('.orchestration-panel .toggle-button');
+    const toggleButton = overlay.locator('.orchestration-panel .toggle-button');
     await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -81,13 +82,13 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
     // Enable auto-reschedule via API
     await updateSessionScheduling(session.id, { autoRescheduleEnabled: true });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Content should be visible without clicking (auto-expanded)
-    const content = page.locator('.orchestration-content');
+    const content = overlay.locator('.orchestration-content');
     await expect(content).toBeVisible();
 
-    const toggleButton = page.locator('.orchestration-panel .toggle-button');
+    const toggleButton = overlay.locator('.orchestration-panel .toggle-button');
     await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -106,14 +107,14 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
     // Set next template via API
     await setNextTemplate(session.id, template.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Content should be visible without clicking (auto-expanded)
-    const content = page.locator('.orchestration-content');
+    const content = overlay.locator('.orchestration-content');
     await expect(content).toBeVisible();
 
     // Template selector should show the selected template
-    const templateSelect = page.locator('.template-selector select.form-input');
+    const templateSelect = overlay.locator('.template-selector select.form-input');
     await expect(templateSelect).toBeVisible();
   });
 });
@@ -143,19 +144,19 @@ test.describe('Orchestration Panel - Schedule Button State', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Schedule button should be visible
-    const scheduleBtn = page.locator('.btn-schedule');
+    const scheduleBtn = overlay.locator('.btn-schedule');
     await expect(scheduleBtn).toBeVisible();
     await expect(scheduleBtn).toContainText('Scheduling');
 
     // Schedule row should be visible
-    const scheduleRow = page.locator('.schedule-row');
+    const scheduleRow = overlay.locator('.schedule-row');
     await expect(scheduleRow).toBeVisible();
   });
 
@@ -166,22 +167,22 @@ test.describe('Orchestration Panel - Schedule Button State', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Clear the textarea (draft sessions pre-populate from pendingPrompt)
-    const textarea = page.locator('textarea');
+    const textarea = overlay.locator('textarea');
     await textarea.clear();
 
     // Schedule button should be disabled
-    const scheduleBtn = page.locator('.btn-schedule');
+    const scheduleBtn = overlay.locator('.btn-schedule');
     await expect(scheduleBtn).toBeDisabled();
 
     // Disabled hint should be visible
-    const hint = page.locator('.schedule-disabled-hint');
+    const hint = overlay.locator('.schedule-disabled-hint');
     await expect(hint).toBeVisible();
     await expect(hint).toContainText('Prompt is required before scheduling');
   });
@@ -193,18 +194,18 @@ test.describe('Orchestration Panel - Schedule Button State', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // First clear the textarea
-    const textarea = page.locator('textarea');
+    const textarea = overlay.locator('textarea');
     await textarea.clear();
 
     // Verify it's disabled first
-    const scheduleBtn = page.locator('.btn-schedule');
+    const scheduleBtn = overlay.locator('.btn-schedule');
     await expect(scheduleBtn).toBeDisabled();
 
     // Now type content into the textarea
@@ -214,7 +215,7 @@ test.describe('Orchestration Panel - Schedule Button State', () => {
     await expect(scheduleBtn).toBeEnabled();
 
     // Disabled hint should NOT be visible
-    const hint = page.locator('.schedule-disabled-hint');
+    const hint = overlay.locator('.schedule-disabled-hint');
     await expect(hint).not.toBeVisible();
   });
 });
@@ -244,19 +245,19 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Configure button should be visible
-    const configureBtn = page.locator('.btn-configure');
+    const configureBtn = overlay.locator('.btn-configure');
     await expect(configureBtn).toBeVisible();
     await expect(configureBtn).toContainText('Configure');
 
     // Status button should NOT be visible (auto-reschedule is disabled)
-    const statusBtn = page.locator('.btn-status');
+    const statusBtn = overlay.locator('.btn-status');
     await expect(statusBtn).not.toBeVisible();
   });
 
@@ -267,17 +268,17 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Click configure button
-    const configureBtn = page.locator('.btn-configure');
+    const configureBtn = overlay.locator('.btn-configure');
     await configureBtn.click();
 
-    // Modal should be visible
+    // Modal should be visible (modals are typically at page level, not overlay level)
     const modal = page.locator('.modal-backdrop');
     await expect(modal).toBeVisible();
 
@@ -301,12 +302,12 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand panel → click configure
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
-    await page.locator('.btn-configure').click();
+    await overlay.locator('.btn-configure').click();
 
     // Enable the toggle by clicking the toggle-switch label (checkbox is hidden via CSS)
     const toggleLabel = page.locator('.modal-content .toggle-switch');
@@ -332,12 +333,12 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand panel → click configure
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
-    await page.locator('.btn-configure').click();
+    await overlay.locator('.btn-configure').click();
 
     // Enable the toggle by clicking the toggle-switch label (checkbox is hidden via CSS)
     const toggleLabel = page.locator('.modal-content .toggle-switch');
@@ -352,17 +353,17 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
     await expect(modal).not.toBeVisible();
 
     // Panel should now show status button with "Enabled" badge
-    const statusBtn = page.locator('.btn-status');
+    const statusBtn = overlay.locator('.btn-status');
     await expect(statusBtn).toBeVisible();
 
-    const statusBadge = page.locator('.status-badge');
+    const statusBadge = overlay.locator('.status-badge');
     await expect(statusBadge).toContainText('Enabled');
 
-    const editLink = page.locator('.edit-link');
+    const editLink = overlay.locator('.edit-link');
     await expect(editLink).toContainText('Edit');
 
     // Configure button should no longer be visible
-    const configureBtn = page.locator('.btn-configure');
+    const configureBtn = overlay.locator('.btn-configure');
     await expect(configureBtn).not.toBeVisible();
 
     // Verify via API
@@ -380,14 +381,14 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
     // Enable auto-reschedule via API first
     await updateSessionScheduling(session.id, { autoRescheduleEnabled: true });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Panel should be expanded (auto-expanded because autoRescheduleEnabled)
-    const content = page.locator('.orchestration-content');
+    const content = overlay.locator('.orchestration-content');
     await expect(content).toBeVisible();
 
     // Click status button to open modal
-    const statusBtn = page.locator('.btn-status');
+    const statusBtn = overlay.locator('.btn-status');
     await expect(statusBtn).toBeVisible();
     await statusBtn.click();
 
@@ -404,11 +405,11 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
     await expect(modal).not.toBeVisible();
 
     // Panel should now show Configure button again
-    const configureBtn = page.locator('.btn-configure');
+    const configureBtn = overlay.locator('.btn-configure');
     await expect(configureBtn).toBeVisible();
 
     // Status button should no longer be visible
-    await expect(page.locator('.btn-status')).not.toBeVisible();
+    await expect(overlay.locator('.btn-status')).not.toBeVisible();
 
     // Verify via API
     const updatedSession = await getSession(session.id);
@@ -453,26 +454,26 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Template selector should be visible
-    const templateSelector = page.locator('.template-selector');
+    const templateSelector = overlay.locator('.template-selector');
     await expect(templateSelector).toBeVisible();
 
     // Label should be present
-    const label = page.locator('.selector-label');
+    const label = overlay.locator('.selector-label');
     await expect(label).toContainText('Next Template');
 
     // Dropdown should be visible
-    const dropdown = page.locator('.template-selector select.form-input');
+    const dropdown = overlay.locator('.template-selector select.form-input');
     await expect(dropdown).toBeVisible();
 
     // Help text should be visible (no template selected yet)
-    const helpText = page.locator('.selector-help');
+    const helpText = overlay.locator('.selector-help');
     await expect(helpText).toBeVisible();
   });
 
@@ -483,14 +484,14 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Verify template options are available
-    const dropdown = page.locator('.template-selector select.form-input');
+    const dropdown = overlay.locator('.template-selector select.form-input');
 
     // Check the default selected option
     const selectedText = await dropdown.locator('option:checked').textContent();
@@ -510,22 +511,22 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Select template A from dropdown using value (template ID)
-    const dropdown = page.locator('.template-selector select.form-input');
+    const dropdown = overlay.locator('.template-selector select.form-input');
     await dropdown.selectOption(template1.id);
 
     // Template preview should appear
-    const preview = page.locator('.template-preview');
+    const preview = overlay.locator('.template-preview');
     await expect(preview).toBeVisible({ timeout: 5000 });
 
     // Help text should no longer be visible
-    const helpText = page.locator('.selector-help');
+    const helpText = overlay.locator('.selector-help');
     await expect(helpText).not.toBeVisible();
 
     // Verify via API that the template was persisted
@@ -542,22 +543,22 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Select template A using value (template ID)
-    const dropdown = page.locator('.template-selector select.form-input');
+    const dropdown = overlay.locator('.template-selector select.form-input');
     await dropdown.selectOption(template1.id);
 
     // Wait for preview to appear (confirms selection went through)
-    const preview = page.locator('.template-preview');
+    const preview = overlay.locator('.template-preview');
     await expect(preview).toBeVisible({ timeout: 5000 });
 
     // Click the clear button
-    const clearBtn = page.locator('.btn-clear');
+    const clearBtn = overlay.locator('.btn-clear');
     await expect(clearBtn).toBeVisible();
     await clearBtn.click();
 
@@ -569,7 +570,7 @@ test.describe('Orchestration Panel - Template Selector', () => {
     await expect(preview).not.toBeVisible();
 
     // Help text should reappear
-    const helpText = page.locator('.selector-help');
+    const helpText = overlay.locator('.selector-help');
     await expect(helpText).toBeVisible();
 
     // Verify via API
@@ -592,18 +593,18 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Select template C (which chains to B) using its ID
-    const dropdown = page.locator('.template-selector select.form-input');
+    const dropdown = overlay.locator('.template-selector select.form-input');
     await dropdown.selectOption(templateC.id);
 
     // Chain indicator should be visible
-    const chainIndicator = page.locator('.chain-indicator');
+    const chainIndicator = overlay.locator('.chain-indicator');
     await expect(chainIndicator).toBeVisible({ timeout: 5000 });
 
     // Should contain reference to Template B
@@ -620,19 +621,19 @@ test.describe('Orchestration Panel - Template Selector', () => {
     // Set next template via API before navigating
     await setNextTemplate(session.id, template1.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Panel should be auto-expanded (because template is set)
-    const content = page.locator('.orchestration-content');
+    const content = overlay.locator('.orchestration-content');
     await expect(content).toBeVisible();
 
     // Template dropdown should show template A selected
-    const dropdown = page.locator('.template-selector select.form-input');
+    const dropdown = overlay.locator('.template-selector select.form-input');
     const selectedValue = await dropdown.inputValue();
     expect(selectedValue).toBe(template1.id);
 
     // Preview should be visible
-    const preview = page.locator('.template-preview');
+    const preview = overlay.locator('.template-preview');
     await expect(preview).toBeVisible();
   });
 });
@@ -664,26 +665,26 @@ test.describe('Orchestration Panel - Integration', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // Schedule row with button
-    const scheduleRow = page.locator('.schedule-row');
+    const scheduleRow = overlay.locator('.schedule-row');
     await expect(scheduleRow).toBeVisible();
-    const scheduleBtn = page.locator('.btn-schedule');
+    const scheduleBtn = overlay.locator('.btn-schedule');
     await expect(scheduleBtn).toBeVisible();
 
     // Template row with selector
-    const templateRow = page.locator('.template-row');
+    const templateRow = overlay.locator('.template-row');
     await expect(templateRow).toBeVisible();
-    const templateSelector = page.locator('.template-selector');
+    const templateSelector = overlay.locator('.template-selector');
     await expect(templateSelector).toBeVisible();
 
     // Auto-reschedule row with button
-    const rescheduleRow = page.locator('.auto-reschedule-row');
+    const rescheduleRow = overlay.locator('.auto-reschedule-row');
     await expect(rescheduleRow).toBeVisible();
   });
 
@@ -699,22 +700,22 @@ test.describe('Orchestration Panel - Integration', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Expand the panel
-    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    const panelHeader = overlay.locator('.orchestration-panel .panel-header');
     await panelHeader.click();
 
     // 1) Select template using its ID
-    const dropdown = page.locator('.template-selector select.form-input');
+    const dropdown = overlay.locator('.template-selector select.form-input');
     await dropdown.selectOption(template.id);
 
     // Wait for template preview to appear
-    const preview = page.locator('.template-preview');
+    const preview = overlay.locator('.template-preview');
     await expect(preview).toBeVisible({ timeout: 5000 });
 
     // 2) Open auto-reschedule modal and enable
-    const configureBtn = page.locator('.btn-configure');
+    const configureBtn = overlay.locator('.btn-configure');
     await configureBtn.click();
 
     // Enable the toggle by clicking the toggle-switch label (checkbox is hidden via CSS)
@@ -734,7 +735,7 @@ test.describe('Orchestration Panel - Integration', () => {
     await expect(preview).toBeVisible();
 
     // - Auto-reschedule enabled badge
-    const statusBadge = page.locator('.status-badge');
+    const statusBadge = overlay.locator('.status-badge');
     await expect(statusBadge).toContainText('Enabled');
 
     // Verify via API
@@ -763,21 +764,21 @@ test.describe('Orchestration Panel - Integration', () => {
       rescheduleDelayMinutes: 15,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Panel should be auto-expanded (template + auto-reschedule set)
-    const content = page.locator('.orchestration-content');
+    const content = overlay.locator('.orchestration-content');
     await expect(content).toBeVisible();
 
     // Template selector should show the selected template with preview
-    const preview = page.locator('.template-preview');
+    const preview = overlay.locator('.template-preview');
     await expect(preview).toBeVisible();
 
     // Auto-reschedule should show enabled status
-    const statusBtn = page.locator('.btn-status');
+    const statusBtn = overlay.locator('.btn-status');
     await expect(statusBtn).toBeVisible();
 
-    const statusBadge = page.locator('.status-badge');
+    const statusBadge = overlay.locator('.status-badge');
     await expect(statusBadge).toContainText('Enabled');
   });
 });

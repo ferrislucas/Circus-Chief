@@ -9,6 +9,7 @@ import {
   getConversations,
   navigateAndWait,
   waitForElement,
+  openConversationOverlay,
 } from './helpers';
 
 test.describe('Todo Tracking — Category 1: API Tests', () => {
@@ -134,8 +135,8 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
   });
 
   test('todo drawer is hidden when no todos exist', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${sessionId}`);
-    const drawer = page.locator('.todo-drawer');
+    const overlay = await openConversationOverlay(page, sessionId);
+    const drawer = overlay.locator('.todo-drawer');
     await expect(drawer).not.toBeAttached();
   });
 
@@ -144,8 +145,8 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
-    const drawer = page.locator('.todo-drawer');
+    const overlay = await openConversationOverlay(page, sessionId);
+    const drawer = overlay.locator('.todo-drawer');
     await expect(drawer).toBeVisible();
   });
 
@@ -154,8 +155,8 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
-    const label = page.locator('.todo-label');
+    const overlay = await openConversationOverlay(page, sessionId);
+    const label = overlay.locator('.todo-label');
     await expect(label).toContainText('Todos');
   });
 
@@ -171,8 +172,8 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
       { content: 'Todo 6', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
-    const summary = page.locator('.todo-summary');
+    const overlay = await openConversationOverlay(page, sessionId);
+    const summary = overlay.locator('.todo-summary');
     await expect(summary).toBeVisible();
 
     const chips = summary.locator('.todo-chip');
@@ -191,8 +192,8 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
       { content: 'Todo 6', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
-    const moreIndicator = page.locator('.todo-more');
+    const overlay = await openConversationOverlay(page, sessionId);
+    const moreIndicator = overlay.locator('.todo-more');
     await expect(moreIndicator).toContainText('(+2 more)');
   });
 });
@@ -221,15 +222,15 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'Pending task', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Expand drawer
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const todoItem = page.locator('.todo-item.todo-pending');
+    const todoItem = overlay.locator('.todo-item.todo-pending');
     await expect(todoItem).toBeVisible();
 
-    const icon = page.locator('.status-icon.status-pending');
+    const icon = overlay.locator('.status-icon.status-pending');
     await expect(icon).toBeVisible();
   });
 
@@ -238,15 +239,15 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'In progress task', status: 'in_progress' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Expand drawer
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const todoItem = page.locator('.todo-item.todo-in_progress');
+    const todoItem = overlay.locator('.todo-item.todo-in_progress');
     await expect(todoItem).toBeVisible();
 
-    const icon = page.locator('.status-icon.status-in_progress');
+    const icon = overlay.locator('.status-icon.status-in_progress');
     await expect(icon).toBeVisible();
   });
 
@@ -257,15 +258,15 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'Completed task', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Expand drawer
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const todoItem = page.locator('.todo-item.todo-completed');
+    const todoItem = overlay.locator('.todo-item.todo-completed');
     await expect(todoItem).toBeVisible();
 
-    const icon = page.locator('.status-icon.status-completed');
+    const icon = overlay.locator('.status-icon.status-completed');
     await expect(icon).toBeVisible();
 
     const content = todoItem.locator('.todo-content');
@@ -277,12 +278,12 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'Completed task', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Expand drawer
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const todoItem = page.locator('.todo-item.todo-completed');
+    const todoItem = overlay.locator('.todo-item.todo-completed');
     const opacity = await todoItem.evaluate((el) => {
       return window.getComputedStyle(el).opacity;
     });
@@ -296,14 +297,14 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'Completed task', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Expand drawer
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const pending = page.locator('.todo-item.todo-pending');
-    const inProgress = page.locator('.todo-item.todo-in_progress');
-    const completed = page.locator('.todo-item.todo-completed');
+    const pending = overlay.locator('.todo-item.todo-pending');
+    const inProgress = overlay.locator('.todo-item.todo-in_progress');
+    const completed = overlay.locator('.todo-item.todo-completed');
 
     await expect(pending).toBeVisible();
     await expect(inProgress).toBeVisible();
@@ -345,12 +346,12 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
-    const summary = page.locator('.todo-summary');
+    const summary = overlay.locator('.todo-summary');
     await expect(summary).toBeVisible();
 
-    const todoList = page.locator('.todo-list');
+    const todoList = overlay.locator('.todo-list');
     await expect(todoList).not.toBeVisible();
   });
 
@@ -359,15 +360,15 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Click header to expand
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const todoList = page.locator('.todo-list');
+    const todoList = overlay.locator('.todo-list');
     await expect(todoList).toBeVisible();
 
-    const summary = page.locator('.todo-summary');
+    const summary = overlay.locator('.todo-summary');
     await expect(summary).not.toBeVisible();
   });
 
@@ -379,18 +380,18 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Pending', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Click header to expand
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const completedCount = page.locator('.count.completed');
+    const completedCount = overlay.locator('.count.completed');
     await expect(completedCount).toContainText('2 done');
 
-    const inProgressCount = page.locator('.count.in-progress');
+    const inProgressCount = overlay.locator('.count.in-progress');
     await expect(inProgressCount).toContainText('1 active');
 
-    const pendingCount = page.locator('.count.pending');
+    const pendingCount = overlay.locator('.count.pending');
     await expect(pendingCount).toContainText('1 pending');
   });
 
@@ -399,16 +400,16 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Click to expand
-    await page.locator('.todo-header').click();
-    await expect(page.locator('.todo-list')).toBeVisible();
+    await overlay.locator('.todo-header').click();
+    await expect(overlay.locator('.todo-list')).toBeVisible();
 
     // Click to collapse
-    await page.locator('.todo-header').click();
-    await expect(page.locator('.todo-list')).not.toBeVisible();
-    await expect(page.locator('.todo-summary')).toBeVisible();
+    await overlay.locator('.todo-header').click();
+    await expect(overlay.locator('.todo-list')).not.toBeVisible();
+    await expect(overlay.locator('.todo-summary')).toBeVisible();
   });
 
   test('expanded list shows all todos with full content', async ({ page }) => {
@@ -418,12 +419,12 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Third todo item', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Expand drawer
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const todoItems = page.locator('.todo-item');
+    const todoItems = overlay.locator('.todo-item');
     await expect(todoItems).toHaveCount(3);
 
     await expect(todoItems.nth(0).locator('.todo-content')).toContainText(
@@ -544,9 +545,9 @@ test.describe('Todo Tracking — Category 6: Text Handling', () => {
       { content: longText, status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
-    const chipText = page.locator('.todo-chip .todo-text');
+    const chipText = overlay.locator('.todo-chip .todo-text');
     await expect(chipText).toContainText('Implement user authe...');
   });
 
@@ -555,9 +556,9 @@ test.describe('Todo Tracking — Category 6: Text Handling', () => {
       { content: 'Fix bug', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
-    const chipText = page.locator('.todo-chip .todo-text');
+    const chipText = overlay.locator('.todo-chip .todo-text');
     await expect(chipText).toContainText('Fix bug');
     await expect(chipText).not.toContainText('...');
   });
@@ -568,12 +569,12 @@ test.describe('Todo Tracking — Category 6: Text Handling', () => {
       { content: longText, status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Expand drawer
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const todoContent = page.locator('.todo-item .todo-content');
+    const todoContent = overlay.locator('.todo-item .todo-content');
     await expect(todoContent).toContainText(longText);
     await expect(todoContent).not.toContainText('...');
   });
@@ -615,8 +616,8 @@ test.describe('Todo Tracking — Category 7: Edge Cases & Empty States', () => {
     todos = await getTodos(sessionId, conversationId);
     expect(todos).toEqual([]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
-    const drawer = page.locator('.todo-drawer');
+    const overlay = await openConversationOverlay(page, sessionId);
+    const drawer = overlay.locator('.todo-drawer');
     await expect(drawer).not.toBeAttached();
   });
 
@@ -625,12 +626,12 @@ test.describe('Todo Tracking — Category 7: Edge Cases & Empty States', () => {
       { content: 'Only todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
-    const chips = page.locator('.todo-chip');
+    const chips = overlay.locator('.todo-chip');
     await expect(chips).toHaveCount(1);
 
-    const moreIndicator = page.locator('.todo-more');
+    const moreIndicator = overlay.locator('.todo-more');
     await expect(moreIndicator).not.toBeVisible();
   });
 
@@ -642,12 +643,12 @@ test.describe('Todo Tracking — Category 7: Edge Cases & Empty States', () => {
       { content: 'Todo 4', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
-    const chips = page.locator('.todo-chip');
+    const chips = overlay.locator('.todo-chip');
     await expect(chips).toHaveCount(4);
 
-    const moreIndicator = page.locator('.todo-more');
+    const moreIndicator = overlay.locator('.todo-more');
     await expect(moreIndicator).not.toBeVisible();
   });
 
@@ -657,18 +658,18 @@ test.describe('Todo Tracking — Category 7: Edge Cases & Empty States', () => {
       { content: 'Completed 2', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    const overlay = await openConversationOverlay(page, sessionId);
 
     // Expand drawer
-    await page.locator('.todo-header').click();
+    await overlay.locator('.todo-header').click();
 
-    const completedCount = page.locator('.count.completed');
+    const completedCount = overlay.locator('.count.completed');
     await expect(completedCount).toBeVisible();
 
-    const inProgressCount = page.locator('.count.in-progress');
+    const inProgressCount = overlay.locator('.count.in-progress');
     await expect(inProgressCount).not.toBeVisible();
 
-    const pendingCount = page.locator('.count.pending');
+    const pendingCount = overlay.locator('.count.pending');
     await expect(pendingCount).not.toBeVisible();
   });
 });

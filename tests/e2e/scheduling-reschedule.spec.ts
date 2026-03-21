@@ -13,6 +13,7 @@ import {
   waitForPageReady,
   updatePendingPrompt,
   updateSessionStatus,
+  openConversationOverlay,
 } from './helpers';
 
 /**
@@ -537,16 +538,15 @@ test.describe('Category 5: Scheduling UI Components', () => {
       scheduledAt: Date.now() + 3600000,
     });
 
-    // Navigate to session detail
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    // Open conversation overlay
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Click "Edit Schedule" button
-    const editButton = page.getByRole('button', { name: 'Edit Schedule' });
+    const editButton = overlay.getByRole('button', { name: 'Edit Schedule' });
     await expect(editButton).toBeVisible({ timeout: 10000 });
     await editButton.click();
 
-    // Modal should be visible
-    // Look for a datetime input or modal
+    // Modal should be visible (modals are typically at page level)
     const modal = page.locator('[class*="modal"]').first();
     await expect(modal).toBeVisible({ timeout: 5000 });
 
