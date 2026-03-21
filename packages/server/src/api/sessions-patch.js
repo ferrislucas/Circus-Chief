@@ -3,6 +3,7 @@ import { sessions, sessionTemplates, modelProviders } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as summaryService from '../services/summaryService.js';
+import { setSessionNameFromPr } from '../services/prUrlService.js';
 import { requireSession } from '../middleware/sessionLookup.js';
 
 const router = Router();
@@ -205,6 +206,12 @@ router.patch('/:id', requireSession, (req, res) => {
   // Propagate PR URL to parent session if set (not when clearing)
   if (updateData.prUrl) {
     summaryService.propagatePrUrlToParent(req.params.id, updateData.prUrl);
+
+    // Set session name from PR title (fire-and-forget async)
+    // The response returns immediately; client gets name update via WebSocket
+    setSessionNameFromPr(req.params.id, updateData.prUrl).catch(err => {
+      console.error(`[Sessions API] Failed to set session name from PR:`, err);
+    });
   }
 
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, updateData);
