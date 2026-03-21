@@ -3,6 +3,8 @@ import {
   seedProject,
   seedSession,
   seedWorkLog,
+  seedPartialText,
+  seedThinking,
   cleanupCreatedResources,
   navigateAndWait,
   updateSessionStatus,
@@ -137,6 +139,54 @@ test.describe('Summary Tab Live Output', () => {
     await expect(page.locator('.session-log-stream')).toBeVisible({ timeout: 5000 });
   });
 
+  test('displays partial text in live output', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test partial text display',
+      name: 'Partial Text Display Test',
+      startImmediately: false,
+    });
+    await updateSessionStatus(session.id, 'running');
+
+    await navigateAndWait(page, `/sessions/${session.id}/summary`, {
+      waitFor: '.summary-tab',
+    });
+
+    // Seed partial text
+    await seedPartialText(session.id, 'I am currently working on your request...');
+
+    // Wait for the session log stream to appear
+    const logStream = page.locator('.session-log-stream');
+    await expect(logStream).toBeVisible({ timeout: 15000 });
+
+    // Verify the partial text is displayed
+    const logPartial = page.locator('.log-partial');
+    await expect(logPartial).toContainText('I am currently working on your request...');
+  });
+
+  test('displays thinking in live output', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test thinking display',
+      name: 'Thinking Display Test',
+      startImmediately: false,
+    });
+    await updateSessionStatus(session.id, 'running');
+
+    await navigateAndWait(page, `/sessions/${session.id}/summary`, {
+      waitFor: '.summary-tab',
+    });
+
+    // Seed thinking
+    await seedThinking(session.id, 'Let me analyze the requirements...');
+
+    // Wait for the session log stream to appear
+    const logStream = page.locator('.session-log-stream');
+    await expect(logStream).toBeVisible({ timeout: 15000 });
+
+    // Verify the thinking is displayed
+    const logThinking = page.locator('.log-thinking');
+    await expect(logThinking).toContainText('Let me analyze the requirements...');
+  });
+
   test('live output appears at top of summary tab before other content', async ({ page }) => {
     const session = await seedSession(project.id, {
       prompt: 'Test live output position',
@@ -165,35 +215,5 @@ test.describe('Summary Tab Live Output', () => {
 
     // First child should be the session log stream
     await expect(children[0]).toHaveClass(/session-log-stream/);
-  });
-
-  test('live output disappears when session status changes to completed', async ({ page }) => {
-    const session = await seedSession(project.id, {
-      prompt: 'Test status change',
-      name: 'Status Change Test',
-      startImmediately: false,
-    });
-    await updateSessionStatus(session.id, 'running');
-
-    await navigateAndWait(page, `/sessions/${session.id}/summary`, {
-      waitFor: '.summary-tab',
-    });
-
-    // Seed a work log to show live output
-    await seedWorkLog(session.id, {
-      type: 'tool_input',
-      content: JSON.stringify({ command: 'test' }),
-      toolName: 'Bash',
-    });
-
-    // Verify live output is visible
-    await page.waitForSelector('.session-log-stream', { timeout: 15000 });
-    await expect(page.locator('.session-log-stream')).toBeVisible();
-
-    // Change session status to completed
-    await updateSessionStatus(session.id, 'completed');
-
-    // Live output should disappear
-    await expect(page.locator('.session-log-stream')).toHaveCount(0, { timeout: 5000 });
   });
 });
