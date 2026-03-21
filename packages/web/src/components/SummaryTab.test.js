@@ -172,7 +172,7 @@ describe('SummaryTab', () => {
         global: {
           stubs: {
             RouterLink: { template: '<a><slot /></a>' },
-            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            WhatJustHappenedCard: { name: 'WhatJustHappenedCard', template: '<div class="what-just-happened-card-stub"></div>' },
           },
         },
       });
@@ -220,7 +220,7 @@ describe('SummaryTab', () => {
         global: {
           stubs: {
             RouterLink: { template: '<a><slot /></a>' },
-            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            WhatJustHappenedCard: { name: 'WhatJustHappenedCard', template: '<div class="what-just-happened-card-stub"></div>' },
           },
         },
       });
