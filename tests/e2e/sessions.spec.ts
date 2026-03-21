@@ -126,7 +126,7 @@ test.describe('Session Management', () => {
     // Wait for session to be available
     await waitForSessionToExist(session.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
 
     // The initial user message should be visible
     await expect(page.locator('.message-content').getByText('Hello Claude', { exact: true })).toBeVisible({ timeout: 10000 });

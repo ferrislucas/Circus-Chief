@@ -134,7 +134,7 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
   });
 
   test('todo drawer is hidden when no todos exist', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
     const drawer = page.locator('.todo-drawer');
     await expect(drawer).not.toBeAttached();
   });
@@ -144,7 +144,7 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
     const drawer = page.locator('.todo-drawer');
     await expect(drawer).toBeVisible();
   });
@@ -154,7 +154,7 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
     const label = page.locator('.todo-label');
     await expect(label).toContainText('Todos');
   });
@@ -171,7 +171,7 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
       { content: 'Todo 6', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
     const summary = page.locator('.todo-summary');
     await expect(summary).toBeVisible();
 
@@ -191,7 +191,7 @@ test.describe('Todo Tracking — Category 2: Drawer Visibility', () => {
       { content: 'Todo 6', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
     const moreIndicator = page.locator('.todo-more');
     await expect(moreIndicator).toContainText('(+2 more)');
   });
@@ -221,7 +221,7 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'Pending task', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Expand drawer
     await page.locator('.todo-header').click();
@@ -238,7 +238,7 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'In progress task', status: 'in_progress' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Expand drawer
     await page.locator('.todo-header').click();
@@ -257,7 +257,7 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'Completed task', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Expand drawer
     await page.locator('.todo-header').click();
@@ -277,7 +277,7 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'Completed task', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Expand drawer
     await page.locator('.todo-header').click();
@@ -296,7 +296,7 @@ test.describe('Todo Tracking — Category 3: Todo Statuses Display', () => {
       { content: 'Completed task', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Expand drawer
     await page.locator('.todo-header').click();
@@ -345,7 +345,7 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     const summary = page.locator('.todo-summary');
     await expect(summary).toBeVisible();
@@ -359,7 +359,7 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Click header to expand
     await page.locator('.todo-header').click();
@@ -379,7 +379,7 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Pending', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Click header to expand
     await page.locator('.todo-header').click();
@@ -399,7 +399,7 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Test todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Click to expand
     await page.locator('.todo-header').click();
@@ -418,7 +418,7 @@ test.describe('Todo Tracking — Category 4: Expand/Collapse Behavior', () => {
       { content: 'Third todo item', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Expand drawer
     await page.locator('.todo-header').click();
@@ -544,7 +544,7 @@ test.describe('Todo Tracking — Category 6: Text Handling', () => {
       { content: longText, status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     const chipText = page.locator('.todo-chip .todo-text');
     await expect(chipText).toContainText('Implement user authe...');
@@ -555,7 +555,7 @@ test.describe('Todo Tracking — Category 6: Text Handling', () => {
       { content: 'Fix bug', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     const chipText = page.locator('.todo-chip .todo-text');
     await expect(chipText).toContainText('Fix bug');
@@ -568,7 +568,7 @@ test.describe('Todo Tracking — Category 6: Text Handling', () => {
       { content: longText, status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Expand drawer
     await page.locator('.todo-header').click();
@@ -615,7 +615,7 @@ test.describe('Todo Tracking — Category 7: Edge Cases & Empty States', () => {
     todos = await getTodos(sessionId, conversationId);
     expect(todos).toEqual([]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
     const drawer = page.locator('.todo-drawer');
     await expect(drawer).not.toBeAttached();
   });
@@ -625,7 +625,7 @@ test.describe('Todo Tracking — Category 7: Edge Cases & Empty States', () => {
       { content: 'Only todo', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     const chips = page.locator('.todo-chip');
     await expect(chips).toHaveCount(1);
@@ -642,7 +642,7 @@ test.describe('Todo Tracking — Category 7: Edge Cases & Empty States', () => {
       { content: 'Todo 4', status: 'pending' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     const chips = page.locator('.todo-chip');
     await expect(chips).toHaveCount(4);
@@ -657,7 +657,7 @@ test.describe('Todo Tracking — Category 7: Edge Cases & Empty States', () => {
       { content: 'Completed 2', status: 'completed' },
     ]);
 
-    await navigateAndWait(page, `/sessions/${sessionId}`);
+    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
 
     // Expand drawer
     await page.locator('.todo-header').click();

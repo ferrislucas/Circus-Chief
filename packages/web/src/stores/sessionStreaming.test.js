@@ -271,6 +271,57 @@ describe('SessionStreaming Store', () => {
     });
   });
 
+  describe('clearSessionEphemeralState', () => {
+    it('clears partialText and thinking but preserves work logs', () => {
+      const store = useSessionStreamingStore();
+      store.addSessionWorkLog('session-1', { id: '1', type: 'tool_use' });
+      store.setSessionPartialText('session-1', 'Partial text');
+      store.setPartialThinking('Thinking...', 'session-1');
+
+      store.clearSessionEphemeralState('session-1');
+
+      // Work logs should still be present
+      expect(store.getSessionWorkLogs('session-1')).toHaveLength(1);
+      expect(store.getSessionWorkLogs('session-1')[0].id).toBe('1');
+      // But ephemeral state should be cleared
+      expect(store.getSessionPartialText('session-1')).toBe('');
+      expect(store.getPartialThinking('session-1')).toBeNull();
+    });
+
+    it('preserves file count', () => {
+      const store = useSessionStreamingStore();
+      store.setSessionFileCount('session-1', 7);
+      expect(store.getSessionFileCount('session-1')).toBe(7);
+
+      store.clearSessionEphemeralState('session-1');
+
+      // File count should remain unchanged
+      expect(store.getSessionFileCount('session-1')).toBe(7);
+    });
+
+    it('does not affect other sessions', () => {
+      const store = useSessionStreamingStore();
+      store.addSessionWorkLog('session-1', { id: '1', type: 'tool_use' });
+      store.addSessionWorkLog('session-2', { id: '2', type: 'tool_use' });
+      store.setSessionPartialText('session-1', 'Text 1');
+      store.setSessionPartialText('session-2', 'Text 2');
+      store.setPartialThinking('Thinking 1', 'session-1');
+      store.setPartialThinking('Thinking 2', 'session-2');
+
+      store.clearSessionEphemeralState('session-1');
+
+      // session-1 ephemeral state cleared
+      expect(store.getSessionPartialText('session-1')).toBe('');
+      expect(store.getPartialThinking('session-1')).toBeNull();
+      // session-1 work logs preserved
+      expect(store.getSessionWorkLogs('session-1')).toHaveLength(1);
+      // session-2 completely unchanged
+      expect(store.getSessionWorkLogs('session-2')).toHaveLength(1);
+      expect(store.getSessionPartialText('session-2')).toBe('Text 2');
+      expect(store.getPartialThinking('session-2')).toBe('Thinking 2');
+    });
+  });
+
   describe('setSessionFileCount', () => {
     it('stores count per session', () => {
       const store = useSessionStreamingStore();
@@ -395,7 +446,7 @@ describe('SessionStreaming Store', () => {
       expect(store.getPartialThinking('session-1')).toBe('hmm');
     });
 
-    it('does NOT overwrite existing workLogs if WebSocket data already arrived', () => {
+    it('merges work logs by ID when store already has data', () => {
       const store = useSessionStreamingStore();
       store.addSessionWorkLog('session-1', { id: 'ws-1', type: 'tool_use', content: 'ws data' });
 
@@ -405,9 +456,11 @@ describe('SessionStreaming Store', () => {
         thinking: 'rest thinking',
       });
 
-      // Work logs should NOT be overwritten
-      expect(store.getSessionWorkLogs('session-1')).toHaveLength(1);
-      expect(store.getSessionWorkLogs('session-1')[0].id).toBe('ws-1');
+      // Should have both work logs (merged)
+      const logs = store.getSessionWorkLogs('session-1');
+      expect(logs).toHaveLength(2);
+      expect(logs.map(l => l.id)).toContain('ws-1');
+      expect(logs.map(l => l.id)).toContain('rest-1');
     });
 
     it('does NOT overwrite existing partialText if WebSocket data already arrived', () => {
@@ -426,6 +479,44 @@ describe('SessionStreaming Store', () => {
       store.hydrateSessionState('session-1', { thinking: 'rest thinking' });
 
       expect(store.getPartialThinking('session-1')).toBe('ws thinking');
+    });
+
+    it('does not duplicate existing work logs', () => {
+      const store = useSessionStreamingStore();
+      store.addSessionWorkLog('session-1', { id: 'log-1', type: 'tool_use', content: 'existing' });
+
+      store.hydrateSessionState('session-1', {
+        workLogs: [{ id: 'log-1', type: 'tool_use', content: 'duplicate' }],
+      });
+
+      // Should still have exactly 1 log (not duplicated)
+      expect(store.getSessionWorkLogs('session-1')).toHaveLength(1);
+      expect(store.getSessionWorkLogs('session-1')[0].content).toBe('existing');
+    });
+
+    it('respects 15-entry cap when merging', () => {
+      const store = useSessionStreamingStore();
+      // Add 10 work logs via addSessionWorkLog
+      for (let i = 0; i < 10; i++) {
+        store.addSessionWorkLog('session-1', { id: `ws-${i}`, type: 'tool_use' });
+      }
+
+      // Hydrate with 10 more logs (different IDs)
+      const restLogs = [];
+      for (let i = 0; i < 10; i++) {
+        restLogs.push({ id: `rest-${i}`, type: 'tool_use' });
+      }
+      store.hydrateSessionState('session-1', { workLogs: restLogs });
+
+      // Should have exactly 15 logs (the latest 15)
+      const logs = store.getSessionWorkLogs('session-1');
+      expect(logs).toHaveLength(15);
+      // Should have last 5 from ws (ws-5 to ws-9) and all 10 from rest
+      const ids = logs.map(l => l.id);
+      expect(ids).toContain('ws-5');
+      expect(ids).toContain('ws-9');
+      expect(ids).toContain('rest-0');
+      expect(ids).toContain('rest-9');
     });
 
     it('handles null/empty snapshot fields gracefully', () => {

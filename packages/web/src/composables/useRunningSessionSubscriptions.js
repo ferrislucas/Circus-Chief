@@ -85,13 +85,23 @@ export function useRunningSessionSubscriptions() {
     // Listen for partial text (streaming response)
     // NOTE: onPartial callback receives a string (text), not { text }
     cleanups.push(sub.onPartial((text) => {
-      streamingStore.setSessionPartialText(sessionId, text);
+      // Only update when there is actual content. Ignore empty-string clears
+      // to prevent blank flashes in the list view. Partial text is naturally
+      // replaced by work logs, or cleared on status change.
+      if (text) {
+        streamingStore.setSessionPartialText(sessionId, text);
+      }
     }));
 
     // Listen for thinking
     // NOTE: onThinkingPartial callback receives a string (thinking), not { thinking }
     cleanups.push(sub.onThinkingPartial((thinking) => {
-      streamingStore.setPartialThinking(thinking, sessionId);
+      // Only update when there is actual thinking content.
+      // Ignore null/empty clears — thinking is replaced by work logs naturally,
+      // or cleared on status change. This prevents blank flashes.
+      if (thinking) {
+        streamingStore.setPartialThinking(thinking, sessionId);
+      }
     }));
 
     // Listen for file change count updates (real-time)
@@ -103,11 +113,11 @@ export function useRunningSessionSubscriptions() {
     // NOTE: onStatus callback receives a string (status), not { status }
     cleanups.push(sub.onStatus((status) => {
       if (!['running', 'starting'].includes(status)) {
-        // Session stopped — clear streaming state after a brief delay.
+        // Session stopped — clear ephemeral state after a brief delay.
         // Store the timeout ID so it can be cancelled if the session resumes.
         clearTimeouts[sessionId] = setTimeout(() => {
           delete clearTimeouts[sessionId];
-          streamingStore.clearSessionStreamingState(sessionId);
+          streamingStore.clearSessionEphemeralState(sessionId);
         }, 2000);
       } else {
         // Session returned to running/starting — cancel any stale clear timeout
