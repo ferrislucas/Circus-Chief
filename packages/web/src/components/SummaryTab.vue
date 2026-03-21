@@ -1,6 +1,6 @@
 <template>
   <div class="summary-tab">
-    <!-- What Just Happened Card -->
+    <!-- Activity Log Card -->
     <WhatJustHappenedCard
       v-if="session"
       :session="session"
@@ -9,7 +9,7 @@
     />
 
     <!-- Session Overview Section -->
-    <div class="session-overview card">
+    <div v-if="hasPrInfo" class="session-overview card">
       <div class="overview-header">
         <h3>Session Overview</h3>
       </div>
