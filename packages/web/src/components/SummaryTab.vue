@@ -9,7 +9,7 @@
     />
 
     <!-- Session Overview Section -->
-    <div class="session-overview card">
+    <div v-if="hasPrInfo" class="session-overview card">
       <div class="overview-header">
         <h3>Session Overview</h3>
       </div>
