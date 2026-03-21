@@ -54,8 +54,6 @@
       :summary="summary"
       :generating="generating"
       :regenerating="generatingManual"
-      :has-pr-info="hasPrInfo"
-      :pr-url="prUrl"
       @regenerate="handleRegenerate"
     />
   </div>
