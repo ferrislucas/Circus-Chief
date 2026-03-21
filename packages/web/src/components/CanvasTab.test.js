@@ -35,6 +35,7 @@ vi.mock('../composables/useApi.js', () => ({
 
 // Mock vue-router
 const mockPush = vi.fn();
+const mockReplace = vi.fn();
 const mockRoute = {
   query: {},
 };
@@ -42,6 +43,7 @@ vi.mock('vue-router', () => ({
   useRoute: () => mockRoute,
   useRouter: () => ({
     push: mockPush,
+    replace: mockReplace,
   }),
 }));
 
@@ -88,6 +90,7 @@ describe('CanvasTab', () => {
     // Reset mock route
     mockRoute.query = {};
     mockPush.mockClear();
+    mockReplace.mockClear();
   });
 
   function mountComponent(props = { sessionId: 'test-session' }) {
@@ -506,6 +509,76 @@ describe('CanvasTab', () => {
       expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
       expect(wrapper.text()).toContain('← Canvas');
       expect(wrapper.text()).toContain('doc2.txt');
+    });
+  });
+
+  describe('auto-navigation on WebSocket update', () => {
+    it('auto-navigates to new version when viewed file is updated', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Simulate WebSocket delivering a new version
+      canvasStore.addItem({ id: '2', filename: 'doc.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({
+        query: { item: '2' }
+      });
+    });
+
+    it('does not auto-navigate when not viewing any file', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = {}; // No item selected
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      canvasStore.addItem({ id: '2', filename: 'doc.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('does not auto-navigate when new item is for a different file', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'a.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // New item is for a different file
+      canvasStore.addItem({ id: '2', filename: 'b.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('auto-navigates even when viewing an older version', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'doc.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: '1' }; // Viewing the older version
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // New version arrives
+      canvasStore.addItem({ id: '3', filename: 'doc.md', type: 'markdown', createdAt: 3000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({
+        query: { item: '3' }
+      });
     });
   });
 });

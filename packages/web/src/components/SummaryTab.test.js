@@ -44,6 +44,9 @@ describe('SummaryTab', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
 
+    // Reset API mock implementations to defaults
+    api.getSessionSummary.mockResolvedValue(null);
+
     // Get actual store instances
     sessionsStore = useSessionsStore();
     uiStore = useUiStore();
@@ -90,7 +93,28 @@ describe('SummaryTab', () => {
   }
 
   describe('Session Overview', () => {
-    it('renders session overview section', async () => {
+    it('does not render session overview when no PR info', async () => {
+      // Default session has no prUrl, so no PR info
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.session-overview').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('Session Overview');
+    });
+
+    it('renders session overview when PR info exists', async () => {
+      // Setup session with PR URL and summary with prState
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        prUrl: 'https://github.com/example/repo/pull/123',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      api.getSessionSummary.mockResolvedValue({
+        prState: 'open',
+        ciStatus: 'success',
+      });
+
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
@@ -106,6 +130,18 @@ describe('SummaryTab', () => {
     });
 
     it('does not have regenerate button in overview header', async () => {
+      // Setup session with PR info so the header is actually rendered
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        prUrl: 'https://github.com/example/repo/pull/123',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      api.getSessionSummary.mockResolvedValue({
+        prState: 'open',
+        ciStatus: 'success',
+      });
+
       const wrapper = mountComponent();
       await flushAll(wrapper);
 

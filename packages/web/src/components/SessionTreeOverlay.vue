@@ -8,7 +8,7 @@
         @click.self="close"
       >
         <div class="overlay-content session-tree-overlay" @click.stop>
-          <!-- Header -->
+          <!-- Header (no padding constraints) -->
           <div class="overlay-header">
             <div class="overlay-header-left">
               <span class="overlay-root-name">{{ rootSessionName }}</span>
@@ -42,69 +42,72 @@
             </div>
           </div>
 
-          <!-- Breadcrumb (inline) -->
-          <nav
-            v-if="activeSessionPath.length > 1"
-            class="overlay-breadcrumb"
-            aria-label="Session hierarchy"
-            data-testid="session-tree-breadcrumb"
-          >
-            <ol class="breadcrumb-list">
-              <li
-                v-for="(session, index) in activeSessionPath"
-                :key="session.id"
-                class="breadcrumb-item"
-              >
-                <button
-                  v-if="session.id !== activeSessionId"
-                  class="breadcrumb-link"
-                  :title="session.name"
-                  @click="selectSession(session.id)"
-                >
-                  {{ truncateName(session.name) }}
-                </button>
-                <span
-                  v-else
-                  class="breadcrumb-current"
-                  :title="session.name"
-                >
-                  {{ truncateName(session.name) }}
-                </span>
-                <span v-if="index < activeSessionPath.length - 1" class="breadcrumb-separator">/</span>
-              </li>
-            </ol>
-          </nav>
-
-          <!-- Dropdown trigger -->
-          <div
-            v-if="hasDescendants"
-            class="overlay-dropdown"
-            data-testid="session-tree-dropdown"
-          >
-            <button
-              class="dropdown-trigger"
-              :aria-expanded="pickerOpen ? 'true' : 'false'"
-              @click="togglePicker"
+          <!-- Content wrapper (with padding) -->
+          <div class="overlay-body">
+            <!-- Breadcrumb (inline) -->
+            <nav
+              v-if="activeSessionPath.length > 1"
+              class="overlay-breadcrumb"
+              aria-label="Session hierarchy"
+              data-testid="session-tree-breadcrumb"
             >
-              <span class="dropdown-name">{{ activeSessionName }}</span>
-              <span class="dropdown-chevron">{{ pickerOpen ? '▲' : '▼' }}</span>
-            </button>
+              <ol class="breadcrumb-list">
+                <li
+                  v-for="(session, index) in activeSessionPath"
+                  :key="session.id"
+                  class="breadcrumb-item"
+                >
+                  <button
+                    v-if="session.id !== activeSessionId"
+                    class="breadcrumb-link"
+                    :title="session.name"
+                    @click="selectSession(session.id)"
+                  >
+                    {{ truncateName(session.name) }}
+                  </button>
+                  <span
+                    v-else
+                    class="breadcrumb-current"
+                    :title="session.name"
+                  >
+                    {{ truncateName(session.name) }}
+                  </span>
+                  <span v-if="index < activeSessionPath.length - 1" class="breadcrumb-separator">/</span>
+                </li>
+              </ol>
+            </nav>
+
+            <!-- Dropdown trigger -->
+            <div
+              v-if="hasDescendants"
+              class="overlay-dropdown"
+              data-testid="session-tree-dropdown"
+            >
+              <button
+                class="dropdown-trigger"
+                :aria-expanded="pickerOpen ? 'true' : 'false'"
+                @click="togglePicker"
+              >
+                <span class="dropdown-name">{{ activeSessionName }}</span>
+                <span class="dropdown-chevron">{{ pickerOpen ? '▲' : '▼' }}</span>
+              </button>
+            </div>
+
+            <!-- Picker -->
+            <SessionTreePicker
+              v-if="pickerOpen"
+              :sessions="sessionChain"
+              :active-session-id="activeSessionId"
+              :summaries="summariesMap"
+              @select="handlePickerSelect"
+            />
+
+            <!-- Conversation -->
+            <ConversationTab
+              :session-id="activeSessionId"
+              :key="activeSessionId"
+            />
           </div>
-
-          <!-- Picker -->
-          <SessionTreePicker
-            v-if="pickerOpen"
-            :sessions="sessionChain"
-            :active-session-id="activeSessionId"
-            :summaries="summariesMap"
-            @select="handlePickerSelect"
-          />
-
-          <!-- Conversation -->
-          <ConversationTab
-            :session-id="activeSessionId"
-            :key="activeSessionId"
-          />
         </div>
       </div>
     </Transition>
@@ -490,34 +493,40 @@ defineExpose({
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: rgba(17, 24, 39, 0.95);
+  background: rgb(17, 24, 39);
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .overlay-content {
   width: 100%;
   max-width: 900px;
   min-height: 100vh;
-  padding: 0 1rem;
+  padding: 0;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+}
+
+.overlay-body {
+  padding: 0 1rem;
 }
 
 .overlay-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem 0.5rem;
+  padding: 1rem;
   background: var(--color-background-secondary, #1f2937);
-  border-radius: var(--border-radius, 6px);
-  padding-top: 1.5rem;
+  border-radius: 0;
+  border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   min-height: 60px;
   position: sticky;
   top: 0;
   z-index: 10;
+  width: 100%;
 }
 
 .overlay-header-left {
@@ -529,7 +538,7 @@ defineExpose({
 }
 
 .overlay-root-name {
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--color-primary, #06b6d4);
   word-break: break-word;
@@ -675,12 +684,16 @@ defineExpose({
 }
 
 @media (max-width: 768px) {
-  .session-tree-overlay :deep(.messages) {
-    max-height: calc(100vh - 160px);
+  .overlay-body {
+    padding: 0 0.5rem;
   }
 
-  .overlay-content {
-    padding: 0 0.5rem;
+  .overlay-header {
+    padding: 1rem 0.5rem;
+  }
+
+  .session-tree-overlay :deep(.messages) {
+    max-height: calc(100vh - 160px);
   }
 }
 

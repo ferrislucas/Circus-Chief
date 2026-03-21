@@ -135,6 +135,9 @@ export async function extractPrUrlIfNeeded(sessionId) {
     sessions.update(sessionId, { prUrl });
     console.log(`[PrUrlService] Extracted PR URL for session ${sessionId}: ${prUrl}`);
 
+    // Set session name from PR title (async, fire-and-forget)
+    await setSessionNameFromPr(sessionId, prUrl);
+
     // Broadcast session update so UI shows PR URL immediately
     broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
 
@@ -181,9 +184,40 @@ export async function enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId
       if (prInfo.ciFailures !== undefined) {
         summaryData.ciFailures = prInfo.ciFailures;
       }
+      // Add PR title to summary data
+      if (prInfo.title) {
+        summaryData.prTitle = prInfo.title;
+      }
     }
   } catch (error) {
     console.warn(`[PrUrlService] Failed to get PR info for ${prUrl}:`, error.message);
+  }
+}
+
+/**
+ * Set session name from PR title when PR URL is associated.
+ * @param {string} sessionId - The session ID
+ * @param {string} prUrl - The PR URL
+ */
+export async function setSessionNameFromPr(sessionId, prUrl) {
+  const session = sessions.getById(sessionId);
+  if (!session || session.manuallyNamed) return; // Don't overwrite if manually named
+
+  try {
+    const prInfo = await ghService.getPrInfo(prUrl);
+    if (prInfo?.title) {
+      sessions.update(sessionId, {
+        name: prInfo.title,
+        manuallyNamed: true, // Protect from summary overwrites
+      });
+      console.log(`[PrUrlService] Set session ${sessionId} name from PR title: "${prInfo.title}"`);
+
+      // Broadcast the update
+      const updated = sessions.getById(sessionId);
+      broadcastSessionUpdate(sessionId, session.projectId, updated);
+    }
+  } catch (error) {
+    console.warn(`[PrUrlService] Failed to set session name from PR ${prUrl}:`, error.message);
   }
 }
 
