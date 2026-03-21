@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, seedSession, cleanupAll, navigateAndWait } from './helpers';
+import { seedProject, seedSession, cleanupAll, openConversationOverlay, navigateAndWait } from './helpers';
 
 test.describe('Scheduling UI', () => {
   test.describe.configure({ timeout: 60000 });
@@ -20,19 +20,19 @@ test.describe('Scheduling UI', () => {
       // Create a draft session with content (API requires non-empty prompt)
       const session = await seedSession(project.id, { prompt: 'Initial content', startImmediately: false });
 
-      // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
+      // Open conversation overlay to access orchestration panel
+      const overlay = await openConversationOverlay(page, session.id);
 
-      // Expand the Orchestration panel
-      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      // Expand the Orchestration panel (scoped to overlay)
+      const orchestrationPanel = overlay.locator('.orchestration-panel .panel-header');
       await orchestrationPanel.click();
 
-      // Clear the textarea content
-      const textarea = page.locator('textarea');
+      // Clear the textarea content (scoped to overlay)
+      const textarea = overlay.locator('textarea');
       await textarea.clear();
 
-      // Clock button should now be disabled (no content)
-      const clockButton = page.locator('.btn-schedule');
+      // Clock button should now be disabled (no content) - scoped to overlay
+      const clockButton = overlay.locator('.btn-schedule');
       await expect(clockButton).toBeDisabled();
     });
   });
@@ -42,21 +42,21 @@ test.describe('Scheduling UI', () => {
       // Create a draft session
       const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
 
-      // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
+      // Open conversation overlay to access orchestration panel
+      const overlay = await openConversationOverlay(page, session.id);
 
-      // Expand the Orchestration panel
-      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      // Expand the Orchestration panel (scoped to overlay)
+      const orchestrationPanel = overlay.locator('.orchestration-panel .panel-header');
       await orchestrationPanel.click();
 
-      // Click clock icon
-      await page.click('.btn-schedule');
+      // Click clock icon (scoped to overlay)
+      await overlay.locator('.btn-schedule').click();
 
-      // Verify modal opens
+      // Verify modal opens (modal renders at body level via Teleport, so page-scoped)
       const modal = page.locator('.modal-backdrop');
       await expect(modal).toBeVisible();
 
-      // Verify datetime picker exists
+      // Verify datetime picker exists (modal is page-scoped)
       const datetimePicker = page.locator('input[type="datetime-local"]');
       await expect(datetimePicker).toBeVisible();
     });
@@ -70,22 +70,22 @@ test.describe('Scheduling UI', () => {
       // Create a draft session
       const session = await seedSession(project.id, { prompt: 'Scheduled task: do something', startImmediately: false });
 
-      // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
+      // Open conversation overlay to access orchestration panel
+      const overlay = await openConversationOverlay(page, session.id);
 
-      // Expand the Orchestration panel
-      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      // Expand the Orchestration panel (scoped to overlay)
+      const orchestrationPanel = overlay.locator('.orchestration-panel .panel-header');
       await orchestrationPanel.click();
 
-      // Click clock icon
-      await page.click('.btn-schedule');
+      // Click clock icon (scoped to overlay)
+      await overlay.locator('.btn-schedule').click();
 
-      // Set a time in the future (1 hour from now)
+      // Set a time in the future (1 hour from now) - modal is page-scoped
       const futureTime = new Date(Date.now() + 3600000);
       const timeString = futureTime.toISOString().slice(0, 16);
       await page.fill('input[type="datetime-local"]', timeString);
 
-      // Wait for Schedule button to be enabled
+      // Wait for Schedule button to be enabled (modal is page-scoped)
       const scheduleButton = page.locator('button:has-text("Schedule")');
       await expect(scheduleButton).toBeEnabled({ timeout: 3000 });
 
@@ -103,22 +103,22 @@ test.describe('Scheduling UI', () => {
       // Create a draft session
       const session = await seedSession(project.id, { prompt: 'Test scheduled time display', startImmediately: false });
 
-      // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
+      // Open conversation overlay to access orchestration panel
+      const overlay = await openConversationOverlay(page, session.id);
 
-      // Expand the Orchestration panel
-      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      // Expand the Orchestration panel (scoped to overlay)
+      const orchestrationPanel = overlay.locator('.orchestration-panel .panel-header');
       await orchestrationPanel.click();
 
-      // Click clock icon to open scheduling modal
-      await page.click('.btn-schedule');
+      // Click clock icon to open scheduling modal (scoped to overlay)
+      await overlay.locator('.btn-schedule').click();
 
-      // Set a time in the future (1 hour from now)
+      // Set a time in the future (1 hour from now) - modal is page-scoped
       const futureTime = new Date(Date.now() + 3600000); // 1 hour from now
       const timeString = futureTime.toISOString().slice(0, 16);
       await page.fill('input[type="datetime-local"]', timeString);
 
-      // Wait for Schedule button to be enabled
+      // Wait for Schedule button to be enabled (modal is page-scoped)
       const scheduleButton = page.locator('button:has-text("Schedule")');
       await expect(scheduleButton).toBeEnabled({ timeout: 3000 });
 
@@ -133,12 +133,12 @@ test.describe('Scheduling UI', () => {
       // Expected: Should show "in about 1 hour" or similar future time
       // Actual (bug): Shows "56 years ago" or other incorrect past time
 
-      // Wait for the scheduling info panel to appear
-      const schedulingPanel = page.locator('.scheduling-info.scheduled-panel');
+      // Wait for the scheduling info panel to appear (scoped to overlay)
+      const schedulingPanel = overlay.locator('.scheduling-info.scheduled-panel');
       await expect(schedulingPanel).toBeVisible({ timeout: 5000 });
 
-      // Get the countdown text element
-      const countdownText = page.locator('.countdown-text strong');
+      // Get the countdown text element (scoped to overlay)
+      const countdownText = overlay.locator('.countdown-text strong');
       await expect(countdownText).toBeVisible({ timeout: 3000 });
 
       // Get the text content
@@ -153,10 +153,14 @@ test.describe('Scheduling UI', () => {
       expect(timeText).toMatch(/in/i);
 
       // Verify via page reload that the time is still correct
+      // After reload, overlay closes - re-open it to check
       await page.reload();
       await page.waitForLoadState('networkidle');
 
-      const countdownTextAfterReload = page.locator('.countdown-text strong');
+      // Re-open the conversation overlay after reload
+      const overlayAfterReload = await openConversationOverlay(page, session.id);
+
+      const countdownTextAfterReload = overlayAfterReload.locator('.countdown-text strong');
       await expect(countdownTextAfterReload).toBeVisible({ timeout: 5000 });
 
       const timeTextAfterReload = await countdownTextAfterReload.textContent();

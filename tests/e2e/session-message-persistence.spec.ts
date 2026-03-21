@@ -26,6 +26,7 @@ import {
   getSession,
   BASE_URL,
   API_URL,
+  openConversationOverlay,
 } from './helpers';
 
 test.describe('Session Message Persistence After Response Completes', () => {
@@ -49,13 +50,12 @@ test.describe('Session Message Persistence After Response Completes', () => {
       prompt: 'Reply with exactly: "Hello, persistence test complete." Nothing else.',
     });
 
-    // Step 2: Navigate to the session page while it's running
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
-    await page.waitForLoadState('networkidle');
+    // Step 2: Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
 
-    // Step 3: Wait for streaming content to appear in the UI
+    // Step 3: Wait for streaming content to appear in the overlay
     // Either the streaming indicator or a committed assistant message should appear
-    const streamingOrMessage = page.locator('.message-streaming, [data-testid="message-assistant"]');
+    const streamingOrMessage = overlay.locator('.message-streaming, [data-testid="message-assistant"]');
     await expect(streamingOrMessage.first()).toBeVisible({ timeout: 60000 });
 
     // Step 4: Wait for the session to finish (reach 'waiting' status)
@@ -66,8 +66,8 @@ test.describe('Session Message Persistence After Response Completes', () => {
     // a message refetch that can clear the messages from the store
     await page.waitForTimeout(3000);
 
-    // Step 6: THE CRITICAL ASSERTION — messages should still be visible
-    const assistantMessages = page.locator('[data-testid="message-assistant"]');
+    // Step 6: THE CRITICAL ASSERTION — messages should still be visible (scoped to overlay)
+    const assistantMessages = overlay.locator('[data-testid="message-assistant"]');
     await expect(assistantMessages.first()).toBeVisible({ timeout: 10000 });
 
     // Verify the assistant message has actual content (not empty)
@@ -76,8 +76,8 @@ test.describe('Session Message Persistence After Response Completes', () => {
     const text = await messageContent.textContent();
     expect(text!.trim().length).toBeGreaterThan(0);
 
-    // User message should also still be visible
-    const userMessages = page.locator('[data-testid="message-user"]');
+    // User message should also still be visible (scoped to overlay)
+    const userMessages = overlay.locator('[data-testid="message-user"]');
     await expect(userMessages.first()).toBeVisible({ timeout: 5000 });
   });
 
@@ -115,9 +115,12 @@ test.describe('Session Message Persistence After Response Completes', () => {
     const apiAssistant = apiMessages.filter((m: any) => m.role === 'assistant');
     expect(apiAssistant.length).toBeGreaterThan(0);
 
-    // Step 7: THE CRITICAL ASSERTION — messages should be visible in the UI
+    // Step 7: Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, sessionId!);
+
+    // Step 8: THE CRITICAL ASSERTION — messages should be visible in the overlay
     // The bug causes these to be missing even though the API has them
-    const assistantMessages = page.locator('[data-testid="message-assistant"]');
+    const assistantMessages = overlay.locator('[data-testid="message-assistant"]');
     await expect(assistantMessages.first()).toBeVisible({ timeout: 10000 });
 
     const messageContent = assistantMessages.first().locator('.message-content');
@@ -125,8 +128,8 @@ test.describe('Session Message Persistence After Response Completes', () => {
     const text = await messageContent.textContent();
     expect(text!.trim().length).toBeGreaterThan(0);
 
-    // User message should also still be visible
-    const userMessages = page.locator('[data-testid="message-user"]');
+    // User message should also still be visible (scoped to overlay)
+    const userMessages = overlay.locator('[data-testid="message-user"]');
     await expect(userMessages.first()).toBeVisible({ timeout: 5000 });
   });
 
@@ -138,9 +141,8 @@ test.describe('Session Message Persistence After Response Completes', () => {
       prompt: 'Reply with exactly: "Refresh comparison test." Nothing else.',
     });
 
-    // Step 2: Navigate to the session page
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
-    await page.waitForLoadState('networkidle');
+    // Step 2: Open conversation overlay to access messages
+    let overlay = await openConversationOverlay(page, session.id);
 
     // Step 3: Wait for the session to complete
     await waitForStatus(session.id, 'waiting', 60000);
@@ -148,20 +150,23 @@ test.describe('Session Message Persistence After Response Completes', () => {
     // Step 4: Wait for the UI to settle after the status transition
     await page.waitForTimeout(3000);
 
-    // Step 5: Record message counts BEFORE refresh
-    const assistantCountBefore = await page.locator('[data-testid="message-assistant"]').count();
-    const userCountBefore = await page.locator('[data-testid="message-user"]').count();
+    // Step 5: Record message counts BEFORE refresh (scoped to overlay)
+    const assistantCountBefore = await overlay.locator('[data-testid="message-assistant"]').count();
+    const userCountBefore = await overlay.locator('[data-testid="message-user"]').count();
 
-    // Step 6: Refresh the page
+    // Step 6: Refresh the page - this closes the overlay
     await page.reload();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
 
-    // Step 7: Record message counts AFTER refresh
-    const assistantCountAfter = await page.locator('[data-testid="message-assistant"]').count();
-    const userCountAfter = await page.locator('[data-testid="message-user"]').count();
+    // Step 7: Re-open the overlay after refresh
+    overlay = await openConversationOverlay(page, session.id);
 
-    // Step 8: Verify API has messages (ground truth)
+    // Step 8: Record message counts AFTER refresh (scoped to overlay)
+    const assistantCountAfter = await overlay.locator('[data-testid="message-assistant"]').count();
+    const userCountAfter = await overlay.locator('[data-testid="message-user"]').count();
+
+    // Step 9: Verify API has messages (ground truth)
     const apiMessages = await getSessionMessages(session.id);
     const apiAssistant = apiMessages.filter((m: any) => m.role === 'assistant');
     const apiUser = apiMessages.filter((m: any) => m.role === 'user');
@@ -186,17 +191,16 @@ test.describe('Session Message Persistence After Response Completes', () => {
       prompt: 'Reply with exactly: "API cross-check test." Nothing else.',
     });
 
-    // Step 2: Navigate and wait for completion
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
-    await page.waitForLoadState('networkidle');
+    // Step 2: Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await waitForStatus(session.id, 'waiting', 60000);
 
     // Step 3: Wait for UI to process the status change
     await page.waitForTimeout(3000);
 
-    // Step 4: Count messages in the UI
-    const uiAssistantCount = await page.locator('[data-testid="message-assistant"]').count();
-    const uiUserCount = await page.locator('[data-testid="message-user"]').count();
+    // Step 4: Count messages in the overlay
+    const uiAssistantCount = await overlay.locator('[data-testid="message-assistant"]').count();
+    const uiUserCount = await overlay.locator('[data-testid="message-user"]').count();
 
     // Step 5: Get ground truth from API
     const apiMessages = await getSessionMessages(session.id);

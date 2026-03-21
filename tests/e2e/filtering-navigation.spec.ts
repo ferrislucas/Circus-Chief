@@ -574,13 +574,13 @@ test.describe('Session Detail Tab Navigation', () => {
     await cleanupCreatedResources();
   });
 
-  test('session detail defaults to conversation tab', async ({ page }) => {
+  test('session detail defaults to summary tab', async ({ page }) => {
     await navigateAndWait(page, `/sessions/${session.id}`);
 
     // The route uses optional :tab? param, so URL stays at /sessions/:id
-    // but the Conversations tab should be active by default
-    const conversationsTab = page.locator('.tabs-desktop .tab').filter({ hasText: 'Conversations' });
-    await expect(conversationsTab).toHaveClass(/active/);
+    // but the Summary tab should be active by default (conversation is now in overlay)
+    const summaryTab = page.locator('.tabs-desktop .tab').filter({ hasText: 'Summary' });
+    await expect(summaryTab).toHaveClass(/active/);
   });
 
   test('clicking each tab navigates and updates URL', async ({ page }) => {

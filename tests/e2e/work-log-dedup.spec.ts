@@ -6,10 +6,8 @@ import {
   getSessionWorkLogs,
   getSessionMessages,
   getSession,
+  openConversationOverlay,
 } from './helpers';
-
-const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
-const API_URL = process.env.API_URL || 'http://localhost:5000';
 
 // Helper to wait for session to reach a specific status
 async function waitForSessionStatus(sessionId: string, targetStatus: string, timeoutMs = 10000) {
@@ -58,16 +56,16 @@ test.describe('Work Log Deduplication', () => {
     const thinkingLogs = associatedLogs.filter((l: any) => l.type === 'thinking');
     expect(thinkingLogs.length).toBeGreaterThan(0);
 
-    // Navigate to the session detail page — this loads work logs into the Pinia store
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay — this loads work logs into the Pinia store
+    const overlay = await openConversationOverlay(page, session.id);
 
-    // Wait for the conversation tab to load and messages to appear
-    await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 15000 });
+    // Wait for messages to appear (scoped to overlay)
+    await expect(overlay.locator('[data-testid="message-assistant"]').first()).toBeVisible({ timeout: 15000 });
 
     // Get the work log count from the first WorkLogPanel (shows count in parentheses)
     // The WorkLogPanel shows "(N)" where N is the number of associated work logs
-    // Use .first() because multiple assistant messages may each have their own work log panel
-    const workLogPanel = page.locator('[data-work-log-details]').first();
+    // Use .first() because multiple assistant messages may each have their own work log panel (scoped to overlay)
+    const workLogPanel = overlay.locator('[data-work-log-details]').first();
     await expect(workLogPanel).toBeVisible({ timeout: 10000 });
 
     // Get the initial count text, e.g. "(3)"
@@ -77,6 +75,7 @@ test.describe('Work Log Deduplication', () => {
 
     // Now simulate the bug: call addWorkLog in the Pinia store with a log that already exists
     // This simulates what happens when a WebSocket delivers the same log after fetchWorkLogs
+    // Store access via page.evaluate() can remain page-scoped since Pinia store is a global singleton
     const duplicateLog = thinkingLogs[0];
     const storeHadDuplicate = await page.evaluate((log) => {
       // Access the Pinia store via the global app instance
@@ -121,7 +120,7 @@ test.describe('Work Log Deduplication', () => {
     expect(storeHadDuplicate.countAfter).toBe(1);
     expect(storeHadDuplicate.duplicated).toBe(false);
 
-    // Also verify the UI count hasn't changed
+    // Also verify the UI count hasn't changed (scoped to overlay)
     const countTextAfter = await workLogPanel.locator('.work-log-count').textContent();
     const countAfterUi = parseInt(countTextAfter!.replace(/[()]/g, ''));
     expect(countAfterUi).toBe(initialCount);
@@ -136,9 +135,9 @@ test.describe('Work Log Deduplication', () => {
 
     await waitForSessionStatus(session.id, 'waiting', 60000);
 
-    // Navigate to the session detail page — loads work logs into Pinia store
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
-    await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 15000 });
+    // Open conversation overlay — loads work logs into Pinia store
+    const overlay = await openConversationOverlay(page, session.id);
+    await expect(overlay.locator('[data-testid="message-assistant"]').first()).toBeVisible({ timeout: 15000 });
 
     // Test dedup by injecting a synthetic tool_input work log into the store,
     // then trying to add it again. This directly tests the addWorkLog dedup logic
@@ -159,6 +158,7 @@ test.describe('Work Log Deduplication', () => {
       createdAt: new Date().toISOString(),
     };
 
+    // Store access via page.evaluate() can remain page-scoped since Pinia store is a global singleton
     const storeHadDuplicate = await page.evaluate((log) => {
       const app = (window as any).__vue_app__ || document.querySelector('#app')?.__vue_app__;
       if (!app) return { error: 'No Vue app found' };

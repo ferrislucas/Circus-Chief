@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import { Page, expect } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -2490,6 +2490,36 @@ export async function getAgentCallFilterOptions() {
  * Seed a kanban lane for testing
  * Lanes are cleaned up automatically when the project is deleted (CASCADE)
  */
+// ============================================================
+// Conversation Overlay Helpers
+// ============================================================
+
+/**
+ * Opens the conversation overlay (session tree overlay) for a session.
+ * Since the conversation tab was removed from the main view, conversation content
+ * is only accessible via this overlay.
+ *
+ * @param page - Playwright page object
+ * @param sessionId - The session ID to navigate to
+ * @returns The overlay locator for scoping further queries
+ */
+export async function openConversationOverlay(page: Page, sessionId: string) {
+  await navigateAndWait(page, `/sessions/${sessionId}`, {
+    waitFor: '.session-detail',
+    timeout: 15000,
+  });
+  const handle = page.locator('[data-testid="session-tree-handle"]');
+  await expect(handle).toBeVisible({ timeout: 10000 });
+  await handle.click();
+  const overlay = page.locator('[data-testid="session-tree-overlay"]');
+  await expect(overlay).toBeVisible({ timeout: 5000 });
+  return overlay;
+}
+
+// ============================================================
+// Kanban Helpers
+// ============================================================
+
 export async function seedKanbanLane(
   projectId: string,
   data: {

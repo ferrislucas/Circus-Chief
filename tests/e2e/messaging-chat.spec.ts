@@ -11,6 +11,7 @@ import {
   seedConversationHistory,
   seedWorkLog,
   getSessionMessages,
+  openConversationOverlay,
 } from './helpers';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
@@ -36,11 +37,10 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
-    // Wait for message content to render before checking specific elements
-    await page.locator('.message-assistant .message-content').first().waitFor({ timeout: 10000 });
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
 
-    const messageContent = page.locator('.message-assistant .message-content').first();
+    const messageContent = overlay.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('h1')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('h2')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('h3')).toBeVisible({ timeout: 10000 });
@@ -55,10 +55,11 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const messageContent = page.locator('.message-assistant .message-content').first();
+    const messageContent = overlay.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('pre')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('pre code')).toBeVisible({ timeout: 10000 });
   });
@@ -72,10 +73,11 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const messageContent = page.locator('.message-assistant .message-content').first();
+    const messageContent = overlay.locator('.message-assistant .message-content').first();
     const inlineCode = messageContent.locator('code').first();
     await expect(inlineCode).toBeVisible({ timeout: 10000 });
     await expect(inlineCode).toContainText('console.log');
@@ -90,11 +92,10 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
-    // Wait for message content to render before checking specific elements
-    await page.locator('.message-assistant .message-content').first().waitFor({ timeout: 10000 });
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
 
-    const messageContent = page.locator('.message-assistant .message-content').first();
+    const messageContent = overlay.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('ul')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('ul li').first()).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('ol')).toBeVisible({ timeout: 10000 });
@@ -110,10 +111,11 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const messageContent = page.locator('.message-assistant .message-content').first();
+    const messageContent = overlay.locator('.message-assistant .message-content').first();
     const link = messageContent.locator('a[href="https://example.com"]');
     await expect(link).toBeVisible({ timeout: 10000 });
     await expect(link).toContainText('Example');
@@ -128,10 +130,11 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const messageContent = page.locator('.message-assistant .message-content').first();
+    const messageContent = overlay.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('table')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('th').first()).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('td').first()).toBeVisible({ timeout: 10000 });
@@ -146,10 +149,11 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const messageContent = page.locator('.message-assistant .message-content').first();
+    const messageContent = overlay.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('strong')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('em')).toBeVisible({ timeout: 10000 });
   });
@@ -177,10 +181,11 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const toolsSection = page.locator('.message-assistant .message-tools').first();
+    const toolsSection = overlay.locator('.message-assistant .message-tools').first();
     await expect(toolsSection).toBeVisible({ timeout: 10000 });
   });
 
@@ -194,10 +199,11 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const toolDetails = page.locator('.message-assistant .message-tools details').first();
+    const toolDetails = overlay.locator('.message-assistant .message-tools details').first();
     await expect(toolDetails).toBeVisible({ timeout: 10000 });
 
     // Click the summary to expand the details
@@ -219,10 +225,11 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const toolsSection = page.locator('.message-assistant .message-tools').first();
+    const toolsSection = overlay.locator('.message-assistant .message-tools').first();
     await expect(toolsSection).toContainText('Bash', { timeout: 10000 });
   });
 
@@ -236,10 +243,11 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const toolDetails = page.locator('.message-assistant .message-tools details').first();
+    const toolDetails = overlay.locator('.message-assistant .message-tools details').first();
     const summary = toolDetails.locator('summary').first();
     await summary.click();
 
@@ -261,10 +269,11 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const toolBlocks = page.locator('.message-assistant .message-tools details');
+    const toolBlocks = overlay.locator('.message-assistant .message-tools details');
     await expect(toolBlocks).toHaveCount(2, { timeout: 10000 });
   });
 });
@@ -298,10 +307,11 @@ test.describe('Work Log UI Panels', () => {
     });
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const workLogPanel = page.locator('.message-assistant .work-log-panel').first();
+    const workLogPanel = overlay.locator('.message-assistant .work-log-panel').first();
     await expect(workLogPanel).toBeVisible({ timeout: 10000 });
   });
 
@@ -315,14 +325,15 @@ test.describe('Work Log UI Panels', () => {
     });
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const workLogHeader = page.locator('.message-assistant .work-log-panel summary').first();
+    const workLogHeader = overlay.locator('.message-assistant .work-log-panel summary').first();
     await expect(workLogHeader).toBeVisible({ timeout: 10000 });
     await workLogHeader.click();
 
-    const thinkingBlock = page.locator('.message-assistant .thinking-block').first();
+    const thinkingBlock = overlay.locator('.message-assistant .thinking-block').first();
     await expect(thinkingBlock).toBeVisible({ timeout: 5000 });
     await expect(thinkingBlock).toContainText('Let me analyze this carefully');
   });
@@ -338,19 +349,20 @@ test.describe('Work Log UI Panels', () => {
     });
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const workLogHeader = page.locator('.message-assistant .work-log-panel summary').first();
+    const workLogHeader = overlay.locator('.message-assistant .work-log-panel summary').first();
     await expect(workLogHeader).toBeVisible({ timeout: 10000 });
     await workLogHeader.click();
 
-    const showMoreBtn = page.locator('.message-assistant .show-more-btn').first();
+    const showMoreBtn = overlay.locator('.message-assistant .show-more-btn').first();
     await expect(showMoreBtn).toBeVisible({ timeout: 5000 });
     await expect(showMoreBtn).toContainText('Show more');
 
     await showMoreBtn.click();
-    const thinkingBlock = page.locator('.message-assistant .thinking-block').first();
+    const thinkingBlock = overlay.locator('.message-assistant .thinking-block').first();
     await expect(thinkingBlock).toContainText('This is my thinking process.');
   });
 });
@@ -372,11 +384,12 @@ test.describe('Jump Navigation Buttons', () => {
     seedAssistantMessage(session.id, 'Hello! How can I help you?', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    // Button should not be visible when at bottom (hasNewMessages starts false)
-    const jumpBtn = page.locator('.jump-to-latest');
+    // Button should not be visible when at bottom (hasNewMessages starts false) - scoped to overlay
+    const jumpBtn = overlay.locator('.jump-to-latest');
     await expect(jumpBtn).not.toBeVisible({ timeout: 5000 });
   });
 
@@ -385,11 +398,12 @@ test.describe('Jump Navigation Buttons', () => {
     seedConversationHistory(session.id, 30);
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(800);
 
-    // On initial load, page auto-scrolls to bottom; hasNewMessages is false
-    const jumpBtn = page.locator('.jump-to-latest');
+    // On initial load, page auto-scrolls to bottom; hasNewMessages is false - scoped to overlay
+    const jumpBtn = overlay.locator('.jump-to-latest');
     await expect(jumpBtn).not.toBeVisible({ timeout: 5000 });
   });
 
@@ -399,11 +413,12 @@ test.describe('Jump Navigation Buttons', () => {
     seedAssistantMessage(session.id, 'Sure, I can help you with that!', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    // hasAssistantMessages=true, isNearBottom=true (loaded at bottom), isUsersTurn=true (waiting)
-    const scrollToClaudeBtn = page.locator('.scroll-to-claude-btn');
+    // hasAssistantMessages=true, isNearBottom=true (loaded at bottom), isUsersTurn=true (waiting) - scoped to overlay
+    const scrollToClaudeBtn = overlay.locator('.scroll-to-claude-btn');
     await expect(scrollToClaudeBtn).toBeVisible({ timeout: 10000 });
   });
 
@@ -412,11 +427,12 @@ test.describe('Jump Navigation Buttons', () => {
     seedAssistantMessage(session.id, 'I am currently working...', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    // isUsersTurn = false when running
-    const scrollToClaudeBtn = page.locator('.scroll-to-claude-btn');
+    // isUsersTurn = false when running - scoped to overlay
+    const scrollToClaudeBtn = overlay.locator('.scroll-to-claude-btn');
     await expect(scrollToClaudeBtn).not.toBeVisible({ timeout: 5000 });
   });
 
@@ -424,10 +440,11 @@ test.describe('Jump Navigation Buttons', () => {
     // Draft session = waiting status with no assistant messages
     const session = await seedSession(project.id, { prompt: 'Hello there, draft session', name: 'No Assistant Test' , startImmediately: false });
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const scrollToClaudeBtn = page.locator('.scroll-to-claude-btn');
+    const scrollToClaudeBtn = overlay.locator('.scroll-to-claude-btn');
     await expect(scrollToClaudeBtn).not.toBeVisible({ timeout: 5000 });
   });
 });
@@ -450,10 +467,11 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'Hello! How can I help?', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access input form
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const textarea = page.locator('.input-form textarea');
+    const textarea = overlay.locator('.input-form textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
   });
 
@@ -462,10 +480,11 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'How can I help?', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access input form
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const textarea = page.locator('.input-form textarea');
+    const textarea = overlay.locator('.input-form textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
     await textarea.fill('This is a test message for the textarea');
     await expect(textarea).toHaveValue('This is a test message for the textarea');
@@ -476,10 +495,11 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'How can I help?', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access input form
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const textarea = page.locator('.input-form textarea');
+    const textarea = overlay.locator('.input-form textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
     await textarea.fill('My follow-up question');
 
@@ -500,14 +520,15 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'I am here.', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access input form
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
     // Clear the textarea (pendingPrompt is pre-filled for startImmediately=false sessions)
-    const textarea = page.locator('.input-form textarea');
+    const textarea = overlay.locator('.input-form textarea');
     await textarea.fill('');
 
-    const sendBtn = page.locator('.btn-send-full').first();
+    const sendBtn = overlay.locator('.btn-send-full').first();
     await expect(sendBtn).toBeDisabled({ timeout: 10000 });
   });
 
@@ -516,13 +537,14 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'I am here.', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access input form
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const textarea = page.locator('.input-form textarea');
+    const textarea = overlay.locator('.input-form textarea');
     await textarea.fill('Some message content');
 
-    const sendBtn = page.locator('.btn-send-full').first();
+    const sendBtn = overlay.locator('.btn-send-full').first();
     await expect(sendBtn).not.toBeDisabled({ timeout: 10000 });
   });
 });
@@ -544,10 +566,11 @@ test.describe('Model Name Display', () => {
     seedAssistantMessage(session.id, 'I am Claude Sonnet.', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const assistantMsg = page.locator('[data-testid="message-assistant"]').first();
+    const assistantMsg = overlay.locator('[data-testid="message-assistant"]').first();
     const modelDisplay = assistantMsg.locator('.message-model');
     await expect(modelDisplay).toBeVisible({ timeout: 10000 });
   });
@@ -558,10 +581,11 @@ test.describe('Model Name Display', () => {
     seedAssistantMessage(session.id, 'Got it!', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const userMsg = page.locator('[data-testid="message-user"]').first();
+    const userMsg = overlay.locator('[data-testid="message-user"]').first();
     const modelDisplay = userMsg.locator('.message-model');
     await expect(modelDisplay).not.toBeVisible({ timeout: 5000 });
   });
@@ -572,10 +596,11 @@ test.describe('Model Name Display', () => {
     seedAssistantMessage(session.id, 'I am Haiku.', 'claude-haiku-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const assistantMessages = page.locator('[data-testid="message-assistant"]');
+    const assistantMessages = overlay.locator('[data-testid="message-assistant"]');
     await expect(assistantMessages).toHaveCount(2, { timeout: 10000 });
 
     const firstModelDisplay = assistantMessages.nth(0).locator('.message-model');
@@ -609,10 +634,11 @@ test.describe('Message States & Error Handling', () => {
       name: 'Draft Session Test',
     });
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access input form
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const textarea = page.locator('.input-form textarea');
+    const textarea = overlay.locator('.input-form textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
   });
 
@@ -623,11 +649,12 @@ test.describe('Message States & Error Handling', () => {
       startImmediately: false, // Don't auto-start - keeps it as a true draft
     });
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    // Draft sessions hide messages in the template (v-if="!isDraft && !isScheduledDraft")
-    const messageItems = page.locator('[data-testid="message-user"], [data-testid="message-assistant"]');
+    // Draft sessions hide messages in the template (v-if="!isDraft && !isScheduledDraft") - scoped to overlay
+    const messageItems = overlay.locator('[data-testid="message-user"], [data-testid="message-assistant"]');
     await expect(messageItems).toHaveCount(0, { timeout: 10000 });
   });
 
@@ -637,10 +664,11 @@ test.describe('Message States & Error Handling', () => {
     seedAssistantMessage(session.id, 'Yes, I can help you!', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access input form
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const inputForm = page.locator('.input-form');
+    const inputForm = overlay.locator('.input-form');
     await expect(inputForm).toBeVisible({ timeout: 10000 });
   });
 
@@ -649,10 +677,11 @@ test.describe('Message States & Error Handling', () => {
     seedAssistantMessage(session.id, 'Processing...', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}`);
+    // Open conversation overlay to access running state
+    const overlay = await openConversationOverlay(page, session.id);
     await page.waitForTimeout(500);
 
-    const runningState = page.locator('.running-state');
+    const runningState = overlay.locator('.running-state');
     await expect(runningState).toBeVisible({ timeout: 10000 });
 
     const stopBtn = runningState.locator('.btn-stop');

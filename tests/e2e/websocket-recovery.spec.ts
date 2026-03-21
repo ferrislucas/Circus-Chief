@@ -9,6 +9,7 @@ import {
   waitForPageReady,
   waitForSessionToExist,
   updateSessionStatus,
+  openConversationOverlay,
 } from './helpers';
 
 test.describe('WebSocket wake-from-sleep recovery', () => {
@@ -34,12 +35,11 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await seedUserMessage(session.id, 'hello');
     await seedAssistantMessage(session.id, 'hi there');
 
-    // Navigate to session detail
-    await navigateAndWait(page, `/sessions/${session.id}`);
-    await waitForPageReady(page);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
 
-    // Verify initial data is visible
-    await expect(page.locator('text=hello').first()).toBeVisible({ timeout: 10000 });
+    // Verify initial data is visible (scoped to overlay)
+    await expect(overlay.locator('text=hello').first()).toBeVisible({ timeout: 10000 });
 
     // Simulate sleep: kill network via CDP to create zombie socket
     const cdp = await page.context().newCDPSession(page);
@@ -74,13 +74,13 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     // because new messages will only appear if the session is properly subscribed
     await seedAssistantMessage(session.id, 'message-after-wake');
 
-    // Verify: new message appears (proves WebSocket subscription recovered)
-    await expect(page.locator('text=message-after-wake')).toBeVisible({ timeout: 15000 });
+    // Verify: new message appears (proves WebSocket subscription recovered) - scoped to overlay
+    await expect(overlay.locator('text=message-after-wake')).toBeVisible({ timeout: 15000 });
 
-    // Verify: original conversation content still visible
-    await expect(page.locator('text=hello').first()).toBeVisible({ timeout: 10000 });
+    // Verify: original conversation content still visible (scoped to overlay)
+    await expect(overlay.locator('text=hello').first()).toBeVisible({ timeout: 10000 });
 
-    // Verify: no error toast
+    // Verify: no error toast (page-scoped since toasts render at body level)
     await expect(page.locator('.toast.toast-error')).not.toBeVisible();
   });
 
@@ -91,8 +91,8 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
-    await waitForPageReady(page);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
 
     // Simulate sleep
     const cdp = await page.context().newCDPSession(page);
@@ -126,8 +126,8 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     // Push a new message via API after reconnect
     await seedAssistantMessage(session.id, 'message-after-reconnect');
 
-    // Verify it appears in the UI via WebSocket
-    await expect(page.locator('text=message-after-reconnect')).toBeVisible({ timeout: 10000 });
+    // Verify it appears in the overlay via WebSocket
+    await expect(overlay.locator('text=message-after-reconnect')).toBeVisible({ timeout: 10000 });
   });
 
   test('session list recovers project subscription after sleep', async ({ page }) => {
@@ -226,8 +226,8 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
-    await waitForPageReady(page);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
 
     const cdp = await page.context().newCDPSession(page);
 
@@ -259,13 +259,13 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
       await page.waitForTimeout(2000);
     }
 
-    // After the 3rd cycle, seed a message and verify it appears exactly once
+    // After the 3rd cycle, seed a message and verify it appears exactly once (scoped to overlay)
     await seedAssistantMessage(session.id, 'after-three-cycles');
-    await expect(page.locator('text=after-three-cycles')).toBeVisible({ timeout: 10000 });
+    await expect(overlay.locator('text=after-three-cycles')).toBeVisible({ timeout: 10000 });
     // Verify only ONE instance (no duplicates from multiple subscriptions)
-    await expect(page.locator('text=after-three-cycles')).toHaveCount(1);
+    await expect(overlay.locator('text=after-three-cycles')).toHaveCount(1);
 
-    // Also verify no error toast appeared during any cycle
+    // Also verify no error toast appeared during any cycle (page-scoped)
     await expect(page.locator('.toast.toast-error')).not.toBeVisible();
   });
 });

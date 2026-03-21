@@ -9,10 +9,19 @@ import {
   updateSessionStatus,
   cleanupAll,
   getAPIURL,
-  TEST_PREFIX
+  TEST_PREFIX,
+  openConversationOverlay,
 } from './helpers';
 
 const API_URL = getAPIURL();
+
+// Helper to open the conversation overlay after setting session to running status
+async function openRunningSessionOverlay(page: any, sessionId: string) {
+  const overlay = await openConversationOverlay(page, sessionId);
+  // Wait for the running-state branch to render inside the overlay
+  await expect(overlay.locator('.running-state')).toBeVisible({ timeout: 10000 });
+  return overlay;
+}
 
 // Helper to wait for session to reach a specific status (for non-UI tests)
 async function waitForSessionStatus(sessionId: string, targetStatus: string, timeoutMs = 10000) {
@@ -57,16 +66,13 @@ test.describe('Work Log Panels', () => {
       // Set to running so the UI shows the running-state branch
       await updateSessionStatus(session.id, 'running');
 
-      // Navigate to session detail
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      // Open conversation overlay to access conversation content
+      const overlay = await openRunningSessionOverlay(page, session.id);
 
-      // Wait for the running-state branch to render
-      await page.waitForSelector('.running-state', { timeout: 10000 });
-
-      // Assertions
-      await expect(page.locator('.running-state')).toBeVisible();
-      await expect(page.locator('.running-title')).toHaveText('Claude is working...');
-      await expect(page.locator('.running-state .live-work-log-panel')).toBeVisible();
+      // Assertions - scope to overlay
+      await expect(overlay.locator('.running-state')).toBeVisible();
+      await expect(overlay.locator('.running-title')).toHaveText('Claude is working...');
+      await expect(overlay.locator('.running-state .live-work-log-panel')).toBeVisible();
     });
 
     test('seeding a work log via API makes it appear in real-time', async ({ page }) => {
@@ -77,8 +83,7 @@ test.describe('Work Log Panels', () => {
       });
 
       await updateSessionStatus(session.id, 'running');
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('.running-state', { timeout: 10000 });
+      const overlay = await openRunningSessionOverlay(page, session.id);
 
       // Seed a work log after page is loaded
       await seedWorkLog(session.id, {
@@ -86,13 +91,13 @@ test.describe('Work Log Panels', () => {
         content: 'This is test thinking content for real-time display',
       });
 
-      // Wait for the work log item to appear in the live panel
-      await page.waitForSelector('.live-log-item', { timeout: 10000 });
+      // Wait for the work log item to appear in the live panel (scoped to overlay)
+      await expect(overlay.locator('.live-log-item').first()).toBeVisible({ timeout: 10000 });
 
-      // Verify the content appears
-      await expect(page.locator('.live-work-log-panel .thinking-block')).toBeVisible();
-      await expect(page.locator('.thinking-label')).toHaveText('Thinking');
-      await expect(page.locator('.thinking-text')).toContainText('This is test thinking content for real-time display');
+      // Verify the content appears (scoped to overlay)
+      await expect(overlay.locator('.live-work-log-panel .thinking-block')).toBeVisible();
+      await expect(overlay.locator('.thinking-label')).toHaveText('Thinking');
+      await expect(overlay.locator('.thinking-text')).toContainText('This is test thinking content for real-time display');
     });
 
     test('multiple work logs appear in order', async ({ page }) => {
@@ -103,8 +108,7 @@ test.describe('Work Log Panels', () => {
       });
 
       await updateSessionStatus(session.id, 'running');
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('.running-state', { timeout: 10000 });
+      const overlay = await openRunningSessionOverlay(page, session.id);
 
       // Seed 3 work logs sequentially with delays
       await seedWorkLog(session.id, {
@@ -126,11 +130,11 @@ test.describe('Work Log Panels', () => {
         toolName: 'Bash',
       });
 
-      // Wait for all 3 log items to appear
-      await page.waitForSelector('.live-log-item', { timeout: 10000 });
+      // Wait for all 3 log items to appear (scoped to overlay)
+      await expect(overlay.locator('.live-log-item').first()).toBeVisible({ timeout: 10000 });
 
-      // Verify count
-      const logItems = page.locator('.live-log-item');
+      // Verify count (scoped to overlay)
+      const logItems = overlay.locator('.live-log-item');
       await expect(logItems).toHaveCount(3);
 
       // Verify order using nth() locator
@@ -147,8 +151,7 @@ test.describe('Work Log Panels', () => {
       });
 
       await updateSessionStatus(session.id, 'running');
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('.running-state', { timeout: 10000 });
+      const overlay = await openRunningSessionOverlay(page, session.id);
 
       // Seed a thinking work log
       await seedWorkLog(session.id, {
@@ -156,12 +159,12 @@ test.describe('Work Log Panels', () => {
         content: 'Analyzing the request carefully to provide accurate response',
       });
 
-      await page.waitForSelector('.live-log-item', { timeout: 10000 });
+      await expect(overlay.locator('.live-log-item').first()).toBeVisible({ timeout: 10000 });
 
-      // Verify ThinkingBlock rendering
-      await expect(page.locator('.live-work-log-panel .thinking-block')).toBeVisible();
-      await expect(page.locator('.thinking-label')).toHaveText('Thinking');
-      await expect(page.locator('.thinking-text')).toContainText('Analyzing the request carefully to provide accurate response');
+      // Verify ThinkingBlock rendering (scoped to overlay)
+      await expect(overlay.locator('.live-work-log-panel .thinking-block')).toBeVisible();
+      await expect(overlay.locator('.thinking-label')).toHaveText('Thinking');
+      await expect(overlay.locator('.thinking-text')).toContainText('Analyzing the request carefully to provide accurate response');
     });
 
     test('tool-type work log renders as CommandBlock in live panel', async ({ page }) => {
@@ -172,8 +175,7 @@ test.describe('Work Log Panels', () => {
       });
 
       await updateSessionStatus(session.id, 'running');
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('.running-state', { timeout: 10000 });
+      const overlay = await openRunningSessionOverlay(page, session.id);
 
       // Seed a tool_input work log
       await seedWorkLog(session.id, {
@@ -182,12 +184,12 @@ test.describe('Work Log Panels', () => {
         toolName: 'Bash',
       });
 
-      await page.waitForSelector('.live-log-item', { timeout: 10000 });
+      await expect(overlay.locator('.live-log-item').first()).toBeVisible({ timeout: 10000 });
 
-      // Verify CommandBlock rendering
-      await expect(page.locator('.live-work-log-panel .command-block.command-tool_input')).toBeVisible();
-      await expect(page.locator('.command-tool-name')).toHaveText('Bash');
-      await expect(page.locator('.command-label')).toHaveText('Input');
+      // Verify CommandBlock rendering (scoped to overlay)
+      await expect(overlay.locator('.live-work-log-panel .command-block.command-tool_input')).toBeVisible();
+      await expect(overlay.locator('.command-tool-name')).toHaveText('Bash');
+      await expect(overlay.locator('.command-label')).toHaveText('Input');
     });
   });
 
@@ -320,12 +322,12 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      // Navigate to session detail
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-assistant"]')).toBeVisible({ timeout: 10000 });
 
-      // Find the assistant message and verify work log panel exists
-      const assistantMessage = page.locator('[data-testid="message-assistant"]').first();
+      // Find the assistant message and verify work log panel exists (scoped to overlay)
+      const assistantMessage = overlay.locator('[data-testid="message-assistant"]').first();
       await expect(assistantMessage.locator('.work-log-panel')).toBeVisible();
     });
 
@@ -350,15 +352,16 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-assistant"]')).toBeVisible({ timeout: 10000 });
 
-      // Verify panel is collapsed (details element does not have 'open' attribute)
-      const details = page.locator('details[data-work-log-details]').first();
+      // Verify panel is collapsed (details element does not have 'open' attribute) - scoped to overlay
+      const details = overlay.locator('details[data-work-log-details]').first();
       await expect(details).not.toHaveAttribute('open', /.+/);
 
       // Content should not be visible when collapsed
-      await expect(page.locator('.work-log-content').first()).not.toBeVisible();
+      await expect(overlay.locator('.work-log-content').first()).not.toBeVisible();
     });
 
     test('clicking work log header expands the panel', async ({ page }) => {
@@ -381,21 +384,22 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-assistant"]')).toBeVisible({ timeout: 10000 });
 
-      // Click the work log header to expand
-      await page.locator('.work-log-header').first().click();
+      // Click the work log header to expand (scoped to overlay)
+      await overlay.locator('.work-log-header').first().click();
 
-      // Verify panel is expanded
-      const details = page.locator('details[data-work-log-details]').first();
+      // Verify panel is expanded (scoped to overlay)
+      const details = overlay.locator('details[data-work-log-details]').first();
       await expect(details).toHaveAttribute('open');
 
       // Content should now be visible
-      await expect(page.locator('.work-log-content').first()).toBeVisible();
+      await expect(overlay.locator('.work-log-content').first()).toBeVisible();
 
       // Chevron should have expanded class
-      await expect(page.locator('.work-log-chevron').first()).toHaveClass(/expanded/);
+      await expect(overlay.locator('.work-log-chevron').first()).toHaveClass(/expanded/);
     });
 
     test('clicking again collapses the panel', async ({ page }) => {
@@ -418,12 +422,13 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-assistant"]')).toBeVisible({ timeout: 10000 });
 
-      const header = page.locator('.work-log-header').first();
-      const details = page.locator('details[data-work-log-details]').first();
-      const chevron = page.locator('.work-log-chevron').first();
+      const header = overlay.locator('.work-log-header').first();
+      const details = overlay.locator('details[data-work-log-details]').first();
+      const chevron = overlay.locator('.work-log-chevron').first();
 
       // Click to expand
       await header.click();
@@ -473,15 +478,16 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-assistant"]')).toBeVisible({ timeout: 10000 });
 
       // Get the actual count from the API
       const updatedWorkLogs = await getSessionWorkLogs(session.id);
       const actualCount = (updatedWorkLogs[assistantMsg.id] || []).length;
 
-      // Verify count badge shows the correct number
-      await expect(page.locator('.work-log-count').first()).toHaveText(`(${actualCount})`);
+      // Verify count badge shows the correct number (scoped to overlay)
+      await expect(overlay.locator('.work-log-count').first()).toHaveText(`(${actualCount})`);
     });
 
     test('expanded panel shows thinking blocks for thinking-type logs', async ({ page }) => {
@@ -509,18 +515,19 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-assistant"]')).toBeVisible({ timeout: 10000 });
 
-      // Expand the panel
-      await page.locator('.work-log-header').first().click();
+      // Expand the panel (scoped to overlay)
+      await overlay.locator('.work-log-header').first().click();
 
-      // Verify ThinkingBlock is visible
-      await expect(page.locator('.work-log-content .thinking-block').first()).toBeVisible();
-      await expect(page.locator('.thinking-label').first()).toHaveText('Thinking');
+      // Verify ThinkingBlock is visible (scoped to overlay)
+      await expect(overlay.locator('.work-log-content .thinking-block').first()).toBeVisible();
+      await expect(overlay.locator('.thinking-label').first()).toHaveText('Thinking');
 
       // Just verify that thinking text exists (don't check specific content since auto-run may create different content)
-      await expect(page.locator('.thinking-text').first()).toBeVisible();
+      await expect(overlay.locator('.thinking-text').first()).toBeVisible();
     });
 
     test('expanded panel shows command blocks for tool-type logs', async ({ page }) => {
@@ -547,16 +554,17 @@ test.describe('Work Log Panels', () => {
         messageId: assistantMsg.id,
       });
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-assistant"]')).toBeVisible({ timeout: 10000 });
 
-      // Expand the panel
-      await page.locator('.work-log-header').first().click();
+      // Expand the panel (scoped to overlay)
+      await overlay.locator('.work-log-header').first().click();
 
-      // Verify CommandBlocks are visible
-      await expect(page.locator('.work-log-content .command-block').first()).toBeVisible();
-      await expect(page.locator('.command-label').first()).toHaveText(/Input|Output/);
-      await expect(page.locator('.command-tool-name').first()).toHaveText('Bash');
+      // Verify CommandBlocks are visible (scoped to overlay)
+      await expect(overlay.locator('.work-log-content .command-block').first()).toBeVisible();
+      await expect(overlay.locator('.command-label').first()).toHaveText(/Input|Output/);
+      await expect(overlay.locator('.command-tool-name').first()).toHaveText('Bash');
     });
   });
 
@@ -576,12 +584,12 @@ test.describe('Work Log Panels', () => {
       // Wait for first turn to complete
       await waitForSessionStatus(session.id, 'waiting', 60000);
 
-      // Navigate to session detail
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-assistant"]')).toBeVisible({ timeout: 10000 });
 
-      // Session is waiting, NOT running, so .running-state should NOT exist
-      await expect(page.locator('.running-state')).toHaveCount(0);
+      // Session is waiting, NOT running, so .running-state should NOT exist (scoped to overlay)
+      await expect(overlay.locator('.running-state')).toHaveCount(0);
 
       // Work logs should appear on assistant message (if they were created)
       const workLogs = await getSessionWorkLogs(session.id);
@@ -590,8 +598,8 @@ test.describe('Work Log Panels', () => {
 
       const associatedLogs = workLogs[assistantMsg.id] || [];
       if (associatedLogs.length > 0) {
-        // If auto-run created work logs, verify panel appears on message
-        await expect(page.locator('[data-testid="message-assistant"]').first().locator('.work-log-panel')).toBeVisible();
+        // If auto-run created work logs, verify panel appears on message (scoped to overlay)
+        await expect(overlay.locator('[data-testid="message-assistant"]').first().locator('.work-log-panel')).toBeVisible();
       }
       // If auto-run didn't create work logs, skip the assertion (as documented in plan)
     });
@@ -604,11 +612,12 @@ test.describe('Work Log Panels', () => {
 
       await waitForSessionStatus(session.id, 'waiting', 60000);
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
-      await page.waitForSelector('[data-testid="message-user"]', { timeout: 10000 });
+      // Open conversation overlay to access messages
+      const overlay = await openConversationOverlay(page, session.id);
+      await expect(overlay.locator('[data-testid="message-user"]')).toBeVisible({ timeout: 10000 });
 
-      // Find user message and verify work log panel does NOT appear
-      const userMessages = page.locator('[data-testid="message-user"]');
+      // Find user message and verify work log panel does NOT appear (scoped to overlay)
+      const userMessages = overlay.locator('[data-testid="message-user"]');
       const count = await userMessages.count();
 
       for (let i = 0; i < count; i++) {

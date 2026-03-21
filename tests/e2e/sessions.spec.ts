@@ -6,6 +6,7 @@ import {
   getSession,
   navigateAndWait,
   waitForSessionToExist,
+  openConversationOverlay,
 } from './helpers';
 
 test.describe('New Session - Thinking Toggle', () => {
@@ -126,10 +127,11 @@ test.describe('Session Management', () => {
     // Wait for session to be available
     await waitForSessionToExist(session.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    // Open conversation overlay to access messages
+    const overlay = await openConversationOverlay(page, session.id);
 
-    // The initial user message should be visible
-    await expect(page.locator('.message-content').getByText('Hello Claude', { exact: true })).toBeVisible({ timeout: 10000 });
+    // The initial user message should be visible (scoped to overlay)
+    await expect(overlay.locator('.message-content').getByText('Hello Claude', { exact: true })).toBeVisible({ timeout: 10000 });
   });
 
   test('draft prompt is unique per session', async ({ page }) => {
