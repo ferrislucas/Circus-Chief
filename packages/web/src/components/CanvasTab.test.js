@@ -486,8 +486,8 @@ describe('CanvasTab', () => {
       // Viewer should be shown with explicit selection
       expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       expect(wrapper.text()).toContain('doc.txt');
-      // Back button should NOT be visible with only one item (nowhere to go back to)
-      expect(wrapper.find('.breadcrumb-back').exists()).toBe(false);
+      // Back button should always be visible so users can navigate back to the list
+      expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
     });
 
     it('shows back button when item is explicitly selected from multiple items', async () => {

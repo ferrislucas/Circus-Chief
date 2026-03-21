@@ -22,7 +22,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, defineAsyncComponent } from 'vue';
+import { ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
 import { useCanvasStore } from '../stores/canvas.js';
 
 const MdEditorAsync = defineAsyncComponent(() =>
@@ -58,13 +58,32 @@ const editorContent = ref(props.content || '');
 
 // Debounced save — 1 second after last edit
 let debounceTimer = null;
+let lastSavedContent = props.content || '';
 
 watch(editorContent, (newVal) => {
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
+    lastSavedContent = newVal;
     emit('save', newVal);
   }, 1000);
 });
+
+/**
+ * Flush any pending unsaved content immediately.
+ * Called before unmount so changes aren't lost when the user clicks "Done"
+ * before the debounce timer fires.
+ */
+function flushPendingSave() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  if (editorContent.value !== lastSavedContent) {
+    emit('save', editorContent.value);
+  }
+}
+
+defineExpose({ flushPendingSave });
 
 // Watch for external content changes (e.g., version switch)
 watch(() => props.content, (newContent) => {
@@ -73,12 +92,14 @@ watch(() => props.content, (newContent) => {
   }
 });
 
-onMounted(() => {
-  canvasStore.startEditing(props.filename, props.itemId);
-});
+// No startEditing on mount — the store's saveMarkdownContent handles registering
+// the editing session. This ensures that when the user returns to edit after
+// navigating away, endEditing has cleared the map entry and the first save
+// creates a NEW version (POST). The first-ever edit is handled by passing the
+// current itemId to saveMarkdownContent.
 
 onUnmounted(() => {
-  if (debounceTimer) clearTimeout(debounceTimer);
+  flushPendingSave();
   canvasStore.endEditing(props.filename);
 });
 </script>
