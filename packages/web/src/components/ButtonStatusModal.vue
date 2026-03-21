@@ -95,22 +95,29 @@
         </div>
 
         <!-- Output Section (collapsible) -->
-        <div v-if="latestRun && latestRun.output" class="output-section">
+        <div v-if="latestRun && hasOutput" class="output-section">
           <div class="output-header" @click="showOutput = !showOutput" data-testid="output-header">
             <span class="expand-icon">{{ showOutput ? '▼' : '▶' }}</span>
             <span class="output-label">Process Output</span>
+            <span v-if="loadingOutput" class="output-loading" data-testid="output-loading">Loading...</span>
           </div>
 
           <div v-if="showOutput" class="output-content" data-testid="output-content">
-            <div v-if="outputIsTruncatedForDisplay" class="output-truncated" data-testid="output-truncated">
-              ↑ Showing last 200 lines of output
+            <div v-if="loadingOutput" class="output-loading-indicator" data-testid="output-loading-content">
+              <span class="loading-spinner"></span>
+              Loading output...
             </div>
-            <div
-              ref="outputContainerRef"
-              class="output-text"
-              v-html="formattedOutput || '(no output)'"
-              data-testid="output-text"
-            ></div>
+            <template v-else>
+              <div v-if="outputIsTruncatedForDisplay" class="output-truncated" data-testid="output-truncated">
+                ↑ Showing last 200 lines of output
+              </div>
+              <div
+                ref="outputContainerRef"
+                class="output-text"
+                v-html="formattedOutput || '(no output)'"
+                data-testid="output-text"
+              ></div>
+            </template>
           </div>
         </div>
       </div>
@@ -185,9 +192,21 @@ const formattedOutput = ref('');
 const outputIsTruncatedForDisplay = ref(false);
 const outputContainerRef = ref(null);
 const DISPLAY_LINE_LIMIT = 200;
+const loadingOutput = ref(false);
+
+// Computed property that resolves output from store first, then props
+const resolvedOutput = computed(() => {
+  const storeRun = commandButtonsStore.getRun(props.latestRun?.runId);
+  return storeRun?.output || props.latestRun?.output || '';
+});
+
+// Check if we have any output (either from store or props)
+const hasOutput = computed(() => {
+  return !!resolvedOutput.value || loadingOutput.value;
+});
 
 const updateFormattedOutput = () => {
-  const output = props.latestRun?.output || '';
+  const output = resolvedOutput.value;
   if (!output) {
     formattedOutput.value = '';
     outputIsTruncatedForDisplay.value = false;
@@ -306,9 +325,41 @@ const handleRemoveRun = async () => {
 
 watch(
   () => props.isOpen,
-  (newValue) => {
+  async (newValue) => {
     if (newValue) {
       startTimer();
+
+      // On-demand output fetching: when the modal opens, fetch the output if not already loaded
+      if (props.latestRun?.runId && props.sessionId) {
+        const runId = props.latestRun.runId;
+
+        // Ensure the run is in the store (it may only exist in session.latestCommandRuns)
+        if (!commandButtonsStore.getRun(runId)) {
+          // Seed the store with the run metadata we already have
+          commandButtonsStore.runs[runId] = {
+            runId,
+            buttonId: props.latestRun.buttonId,
+            sessionId: props.sessionId,
+            status: props.latestRun.status,
+            output: props.latestRun.output || '',
+            exitCode: props.latestRun.exitCode,
+            startedAt: props.latestRun.startedAt,
+            completedAt: props.latestRun.completedAt,
+            outputTruncated: false,
+          };
+        }
+
+        // Fetch full output if not already loaded (skip for running commands)
+        const storeRun = commandButtonsStore.getRun(runId);
+        if (storeRun && storeRun.status !== 'running' && !storeRun.output) {
+          loadingOutput.value = true;
+          try {
+            await commandButtonsStore.fetchRunOutput(props.sessionId, runId);
+          } finally {
+            loadingOutput.value = false;
+          }
+        }
+      }
     } else {
       stopTimer();
     }
@@ -326,10 +377,10 @@ watch(
   }
 );
 
-// Watch for output changes and update formatted output
+// Watch for output changes and update formatted output (now watches resolvedOutput)
 let isFirstOutputUpdate = true;
 watch(
-  () => props.latestRun?.output,
+  resolvedOutput,
   () => {
     // Call immediately on first update to avoid delay, debounce subsequent updates
     if (isFirstOutputUpdate) {
@@ -671,5 +722,36 @@ onBeforeUnmount(() => {
 
 .output-text :deep(span) {
   display: inline;
+}
+
+.output-loading {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--color-text-soft);
+  font-weight: normal;
+}
+
+.output-loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  color: var(--color-text-soft);
+  font-size: 0.9rem;
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-left-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>
