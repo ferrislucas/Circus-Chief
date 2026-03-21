@@ -344,6 +344,42 @@ router.post('/:id/work-logs', requireSession, (req, res) => {
   res.status(201).json(log);
 });
 
+// POST /api/sessions/:id/partial-text - Set partial text (for testing)
+router.post('/:id/partial-text', requireSession, (req, res) => {
+  const { text } = req.body;
+  if (typeof text !== 'string') {
+    return res.status(400).json({ error: 'Text must be a string' });
+  }
+
+  textAccumulators.set(req.params.id, text);
+
+  // Broadcast to session subscribers
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
+    sessionId: req.params.id,
+    text,
+  });
+
+  res.status(201).json({ text });
+});
+
+// POST /api/sessions/:id/thinking - Set thinking (for testing)
+router.post('/:id/thinking', requireSession, (req, res) => {
+  const { thinking } = req.body;
+  if (typeof thinking !== 'string') {
+    return res.status(400).json({ error: 'Thinking must be a string' });
+  }
+
+  thinkingAccumulators.set(req.params.id, thinking);
+
+  // Broadcast to session subscribers
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, {
+    sessionId: req.params.id,
+    thinking,
+  });
+
+  res.status(201).json({ thinking });
+});
+
 // POST /api/sessions/:id/message - Send follow-up message
 // Supports both JSON and multipart/form-data (for file attachments)
 router.post('/:id/message', _upload.array('files', 10), handleUploadError, requireSessionAndProject, async (req, res) => {
