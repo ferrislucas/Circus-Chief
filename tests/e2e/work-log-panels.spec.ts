@@ -58,7 +58,7 @@ test.describe('Work Log Panels', () => {
       await updateSessionStatus(session.id, 'running');
 
       // Navigate to session detail
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
 
       // Wait for the running-state branch to render
       await page.waitForSelector('.running-state', { timeout: 10000 });
@@ -77,7 +77,7 @@ test.describe('Work Log Panels', () => {
       });
 
       await updateSessionStatus(session.id, 'running');
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('.running-state', { timeout: 10000 });
 
       // Seed a work log after page is loaded
@@ -103,7 +103,7 @@ test.describe('Work Log Panels', () => {
       });
 
       await updateSessionStatus(session.id, 'running');
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('.running-state', { timeout: 10000 });
 
       // Seed 3 work logs sequentially with delays
@@ -147,7 +147,7 @@ test.describe('Work Log Panels', () => {
       });
 
       await updateSessionStatus(session.id, 'running');
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('.running-state', { timeout: 10000 });
 
       // Seed a thinking work log
@@ -172,7 +172,7 @@ test.describe('Work Log Panels', () => {
       });
 
       await updateSessionStatus(session.id, 'running');
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('.running-state', { timeout: 10000 });
 
       // Seed a tool_input work log
@@ -321,7 +321,7 @@ test.describe('Work Log Panels', () => {
       }
 
       // Navigate to session detail
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
 
       // Find the assistant message and verify work log panel exists
@@ -350,7 +350,7 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
 
       // Verify panel is collapsed (details element does not have 'open' attribute)
@@ -381,7 +381,7 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
 
       // Click the work log header to expand
@@ -418,7 +418,7 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
 
       const header = page.locator('.work-log-header').first();
@@ -473,7 +473,7 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
 
       // Get the actual count from the API
@@ -509,7 +509,7 @@ test.describe('Work Log Panels', () => {
         });
       }
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
 
       // Expand the panel
@@ -547,7 +547,7 @@ test.describe('Work Log Panels', () => {
         messageId: assistantMsg.id,
       });
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
 
       // Expand the panel
@@ -577,7 +577,7 @@ test.describe('Work Log Panels', () => {
       await waitForSessionStatus(session.id, 'waiting', 60000);
 
       // Navigate to session detail
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 10000 });
 
       // Session is waiting, NOT running, so .running-state should NOT exist
@@ -604,7 +604,7 @@ test.describe('Work Log Panels', () => {
 
       await waitForSessionStatus(session.id, 'waiting', 60000);
 
-      await page.goto(`${API_URL}/sessions/${session.id}`);
+      await page.goto(`${API_URL}/sessions/${session.id}/conversation`);
       await page.waitForSelector('[data-testid="message-user"]', { timeout: 10000 });
 
       // Find user message and verify work log panel does NOT appear
