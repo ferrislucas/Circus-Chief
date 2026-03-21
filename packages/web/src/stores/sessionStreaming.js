@@ -176,26 +176,32 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
 
     /**
      * Hydrate streaming state from a REST snapshot (used when subscribing to a running session).
-     * Only populates if the store doesn't already have data for that session,
-     * to avoid overwriting more recent WebSocket data.
+     * Merges work logs by ID (deduplicates) and sets thinking/partial text only if server
+     * has content and client store is empty.
      * @param {string} sessionId
      * @param {{ workLogs?: Array, partialText?: string, thinking?: string|null }} snapshot
      */
     hydrateSessionState(sessionId, { workLogs, partialText, thinking } = {}) {
-      if (!this.sessionWorkLogs[sessionId]?.length) {
-        if (workLogs?.length) {
-          this.sessionWorkLogs = { ...this.sessionWorkLogs, [sessionId]: workLogs };
+      // Always merge work logs (deduplicate by id)
+      if (workLogs?.length) {
+        const existing = this.sessionWorkLogs[sessionId] || [];
+        const existingIds = new Set(existing.map(l => l.id));
+        const newLogs = workLogs.filter(l => !existingIds.has(l.id));
+        if (newLogs.length) {
+          this.sessionWorkLogs = {
+            ...this.sessionWorkLogs,
+            [sessionId]: [...existing, ...newLogs].slice(-15),
+          };
         }
       }
-      if (!this.sessionPartialText[sessionId]) {
-        if (partialText) {
-          this.sessionPartialText = { ...this.sessionPartialText, [sessionId]: partialText };
-        }
+      // Set thinking/partial only if server has content and client doesn't.
+      // Unlike work logs, these are ephemeral — if the client already has a value,
+      // the WebSocket stream is actively providing fresher data.
+      if (thinking && !this.partialThinkingBySession[sessionId]) {
+        this.partialThinkingBySession = { ...this.partialThinkingBySession, [sessionId]: thinking };
       }
-      if (!this.partialThinkingBySession[sessionId]) {
-        if (thinking) {
-          this.partialThinkingBySession = { ...this.partialThinkingBySession, [sessionId]: thinking };
-        }
+      if (partialText && !this.sessionPartialText[sessionId]) {
+        this.sessionPartialText = { ...this.sessionPartialText, [sessionId]: partialText };
       }
     },
 
@@ -215,6 +221,19 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
 
       const { [sessionId]: _fc, ...restFileCounts } = this.sessionFileCounts;
       this.sessionFileCounts = restFileCounts;
+    },
+
+    /**
+     * Clear only ephemeral streaming state (partial text, thinking) for a session.
+     * Preserves work logs so the live output panel retains its last content.
+     * @param {string} sessionId
+     */
+    clearSessionEphemeralState(sessionId) {
+      const { [sessionId]: _pt, ...restPartialText } = this.sessionPartialText;
+      this.sessionPartialText = restPartialText;
+
+      const { [sessionId]: _th, ...restThinking } = this.partialThinkingBySession;
+      this.partialThinkingBySession = restThinking;
     },
 
     /**
