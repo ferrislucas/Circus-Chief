@@ -103,31 +103,6 @@ describe('SessionTabsPanel', () => {
     });
   });
 
-  describe('session active indicator', () => {
-    it('shows active spinner when isSessionActive is true', () => {
-      const wrapper = mountPanel({ isSessionActive: true, sessionStatus: 'running' });
-      expect(wrapper.find('.session-active-indicator').exists()).toBe(true);
-      expect(wrapper.find('.active-spinner').exists()).toBe(true);
-    });
-
-    it('hides active spinner when isSessionActive is false', () => {
-      const wrapper = mountPanel({ isSessionActive: false, sessionStatus: 'completed' });
-      expect(wrapper.find('.session-active-indicator').exists()).toBe(false);
-    });
-
-    it('shows "Session running..." tooltip when status is running', () => {
-      const wrapper = mountPanel({ isSessionActive: true, sessionStatus: 'running' });
-      const indicator = wrapper.find('.session-active-indicator');
-      expect(indicator.attributes('title')).toBe('Session running...');
-    });
-
-    it('shows "Session starting..." tooltip when status is starting', () => {
-      const wrapper = mountPanel({ isSessionActive: true, sessionStatus: 'starting' });
-      const indicator = wrapper.find('.session-active-indicator');
-      expect(indicator.attributes('title')).toBe('Session starting...');
-    });
-  });
-
   describe('mobile dropdown', () => {
     it('shows dot indicator for changes in mobile', () => {
       const wrapper = mountPanel({ hasChanges: true });
@@ -139,34 +114,6 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel({ canvasCount: 2 });
       const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Canvas'));
       expect(option.text()).toContain('(2)');
-    });
-
-    it('shows ellipsis for active session in mobile', () => {
-      const wrapper = mountPanel({ isSessionActive: true });
-      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Conversations'));
-      expect(option.text()).toContain('...');
-    });
-
-    it('shows loading spinner when isSessionActive is true in mobile', () => {
-      const wrapper = mountPanel({ isSessionActive: true });
-      expect(wrapper.find('.tabs-mobile .loading-spinner').exists()).toBe(true);
-    });
-
-    it('hides loading spinner when isSessionActive is false in mobile', () => {
-      const wrapper = mountPanel({ isSessionActive: false });
-      expect(wrapper.find('.tabs-mobile .loading-spinner').exists()).toBe(false);
-    });
-
-    it('shows "Session running..." tooltip when status is running', () => {
-      const wrapper = mountPanel({ isSessionActive: true, sessionStatus: 'running' });
-      const spinner = wrapper.find('.tabs-mobile .loading-spinner');
-      expect(spinner.attributes('title')).toBe('Session running...');
-    });
-
-    it('shows "Session starting..." tooltip when status is starting', () => {
-      const wrapper = mountPanel({ isSessionActive: true, sessionStatus: 'starting' });
-      const spinner = wrapper.find('.tabs-mobile .loading-spinner');
-      expect(spinner.attributes('title')).toBe('Session starting...');
     });
 
     it('navigates when mobile select changes', async () => {

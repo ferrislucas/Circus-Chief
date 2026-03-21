@@ -59,6 +59,8 @@
 
       <!-- Session Tree Handle -->
       <SessionTreeHandle
+        :is-session-active="isSessionActive"
+        :session-status="sessionsStore.currentSession?.status"
         @open="treeOverlayOpen = true"
       />
 

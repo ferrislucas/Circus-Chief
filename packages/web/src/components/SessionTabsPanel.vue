@@ -29,25 +29,11 @@
           class="canvas-indicator"
           title="Canvas contains files"
         ></span>
-        <span
-          v-if="tab.id === 'conversation' && isSessionActive"
-          class="session-active-indicator"
-          :title="sessionStatus === 'starting'
-            ? 'Session starting...' : 'Session running...'"
-        >
-          <span class="active-spinner"></span>
-        </span>
       </router-link>
     </div>
 
     <!-- Mobile dropdown -->
     <div class="tabs-mobile">
-      <span
-        v-if="isSessionActive"
-        class="loading-spinner"
-        :title="sessionStatus === 'starting'
-          ? 'Session starting...' : 'Session running...'"
-      ></span>
       <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
         <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
           {{ tab.label }}{{ tab.id === 'changes' && changesFileCount > 0 ? ` (${changesFileCount})` : '' }}{{ tab.id === 'changes' && hasChanges ? ' \u2022' : '' }}{{ tab.id === 'canvas' && canvasCount > 0 ? ` (${canvasCount})` : '' }}{{ tab.id === 'conversation' && isSessionActive ? ' ...' : '' }}
@@ -165,9 +151,5 @@ function navigateToTab(tabId) {
     align-items: center;
     gap: 0.5rem;
   }
-}
-
-.tabs-mobile .loading-spinner {
-  flex-shrink: 0;
 }
 </style>

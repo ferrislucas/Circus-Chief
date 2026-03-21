@@ -2481,7 +2481,7 @@ describe('SessionDetailView', () => {
   });
 
   describe('session active indicator', () => {
-    it('passes isSessionActive=true to SessionTabsPanel when running', async () => {
+    it('passes isSessionActive=true to SessionTreeHandle when running', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2508,12 +2508,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
-      expect(tabsPanel.props('isSessionActive')).toBe(true);
-      expect(tabsPanel.props('sessionStatus')).toBe('running');
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(true);
+      expect(treeHandle.props('sessionStatus')).toBe('running');
     });
 
-    it('passes isSessionActive=true to SessionTabsPanel when starting', async () => {
+    it('passes isSessionActive=true to SessionTreeHandle when starting', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2540,12 +2540,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
-      expect(tabsPanel.props('isSessionActive')).toBe(true);
-      expect(tabsPanel.props('sessionStatus')).toBe('starting');
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(true);
+      expect(treeHandle.props('sessionStatus')).toBe('starting');
     });
 
-    it('passes isSessionActive=false to SessionTabsPanel when completed', async () => {
+    it('passes isSessionActive=false to SessionTreeHandle when completed', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2572,11 +2572,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
-      expect(tabsPanel.props('isSessionActive')).toBe(false);
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(false);
     });
 
-    it('passes isSessionActive=false to SessionTabsPanel when waiting', async () => {
+    it('passes isSessionActive=false to SessionTreeHandle when waiting', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2603,11 +2603,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
-      expect(tabsPanel.props('isSessionActive')).toBe(false);
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(false);
     });
 
-    it('passes isSessionActive=false to SessionTabsPanel when error', async () => {
+    it('passes isSessionActive=false to SessionTreeHandle when error', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2634,11 +2634,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
-      expect(tabsPanel.props('isSessionActive')).toBe(false);
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(false);
     });
 
-    it('passes sessionStatus=running to SessionTabsPanel for running status', async () => {
+    it('passes sessionStatus=running to SessionTreeHandle for running status', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2665,11 +2665,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
-      expect(tabsPanel.props('sessionStatus')).toBe('running');
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('sessionStatus')).toBe('running');
     });
 
-    it('passes sessionStatus=starting to SessionTabsPanel for starting status', async () => {
+    it('passes sessionStatus=starting to SessionTreeHandle for starting status', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2696,8 +2696,8 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
-      expect(tabsPanel.props('sessionStatus')).toBe('starting');
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('sessionStatus')).toBe('starting');
     });
   });
 
