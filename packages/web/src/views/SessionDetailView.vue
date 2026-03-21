@@ -42,8 +42,6 @@
         :tabs="tabs"
         :has-changes="hasChanges"
         :canvas-count="canvasStore.groupedItems.length"
-        :is-session-active="isSessionActive"
-        :session-status="sessionsStore.currentSession?.status"
       />
 
       <div class="tab-content">
@@ -58,6 +56,8 @@
 
       <!-- Session Tree Handle -->
       <SessionTreeHandle
+        :is-session-active="isSessionActive"
+        :session-status="sessionsStore.currentSession?.status"
         @open="treeOverlayOpen = true"
       />
 
