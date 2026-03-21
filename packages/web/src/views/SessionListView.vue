@@ -132,6 +132,7 @@
             :children="group.children"
             :summaries="summaries"
             :show-archive="true"
+            :kanban-enabled="projectsStore.currentProject?.kanbanEnabled ?? true"
             :pr-url="group.parent.prUrl"
             :pr-summary="summaries[group.parent.id]"
             @retry-summary="retryFetchSummary"
