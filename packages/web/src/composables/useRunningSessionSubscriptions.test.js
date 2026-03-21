@@ -14,6 +14,7 @@ const mockStreamingStore = {
   setPartialThinking: vi.fn(),
   setSessionFileCount: vi.fn(),
   clearSessionStreamingState: vi.fn(),
+  clearSessionEphemeralState: vi.fn(),
   hydrateSessionState: vi.fn(),
 };
 
@@ -74,6 +75,7 @@ describe('useRunningSessionSubscriptions', () => {
     mockStreamingStore.setPartialThinking.mockReset();
     mockStreamingStore.setSessionFileCount.mockReset();
     mockStreamingStore.clearSessionStreamingState.mockReset();
+    mockStreamingStore.clearSessionEphemeralState.mockReset();
     mockStreamingStore.hydrateSessionState.mockReset();
 
     // Default fetch mock: returns empty streaming state
@@ -231,7 +233,7 @@ describe('useRunningSessionSubscriptions', () => {
     expect(mockStreamingStore.setPartialThinking).toHaveBeenCalledWith('Let me think...', 'session-1');
   });
 
-  it('calls streamingStore.clearSessionStreamingState after 2s delay when session stops', async () => {
+  it('calls streamingStore.clearSessionEphemeralState after 2s delay when session stops', async () => {
     mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
 
     wrapper = mount(testComponent, {
@@ -246,12 +248,12 @@ describe('useRunningSessionSubscriptions', () => {
     statusHandler('completed');
 
     // Should not clear immediately
-    expect(mockStreamingStore.clearSessionStreamingState).not.toHaveBeenCalled();
+    expect(mockStreamingStore.clearSessionEphemeralState).not.toHaveBeenCalled();
 
     // After 2 seconds
     vi.advanceTimersByTime(2000);
 
-    expect(mockStreamingStore.clearSessionStreamingState).toHaveBeenCalledWith('session-1');
+    expect(mockStreamingStore.clearSessionEphemeralState).toHaveBeenCalledWith('session-1');
   });
 
   it('handles sessions with status "starting" in addition to "running"', async () => {
@@ -326,11 +328,11 @@ describe('useRunningSessionSubscriptions', () => {
     // Advance past the original 2s mark
     vi.advanceTimersByTime(2000);
 
-    // clearSessionStreamingState should NOT have been called because the timeout was cancelled
-    expect(mockStreamingStore.clearSessionStreamingState).not.toHaveBeenCalled();
+    // clearSessionEphemeralState should NOT have been called because the timeout was cancelled
+    expect(mockStreamingStore.clearSessionEphemeralState).not.toHaveBeenCalled();
   });
 
-  it('clears streaming state when clear timeout fires (no cancellation)', async () => {
+  it('clears ephemeral state when clear timeout fires (no cancellation)', async () => {
     mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
 
     wrapper = mount(testComponent, {
@@ -345,7 +347,7 @@ describe('useRunningSessionSubscriptions', () => {
     statusHandler('completed');
     vi.advanceTimersByTime(2000);
 
-    expect(mockStreamingStore.clearSessionStreamingState).toHaveBeenCalledWith('session-1');
+    expect(mockStreamingStore.clearSessionEphemeralState).toHaveBeenCalledWith('session-1');
   });
 
   it('makes a REST call to /api/sessions/:id/streaming-state after subscribing', async () => {
@@ -744,7 +746,7 @@ describe('useRunningSessionSubscriptions', () => {
       expect(callsForChild).toHaveLength(1);
     });
 
-    it('clears child session streaming state after 2s delay when child session stops', async () => {
+    it('clears child session ephemeral state after 2s delay when child session stops', async () => {
       mockSessionsStore.sessions = [
         { id: 'child-1', status: 'running', parentSessionId: 'parent-1' },
       ];
@@ -762,12 +764,12 @@ describe('useRunningSessionSubscriptions', () => {
       statusHandler('completed');
 
       // Should not clear immediately
-      expect(mockStreamingStore.clearSessionStreamingState).not.toHaveBeenCalled();
+      expect(mockStreamingStore.clearSessionEphemeralState).not.toHaveBeenCalled();
 
       // After 2 seconds
       vi.advanceTimersByTime(2000);
 
-      expect(mockStreamingStore.clearSessionStreamingState).toHaveBeenCalledWith('child-1');
+      expect(mockStreamingStore.clearSessionEphemeralState).toHaveBeenCalledWith('child-1');
     });
   });
 });
