@@ -50,7 +50,7 @@ test.describe('Session Message Persistence After Response Completes', () => {
     });
 
     // Step 2: Navigate to the session page while it's running
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
+    await page.goto(`${BASE_URL}/sessions/${session.id}/conversation`);
     await page.waitForLoadState('networkidle');
 
     // Step 3: Wait for streaming content to appear in the UI
@@ -101,6 +101,10 @@ test.describe('Session Message Persistence After Response Completes', () => {
     expect(sessionId).toBeTruthy();
     trackSession(sessionId!);
 
+    // Navigate to conversation tab (default is now summary tab)
+    await page.goto(`${BASE_URL}/sessions/${sessionId}/conversation`);
+    await page.waitForLoadState('networkidle');
+
     // Step 4: Wait for the session to complete
     // The session runs via the real Claude API
     await waitForStatus(sessionId!, 'waiting', 60000);
@@ -139,7 +143,7 @@ test.describe('Session Message Persistence After Response Completes', () => {
     });
 
     // Step 2: Navigate to the session page
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
+    await page.goto(`${BASE_URL}/sessions/${session.id}/conversation`);
     await page.waitForLoadState('networkidle');
 
     // Step 3: Wait for the session to complete
@@ -187,7 +191,7 @@ test.describe('Session Message Persistence After Response Completes', () => {
     });
 
     // Step 2: Navigate and wait for completion
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
+    await page.goto(`${BASE_URL}/sessions/${session.id}/conversation`);
     await page.waitForLoadState('networkidle');
     await waitForStatus(session.id, 'waiting', 60000);
 

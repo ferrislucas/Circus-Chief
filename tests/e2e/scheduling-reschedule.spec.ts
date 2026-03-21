@@ -537,8 +537,8 @@ test.describe('Category 5: Scheduling UI Components', () => {
       scheduledAt: Date.now() + 3600000,
     });
 
-    // Navigate to session detail
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    // Navigate to session detail conversation tab (Edit Schedule button is in ConversationTab)
+    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
 
     // Click "Edit Schedule" button
     const editButton = page.getByRole('button', { name: 'Edit Schedule' });
