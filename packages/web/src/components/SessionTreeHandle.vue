@@ -3,7 +3,12 @@
     class="session-tree-handle"
     tabindex="0"
     role="button"
-    aria-label="Open session tree"
+    :aria-label="isSessionActive
+      ? (sessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
+      : 'Open session tree'"
+    :title="isSessionActive
+      ? (sessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
+      : 'Open session tree'"
     data-testid="session-tree-handle"
     @click="handleOpen"
     @keydown.enter.prevent="handleOpen"
@@ -26,11 +31,27 @@
         stroke-linejoin="round"
       />
     </svg>
+    <span
+      v-if="isSessionActive"
+      class="active-spinner"
+      :title="sessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
+    ></span>
   </div>
 </template>
 
 <script setup>
 const emit = defineEmits(['open']);
+
+defineProps({
+  isSessionActive: {
+    type: Boolean,
+    default: false,
+  },
+  sessionStatus: {
+    type: String,
+    default: '',
+  },
+});
 
 function handleOpen() {
   emit('open');
@@ -46,8 +67,10 @@ function handleOpen() {
   width: 40px;
   height: 100px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   background: rgba(55, 65, 81, 0.8);
   border-radius: 8px 0 0 8px;
   cursor: pointer;
@@ -74,5 +97,20 @@ function handleOpen() {
 
 .session-tree-handle:hover .handle-icon {
   color: #fff;
+}
+
+.active-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(6, 182, 212, 0.3);
+  border-top-color: #06b6d4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

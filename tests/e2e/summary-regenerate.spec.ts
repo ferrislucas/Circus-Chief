@@ -45,7 +45,7 @@ test.describe('Summary Regenerate', () => {
 
     // Click the Regenerate button in the summary footer
     // (The overview-header regenerate button was removed during the summary tab refactoring)
-    const regenerateButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Regenerate' });
+    const regenerateButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Generate summary' });
     await expect(regenerateButton).toBeVisible();
     await regenerateButton.click();
 
@@ -82,7 +82,7 @@ test.describe('Summary Regenerate', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Click the Regenerate button in the summary footer
-    const regenerateButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Regenerate' });
+    const regenerateButton = page.locator('.summary-footer .btn-link').filter({ hasText: 'Generate summary' });
     await expect(regenerateButton).toBeVisible();
     await regenerateButton.click();
 
