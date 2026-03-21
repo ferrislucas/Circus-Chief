@@ -20,60 +20,13 @@
       <p class="full-summary">{{ summary.fullSummary }}</p>
     </section>
 
-    <section v-if="summary.filesModified && summary.filesModified.length > 0" class="summary-section">
-      <h3>Files Modified</h3>
-      <ul class="files-list">
-        <li v-for="(file, index) in summary.filesModified" :key="index" class="file-item">
-          <span class="file-icon">&#128196;</span>
-          <code>{{ file }}</code>
-        </li>
-      </ul>
-    </section>
-
-    <section v-if="hasPrInfo" class="summary-section" data-testid="pr-section">
-      <h3>Pull Request</h3>
-      <div class="pr-info">
-        <div class="pr-header">
-          <a :href="prUrl" target="_blank" class="pr-link">
-            {{ extractPrNumber(prUrl) }}
-          </a>
-          <span :class="['status-badge', `pr-${summary.prState}`]">
-            {{ formatPrState(summary.prState) }}
-          </span>
-        </div>
-
-        <div v-if="summary.hasMergeConflicts || summary.ciStatus === 'failure'" class="pr-warnings" data-testid="pr-warnings">
-          <div v-if="summary.hasMergeConflicts" class="warning-item conflict-warning">
-            <span class="warning-icon">&#x26A0;&#xFE0F;</span>
-            <span>Merge conflicts detected</span>
-          </div>
-
-          <div v-if="summary.ciStatus === 'failure'" class="warning-item ci-warning">
-            <span class="warning-icon">&#x274C;</span>
-            <span>CI checks failing</span>
-            <ul v-if="summary.ciFailures?.length" class="failure-list">
-              <li v-for="failure in summary.ciFailures" :key="failure" data-testid="pr-ci-failure-item">
-                {{ failure }}
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <div v-if="summary.ciStatus && summary.ciStatus !== 'failure'" class="ci-status" data-testid="ci-status">
-          <span :class="['status-badge', `ci-${summary.ciStatus}`]">
-            {{ summary.ciStatus === 'success' ? '&#x2713; CI Passing' : '&#x23F3; CI Pending' }}
-          </span>
-        </div>
-      </div>
-    </section>
-
     <div class="summary-footer">
       <span class="summary-date">
         Last updated: {{ formatDate(summary.generatedAt) }}
       </span>
       <button class="btn-link" @click="$emit('regenerate')" :disabled="regenerating">
         <span v-if="regenerating" class="loading-spinner"></span>
-        Regenerate
+        Generate summary
       </button>
     </div>
   </div>
@@ -84,8 +37,6 @@ defineProps({
   summary: { type: Object, required: true },
   generating: { type: Boolean, default: false },
   regenerating: { type: Boolean, default: false },
-  hasPrInfo: { type: Boolean, default: false },
-  prUrl: { type: String, default: null },
 });
 
 defineEmits(['regenerate']);
@@ -98,22 +49,6 @@ function formatDate(timestamp) {
     hour: '2-digit',
     minute: '2-digit',
   });
-}
-
-function formatPrState(state) {
-  const labels = {
-    merged: 'Merged',
-    open: 'Open',
-    closed: 'Closed',
-    draft: 'Draft',
-  };
-  return labels[state] || state;
-}
-
-function extractPrNumber(url) {
-  if (!url) return 'PR';
-  const match = url.match(/\/pull\/(\d+)/);
-  return match ? `PR #${match[1]}` : 'PR';
 }
 </script>
 
@@ -173,31 +108,6 @@ function extractPrNumber(url) {
   flex-shrink: 0;
 }
 
-.files-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.file-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.25rem;
-}
-
-.file-icon {
-  flex-shrink: 0;
-}
-
-.file-item code {
-  font-family: var(--font-mono);
-  font-size: 0.875rem;
-  background-color: var(--color-bg-soft);
-  padding: 0.125rem 0.375rem;
-  border-radius: 4px;
-}
-
 .summary-footer {
   display: flex;
   justify-content: space-between;
@@ -231,105 +141,5 @@ function extractPrNumber(url) {
 .btn-link:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-/* PR Status Styles */
-.pr-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.pr-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.pr-link {
-  color: var(--color-primary);
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.pr-link:hover {
-  text-decoration: underline;
-}
-
-.status-badge {
-  display: inline-block;
-  padding: 0.25rem 0.5rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-
-.status-badge.pr-merged {
-  background: rgba(130, 80, 223, 0.15);
-  color: #8250df;
-}
-
-.status-badge.pr-open {
-  background: rgba(46, 160, 67, 0.15);
-  color: var(--color-success);
-}
-
-.status-badge.pr-closed {
-  background: rgba(110, 119, 129, 0.15);
-  color: #6e7781;
-}
-
-.status-badge.pr-draft {
-  background: rgba(210, 153, 34, 0.15);
-  color: var(--color-warning);
-}
-
-.status-badge.ci-success {
-  background: rgba(46, 160, 67, 0.15);
-  color: var(--color-success);
-}
-
-.status-badge.ci-pending {
-  background: rgba(210, 153, 34, 0.15);
-  color: var(--color-warning);
-}
-
-.pr-warnings {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.warning-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.875rem;
-}
-
-.conflict-warning {
-  background-color: rgba(248, 81, 73, 0.1);
-  color: var(--color-error);
-}
-
-.ci-warning {
-  background-color: rgba(248, 81, 73, 0.1);
-  color: var(--color-error);
-  flex-wrap: wrap;
-}
-
-.failure-list {
-  width: 100%;
-  margin: 0.25rem 0 0 1.5rem;
-  padding: 0;
-  font-size: 0.8rem;
-  opacity: 0.9;
-  list-style: disc;
-}
-
-.ci-status {
-  margin-top: 0.25rem;
 }
 </style>
