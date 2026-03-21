@@ -72,6 +72,7 @@
           :date-to-show="dateToShow"
           :is-child="isChild"
           :is-on-board="isOnBoard"
+          :kanban-enabled="kanbanEnabled"
           :show-archive="showArchive"
           :show-unarchive="showUnarchive"
           :session-status="session.status"
@@ -212,6 +213,10 @@ const props = defineProps({
   prSummary: {
     type: Object,
     default: null,
+  },
+  kanbanEnabled: {
+    type: Boolean,
+    default: true,
   },
 });
 
