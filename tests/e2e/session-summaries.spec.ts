@@ -675,8 +675,9 @@ test.describe('Session Summaries', () => {
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // PR section was removed from SummaryContent component
-      const prSection = page.locator('[data-testid="pr-section"]');
+      // PR section was removed from SummaryContent component (scoped to .summary-content)
+      const summaryContent = page.locator('.summary-content');
+      const prSection = summaryContent.locator('[data-testid="pr-section"]');
       await expect(prSection).toHaveCount(0);
 
       // PR info still shows in overview badge (SummaryTab)
@@ -704,8 +705,9 @@ test.describe('Session Summaries', () => {
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // PR warnings section was removed from SummaryContent
-      const warnings = page.locator('[data-testid="pr-warnings"]');
+      // PR warnings section was removed from SummaryContent (scoped to .summary-content)
+      const summaryContent = page.locator('.summary-content');
+      const warnings = summaryContent.locator('[data-testid="pr-warnings"]');
       await expect(warnings).toHaveCount(0);
     });
 
@@ -730,11 +732,12 @@ test.describe('Session Summaries', () => {
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // PR warnings/CI failure section was removed from SummaryContent
-      const warnings = page.locator('[data-testid="pr-warnings"]');
+      // PR warnings/CI failure section was removed from SummaryContent (scoped to .summary-content)
+      const summaryContent = page.locator('.summary-content');
+      const warnings = summaryContent.locator('[data-testid="pr-warnings"]');
       await expect(warnings).toHaveCount(0);
 
-      const failureItems = page.locator('[data-testid="pr-ci-failure-item"]');
+      const failureItems = summaryContent.locator('[data-testid="pr-ci-failure-item"]');
       await expect(failureItems).toHaveCount(0);
     });
 
@@ -758,8 +761,9 @@ test.describe('Session Summaries', () => {
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // CI status section was removed from SummaryContent
-      const ciStatus = page.locator('[data-testid="ci-status"]');
+      // CI status section was removed from SummaryContent (scoped to .summary-content)
+      const summaryContent = page.locator('.summary-content');
+      const ciStatus = summaryContent.locator('[data-testid="ci-status"]');
       await expect(ciStatus).toHaveCount(0);
     });
   });
