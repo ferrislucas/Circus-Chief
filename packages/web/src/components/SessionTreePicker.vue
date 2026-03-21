@@ -12,9 +12,8 @@
       class="picker-item"
       :class="{
         'picker-item--active': session.id === activeSessionId,
-        'picker-item--root': index === 0,
       }"
-      :style="{ paddingLeft: `${getDepth(index) * 1.5 + 0.5}rem` }"
+      :style="{ paddingLeft: '0.5rem' }"
       role="option"
       :aria-selected="session.id === activeSessionId ? 'true' : 'false'"
       :tabindex="index === focusedIndex ? 0 : -1"
@@ -80,15 +79,8 @@ onMounted(() => {
   }
 });
 
-function getDepth(index) {
-  if (index === 0) return 0;
-  return index; // In a linear chain, depth === index
-}
-
 function getRoleLabel(index) {
-  if (index === 0) return '◉ ROOT';
-  if (index > 1) return `└─ CHILD`;
-  return 'CHILD';
+  return ''; // No hierarchy labels for any sessions
 }
 
 function statusLabel(session) {
