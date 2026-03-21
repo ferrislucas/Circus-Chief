@@ -108,7 +108,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useUiStore } from '../stores/ui.js';
@@ -166,6 +166,28 @@ const shouldShowViewer = computed(() => {
 const showBackButton = computed(() => {
   return groupedItems.value.length > 1;
 });
+
+// Auto-navigate to the latest version when a new version of the viewed file arrives
+watch(
+  () => canvasStore.items.length,
+  () => {
+    if (!selectedItem.value) return;
+
+    const currentFilename = selectedItem.value.filename || selectedItem.value.id;
+
+    // Find the latest item with the same filename
+    const latest = canvasStore.items
+      .filter(i => (i.filename || i.id) === currentFilename)
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
+
+    // If the latest version is different from what we're viewing, navigate to it
+    if (latest && latest.id !== selectedItemId.value) {
+      router.replace({
+        query: { ...route.query, item: latest.id }
+      });
+    }
+  }
+);
 
 // Navigation handlers
 function handleSelect(itemId) {
