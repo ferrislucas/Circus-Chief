@@ -29,6 +29,7 @@ import {
   extractPrUrlFromMessages,
   extractPrUrlIfNeeded,
   enrichPrData,
+  setSessionNameFromPr,
 } from './prUrlService.js';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
 import * as ghService from './ghService.js';
@@ -313,6 +314,177 @@ describe('prUrlService', () => {
 
       expect(summaryData.prUrl).toBe('https://github.com/user/repo/pull/123');
       expect(summaryData.prState).toBeUndefined();
+    });
+
+    it('adds PR title to summary data when available', async () => {
+      const summaryData = { prUrl: 'https://github.com/user/repo/pull/123' };
+
+      ghService.getPrInfo.mockResolvedValue({
+        state: 'OPEN',
+        merged: false,
+        hasMergeConflicts: false,
+        ciStatus: 'passing',
+        title: 'Fix critical bug',
+      });
+
+      await enrichPrData(summaryData, 'https://github.com/user/repo/pull/123', 'https://github.com/user/repo', 'sess-1');
+
+      expect(summaryData.prTitle).toBe('Fix critical bug');
+    });
+
+    it('does not add prTitle when title is not present', async () => {
+      const summaryData = { prUrl: 'https://github.com/user/repo/pull/123' };
+
+      ghService.getPrInfo.mockResolvedValue({
+        state: 'OPEN',
+        merged: false,
+        hasMergeConflicts: false,
+        ciStatus: 'passing',
+        // No title field
+      });
+
+      await enrichPrData(summaryData, 'https://github.com/user/repo/pull/123', 'https://github.com/user/repo', 'sess-1');
+
+      expect(summaryData.prTitle).toBeUndefined();
+    });
+  });
+
+  describe('setSessionNameFromPr', () => {
+    let projectId, sessionId;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      const project = projects.create('Test Project', '/tmp/test');
+      projectId = project.id;
+      const session = sessions.create(projectId, 'Original Name', 'Test prompt', 'standard');
+      sessionId = session.id;
+    });
+
+    it('sets session name to PR title when PR URL is provided', async () => {
+      ghService.getPrInfo.mockResolvedValue({
+        title: 'Add new feature',
+        state: 'OPEN',
+        merged: false,
+      });
+
+      await setSessionNameFromPr(sessionId, 'https://github.com/org/repo/pull/123');
+
+      const updated = sessions.getById(sessionId);
+      expect(updated.name).toBe('Add new feature');
+      expect(updated.manuallyNamed).toBe(true);
+    });
+
+    it('does not overwrite name if manuallyNamed is already true', async () => {
+      sessions.update(sessionId, { name: 'Custom Name', manuallyNamed: true });
+
+      ghService.getPrInfo.mockResolvedValue({
+        title: 'Different Title',
+        state: 'OPEN',
+        merged: false,
+      });
+
+      await setSessionNameFromPr(sessionId, 'https://github.com/org/repo/pull/123');
+
+      const updated = sessions.getById(sessionId);
+      expect(updated.name).toBe('Custom Name'); // Should NOT change
+    });
+
+    it('handles gh CLI errors gracefully without setting name', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      ghService.getPrInfo.mockRejectedValue(new Error('gh not available'));
+
+      await setSessionNameFromPr(sessionId, 'https://github.com/org/repo/pull/123');
+
+      const updated = sessions.getById(sessionId);
+      expect(updated.name).toBe('Original Name'); // Should NOT change
+      expect(updated.manuallyNamed).toBe(false);
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('handles missing PR title gracefully without setting name', async () => {
+      ghService.getPrInfo.mockResolvedValue({ state: 'OPEN', merged: false }); // No title
+
+      await setSessionNameFromPr(sessionId, 'https://github.com/org/repo/pull/123');
+
+      const updated = sessions.getById(sessionId);
+      expect(updated.name).toBe('Original Name'); // Should NOT change
+      expect(updated.manuallyNamed).toBe(false);
+    });
+
+    it('broadcasts session update after setting name', async () => {
+      ghService.getPrInfo.mockResolvedValue({
+        title: 'New Title',
+        state: 'OPEN',
+        merged: false,
+      });
+
+      await setSessionNameFromPr(sessionId, 'https://github.com/org/repo/pull/123');
+
+      expect(broadcastSessionUpdate).toHaveBeenCalledWith(
+        sessionId,
+        projectId,
+        expect.objectContaining({ name: 'New Title' })
+      );
+    });
+
+    it('does nothing for non-existent session', async () => {
+      await setSessionNameFromPr('non-existent', 'https://github.com/org/repo/pull/123');
+      expect(ghService.getPrInfo).not.toHaveBeenCalled();
+      expect(broadcastSessionUpdate).not.toHaveBeenCalled();
+    });
+
+    it('handles null session gracefully', async () => {
+      await setSessionNameFromPr(null, 'https://github.com/org/repo/pull/123');
+      expect(ghService.getPrInfo).not.toHaveBeenCalled();
+      expect(broadcastSessionUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('extractPrUrlIfNeeded with name setting', () => {
+    let projectId, sessionId;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      const project = projects.create('Test Project', '/tmp/test');
+      projectId = project.id;
+      const session = sessions.create(projectId, 'Original Name', 'Test prompt', 'standard');
+      sessionId = session.id;
+    });
+
+    it('sets session name from PR title when extracting PR URL', async () => {
+      const prUrl = 'https://github.com/org/repo/pull/123';
+      messages.create(sessionId, 'assistant', `I've created a PR: ${prUrl}`);
+
+      ghService.getPrInfo.mockResolvedValue({
+        title: 'Extracted PR Title',
+        state: 'OPEN',
+        merged: false,
+      });
+
+      await extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe(prUrl);
+      expect(session.name).toBe('Extracted PR Title');
+      expect(session.manuallyNamed).toBe(true);
+    });
+
+    it('does not set name if manuallyNamed is true', async () => {
+      sessions.update(sessionId, { name: 'My Custom Session', manuallyNamed: true });
+      const prUrl = 'https://github.com/org/repo/pull/123';
+      messages.create(sessionId, 'assistant', `I've created a PR: ${prUrl}`);
+
+      ghService.getPrInfo.mockResolvedValue({
+        title: 'Different PR Title',
+        state: 'OPEN',
+        merged: false,
+      });
+
+      await extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBe(prUrl);
+      expect(session.name).toBe('My Custom Session'); // Should NOT change
     });
   });
 });
