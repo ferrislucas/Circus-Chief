@@ -373,6 +373,9 @@ onBeforeUnmount(() => {
   border-radius: var(--border-radius);
   max-width: 600px;
   width: 90%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
@@ -414,6 +417,9 @@ onBeforeUnmount(() => {
 .modal-body {
   padding: 1.5rem 1.25rem;
   color: var(--color-text);
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .command-section {

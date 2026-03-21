@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <Transition name="slide-left">
+    <Transition name="slide-left" appear>
       <div
         v-if="visible"
         class="overlay-backdrop"
@@ -442,6 +442,49 @@ defineExpose({
 });
 </script>
 
+<!-- Transition styles must be unscoped because Teleport moves the DOM outside this component's scope -->
+<style>
+/* Slide-left transition (unscoped for Teleport compatibility) */
+.slide-left-enter-active,
+.slide-left-leave-active {
+  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-left-enter-from {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+.slide-left-enter-to {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.slide-left-leave-from {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.slide-left-leave-to {
+  opacity: 0;
+  transform: translateX(100%);
+}
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .slide-left-enter-active,
+  .slide-left-leave-active {
+    transition: opacity 0.15s ease;
+  }
+
+  .slide-left-enter-from,
+  .slide-left-leave-to {
+    transform: none;
+  }
+}
+</style>
+
 <style scoped>
 .overlay-backdrop {
   position: fixed;
@@ -449,7 +492,7 @@ defineExpose({
   z-index: 1000;
   background: rgba(17, 24, 39, 0.95);
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   align-items: flex-start;
   overflow-y: auto;
   overflow-x: hidden;
@@ -460,6 +503,7 @@ defineExpose({
   max-width: 900px;
   min-height: 100vh;
   padding: 0 1rem;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
 }
 
 .overlay-header {
@@ -625,25 +669,6 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* Slide-left transition */
-.slide-left-enter-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-.slide-left-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.slide-left-enter-from {
-  opacity: 0;
-  transform: translateX(50px);
-}
-
-.slide-left-leave-to {
-  opacity: 0;
-  transform: translateX(50px);
-}
-
 /* ConversationMessages height override per wireframe spec */
 .session-tree-overlay :deep(.messages) {
   max-height: calc(100vh - 200px); /* header + breadcrumb + dropdown */
@@ -656,6 +681,12 @@ defineExpose({
 
   .overlay-content {
     padding: 0 0.5rem;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+  .overlay-content {
+    max-width: 700px;
   }
 }
 </style>
