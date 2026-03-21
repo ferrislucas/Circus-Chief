@@ -15,16 +15,33 @@
       </div>
 
       <!-- PR Info in Overview -->
-      <div v-if="hasPrInfo" class="overview-pr" data-testid="pr-overview-badge">
-        <a :href="prUrl" target="_blank" class="pr-link">
-          {{ extractPrNumber(prUrl) }}
-        </a>
-        <span :class="['status-badge', `pr-${summary?.prState}`]">
-          {{ formatPrState(summary?.prState) }}
-        </span>
-        <span v-if="summary?.ciStatus" :class="['status-badge', `ci-${summary.ciStatus}`]">
-          {{ summary.ciStatus === 'success' ? 'CI Passing' : summary.ciStatus === 'failure' ? 'CI Failing' : 'CI Pending' }}
-        </span>
+      <div v-if="hasPrInfo" class="pr-section" data-testid="pr-section">
+        <div class="overview-pr" data-testid="pr-overview-badge">
+          <a :href="prUrl" target="_blank" rel="noopener noreferrer" class="pr-link">
+            {{ extractPrNumber(prUrl) }}
+          </a>
+          <span :class="['status-badge', `pr-${summary?.prState}`]">
+            {{ formatPrState(summary?.prState) }}
+          </span>
+          <span v-if="summary?.ciStatus === 'success' || summary?.ciStatus === 'pending'" :class="['status-badge', `ci-${summary.ciStatus}`]" data-testid="ci-status">
+            {{ summary.ciStatus === 'success' ? 'CI Passing' : 'CI Pending' }}
+          </span>
+        </div>
+
+        <!-- Warnings: merge conflicts and CI failures -->
+        <div v-if="hasWarnings" class="pr-warnings" data-testid="pr-warnings">
+          <div v-if="summary?.hasMergeConflicts" class="warning-item">
+            Merge conflicts detected
+          </div>
+          <div v-if="summary?.ciStatus === 'failure'" class="warning-item">
+            CI checks failing
+          </div>
+          <div v-if="summary?.ciFailures?.length" class="ci-failure-list">
+            <div v-for="failure in summary.ciFailures" :key="failure" class="ci-failure-item" data-testid="pr-ci-failure-item">
+              {{ failure }}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -54,8 +71,6 @@
       :summary="summary"
       :generating="generating"
       :regenerating="generatingManual"
-      :has-pr-info="hasPrInfo"
-      :pr-url="prUrl"
       @regenerate="handleRegenerate"
     />
   </div>
@@ -96,6 +111,7 @@ const session = computed(() =>
 );
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
+const hasWarnings = computed(() => summary.value?.hasMergeConflicts || summary.value?.ciStatus === 'failure');
 
 // Get child sessions for this session
 const childSessions = computed(() => {
@@ -257,12 +273,39 @@ async function handleRegenerate() {
   color: var(--color-warning);
 }
 
+.pr-section {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
 .overview-pr {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
+}
+
+.pr-warnings {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(207, 34, 46, 0.08);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: var(--color-error, #cf222e);
+}
+
+.warning-item {
+  padding: 0.125rem 0;
+}
+
+.ci-failure-list {
+  margin-top: 0.25rem;
+  padding-left: 1rem;
+}
+
+.ci-failure-item {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #8b949e);
+  padding: 0.0625rem 0;
 }
 
 .pr-link {
@@ -274,4 +317,5 @@ async function handleRegenerate() {
 .pr-link:hover {
   text-decoration: underline;
 }
+
 </style>
