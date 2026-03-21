@@ -5,9 +5,9 @@
     </div>
     <!-- Action buttons (always visible on root sessions, not on child sessions) -->
     <div v-if="!isChild" class="archive-actions">
-      <!-- Add to Board button (only show if session is not already on board) -->
+      <!-- Add to Board button (only show if kanban is enabled and session is not already on board) -->
       <button
-        v-if="!isOnBoard"
+        v-if="kanbanEnabled && !isOnBoard"
         class="add-to-board-btn"
         title="Add to kanban board"
         @click.stop.prevent="$emit('addToBoard')"
@@ -76,6 +76,10 @@ const props = defineProps({
   isOnBoard: {
     type: Boolean,
     default: false,
+  },
+  kanbanEnabled: {
+    type: Boolean,
+    default: true,
   },
   showArchive: {
     type: Boolean,
