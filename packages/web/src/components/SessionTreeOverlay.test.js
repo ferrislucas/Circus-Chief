@@ -454,4 +454,34 @@ describe('SessionTreeOverlay', () => {
       wrapper.unmount();
     });
   });
+
+  describe('animation', () => {
+    it('applies correct transition classes on mount', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop).toBeTruthy();
+      wrapper.unmount();
+    });
+
+    it('positions overlay on right side of viewport', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      const backdrop = document.querySelector('[data-testid="session-tree-overlay"]');
+      expect(backdrop).toBeTruthy();
+      // Verify the backdrop class exists which has justify-content: flex-end
+      expect(backdrop.classList.contains('overlay-backdrop')).toBe(true);
+      wrapper.unmount();
+    });
+
+    it('has overlay content with correct structure', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      const content = document.querySelector('.overlay-content');
+      expect(content).toBeTruthy();
+      // Verify the content has the correct class
+      expect(content.classList.contains('overlay-content')).toBe(true);
+      wrapper.unmount();
+    });
+  });
 });

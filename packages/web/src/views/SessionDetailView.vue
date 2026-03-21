@@ -42,8 +42,6 @@
         :tabs="tabs"
         :has-changes="hasChanges"
         :canvas-count="canvasStore.groupedItems.length"
-        :is-session-active="isSessionActive"
-        :session-status="sessionsStore.currentSession?.status"
       />
 
       <div class="tab-content">
@@ -58,6 +56,8 @@
 
       <!-- Session Tree Handle -->
       <SessionTreeHandle
+        :is-session-active="isSessionActive"
+        :session-status="sessionsStore.currentSession?.status"
         @open="treeOverlayOpen = true"
       />
 
@@ -135,7 +135,7 @@ const { cleanup, initializeSession } = useSessionInitializer({
   resetPolling,
 });
 
-const activeTab = computed(() => route.params.tab || 'conversation');
+const activeTab = computed(() => route.params.tab || 'summary');
 
 // Get the session hierarchy path (for breadcrumbs)
 const sessionPath = computed(() => {

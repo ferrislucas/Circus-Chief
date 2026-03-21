@@ -1,5 +1,13 @@
 <template>
   <div class="summary-tab">
+    <!-- What Just Happened Card -->
+    <WhatJustHappenedCard
+      v-if="session"
+      :session="session"
+      :summary="summary"
+      :descendant-summaries="descendantSummaries"
+    />
+
     <!-- Session Overview Section -->
     <div class="session-overview card">
       <div class="overview-header">
@@ -7,16 +15,33 @@
       </div>
 
       <!-- PR Info in Overview -->
-      <div v-if="hasPrInfo" class="overview-pr" data-testid="pr-overview-badge">
-        <a :href="prUrl" target="_blank" class="pr-link">
-          {{ extractPrNumber(prUrl) }}
-        </a>
-        <span :class="['status-badge', `pr-${summary?.prState}`]">
-          {{ formatPrState(summary?.prState) }}
-        </span>
-        <span v-if="summary?.ciStatus" :class="['status-badge', `ci-${summary.ciStatus}`]">
-          {{ summary.ciStatus === 'success' ? 'CI Passing' : summary.ciStatus === 'failure' ? 'CI Failing' : 'CI Pending' }}
-        </span>
+      <div v-if="hasPrInfo" class="pr-section" data-testid="pr-section">
+        <div class="overview-pr" data-testid="pr-overview-badge">
+          <a :href="prUrl" target="_blank" rel="noopener noreferrer" class="pr-link">
+            {{ extractPrNumber(prUrl) }}
+          </a>
+          <span :class="['status-badge', `pr-${summary?.prState}`]">
+            {{ formatPrState(summary?.prState) }}
+          </span>
+          <span v-if="summary?.ciStatus === 'success' || summary?.ciStatus === 'pending'" :class="['status-badge', `ci-${summary.ciStatus}`]" data-testid="ci-status">
+            {{ summary.ciStatus === 'success' ? 'CI Passing' : 'CI Pending' }}
+          </span>
+        </div>
+
+        <!-- Warnings: merge conflicts and CI failures -->
+        <div v-if="hasWarnings" class="pr-warnings" data-testid="pr-warnings">
+          <div v-if="summary?.hasMergeConflicts" class="warning-item">
+            Merge conflicts detected
+          </div>
+          <div v-if="summary?.ciStatus === 'failure'" class="warning-item">
+            CI checks failing
+          </div>
+          <div v-if="summary?.ciFailures?.length" class="ci-failure-list">
+            <div v-for="failure in summary.ciFailures" :key="failure" class="ci-failure-item" data-testid="pr-ci-failure-item">
+              {{ failure }}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -25,7 +50,7 @@
       v-if="childSessions.length > 0"
       variant="detail"
       :session="session"
-      :summaries="childSessionSummaries"
+      :summaries="descendantSummaries"
       :summary="summary"
       :command-buttons="commandButtons"
     />
@@ -46,20 +71,20 @@
       :summary="summary"
       :generating="generating"
       :regenerating="generatingManual"
-      :has-pr-info="hasPrInfo"
-      :pr-url="prUrl"
       @regenerate="handleRegenerate"
     />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useSummaries } from '../composables/useSummaries.js';
+import WhatJustHappenedCard from './WhatJustHappenedCard.vue';
 import SessionCardWorkflowPanel from './SessionCardWorkflowPanel.vue';
 import SummaryContent from './SummaryContent.vue';
 
@@ -71,9 +96,9 @@ const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const { onSummaryUpdate, onSummaryGenerating } = useSessionSubscription(props.sessionId);
+const { summaries: descendantSummaries, fetchSummariesBatch } = useSummaries();
 
 const summary = ref(null);
-const childSessionSummaries = ref({});
 const loading = ref(false);
 const generating = ref(false);
 const generatingManual = ref(false);
@@ -86,6 +111,7 @@ const session = computed(() =>
 );
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
+const hasWarnings = computed(() => summary.value?.hasMergeConflicts || summary.value?.ciStatus === 'failure');
 
 // Get child sessions for this session
 const childSessions = computed(() => {
@@ -99,18 +125,11 @@ const commandButtons = computed(() => {
   return commandButtonsStore.getButtonsByProjectId(projectId);
 });
 
-// Fetch summaries for child sessions
-async function fetchChildSummaries() {
-  const children = sessionsStore.getChildSessions(props.sessionId);
-  for (const child of children) {
-    if (!childSessionSummaries.value[child.id]) {
-      try {
-        const summaryData = await api.getSessionSummary(child.id);
-        childSessionSummaries.value[child.id] = summaryData;
-      } catch (e) {
-        // Ignore - summary may not exist
-      }
-    }
+// Fetch summaries for all descendant sessions
+async function fetchDescendantSummaries() {
+  const descendants = sessionsStore.getAllDescendants(props.sessionId);
+  if (descendants.length > 0) {
+    await fetchSummariesBatch(descendants);
   }
 }
 
@@ -131,8 +150,8 @@ function extractPrNumber(url) {
 }
 
 onMounted(async () => {
-  // Fetch summaries for child sessions (don't await - not critical path)
-  fetchChildSummaries();
+  // Fetch summaries for descendant sessions (don't await - not critical path)
+  fetchDescendantSummaries();
 
   // Fetch session summary
   loading.value = true;
@@ -158,6 +177,17 @@ onMounted(async () => {
     generating.value = isGenerating;
   });
 });
+
+// Watch for changes in descendants and fetch summaries reactively
+watch(
+  () => sessionsStore.getAllDescendants(props.sessionId),
+  (descendants) => {
+    if (descendants.length > 0) {
+      fetchDescendantSummaries();
+    }
+  },
+  { deep: true }
+);
 
 onUnmounted(() => {
   // Clean up if needed
@@ -243,12 +273,39 @@ async function handleRegenerate() {
   color: var(--color-warning);
 }
 
+.pr-section {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
 .overview-pr {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
+}
+
+.pr-warnings {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(207, 34, 46, 0.08);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: var(--color-error, #cf222e);
+}
+
+.warning-item {
+  padding: 0.125rem 0;
+}
+
+.ci-failure-list {
+  margin-top: 0.25rem;
+  padding-left: 1rem;
+}
+
+.ci-failure-item {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #8b949e);
+  padding: 0.0625rem 0;
 }
 
 .pr-link {
@@ -260,4 +317,5 @@ async function handleRegenerate() {
 .pr-link:hover {
   text-decoration: underline;
 }
+
 </style>
