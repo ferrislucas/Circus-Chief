@@ -431,7 +431,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'high',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
 
       // Check that effort level dropdown is visible in input form
       const dropdown = page.locator('.input-form #effort-select');
@@ -445,7 +445,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'medium',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
 
       // Check that dropdown shows "medium"
       const dropdown = page.locator('.input-form #effort-select');
@@ -460,7 +460,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         // effortLevel defaults to null (auto)
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
 
       // Check that dropdown shows "auto"
       const dropdown = page.locator('.input-form #effort-select');
@@ -475,7 +475,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'low',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
 
       // Change dropdown to "max"
       await page.locator('.input-form #effort-select').selectOption('max');
@@ -503,7 +503,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'high',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
 
       // Change dropdown to "low"
       await page.locator('.input-form #effort-select').selectOption('low');
@@ -530,7 +530,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'medium',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
 
       // Change dropdown to "high"
       await page.locator('.input-form #effort-select').selectOption('high');
@@ -877,7 +877,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         startImmediately: false,
       });
 
-      await navigateAndWait(page, `${API_URL}/sessions/${session.id}`);
+      await navigateAndWait(page, `${API_URL}/sessions/${session.id}/conversation`);
 
       const dropdown = page.locator('.input-form #effort-select');
 
