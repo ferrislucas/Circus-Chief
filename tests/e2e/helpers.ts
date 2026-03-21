@@ -527,6 +527,32 @@ export async function seedWorkLog(
   return response.json();
 }
 
+export async function seedPartialText(
+  sessionId: string,
+  text: string
+) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/partial-text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok) throw new Error('Failed to seed partial text');
+  return response.json();
+}
+
+export async function seedThinking(
+  sessionId: string,
+  thinking: string
+) {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/thinking`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ thinking }),
+  });
+  if (!response.ok) throw new Error('Failed to seed thinking');
+  return response.json();
+}
+
 export async function updateSessionStatus(sessionId: string, status: string) {
   const maxRetries = 3;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
