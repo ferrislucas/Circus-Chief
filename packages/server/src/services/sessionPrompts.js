@@ -131,11 +131,15 @@ CRITICAL: Do NOT start coding until you have presented a plan and received appro
 
 /**
  * Build system prompt with canvas write instructions
- * @param {string} sessionId
+ * @param {object|null} session - Session object
  * @returns {string}
  */
-function buildCanvasWriteSystemPrompt(sessionId) {
+function buildCanvasWriteSystemPrompt(session) {
   const apiUrl = getApiBaseUrl();
+  // Use root session ID, fall back to session.id if getRootSessionId returns null, fall back to 'unknown-session' if session is null
+  const sessionId = session
+    ? (sessions.getRootSessionId(session.id) || session.id)
+    : 'unknown-session';
   return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
@@ -152,11 +156,15 @@ The file type is automatically detected from the file extension. Supported forma
 
 /**
  * Build system prompt with canvas read instructions
- * @param {string} sessionId
+ * @param {object|null} session - Session object
  * @returns {string}
  */
-function buildCanvasReadSystemPrompt(sessionId) {
+function buildCanvasReadSystemPrompt(session) {
   const apiUrl = getApiBaseUrl();
+  // Use root session ID, fall back to session.id if getRootSessionId returns null, fall back to 'unknown-session' if session is null
+  const sessionId = session
+    ? (sessions.getRootSessionId(session.id) || session.id)
+    : 'unknown-session';
   return `## Reading from Canvas
 
 To list all files on the canvas:
@@ -428,8 +436,8 @@ This session is part of a multi-session workflow:
  */
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
   const session = sessions.getById(sessionId);
-  const canvasWriteInstructions = buildCanvasWriteSystemPrompt(sessionId);
-  const canvasReadInstructions = buildCanvasReadSystemPrompt(sessionId);
+  const canvasWriteInstructions = buildCanvasWriteSystemPrompt(session);  // Pass session object
+  const canvasReadInstructions = buildCanvasReadSystemPrompt(session);    // Pass session object
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
   const kanbanApiInstructions = buildKanbanApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
