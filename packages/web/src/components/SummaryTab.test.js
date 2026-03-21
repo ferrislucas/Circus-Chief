@@ -20,6 +20,9 @@ vi.mock('../composables/useWebSocket.js', () => ({
   useSessionSubscription: vi.fn(() => ({
     onSummaryUpdate: vi.fn(() => vi.fn()),
     onSummaryGenerating: vi.fn(() => vi.fn()),
+    onWorkLog: vi.fn(() => vi.fn()),
+    onPartial: vi.fn(() => vi.fn()),
+    onThinkingPartial: vi.fn(() => vi.fn()),
   })),
 }));
 
@@ -75,6 +78,7 @@ describe('SummaryTab', () => {
           MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
           SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
           WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+          SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
         },
       },
     });
@@ -284,6 +288,184 @@ describe('SummaryTab', () => {
       // Verify descendantSummaries prop
       expect(whatJustHappenedCard.props('descendantSummaries')).toBeDefined();
       expect(typeof whatJustHappenedCard.props('descendantSummaries')).toBe('object');
+    });
+  });
+
+  describe('SessionLogStream Integration', () => {
+    it('renders SessionLogStream when session status is running', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mount(SummaryTab, {
+        props: { sessionId: 'sess-123' },
+        global: {
+          stubs: {
+            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
+            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            SessionLogStream: {
+              name: 'SessionLogStream',
+              props: ['sessionId'],
+              template: '<div class="session-log-stream-stub">SessionLogStream</div>',
+            },
+          },
+        },
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(true);
+    });
+
+    it('renders SessionLogStream when session status is starting', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'starting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mount(SummaryTab, {
+        props: { sessionId: 'sess-123' },
+        global: {
+          stubs: {
+            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
+            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            SessionLogStream: {
+              name: 'SessionLogStream',
+              props: ['sessionId'],
+              template: '<div class="session-log-stream-stub">SessionLogStream</div>',
+            },
+          },
+        },
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(true);
+    });
+
+    it('does not render SessionLogStream for non-running statuses', async () => {
+      // Test all statuses that should NOT show live output
+      const nonRunningStatuses = ['waiting', 'stopped', 'completed', 'error', 'scheduled'];
+
+      for (const status of nonRunningStatuses) {
+        sessionsStore.currentSession = {
+          id: 'sess-123',
+          status,
+          projectId: 'proj-1',
+        };
+        sessionsStore.sessions = [sessionsStore.currentSession];
+
+        const wrapper = mount(SummaryTab, {
+          props: { sessionId: 'sess-123' },
+          global: {
+            stubs: {
+              MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+              SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
+              WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+              SessionLogStream: {
+                name: 'SessionLogStream',
+                template: '<div class="session-log-stream-stub">SessionLogStream</div>',
+              },
+            },
+          },
+        });
+        await flushAll(wrapper);
+
+        expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
+      }
+    });
+
+    it('passes correct sessionId prop to SessionLogStream', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-456',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mount(SummaryTab, {
+        props: { sessionId: 'sess-456' },
+        global: {
+          stubs: {
+            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
+            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            SessionLogStream: {
+              name: 'SessionLogStream',
+              props: ['sessionId'],
+              template: '<div class="session-log-stream-stub">{{ sessionId }}</div>',
+            },
+          },
+        },
+      });
+      await flushAll(wrapper);
+
+      const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
+      expect(logStream.exists()).toBe(true);
+      expect(logStream.props('sessionId')).toBe('sess-456');
+    });
+
+    it('unmounts SessionLogStream when session status changes from running to completed', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mount(SummaryTab, {
+        props: { sessionId: 'sess-123' },
+        global: {
+          stubs: {
+            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
+            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            SessionLogStream: {
+              name: 'SessionLogStream',
+              template: '<div class="session-log-stream-stub">SessionLogStream</div>',
+            },
+          },
+        },
+      });
+      await flushAll(wrapper);
+
+      // Should render when running
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(true);
+
+      // Change status to completed
+      sessionsStore.currentSession.status = 'completed';
+      await flushAll(wrapper);
+
+      // Should unmount after status change
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
+    });
+
+    it('does not render SessionLogStream when session is null', async () => {
+      sessionsStore.currentSession = null;
+      sessionsStore.sessions = [];
+
+      const wrapper = mount(SummaryTab, {
+        props: { sessionId: 'sess-123' },
+        global: {
+          stubs: {
+            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
+            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            SessionLogStream: {
+              name: 'SessionLogStream',
+              template: '<div class="session-log-stream-stub">SessionLogStream</div>',
+            },
+          },
+        },
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
     });
   });
 

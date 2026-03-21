@@ -1,5 +1,11 @@
 <template>
   <div class="summary-tab">
+    <!-- Live output for running sessions -->
+    <SessionLogStream
+      v-if="isRunning"
+      :session-id="sessionId"
+    />
+
     <!-- Activity Log Card -->
     <WhatJustHappenedCard
       v-if="session"
@@ -84,9 +90,11 @@ import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSummaries } from '../composables/useSummaries.js';
+import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import WhatJustHappenedCard from './WhatJustHappenedCard.vue';
 import SessionCardWorkflowPanel from './SessionCardWorkflowPanel.vue';
 import SummaryContent from './SummaryContent.vue';
+import SessionLogStream from './SessionLogStream.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -95,8 +103,53 @@ const props = defineProps({
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
-const { onSummaryUpdate, onSummaryGenerating } = useSessionSubscription(props.sessionId);
+const streamingStore = useSessionStreamingStore();
+const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial } = useSessionSubscription(props.sessionId);
 const { summaries: descendantSummaries, fetchSummariesBatch } = useSummaries();
+
+// Restore collapsed log state for this session
+streamingStore.restoreCollapsedLogState();
+
+// Always listen for streaming data for live output
+// The SessionLogStream component will only display when there's content
+
+// Listen for work logs
+onWorkLog((log) => {
+  streamingStore.addSessionWorkLog(props.sessionId, log);
+});
+
+// Listen for partial text (streaming response)
+onPartial((text) => {
+  if (text) {
+    streamingStore.setSessionPartialText(props.sessionId, text);
+  }
+});
+
+// Listen for thinking
+onThinkingPartial((thinking) => {
+  if (thinking) {
+    streamingStore.setPartialThinking(thinking, props.sessionId);
+  }
+});
+
+// Hydrate streaming state from server on mount (browser only)
+onMounted(async () => {
+  // Skip hydration in test environment (fetch doesn't work with relative URLs in vitest)
+  if (typeof window === 'undefined') return;
+
+  try {
+    const response = await fetch(`/api/sessions/${props.sessionId}/streaming-state`);
+    if (response.ok) {
+      const snapshot = await response.json();
+      if (snapshot && (snapshot.workLogs?.length || snapshot.partialText || snapshot.thinking)) {
+        streamingStore.hydrateSessionState(props.sessionId, snapshot);
+      }
+    }
+  } catch (error) {
+    // Hydration failure is non-fatal
+    // Silently ignore in test environment
+  }
+});
 
 const summary = ref(null);
 const loading = ref(false);
@@ -109,6 +162,10 @@ const session = computed(() =>
   sessionsStore.sessions.find((s) => s.id === props.sessionId)
   || (sessionsStore.currentSession?.id === props.sessionId ? sessionsStore.currentSession : null)
 );
+const isRunning = computed(() => {
+  const status = session.value?.status;
+  return status === 'running' || status === 'starting';
+});
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 const hasWarnings = computed(() => summary.value?.hasMergeConflicts || summary.value?.ciStatus === 'failure');
