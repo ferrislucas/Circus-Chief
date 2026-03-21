@@ -21,7 +21,7 @@ test.describe('Scheduling UI', () => {
       const session = await seedSession(project.id, { prompt: 'Initial content', startImmediately: false });
 
       // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
+      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
 
       // Expand the Orchestration panel
       const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
@@ -43,7 +43,7 @@ test.describe('Scheduling UI', () => {
       const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
 
       // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
+      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
 
       // Expand the Orchestration panel
       const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
@@ -71,7 +71,7 @@ test.describe('Scheduling UI', () => {
       const session = await seedSession(project.id, { prompt: 'Scheduled task: do something', startImmediately: false });
 
       // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
+      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
 
       // Expand the Orchestration panel
       const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
@@ -104,7 +104,7 @@ test.describe('Scheduling UI', () => {
       const session = await seedSession(project.id, { prompt: 'Test scheduled time display', startImmediately: false });
 
       // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}`);
+      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
 
       // Expand the Orchestration panel
       const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
