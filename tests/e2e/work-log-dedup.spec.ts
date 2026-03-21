@@ -59,7 +59,7 @@ test.describe('Work Log Deduplication', () => {
     expect(thinkingLogs.length).toBeGreaterThan(0);
 
     // Navigate to the session detail page — this loads work logs into the Pinia store
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
+    await page.goto(`${BASE_URL}/sessions/${session.id}/conversation`);
 
     // Wait for the conversation tab to load and messages to appear
     await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 15000 });
@@ -137,7 +137,7 @@ test.describe('Work Log Deduplication', () => {
     await waitForSessionStatus(session.id, 'waiting', 60000);
 
     // Navigate to the session detail page — loads work logs into Pinia store
-    await page.goto(`${BASE_URL}/sessions/${session.id}`);
+    await page.goto(`${BASE_URL}/sessions/${session.id}/conversation`);
     await page.waitForSelector('[data-testid="message-assistant"]', { timeout: 15000 });
 
     // Test dedup by injecting a synthetic tool_input work log into the store,
