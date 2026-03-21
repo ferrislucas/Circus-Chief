@@ -1,6 +1,6 @@
 <template>
   <div class="summary-tab">
-    <!-- What Just Happened Card -->
+    <!-- Activity Log Card -->
     <WhatJustHappenedCard
       v-if="session"
       :session="session"
