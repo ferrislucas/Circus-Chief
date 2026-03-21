@@ -7,6 +7,7 @@ import {
   navigateAndWait,
   waitForSessionToExist,
   updateSessionStatus,
+  getSession,
 } from './helpers';
 
 test.describe('Session Tree Overlay', () => {
@@ -464,5 +465,175 @@ test.describe('Session Tree Overlay', () => {
     const items = picker.locator('[role="option"]');
     const count = await items.count();
     expect(count).toBeGreaterThanOrEqual(2);
+  });
+
+  // ============================================================
+  // Session Name Editing in Overlay
+  // ============================================================
+
+  test.describe('Session Name Editing in Overlay', () => {
+    test('can edit session name via inline editing in overlay', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      // Click the edit pencil icon in overlay header
+      await overlay.locator('button.name-edit-trigger').click();
+
+      // Edit input should appear
+      const nameInput = overlay.locator('input.name-edit-input');
+      await expect(nameInput).toBeVisible();
+
+      // Clear and enter new name
+      await nameInput.fill('');
+      await nameInput.fill('Updated Overlay Session Name');
+
+      // Click save button
+      await overlay.locator('button.pr-save-btn').click();
+
+      // Verify the name was updated in the overlay header
+      await expect(overlay.locator('.overlay-root-name')).toHaveText('Updated Overlay Session Name');
+
+      // Verify via API
+      const updatedSession = await getSession(parentSession.id);
+      expect(updatedSession.name).toBe('Updated Overlay Session Name');
+      expect(updatedSession.manuallyNamed).toBe(true);
+    });
+
+    test('can edit child session name in overlay', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      // Switch to child session via dropdown
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
+      await expect(dropdown).toBeVisible({ timeout: 10000 });
+
+      await dropdown.locator('.dropdown-trigger').click();
+      const picker = page.locator('[data-testid="session-tree-picker"]');
+      await expect(picker).toBeVisible({ timeout: 5000 });
+
+      // Click the second item (first child session) - the chain is built as [root, child1]
+      const items = picker.locator('[role="option"]');
+      await expect(items).toHaveCount(2, { timeout: 5000 });
+      const secondItem = items.nth(1);
+      await secondItem.click();
+
+      // Wait for picker to close
+      await expect(picker).not.toBeVisible({ timeout: 5000 });
+
+      // Wait for the active session to change - name should no longer be parent's name
+      await expect(overlay.locator('.overlay-root-name')).not.toHaveText(parentSession.name, { timeout: 5000 });
+
+      // Click edit and rename the currently active child session
+      await overlay.locator('button.name-edit-trigger').click();
+      await overlay.locator('input.name-edit-input').fill('Renamed Child Session');
+      await overlay.locator('button.pr-save-btn').click();
+
+      // Verify session was renamed in UI
+      await expect(overlay.locator('.overlay-root-name')).toHaveText('Renamed Child Session');
+
+      // Get the renamed session via API to verify (could be either childSession or childSession2)
+      const firstChild = await getSession(childSession.id);
+      const secondChild = await getSession(childSession2.id);
+
+      // One of them should have the new name
+      const renamed = firstChild.name === 'Renamed Child Session' || secondChild.name === 'Renamed Child Session';
+      expect(renamed).toBe(true);
+    });
+
+    test('can cancel name editing by pressing Escape', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      await overlay.locator('button.name-edit-trigger').click();
+      await overlay.locator('input.name-edit-input').fill('Should Not Save');
+      await page.keyboard.press('Escape');
+
+      // Verify original name is still shown
+      await expect(overlay.locator('.overlay-root-name')).toHaveText(parentSession.name);
+      const unchangedSession = await getSession(parentSession.id);
+      expect(unchangedSession.name).toBe(parentSession.name);
+    });
+
+    test('can cancel name editing by clicking cancel button', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      await overlay.locator('button.name-edit-trigger').click();
+      await overlay.locator('input.name-edit-input').fill('Should Not Save');
+      await overlay.locator('button.pr-cancel-btn').click();
+
+      // Verify original name is still shown
+      await expect(overlay.locator('.overlay-root-name')).toHaveText(parentSession.name);
+    });
+
+    test('can save name by pressing Enter', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      await overlay.locator('button.name-edit-trigger').click();
+      await overlay.locator('input.name-edit-input').fill('Saved Via Enter');
+      await page.keyboard.press('Enter');
+
+      await expect(overlay.locator('.overlay-root-name')).toHaveText('Saved Via Enter');
+      const updatedSession = await getSession(parentSession.id);
+      expect(updatedSession.name).toBe('Saved Via Enter');
+    });
+
+    test('shows pencil icon for name editing in overlay', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const editTrigger = overlay.locator('button.name-edit-trigger');
+      await expect(editTrigger).toBeVisible();
+      await expect(editTrigger).toHaveAttribute('title', 'Edit session name');
+    });
+
+    test('clear button appears when editing session with name', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      // Clear button should not exist when not editing
+      await expect(overlay.locator('.name-edit-form button.pr-clear-btn')).toHaveCount(0);
+
+      // Enter edit mode
+      await overlay.locator('button.name-edit-trigger').click();
+
+      // Clear button should be visible
+      const clearBtn = overlay.locator('.name-edit-form button.pr-clear-btn');
+      await expect(clearBtn).toBeVisible();
+      await expect(clearBtn).toHaveAttribute('title', 'Clear name');
+    });
+
+    test('clicking clear empties the input and keeps edit mode open', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      await overlay.locator('button.name-edit-trigger').click();
+      const nameInput = overlay.locator('input.name-edit-input');
+      await expect(nameInput).toHaveValue(parentSession.name);
+
+      await overlay.locator('.name-edit-form button.pr-clear-btn').click();
+      await expect(nameInput).toHaveValue('');
+      await expect(nameInput).toBeVisible();
+    });
+
+    test('can clear name, type new name, and save', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      await overlay.locator('button.name-edit-trigger').click();
+      await overlay.locator('.name-edit-form button.pr-clear-btn').click();
+
+      const nameInput = overlay.locator('input.name-edit-input');
+      await nameInput.fill('New Name After Clear');
+      await overlay.locator('button.pr-save-btn').click();
+
+      await expect(overlay.locator('.overlay-root-name')).toHaveText('New Name After Clear');
+      const updatedSession = await getSession(parentSession.id);
+      expect(updatedSession.name).toBe('New Name After Clear');
+    });
+
+    test('input is focused after clicking clear', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      await overlay.locator('button.name-edit-trigger').click();
+      await overlay.locator('.name-edit-form button.pr-clear-btn').click();
+
+      // Typing should go into the input
+      await page.keyboard.type('Typed After Clear');
+      const nameInput = overlay.locator('input.name-edit-input');
+      await expect(nameInput).toHaveValue('Typed After Clear');
+    });
   });
 });
