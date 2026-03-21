@@ -55,10 +55,11 @@ test.describe('Session Summaries', () => {
   // Category 1: Summary Tab — Overview Card (1 test)
   // The overview-stats section (conversations, messages, status) was removed
   // during the summary tab refactoring. Only the overview card itself remains.
+  // The overview card is now only visible when there's PR info (prUrl AND prState).
   // ============================================================
 
   test.describe('Category 1: Summary Tab — Overview Card', () => {
-    test('displays session overview card without stats', async ({ page }) => {
+    test('displays session overview card when PR info exists', async ({ page }) => {
       const session = await seedSession(project.id, {
         prompt: 'Test overview card',
         name: 'Overview Card Test',
@@ -66,16 +67,22 @@ test.describe('Session Summaries', () => {
       });
       await waitForSessionToExist(session.id);
 
-      // Seed a summary so the page loads properly
-      seedSessionSummaryDirect(session.id, {
+      // Add PR info to the session (required for overview to be visible)
+      await updateSessionWithPR(session.id, {
+        prUrl: 'https://github.com/org/repo/pull/100',
+      });
+
+      // Seed a summary with PR state so the overview card shows
+      seedSessionSummaryWithPR(session.id, {
         shortSummary: 'Overview test',
         fullSummary: 'Testing the overview card display',
         outcome: 'completed',
+        prState: 'open',
       });
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // Verify the session overview card exists
+      // Verify the session overview card exists (only shows with PR info)
       const overviewCard = page.locator('.session-overview.card');
       await expect(overviewCard).toBeVisible();
 
@@ -326,6 +333,7 @@ test.describe('Session Summaries', () => {
   test.describe('Category 4: Manual Regenerate Button', () => {
     // The regenerate button was removed from the overview-header during the summary tab
     // refactoring. It now only exists in the summary footer (SummaryContent component).
+    // Note: The overview header is only visible when there's PR info (prUrl AND prState).
 
     test('regenerate button is NOT visible in overview header', async ({ page }) => {
       const session = await seedSession(project.id, {
@@ -335,10 +343,16 @@ test.describe('Session Summaries', () => {
       });
       await waitForSessionToExist(session.id);
 
-      seedSessionSummaryDirect(session.id, {
+      // Add PR info to the session (required for overview header to be visible)
+      await updateSessionWithPR(session.id, {
+        prUrl: 'https://github.com/org/repo/pull/200',
+      });
+
+      seedSessionSummaryWithPR(session.id, {
         shortSummary: 'Regen header test',
         fullSummary: 'Testing regenerate button removed from header',
         outcome: 'completed',
+        prState: 'open',
       });
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
@@ -773,7 +787,7 @@ test.describe('Session Summaries', () => {
   // ============================================================
 
   test.describe('Category 9: Edge Cases & Empty States', () => {
-    test('shows no summary content when session has no summary', async ({ page }) => {
+    test('shows no summary content and no overview when session has no summary', async ({ page }) => {
       const session = await seedSession(project.id, {
         prompt: 'Test no summary content',
         name: 'No Summary Content Test',
@@ -785,9 +799,9 @@ test.describe('Session Summaries', () => {
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // The overview card should still be visible
+      // The overview card should NOT be visible (requires PR info: prUrl AND prState)
       const overviewCard = page.locator('.session-overview');
-      await expect(overviewCard).toBeVisible();
+      await expect(overviewCard).toHaveCount(0);
 
       // The summary-content card should NOT be in the DOM (v-else-if="summary")
       const summaryContent = page.locator('.summary-content');
