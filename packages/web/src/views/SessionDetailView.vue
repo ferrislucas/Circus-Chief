@@ -371,6 +371,12 @@ async function handleCopySessionId() {
     }
   }
 }
+
+// Expose overlaySessionId for testing
+defineExpose({
+  overlaySessionId,
+  treeOverlayOpen
+});
 </script>
 
 <style scoped>
