@@ -124,14 +124,6 @@
                   />
                 </svg>
               </button>
-              <button
-                class="close-btn"
-                data-testid="session-tree-close"
-                aria-label="Close overlay"
-                @click="close"
-              >
-                ✕
-              </button>
             </div>
           </div>
 
@@ -792,26 +784,6 @@ defineExpose({
 .tree-icon-btn:hover {
   color: var(--color-primary, #06b6d4);
   background: rgba(255, 255, 255, 0.05);
-}
-
-.close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: none;
-  border-radius: var(--border-radius, 6px);
-  cursor: pointer;
-  color: var(--color-text-soft, #9ca3af);
-  font-size: 1rem;
-  transition: color 0.15s, background-color 0.15s;
-}
-
-.close-btn:hover {
-  color: var(--color-text, #e5e7eb);
-  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Breadcrumb (inline) */
