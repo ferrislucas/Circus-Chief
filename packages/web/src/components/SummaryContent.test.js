@@ -19,36 +19,34 @@ function mountComponent(props = {}) {
 }
 
 describe('SummaryContent', () => {
-  describe('section ordering', () => {
-    it('renders Key Actions section before Overview section', () => {
+  describe('Key Actions section', () => {
+    it('does not render Key Actions section', () => {
       const wrapper = mountComponent();
 
-      const sections = wrapper.findAll('.summary-section');
-      const headings = sections.map((s) => s.find('h3').text());
-
-      const keyActionsIndex = headings.indexOf('Key Actions');
-      const overviewIndex = headings.indexOf('Overview');
-
-      expect(keyActionsIndex).toBeGreaterThanOrEqual(0);
-      expect(overviewIndex).toBeGreaterThanOrEqual(0);
-      expect(keyActionsIndex).toBeLessThan(overviewIndex);
+      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
+      expect(headings).not.toContain('Key Actions');
     });
 
-    it('does not render Key Actions section when keyActions is empty', () => {
+    it('does not render Key Actions section even when keyActions is present', () => {
       const wrapper = mountComponent({
-        summary: { ...baseSummary, keyActions: [] },
+        summary: { ...baseSummary, keyActions: ['Action 1', 'Action 2'] },
       });
 
       const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
       expect(headings).not.toContain('Key Actions');
     });
+  });
 
-    it('does not render Key Actions section when keyActions is absent', () => {
-      const { keyActions: _, ...summaryWithoutActions } = baseSummary;
-      const wrapper = mountComponent({ summary: summaryWithoutActions });
+  describe('Overview section', () => {
+    it('renders Overview section with full summary', () => {
+      const wrapper = mountComponent();
 
-      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
-      expect(headings).not.toContain('Key Actions');
+      const overviewSection = wrapper.findAll('.summary-section').find((s) => {
+        return s.find('h3').text() === 'Overview';
+      });
+
+      expect(overviewSection).toBeDefined();
+      expect(overviewSection.find('.full-summary').text()).toBe(baseSummary.fullSummary);
     });
   });
 
