@@ -56,6 +56,7 @@
 
       <!-- Session Tree Handle -->
       <SessionTreeHandle
+        v-show="!treeOverlayOpen"
         :is-session-active="isSessionActive"
         :session-status="sessionsStore.currentSession?.status"
         @open="treeOverlayOpen = true"
@@ -64,7 +65,7 @@
       <!-- Session Tree Overlay -->
       <SessionTreeOverlay
         v-if="treeOverlayOpen"
-        :session-id="currentSessionId"
+        :session-id="overlaySessionId"
         @close="treeOverlayOpen = false"
       />
     </template>
@@ -123,6 +124,31 @@ const {
 const summary = ref(null);
 const isDeleting = ref(false);
 const treeOverlayOpen = ref(false);
+
+// Session ID to pass to the overlay - resolves to running child if present
+const overlaySessionId = ref(route.params.id);
+
+/**
+ * Resolve the overlay target session ID.
+ * If the session has running children, pre-navigate to the most recently updated one.
+ * Otherwise, use the session itself.
+ */
+function resolveOverlayTarget(sessionId) {
+  const children = sessionsStore.getChildSessions(sessionId);
+  const runningChildren = children.filter(
+    (c) => c.status === 'running' || c.status === 'starting'
+  );
+
+  if (runningChildren.length > 0) {
+    // Pick the most recently updated running child
+    runningChildren.sort((a, b) =>
+      new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0)
+    );
+    overlaySessionId.value = runningChildren[0].id;
+  } else {
+    overlaySessionId.value = sessionId;
+  }
+}
 
 // Use composable for session initialization and WebSocket management
 const { cleanup, initializeSession } = useSessionInitializer({
@@ -197,6 +223,9 @@ onMounted(async () => {
   // Initialize the session with WebSocket subscription and data fetching
   await initializeSession(currentSessionId.value);
 
+  // Resolve overlay target to pre-navigate to running child if present
+  resolveOverlayTarget(currentSessionId.value);
+
   // Fetch kanban board so SessionHeaderPanel can show lane chip
   const session = sessionsStore.currentSession;
   if (session?.projectId) {
@@ -215,6 +244,8 @@ watch(
       cleanup();
       currentSessionId.value = newSessionId;
       await initializeSession(newSessionId);
+      // Resolve overlay target to pre-navigate to running child if present
+      resolveOverlayTarget(newSessionId);
     }
   }
 );
@@ -341,6 +372,12 @@ async function handleCopySessionId() {
     }
   }
 }
+
+// Expose overlaySessionId for testing
+defineExpose({
+  overlaySessionId,
+  treeOverlayOpen
+});
 </script>
 
 <style scoped>

@@ -63,6 +63,7 @@ const props = defineProps({
   isDraft: { type: Boolean, default: false },
   isScheduledDraft: { type: Boolean, default: false },
   sessionStatus: { type: String, default: null },
+  scrollContainerRef: { type: Object, default: null },
 });
 
 const sessionsStore = useSessionsStore();
@@ -81,6 +82,7 @@ const { messagesContainer, isNearBottom, hasNewMessages, scrollToBottom, scrollT
   messages,
   partialText,
   activeConversationId: computed(() => sessionsStore.activeConversationId),
+  scrollContainer: computed(() => props.scrollContainerRef),
 });
 
 const canBranch = computed(() => {

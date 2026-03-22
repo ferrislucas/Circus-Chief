@@ -6,14 +6,6 @@
       :session-id="sessionId"
     />
 
-    <!-- Activity Log Card -->
-    <WhatJustHappenedCard
-      v-if="session"
-      :session="session"
-      :summary="summary"
-      :descendant-summaries="descendantSummaries"
-    />
-
     <!-- Session Overview Section -->
     <div v-if="hasPrInfo" class="session-overview card">
       <div class="overview-header">
@@ -50,6 +42,14 @@
         </div>
       </div>
     </div>
+
+    <!-- Activity Log Card -->
+    <WhatJustHappenedCard
+      v-if="session"
+      :session="session"
+      :summary="summary"
+      :descendant-summaries="descendantSummaries"
+    />
 
     <!-- Child Sessions Section -->
     <SessionCardWorkflowPanel
