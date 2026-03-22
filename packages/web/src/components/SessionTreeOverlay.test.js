@@ -222,6 +222,25 @@ describe('SessionTreeOverlay', () => {
       expect(backLink.getAttribute('href')).toBe('/');
       wrapper.unmount();
     });
+
+    it('renders close handle with correct test id', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      expect(handle).toBeTruthy();
+      wrapper.unmount();
+    });
+
+    it('close handle has correct ARIA attributes', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      expect(handle).toBeTruthy();
+      expect(handle.getAttribute('role')).toBe('button');
+      expect(handle.getAttribute('aria-label')).toBe('Close session tree');
+      expect(handle.getAttribute('tabindex')).toBe('0');
+      wrapper.unmount();
+    });
   });
 
   describe('close behavior', () => {
@@ -301,6 +320,54 @@ describe('SessionTreeOverlay', () => {
       content.click();
       await nextTick();
       expect(onClose).not.toHaveBeenCalled();
+      wrapper.unmount();
+    });
+
+    it('emits close when close handle is clicked', async () => {
+      const onClose = vi.fn();
+      const wrapper = mount(SessionTreeOverlay, {
+        props: { sessionId: 'sess-root' },
+        attrs: { onClose },
+        attachTo: document.body,
+      });
+      await nextTick();
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      expect(handle).toBeTruthy();
+      handle.click();
+      await nextTick();
+      expect(onClose).toHaveBeenCalled();
+      wrapper.unmount();
+    });
+
+    it('emits close when Enter is pressed on close handle', async () => {
+      const onClose = vi.fn();
+      const wrapper = mount(SessionTreeOverlay, {
+        props: { sessionId: 'sess-root' },
+        attrs: { onClose },
+        attachTo: document.body,
+      });
+      await nextTick();
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      expect(handle).toBeTruthy();
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await nextTick();
+      expect(onClose).toHaveBeenCalled();
+      wrapper.unmount();
+    });
+
+    it('emits close when Space is pressed on close handle', async () => {
+      const onClose = vi.fn();
+      const wrapper = mount(SessionTreeOverlay, {
+        props: { sessionId: 'sess-root' },
+        attrs: { onClose },
+        attachTo: document.body,
+      });
+      await nextTick();
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      expect(handle).toBeTruthy();
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      await nextTick();
+      expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
   });
