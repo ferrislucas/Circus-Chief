@@ -743,181 +743,102 @@ describe('Canvas Store', () => {
   });
 
   describe('saveMarkdownContent action', () => {
-    it('calls api.updateCanvasItem (PUT) when editingSessionMap has an entry', async () => {
+    it('always creates a new version (POST) on every save', async () => {
       const store = useCanvasStore();
-      store.editingSessionMap['test.md'] = 'item-1';
-      store.items = [
-        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
-      ];
 
-      api.updateCanvasItem.mockResolvedValue({ id: 'item-1', content: 'updated', updatedAt: 2000 });
+      api.createCanvasItem.mockResolvedValue({
+        id: 'new-item',
+        content: 'updated',
+        updatedAt: 2000,
+        filename: 'test.md',
+        type: 'markdown'
+      });
 
-      await store.saveMarkdownContent('session-1', 'test.md', 'updated', 'item-1');
+      await store.saveMarkdownContent('session-1', 'test.md', 'updated');
 
-      expect(api.updateCanvasItem).toHaveBeenCalledWith('session-1', 'item-1', { content: 'updated' });
-    });
-
-    it('does in-place update (PUT) on first-ever edit with currentItemId', async () => {
-      const store = useCanvasStore();
-      // No editingSessionMap entry and no _hasEndedEditing flag — first-ever edit
-      store.items = [
-        { id: 'item-1', filename: 'test.md', content: 'original', updatedAt: 1000 },
-      ];
-
-      api.updateCanvasItem.mockResolvedValue({ id: 'item-1', content: 'first edit', updatedAt: 2000 });
-
-      await store.saveMarkdownContent('session-1', 'test.md', 'first edit', 'item-1');
-
-      expect(api.updateCanvasItem).toHaveBeenCalledWith('session-1', 'item-1', { content: 'first edit' });
-      expect(api.createCanvasItem).not.toHaveBeenCalled();
-      // Should register the editing session after first save
-      expect(store.editingSessionMap['test.md']).toBe('item-1');
-    });
-
-    it('creates new version (POST) when returning to edit after navigating away', async () => {
-      const store = useCanvasStore();
-      // Simulate: user edited, navigated away (endEditing was called), now returned
-      store.editingSessionMap['test.md'] = 'item-1';
-      store.endEditing('test.md'); // clears map, sets _hasEndedEditing
-
-      api.createCanvasItem.mockResolvedValue({ id: 'new-item', content: 'v2 content', updatedAt: 3000, filename: 'test.md', type: 'markdown' });
-
-      await store.saveMarkdownContent('session-1', 'test.md', 'v2 content', 'item-1');
-
-      expect(api.createCanvasItem).toHaveBeenCalledWith('session-1', { type: 'markdown', content: 'v2 content', filename: 'test.md' });
+      expect(api.createCanvasItem).toHaveBeenCalledWith('session-1', {
+        type: 'markdown',
+        content: 'updated',
+        filename: 'test.md'
+      });
       expect(api.updateCanvasItem).not.toHaveBeenCalled();
-      // Should register the new version's ID
+    });
+
+    it('creates a new version even when editingSessionMap has an entry', async () => {
+      const store = useCanvasStore();
+      store.editingSessionMap['test.md'] = 'old-item-id';
+
+      api.createCanvasItem.mockResolvedValue({
+        id: 'new-item-id',
+        content: 'new content',
+        updatedAt: 2000,
+        filename: 'test.md',
+        type: 'markdown'
+      });
+
+      await store.saveMarkdownContent('session-1', 'test.md', 'new content', 'old-item-id');
+
+      // Should create new version, not in-place update
+      expect(api.createCanvasItem).toHaveBeenCalled();
+      expect(api.updateCanvasItem).not.toHaveBeenCalled();
+      // Should update editingSessionMap to new item ID
+      expect(store.editingSessionMap['test.md']).toBe('new-item-id');
+    });
+
+    it('updates editingSessionMap with new version ID after successful save', async () => {
+      const store = useCanvasStore();
+
+      api.createCanvasItem.mockResolvedValue({
+        id: 'new-item',
+        content: 'content',
+        updatedAt: 2000,
+        filename: 'test.md',
+        type: 'markdown'
+      });
+
+      await store.saveMarkdownContent('session-1', 'test.md', 'content');
+
       expect(store.editingSessionMap['test.md']).toBe('new-item');
     });
 
-    it('creates new version (POST) when no currentItemId and no editingSessionMap entry', async () => {
+    it('adds the new version to the store', async () => {
       const store = useCanvasStore();
-      // No editingSessionMap entry, no currentItemId
+      store.items = [];
 
-      api.createCanvasItem.mockResolvedValue({ id: 'new-item', content: '# New', updatedAt: 2000, filename: 'new.md', type: 'markdown' });
+      api.createCanvasItem.mockResolvedValue({
+        id: 'new-item',
+        content: 'content',
+        updatedAt: 2000,
+        filename: 'test.md',
+        type: 'markdown'
+      });
 
-      await store.saveMarkdownContent('session-1', 'new.md', '# New');
+      await store.saveMarkdownContent('session-1', 'test.md', 'content');
 
-      expect(api.createCanvasItem).toHaveBeenCalledWith('session-1', { type: 'markdown', content: '# New', filename: 'new.md' });
-      expect(store.editingSessionMap['new.md']).toBe('new-item');
+      expect(store.items).toHaveLength(1);
+      expect(store.items[0].id).toBe('new-item');
     });
 
-    it('clears _hasEndedEditing flag after creating a new version', async () => {
+    it('handles API failure gracefully', async () => {
       const store = useCanvasStore();
-      store.editingSessionMap['test.md'] = 'item-1';
-      store.endEditing('test.md'); // sets _hasEndedEditing
 
-      api.createCanvasItem.mockResolvedValue({ id: 'new-item', content: 'v2', updatedAt: 3000, filename: 'test.md', type: 'markdown' });
-
-      await store.saveMarkdownContent('session-1', 'test.md', 'v2', 'item-1');
-
-      // _hasEndedEditing should be cleared
-      expect(store._hasEndedEditing?.['test.md']).toBeFalsy();
-    });
-
-    it('subsequent saves after new version use in-place update (PUT)', async () => {
-      const store = useCanvasStore();
-      // Simulate returning after navigate away — create new version
-      store.editingSessionMap['test.md'] = 'item-1';
-      store.endEditing('test.md');
-
-      api.createCanvasItem.mockResolvedValue({ id: 'v2-item', content: 'v2', updatedAt: 3000, filename: 'test.md', type: 'markdown' });
-
-      await store.saveMarkdownContent('session-1', 'test.md', 'v2', 'item-1');
-      expect(api.createCanvasItem).toHaveBeenCalled();
-
-      // Now subsequent saves should do in-place update
-      vi.clearAllMocks();
-      store.items = [{ id: 'v2-item', filename: 'test.md', content: 'v2', updatedAt: 3000 }];
-      api.updateCanvasItem.mockResolvedValue({ id: 'v2-item', content: 'v2 updated', updatedAt: 4000 });
-
-      await store.saveMarkdownContent('session-1', 'test.md', 'v2 updated', 'v2-item');
-
-      expect(api.updateCanvasItem).toHaveBeenCalledWith('session-1', 'v2-item', { content: 'v2 updated' });
-      expect(api.createCanvasItem).not.toHaveBeenCalled();
-    });
-
-    it('updates editingSessionMap after a successful save via PUT', async () => {
-      const store = useCanvasStore();
-      store.editingSessionMap['test.md'] = 'item-1';
-      store.items = [
-        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
-      ];
-
-      api.updateCanvasItem.mockResolvedValue({ id: 'item-1', content: 'updated', updatedAt: 2000 });
-
-      await store.saveMarkdownContent('session-1', 'test.md', 'updated', 'item-1');
-
-      // editingSessionMap should still have the entry
-      expect(store.editingSessionMap['test.md']).toBe('item-1');
-    });
-
-    it('sets error on API failure but does not throw', async () => {
-      const store = useCanvasStore();
-      store.editingSessionMap['test.md'] = 'item-1';
-      store.items = [
-        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
-      ];
-
-      api.updateCanvasItem.mockRejectedValue(new Error('Network error'));
+      api.createCanvasItem.mockRejectedValue(new Error('Network error'));
 
       // Should NOT throw
-      await store.saveMarkdownContent('session-1', 'test.md', 'updated', 'item-1');
+      await store.saveMarkdownContent('session-1', 'test.md', 'content');
 
       expect(store.error).toContain('Failed to save markdown');
     });
 
-    it('updates correct item when editingSessionMap points to different version', async () => {
+    it('sets error on API failure but does not throw', async () => {
       const store = useCanvasStore();
-      // editingSessionMap points to v2 (simulating previous edit)
-      store.editingSessionMap['test.md'] = 'v2-item';
-      store.items = [
-        { id: 'v1-item', filename: 'test.md', content: 'v1 old', updatedAt: 1000 },
-        { id: 'v2-item', filename: 'test.md', content: 'v2 old', updatedAt: 2000 },
-      ];
 
-      api.updateCanvasItem.mockResolvedValue({ id: 'v1-item', content: 'v1 updated', updatedAt: 3000 });
+      api.createCanvasItem.mockRejectedValue(new Error('Network error'));
 
-      // User switched to v1 and edited — currentItemId is v1-item
-      await store.saveMarkdownContent('session-1', 'test.md', 'v1 updated', 'v1-item');
+      // Should NOT throw
+      await store.saveMarkdownContent('session-1', 'test.md', 'updated');
 
-      // Should update v1-item, NOT v2-item
-      expect(api.updateCanvasItem).toHaveBeenCalledWith('session-1', 'v1-item', { content: 'v1 updated' });
-      expect(api.createCanvasItem).not.toHaveBeenCalled();
-
-      // editingSessionMap should now point to v1-item
-      expect(store.editingSessionMap['test.md']).toBe('v1-item');
-    });
-
-    it('clears _hasEndedEditing flag when switching versions', async () => {
-      const store = useCanvasStore();
-      store.editingSessionMap['test.md'] = 'v2-item';
-      store._hasEndedEditing = { 'test.md': true }; // Simulate ended editing
-      store.items = [
-        { id: 'v1-item', filename: 'test.md', content: 'v1', updatedAt: 1000 },
-      ];
-
-      api.updateCanvasItem.mockResolvedValue({ id: 'v1-item', content: 'v1 updated', updatedAt: 2000 });
-
-      await store.saveMarkdownContent('session-1', 'test.md', 'v1 updated', 'v1-item');
-
-      // Should clear _hasEndedEditing flag (version switch, not new version creation)
-      expect(store._hasEndedEditing['test.md']).toBeFalsy();
-    });
-
-    it('does NOT create new version when switching between existing versions', async () => {
-      const store = useCanvasStore();
-      store.editingSessionMap['test.md'] = 'v2-item';
-      store.items = [
-        { id: 'v1-item', filename: 'test.md', content: 'v1', updatedAt: 1000 },
-      ];
-
-      api.updateCanvasItem.mockResolvedValue({ id: 'v1-item', content: 'v1 updated', updatedAt: 2000 });
-
-      await store.saveMarkdownContent('session-1', 'test.md', 'v1 updated', 'v1-item');
-
-      // Should NOT create a new version — this is just switching edit targets
-      expect(api.createCanvasItem).not.toHaveBeenCalled();
+      expect(store.error).toContain('Failed to save markdown');
     });
   });
 });
