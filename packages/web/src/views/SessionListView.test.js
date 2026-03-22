@@ -323,7 +323,7 @@ vi.mock('../composables/useApi.js', () => ({
 vi.mock('../components/SessionCard.vue', () => ({
   default: defineComponent({
     name: 'SessionCard',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'children', 'summaries', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary'],
     emits: ['retrySummary', 'archive', 'unarchive'],
     template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)" :data-pr-url="prUrl" :data-pr-summary="JSON.stringify(prSummary)"><slot /></div>',
   }),
@@ -514,8 +514,6 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     updateSession: vi.fn(),
     removeSessionFromList: vi.fn(),
     updateSessionCommandRun: vi.fn(),
-    restoreExpandedState: vi.fn(),
-    saveExpandedState: vi.fn(),
     restoreStatusFilter: vi.fn(),
     setStatusFilter: vi.fn(function(filter) {
       this.statusFilter = filter;
@@ -1274,7 +1272,7 @@ describe('Status filtering', () => {
       expect(sessionCards).toHaveLength(1);
     });
 
-    it('includes entire group (parent + children) when parent matches filter', async () => {
+    it('shows only parent session when parent matches filter', async () => {
       // Set up store with grouped sessions
       mockSessionsStore = createSessionsStoreMock([
         { id: 'session-1', name: 'Running Session', status: 'running' },
@@ -1291,7 +1289,7 @@ describe('Status filtering', () => {
       await runningButton.trigger('click');
       await flushAll(wrapper);
 
-      // Should show the session card (which includes its children)
+      // Should show the parent session card only (children are not displayed in list view)
       const sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(1);
       expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
