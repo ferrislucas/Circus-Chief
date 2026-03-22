@@ -476,7 +476,7 @@ Please review the above work.
         expect.any(String), // new session id
         expect.stringContaining('Follow up:'), // rendered prompt
         expect.stringContaining(tempDir), // working directory
-        { systemPrompt: null, model: null } // options object
+        { systemPrompt: null, model: 'claude-sonnet-4-20250514' } // options object
       );
     });
 
@@ -497,7 +497,7 @@ Please review the above work.
         expect.any(String),
         expect.stringContaining('Full summary of the parent session work'),
         expect.any(String),
-        { systemPrompt: null, model: null } // options object
+        { systemPrompt: null, model: 'claude-sonnet-4-20250514' } // options object
       );
     });
 
@@ -529,6 +529,57 @@ Please review the above work.
 
       expect(sessionCreatedCalls.length).toBe(1);
       expect(sessionCreatedCalls[0][2].session.model).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('passes resolved inherited model to runSession when template model is null', async () => {
+      // beforeEach: template has model: null, root session has model: 'claude-sonnet-4-20250514'
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      expect(runSession).toHaveBeenCalledTimes(1);
+      expect(runSession).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ model: 'claude-sonnet-4-20250514' })
+      );
+    });
+
+    it('passes template explicit model to runSession when template has a model set', async () => {
+      sessionTemplates.update(templateId, { model: 'claude-opus-4-20250514' });
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      expect(runSession).toHaveBeenCalledTimes(1);
+      expect(runSession).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ model: 'claude-opus-4-20250514' })
+      );
+    });
+
+    it('passes root model to runSession in multi-level chain when intermediate template has no model', async () => {
+      // Set up A -> B chain where B's template has model: null
+      sessions.update(parentSessionId, { thinkingEnabled: true });
+
+      const templateB = sessionTemplates.create({ projectId, name: 'Template B', prompt: 'B prompt' });
+      // templateB.model is null by default (inherit)
+
+      sessions.update(parentSessionId, { nextTemplateId: templateB.id });
+      await checkAndTriggerNextTemplate(parentSessionId);
+
+      // Get session B
+      const sessionBCalls = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      const sessionB = sessionBCalls[0][2].session;
+
+      // Verify runSession was called with the root session's model (not null)
+      expect(runSession).toHaveBeenCalledWith(
+        sessionB.id,
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ model: 'claude-sonnet-4-20250514' })
+      );
     });
 
     it('uses mode from template when set', async () => {
