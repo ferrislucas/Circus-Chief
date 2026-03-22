@@ -611,8 +611,7 @@ defineExpose({
   padding: 0 1rem;
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
@@ -779,23 +778,11 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* Flex overrides for ConversationTab children inside the overlay */
-.session-tree-overlay :deep(.conversation-tab) {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
+/* Ensure messages container scrolls within the overlay */
 .session-tree-overlay :deep(.messages) {
-  max-height: none;
-  flex: 1;
-  min-height: 0;
+  max-height: none !important;
   overflow-y: auto;
-}
-
-.session-tree-overlay :deep(.conversation-controls-row) {
-  flex-shrink: 0;
+  flex: 1;
 }
 
 @media (max-width: 768px) {
