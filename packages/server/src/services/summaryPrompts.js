@@ -186,8 +186,10 @@ export function parseSummaryResponse(responseText) {
     return {
       shortSummary: parsed.short_summary || 'Summary generation failed',
       fullSummary: parsed.full_summary || 'Unable to generate summary',
-      keyActions: parsed.key_actions || [],
-      filesModified: parsed.files_modified || [],
+      keyActions: Array.isArray(parsed.key_actions) ? parsed.key_actions :
+        (typeof parsed.key_actions === 'string' ? [parsed.key_actions] : []),
+      filesModified: Array.isArray(parsed.files_modified) ? parsed.files_modified :
+        (typeof parsed.files_modified === 'string' ? [parsed.files_modified] : []),
       outcome: parsed.outcome || 'ongoing',
       prUrl: parsed.pr_url || null,
       sessionTitle: parsed.session_title || null,
