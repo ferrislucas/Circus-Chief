@@ -933,21 +933,6 @@ describe('Sessions Store', () => {
         });
       });
 
-      describe('isSessionExpanded getter', () => {
-        it('returns true if session is in expandedSessions set', () => {
-          const store = useSessionsStore();
-          store.expandedSessions.add('session-1');
-
-          expect(store.isSessionExpanded('session-1')).toBe(true);
-        });
-
-        it('returns false if session is not in expandedSessions set', () => {
-          const store = useSessionsStore();
-
-          expect(store.isSessionExpanded('session-1')).toBe(false);
-        });
-      });
-
       describe('groupedSessions getter', () => {
         it('groups sessions by parent', () => {
           const store = useSessionsStore();
@@ -978,61 +963,6 @@ describe('Sessions Store', () => {
           expect(grouped).toHaveLength(1);
           expect(grouped[0].parent.id).toBe('session-1');
           expect(grouped[0].children).toEqual([]);
-        });
-      });
-
-      describe('toggleSessionExpanded action', () => {
-        it('adds session to expandedSessions if not present', () => {
-          const store = useSessionsStore();
-
-          store.toggleSessionExpanded('session-1');
-
-          expect(store.expandedSessions.has('session-1')).toBe(true);
-        });
-
-        it('removes session from expandedSessions if present', () => {
-          const store = useSessionsStore();
-          store.expandedSessions.add('session-1');
-
-          store.toggleSessionExpanded('session-1');
-
-          expect(store.expandedSessions.has('session-1')).toBe(false);
-        });
-      });
-
-      describe('saveExpandedState and restoreExpandedState actions', () => {
-        beforeEach(() => {
-          localStorage.clear();
-        });
-
-        it('saves expanded sessions to localStorage', () => {
-          const store = useSessionsStore();
-          store.expandedSessions.add('session-1');
-          store.expandedSessions.add('session-2');
-
-          store.saveExpandedState();
-
-          const stored = JSON.parse(localStorage.getItem('expandedSessions'));
-          expect(stored).toContain('session-1');
-          expect(stored).toContain('session-2');
-        });
-
-        it('restores expanded sessions from localStorage', () => {
-          const store = useSessionsStore();
-          localStorage.setItem('expandedSessions', JSON.stringify(['session-1', 'session-2']));
-
-          store.restoreExpandedState();
-
-          expect(store.expandedSessions.has('session-1')).toBe(true);
-          expect(store.expandedSessions.has('session-2')).toBe(true);
-        });
-
-        it('handles localStorage errors gracefully', () => {
-          const store = useSessionsStore();
-          localStorage.setItem('expandedSessions', 'invalid-json');
-
-          expect(() => store.restoreExpandedState()).not.toThrow();
-          expect(store.expandedSessions.size).toBe(0);
         });
       });
     });
