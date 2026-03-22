@@ -30,25 +30,12 @@ vi.mock('../stores/commandButtons.js', () => ({
   })),
 }));
 
-// Mock sessions store for workflow aggregation
+// Mock sessions store
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(() => ({
     sessions: [],
-    isSessionExpanded: vi.fn(() => false),
-    toggleSessionExpanded: vi.fn(),
-    saveExpandedState: vi.fn(),
-    getWorkflowAggregatedStatus: vi.fn((sessionId) => ({
-      effectiveStatus: 'running',
-      runningCount: 1,
-      scheduledCount: 0,
-      waitingCount: 0,
-      completedCount: 0,
-      totalCount: 1,
-      hasScheduledDescendant: false,
-      rootIsScheduled: false,
-    })),
-    getAllDescendants: vi.fn(() => []),
-    getSessionPath: vi.fn((sessionId) => []),
+    commandRunVersion: 0,
+    toggleSessionStar: vi.fn(),
   })),
 }));
 
@@ -59,15 +46,6 @@ vi.mock('../stores/kanban.js', () => ({
   })),
 }));
 
-// Mock streaming store
-const mockStreamingStore = {
-  getSessionFileCount: vi.fn(() => 0),
-  setSessionFileCount: vi.fn(),
-};
-
-vi.mock('../stores/sessionStreaming.js', () => ({
-  useSessionStreamingStore: vi.fn(() => mockStreamingStore),
-}));
 
 // Mock ButtonStatusModal component
 vi.mock('./ButtonStatusModal.vue', () => ({
@@ -126,11 +104,6 @@ describe('SessionCard', () => {
     // Reset and configure API mock
     mockApi.getSessionFilesCount.mockReset();
     mockApi.getSessionFilesCount.mockResolvedValue({ count: 0 });
-
-    // Reset streaming store mock
-    mockStreamingStore.getSessionFileCount.mockReset();
-    mockStreamingStore.getSessionFileCount.mockReturnValue(0);
-    mockStreamingStore.setSessionFileCount.mockReset();
   });
   const baseSession = {
     id: 'session-123',
@@ -164,10 +137,10 @@ describe('SessionCard', () => {
       expect(wrapper.find('.session-name').text()).toBe('Test Session');
     });
 
-    it('renders session status badge with workflow aggregation', () => {
+    it('renders session status badge with individual session status', () => {
       const wrapper = mountComponent();
       const badge = wrapper.find('.status-badge');
-      // Workflow-aware status shows aggregated info like "● 1 running"
+      // Status shows individual session status
       expect(badge.text()).toContain('running');
       expect(badge.classes()).toContain('status-running');
     });
@@ -420,24 +393,23 @@ describe('SessionCard', () => {
   });
 
   describe('status badge classes', () => {
-    // Note: SessionCard now displays workflow-aggregated status badges
-    // The mock returns a static running status, so we only test the running case
-    it('applies correct class for running status from workflow aggregation', () => {
+    // Note: SessionCard displays individual session status badges
+    it('applies correct class for running individual session status', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'running' },
       });
       expect(wrapper.find('.status-badge').classes()).toContain('status-running');
     });
 
-    it('shows workflow status info in session meta', () => {
-      // Session meta section contains the workflow status badges
+    it('shows session status info in session meta', () => {
+      // Session meta section contains the session status badges
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'running' },
       });
-      // The session-meta section should contain workflow status info
+      // The session-meta section should contain session status info
       const sessionMeta = wrapper.find('.session-meta');
       expect(sessionMeta.exists()).toBe(true);
-      // The mock returns runningCount: 1, so it should show running status
+      // The session status is running, so it should show running status
       expect(sessionMeta.text()).toContain('running');
     });
 
@@ -1008,210 +980,6 @@ describe('SessionCard', () => {
       });
       const logStream = wrapper.find('.session-log-stream-mock');
       expect(logStream.attributes('data-session-id')).toBe('session-xyz');
-    });
-  });
-
-  describe('child session log stream', () => {
-    it('shows child session log stream when parent is idle and has a running child', async () => {
-      const { useSessionsStore } = await import('../stores/sessions.js');
-      vi.mocked(useSessionsStore).mockReturnValue({
-        sessions: [],
-        isSessionExpanded: vi.fn(() => false),
-        toggleSessionExpanded: vi.fn(),
-        saveExpandedState: vi.fn(),
-        getWorkflowAggregatedStatus: vi.fn(() => ({
-          effectiveStatus: 'completed',
-          runningCount: 1,
-          scheduledCount: 0,
-          waitingCount: 0,
-          completedCount: 1,
-          totalCount: 2,
-          hasScheduledDescendant: false,
-          rootIsScheduled: false,
-        })),
-        getAllDescendants: vi.fn(() => [
-          { id: 'child-1', status: 'running', name: 'Child Session' },
-        ]),
-        getSessionPath: vi.fn(() => []),
-      });
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'completed' },
-        children: [{ id: 'child-1', name: 'Child Session' }],
-      });
-
-      expect(wrapper.find('[data-testid="child-session-log-stream"]').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="child-session-log-stream"]').attributes('data-session-id')).toBe('child-1');
-    });
-
-    it('does NOT show child log stream when parent is running (parent output takes precedence)', async () => {
-      const { useSessionsStore } = await import('../stores/sessions.js');
-      vi.mocked(useSessionsStore).mockReturnValue({
-        sessions: [],
-        isSessionExpanded: vi.fn(() => false),
-        toggleSessionExpanded: vi.fn(),
-        saveExpandedState: vi.fn(),
-        getWorkflowAggregatedStatus: vi.fn(() => ({
-          effectiveStatus: 'running',
-          runningCount: 2,
-          scheduledCount: 0,
-          waitingCount: 0,
-          completedCount: 0,
-          totalCount: 2,
-          hasScheduledDescendant: false,
-          rootIsScheduled: false,
-        })),
-        getAllDescendants: vi.fn(() => [
-          { id: 'child-1', status: 'running', name: 'Child Session' },
-        ]),
-        getSessionPath: vi.fn(() => []),
-      });
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'running' },
-        children: [{ id: 'child-1', name: 'Child Session' }],
-      });
-
-      expect(wrapper.find('[data-testid="session-log-stream"]').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="child-session-log-stream"]').exists()).toBe(false);
-    });
-
-    it('does NOT show child log stream when parent card is expanded', async () => {
-      const { useSessionsStore } = await import('../stores/sessions.js');
-      vi.mocked(useSessionsStore).mockReturnValue({
-        sessions: [],
-        isSessionExpanded: vi.fn(() => true),
-        toggleSessionExpanded: vi.fn(),
-        saveExpandedState: vi.fn(),
-        getWorkflowAggregatedStatus: vi.fn(() => ({
-          effectiveStatus: 'completed',
-          runningCount: 1,
-          scheduledCount: 0,
-          waitingCount: 0,
-          completedCount: 1,
-          totalCount: 2,
-          hasScheduledDescendant: false,
-          rootIsScheduled: false,
-        })),
-        getAllDescendants: vi.fn(() => [
-          { id: 'child-1', status: 'running', name: 'Child Session' },
-        ]),
-        getSessionPath: vi.fn(() => []),
-      });
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'completed' },
-        children: [{ id: 'child-1', name: 'Child Session' }],
-      });
-
-      expect(wrapper.find('[data-testid="child-session-log-stream"]').exists()).toBe(false);
-    });
-
-    it('does NOT show child log stream when no children are running', async () => {
-      const { useSessionsStore } = await import('../stores/sessions.js');
-      vi.mocked(useSessionsStore).mockReturnValue({
-        sessions: [],
-        isSessionExpanded: vi.fn(() => false),
-        toggleSessionExpanded: vi.fn(),
-        saveExpandedState: vi.fn(),
-        getWorkflowAggregatedStatus: vi.fn(() => ({
-          effectiveStatus: 'completed',
-          runningCount: 0,
-          scheduledCount: 0,
-          waitingCount: 0,
-          completedCount: 2,
-          totalCount: 2,
-          hasScheduledDescendant: false,
-          rootIsScheduled: false,
-        })),
-        getAllDescendants: vi.fn(() => [
-          { id: 'child-1', status: 'completed', name: 'Child Session' },
-        ]),
-        getSessionPath: vi.fn(() => []),
-      });
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'completed' },
-        children: [{ id: 'child-1', name: 'Child Session' }],
-      });
-
-      expect(wrapper.find('[data-testid="child-session-log-stream"]').exists()).toBe(false);
-    });
-
-    it('does NOT show child log stream when there are no children at all', () => {
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'completed' },
-        children: [],
-      });
-
-      expect(wrapper.find('[data-testid="child-session-log-stream"]').exists()).toBe(false);
-    });
-
-    it('shows child log stream for deeply nested running descendant (grandchild)', async () => {
-      const { useSessionsStore } = await import('../stores/sessions.js');
-      vi.mocked(useSessionsStore).mockReturnValue({
-        sessions: [],
-        isSessionExpanded: vi.fn(() => false),
-        toggleSessionExpanded: vi.fn(),
-        saveExpandedState: vi.fn(),
-        getWorkflowAggregatedStatus: vi.fn(() => ({
-          effectiveStatus: 'completed',
-          runningCount: 1,
-          scheduledCount: 0,
-          waitingCount: 0,
-          completedCount: 2,
-          totalCount: 3,
-          hasScheduledDescendant: false,
-          rootIsScheduled: false,
-        })),
-        getAllDescendants: vi.fn(() => [
-          { id: 'child-1', status: 'completed', name: 'Child Session' },
-          { id: 'grandchild-1', status: 'running', name: 'Grandchild Session' },
-        ]),
-        getSessionPath: vi.fn(() => []),
-      });
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'completed' },
-        children: [{ id: 'child-1', name: 'Child Session' }],
-      });
-
-      expect(wrapper.find('[data-testid="child-session-log-stream"]').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="child-session-log-stream"]').attributes('data-session-id')).toBe('grandchild-1');
-    });
-
-    it('picks the first running descendant when multiple are running', async () => {
-      const { useSessionsStore } = await import('../stores/sessions.js');
-      vi.mocked(useSessionsStore).mockReturnValue({
-        sessions: [],
-        isSessionExpanded: vi.fn(() => false),
-        toggleSessionExpanded: vi.fn(),
-        saveExpandedState: vi.fn(),
-        getWorkflowAggregatedStatus: vi.fn(() => ({
-          effectiveStatus: 'completed',
-          runningCount: 2,
-          scheduledCount: 0,
-          waitingCount: 0,
-          completedCount: 1,
-          totalCount: 3,
-          hasScheduledDescendant: false,
-          rootIsScheduled: false,
-        })),
-        getAllDescendants: vi.fn(() => [
-          { id: 'child-1', status: 'running', name: 'Child Session 1' },
-          { id: 'child-2', status: 'running', name: 'Child Session 2' },
-        ]),
-        getSessionPath: vi.fn(() => []),
-      });
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'completed' },
-        children: [{ id: 'child-1', name: 'Child Session 1' }, { id: 'child-2', name: 'Child Session 2' }],
-      });
-
-      const childStreams = wrapper.findAll('[data-testid="child-session-log-stream"]');
-      expect(childStreams.length).toBe(1);
-      expect(childStreams[0].attributes('data-session-id')).toBe('child-1');
     });
   });
 

@@ -57,34 +57,103 @@ describe('SessionTreePicker', () => {
       expect(items).toHaveLength(3);
     });
 
-    it('first item shows ◉ ROOT label', () => {
+    it('all items show empty role label but element exists', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
-      expect(items[0].find('.picker-item-role').text()).toBe('◉ ROOT');
+      // All items should have empty role labels
+      items.forEach(item => {
+        const roleEl = item.find('.picker-item-role');
+        expect(roleEl.exists()).toBe(true); // Element still exists in DOM
+        expect(roleEl.text()).toBe(''); // But contains no text
+      });
     });
 
-    it('second item shows CHILD label', () => {
+    it('no items have picker-item--root class', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
-      expect(items[1].find('.picker-item-role').text()).toBe('CHILD');
+      // No items should have the picker-item--root class
+      items.forEach(item => {
+        expect(item.classes()).not.toContain('picker-item--root');
+      });
     });
 
-    it('third and deeper items show └─ CHILD label', () => {
+    it('all items have consistent padding', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
-      expect(items[2].find('.picker-item-role').text()).toBe('└─ CHILD');
+      // All items should have the same padding-left
+      items.forEach(item => {
+        expect(item.attributes('style')).toContain('padding-left: 0.5rem');
+      });
     });
 
-    it('indentation increases with depth', () => {
-      const wrapper = mountComponent();
-      const items = wrapper.findAll('.picker-item');
+    it('renders correctly with single session (no children)', () => {
+      const singleSession = [{
+        id: 'single-1',
+        name: 'Only Session',
+        status: 'completed',
+        createdAt: Date.now(),
+        lastActivityAt: Date.now(),
+      }];
+      const wrapper = mount(SessionTreePicker, {
+        props: {
+          sessions: singleSession,
+          activeSessionId: 'single-1',
+          summaries: {},
+        },
+      });
 
-      // Root (depth 0): 0 * 1.5 + 0.5 = 0.5rem
+      const items = wrapper.findAll('.picker-item');
+      expect(items).toHaveLength(1);
+      expect(items[0].find('.picker-item-role').exists()).toBe(true);
+      expect(items[0].find('.picker-item-role').text()).toBe('');
       expect(items[0].attributes('style')).toContain('padding-left: 0.5rem');
-      // Child 1 (depth 1): 1 * 1.5 + 0.5 = 2rem
-      expect(items[1].attributes('style')).toContain('padding-left: 2rem');
-      // Child 2 (depth 2): 2 * 1.5 + 0.5 = 3.5rem
-      expect(items[2].attributes('style')).toContain('padding-left: 3.5rem');
+    });
+
+    it('status badges display correctly without hierarchy labels', () => {
+      const sessionsWithStatuses = [
+        { id: 's1', name: 'Session 1', status: 'running', createdAt: Date.now(), lastActivityAt: Date.now() },
+        { id: 's2', name: 'Session 2', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() },
+        { id: 's3', name: 'Session 3', status: 'error', createdAt: Date.now(), lastActivityAt: Date.now() },
+      ];
+      const wrapper = mount(SessionTreePicker, {
+        props: {
+          sessions: sessionsWithStatuses,
+          activeSessionId: 's1',
+          summaries: {},
+        },
+      });
+
+      const items = wrapper.findAll('.picker-item');
+      // Item at index 0 (running) should have status badge
+      expect(items[0].find('.picker-item-status').text()).toBe('● Running');
+      // Item at index 1 (completed) should have no status badge
+      expect(items[1].find('.picker-item-status').exists()).toBe(false);
+      // Item at index 2 (error) should have error status badge
+      expect(items[2].find('.picker-item-status').text()).toBe('⚠ Error');
+    });
+
+    it('all items have consistent alignment regardless of count', () => {
+      const manySessions = Array.from({ length: 10 }, (_, i) => ({
+        id: `s-${i}`,
+        name: `Session ${i}`,
+        status: 'completed',
+        createdAt: Date.now() - (i * 1000000),
+        lastActivityAt: Date.now() - (i * 500000),
+      }));
+      const wrapper = mount(SessionTreePicker, {
+        props: {
+          sessions: manySessions,
+          activeSessionId: 's-0',
+          summaries: {},
+        },
+      });
+
+      const items = wrapper.findAll('.picker-item');
+      expect(items).toHaveLength(10);
+      // All items should have the same padding-left regardless of position
+      items.forEach(item => {
+        expect(item.attributes('style')).toContain('padding-left: 0.5rem');
+      });
     });
 
     it('displays session names', () => {
