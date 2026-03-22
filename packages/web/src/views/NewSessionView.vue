@@ -489,9 +489,8 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
       handleSubmit();
     }, 0);
   } else {
-    // Non-auto-submit: focus textarea for further editing
-    textarea.selectionStart = textarea.selectionEnd = newContent.length;
-    textarea.focus();
+    // Non-auto-submit: blur textarea to allow content review
+    textarea.blur();
   }
 }
 

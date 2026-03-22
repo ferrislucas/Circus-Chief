@@ -386,16 +386,36 @@ describe('NewSessionView - Quick Response Insertion', () => {
       expect(textarea.selectionStart).toBe(8); // 4 + 4 (slow length)
     });
 
-    it('focuses textarea after insertion', () => {
+    it('blurs textarea after insertion (non-auto-submit)', () => {
       const textarea = document.createElement('textarea');
       document.body.appendChild(textarea);
 
-      const initialFocus = document.activeElement === textarea;
-      expect(initialFocus).toBe(false);
-
-      // Simulate focus
+      // First focus it to simulate it being focused before
       textarea.focus();
       expect(document.activeElement === textarea).toBe(true);
+
+      // Simulate blur (new behavior for non-auto-submit)
+      textarea.blur();
+      expect(document.activeElement === textarea).toBe(false);
+
+      document.body.removeChild(textarea);
+    });
+
+    it('does not set cursor position when blurring (non-auto-submit)', () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = 'Some text';
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = 0;
+
+      document.body.appendChild(textarea);
+
+      // Simulate blur without setting selection
+      textarea.blur();
+
+      // selectionStart/selectionEnd should not be explicitly set to end
+      // (they remain at their previous values)
+      expect(textarea.selectionStart).toBe(0);
+      expect(textarea.selectionEnd).toBe(0);
 
       document.body.removeChild(textarea);
     });
