@@ -193,13 +193,6 @@ describe('SessionTreeOverlay', () => {
       wrapper.unmount();
     });
 
-    it('renders close button', async () => {
-      const wrapper = mountOverlay();
-      await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-close"]')).toBeTruthy();
-      wrapper.unmount();
-    });
-
     it('renders back to sessions link in header', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({
         ...rootSession,
@@ -251,22 +244,6 @@ describe('SessionTreeOverlay', () => {
   });
 
   describe('close behavior', () => {
-    it('emits close when close button is clicked', async () => {
-      const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
-        props: { sessionId: 'sess-root' },
-        attrs: { onClose },
-        attachTo: document.body,
-      });
-      await nextTick();
-      document.querySelector('[data-testid="session-tree-close"]').click();
-      await nextTick();
-      await waitForTransition();
-      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
-      expect(onClose).toHaveBeenCalled();
-      wrapper.unmount();
-    });
-
     it('emits close on Escape when picker is closed', async () => {
       const onClose = vi.fn();
       const wrapper = mount(SessionTreeOverlay, {
@@ -496,7 +473,6 @@ describe('SessionTreeOverlay', () => {
 
       // Test each close trigger
       const triggers = [
-        () => document.querySelector('[data-testid="session-tree-close"]').click(),
         () => document.querySelector('[data-testid="session-tree-overlay-close-handle"]').click(),
         () => document.querySelector('[data-testid="session-tree-overlay"]').click(),
       ];
