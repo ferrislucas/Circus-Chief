@@ -88,20 +88,7 @@ vi.mock('./ConversationTab.vue', () => ({
   }),
 }));
 
-// Mock SessionTreePicker
-vi.mock('./SessionTreePicker.vue', () => ({
-  default: defineComponent({
-    name: 'SessionTreePicker',
-    props: ['sessions', 'activeSessionId', 'summaries'],
-    emits: ['select'],
-    render() {
-      return h('div', {
-        class: 'session-tree-picker-mock',
-        'data-testid': 'session-tree-picker',
-      }, 'SessionTreePicker');
-    },
-  }),
-}));
+// SessionTreePicker mock removed - picker is now in SessionHeaderPanel
 
 describe('SessionTreeOverlay', () => {
   let pinia;
@@ -260,24 +247,7 @@ describe('SessionTreeOverlay', () => {
       wrapper.unmount();
     });
 
-    it('closes picker instead of overlay on Escape when picker is open', async () => {
-      const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
-        props: { sessionId: 'sess-root' },
-        attrs: { onClose },
-        attachTo: document.body,
-      });
-      await nextTick();
-      wrapper.vm.pickerOpen = true;
-      await nextTick();
-
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-      await nextTick();
-
-      expect(wrapper.vm.pickerOpen).toBe(false);
-      expect(onClose).not.toHaveBeenCalled();
-      wrapper.unmount();
-    });
+    // Picker-related Escape test removed - picker is now in SessionHeaderPanel
 
     it('emits close when clicking the backdrop', async () => {
       const onClose = vi.fn();
@@ -507,24 +477,7 @@ describe('SessionTreeOverlay', () => {
     });
   });
 
-  describe('dropdown conditional rendering', () => {
-    it('hides dropdown when session chain has only 1 session', async () => {
-      const wrapper = mountOverlay();
-      await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-dropdown"]')).toBeFalsy();
-      wrapper.unmount();
-    });
-
-    it('shows dropdown when session chain has multiple sessions', async () => {
-      const child = { id: 'child-1', name: 'Child', status: 'waiting', parentSessionId: 'sess-root' };
-      const wrapper = mountOverlay();
-      await nextTick();
-      wrapper.vm.sessionChain = [rootSession, child];
-      await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-dropdown"]')).toBeTruthy();
-      wrapper.unmount();
-    });
-  });
+  // Dropdown tests removed - dropdown is now in SessionHeaderPanel
 
   describe('breadcrumb', () => {
     it('shows breadcrumb when viewing child session', async () => {
@@ -554,11 +507,18 @@ describe('SessionTreeOverlay', () => {
         return null;
       });
 
-      const wrapper = mountOverlay();
+      const wrapper = mount(SessionTreeOverlay, {
+        props: {
+          sessionId: 'sess-root',
+          sessionChain: [rootSession, child],
+          summariesMap: {},
+        },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
       await nextTick();
       // Set active to child so breadcrumb shows
       wrapper.vm.activeSessionId = 'child-1';
-      wrapper.vm.sessionChain = [rootSession, child];
       await nextTick();
 
       // Find the breadcrumb link for the root session (non-active, rendered as button)
@@ -612,97 +572,7 @@ describe('SessionTreeOverlay', () => {
     });
   });
 
-  describe('picker select', () => {
-    it('updates active session, calls cleanup then initializeSession, and closes picker on select', async () => {
-      const child = { id: 'child-1', name: 'Child', status: 'waiting', parentSessionId: 'sess-root' };
-      mockSessionsStore.getSessionById.mockImplementation((id) => {
-        if (id === 'sess-root') return rootSession;
-        if (id === 'child-1') return child;
-        return null;
-      });
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      wrapper.vm.sessionChain = [rootSession, child];
-      wrapper.vm.pickerOpen = true;
-      await nextTick();
-
-      // Clear mocks to track only the calls from the select event
-      mockUnsubscribe.mockClear();
-      mockSubscribe.mockClear();
-
-      // Simulate picker select by calling the handler directly
-      // (since the mock picker doesn't actually emit)
-      const pickerMock = document.querySelector('[data-testid="session-tree-picker"]');
-      expect(pickerMock).toBeTruthy();
-
-      // Call the handlePickerSelect method via the exposed component
-      // The picker mock doesn't emit, so we call the internal method
-      wrapper.vm.pickerOpen = true;
-      await nextTick();
-
-      // Trigger select by calling switchToSession through the exposed handlePickerSelect flow
-      // We can call the internal method via the wrapper
-      const overlayComponent = wrapper.vm;
-      // Manually invoke the picker select handler
-      overlayComponent.pickerOpen = false;
-      overlayComponent.activeSessionId = 'child-1';
-      await nextTick();
-
-      expect(wrapper.vm.pickerOpen).toBe(false);
-      expect(wrapper.vm.activeSessionId).toBe('child-1');
-      wrapper.unmount();
-    });
-  });
-
-  describe('tree icon', () => {
-    it('shows tree icon when session chain has descendants and not mobile', async () => {
-      const child = { id: 'child-1', name: 'Child', status: 'waiting', parentSessionId: 'sess-root' };
-      const wrapper = mountOverlay();
-      await nextTick();
-      wrapper.vm.sessionChain = [rootSession, child];
-      wrapper.vm.isMobile = false;
-      await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-icon"]')).toBeTruthy();
-      wrapper.unmount();
-    });
-
-    it('hides tree icon on mobile', async () => {
-      const child = { id: 'child-1', name: 'Child', status: 'waiting', parentSessionId: 'sess-root' };
-      const wrapper = mountOverlay();
-      await nextTick();
-      wrapper.vm.sessionChain = [rootSession, child];
-      wrapper.vm.isMobile = true;
-      await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-icon"]')).toBeFalsy();
-      wrapper.unmount();
-    });
-
-    it('toggles picker open and closed on tree icon click', async () => {
-      const child = { id: 'child-1', name: 'Child', status: 'waiting', parentSessionId: 'sess-root' };
-      const wrapper = mountOverlay();
-      await nextTick();
-      wrapper.vm.sessionChain = [rootSession, child];
-      wrapper.vm.isMobile = false;
-      await nextTick();
-
-      const treeIcon = document.querySelector('[data-testid="session-tree-icon"]');
-      expect(treeIcon).toBeTruthy();
-
-      // Click to open picker
-      treeIcon.click();
-      await nextTick();
-      expect(wrapper.vm.pickerOpen).toBe(true);
-
-      // Click again to close picker
-      treeIcon.click();
-      await nextTick();
-      expect(wrapper.vm.pickerOpen).toBe(false);
-      wrapper.unmount();
-    });
-  });
+  // Picker select and tree icon tests removed - these features are now in SessionHeaderPanel
 
   describe('animation', () => {
     it('applies correct transition classes on mount', async () => {

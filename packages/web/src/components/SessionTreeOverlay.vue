@@ -107,23 +107,6 @@
               </template>
             </div>
             <div class="overlay-header-right">
-              <button
-                v-if="hasDescendants && !isMobile"
-                class="tree-icon-btn"
-                data-testid="session-tree-icon"
-                :title="pickerOpen ? 'Close session tree' : 'Open session tree'"
-                @click="togglePicker"
-              >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path
-                    d="M4 2v4h3v2H4v4h3M10 4h3M10 8h3M10 12h3"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </button>
             </div>
           </div>
 
@@ -162,31 +145,6 @@
               </ol>
             </nav>
 
-            <!-- Dropdown trigger -->
-            <div
-              v-if="hasDescendants"
-              class="overlay-dropdown"
-              data-testid="session-tree-dropdown"
-            >
-              <button
-                class="dropdown-trigger"
-                :aria-expanded="pickerOpen ? 'true' : 'false'"
-                @click="togglePicker"
-              >
-                <span class="dropdown-name">{{ activeSessionName }}</span>
-                <span class="dropdown-chevron">{{ pickerOpen ? '▲' : '▼' }}</span>
-              </button>
-            </div>
-
-            <!-- Picker -->
-            <SessionTreePicker
-              v-if="pickerOpen"
-              :sessions="sessionChain"
-              :active-session-id="activeSessionId"
-              :summaries="summariesMap"
-              @select="handlePickerSelect"
-            />
-
             <!-- Conversation -->
             <ConversationTab
               :session-id="activeSessionId"
@@ -208,13 +166,22 @@ import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
-import SessionTreePicker from './SessionTreePicker.vue';
 import ConversationTab from './ConversationTab.vue';
 
 const props = defineProps({
   sessionId: {
     type: String,
     required: true,
+  },
+  /** Session chain from parent (lifted from internal buildSessionChain) */
+  sessionChain: {
+    type: Array,
+    default: () => [],
+  },
+  /** Summaries map from parent (lifted from internal summary fetching) */
+  summariesMap: {
+    type: Object,
+    default: () => ({}),
   },
 });
 
@@ -227,10 +194,7 @@ const uiStore = useUiStore();
 const visible = ref(true);
 const closing = ref(false);
 const activeSessionId = ref(props.sessionId);
-const pickerOpen = ref(false);
 const isMobile = ref(false);
-const summariesMap = ref({});
-const sessionChain = ref([]);
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
@@ -270,12 +234,12 @@ const rootSession = computed(() => {
 
 const rootSessionName = computed(() => {
   // Use sessionChain root if available (most reliable after buildSessionChain)
-  if (sessionChain.value.length > 0) return sessionChain.value[0].name || 'Session';
+  if (props.sessionChain.length > 0) return props.sessionChain[0].name || 'Session';
   return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => {
-  return sessionChain.value.length > 1;
+  return props.sessionChain.length > 1;
 });
 
 const activeSessionName = computed(() => {
@@ -323,16 +287,7 @@ function afterLeave() {
   emit('close');  // Only emit after transition completes
 }
 
-function togglePicker() {
-  pickerOpen.value = !pickerOpen.value;
-}
-
 function selectSession(sessionId) {
-  switchToSession(sessionId);
-}
-
-function handlePickerSelect(sessionId) {
-  pickerOpen.value = false;
   switchToSession(sessionId);
 }
 
@@ -472,76 +427,6 @@ function cleanupSubscription() {
   }
 }
 
-async function buildSessionChain() {
-  // Ensure the current session is fetched first to populate the hierarchy
-  const currentSession = sessionsStore.getSessionById(props.sessionId) || sessionsStore.currentSession;
-  if (!currentSession) {
-    try {
-      await sessionsStore.fetchSession(props.sessionId, false);
-    } catch {
-      return;
-    }
-  }
-
-  // Fetch the project's sessions directly via API to avoid setting store.loading = true
-  // which would interfere with the main SessionDetailView rendering
-  const session = sessionsStore.getSessionById(props.sessionId) || sessionsStore.currentSession;
-  if (session?.projectId) {
-    try {
-      const projectSessions = await api.getProjectSessions(session.projectId, false, null);
-      // Merge into store without triggering loading state
-      for (const s of projectSessions) {
-        if (!sessionsStore.getSessionById(s.id)) {
-          sessionsStore.sessions.push(s);
-        }
-      }
-    } catch {
-      // Not critical if project sessions fail to load
-    }
-  }
-
-  // Find root
-  const root = sessionsStore.getRootSession(props.sessionId);
-  if (!root) {
-    // Current session is the root itself
-    const current = sessionsStore.getSessionById(props.sessionId) || sessionsStore.currentSession;
-    if (current) {
-      sessionChain.value = [current];
-    }
-    return;
-  }
-
-  // Walk the chain from root through descendants
-  const chain = [root];
-  let currentId = root.id;
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const children = sessionsStore.getChildSessions(currentId);
-    if (children.length === 0) break;
-
-    // Follow the first child (linear chain)
-    const child = children[0];
-    chain.push(child);
-    currentId = child.id;
-  }
-
-  sessionChain.value = chain;
-
-  // Fetch summaries for all sessions in the chain (non-blocking)
-  for (const sess of chain) {
-    if (!summariesMap.value[sess.id]) {
-      api.getSessionSummary(sess.id)
-        .then(summary => {
-          if (summary) {
-            summariesMap.value = { ...summariesMap.value, [sess.id]: summary };
-          }
-        })
-        .catch(() => { /* Summaries are not critical */ });
-    }
-  }
-}
-
 function checkMobile() {
   isMobile.value = window.innerWidth < 768;
 }
@@ -550,23 +435,8 @@ function handleEscape(event) {
   if (event.key === 'Escape') {
     if (isEditingName.value) {
       cancelEditName();
-    } else if (pickerOpen.value) {
-      pickerOpen.value = false;
     } else {
       close();
-    }
-  }
-}
-
-function handleClickOutsidePicker(event) {
-  if (pickerOpen.value) {
-    const picker = document.querySelector('[data-testid="session-tree-picker"]');
-    const dropdown = document.querySelector('[data-testid="session-tree-dropdown"]');
-    const treeIcon = document.querySelector('[data-testid="session-tree-icon"]');
-    if (picker && !picker.contains(event.target) &&
-        (!dropdown || !dropdown.contains(event.target)) &&
-        (!treeIcon || !treeIcon.contains(event.target))) {
-      pickerOpen.value = false;
     }
   }
 }
@@ -587,20 +457,17 @@ function unlockBodyScroll() {
 onMounted(async () => {
   lockBodyScroll();
   document.addEventListener('keydown', handleEscape);
-  document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
 
-  // Load data and build chain
+  // Load data for the active session
   await loadSessionData(activeSessionId.value);
   setupSubscription(activeSessionId.value);
-  await buildSessionChain();
 });
 
 onUnmounted(() => {
   unlockBodyScroll();
   document.removeEventListener('keydown', handleEscape);
-  document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
   cleanupSubscription();
 });
@@ -608,9 +475,7 @@ onUnmounted(() => {
 // Expose for testing
 defineExpose({
   activeSessionId,
-  pickerOpen,
   isMobile,
-  sessionChain,
   closing,
   visible,
   afterLeave,
@@ -767,25 +632,6 @@ defineExpose({
   flex-shrink: 0;
 }
 
-.tree-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: none;
-  border-radius: var(--border-radius, 6px);
-  cursor: pointer;
-  color: var(--color-text-soft, #9ca3af);
-  transition: color 0.15s, background-color 0.15s;
-}
-
-.tree-icon-btn:hover {
-  color: var(--color-primary, #06b6d4);
-  background: rgba(255, 255, 255, 0.05);
-}
-
 /* Breadcrumb (inline) */
 .overlay-breadcrumb {
   padding: 0.5rem;
@@ -836,42 +682,6 @@ defineExpose({
 .breadcrumb-separator {
   color: var(--color-text-soft, #9ca3af);
   margin: 0 0.25rem;
-}
-
-/* Dropdown trigger */
-.overlay-dropdown {
-  margin-top: 0.5rem;
-}
-
-.dropdown-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  background: var(--color-background-secondary, #1f2937);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-  border-radius: var(--border-radius, 6px);
-  color: var(--color-text, #e5e7eb);
-  cursor: pointer;
-  font-size: 0.875rem;
-  transition: background-color 0.15s;
-}
-
-.dropdown-trigger:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.dropdown-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dropdown-chevron {
-  color: var(--color-text-soft, #9ca3af);
-  margin-left: 0.5rem;
-  flex-shrink: 0;
 }
 
 /* Ensure messages container scrolls within the overlay */
