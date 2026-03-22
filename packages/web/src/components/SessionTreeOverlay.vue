@@ -593,21 +593,26 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
 }
 
 .overlay-content {
   width: 100%;
   max-width: 900px;
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
 }
 
 .overlay-body {
   padding: 0 1rem;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .overlay-header {
@@ -619,8 +624,7 @@ defineExpose({
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   min-height: 60px;
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 10;
   width: 100%;
 }
@@ -774,9 +778,11 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* ConversationMessages height override per wireframe spec */
+/* Ensure messages container scrolls within the overlay */
 .session-tree-overlay :deep(.messages) {
-  max-height: calc(100vh - 200px); /* header + breadcrumb + dropdown */
+  max-height: none !important;
+  overflow-y: auto;
+  flex: 1;
 }
 
 @media (max-width: 768px) {
@@ -788,9 +794,6 @@ defineExpose({
     padding: 1rem 0.5rem;
   }
 
-  .session-tree-overlay :deep(.messages) {
-    max-height: calc(100vh - 160px);
-  }
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {
