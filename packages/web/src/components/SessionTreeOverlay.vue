@@ -11,6 +11,24 @@
           <!-- Header (no padding constraints) -->
           <div class="overlay-header">
             <div class="overlay-header-left">
+              <router-link
+                :to="backToSessionsUrl"
+                class="back-to-sessions-link"
+                title="Back to Sessions"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </router-link>
               <!-- Editing mode -->
               <template v-if="isEditingName">
                 <div class="name-edit-form">
@@ -237,6 +255,14 @@ const activeSessionName = computed(() => {
 
 const activeSessionPath = computed(() => {
   return sessionsStore.getSessionPath(activeSessionId.value);
+});
+
+const backToSessionsUrl = computed(() => {
+  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  if (session?.projectId) {
+    return `/projects/${session.projectId}/sessions`;
+  }
+  return '/';
 });
 
 // Methods
@@ -916,5 +942,20 @@ defineExpose({
   background: none;
   border: none;
   cursor: pointer;
+}
+
+.back-to-sessions-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--color-text-soft, #9ca3af);
+  text-decoration: none;
+  transition: color 0.15s;
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+}
+
+.back-to-sessions-link:hover {
+  color: var(--color-primary, #06b6d4);
 }
 </style>
