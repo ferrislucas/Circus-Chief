@@ -56,6 +56,7 @@
 
       <!-- Session Tree Handle -->
       <SessionTreeHandle
+        v-show="!treeOverlayOpen"
         :is-session-active="isSessionActive"
         :session-status="sessionsStore.currentSession?.status"
         @open="treeOverlayOpen = true"

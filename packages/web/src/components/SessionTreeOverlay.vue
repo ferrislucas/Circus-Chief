@@ -7,10 +7,60 @@
         data-testid="session-tree-overlay"
         @click.self="close"
       >
-        <div class="overlay-content session-tree-overlay" @click.stop>
+        <div class="overlay-panel-wrapper" @click.stop>
+          <!-- Close handle anchored to left edge of panel -->
+          <div
+            class="overlay-close-handle"
+            tabindex="0"
+            role="button"
+            aria-label="Close session tree"
+            title="Close session tree"
+            data-testid="session-tree-overlay-close-handle"
+            @click="close"
+            @keydown.enter.prevent="close"
+            @keydown.space.prevent="close"
+          >
+            <svg
+              class="handle-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M4 2v4h3v2H4v4h3M10 4h3M10 8h3M10 12h3"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+
+          <!-- Existing overlay-content -->
+          <div class="overlay-content session-tree-overlay">
           <!-- Header (no padding constraints) -->
           <div class="overlay-header">
             <div class="overlay-header-left">
+              <router-link
+                :to="backToSessionsUrl"
+                class="back-to-sessions-link"
+                title="Back to Sessions"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </router-link>
               <!-- Editing mode -->
               <template v-if="isEditingName">
                 <div class="name-edit-form">
@@ -151,7 +201,8 @@
               :key="activeSessionId"
             />
           </div>
-        </div>
+          </div><!-- end overlay-content -->
+        </div><!-- end overlay-panel-wrapper -->
       </div>
     </Transition>
   </Teleport>
@@ -237,6 +288,14 @@ const activeSessionName = computed(() => {
 
 const activeSessionPath = computed(() => {
   return sessionsStore.getSessionPath(activeSessionId.value);
+});
+
+const backToSessionsUrl = computed(() => {
+  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  if (session?.projectId) {
+    return `/projects/${session.projectId}/sessions`;
+  }
+  return '/';
 });
 
 // Methods
@@ -593,13 +652,63 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
+  overflow-y: auto;
+}
+
+.overlay-panel-wrapper {
+  position: relative;
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 900px;
+  width: calc(100% - 44px);
+  margin-left: 44px;
+  overflow: visible;
+}
+
+.overlay-close-handle {
+  position: absolute;
+  left: -44px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(55, 65, 81, 0.8);
+  border-radius: 8px 0 0 8px;
+  cursor: pointer;
+  z-index: 10;
+  transition: background-color 0.2s ease, left 0.2s ease;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+}
+
+.overlay-close-handle:hover {
+  background: rgba(8, 145, 178, 0.9);
+  left: -48px;
+}
+
+.overlay-close-handle:focus-visible {
+  outline: 2px solid var(--color-primary, #06b6d4);
+  outline-offset: 2px;
+}
+
+.overlay-close-handle .handle-icon {
+  color: var(--color-text-soft, #9ca3af);
+  transition: color 0.2s ease;
+}
+
+.overlay-close-handle:hover .handle-icon {
+  color: #fff;
 }
 
 .overlay-content {
+  flex: 1;
   width: 100%;
-  max-width: 900px;
-  height: 100vh;
-  height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -793,11 +902,10 @@ defineExpose({
   .overlay-header {
     padding: 1rem 0.5rem;
   }
-
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {
-  .overlay-content {
+  .overlay-panel-wrapper {
     max-width: 700px;
   }
 }
@@ -916,5 +1024,20 @@ defineExpose({
   background: none;
   border: none;
   cursor: pointer;
+}
+
+.back-to-sessions-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--color-text-soft, #9ca3af);
+  text-decoration: none;
+  transition: color 0.15s;
+  margin-right: 0.75rem;
+  flex-shrink: 0;
+}
+
+.back-to-sessions-link:hover {
+  color: var(--color-primary, #06b6d4);
 }
 </style>

@@ -7,7 +7,7 @@
         class="breadcrumb-back"
         @click="$emit('back')"
       >
-        ← Canvas
+        ← Back to list
       </button>
       <span v-if="showBackButton" class="breadcrumb-separator">/</span>
       <div class="viewer-filename-wrapper">
