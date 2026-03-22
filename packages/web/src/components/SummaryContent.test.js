@@ -19,19 +19,94 @@ function mountComponent(props = {}) {
 }
 
 describe('SummaryContent', () => {
-  describe('Key Actions section', () => {
-    it('renders Key Actions section before Overview section', () => {
+  describe('Last Action section', () => {
+    it('renders Last Action section when keyActions has items', () => {
+      const wrapper = mountComponent();
+
+      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
+      expect(headings).toContain('Last Action');
+    });
+
+    it('displays the first item from keyActions as Last Action', () => {
+      const wrapper = mountComponent();
+
+      const lastActionSection = wrapper.findAll('.summary-section').find((s) => {
+        return s.find('h3').text() === 'Last Action';
+      });
+
+      expect(lastActionSection).toBeDefined();
+      expect(lastActionSection.find('.last-action-text').text()).toBe(baseSummary.keyActions[0]);
+    });
+
+    it('displays timestamp under Last Action', () => {
+      const wrapper = mountComponent();
+
+      const lastActionSection = wrapper.findAll('.summary-section').find((s) => {
+        return s.find('h3').text() === 'Last Action';
+      });
+
+      expect(lastActionSection).toBeDefined();
+      const timestamp = lastActionSection.find('.action-timestamp');
+      expect(timestamp.exists()).toBe(true);
+      expect(timestamp.text()).toBeTruthy();
+    });
+
+    it('renders Last Action before Key Actions and Overview sections', () => {
       const wrapper = mountComponent();
 
       const sections = wrapper.findAll('.summary-section');
       const headings = sections.map((s) => s.find('h3').text());
 
+      const lastActionIndex = headings.indexOf('Last Action');
       const keyActionsIndex = headings.indexOf('Key Actions');
       const overviewIndex = headings.indexOf('Overview');
 
-      expect(keyActionsIndex).toBeGreaterThanOrEqual(0);
-      expect(overviewIndex).toBeGreaterThanOrEqual(0);
-      expect(keyActionsIndex).toBeLessThan(overviewIndex);
+      expect(lastActionIndex).toBe(0);
+      expect(keyActionsIndex).toBeGreaterThan(lastActionIndex);
+      expect(overviewIndex).toBeGreaterThan(keyActionsIndex);
+    });
+
+    it('does not render Last Action when keyActions is empty', () => {
+      const wrapper = mountComponent({
+        summary: { ...baseSummary, keyActions: [] },
+      });
+
+      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
+      expect(headings).not.toContain('Last Action');
+    });
+
+    it('does not render Last Action when keyActions is absent', () => {
+      const { keyActions: _, ...summaryWithoutActions } = baseSummary;
+      const wrapper = mountComponent({ summary: summaryWithoutActions });
+
+      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
+      expect(headings).not.toContain('Last Action');
+    });
+
+    it('renders Last Action icon', () => {
+      const wrapper = mountComponent();
+
+      const lastActionIcon = wrapper.find('.last-action-icon');
+      expect(lastActionIcon.exists()).toBe(true);
+      expect(lastActionIcon.text()).toBe('→');
+    });
+  });
+
+  describe('Key Actions section', () => {
+    it('renders Key Actions section when keyActions has more than one item', () => {
+      const wrapper = mountComponent();
+
+      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
+      expect(headings).toContain('Key Actions');
+    });
+
+    it('does not render Key Actions section when keyActions has only one item', () => {
+      const wrapper = mountComponent({
+        summary: { ...baseSummary, keyActions: ['Single action'] },
+      });
+
+      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
+      expect(headings).not.toContain('Key Actions');
     });
 
     it('does not render Key Actions section when keyActions is empty', () => {
@@ -49,6 +124,36 @@ describe('SummaryContent', () => {
 
       const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
       expect(headings).not.toContain('Key Actions');
+    });
+
+    it('displays remaining actions excluding the first one', () => {
+      const wrapper = mountComponent();
+
+      const keyActionsSection = wrapper.findAll('.summary-section').find((s) => {
+        return s.find('h3').text() === 'Key Actions';
+      });
+
+      expect(keyActionsSection).toBeDefined();
+      const actionItems = keyActionsSection.findAll('.key-actions-list li');
+      expect(actionItems.length).toBe(baseSummary.keyActions.length - 1);
+      expect(actionItems[0].text()).toContain(baseSummary.keyActions[1]);
+    });
+
+    it('displays timestamps under each Key Action', () => {
+      const wrapper = mountComponent();
+
+      const keyActionsSection = wrapper.findAll('.summary-section').find((s) => {
+        return s.find('h3').text() === 'Key Actions';
+      });
+
+      expect(keyActionsSection).toBeDefined();
+      const actionItems = keyActionsSection.findAll('.key-actions-list li');
+
+      actionItems.forEach((item) => {
+        const timestamp = item.find('.action-timestamp');
+        expect(timestamp.exists()).toBe(true);
+        expect(timestamp.text()).toBeTruthy();
+      });
     });
   });
 
