@@ -13,7 +13,7 @@ import {
  * E2E Tests for PR Indicators in Child Session Workflow View
  *
  * This test suite covers the feature that displays PR indicators in the
- * expanded workflow view on the session list page.
+ * SessionDetailView SummaryTab workflow panel.
  */
 
 test.describe('Child Session Indicators - Workflow View PR Indicators', () => {
@@ -53,21 +53,18 @@ test.describe('Child Session Indicators - Workflow View PR Indicators', () => {
       prUrl: 'https://github.com/user/repo/pull/111',
     });
 
-    // Navigate to session list view
-    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
-      waitFor: '.expand-toggle-btn',
+    // Navigate to session detail view (SummaryTab) which shows the workflow panel
+    await navigateAndWait(page, `/sessions/${parentSession.id}/summary`, {
+      waitFor: '.workflow-sessions-panel',
       timeout: 15000,
     });
 
-    // Expand parent session
-    const parentCard = page.locator('.session-card').filter({ hasText: 'Parent Session' });
-    const expandButton = parentCard.locator('.expand-toggle-btn');
-    await expect(expandButton).toBeVisible();
-    await expandButton.click();
-    await page.waitForTimeout(500);
+    // Wait for workflow panel to load
+    const workflowPanel = page.locator('.workflow-sessions-panel');
+    await expect(workflowPanel).toBeVisible();
 
-    // Verify that child sessions do NOT show PR indicators
-    // (PR indicators are only shown on parent cards, not individual children)
+    // Verify that child sessions do NOT show PR indicators in the workflow view
+    // (PR indicators are only shown on parent cards, not individual children in workflow)
     const prLink = page.locator('.workflow-session-item .pr-link');
     await expect(prLink).not.toBeVisible({ timeout: 5000 });
   });

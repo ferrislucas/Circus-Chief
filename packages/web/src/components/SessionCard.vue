@@ -4,7 +4,7 @@
     <router-link
       :to="`/sessions/${session.id}`"
       class="session-card card"
-      :class="{ 'parent-card': hasChildren && isExpanded, 'is-child': isChild }"
+      :class="{ 'is-child': isChild }"
     >
       <div class="session-header-row">
         <!-- Star button (always visible on root sessions, not on child sessions) -->
@@ -25,20 +25,20 @@
         <div class="session-info">
           <h3 class="session-name">{{ session.name }}</h3>
 
-          <!-- Workflow status badges (aggregated across all descendants) -->
+          <!-- Session status badges -->
           <p class="session-meta">
-            <!-- Running count badge (if any session in workflow is running) -->
+            <!-- Running status badge -->
             <span v-if="workflowStatus.runningCount > 0" class="status-badge status-running">
-              &#x25CF; {{ workflowStatus.runningCount }} running
+              &#x25CF; running
             </span>
 
-            <!-- Scheduled count badge (if any session in workflow is scheduled) -->
+            <!-- Scheduled status badge -->
             <span v-if="workflowStatus.scheduledCount > 0" class="status-badge status-scheduled">
               <svg class="schedule-icon-inline" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="12" cy="12" r="10"></circle>
                 <polyline points="12 6 12 12 16 14"></polyline>
               </svg>
-              {{ workflowStatus.scheduledCount }} scheduled
+              scheduled
             </span>
 
             <!-- Scheduled time display (for this session when it's scheduled) -->
@@ -100,33 +100,7 @@
         :session-id="session.id"
         data-testid="session-log-stream"
       />
-
-      <!-- Live output from a running child session (when parent is collapsed & not running itself) -->
-      <SessionLogStream
-        v-if="runningChildSessionId"
-        :session-id="runningChildSessionId"
-        data-testid="child-session-log-stream"
-      />
-
-      <!-- Expand/collapse toggle for sessions with children -->
-      <div v-if="hasChildren && !isChild" class="expand-toggle-row">
-        <button
-          class="expand-toggle-btn"
-          @click.prevent="toggleExpand"
-        >
-          {{ isExpanded ? '&#x25B2; Hide sessions' : `&#x25BC; Show ${workflowStatus.totalCount} sessions` }}
-        </button>
-      </div>
     </router-link>
-
-    <!-- Expanded workflow sessions panel -->
-    <SessionCardWorkflowPanel
-      v-if="hasChildren && isExpanded && !isChild"
-      :session="session"
-      :summaries="summaries"
-      :summary="summary"
-      :command-buttons="commandButtons"
-    />
   </div>
 
   <!-- Button Status Modal -->
@@ -146,19 +120,15 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useKanbanStore } from '../stores/kanban.js';
-import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
-import { api } from '../composables/useApi.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import SessionCardSummary from './SessionCardSummary.vue';
-import SessionCardWorkflowPanel from './SessionCardWorkflowPanel.vue';
 import SessionCardHeaderActions from './SessionCardHeaderActions.vue';
 import SessionLogStream from './SessionLogStream.vue';
 
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const kanbanStore = useKanbanStore();
-const streamingStore = useSessionStreamingStore();
 const selectedButtonForModal = ref(null);
 
 const props = defineProps({
@@ -186,17 +156,9 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
-  children: {
-    type: Array,
-    default: () => [],
-  },
   isChild: {
     type: Boolean,
     default: false,
-  },
-  summaries: {
-    type: Object,
-    default: () => ({}),
   },
   showArchive: {
     type: Boolean,
@@ -237,34 +199,16 @@ const dateToShow = computed(() => {
   return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
 });
 
-const hasChildren = computed(() => props.children && props.children.length > 0);
-
-const isExpanded = computed(() => sessionsStore.isSessionExpanded(props.session.id));
-
-// Find first running child/descendant session to show live output on parent card
-const runningChildSessionId = computed(() => {
-  if (isRunning.value) return null;       // Parent is already showing its own output
-  if (isExpanded.value) return null;      // Children are visible in expanded panel
-  if (!hasChildren.value) return null;    // No children to show
-
-  // Find first running/starting child from all descendants
-  const descendants = sessionsStore.getAllDescendants(props.session.id);
-  const running = descendants.find(s => ['running', 'starting'].includes(s.status));
-  return running?.id || null;
-});
-
-// Get aggregated workflow status for display
+// Get individual session status for display
 const workflowStatus = computed(() => {
-  if (props.isChild) {
-    const status = props.session.status;
-    const runningStatuses = ['running', 'starting'];
-    return {
-      runningCount: runningStatuses.includes(status) ? 1 : 0,
-      scheduledCount: status === 'scheduled' ? 1 : 0,
-      totalCount: 1,
-    };
-  }
-  return sessionsStore.getWorkflowAggregatedStatus(props.session.id);
+  const status = props.session.status;
+  const runningStatuses = ['running', 'starting'];
+  return {
+    runningCount: runningStatuses.includes(status) ? 1 : 0,
+    scheduledCount: status === 'scheduled' ? 1 : 0,
+    totalCount: 1,
+    effectiveStatus: status,
+  };
 });
 
 // Scheduled time display (for this specific session when it's scheduled)
@@ -277,11 +221,6 @@ const scheduledAbsoluteTime = computed(() => {
   if (props.session.status !== 'scheduled' || !props.session.scheduledAt) return null;
   return format(new Date(props.session.scheduledAt), 'MMM d, h:mm a');
 });
-
-const toggleExpand = () => {
-  sessionsStore.toggleSessionExpanded(props.session.id);
-  sessionsStore.saveExpandedState();
-};
 
 const buttonStatusesToDisplay = computed(() => {
   const projectId = props.session.projectId;
@@ -310,12 +249,6 @@ const buttonStatusesToDisplay = computed(() => {
     }));
 });
 
-const commandButtons = computed(() => {
-  const projectId = props.session.projectId;
-  if (!projectId) return [];
-  return commandButtonsStore.getButtonsByProjectId(projectId);
-});
-
 const getStatusIcon = (status) => {
   switch (status) {
     case 'running':
@@ -340,12 +273,6 @@ const onStarClick = () => {
 .workflow-card-wrapper {
   display: flex;
   flex-direction: column;
-}
-
-.parent-card {
-  border-bottom: none;
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
 }
 
 .session-card {
@@ -433,26 +360,6 @@ const onStarClick = () => {
   color: var(--color-text-soft);
 }
 
-/* Expand toggle row at bottom of card */
-.expand-toggle-row {
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--color-border);
-}
-
-.expand-toggle-btn {
-  background: none;
-  border: none;
-  color: var(--color-primary);
-  cursor: pointer;
-  font-size: 0.75rem;
-  padding: 0.25rem 0;
-  transition: color 0.15s;
-}
-
-.expand-toggle-btn:hover {
-  color: var(--color-primary-bright, #06ffff);
-}
-
 .button-status-indicator {
   display: inline-flex;
   align-items: center;
@@ -536,14 +443,6 @@ const onStarClick = () => {
 
   .session-card.is-child {
     margin-left: 0.5rem;
-  }
-
-  .children-container {
-    margin-left: -0.75rem;
-    margin-right: -0.75rem;
-    border-left: none;
-    border-radius: 0;
-    padding: 0.5rem;
   }
 }
 </style>
