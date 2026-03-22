@@ -165,6 +165,35 @@ test.describe('Session Tree Overlay', () => {
   });
 
   // ============================================================
+  // Back to Sessions Link
+  // ============================================================
+
+  test.describe('Back to Sessions Link', () => {
+    test('back to sessions link is visible in overlay header', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const backLink = overlay.locator('.back-to-sessions-link');
+      await expect(backLink).toBeVisible();
+      await expect(backLink).toHaveAttribute('title', 'Back to Sessions');
+      await expect(backLink.locator('svg')).toHaveCount(2);
+    });
+
+    test('back to sessions link navigates to project sessions list', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const backLink = overlay.locator('.back-to-sessions-link');
+      await expect(backLink).toBeVisible();
+
+      // Get href and verify it points to the project sessions
+      await expect(backLink).toHaveAttribute('href', `/projects/${project.id}/sessions`);
+
+      // Click and verify navigation
+      await backLink.click();
+      await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/sessions`), { timeout: 10000 });
+    });
+  });
+
+  // ============================================================
   // Root-Only Session (No Children - Wireframe Scenario 1)
   // ============================================================
 
