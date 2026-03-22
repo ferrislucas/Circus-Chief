@@ -16,10 +16,10 @@
       </div>
     </section>
 
-    <section v-if="summary.keyActions && summary.keyActions.length > 1" class="summary-section">
+    <section v-if="summary.keyActions && summary.keyActions.length > 0" class="summary-section">
       <h3>Key Actions</h3>
       <ul class="key-actions-list">
-        <li v-for="(action, index) in summary.keyActions.slice(1)" :key="index">
+        <li v-for="(action, index) in summary.keyActions" :key="index">
           <span class="action-icon">&#10003;</span>
           <div class="action-details">
             {{ action }}

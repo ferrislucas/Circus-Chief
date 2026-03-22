@@ -100,13 +100,13 @@ describe('SummaryContent', () => {
       expect(headings).toContain('Key Actions');
     });
 
-    it('does not render Key Actions section when keyActions has only one item', () => {
+    it('renders Key Actions section when keyActions has only one item', () => {
       const wrapper = mountComponent({
         summary: { ...baseSummary, keyActions: ['Single action'] },
       });
 
       const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
-      expect(headings).not.toContain('Key Actions');
+      expect(headings).toContain('Key Actions');
     });
 
     it('does not render Key Actions section when keyActions is empty', () => {
@@ -126,7 +126,7 @@ describe('SummaryContent', () => {
       expect(headings).not.toContain('Key Actions');
     });
 
-    it('displays remaining actions excluding the first one', () => {
+    it('displays all actions including the first one', () => {
       const wrapper = mountComponent();
 
       const keyActionsSection = wrapper.findAll('.summary-section').find((s) => {
@@ -135,8 +135,8 @@ describe('SummaryContent', () => {
 
       expect(keyActionsSection).toBeDefined();
       const actionItems = keyActionsSection.findAll('.key-actions-list li');
-      expect(actionItems.length).toBe(baseSummary.keyActions.length - 1);
-      expect(actionItems[0].text()).toContain(baseSummary.keyActions[1]);
+      expect(actionItems.length).toBe(baseSummary.keyActions.length);
+      expect(actionItems[0].text()).toContain(baseSummary.keyActions[0]);
     });
 
     it('displays timestamps under each Key Action', () => {
