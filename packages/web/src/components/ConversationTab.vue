@@ -9,6 +9,7 @@
       :is-draft="isDraft"
       :is-scheduled-draft="isScheduledDraft"
       :session-status="sessionsStore.currentSession?.status"
+      :scroll-container-ref="scrollContainerRef"
     />
 
     <!-- Todo drawer - only shows when todos exist -->
@@ -129,6 +130,7 @@ import { useProjectsStore } from '../stores/projects.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
+  scrollContainerRef: { type: Object, default: null },
 });
 
 const sessionsStore = useSessionsStore();

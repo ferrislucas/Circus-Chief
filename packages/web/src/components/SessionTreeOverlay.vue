@@ -86,7 +86,7 @@
           </div>
 
           <!-- Content wrapper (with padding) -->
-          <div class="overlay-body">
+          <div class="overlay-body" ref="overlayBodyRef">
             <!-- Breadcrumb (inline) -->
             <nav
               v-if="activeSessionPath.length > 1"
@@ -149,6 +149,7 @@
             <ConversationTab
               :session-id="activeSessionId"
               :key="activeSessionId"
+              :scroll-container-ref="overlayBodyRef"
             />
           </div>
         </div>
@@ -186,6 +187,9 @@ const pickerOpen = ref(false);
 const isMobile = ref(false);
 const summariesMap = ref({});
 const sessionChain = ref([]);
+
+// Overlay body ref for scroll container override
+const overlayBodyRef = ref(null);
 
 // Name editing state
 const isEditingName = ref(false);
