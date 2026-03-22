@@ -35,6 +35,29 @@ vi.mock('../components/OverflowMenu.vue', () => ({
     emits: ['duplicate', 'archive', 'delete']
   }
 }));
+vi.mock('../components/SessionHierarchyBreadcrumb.vue', () => ({
+  default: {
+    name: 'SessionHierarchyBreadcrumb',
+    template: '<div class="breadcrumb">Breadcrumb</div>',
+    props: ['path', 'currentSessionId']
+  }
+}));
+vi.mock('../components/SessionTreeHandle.vue', () => ({
+  default: {
+    name: 'SessionTreeHandle',
+    template: '<div class="tree-handle">Tree Handle</div>',
+    props: ['isSessionActive', 'sessionStatus'],
+    emits: ['open']
+  }
+}));
+vi.mock('../components/SessionTreeOverlay.vue', () => ({
+  default: {
+    name: 'SessionTreeOverlay',
+    template: '<div class="tree-overlay">Tree Overlay</div>',
+    props: ['sessionId'],
+    emits: ['close']
+  }
+}));
 vi.mock('../components/SessionHeaderPanel.vue', () => ({
   default: {
     name: 'SessionHeaderPanel',
@@ -2986,6 +3009,234 @@ describe('SessionDetailView', () => {
       const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
       expect(headerPanel.exists()).toBe(true);
       expect(headerPanel.props('session').name).toBe('Original Session Name');
+    });
+  });
+
+  describe('overlay pre-navigation to running child', () => {
+    // These tests verify that the overlay is pre-navigated to the most recently
+    // updated running child session when the user navigates to a parent session
+
+    it('overlaySessionId is set to running child when a running child exists', async () => {
+      const childSessions = [
+        { id: 'child-1', parentId: 'parent-1', name: 'Running Child', status: 'running', updatedAt: '2025-01-01T00:00:00Z' },
+        { id: 'child-2', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z' },
+      ];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => childSessions);
+
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // overlaySessionId should be set to the running child
+      expect(wrapper.vm.overlaySessionId).toBe('child-1');
+    });
+
+    it('overlaySessionId falls back to parent when no running children exist', async () => {
+      const childSessions = [
+        { id: 'child-1', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z' },
+      ];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => childSessions);
+
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // overlaySessionId should fall back to the parent session
+      expect(wrapper.vm.overlaySessionId).toBe('parent-1');
+    });
+
+    it('overlaySessionId picks the most recently updated running child', async () => {
+      const childSessions = [
+        { id: 'child-1', parentId: 'parent-1', name: 'Older Running Child', status: 'running', updatedAt: '2025-01-01T00:00:00Z' },
+        { id: 'child-2', parentId: 'parent-1', name: 'Newer Running Child', status: 'running', updatedAt: '2025-01-02T00:00:00Z' },
+        { id: 'child-3', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', updatedAt: '2025-01-03T00:00:00Z' },
+      ];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => childSessions);
+
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // overlaySessionId should be the most recently updated running child (child-2)
+      expect(wrapper.vm.overlaySessionId).toBe('child-2');
+    });
+
+    it('overlaySessionId falls back to parent when getChildSessions returns empty array', async () => {
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => []);
+
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // overlaySessionId should fall back to the parent session
+      expect(wrapper.vm.overlaySessionId).toBe('parent-1');
+    });
+
+    it('overlaySessionId picks starting status child (considered running)', async () => {
+      const childSessions = [
+        { id: 'child-1', parentId: 'parent-1', name: 'Starting Child', status: 'starting', updatedAt: '2025-01-01T00:00:00Z' },
+      ];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => childSessions);
+
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // overlaySessionId should pick the starting child
+      expect(wrapper.vm.overlaySessionId).toBe('child-1');
+    });
+
+    it('passes overlaySessionId to SessionTreeOverlay', async () => {
+      const childSessions = [
+        { id: 'child-1', parentId: 'parent-1', name: 'Running Child', status: 'running', updatedAt: '2025-01-01T00:00:00Z' },
+      ];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => childSessions);
+
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Find the SessionTreeOverlay component and check its session-id prop
+      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      expect(treeOverlay.exists()).toBe(true);
+      expect(treeOverlay.props('sessionId')).toBe('child-1'); // Should be the running child
     });
   });
 });
