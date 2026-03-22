@@ -613,7 +613,7 @@ defineExpose({
   min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .overlay-header {
@@ -783,13 +783,15 @@ defineExpose({
 .session-tree-overlay :deep(.conversation-tab) {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .session-tree-overlay :deep(.messages) {
   max-height: none;
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
 }
 
 .session-tree-overlay :deep(.conversation-controls-row) {
