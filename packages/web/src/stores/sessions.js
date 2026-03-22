@@ -20,7 +20,6 @@ export const useSessionsStore = defineStore('sessions', {
     partialText: '',
     _partialThrottleTimer: null,
     _pendingPartialText: null,
-    expandedSessions: new Set(),
     statusFilter: null,
     starredFilter: null,
     scheduledFilter: null,
@@ -54,10 +53,6 @@ export const useSessionsStore = defineStore('sessions', {
 
     getChildCount: (state) => (sessionId) => {
       return state.sessions.filter((s) => s.parentSessionId === sessionId).length;
-    },
-
-    isSessionExpanded: (state) => (sessionId) => {
-      return state.expandedSessions.has(sessionId);
     },
 
     getAllDescendants: (state) => (sessionId) => {
@@ -250,28 +245,6 @@ export const useSessionsStore = defineStore('sessions', {
 
     // ==================== SESSION FETCH & CRUD ACTIONS ====================
     ...sessionActions,
-
-    // ==================== EXPANDED STATE ====================
-
-    toggleSessionExpanded(sessionId) {
-      if (this.expandedSessions.has(sessionId)) this.expandedSessions.delete(sessionId);
-      else this.expandedSessions.add(sessionId);
-    },
-
-    saveExpandedState() {
-      try { localStorage.setItem('expandedSessions', JSON.stringify(Array.from(this.expandedSessions))); }
-      catch (error) { console.warn('Failed to save expanded sessions state:', error); }
-    },
-
-    restoreExpandedState() {
-      try {
-        const expanded = localStorage.getItem('expandedSessions');
-        if (expanded) this.expandedSessions = new Set(JSON.parse(expanded));
-      } catch (error) {
-        console.warn('Failed to restore expanded sessions state:', error);
-        this.expandedSessions = new Set();
-      }
-    },
 
     // ==================== FILTER ACTIONS (delegate to sessionFilters store) ====================
 

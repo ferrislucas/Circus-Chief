@@ -129,8 +129,6 @@
             :summary="summaries[group.parent.id]"
             :summary-loading="loadingSummaries[group.parent.id]"
             :summary-error="summaryErrors[group.parent.id]"
-            :children="group.children"
-            :summaries="summaries"
             :show-archive="true"
             :kanban-enabled="projectsStore.currentProject?.kanbanEnabled ?? true"
             :pr-url="group.parent.prUrl"
@@ -417,9 +415,8 @@ function closeAddToLaneModal() {
   selectedLaneForAdd.value = null;
 }
 
-// Restore expanded sessions state from localStorage on mount
+// Restore filter states from localStorage on mount
 onMounted(() => {
-  sessionsStore.restoreExpandedState();
   sessionsStore.restoreStatusFilter();
   sessionsStore.restoreStarredFilter();
   sessionsStore.restoreScheduledFilter();
@@ -433,9 +430,8 @@ onMounted(() => {
   }
 });
 
-// Save expanded state and cleanup on unmount
+// Cleanup on unmount
 onUnmounted(() => {
-  sessionsStore.saveExpandedState();
   clearTimeout(fetchSummariesTimer);
 });
 </script>
