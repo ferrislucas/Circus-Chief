@@ -235,7 +235,7 @@ test.describe('Canvas Markdown Editor', () => {
     expect(updateResponse.status).toBe(404);
   });
 
-  test('Editing markdown creates in-place update (no new version)', async ({ page }) => {
+  test('Editing markdown creates a new version', async ({ page }) => {
     // Seed a markdown item (v1)
     await seedCanvasItem(session.id, {
       type: 'markdown',
@@ -262,11 +262,11 @@ test.describe('Canvas Markdown Editor', () => {
     // Wait for debounce save (typically 1000ms debounce + network)
     await page.waitForTimeout(2000);
 
-    // Verify via API: still 1 version, content updated
+    // Verify via API: new version created for the edit
     // Use getAllCanvasItems to get all versions (not grouped)
     const items = await getAllCanvasItems(session.id);
     const matchingItems = items.filter((i: any) => i.filename === 'in-place.md');
-    expect(matchingItems.length).toBe(1);
+    expect(matchingItems.length).toBeGreaterThan(1);
   });
 
   test('Navigating away and returning creates a new version', async ({ page }) => {
@@ -308,21 +308,16 @@ test.describe('Canvas Markdown Editor', () => {
     await editorAgain.first().fill('# Version 2');
     await page.waitForTimeout(2000);
 
-    // Verify via API: now 2 versions exist
+    // Verify via API: now 3 versions exist (v1 initial + v2 first edit + v3 second edit)
     // Use getAllCanvasItems to get all versions (not grouped)
     const items = await getAllCanvasItems(session.id);
     const matchingItems = items.filter((i: any) => i.filename === 'multi-version.md');
-    expect(matchingItems.length).toBe(2);
+    expect(matchingItems.length).toBe(3);
   });
 
-  test('Version switching preserves original versions and does not corrupt data', async ({ page }) => {
-    // This test verifies that when switching between versions, each version's
-    // content is preserved independently. The core bug was that editing after
-    // a version switch would overwrite the WRONG version.
-    //
-    // Note: Depending on Vue's component lifecycle, switching versions may
-    // unmount/remount the editor, which creates a new version (expected behavior).
-    // The key assertion is that the original versions are NOT corrupted.
+  test('Version switching creates new versions instead of updating in-place', async ({ page }) => {
+    // This test verifies that when switching between versions and editing,
+    // a new version is created instead of updating the old version in-place.
 
     // Seed 2 versions of same markdown file via API
     const v1 = await seedCanvasItem(session.id, {
@@ -346,7 +341,7 @@ test.describe('Canvas Markdown Editor', () => {
     await page.locator('.file-row').first().click();
     await page.waitForTimeout(500);
 
-    // Enter edit mode and edit v2
+    // Enter edit mode and edit v2 - this creates v3
     await page.locator('.btn-edit-toggle').click();
     await expect(page.locator('.viewer-content-editing')).toBeVisible({ timeout: 10000 });
 
@@ -370,7 +365,7 @@ test.describe('Canvas Markdown Editor', () => {
     }
     await page.waitForTimeout(500);
 
-    // Enter edit mode for v1 and edit
+    // Enter edit mode for v1 and edit - this creates v4
     await page.locator('.btn-edit-toggle').click();
     await expect(page.locator('.viewer-content-editing')).toBeVisible({ timeout: 10000 });
     const editorV1 = page.locator('.canvas-md-editor textarea, .md-editor textarea, .cm-content');
@@ -378,22 +373,20 @@ test.describe('Canvas Markdown Editor', () => {
     await editorV1.first().fill('# V1 Updated');
     await page.waitForTimeout(2000);
 
-    // Verify via API that v2 was NOT corrupted (the bug would overwrite v2 when editing v1)
-    // Use PUT to verify v2 can still be updated independently
-    const v2CheckResponse = await fetch(`${API_URL}/api/sessions/${session.id}/canvas/${v2.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: '# V2 Verify' }),
-    });
-    // If v2 wasn't corrupted, this PUT should succeed
-    expect(v2CheckResponse.ok).toBeTruthy();
-    const v2Check = await v2CheckResponse.json();
-    expect(v2Check.id).toBe(v2.id);
-
-    // Also verify we still have at least the original 2 versions
+    // Verify via API: we now have 4 versions (v1, v2, v3 from editing v2, v4 from editing v1)
     const items = await getAllCanvasItems(session.id);
     const matchingItems = items.filter((i: any) => i.filename === 'version-switch.md');
-    expect(matchingItems.length).toBeGreaterThanOrEqual(2);
+    expect(matchingItems.length).toBe(4);
+
+    // Verify original versions still exist (by ID)
+    const v1Item = matchingItems.find((i: any) => i.id === v1.id);
+    const v2Item = matchingItems.find((i: any) => i.id === v2.id);
+    expect(v1Item).toBeDefined();
+    expect(v2Item).toBeDefined();
+
+    // Note: The /canvas/all endpoint strips content to reduce payload size,
+    // so we can't verify content here. We just verify the original versions
+    // weren't deleted or replaced.
   });
 
   test('PUT update preserves version count (API-level)', async () => {

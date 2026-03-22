@@ -344,45 +344,24 @@ export const useCanvasStore = defineStore('canvas', {
 
     /**
      * Main save logic for markdown content.
-     * If editingSessionMap has an entry that matches currentItemId → in-place update (PUT)
-     * If editingSessionMap has an entry but currentItemId differs → user switched versions, update the new version (PUT)
-     * If no entry but currentItemId provided → first edit of existing item, in-place update (PUT)
-     * If no entry and no currentItemId → create new version (POST)
+     * Always creates a new version for each edit to enable proper version tracking.
      *
      * @param {string} sessionId
      * @param {string} filename
      * @param {string} content
-     * @param {string} [currentItemId] - The ID of the item currently being edited
+     * @param {string} [currentItemId] - The ID of the item currently being edited (unused but kept for API compatibility)
      */
     async saveMarkdownContent(sessionId, filename, content, currentItemId) {
       try {
-        const existingItemId = this.editingSessionMap[filename];
-        if (existingItemId && existingItemId === currentItemId) {
-          // Same version as active editing session — in-place update
-          await this.updateItemContent(sessionId, existingItemId, content);
-        } else if (existingItemId && currentItemId) {
-          // User switched to a different version — reset session, update new version
-          this.endEditing(filename);
-          delete this._hasEndedEditing?.[filename]; // Don't create a new version, just switch target
-          await this.updateItemContent(sessionId, currentItemId, content);
-          this.startEditing(filename, currentItemId);
-        } else if (currentItemId && !this._hasEndedEditing?.[filename]) {
-          // First-ever edit of this file — in-place update, register session
-          await this.updateItemContent(sessionId, currentItemId, content);
-          this.startEditing(filename, currentItemId);
-        } else {
-          // Returned after navigating away — create a new version (POST)
-          const newItem = await api.createCanvasItem(sessionId, {
-            type: 'markdown',
-            content,
-            filename,
-          });
-          this.addItem(newItem);
-          this.startEditing(filename, newItem.id);
-          if (this._hasEndedEditing) {
-            delete this._hasEndedEditing[filename];
-          }
-        }
+        // Always create a new version for each edit
+        const newItem = await api.createCanvasItem(sessionId, {
+          type: 'markdown',
+          content,
+          filename,
+        });
+        this.addItem(newItem);
+        this.startEditing(filename, newItem.id);
+        return newItem;
       } catch (err) {
         this.error = `Failed to save markdown: ${err.message}`;
         // Don't throw — user should not lose work. Debounce will retry.

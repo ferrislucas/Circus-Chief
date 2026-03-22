@@ -21,60 +21,67 @@
       :class="{ selected: isItemSelected(item.id) }"
       @click="handleRowClick(item.id)"
     >
-      <!-- Checkbox for selection -->
-      <input
-        v-if="showSelectionUI"
-        type="checkbox"
-        class="item-checkbox"
-        :checked="isItemSelected(item.id)"
-        @change="toggleItemSelection(item.id)"
-        @click.stop
-        :disabled="isOperationInProgress"
-        :aria-label="`Select ${item.filename || 'item'}`"
-      />
-
-      <span class="file-name">{{ item.filename || 'Untitled' }}</span>
-
-      <!-- Three-dot menu -->
-      <div class="file-menu-container" :ref="el => setMenuContainerRef(el, item.id)">
-        <button
-          class="btn-menu"
-          aria-label="File actions"
-          :aria-expanded="(openMenuItemId === item.id).toString()"
-          aria-haspopup="menu"
-          @click="toggleMenu(item.id, $event)"
-        >
-          ⋮
-        </button>
-
-        <Transition name="fade">
-          <div v-if="openMenuItemId === item.id" class="menu-overlay" @click.stop="closeMenu"></div>
-        </Transition>
-
-        <Transition name="slide">
-          <ul v-if="openMenuItemId === item.id" class="file-menu-items" role="menu">
-            <li role="none">
-              <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyFilename(item)">
-                <span class="menu-item-icon">📝</span>
-                <span class="menu-item-text">Copy filename</span>
-              </button>
-            </li>
-            <li role="none" class="menu-divider"></li>
-            <li role="none">
-              <button class="menu-item is-danger" role="menuitem" @click.stop="handleMenuDelete(item)">
-                <span class="menu-item-icon">🗑</span>
-                <span class="menu-item-text">Delete file</span>
-              </button>
-            </li>
-          </ul>
-        </Transition>
+      <!-- Top row: filename only -->
+      <div class="file-row-top">
+        <span class="file-name">{{ item.filename || 'Untitled' }}</span>
       </div>
 
-      <span v-if="item.versionCount > 1" class="version-badge">
-        v{{ item.versionCount }}
-      </span>
-      <span class="file-time">{{ formatRelativeTime(item.updatedAt) }}</span>
-      <span class="file-arrow">&#8250;</span>
+      <!-- Bottom row: controls -->
+      <div class="file-row-bottom">
+        <!-- Checkbox for selection -->
+        <input
+          v-if="showSelectionUI"
+          type="checkbox"
+          class="item-checkbox"
+          :checked="isItemSelected(item.id)"
+          @change="toggleItemSelection(item.id)"
+          @click.stop
+          :disabled="isOperationInProgress"
+          :aria-label="`Select ${item.filename || 'item'}`"
+        />
+
+        <span class="file-time">{{ formatRelativeTime(item.updatedAt) }}</span>
+
+        <!-- Three-dot menu -->
+        <div class="file-menu-container" :ref="el => setMenuContainerRef(el, item.id)">
+          <button
+            class="btn-menu"
+            aria-label="File actions"
+            :aria-expanded="(openMenuItemId === item.id).toString()"
+            aria-haspopup="menu"
+            @click="toggleMenu(item.id, $event)"
+          >
+            ⋮
+          </button>
+
+          <Transition name="fade">
+            <div v-if="openMenuItemId === item.id" class="menu-overlay" @click.stop="closeMenu"></div>
+          </Transition>
+
+          <Transition name="slide">
+            <ul v-if="openMenuItemId === item.id" class="file-menu-items" role="menu">
+              <li role="none">
+                <button class="menu-item" role="menuitem" @click.stop="handleMenuCopyFilename(item)">
+                  <span class="menu-item-icon">📝</span>
+                  <span class="menu-item-text">Copy filename</span>
+                </button>
+              </li>
+              <li role="none" class="menu-divider"></li>
+              <li role="none">
+                <button class="menu-item is-danger" role="menuitem" @click.stop="handleMenuDelete(item)">
+                  <span class="menu-item-icon">🗑</span>
+                  <span class="menu-item-text">Delete file</span>
+                </button>
+              </li>
+            </ul>
+          </Transition>
+        </div>
+
+        <span v-if="item.versionCount > 1" class="version-badge">
+          v{{ item.versionCount }}
+        </span>
+        <span class="file-arrow">&#8250;</span>
+      </div>
     </div>
   </div>
 </template>
@@ -247,8 +254,9 @@ defineExpose({
 
 .file-row {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: var(--color-background-soft);
   border: 1px solid var(--color-border);
@@ -262,11 +270,23 @@ defineExpose({
   background: var(--color-background-mute);
 }
 
+.file-row-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.file-row-bottom {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
 .file-name {
-  flex: 1;
-  min-width: 0;
   font-weight: 500;
   word-break: break-word;
+  line-height: 1.4;
 }
 
 .version-badge {
@@ -485,12 +505,19 @@ defineExpose({
 @media (max-width: 640px) {
   .file-row {
     padding: 0.875rem 1rem;
-    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+
+  .file-row-top {
+    padding-bottom: 0.25rem;
+  }
+
+  .file-row-bottom {
+    gap: 0.5rem;
   }
 
   .file-name {
-    flex: 1;
-    min-width: 0;
+    font-size: 0.95rem;
     word-break: break-word;
   }
 
