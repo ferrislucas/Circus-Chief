@@ -619,6 +619,7 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
+  overflow-y: auto;
 }
 
 .overlay-content {
