@@ -662,6 +662,7 @@ defineExpose({
   height: 100dvh;
   max-width: 900px;
   width: 100%;
+  overflow: visible;
 }
 
 .overlay-close-handle {
