@@ -7,7 +7,39 @@
         data-testid="session-tree-overlay"
         @click.self="close"
       >
-        <div class="overlay-content session-tree-overlay" @click.stop>
+        <div class="overlay-panel-wrapper" @click.stop>
+          <!-- Close handle anchored to left edge of panel -->
+          <div
+            class="overlay-close-handle"
+            tabindex="0"
+            role="button"
+            aria-label="Close session tree"
+            title="Close session tree"
+            data-testid="session-tree-overlay-close-handle"
+            @click="close"
+            @keydown.enter.prevent="close"
+            @keydown.space.prevent="close"
+          >
+            <svg
+              class="handle-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M4 2v4h3v2H4v4h3M10 4h3M10 8h3M10 12h3"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </div>
+
+          <!-- Existing overlay-content -->
+          <div class="overlay-content session-tree-overlay">
           <!-- Header (no padding constraints) -->
           <div class="overlay-header">
             <div class="overlay-header-left">
@@ -169,7 +201,8 @@
               :key="activeSessionId"
             />
           </div>
-        </div>
+          </div><!-- end overlay-content -->
+        </div><!-- end overlay-panel-wrapper -->
       </div>
     </Transition>
   </Teleport>
@@ -621,11 +654,58 @@ defineExpose({
   align-items: flex-start;
 }
 
-.overlay-content {
-  width: 100%;
-  max-width: 900px;
+.overlay-panel-wrapper {
+  position: relative;
+  display: flex;
   height: 100vh;
   height: 100dvh;
+  max-width: 900px;
+  width: 100%;
+}
+
+.overlay-close-handle {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translate(-100%, -50%);
+  width: 40px;
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(55, 65, 81, 0.8);
+  border-radius: 8px 0 0 8px;
+  cursor: pointer;
+  z-index: 10;
+  transition: background-color 0.2s ease, transform 0.2s ease;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+}
+
+.overlay-close-handle:hover {
+  background: rgba(8, 145, 178, 0.9);
+  transform: translate(calc(-100% - 4px), -50%);
+}
+
+.overlay-close-handle:focus-visible {
+  outline: 2px solid var(--color-primary, #06b6d4);
+  outline-offset: 2px;
+}
+
+.overlay-close-handle .handle-icon {
+  color: var(--color-text-soft, #9ca3af);
+  transition: color 0.2s ease;
+}
+
+.overlay-close-handle:hover .handle-icon {
+  color: #fff;
+}
+
+.overlay-content {
+  flex: 1;
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -820,10 +900,13 @@ defineExpose({
     padding: 1rem 0.5rem;
   }
 
+  .overlay-close-handle {
+    display: none;
+  }
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {
-  .overlay-content {
+  .overlay-panel-wrapper {
     max-width: 700px;
   }
 }

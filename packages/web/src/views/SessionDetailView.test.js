@@ -2723,6 +2723,74 @@ describe('SessionDetailView', () => {
       const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
       expect(treeHandle.props('sessionStatus')).toBe('starting');
     });
+
+    it('hides SessionTreeHandle when overlay is open', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.isVisible()).toBe(false);
+    });
+
+    it('shows SessionTreeHandle when overlay is closed', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = mount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      wrapper.vm.treeOverlayOpen = false;
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.isVisible()).toBe(true);
+    });
   });
 
   describe('Session Name Editing', () => {
