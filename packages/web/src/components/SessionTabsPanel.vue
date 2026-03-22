@@ -3,8 +3,22 @@
     <router-link
       :to="`/projects/${projectId}/sessions`"
       class="tab tab-back"
+      title="Back to Sessions"
     >
-      &larr; Sessions
+      <span class="back-icon" title="Back to Sessions">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="19" y1="12" x2="5" y2="12"></line>
+          <polyline points="12 19 5 12 12 5"></polyline>
+        </svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="8" y1="6" x2="21" y2="6"></line>
+          <line x1="8" y1="12" x2="21" y2="12"></line>
+          <line x1="8" y1="18" x2="21" y2="18"></line>
+          <line x1="3" y1="6" x2="3.01" y2="6"></line>
+          <line x1="3" y1="12" x2="3.01" y2="12"></line>
+          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+        </svg>
+      </span>
     </router-link>
     <span class="tab-separator"></span>
 
@@ -109,5 +123,16 @@ function navigateToTab(tabId) {
 .tabs-mobile {
   align-items: center;
   gap: 0.5rem;
+}
+
+.back-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.back-icon svg {
+  display: inline-block;
+  vertical-align: middle;
 }
 </style>

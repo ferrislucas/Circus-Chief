@@ -52,11 +52,15 @@ describe('SessionTabsPanel', () => {
       expect(text).toContain('Commands');
     });
 
-    it('renders back link to sessions list', () => {
+    it('renders back link with icon to sessions list', () => {
       const wrapper = mountPanel();
       const backLink = wrapper.find('.tab-back');
       expect(backLink.exists()).toBe(true);
       expect(backLink.attributes('href')).toBe('/projects/proj-1/sessions');
+      // Verify icon is rendered instead of text
+      expect(backLink.find('.back-icon').exists()).toBe(true);
+      expect(backLink.findAll('svg').length).toBe(2);
+      expect(backLink.attributes('title')).toBe('Back to Sessions');
     });
 
     it('renders desktop tabs', () => {
