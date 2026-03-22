@@ -20,17 +20,32 @@ function mountComponent(props = {}) {
 
 describe('SummaryContent', () => {
   describe('Key Actions section', () => {
-    it('does not render Key Actions section', () => {
+    it('renders Key Actions section before Overview section', () => {
       const wrapper = mountComponent();
+
+      const sections = wrapper.findAll('.summary-section');
+      const headings = sections.map((s) => s.find('h3').text());
+
+      const keyActionsIndex = headings.indexOf('Key Actions');
+      const overviewIndex = headings.indexOf('Overview');
+
+      expect(keyActionsIndex).toBeGreaterThanOrEqual(0);
+      expect(overviewIndex).toBeGreaterThanOrEqual(0);
+      expect(keyActionsIndex).toBeLessThan(overviewIndex);
+    });
+
+    it('does not render Key Actions section when keyActions is empty', () => {
+      const wrapper = mountComponent({
+        summary: { ...baseSummary, keyActions: [] },
+      });
 
       const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
       expect(headings).not.toContain('Key Actions');
     });
 
-    it('does not render Key Actions section even when keyActions is present', () => {
-      const wrapper = mountComponent({
-        summary: { ...baseSummary, keyActions: ['Action 1', 'Action 2'] },
-      });
+    it('does not render Key Actions section when keyActions is absent', () => {
+      const { keyActions: _, ...summaryWithoutActions } = baseSummary;
+      const wrapper = mountComponent({ summary: summaryWithoutActions });
 
       const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
       expect(headings).not.toContain('Key Actions');

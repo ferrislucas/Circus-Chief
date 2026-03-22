@@ -120,10 +120,10 @@ test.describe('Session Summaries', () => {
       );
     });
 
-    test('does not display key actions section even when keyActions data is present', async ({ page }) => {
+    test('displays key actions as a checklist', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test key actions not displayed',
-        name: 'Key Actions Not Displayed Test',
+        prompt: 'Test key actions display',
+        name: 'Key Actions Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
@@ -137,13 +137,14 @@ test.describe('Session Summaries', () => {
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // Key Actions list should NOT be visible (removed from UI)
       const keyActionsList = page.locator('.key-actions-list');
-      await expect(keyActionsList).toHaveCount(0);
+      await expect(keyActionsList).toBeVisible();
 
-      // The full summary should still be visible
-      const fullSummary = page.locator('.full-summary');
-      await expect(fullSummary).toBeVisible();
+      const items = keyActionsList.locator('li');
+      await expect(items).toHaveCount(3);
+      await expect(items.nth(0)).toContainText('Added login endpoint');
+      await expect(items.nth(1)).toContainText('Created user model');
+      await expect(items.nth(2)).toContainText('Set up JWT tokens');
     });
 
     test('files modified section is no longer rendered (removed)', async ({ page }) => {

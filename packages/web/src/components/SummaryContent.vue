@@ -5,6 +5,16 @@
       Updating summary...
     </div>
 
+    <section v-if="summary.keyActions && summary.keyActions.length > 0" class="summary-section">
+      <h3>Key Actions</h3>
+      <ul class="key-actions-list">
+        <li v-for="(action, index) in summary.keyActions" :key="index">
+          <span class="action-icon">&#10003;</span>
+          {{ action }}
+        </li>
+      </ul>
+    </section>
+
     <section class="summary-section">
       <h3>Overview</h3>
       <p class="full-summary">{{ summary.fullSummary }}</p>
@@ -78,6 +88,24 @@ function formatDate(timestamp) {
 .full-summary {
   margin: 0;
   line-height: 1.6;
+}
+
+.key-actions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.key-actions-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.action-icon {
+  color: var(--color-success);
+  flex-shrink: 0;
 }
 
 .summary-footer {
