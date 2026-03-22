@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <Transition name="slide-left" appear>
+    <Transition name="slide-left" appear @after-leave="afterLeave">
       <div
         v-if="visible"
         class="overlay-backdrop"
@@ -233,6 +233,7 @@ const uiStore = useUiStore();
 
 // Internal state
 const visible = ref(true);
+const closing = ref(false);
 const activeSessionId = ref(props.sessionId);
 const pickerOpen = ref(false);
 const isMobile = ref(false);
@@ -310,7 +311,24 @@ function truncateName(name, maxLength = 30) {
 }
 
 function close() {
-  emit('close');
+  // Guard: don't re-trigger if already closing
+  if (closing.value) {
+    console.log('[SessionTreeOverlay] Already closing, ignoring close() call');
+    return;
+  }
+  console.log('[SessionTreeOverlay] close() called, setting closing=true, visible=false');
+  closing.value = true;
+  visible.value = false;  // This triggers the leave transition
+}
+
+function afterLeave() {
+  if (!closing.value) {
+    console.log('[SessionTreeOverlay] afterLeave() called but not closing, ignoring');
+    return;
+  }
+  console.log('[SessionTreeOverlay] afterLeave() called, emitting close event');
+  closing.value = false; // Reset state
+  emit('close');  // Only emit after transition completes
 }
 
 function togglePicker() {
@@ -601,6 +619,9 @@ defineExpose({
   pickerOpen,
   isMobile,
   sessionChain,
+  closing,
+  visible,
+  afterLeave,
 });
 </script>
 

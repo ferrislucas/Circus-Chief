@@ -160,6 +160,13 @@ describe('SessionTreeOverlay', () => {
     });
   }
 
+  async function waitForTransition() {
+    // In jsdom, CSS transitions don't actually run, so we manually
+    // trigger the afterLeave hook to simulate the transition completing
+    await nextTick();
+    await new Promise(r => setTimeout(r, 10)); // Small delay for Vue to process state changes
+  }
+
   describe('rendering', () => {
     it('renders overlay with correct test id', async () => {
       const wrapper = mountOverlay();
@@ -254,6 +261,8 @@ describe('SessionTreeOverlay', () => {
       await nextTick();
       document.querySelector('[data-testid="session-tree-close"]').click();
       await nextTick();
+      await waitForTransition();
+      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -268,6 +277,8 @@ describe('SessionTreeOverlay', () => {
       await nextTick();
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
       await nextTick();
+      await waitForTransition();
+      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -303,6 +314,8 @@ describe('SessionTreeOverlay', () => {
       const backdrop = document.querySelector('[data-testid="session-tree-overlay"]');
       backdrop.click();
       await nextTick();
+      await waitForTransition();
+      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -335,6 +348,8 @@ describe('SessionTreeOverlay', () => {
       expect(handle).toBeTruthy();
       handle.click();
       await nextTick();
+      await waitForTransition();
+      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -351,6 +366,8 @@ describe('SessionTreeOverlay', () => {
       expect(handle).toBeTruthy();
       handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await nextTick();
+      await waitForTransition();
+      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -367,8 +384,150 @@ describe('SessionTreeOverlay', () => {
       expect(handle).toBeTruthy();
       handle.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
       await nextTick();
+      await waitForTransition();
+      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
+    });
+  });
+
+  describe('close animation', () => {
+    it('delays close event until after transition completes', async () => {
+      const onClose = vi.fn();
+      const wrapper = mount(SessionTreeOverlay, {
+        props: { sessionId: 'sess-root' },
+        attrs: { onClose },
+        attachTo: document.body,
+      });
+      await nextTick();
+
+      // Trigger close
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      handle.click();
+      await nextTick();
+
+      // Immediately after click, close should NOT have been emitted yet
+      expect(onClose).not.toHaveBeenCalled();
+
+      // Wait for transition
+      await waitForTransition();
+
+      // Manually trigger afterLeave to simulate transition completing
+      wrapper.vm.afterLeave();
+
+      // Now close should have been emitted
+      expect(onClose).toHaveBeenCalledTimes(1);
+      wrapper.unmount();
+    });
+
+    it('sets closing state when close is triggered', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      // Initially not closing
+      expect(wrapper.vm.closing).toBe(false);
+
+      // Trigger close
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      handle.click();
+      await nextTick();
+
+      // Should be in closing state
+      expect(wrapper.vm.closing).toBe(true);
+      expect(wrapper.vm.visible).toBe(false);
+
+      // Clean up
+      document.querySelectorAll('[data-testid="session-tree-overlay"]').forEach(el => el.remove());
+    });
+
+    it('guards against rapid close attempts', async () => {
+      const onClose = vi.fn();
+      const wrapper = mount(SessionTreeOverlay, {
+        props: { sessionId: 'sess-root' },
+        attrs: { onClose },
+        attachTo: document.body,
+      });
+      await nextTick();
+
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+
+      // Click close multiple times rapidly
+      handle.click();
+      await nextTick();
+      handle.click();
+      await nextTick();
+      handle.click();
+      await nextTick();
+
+      // Wait for transition
+      await waitForTransition();
+
+      // Manually trigger afterLeave to simulate transition completing
+      wrapper.vm.afterLeave();
+
+      // Should only emit close once
+      expect(onClose).toHaveBeenCalledTimes(1);
+      wrapper.unmount();
+    });
+
+    it('component remains mounted during transition', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const backdrop = document.querySelector('[data-testid="session-tree-overlay"]');
+
+      // Trigger close
+      handle.click();
+      await nextTick();
+
+      // Component should still be in DOM
+      expect(backdrop).toBeTruthy();
+
+      // Wait for transition
+      await waitForTransition();
+
+      // After transition, parent would unmount, so we manually unmount here
+      wrapper.unmount();
+    });
+
+    it('all close triggers use the same guarded close method', async () => {
+      const onClose = vi.fn();
+
+      // Test each close trigger
+      const triggers = [
+        () => document.querySelector('[data-testid="session-tree-close"]').click(),
+        () => document.querySelector('[data-testid="session-tree-overlay-close-handle"]').click(),
+        () => document.querySelector('[data-testid="session-tree-overlay"]').click(),
+      ];
+
+      for (const trigger of triggers) {
+        const testWrapper = mount(SessionTreeOverlay, {
+          props: { sessionId: 'sess-root' },
+          attrs: { onClose },
+          attachTo: document.body,
+        });
+        await nextTick();
+
+        trigger();
+        await nextTick();
+
+        // Should not emit immediately
+        expect(onClose).not.toHaveBeenCalled();
+
+        // Wait for transition
+        await waitForTransition();
+
+        // Manually trigger afterLeave to simulate transition completing
+        testWrapper.vm.afterLeave();
+
+        // Should emit once
+        expect(onClose).toHaveBeenCalledTimes(1);
+
+        // Clean up
+        onClose.mockClear();
+        document.querySelectorAll('[data-testid="session-tree-overlay"]').forEach(el => el.remove());
+      }
     });
   });
 
