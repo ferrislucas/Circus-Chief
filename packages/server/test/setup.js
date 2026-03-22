@@ -12,6 +12,8 @@ beforeEach(() => {
   initDatabase(':memory:');
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // Give any pending async operations time to complete before closing
+  await new Promise(resolve => setImmediate(resolve));
   closeDatabase();
 });
