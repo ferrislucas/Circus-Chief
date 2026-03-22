@@ -901,10 +901,6 @@ defineExpose({
   .overlay-header {
     padding: 1rem 0.5rem;
   }
-
-  .overlay-close-handle {
-    display: none;
-  }
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {
