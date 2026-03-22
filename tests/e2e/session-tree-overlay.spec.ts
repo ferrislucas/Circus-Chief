@@ -165,6 +165,35 @@ test.describe('Session Tree Overlay', () => {
   });
 
   // ============================================================
+  // Back to Sessions Link
+  // ============================================================
+
+  test.describe('Back to Sessions Link', () => {
+    test('back to sessions link is visible in overlay header', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const backLink = overlay.locator('.back-to-sessions-link');
+      await expect(backLink).toBeVisible();
+      await expect(backLink).toHaveAttribute('title', 'Back to Sessions');
+      await expect(backLink.locator('svg')).toHaveCount(2);
+    });
+
+    test('back to sessions link navigates to project sessions list', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const backLink = overlay.locator('.back-to-sessions-link');
+      await expect(backLink).toBeVisible();
+
+      // Get href and verify it points to the project sessions
+      await expect(backLink).toHaveAttribute('href', `/projects/${project.id}/sessions`);
+
+      // Click and verify navigation
+      await backLink.click();
+      await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/sessions`), { timeout: 10000 });
+    });
+  });
+
+  // ============================================================
   // Root-Only Session (No Children - Wireframe Scenario 1)
   // ============================================================
 
@@ -799,6 +828,175 @@ test.describe('Session Tree Overlay', () => {
         el.scrollTop = 100;
       });
       // No errors should occur
+    });
+  });
+
+  // ============================================================
+  // Pre-navigation to Running Child
+  // ============================================================
+
+  test.describe('Pre-navigation to running child', () => {
+    test('overlay opens on running child when parent has a running child', async ({ page }) => {
+      // Make childSession running
+      await updateSessionStatus(childSession.id, 'running');
+
+      // Navigate to parent session detail page
+      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+
+      // Open the overlay
+      const handle = page.locator('[data-testid="session-tree-handle"]');
+      await expect(handle).toBeVisible({ timeout: 10000 });
+      await handle.click();
+      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      await expect(overlay).toBeVisible({ timeout: 5000 });
+      await page.waitForTimeout(400);
+
+      // The overlay should show the running child session name, not the parent
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toContainText('Child Session', { timeout: 5000 });
+
+      // Dropdown should be visible (since there are descendants)
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
+      await expect(dropdown).toBeVisible({ timeout: 10000 });
+
+      // Open the picker and verify the child session item has the active/highlighted state
+      await dropdown.locator('.dropdown-trigger').click();
+      const picker = page.locator('[data-testid="session-tree-picker"]');
+      await expect(picker).toBeVisible({ timeout: 5000 });
+
+      const activeItem = picker.locator('.picker-item--active');
+      await expect(activeItem).toContainText('Child Session');
+    });
+
+    test('overlay opens on parent when no children are running', async ({ page }) => {
+      // childSession and childSession2 default to 'waiting' status — no running children
+
+      // Navigate to parent session detail page
+      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+
+      // Open the overlay
+      const handle = page.locator('[data-testid="session-tree-handle"]');
+      await expect(handle).toBeVisible({ timeout: 10000 });
+      await handle.click();
+      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      await expect(overlay).toBeVisible({ timeout: 5000 });
+      await page.waitForTimeout(400);
+
+      // The overlay should show the parent session name
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+    });
+
+    test('overlay opens on most recently updated running child when multiple running', async ({ page }) => {
+      // Make first child running
+      await updateSessionStatus(childSession.id, 'running');
+
+      // Wait briefly so the second child gets a later updatedAt
+      await new Promise(r => setTimeout(r, 100));
+
+      // Make second child running (will have a later updatedAt)
+      await updateSessionStatus(childSession2.id, 'running');
+
+      // Navigate to parent session detail page
+      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+
+      // Open the overlay
+      const handle = page.locator('[data-testid="session-tree-handle"]');
+      await expect(handle).toBeVisible({ timeout: 10000 });
+      await handle.click();
+      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      await expect(overlay).toBeVisible({ timeout: 5000 });
+      await page.waitForTimeout(400);
+
+      // The overlay should show the second child (most recently updated running child)
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toContainText('Second Child Session', { timeout: 5000 });
+    });
+
+    test('overlay opens on parent when viewing a standalone session (no children)', async ({ page }) => {
+      // Seed a standalone session (no children)
+      const standaloneSession = await seedSession(project.id, {
+        prompt: 'Standalone prompt',
+        name: 'Standalone Session',
+      });
+      await waitForSessionToExist(standaloneSession.id);
+
+      // Navigate to the standalone session detail page
+      await navigateAndWait(page, `/sessions/${standaloneSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+
+      // Open the overlay
+      const handle = page.locator('[data-testid="session-tree-handle"]');
+      await expect(handle).toBeVisible({ timeout: 10000 });
+      await handle.click();
+      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      await expect(overlay).toBeVisible({ timeout: 5000 });
+      await page.waitForTimeout(400);
+
+      // The overlay should show the standalone session name
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toContainText('Standalone Session', { timeout: 5000 });
+    });
+
+    test('re-opening overlay after navigating between sessions resolves correctly', async ({ page }) => {
+      // Make child running so first session pre-navigates to child
+      await updateSessionStatus(childSession.id, 'running');
+
+      // Navigate to parent, open overlay, confirm it shows child
+      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+      const handle = page.locator('[data-testid="session-tree-handle"]');
+      await expect(handle).toBeVisible({ timeout: 10000 });
+      await handle.click();
+      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      await expect(overlay).toBeVisible({ timeout: 5000 });
+      await page.waitForTimeout(400);
+
+      // Should show the running child
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toContainText('Child Session', { timeout: 5000 });
+
+      // Close the overlay
+      await page.locator('[data-testid="session-tree-close"]').click();
+      await expect(overlay).not.toBeVisible({ timeout: 5000 });
+
+      // Seed a different session with no running children
+      const otherSession = await seedSession(project.id, {
+        prompt: 'Other session prompt',
+        name: 'Other Session',
+      });
+      await waitForSessionToExist(otherSession.id);
+
+      // Navigate to the other session
+      await navigateAndWait(page, `/sessions/${otherSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+
+      // Open overlay on the other session
+      const handle2 = page.locator('[data-testid="session-tree-handle"]');
+      await expect(handle2).toBeVisible({ timeout: 10000 });
+      await handle2.click();
+      const overlayAgain = page.locator('[data-testid="session-tree-overlay"]');
+      await expect(overlayAgain).toBeVisible({ timeout: 5000 });
+      await page.waitForTimeout(400);
+
+      // Should show the other session (not the previous child)
+      const rootName2 = overlayAgain.locator('.overlay-root-name');
+      await expect(rootName2).toContainText('Other Session', { timeout: 5000 });
     });
   });
 });

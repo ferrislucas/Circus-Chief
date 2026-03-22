@@ -383,6 +383,157 @@ describe('summaryPrompts', () => {
       const result = parseSummaryResponse('A'.repeat(600));
       expect(result.fullSummary.length).toBe(500);
     });
+
+    describe('type coercion for key_actions and files_modified', () => {
+      it('handles string value for key_actions (converts to array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: 'Fixed bug', // String instead of array
+          files_modified: [],
+        }));
+        expect(result.keyActions).toEqual(['Fixed bug']);
+      });
+
+      it('handles string value for files_modified (converts to array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: [],
+          files_modified: 'src/app.js', // String instead of array
+        }));
+        expect(result.filesModified).toEqual(['src/app.js']);
+      });
+
+      it('handles array value for key_actions (passes through)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: ['action1', 'action2'],
+          files_modified: [],
+        }));
+        expect(result.keyActions).toEqual(['action1', 'action2']);
+      });
+
+      it('handles array value for files_modified (passes through)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: [],
+          files_modified: ['file1.js', 'file2.js'],
+        }));
+        expect(result.filesModified).toEqual(['file1.js', 'file2.js']);
+      });
+
+      it('handles null value for key_actions (converts to empty array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: null,
+          files_modified: [],
+        }));
+        expect(result.keyActions).toEqual([]);
+      });
+
+      it('handles null value for files_modified (converts to empty array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: [],
+          files_modified: null,
+        }));
+        expect(result.filesModified).toEqual([]);
+      });
+
+      it('handles undefined value for key_actions (converts to empty array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          files_modified: [],
+        }));
+        expect(result.keyActions).toEqual([]);
+      });
+
+      it('handles undefined value for files_modified (converts to empty array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: [],
+        }));
+        expect(result.filesModified).toEqual([]);
+      });
+
+      it('handles number value for key_actions (converts to empty array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: 42, // Invalid type
+          files_modified: [],
+        }));
+        expect(result.keyActions).toEqual([]);
+      });
+
+      it('handles number value for files_modified (converts to empty array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: [],
+          files_modified: 42, // Invalid type
+        }));
+        expect(result.filesModified).toEqual([]);
+      });
+
+      it('handles object value for key_actions (converts to empty array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: { invalid: 'object' }, // Invalid type
+          files_modified: [],
+        }));
+        expect(result.keyActions).toEqual([]);
+      });
+
+      it('handles object value for files_modified (converts to empty array)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: [],
+          files_modified: { invalid: 'object' }, // Invalid type
+        }));
+        expect(result.filesModified).toEqual([]);
+      });
+
+      it('handles empty string for key_actions (converts to array with empty string)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: '',
+          files_modified: [],
+        }));
+        expect(result.keyActions).toEqual(['']);
+      });
+
+      it('handles empty string for files_modified (converts to array with empty string)', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: [],
+          files_modified: '',
+        }));
+        expect(result.filesModified).toEqual(['']);
+      });
+
+      it('handles both key_actions and files_modified as strings simultaneously', () => {
+        const result = parseSummaryResponse(JSON.stringify({
+          short_summary: 'Test',
+          full_summary: 'Full',
+          key_actions: 'Fixed authentication bug',
+          files_modified: 'src/auth/login.js',
+        }));
+        expect(result.keyActions).toEqual(['Fixed authentication bug']);
+        expect(result.filesModified).toEqual(['src/auth/login.js']);
+      });
+    });
   });
 
   describe('parseConversationSummaryResponse', () => {
