@@ -164,7 +164,7 @@ const shouldShowViewer = computed(() => {
 });
 
 const showBackButton = computed(() => {
-  return groupedItems.value.length > 1;
+  return true; // Always show back button
 });
 
 // Auto-navigate to the latest version when a new version of the viewed file arrives
