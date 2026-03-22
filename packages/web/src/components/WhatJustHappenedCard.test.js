@@ -93,13 +93,14 @@ describe('WhatJustHappenedCard', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // Verify first step has completed icon
-      const firstIcon = wrapper.find('[data-testid="chain-step-icon-0"]');
-      expect(firstIcon.classes()).toContain('completed');
+      // Verify numbered badges are displayed
+      const firstBadge = wrapper.find('[data-testid="chain-step-number-0"]');
+      expect(firstBadge.exists()).toBe(true);
+      expect(firstBadge.text()).toBe('1');
 
-      // Verify second step has error icon
-      const secondIcon = wrapper.find('[data-testid="chain-step-icon-1"]');
-      expect(secondIcon.classes()).toContain('error');
+      const secondBadge = wrapper.find('[data-testid="chain-step-number-1"]');
+      expect(secondBadge.exists()).toBe(true);
+      expect(secondBadge.text()).toBe('2');
 
       // Verify error message is displayed
       const errorText = wrapper.find('.chain-step-error');
@@ -270,6 +271,104 @@ describe('WhatJustHappenedCard', () => {
       const lastActivity = wrapper.find('.last-activity');
       expect(lastActivity.exists()).toBe(true);
       expect(lastActivity.text()).toContain('2 minutes ago');
+    });
+  });
+
+  describe('Step numbering', () => {
+    it('displays sequential numbers for chain steps', async () => {
+      sessionsStore.sessions = [
+        { id: 'root-123', name: 'Root Session', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' },
+        { id: 'child-1', name: 'Task 1', status: 'completed', parentSessionId: 'root-123', updatedAt: '2024-01-01T01:00:00Z', lastActivityAt: '2024-01-01T01:00:00Z' },
+        { id: 'child-2', name: 'Task 2', status: 'completed', parentSessionId: 'child-1', updatedAt: '2024-01-01T02:00:00Z', lastActivityAt: '2024-01-01T02:00:00Z' },
+        { id: 'child-3', name: 'Task 3', status: 'completed', parentSessionId: 'child-2', updatedAt: '2024-01-01T03:00:00Z', lastActivityAt: '2024-01-01T03:00:00Z' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const stepNumbers = wrapper.findAll('[data-testid^="chain-step-number-"]');
+      expect(stepNumbers.length).toBe(3);
+      expect(stepNumbers[0].text()).toBe('1');
+      expect(stepNumbers[1].text()).toBe('2');
+      expect(stepNumbers[2].text()).toBe('3');
+    });
+
+    it('shows sequential numbering for truncated chains', async () => {
+      const sessions = [
+        { id: 'root-123', name: 'Root Session', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' },
+      ];
+
+      // Create 8 descendant sessions (chain of 8)
+      for (let i = 1; i <= 8; i++) {
+        sessions.push({
+          id: `child-${i}`,
+          name: `Task ${i}`,
+          status: 'completed',
+          parentSessionId: i === 1 ? 'root-123' : `child-${i - 1}`,
+          updatedAt: `2024-01-01T${i.toString().padStart(2, '0')}:00:00Z`,
+          lastActivityAt: `2024-01-01T${i.toString().padStart(2, '0')}:00:00Z`,
+        });
+      }
+
+      sessionsStore.sessions = sessions;
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Should show first 2 + last 3 = 5 steps with numbers 1-5
+      const stepNumbers = wrapper.findAll('[data-testid^="chain-step-number-"]');
+      expect(stepNumbers.length).toBe(5);
+      expect(stepNumbers[0].text()).toBe('1');
+      expect(stepNumbers[1].text()).toBe('2');
+      expect(stepNumbers[2].text()).toBe('3');
+      expect(stepNumbers[3].text()).toBe('4');
+      expect(stepNumbers[4].text()).toBe('5');
+    });
+  });
+
+  describe('Step timestamps', () => {
+    it('displays timestamps for each chain step', async () => {
+      sessionsStore.sessions = [
+        { id: 'root-123', name: 'Root Session', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' },
+        { id: 'child-1', name: 'Task 1', status: 'completed', parentSessionId: 'root-123', updatedAt: '2024-01-15T10:30:00Z', lastActivityAt: '2024-01-15T10:30:00Z' },
+        { id: 'child-2', name: 'Task 2', status: 'completed', parentSessionId: 'child-1', updatedAt: '2024-01-15T14:45:00Z', lastActivityAt: '2024-01-15T14:45:00Z' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const timestamps = wrapper.findAll('[data-testid^="chain-step-timestamp-"]');
+      expect(timestamps.length).toBe(2);
+      // Verify the timestamps contain date, month, and time (format may vary by locale)
+      expect(timestamps[0].text()).toMatch(/Jan.*15.*2024/);
+      expect(timestamps[1].text()).toMatch(/Jan.*15.*2024/);
+    });
+
+    it('uses updatedAt as fallback when lastActivityAt is absent', async () => {
+      sessionsStore.sessions = [
+        { id: 'root-123', name: 'Root Session', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' },
+        { id: 'child-1', name: 'Task 1', status: 'completed', parentSessionId: 'root-123', updatedAt: '2024-03-20T08:15:00Z' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const timestamp = wrapper.find('[data-testid="chain-step-timestamp-0"]');
+      expect(timestamp.exists()).toBe(true);
+      expect(timestamp.text()).toMatch(/Mar.*20.*2024/);
+    });
+
+    it('does not display timestamp when both lastActivityAt and updatedAt are absent', async () => {
+      sessionsStore.sessions = [
+        { id: 'root-123', name: 'Root Session', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' },
+        { id: 'child-1', name: 'Task 1', status: 'completed', parentSessionId: 'root-123' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const timestamp = wrapper.find('[data-testid="chain-step-timestamp-0"]');
+      expect(timestamp.exists()).toBe(false);
     });
   });
 });
