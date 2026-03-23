@@ -42,25 +42,8 @@
           <div class="overlay-content session-tree-overlay">
           <!-- Header (no padding constraints) -->
           <div class="overlay-header">
-            <div class="overlay-header-left">
-              <router-link
-                :to="backToSessionsUrl"
-                class="back-to-sessions-link"
-                title="Back to Sessions"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="19" y1="12" x2="5" y2="12"></line>
-                  <polyline points="12 19 5 12 12 5"></polyline>
-                </svg>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="8" y1="6" x2="21" y2="6"></line>
-                  <line x1="8" y1="12" x2="21" y2="12"></line>
-                  <line x1="8" y1="18" x2="21" y2="18"></line>
-                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                </svg>
-              </router-link>
+            <!-- Row 1: Session Name -->
+            <div class="overlay-header-row">
               <!-- Editing mode -->
               <template v-if="isEditingName">
                 <div class="name-edit-form">
@@ -106,7 +89,9 @@
                 </div>
               </template>
             </div>
-            <div v-if="hasDescendants" class="overlay-header-center" ref="pickerAreaRef">
+
+            <!-- Row 2: Session Selector -->
+            <div v-if="hasDescendants" class="overlay-header-row overlay-header-selector" ref="pickerAreaRef">
               <button
                 class="dropdown-trigger"
                 data-testid="overlay-picker-trigger"
@@ -124,7 +109,27 @@
                 @select="handlePickerSelect"
               />
             </div>
-            <div class="overlay-header-right">
+
+            <!-- Row 3: Back to List + New Session -->
+            <div class="overlay-header-row overlay-header-actions">
+              <router-link
+                :to="backToSessionsUrl"
+                class="back-to-sessions-link"
+                title="Back to Sessions"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </router-link>
               <button
                 class="add-session-btn"
                 data-testid="overlay-add-session-btn"
@@ -720,24 +725,30 @@ defineExpose({
 
 .overlay-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 1rem;
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-  min-height: 60px;
   flex-shrink: 0;
   z-index: 10;
   width: 100%;
 }
 
-.overlay-header-left {
+.overlay-header-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  flex: 1;
+  width: 100%;
   min-width: 0;
+}
+
+.overlay-header-selector {
+  position: relative;
+}
+
+.overlay-header-actions {
+  justify-content: space-between;
 }
 
 .overlay-root-name {
@@ -745,12 +756,6 @@ defineExpose({
   font-weight: 600;
   color: var(--color-primary, #06b6d4);
   word-break: break-word;
-}
-
-.overlay-header-center {
-  position: relative;
-  flex: 1;
-  min-width: 0;
 }
 
 .dropdown-trigger {
@@ -781,13 +786,6 @@ defineExpose({
 .dropdown-chevron {
   color: var(--color-text-soft, #9ca3af);
   margin-left: 0.5rem;
-  flex-shrink: 0;
-}
-
-.overlay-header-right {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
   flex-shrink: 0;
 }
 
@@ -1015,7 +1013,6 @@ defineExpose({
   color: var(--color-text-soft, #9ca3af);
   text-decoration: none;
   transition: color 0.15s;
-  margin-right: 0.75rem;
   flex-shrink: 0;
 }
 
