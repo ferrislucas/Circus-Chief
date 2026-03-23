@@ -23,7 +23,6 @@
           <span class="action-icon">&#10003;</span>
           <div class="action-details">
             {{ action }}
-            <span class="action-timestamp">{{ formatActionTimestamp(summary.generatedAt) }}</span>
           </div>
         </li>
       </ul>
