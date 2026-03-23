@@ -12,6 +12,10 @@ export const useSessionsStore = defineStore('sessions', {
     activeSessions: [],
     scheduledSessions: [],
     currentSession: null,
+    // Tracks which session the user is actively viewing in SessionDetailView.
+    // Used to guard fetchSession() against stale in-flight requests overwriting
+    // currentSession after the user has navigated to a different session.
+    viewedSessionId: null,
     messages: [],
     conversations: [],
     activeConversationId: null,
