@@ -13,8 +13,12 @@
             class="overlay-close-handle"
             tabindex="0"
             role="button"
-            aria-label="Close session tree"
-            title="Close session tree"
+            :aria-label="isOverlaySessionActive
+              ? (overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
+              : 'Close session tree'"
+            :title="isOverlaySessionActive
+              ? (overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
+              : 'Close session tree'"
             data-testid="session-tree-overlay-close-handle"
             @click="close"
             @keydown.enter.prevent="close"
@@ -36,6 +40,11 @@
                 stroke-linejoin="round"
               />
             </svg>
+            <span
+              v-if="isOverlaySessionActive"
+              class="active-spinner"
+              :title="overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
+            ></span>
           </div>
 
           <!-- Existing overlay-content -->
@@ -324,6 +333,15 @@ const activeSessionName = computed(() => {
 
 const activeSessionPath = computed(() => {
   return sessionsStore.getSessionPath(activeSessionId.value);
+});
+
+const overlaySessionStatus = computed(() => {
+  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  return session?.status || '';
+});
+
+const isOverlaySessionActive = computed(() => {
+  return overlaySessionStatus.value === 'running' || overlaySessionStatus.value === 'starting';
 });
 
 const backToSessionsUrl = computed(() => {
@@ -676,6 +694,7 @@ defineExpose({
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   background: rgba(55, 65, 81, 0.8);
   border-radius: 8px 0 0 8px;
   cursor: pointer;
@@ -703,6 +722,21 @@ defineExpose({
 
 .overlay-close-handle:hover .handle-icon {
   color: #fff;
+}
+
+.overlay-close-handle .active-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(6, 182, 212, 0.3);
+  border-top-color: #06b6d4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .overlay-content {
