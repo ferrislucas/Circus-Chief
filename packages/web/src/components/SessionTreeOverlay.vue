@@ -678,14 +678,13 @@ defineExpose({
   height: 100vh;
   height: 100dvh;
   max-width: 900px;
-  width: calc(100% - 44px);
-  margin-left: 44px;
+  width: 100%;
   overflow: visible;
 }
 
 .overlay-close-handle {
   position: absolute;
-  left: -44px;
+  left: 0;
   top: 50%;
   transform: translateY(-50%);
   width: 40px;
@@ -696,10 +695,10 @@ defineExpose({
   justify-content: center;
   gap: 0.5rem;
   background: rgba(55, 65, 81, 0.8);
-  border-radius: 8px 0 0 8px;
+  border-radius: 8px;
   cursor: pointer;
   z-index: 10;
-  transition: background-color 0.2s ease, left 0.2s ease;
+  transition: background-color 0.2s ease;
   min-width: 44px;
   min-height: 44px;
   border: none;
@@ -707,7 +706,6 @@ defineExpose({
 
 .overlay-close-handle:hover {
   background: rgba(8, 145, 178, 0.9);
-  left: -48px;
 }
 
 .overlay-close-handle:focus-visible {
