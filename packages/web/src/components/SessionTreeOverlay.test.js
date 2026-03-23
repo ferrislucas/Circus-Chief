@@ -4,6 +4,13 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { h, defineComponent, nextTick } from 'vue';
 import SessionTreeOverlay from './SessionTreeOverlay.vue';
+import { api } from '../composables/useApi.js';
+import { generateWorktreeBranch } from '@claudetools/shared';
+
+// Mock @claudetools/shared
+vi.mock('@claudetools/shared', () => ({
+  generateWorktreeBranch: vi.fn(() => 'claude-tools/abcd-new-session'),
+}));
 
 // Mock sessions store
 const mockSessionsStore = {
@@ -28,6 +35,7 @@ const mockSessionsStore = {
   updateSession: vi.fn(),
   addConversation: vi.fn(),
   updateConversation: vi.fn(),
+  createSession: vi.fn(),
 };
 
 vi.mock('../stores/sessions.js', () => ({
@@ -74,7 +82,22 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getSessionSummary: vi.fn().mockResolvedValue(null),
     getProjectSessions: vi.fn().mockResolvedValue([]),
+    createSession: vi.fn().mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' }),
+    updateSession: vi.fn().mockResolvedValue({}),
   },
+}));
+
+// Mock UI store
+const mockUiStore = {
+  error: vi.fn(),
+  success: vi.fn(),
+  addToast: vi.fn(),
+  removeToast: vi.fn(),
+  toasts: [],
+};
+
+vi.mock('../stores/ui.js', () => ({
+  useUiStore: () => mockUiStore,
 }));
 
 // Mock ConversationTab with a lightweight stub
@@ -88,7 +111,26 @@ vi.mock('./ConversationTab.vue', () => ({
   }),
 }));
 
-// SessionTreePicker mock removed - picker is now in SessionHeaderPanel
+// Mock SessionTreePicker
+vi.mock('./SessionTreePicker.vue', () => ({
+  default: defineComponent({
+    name: 'SessionTreePicker',
+    props: ['sessions', 'activeSessionId', 'summaries'],
+    emits: ['select'],
+    render() {
+      return h('div', {
+        class: 'session-tree-picker-stub',
+        'data-testid': 'session-tree-picker',
+      }, this.sessions?.map(s =>
+        h('div', {
+          key: s.id,
+          role: 'option',
+          onClick: () => this.$emit('select', s.id),
+        }, s.name)
+      ));
+    },
+  }),
+}));
 
 describe('SessionTreeOverlay', () => {
   let pinia;
@@ -246,8 +288,6 @@ describe('SessionTreeOverlay', () => {
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
-
-    // Picker-related Escape test removed - picker is now in SessionHeaderPanel
 
     it('emits close when clicking the backdrop', async () => {
       const onClose = vi.fn();
@@ -477,7 +517,196 @@ describe('SessionTreeOverlay', () => {
     });
   });
 
-  // Dropdown tests removed - dropdown is now in SessionHeaderPanel
+  describe('session tree picker integration', () => {
+    const childSession = {
+      id: 'child-1',
+      name: 'Child Session',
+      status: 'running',
+      parentSessionId: 'sess-root',
+      projectId: 'proj-123',
+    };
+
+    const chainSessions = [rootSession, childSession];
+    const chainSummaries = {
+      'sess-root': { shortSummary: 'Root summary' },
+      'child-1': { shortSummary: 'Child summary' },
+    };
+
+    function mountWithPicker(propsOverrides = {}) {
+      return mount(SessionTreeOverlay, {
+        props: {
+          sessionId: 'sess-root',
+          sessionChain: chainSessions,
+          summariesMap: chainSummaries,
+          ...propsOverrides,
+        },
+        global: {
+          plugins: [router],
+        },
+        attachTo: document.body,
+      });
+    }
+
+    it('does not show picker when sessionChain has only 1 session', async () => {
+      const wrapper = mount(SessionTreeOverlay, {
+        props: {
+          sessionId: 'sess-root',
+          sessionChain: [rootSession],
+          summariesMap: {},
+        },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
+      await nextTick();
+      const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
+      expect(trigger).toBeFalsy();
+      wrapper.unmount();
+    });
+
+    it('shows dropdown trigger when sessionChain has multiple sessions', async () => {
+      const wrapper = mountWithPicker();
+      await nextTick();
+      const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
+      expect(trigger).toBeTruthy();
+      wrapper.unmount();
+    });
+
+    it('clicking dropdown trigger toggles picker open/closed', async () => {
+      const wrapper = mountWithPicker();
+      await nextTick();
+
+      const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
+
+      // Initially picker should not be shown
+      expect(document.querySelector('[data-testid="session-tree-picker"]')).toBeFalsy();
+
+      // Click to open
+      trigger.click();
+      await nextTick();
+      expect(document.querySelector('[data-testid="session-tree-picker"]')).toBeTruthy();
+
+      // Click to close
+      trigger.click();
+      await nextTick();
+      expect(document.querySelector('[data-testid="session-tree-picker"]')).toBeFalsy();
+
+      wrapper.unmount();
+    });
+
+    it('SessionTreePicker receives correct props', async () => {
+      const wrapper = mountWithPicker();
+      await nextTick();
+
+      // Open picker
+      wrapper.vm.pickerOpen = true;
+      await nextTick();
+
+      const picker = document.querySelector('[data-testid="session-tree-picker"]');
+      expect(picker).toBeTruthy();
+      // The mock renders session names as text content
+      expect(picker.textContent).toContain('Root Session');
+      expect(picker.textContent).toContain('Child Session');
+
+      wrapper.unmount();
+    });
+
+    it('selecting a session calls selectSession and closes picker', async () => {
+      mockSessionsStore.getSessionById.mockImplementation((id) => {
+        if (id === 'sess-root') return rootSession;
+        if (id === 'child-1') return childSession;
+        return null;
+      });
+
+      const wrapper = mountWithPicker();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      // Open picker
+      wrapper.vm.pickerOpen = true;
+      await nextTick();
+
+      // Call handlePickerSelect directly
+      expect(typeof wrapper.vm.handlePickerSelect).toBe('function');
+      wrapper.vm.handlePickerSelect('child-1');
+      await nextTick();
+
+      // Verify picker was closed
+      expect(wrapper.vm.pickerOpen).toBe(false);
+      // Verify session was switched
+      expect(wrapper.vm.activeSessionId).toBe('child-1');
+
+      wrapper.unmount();
+    });
+
+    it('Escape key closes picker without closing the overlay', async () => {
+      const onClose = vi.fn();
+      const wrapper = mount(SessionTreeOverlay, {
+        props: {
+          sessionId: 'sess-root',
+          sessionChain: chainSessions,
+          summariesMap: chainSummaries,
+        },
+        attrs: { onClose },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
+      await nextTick();
+
+      // Open picker
+      wrapper.vm.pickerOpen = true;
+      await nextTick();
+      expect(document.querySelector('[data-testid="session-tree-picker"]')).toBeTruthy();
+
+      // Press Escape
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await nextTick();
+
+      // Picker should be closed but overlay should stay open
+      expect(wrapper.vm.pickerOpen).toBe(false);
+      expect(wrapper.vm.visible).toBe(true);
+      expect(onClose).not.toHaveBeenCalled();
+
+      wrapper.unmount();
+    });
+
+    it('displays active session name in dropdown trigger', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue(rootSession);
+
+      const wrapper = mountWithPicker();
+      await nextTick();
+
+      const triggerEl = document.querySelector('[data-testid="overlay-picker-trigger"]');
+      expect(triggerEl).toBeTruthy();
+      const nameEl = triggerEl.querySelector('.dropdown-name');
+      expect(nameEl.textContent).toBeTruthy();
+
+      wrapper.unmount();
+    });
+
+    it('shows down chevron when picker is closed', async () => {
+      const wrapper = mountWithPicker();
+      await nextTick();
+
+      const chevron = document.querySelector('.dropdown-chevron');
+      expect(chevron.textContent).toBe('▼');
+
+      wrapper.unmount();
+    });
+
+    it('shows up chevron when picker is open', async () => {
+      const wrapper = mountWithPicker();
+      await nextTick();
+
+      const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
+      trigger.click();
+      await nextTick();
+
+      const chevron = document.querySelector('.dropdown-chevron');
+      expect(chevron.textContent).toBe('▲');
+
+      wrapper.unmount();
+    });
+  });
 
   describe('breadcrumb', () => {
     it('shows breadcrumb when viewing child session', async () => {
@@ -572,8 +801,6 @@ describe('SessionTreeOverlay', () => {
     });
   });
 
-  // Picker select and tree icon tests removed - these features are now in SessionHeaderPanel
-
   describe('animation', () => {
     it('applies correct transition classes on mount', async () => {
       const wrapper = mountOverlay();
@@ -600,6 +827,223 @@ describe('SessionTreeOverlay', () => {
       expect(content).toBeTruthy();
       // Verify the content has the correct class
       expect(content.classList.contains('overlay-content')).toBe(true);
+      wrapper.unmount();
+    });
+  });
+
+  describe('Add Session button', () => {
+    it('renders add session button in overlay', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      expect(btn).toBeTruthy();
+      expect(btn.textContent.trim()).toContain('New Session');
+      wrapper.unmount();
+    });
+
+    it('inherits git settings from parent session with worktree', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
+      api.createSession.mockResolvedValue(newSession);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(generateWorktreeBranch).not.toHaveBeenCalled();
+      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+        prompt: ' ',
+        name: 'New Session',
+        parentSessionId: 'sess-root',
+        startImmediately: false,
+        gitMode: 'worktree',
+        gitBranch: 'feature/parent-branch',
+      });
+      wrapper.unmount();
+    });
+
+    it('inherits git settings from parent session with branch only', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: null });
+      api.createSession.mockResolvedValue(newSession);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(generateWorktreeBranch).not.toHaveBeenCalled();
+      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+        prompt: ' ',
+        name: 'New Session',
+        parentSessionId: 'sess-root',
+        startImmediately: false,
+        gitMode: 'branch',
+        gitBranch: 'feature/parent-branch',
+      });
+      wrapper.unmount();
+    });
+
+    it('omits git settings when parent has no git config', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: null, gitWorktree: null });
+      api.createSession.mockResolvedValue(newSession);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+        prompt: ' ',
+        name: 'New Session',
+        parentSessionId: 'sess-root',
+        startImmediately: false,
+      });
+      wrapper.unmount();
+    });
+
+    it('after creation, overlay switches activeSessionId to new session', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
+      api.createSession.mockResolvedValue(newSession);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(wrapper.vm.activeSessionId).toBe('new-sess');
+      expect(mockSessionsStore.fetchSession).toHaveBeenCalledWith('new-sess', false);
+      expect(mockSessionsStore.fetchConversations).toHaveBeenCalledWith('new-sess');
+      wrapper.unmount();
+    });
+
+    it('emits session-created event after creation', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
+      api.createSession.mockResolvedValue(newSession);
+
+      const onSessionCreated = vi.fn();
+      const wrapper = mount(SessionTreeOverlay, {
+        props: { sessionId: 'sess-root' },
+        attrs: { onSessionCreated },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(onSessionCreated).toHaveBeenCalledWith('new-sess');
+      wrapper.unmount();
+    });
+
+    it('button shows disabled state while creating', async () => {
+      let resolveCreate;
+      const createPromise = new Promise(resolve => { resolveCreate = resolve; });
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
+      api.createSession.mockReturnValue(createPromise);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+
+      // Button should be disabled while creating
+      expect(btn.disabled).toBe(true);
+      expect(btn.textContent.trim()).toContain('Creating...');
+
+      // Resolve the creation
+      resolveCreate({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      // Button should be re-enabled
+      expect(wrapper.vm.isCreatingSession).toBe(false);
+      wrapper.unmount();
+    });
+
+    it('shows error toast on API failure', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
+      api.createSession.mockRejectedValue(new Error('Network error'));
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(mockUiStore.error).toHaveBeenCalledWith('Network error');
+      wrapper.unmount();
+    });
+
+    it('shows error toast when no project context', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: null });
+      mockSessionsStore.currentSession = { ...rootSession, projectId: null };
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(api.createSession).not.toHaveBeenCalled();
+      expect(mockUiStore.error).toHaveBeenCalledWith('Cannot create session: no project context');
+      wrapper.unmount();
+    });
+
+    it('does not send gitBranch for non-git project sessions', async () => {
+      const nonGitSession = { ...rootSession, projectId: 'proj-123', gitBranch: null };
+      mockSessionsStore.getSessionById.mockReturnValue(nonGitSession);
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(generateWorktreeBranch).not.toHaveBeenCalled();
+      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+        prompt: ' ',
+        name: 'New Session',
+        parentSessionId: 'sess-root',
+        startImmediately: false,
+      });
       wrapper.unmount();
     });
   });

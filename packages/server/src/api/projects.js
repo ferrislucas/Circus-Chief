@@ -224,12 +224,25 @@ function buildSchedulingUpdate(config, initialStatus) {
  * @returns {Promise<{ updatedSession: object }>}
  */
 async function setupAndStartSession({ session, config, project, projectId, files }) {
-  const { workingDirectory, gitWorktree } = await setupGitForSession({
-    projectDir: project.workingDirectory,
-    gitMode: config.gitMode || null,
-    gitBranch: config.gitBranch || null,
-    sessionId: session.id,
-  });
+  let workingDirectory;
+  let gitWorktree = null;
+
+  // If this is a child session and the parent has a worktree, inherit it
+  // (mirrors templateTriggerService behavior)
+  const parentSession = config.parentSessionId ? sessions.getById(config.parentSessionId) : null;
+  if (parentSession?.gitWorktree) {
+    workingDirectory = parentSession.gitWorktree;
+    gitWorktree = parentSession.gitWorktree;
+  } else {
+    const gitSetup = await setupGitForSession({
+      projectDir: project.workingDirectory,
+      gitMode: config.gitMode || null,
+      gitBranch: config.gitBranch || null,
+      sessionId: session.id,
+    });
+    workingDirectory = gitSetup.workingDirectory;
+    gitWorktree = gitSetup.gitWorktree;
+  }
 
   if (gitWorktree) {
     sessions.update(session.id, { gitWorktree });

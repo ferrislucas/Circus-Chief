@@ -45,25 +45,6 @@
         </div>
       </template>
 
-      <!-- Tree icon toggle (when session has descendants) -->
-      <button
-        v-if="hasDescendants"
-        class="tree-icon-btn"
-        data-testid="session-tree-icon"
-        :title="pickerOpen ? 'Close session tree' : 'Open session tree'"
-        @click="togglePicker"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path
-            d="M4 2v4h3v2H4v4h3M10 4h3M10 8h3M10 12h3"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-      </button>
-
       <!-- Overflow menu with secondary actions -->
       <OverflowMenu
         aria-label="Session actions"
@@ -74,35 +55,6 @@
         @copySessionId="emit('copySessionId')"
         @archive="emit('archive')"
         @delete="emit('delete')"
-      />
-    </div>
-
-    <!-- Session tree dropdown and picker -->
-    <div
-      v-if="hasDescendants"
-      class="header-dropdown-area"
-      ref="pickerAreaRef"
-    >
-      <div
-        class="overlay-dropdown"
-        data-testid="session-tree-dropdown"
-      >
-        <button
-          class="dropdown-trigger"
-          :aria-expanded="pickerOpen ? 'true' : 'false'"
-          @click="togglePicker"
-        >
-          <span class="dropdown-name">{{ activeSessionDisplayName }}</span>
-          <span class="dropdown-chevron">{{ pickerOpen ? '▲' : '▼' }}</span>
-        </button>
-      </div>
-
-      <SessionTreePicker
-        v-if="pickerOpen"
-        :sessions="sessionChain"
-        :active-session-id="activeSessionId"
-        :summaries="summariesMap"
-        @select="handlePickerSelect"
       />
     </div>
 
@@ -164,12 +116,11 @@
 </template>
 
 <script setup>
-import { ref, nextTick, computed, onMounted, onUnmounted } from 'vue';
+import { ref, nextTick, computed } from 'vue';
 import OverflowMenu from './OverflowMenu.vue';
 import PrUrlEditor from './PrUrlEditor.vue';
 import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import MoveCardModal from './MoveCardModal.vue';
-import SessionTreePicker from './SessionTreePicker.vue';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
@@ -201,29 +152,9 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  /** Flat array of sessions in the hierarchy (for picker) */
-  sessionChain: {
-    type: Array,
-    default: () => [],
-  },
-  /** Currently viewed session ID (for picker highlighting) */
-  activeSessionId: {
-    type: String,
-    default: '',
-  },
-  /** sessionId -> summary map (for picker) */
-  summariesMap: {
-    type: Object,
-    default: () => ({}),
-  },
-  /** Whether the session has descendants (controls picker visibility) */
-  hasDescendants: {
-    type: Boolean,
-    default: false,
-  },
 });
 
-const emit = defineEmits(['duplicate', 'copySessionId', 'archive', 'delete', 'star', 'switch-session']);
+const emit = defineEmits(['duplicate', 'copySessionId', 'archive', 'delete', 'star']);
 
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
@@ -248,55 +179,6 @@ const showMoveCardModal = ref(false);
 function openMoveModal() {
   showMoveCardModal.value = true;
 }
-
-// Picker state
-const pickerOpen = ref(false);
-const pickerAreaRef = ref(null);
-
-const activeSessionDisplayName = computed(() => {
-  if (!props.activeSessionId) return props.session?.name || 'Session';
-  const session = sessionsStore.getSessionById(props.activeSessionId);
-  return session?.name || props.session?.name || 'Session';
-});
-
-function togglePicker() {
-  pickerOpen.value = !pickerOpen.value;
-}
-
-function handlePickerSelect(sessionId) {
-  pickerOpen.value = false;
-  emit('switch-session', sessionId);
-}
-
-function handlePickerEscape(event) {
-  if (event.key === 'Escape' && pickerOpen.value) {
-    event.stopPropagation();
-    pickerOpen.value = false;
-  }
-}
-
-function handleClickOutsidePicker(event) {
-  if (pickerOpen.value) {
-    const picker = document.querySelector('[data-testid="session-tree-picker"]');
-    const dropdown = document.querySelector('[data-testid="session-tree-dropdown"]');
-    const treeIcon = document.querySelector('[data-testid="session-tree-icon"]');
-    if (picker && !picker.contains(event.target) &&
-        (!dropdown || !dropdown.contains(event.target)) &&
-        (!treeIcon || !treeIcon.contains(event.target))) {
-      pickerOpen.value = false;
-    }
-  }
-}
-
-onMounted(() => {
-  document.addEventListener('keydown', handlePickerEscape, true);
-  document.addEventListener('click', handleClickOutsidePicker, true);
-});
-
-onUnmounted(() => {
-  document.removeEventListener('keydown', handlePickerEscape, true);
-  document.removeEventListener('click', handleClickOutsidePicker, true);
-});
 
 // Name editing state
 const isEditingName = ref(false);
@@ -351,8 +233,6 @@ defineExpose({
   clearSessionName,
   saveSessionName,
   showMoveCardModal,
-  pickerOpen,
-  handlePickerSelect,
 });
 </script>
 
@@ -564,64 +444,4 @@ defineExpose({
   cursor: pointer;
 }
 
-/* Tree icon button */
-.tree-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: none;
-  border-radius: var(--border-radius, 6px);
-  cursor: pointer;
-  color: var(--color-text-soft, #9ca3af);
-  transition: color 0.15s, background-color 0.15s;
-  flex-shrink: 0;
-}
-
-.tree-icon-btn:hover {
-  color: var(--color-primary, #06b6d4);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-/* Dropdown area */
-.header-dropdown-area {
-  margin-top: 0.25rem;
-}
-
-.overlay-dropdown {
-  margin-bottom: 0;
-}
-
-.dropdown-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0.5rem 0.75rem;
-  background: var(--color-background-secondary, #1f2937);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-  border-radius: var(--border-radius, 6px);
-  color: var(--color-text, #e5e7eb);
-  cursor: pointer;
-  font-size: 0.875rem;
-  transition: background-color 0.15s;
-}
-
-.dropdown-trigger:hover {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.dropdown-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dropdown-chevron {
-  color: var(--color-text-soft, #9ca3af);
-  margin-left: 0.5rem;
-  flex-shrink: 0;
-}
 </style>
