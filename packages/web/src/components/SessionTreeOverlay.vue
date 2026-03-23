@@ -106,7 +106,38 @@
                 </div>
               </template>
             </div>
+            <div v-if="hasDescendants" class="overlay-header-center" ref="pickerAreaRef">
+              <button
+                class="dropdown-trigger"
+                data-testid="overlay-picker-trigger"
+                :aria-expanded="pickerOpen ? 'true' : 'false'"
+                @click="togglePicker"
+              >
+                <span class="dropdown-name">{{ activeSessionDisplayName }}</span>
+                <span class="dropdown-chevron">{{ pickerOpen ? '&#9650;' : '&#9660;' }}</span>
+              </button>
+              <SessionTreePicker
+                v-if="pickerOpen"
+                :sessions="sessionChain"
+                :active-session-id="activeSessionId"
+                :summaries="summariesMap"
+                @select="handlePickerSelect"
+              />
+            </div>
             <div class="overlay-header-right">
+              <button
+                class="add-session-btn"
+                data-testid="overlay-add-session-btn"
+                title="Create a new child session"
+                :disabled="isCreatingSession"
+                @click="addChildSession"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                {{ isCreatingSession ? 'Creating...' : 'New Session' }}
+              </button>
             </div>
           </div>
 
@@ -166,7 +197,9 @@ import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
+
 import ConversationTab from './ConversationTab.vue';
+import SessionTreePicker from './SessionTreePicker.vue';
 
 const props = defineProps({
   sessionId: {
@@ -185,7 +218,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'session-created']);
 
 const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
@@ -195,9 +228,46 @@ const visible = ref(true);
 const closing = ref(false);
 const activeSessionId = ref(props.sessionId);
 const isMobile = ref(false);
+const isCreatingSession = ref(false);
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
+
+// Picker state
+const pickerOpen = ref(false);
+const pickerAreaRef = ref(null);
+
+const activeSessionDisplayName = computed(() => {
+  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  return session?.name || 'Session';
+});
+
+function togglePicker() {
+  pickerOpen.value = !pickerOpen.value;
+}
+
+function handlePickerSelect(sessionId) {
+  pickerOpen.value = false;
+  selectSession(sessionId);
+}
+
+function handlePickerEscape(event) {
+  if (event.key === 'Escape' && pickerOpen.value) {
+    event.stopPropagation();
+    pickerOpen.value = false;
+  }
+}
+
+function handleClickOutsidePicker(event) {
+  if (pickerOpen.value) {
+    const picker = document.querySelector('[data-testid="session-tree-picker"]');
+    const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
+    if (picker && !picker.contains(event.target) &&
+        (!trigger || !trigger.contains(event.target))) {
+      pickerOpen.value = false;
+    }
+  }
+}
 
 // Name editing state
 const isEditingName = ref(false);
@@ -289,6 +359,51 @@ function afterLeave() {
 
 function selectSession(sessionId) {
   switchToSession(sessionId);
+}
+
+async function addChildSession() {
+  if (isCreatingSession.value) return;
+
+  const currentSession = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  if (!currentSession?.projectId) {
+    uiStore.error('Cannot create session: no project context');
+    return;
+  }
+
+  isCreatingSession.value = true;
+  try {
+    // Use api.createSession directly instead of sessionsStore.createSession to avoid
+    // setting store.loading = true, which would cause SessionDetailView to unmount
+    // the overlay (it conditionally renders based on !sessionsStore.loading).
+    // prompt must be non-empty to pass Zod validation (z.string().min(1))
+    // Inherit git settings from the parent session, mirroring how templateTriggerService
+    // creates child sessions. The server requires gitMode + gitBranch for git projects.
+    // We can infer gitMode from the parent: if it has a gitWorktree, it used 'worktree' mode;
+    // if it only has a gitBranch, it used 'branch' mode.
+    const gitMode = currentSession.gitWorktree ? 'worktree' : currentSession.gitBranch ? 'branch' : undefined;
+    const gitBranch = currentSession.gitBranch || undefined;
+
+    const newSession = await api.createSession(currentSession.projectId, {
+      prompt: ' ',
+      name: 'New Session',
+      parentSessionId: activeSessionId.value,
+      startImmediately: false,
+      ...(gitMode && gitBranch ? { gitMode, gitBranch } : {}),
+    });
+
+    // Add to store manually (mirrors what sessionsStore.createSession does)
+    sessionsStore.sessions.unshift(newSession);
+
+    // Notify parent to rebuild session chain so it includes the new child
+    emit('session-created', newSession.id);
+
+    // Switch the overlay to the new session
+    await switchToSession(newSession.id);
+  } catch (err) {
+    uiStore.error(err.message || 'Failed to create child session');
+  } finally {
+    isCreatingSession.value = false;
+  }
 }
 
 // Name editing functions
@@ -433,7 +548,9 @@ function checkMobile() {
 
 function handleEscape(event) {
   if (event.key === 'Escape') {
-    if (isEditingName.value) {
+    if (pickerOpen.value) {
+      pickerOpen.value = false;
+    } else if (isEditingName.value) {
       cancelEditName();
     } else {
       close();
@@ -457,6 +574,7 @@ function unlockBodyScroll() {
 onMounted(async () => {
   lockBodyScroll();
   document.addEventListener('keydown', handleEscape);
+  document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
 
@@ -468,6 +586,7 @@ onMounted(async () => {
 onUnmounted(() => {
   unlockBodyScroll();
   document.removeEventListener('keydown', handleEscape);
+  document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
   cleanupSubscription();
 });
@@ -479,6 +598,9 @@ defineExpose({
   closing,
   visible,
   afterLeave,
+  isCreatingSession,
+  pickerOpen,
+  handlePickerSelect,
 });
 </script>
 
@@ -623,6 +745,43 @@ defineExpose({
   font-weight: 600;
   color: var(--color-primary, #06b6d4);
   word-break: break-word;
+}
+
+.overlay-header-center {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.375rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--border-radius, 6px);
+  color: var(--color-text, #e5e7eb);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  transition: background-color 0.15s;
+}
+
+.dropdown-trigger:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dropdown-chevron {
+  color: var(--color-text-soft, #9ca3af);
+  margin-left: 0.5rem;
+  flex-shrink: 0;
 }
 
 .overlay-header-right {
@@ -815,6 +974,32 @@ defineExpose({
 .name-edit-trigger:hover {
   color: var(--color-primary, #00bcd4);
   background: rgba(0, 188, 212, 0.1);
+}
+
+.add-session-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--border-radius, 6px);
+  color: var(--color-text-soft, #9ca3af);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.add-session-btn:hover:not(:disabled) {
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--color-primary, #06b6d4);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+
+.add-session-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-link {

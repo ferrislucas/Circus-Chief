@@ -28,16 +28,11 @@
         :summary="summary"
         :is-deleting="isDeleting"
         :button-statuses="buttonStatusesToDisplay"
-        :session-chain="sessionChain"
-        :active-session-id="currentSessionId"
-        :summaries-map="summariesMap"
-        :has-descendants="hasDescendants"
         @duplicate="handleDuplicate"
         @copySessionId="handleCopySessionId"
         @archive="handleArchive"
         @delete="handleDelete"
         @star="handleStar"
-        @switch-session="handleSwitchSession"
       />
 
       <SessionTabsPanel
@@ -74,6 +69,7 @@
         :session-chain="sessionChain"
         :summaries-map="summariesMap"
         @close="treeOverlayOpen = false"
+        @session-created="buildSessionChain"
       />
     </template>
   </div>
@@ -175,14 +171,20 @@ async function buildSessionChain() {
   }
 
   // Find root
-  const root = sessionsStore.getRootSession(sessionId);
+  let root = sessionsStore.getRootSession(sessionId);
   if (!root) {
-    // Current session is the root itself
+    // getRootSession only searches state.sessions, not currentSession.
+    // If the current page session IS the root (no parentSessionId), it won't
+    // be found there. Fall back to currentSession / getSessionById.
     const current = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
-    if (current) {
+    if (current && !current.parentSessionId) {
+      root = current;
+    } else if (current) {
       sessionChain.value = [current];
+      return;
+    } else {
+      return;
     }
-    return;
   }
 
   // Walk the chain from root through descendants
@@ -441,10 +443,6 @@ async function handleStar() {
   } catch (err) {
     uiStore.error(err.message);
   }
-}
-
-function handleSwitchSession(sessionId) {
-  router.push(`/sessions/${sessionId}/summary`);
 }
 
 async function handleCopySessionId() {
