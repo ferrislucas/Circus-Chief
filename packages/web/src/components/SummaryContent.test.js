@@ -139,7 +139,7 @@ describe('SummaryContent', () => {
       expect(actionItems[0].text()).toContain(baseSummary.keyActions[0]);
     });
 
-    it('displays timestamps under each Key Action', () => {
+    it('does not display timestamps under Key Actions', () => {
       const wrapper = mountComponent();
 
       const keyActionsSection = wrapper.findAll('.summary-section').find((s) => {
@@ -151,8 +151,7 @@ describe('SummaryContent', () => {
 
       actionItems.forEach((item) => {
         const timestamp = item.find('.action-timestamp');
-        expect(timestamp.exists()).toBe(true);
-        expect(timestamp.text()).toBeTruthy();
+        expect(timestamp.exists()).toBe(false);
       });
     });
   });
