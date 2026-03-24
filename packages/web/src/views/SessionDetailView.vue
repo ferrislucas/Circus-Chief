@@ -68,7 +68,7 @@
         :session-id="overlaySessionId"
         :session-chain="sessionChain"
         :summaries-map="summariesMap"
-        @close="treeOverlayOpen = false"
+        @close="handleOverlayClose"
         @session-created="buildSessionChain"
       />
     </template>
@@ -110,6 +110,10 @@ const kanbanStore = useKanbanStore();
 // Reactive session ID that tracks route changes
 // Used by the polling composable to track the current session
 const currentSessionId = ref(route.params.id);
+
+// Set viewedSessionId immediately so that stale in-flight fetchSession requests
+// from a previous session's polling cannot overwrite currentSession.
+sessionsStore.viewedSessionId = route.params.id;
 
 // Use composable for polling and file changes
 const {
@@ -240,6 +244,13 @@ function resolveOverlayTarget(sessionId) {
   }
 }
 
+function handleOverlayClose() {
+  treeOverlayOpen.value = false;
+  // Restore viewedSessionId to the main session after the overlay may have
+  // changed it to a child session.
+  sessionsStore.viewedSessionId = currentSessionId.value;
+}
+
 // Use composable for session initialization and WebSocket management
 const { cleanup, initializeSession } = useSessionInitializer({
   summary,
@@ -334,6 +345,9 @@ watch(
   () => route.params.id,
   async (newSessionId, oldSessionId) => {
     if (newSessionId && newSessionId !== oldSessionId) {
+      // Set viewedSessionId BEFORE cleanup so that any in-flight fetchSession
+      // from the old session's polling is discarded.
+      sessionsStore.viewedSessionId = newSessionId;
       cleanup();
       currentSessionId.value = newSessionId;
       await initializeSession(newSessionId);
@@ -365,6 +379,9 @@ onActivated(() => {
 
 onUnmounted(() => {
   cleanup();
+  // Clear viewedSessionId so other views (e.g., SessionListView) can use
+  // fetchSession without the guard blocking them.
+  sessionsStore.viewedSessionId = null;
 });
 
 async function handleDuplicate() {
