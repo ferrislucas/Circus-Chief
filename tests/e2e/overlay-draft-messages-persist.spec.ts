@@ -70,6 +70,8 @@ test.describe('Overlay: draft session messages persist after completion', () => 
     await handle.click();
     const overlay = page.locator('[data-testid="session-tree-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
+    // Wait for slide-in animation to complete (300ms + buffer)
+    await page.waitForTimeout(400);
     return overlay;
   }
 
