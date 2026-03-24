@@ -130,6 +130,12 @@ function handleKeydown(event) {
 
 <style scoped>
 .session-tree-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  z-index: 20;
+  margin-top: 0.25rem;
   background: var(--color-background-secondary, #1f2937);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   border-radius: 6px;
