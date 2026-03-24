@@ -565,4 +565,5 @@ describe('SessionHeaderPanel', () => {
       });
     });
   });
+
 });
