@@ -77,7 +77,7 @@ describe('CanvasFileViewerHeader', () => {
       const wrapper = mountComponent({ showBackButton: true });
 
       expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
-      expect(wrapper.find('.breadcrumb-back').text()).toBe('← Canvas');
+      expect(wrapper.find('.breadcrumb-back').text()).toBe('← Back to list');
     });
 
     it('hides breadcrumb when showBackButton is false', () => {
@@ -207,6 +207,82 @@ describe('CanvasFileViewerHeader', () => {
       expect(editButton.exists()).toBe(true);
       expect(editButton.element.tagName).toBe('BUTTON');
     });
+
+    it('emits edit event when Edit button is clicked', async () => {
+      const onEdit = vi.fn();
+      const wrapper = mount(CanvasFileViewerHeader, {
+        props: {
+          item: {
+            id: '1',
+            filename: 'test.md',
+            type: 'markdown',
+            updatedAt: Date.now(),
+          },
+          versions: [],
+          showBackButton: true,
+          isEditing: false,
+          onEdit,
+        },
+      });
+
+      const editButton = wrapper.find('.btn-edit-toggle');
+      expect(editButton.exists()).toBe(true);
+      await editButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(onEdit).toHaveBeenCalledTimes(1);
+    });
+
+    it('emits edit event when Done button is clicked (isEditing=true)', async () => {
+      const onEdit = vi.fn();
+      const wrapper = mount(CanvasFileViewerHeader, {
+        props: {
+          item: {
+            id: '1',
+            filename: 'test.md',
+            type: 'markdown',
+            updatedAt: Date.now(),
+          },
+          versions: [],
+          showBackButton: true,
+          isEditing: true,
+          onEdit,
+        },
+      });
+
+      const doneButton = wrapper.find('.btn-edit-toggle');
+      expect(doneButton.text()).toBe('Done');
+
+      await doneButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(onEdit).toHaveBeenCalledTimes(1);
+    });
+
+    it('emits back event when breadcrumb is clicked', async () => {
+      const onBack = vi.fn();
+      const wrapper = mount(CanvasFileViewerHeader, {
+        props: {
+          item: {
+            id: '1',
+            filename: 'test-file.md',
+            type: 'markdown',
+            updatedAt: Date.now(),
+          },
+          versions: [],
+          showBackButton: true,
+          isEditing: false,
+          onBack,
+        },
+      });
+
+      const breadcrumb = wrapper.find('.breadcrumb-back');
+      expect(breadcrumb.exists()).toBe(true);
+      await breadcrumb.trigger('click');
+      await flushAll(wrapper);
+
+      expect(onBack).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('menu functionality', () => {
@@ -264,7 +340,8 @@ describe('CanvasFileViewerHeader', () => {
       const wrapper = mountComponent();
 
       const middleRow = wrapper.find('.viewer-header-middle');
-      expect(middleRow.find('.breadcrumb-container').exists()).toBe(true);
+      // Breadcrumb is directly in middle row (no wrapper container)
+      expect(middleRow.find('.breadcrumb-back').exists()).toBe(true);
       expect(middleRow.find('.header-actions').exists()).toBe(true);
     });
   });
