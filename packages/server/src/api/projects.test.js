@@ -1184,6 +1184,89 @@ describe('Projects API', () => {
     });
   });
 
+  describe('child session git worktree inheritance', () => {
+    it('inherits gitWorktree from parent session instead of calling setupGitForSession', async () => {
+      // Create a parent session that has a gitWorktree
+      const parentSession = sessions.create(projectId, 'Parent Session', 'running');
+      sessions.update(parentSession.id, { gitWorktree: '/tmp/parent-worktree' });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Child prompt',
+        parentSessionId: parentSession.id,
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
+      });
+
+      expect(res.status).toBe(201);
+
+      // setupGitForSession should NOT have been called because parent has a worktree
+      expect(setupGitForSession).not.toHaveBeenCalled();
+
+      // The child session should inherit the parent's gitWorktree
+      const childSession = sessions.getById(res.body.id);
+      expect(childSession.gitWorktree).toBe('/tmp/parent-worktree');
+    });
+
+    it('calls setupGitForSession when parent has no gitWorktree', async () => {
+      // Create a parent session WITHOUT a gitWorktree
+      const parentSession = sessions.create(projectId, 'Parent Session', 'running');
+      sessions.update(parentSession.id, { gitWorktree: null });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Child prompt',
+        parentSessionId: parentSession.id,
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
+      });
+
+      expect(res.status).toBe(201);
+
+      // setupGitForSession SHOULD have been called because parent has no worktree
+      expect(setupGitForSession).toHaveBeenCalledWith({
+        projectDir: tempDir,
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
+        sessionId: res.body.id,
+      });
+    });
+
+    it('calls setupGitForSession when no parentSessionId is provided', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Standalone prompt',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
+      });
+
+      expect(res.status).toBe(201);
+
+      // setupGitForSession should be called for sessions without a parent
+      expect(setupGitForSession).toHaveBeenCalledWith({
+        projectDir: tempDir,
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
+        sessionId: res.body.id,
+      });
+    });
+
+    it('calls setupGitForSession when parent session has no gitWorktree field set', async () => {
+      // Create a parent session that exists but has no gitWorktree at all (undefined/falsy)
+      const parentSession = sessions.create(projectId, 'Parent No Worktree', 'running');
+      // Don't set gitWorktree - it defaults to null
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Child of non-worktree parent',
+        parentSessionId: parentSession.id,
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
+      });
+
+      expect(res.status).toBe(201);
+
+      // setupGitForSession should be called because parent has no gitWorktree
+      expect(setupGitForSession).toHaveBeenCalled();
+    });
+  });
+
   describe('GET /api/projects/:id/sessions with latestCommandRuns', () => {
     let session1Id;
     let session2Id;
