@@ -32,6 +32,7 @@ describe('Canvas Store', () => {
       expect(store.trashedItems).toEqual([]);
       expect(store.loading).toBe(false);
       expect(store.error).toBeNull();
+      expect(store.editingSessionMap).toEqual({});
     });
   });
 
@@ -739,6 +740,65 @@ describe('Canvas Store', () => {
       expect(api.updateCanvasItem).toHaveBeenCalledWith('session-1', 'item-1', { content: 'new' });
       expect(store.items[0].content).toBe('new');
       expect(store.items[0].updatedAt).toBe(2000);
+    });
+
+    it('sets error and throws on API failure', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      api.updateCanvasItem.mockRejectedValue(new Error('Server error'));
+
+      await expect(store.updateItemContent('session-1', 'item-1', 'new')).rejects.toThrow('Server error');
+      expect(store.error).toContain('Failed to update content');
+    });
+
+    it('does not patch the local item on API failure', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      api.updateCanvasItem.mockRejectedValue(new Error('Server error'));
+
+      try {
+        await store.updateItemContent('session-1', 'item-1', 'new');
+      } catch (_e) { /* expected */ }
+
+      // Original content should be preserved
+      expect(store.items[0].content).toBe('old');
+      expect(store.items[0].updatedAt).toBe(1000);
+    });
+
+    it('returns the result from the API', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      const apiResult = { id: 'item-1', content: 'new', updatedAt: 2000 };
+      api.updateCanvasItem.mockResolvedValue(apiResult);
+
+      const result = await store.updateItemContent('session-1', 'item-1', 'new');
+
+      expect(result).toEqual(apiResult);
+    });
+
+    it('handles item not found in local store gracefully', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'other-item', filename: 'other.md', content: 'other', updatedAt: 1000 },
+      ];
+
+      api.updateCanvasItem.mockResolvedValue({ id: 'missing-item', content: 'new', updatedAt: 2000 });
+
+      // Should not throw even if local item is not found
+      const result = await store.updateItemContent('session-1', 'missing-item', 'new');
+
+      expect(result).toBeDefined();
+      // Other item should be untouched
+      expect(store.items[0].content).toBe('other');
     });
   });
 
