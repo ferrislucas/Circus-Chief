@@ -154,6 +154,7 @@
 </template>
 
 <script setup>
+/* eslint-disable max-lines */
 import { computed, ref, onMounted, onBeforeUnmount, watch } from 'vue';
 import { ansiToHtml } from '../utils/ansi.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';

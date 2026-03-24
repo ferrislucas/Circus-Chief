@@ -867,7 +867,7 @@ describe('SessionTreeOverlay', () => {
       wrapper.unmount();
     });
 
-    it('inherits git settings from parent session with branch only', async () => {
+    it('omits git settings when parent has branch but no worktree', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: null });
       api.createSession.mockResolvedValue(newSession);
@@ -882,13 +882,13 @@ describe('SessionTreeOverlay', () => {
       await new Promise(r => setTimeout(r, 50));
 
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
+      // Without a gitWorktree, git params should NOT be sent to avoid
+      // triggering git checkout in directories that may not be git repos
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
         name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
-        gitMode: 'branch',
-        gitBranch: 'feature/parent-branch',
       });
       wrapper.unmount();
     });

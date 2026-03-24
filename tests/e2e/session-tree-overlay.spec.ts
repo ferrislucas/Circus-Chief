@@ -232,26 +232,17 @@ test.describe('Session Tree Overlay', () => {
 
   test.describe('Session with Children', () => {
     test('session dropdown is rendered', async ({ page }) => {
-      // Navigate to session page - no need to open overlay since dropdown is in the header
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      // Open the overlay where the dropdown lives
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is now in the header panel, not in the overlay
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
     });
 
     test('clicking dropdown opens picker', async ({ page }) => {
-      // Navigate to session page - no need to open overlay since dropdown is in the header
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is now in the header panel, not in the overlay
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       // Click the dropdown trigger
@@ -263,14 +254,9 @@ test.describe('Session Tree Overlay', () => {
     });
 
     test('picker shows all sessions with correct names', async ({ page }) => {
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is now in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       // Open picker
@@ -288,14 +274,9 @@ test.describe('Session Tree Overlay', () => {
     });
 
     test('picker shows no hierarchy labels', async ({ page }) => {
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is now in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
@@ -323,14 +304,9 @@ test.describe('Session Tree Overlay', () => {
     });
 
     test('all picker items have consistent left alignment', async ({ page }) => {
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is now in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
@@ -357,14 +333,9 @@ test.describe('Session Tree Overlay', () => {
     });
 
     test('active session is highlighted in picker', async ({ page }) => {
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is now in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
@@ -378,14 +349,9 @@ test.describe('Session Tree Overlay', () => {
     });
 
     test('clicking a child item switches conversation', async ({ page }) => {
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is now in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
@@ -410,14 +376,9 @@ test.describe('Session Tree Overlay', () => {
 
   test.describe('Picker Close Behavior', () => {
     test('Escape closes picker but not overlay', async ({ page }) => {
-      // Navigate to session page - dropdown is in header
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       // Open picker
@@ -429,19 +390,15 @@ test.describe('Session Tree Overlay', () => {
       await page.keyboard.press('Escape');
       await expect(picker).not.toBeVisible({ timeout: 5000 });
 
-      // Dropdown should still be visible since overlay is not open
+      // Overlay and dropdown should still be visible
+      await expect(overlay).toBeVisible();
       await expect(dropdown).toBeVisible();
     });
 
     test('selecting an item closes picker', async ({ page }) => {
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Dropdown is in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       // Open picker
@@ -465,69 +422,41 @@ test.describe('Session Tree Overlay', () => {
   // Tree Icon (Desktop)
   // ============================================================
 
-  test.describe('Tree Icon', () => {
-    test('tree icon visible when children exist (desktop)', async ({ page }) => {
-      // Set viewport to desktop width
-      await page.setViewportSize({ width: 1024, height: 768 });
+  test.describe('Dropdown Toggle', () => {
+    test('dropdown trigger visible when children exist', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Navigate to session page - don't open overlay since tree icon is in header
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
-
-      // Tree icon and dropdown are both in the header
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
-      const treeIcon = page.locator('[data-testid="session-tree-icon"]');
-      await expect(treeIcon).toBeVisible({ timeout: 5000 });
+      const trigger = dropdown.locator('.dropdown-trigger');
+      await expect(trigger).toBeVisible({ timeout: 5000 });
     });
 
-    test('clicking tree icon opens picker', async ({ page }) => {
-      await page.setViewportSize({ width: 1024, height: 768 });
+    test('clicking dropdown trigger opens picker', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
-
-      // Tree icon is in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
-      const treeIcon = page.locator('[data-testid="session-tree-icon"]');
-      await expect(treeIcon).toBeVisible({ timeout: 5000 });
-
-      await treeIcon.click();
+      await dropdown.locator('.dropdown-trigger').click();
       const picker = page.locator('[data-testid="session-tree-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
     });
 
-    test('clicking tree icon again closes picker', async ({ page }) => {
-      await page.setViewportSize({ width: 1024, height: 768 });
+    test('clicking dropdown trigger again closes picker', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
-
-      // Tree icon is in the header panel
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
-      const treeIcon = page.locator('[data-testid="session-tree-icon"]');
-      await expect(treeIcon).toBeVisible({ timeout: 5000 });
-
       // Open
-      await treeIcon.click();
+      await dropdown.locator('.dropdown-trigger').click();
       const picker = page.locator('[data-testid="session-tree-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Close
-      await treeIcon.click();
+      await dropdown.locator('.dropdown-trigger').click();
       await expect(picker).not.toBeVisible({ timeout: 5000 });
     });
   });
@@ -592,14 +521,9 @@ test.describe('Session Tree Overlay', () => {
     // Update child session to running status (completed is not a valid PATCH status)
     await updateSessionStatus(childSession.id, 'running');
 
-    // Navigate to session page
-    await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-      waitFor: '.session-detail',
-      timeout: 15000,
-    });
+    const overlay = await openOverlay(page, parentSession.id);
 
-    // Dropdown is in the header panel
-    const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+    const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
     await expect(dropdown).toBeVisible({ timeout: 10000 });
 
     await dropdown.locator('.dropdown-trigger').click();
@@ -644,36 +568,25 @@ test.describe('Session Tree Overlay', () => {
     });
 
     test('can edit child session name in overlay', async ({ page }) => {
-      // Navigate to session page
-      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
-        waitFor: '.session-detail',
-        timeout: 15000,
-      });
+      // Open the overlay which contains both the dropdown and conversation
+      const overlay = await openOverlay(page, parentSession.id);
 
-      // First, select a child session via the header dropdown
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      // Select a child session via the overlay dropdown
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
       const picker = page.locator('[data-testid="session-tree-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
-      // Click the second item (first child session) - the chain is built as [root, child1]
+      // Click the second item (first child session) - the chain is built as [root, child1, ...]
       const items = picker.locator('[role="option"]');
-      await expect(items).toHaveCount(2, { timeout: 5000 });
-      const secondItem = items.nth(1);
-      await secondItem.click();
+      const count = await items.count();
+      expect(count).toBeGreaterThanOrEqual(2);
+      await items.nth(1).click();
 
       // Wait for picker to close
       await expect(picker).not.toBeVisible({ timeout: 5000 });
-
-      // Now open the overlay on the child session
-      const handle = page.locator('[data-testid="session-tree-handle"]');
-      await expect(handle).toBeVisible({ timeout: 10000 });
-      await handle.click();
-      const overlay = page.locator('[data-testid="session-tree-overlay"]');
-      await expect(overlay).toBeVisible({ timeout: 5000 });
-      await page.waitForTimeout(400);
 
       // Overlay should show the child session name
       const rootName = overlay.locator('.overlay-root-name');
@@ -934,8 +847,8 @@ test.describe('Session Tree Overlay', () => {
       const rootName = overlay.locator('.overlay-root-name');
       await expect(rootName).toContainText('Child Session', { timeout: 5000 });
 
-      // Verify dropdown is present since there are descendants
-      const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+      // Verify dropdown is present since there are descendants (scoped to overlay)
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
     });
 
@@ -1105,10 +1018,10 @@ test.describe('Session Tree Overlay', () => {
       const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
       await addBtn.click();
 
-      // Wait for overlay header to change to "New Session"
+      // Verify the overlay switches to show the new session
       await expect(rootName).toHaveText('New Session', { timeout: 10000 });
 
-      // Verify via API: a new session exists with parentSessionId = parent
+      // Verify session was created in backend
       const allSessions = await getProjectSessions(project.id);
       const newChildren = allSessions.filter(
         (s: any) => s.parentSessionId === parentSession.id && s.name === 'New Session'

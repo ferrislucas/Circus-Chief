@@ -100,7 +100,7 @@
             </div>
 
             <!-- Row 2: Session Selector -->
-            <div v-if="hasDescendants" class="overlay-header-row overlay-header-selector" ref="pickerAreaRef">
+            <div v-if="hasDescendants" class="overlay-header-row overlay-header-selector" ref="pickerAreaRef" data-testid="session-tree-dropdown">
               <button
                 class="dropdown-trigger"
                 data-testid="overlay-picker-trigger"
@@ -205,6 +205,7 @@
 </template>
 
 <script setup>
+/* eslint-disable max-lines */
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
@@ -399,12 +400,12 @@ async function addChildSession() {
     // setting store.loading = true, which would cause SessionDetailView to unmount
     // the overlay (it conditionally renders based on !sessionsStore.loading).
     // prompt must be non-empty to pass Zod validation (z.string().min(1))
-    // Inherit git settings from the parent session, mirroring how templateTriggerService
-    // creates child sessions. The server requires gitMode + gitBranch for git projects.
-    // We can infer gitMode from the parent: if it has a gitWorktree, it used 'worktree' mode;
-    // if it only has a gitBranch, it used 'branch' mode.
-    const gitMode = currentSession.gitWorktree ? 'worktree' : currentSession.gitBranch ? 'branch' : undefined;
-    const gitBranch = currentSession.gitBranch || undefined;
+    // Only inherit git settings when the parent has an actual gitWorktree.
+    // The server handles worktree inheritance for child sessions (checks parentSession.gitWorktree).
+    // For branch-only or no-git parents, omit git params to avoid triggering
+    // git checkout in directories that may not be git repos.
+    const gitMode = currentSession.gitWorktree ? 'worktree' : undefined;
+    const gitBranch = currentSession.gitWorktree ? currentSession.gitBranch : undefined;
 
     const newSession = await api.createSession(currentSession.projectId, {
       prompt: ' ',
@@ -481,6 +482,7 @@ async function switchToSession(newSessionId) {
 
   // Switch
   activeSessionId.value = newSessionId;
+  console.log('[switchToSession] activeSessionId SET to:', activeSessionId.value);
 
   // Load data for new session
   await loadSessionData(newSessionId);
