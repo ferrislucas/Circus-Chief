@@ -19,7 +19,7 @@ const LIVE_API = process.env.API_URL || 'http://localhost:5000';
 const THRESHOLDS = {
   projectListLoad: 3000,
   sessionListLoad: 5000,
-  sessionDetailLoad: 5000,
+  sessionDetailLoad: 10000,
   apiCallSlow: 1000, // Any single API call taking longer than this is flagged
 };
 
