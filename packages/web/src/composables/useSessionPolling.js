@@ -59,6 +59,12 @@ export function useSessionPolling({ getSessionId, getSessionStatus, sessionsStor
           sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId),
           sessionsStore.fetchWorkLogs(sessionId),
         ]);
+        // After the async fetches complete, verify the session hasn't changed.
+        // If the user navigated away during the fetch, stop this (now-stale) polling.
+        if (getSessionId() !== sessionId) {
+          stopPolling();
+          return;
+        }
         // Check for file changes during active session
         checkForChanges();
       } else {

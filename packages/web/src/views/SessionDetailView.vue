@@ -66,7 +66,10 @@
       <SessionTreeOverlay
         v-if="treeOverlayOpen"
         :session-id="overlaySessionId"
-        @close="treeOverlayOpen = false"
+        :session-chain="sessionChain"
+        :summaries-map="summariesMap"
+        @close="handleOverlayClose"
+        @session-created="buildSessionChain"
       />
     </template>
   </div>
@@ -93,6 +96,7 @@ import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb
 import SessionTreeHandle from '../components/SessionTreeHandle.vue';
 import SessionTreeOverlay from '../components/SessionTreeOverlay.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { api } from '../composables/useApi.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -106,6 +110,10 @@ const kanbanStore = useKanbanStore();
 // Reactive session ID that tracks route changes
 // Used by the polling composable to track the current session
 const currentSessionId = ref(route.params.id);
+
+// Set viewedSessionId immediately so that stale in-flight fetchSession requests
+// from a previous session's polling cannot overwrite currentSession.
+sessionsStore.viewedSessionId = route.params.id;
 
 // Use composable for polling and file changes
 const {
@@ -128,6 +136,92 @@ const treeOverlayOpen = ref(false);
 // Session ID to pass to the overlay - resolves to running child if present
 const overlaySessionId = ref(route.params.id);
 
+// Session chain state (lifted from SessionTreeOverlay)
+const sessionChain = ref([]);
+const summariesMap = ref({});
+const hasDescendants = computed(() => sessionChain.value.length > 1);
+
+/**
+ * Build the linear session chain from root to leaf.
+ * Fetches project sessions and summaries for each session in the chain.
+ */
+async function buildSessionChain() {
+  const sessionId = currentSessionId.value;
+  // Ensure the current session is fetched first to populate the hierarchy
+  const currentSession = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
+  if (!currentSession) {
+    try {
+      await sessionsStore.fetchSession(sessionId, false);
+    } catch {
+      return;
+    }
+  }
+
+  // Fetch the project's sessions directly via API to avoid setting store.loading = true
+  // which would interfere with the main SessionDetailView rendering
+  const session = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
+  if (session?.projectId) {
+    try {
+      const projectSessions = await api.getProjectSessions(session.projectId, false, null);
+      // Merge into store without triggering loading state
+      for (const s of projectSessions) {
+        if (!sessionsStore.getSessionById(s.id)) {
+          sessionsStore.sessions.push(s);
+        }
+      }
+    } catch {
+      // Not critical if project sessions fail to load
+    }
+  }
+
+  // Find root
+  let root = sessionsStore.getRootSession(sessionId);
+  if (!root) {
+    // getRootSession only searches state.sessions, not currentSession.
+    // If the current page session IS the root (no parentSessionId), it won't
+    // be found there. Fall back to currentSession / getSessionById.
+    const current = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
+    if (current && !current.parentSessionId) {
+      root = current;
+    } else if (current) {
+      sessionChain.value = [current];
+      return;
+    } else {
+      return;
+    }
+  }
+
+  // Walk the chain from root through descendants
+  const chain = [root];
+  let currentId = root.id;
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const children = sessionsStore.getChildSessions(currentId);
+    if (children.length === 0) break;
+
+    // Follow the first child (linear chain)
+    const child = children[0];
+    chain.push(child);
+    currentId = child.id;
+  }
+
+  sessionChain.value = chain;
+
+  // Fetch summaries for all sessions in the chain (non-blocking)
+  for (const sess of chain) {
+    if (!summariesMap.value[sess.id]) {
+      api.getSessionSummary(sess.id)
+        .then(summary => {
+          if (summary) {
+            summariesMap.value = { ...summariesMap.value, [sess.id]: summary };
+          }
+        })
+        .catch(() => { /* Summaries are not critical */ });
+    }
+  }
+}
+
 /**
  * Resolve the overlay target session ID.
  * If the session has running children, pre-navigate to the most recently updated one.
@@ -148,6 +242,13 @@ function resolveOverlayTarget(sessionId) {
   } else {
     overlaySessionId.value = sessionId;
   }
+}
+
+function handleOverlayClose() {
+  treeOverlayOpen.value = false;
+  // Restore viewedSessionId to the main session after the overlay may have
+  // changed it to a child session.
+  sessionsStore.viewedSessionId = currentSessionId.value;
 }
 
 // Use composable for session initialization and WebSocket management
@@ -226,6 +327,9 @@ onMounted(async () => {
   // Resolve overlay target to pre-navigate to running child if present
   resolveOverlayTarget(currentSessionId.value);
 
+  // Build session chain for picker
+  buildSessionChain();
+
   // Fetch kanban board so SessionHeaderPanel can show lane chip
   const session = sessionsStore.currentSession;
   if (session?.projectId) {
@@ -241,11 +345,16 @@ watch(
   () => route.params.id,
   async (newSessionId, oldSessionId) => {
     if (newSessionId && newSessionId !== oldSessionId) {
+      // Set viewedSessionId BEFORE cleanup so that any in-flight fetchSession
+      // from the old session's polling is discarded.
+      sessionsStore.viewedSessionId = newSessionId;
       cleanup();
       currentSessionId.value = newSessionId;
       await initializeSession(newSessionId);
       // Resolve overlay target to pre-navigate to running child if present
       resolveOverlayTarget(newSessionId);
+      // Rebuild session chain for picker
+      buildSessionChain();
     }
   }
 );
@@ -270,6 +379,9 @@ onActivated(() => {
 
 onUnmounted(() => {
   cleanup();
+  // Clear viewedSessionId so other views (e.g., SessionListView) can use
+  // fetchSession without the guard blocking them.
+  sessionsStore.viewedSessionId = null;
 });
 
 async function handleDuplicate() {
@@ -373,10 +485,12 @@ async function handleCopySessionId() {
   }
 }
 
-// Expose overlaySessionId for testing
+// Expose for testing
 defineExpose({
   overlaySessionId,
-  treeOverlayOpen
+  treeOverlayOpen,
+  sessionChain,
+  summariesMap,
 });
 </script>
 
