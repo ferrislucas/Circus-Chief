@@ -16,6 +16,8 @@ vi.mock('../composables/useApi.js', () => ({
     bulkDeleteCanvasItems: vi.fn(),
     bulkRecoverCanvasItems: vi.fn(),
     bulkPermanentlyDeleteCanvasItems: vi.fn(),
+    updateCanvasItem: vi.fn(),
+    createCanvasItem: vi.fn(),
   },
 }));
 
@@ -30,6 +32,7 @@ describe('Canvas Store', () => {
       expect(store.trashedItems).toEqual([]);
       expect(store.loading).toBe(false);
       expect(store.error).toBeNull();
+      expect(store.editingSessionMap).toEqual({});
     });
   });
 
@@ -670,6 +673,232 @@ describe('Canvas Store', () => {
       store.selectedItemIds.add('1');
 
       expect(store.isPartialSelection).toBe(true);
+    });
+  });
+
+  describe('startEditing action', () => {
+    it('sets the entry in editingSessionMap', () => {
+      const store = useCanvasStore();
+      store.startEditing('test.md', 'item-1');
+      expect(store.editingSessionMap['test.md']).toBe('item-1');
+    });
+  });
+
+  describe('endEditing action', () => {
+    it('clears the entry from editingSessionMap', () => {
+      const store = useCanvasStore();
+      store.editingSessionMap['test.md'] = 'item-1';
+      store.endEditing('test.md');
+      expect(store.editingSessionMap['test.md']).toBeUndefined();
+    });
+
+    it('sets _hasEndedEditing flag for the filename', () => {
+      const store = useCanvasStore();
+      store.editingSessionMap['test.md'] = 'item-1';
+      store.endEditing('test.md');
+      expect(store._hasEndedEditing['test.md']).toBe(true);
+    });
+  });
+
+  describe('patchItem action', () => {
+    it('updates content and updatedAt for a matching item in items', () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      store.patchItem({ id: '1', content: 'new', updatedAt: 2000 });
+
+      expect(store.items[0].content).toBe('new');
+      expect(store.items[0].updatedAt).toBe(2000);
+    });
+
+    it('does nothing when no matching item is found', () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: '1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      store.patchItem({ id: 'nonexistent', content: 'new', updatedAt: 2000 });
+
+      expect(store.items[0].content).toBe('old');
+      expect(store.items[0].updatedAt).toBe(1000);
+    });
+  });
+
+  describe('updateItemContent action', () => {
+    it('calls api.updateCanvasItem and patches the local item', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      api.updateCanvasItem.mockResolvedValue({ id: 'item-1', content: 'new', updatedAt: 2000 });
+
+      await store.updateItemContent('session-1', 'item-1', 'new');
+
+      expect(api.updateCanvasItem).toHaveBeenCalledWith('session-1', 'item-1', { content: 'new' });
+      expect(store.items[0].content).toBe('new');
+      expect(store.items[0].updatedAt).toBe(2000);
+    });
+
+    it('sets error and throws on API failure', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      api.updateCanvasItem.mockRejectedValue(new Error('Server error'));
+
+      await expect(store.updateItemContent('session-1', 'item-1', 'new')).rejects.toThrow('Server error');
+      expect(store.error).toContain('Failed to update content');
+    });
+
+    it('does not patch the local item on API failure', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      api.updateCanvasItem.mockRejectedValue(new Error('Server error'));
+
+      try {
+        await store.updateItemContent('session-1', 'item-1', 'new');
+      } catch (_e) { /* expected */ }
+
+      // Original content should be preserved
+      expect(store.items[0].content).toBe('old');
+      expect(store.items[0].updatedAt).toBe(1000);
+    });
+
+    it('returns the result from the API', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'item-1', filename: 'test.md', content: 'old', updatedAt: 1000 },
+      ];
+
+      const apiResult = { id: 'item-1', content: 'new', updatedAt: 2000 };
+      api.updateCanvasItem.mockResolvedValue(apiResult);
+
+      const result = await store.updateItemContent('session-1', 'item-1', 'new');
+
+      expect(result).toEqual(apiResult);
+    });
+
+    it('handles item not found in local store gracefully', async () => {
+      const store = useCanvasStore();
+      store.items = [
+        { id: 'other-item', filename: 'other.md', content: 'other', updatedAt: 1000 },
+      ];
+
+      api.updateCanvasItem.mockResolvedValue({ id: 'missing-item', content: 'new', updatedAt: 2000 });
+
+      // Should not throw even if local item is not found
+      const result = await store.updateItemContent('session-1', 'missing-item', 'new');
+
+      expect(result).toBeDefined();
+      // Other item should be untouched
+      expect(store.items[0].content).toBe('other');
+    });
+  });
+
+  describe('saveMarkdownContent action', () => {
+    it('always creates a new version (POST) on every save', async () => {
+      const store = useCanvasStore();
+
+      api.createCanvasItem.mockResolvedValue({
+        id: 'new-item',
+        content: 'updated',
+        updatedAt: 2000,
+        filename: 'test.md',
+        type: 'markdown'
+      });
+
+      await store.saveMarkdownContent('session-1', 'test.md', 'updated');
+
+      expect(api.createCanvasItem).toHaveBeenCalledWith('session-1', {
+        type: 'markdown',
+        content: 'updated',
+        filename: 'test.md'
+      });
+      expect(api.updateCanvasItem).not.toHaveBeenCalled();
+    });
+
+    it('creates a new version even when editingSessionMap has an entry', async () => {
+      const store = useCanvasStore();
+      store.editingSessionMap['test.md'] = 'old-item-id';
+
+      api.createCanvasItem.mockResolvedValue({
+        id: 'new-item-id',
+        content: 'new content',
+        updatedAt: 2000,
+        filename: 'test.md',
+        type: 'markdown'
+      });
+
+      await store.saveMarkdownContent('session-1', 'test.md', 'new content', 'old-item-id');
+
+      // Should create new version, not in-place update
+      expect(api.createCanvasItem).toHaveBeenCalled();
+      expect(api.updateCanvasItem).not.toHaveBeenCalled();
+      // Should update editingSessionMap to new item ID
+      expect(store.editingSessionMap['test.md']).toBe('new-item-id');
+    });
+
+    it('updates editingSessionMap with new version ID after successful save', async () => {
+      const store = useCanvasStore();
+
+      api.createCanvasItem.mockResolvedValue({
+        id: 'new-item',
+        content: 'content',
+        updatedAt: 2000,
+        filename: 'test.md',
+        type: 'markdown'
+      });
+
+      await store.saveMarkdownContent('session-1', 'test.md', 'content');
+
+      expect(store.editingSessionMap['test.md']).toBe('new-item');
+    });
+
+    it('adds the new version to the store', async () => {
+      const store = useCanvasStore();
+      store.items = [];
+
+      api.createCanvasItem.mockResolvedValue({
+        id: 'new-item',
+        content: 'content',
+        updatedAt: 2000,
+        filename: 'test.md',
+        type: 'markdown'
+      });
+
+      await store.saveMarkdownContent('session-1', 'test.md', 'content');
+
+      expect(store.items).toHaveLength(1);
+      expect(store.items[0].id).toBe('new-item');
+    });
+
+    it('handles API failure gracefully', async () => {
+      const store = useCanvasStore();
+
+      api.createCanvasItem.mockRejectedValue(new Error('Network error'));
+
+      // Should NOT throw
+      await store.saveMarkdownContent('session-1', 'test.md', 'content');
+
+      expect(store.error).toContain('Failed to save markdown');
+    });
+
+    it('sets error on API failure but does not throw', async () => {
+      const store = useCanvasStore();
+
+      api.createCanvasItem.mockRejectedValue(new Error('Network error'));
+
+      // Should NOT throw
+      await store.saveMarkdownContent('session-1', 'test.md', 'updated');
+
+      expect(store.error).toContain('Failed to save markdown');
     });
   });
 });

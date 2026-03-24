@@ -219,6 +219,21 @@ export class CanvasItemRepository extends BaseRepository {
    * @param {string} sourceSessionId - Source session ID
    * @param {string} targetSessionId - Target session ID
    */
+  /**
+   * Update the content of an existing canvas item in-place
+   * @param {string} itemId
+   * @param {string} content
+   * @returns {Object|undefined} The updated item, or undefined if not found
+   */
+  updateContent(itemId, content) {
+    const now = Date.now();
+    const result = this.db
+      .prepare('UPDATE canvas_items SET content = ?, updated_at = ? WHERE id = ?')
+      .run(content, now, itemId);
+    if (result.changes === 0) return undefined;
+    return this.getById(itemId);
+  }
+
   duplicateForSession(sourceSessionId, targetSessionId) {
     const items = this.getBySessionId(sourceSessionId);
 

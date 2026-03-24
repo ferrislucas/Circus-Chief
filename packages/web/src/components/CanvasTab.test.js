@@ -489,7 +489,7 @@ describe('CanvasTab', () => {
       // Viewer should be shown with explicit selection
       expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       expect(wrapper.text()).toContain('doc.txt');
-      // Back button should always be visible (even with one item)
+      // Back button should always be visible so users can navigate back to the list
       expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
     });
 

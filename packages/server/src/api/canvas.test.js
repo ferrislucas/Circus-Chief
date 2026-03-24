@@ -2214,4 +2214,113 @@ describe('Canvas API', () => {
       expect(res.body.error).toContain('not found in session');
     });
   });
+
+  describe('PUT /:id/canvas/:itemId - Update canvas item content', () => {
+    let sessionId;
+    let app;
+
+    beforeEach(() => {
+      const project = projects.create('Test Project', '/tmp/test');
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, project.id, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+
+      app = express();
+      app.use(express.json());
+      app.use('/api/sessions', canvasRouter);
+    });
+
+    it('returns 200 and updated item when given valid content', async () => {
+      const item = canvasItems.create(sessionId, { type: 'markdown', content: '# Old', filename: 'test.md' });
+
+      const res = await request(app)
+        .put(`/api/sessions/${sessionId}/canvas/${item.id}`)
+        .send({ content: '# New' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('# New');
+      expect(res.body.id).toBe(item.id);
+    });
+
+    it('returns 400 when content is missing from body', async () => {
+      const item = canvasItems.create(sessionId, { type: 'markdown', content: '# Old', filename: 'test.md' });
+
+      const res = await request(app)
+        .put(`/api/sessions/${sessionId}/canvas/${item.id}`)
+        .send({});
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 400 when content is not a string', async () => {
+      const item = canvasItems.create(sessionId, { type: 'markdown', content: '# Old', filename: 'test.md' });
+
+      const res = await request(app)
+        .put(`/api/sessions/${sessionId}/canvas/${item.id}`)
+        .send({ content: 123 });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('returns 404 when session does not exist', async () => {
+      const res = await request(app)
+        .put('/api/sessions/nonexistent-session/canvas/nonexistent-item')
+        .send({ content: 'test' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Session not found');
+    });
+
+    it('returns 404 when itemId does not exist', async () => {
+      const res = await request(app)
+        .put(`/api/sessions/${sessionId}/canvas/nonexistent-item`)
+        .send({ content: 'test' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Canvas item not found');
+    });
+
+    it('returns 400 when item type is not text-based', async () => {
+      const item = canvasItems.create(sessionId, { type: 'image', data: 'base64data', mimeType: 'image/png', filename: 'pic.png' });
+
+      const res = await request(app)
+        .put(`/api/sessions/${sessionId}/canvas/${item.id}`)
+        .send({ content: 'test' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Cannot update content for type');
+    });
+
+    it('returns 400 when item belongs to a different session', async () => {
+      const project2 = projects.create('Other Project', '/tmp/other');
+      const otherSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(otherSessionId, project2.id, 'Other Session', 'running', 'standard', now, now);
+
+      const item = canvasItems.create(otherSessionId, { type: 'markdown', content: '# Other', filename: 'test.md' });
+
+      const res = await request(app)
+        .put(`/api/sessions/${sessionId}/canvas/${item.id}`)
+        .send({ content: 'test' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('does not belong to this session');
+    });
+
+    it('persists the updated content in the database', async () => {
+      const item = canvasItems.create(sessionId, { type: 'text', content: 'old', filename: 'test.txt' });
+
+      await request(app)
+        .put(`/api/sessions/${sessionId}/canvas/${item.id}`)
+        .send({ content: 'new' });
+
+      const updated = canvasItems.getById(item.id);
+      expect(updated.content).toBe('new');
+    });
+  });
 });

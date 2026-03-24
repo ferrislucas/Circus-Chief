@@ -39,6 +39,7 @@ vi.mock('./useWebSocket.js', () => {
         onError: mockHandlerFactory(),
         onCanvasAdd: mockHandlerFactory(),
         onCanvasRemove: mockHandlerFactory(),
+        onCanvasUpdate: mockHandlerFactory(),
         onTodosUpdate: mockHandlerFactory(),
         onSessionUpdate: mockHandlerFactory(),
         onSummaryUpdate: mockHandlerFactory(),
@@ -194,19 +195,20 @@ describe('useSessionInitializer', () => {
       expect(startPolling).not.toHaveBeenCalled();
     });
 
-    it('registers all 21 WebSocket handlers', async () => {
+    it('registers all 22 WebSocket handlers', async () => {
       const { initializeSession } = createInitializer();
       sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
 
       await initializeSession('session-1');
 
-      // Verify all 21 handler registration functions were called
+      // Verify all 22 handler registration functions were called
       expect(mockSubscription.onStatus).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onMessage).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onPartial).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onError).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onCanvasAdd).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onCanvasRemove).toHaveBeenCalledTimes(1);
+      expect(mockSubscription.onCanvasUpdate).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onTodosUpdate).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onSessionUpdate).toHaveBeenCalledTimes(1);
       expect(mockSubscription.onSummaryUpdate).toHaveBeenCalledTimes(1);
