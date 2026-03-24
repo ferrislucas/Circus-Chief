@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'fs/promises';
 import { extname, join, basename } from 'path';
 import { sessions, canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES, UpdateCanvasItemRequest } from '@claudetools/shared';
 import { upload, handleUploadError } from '../middleware/upload.js';
 
 const router = Router();
@@ -294,6 +294,36 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
   broadcastCanvasUpdate(req.params.id, item);
 
   res.status(201).json(item);
+});
+
+// PUT /api/sessions/:id/canvas/:itemId - Update canvas item content in-place
+router.put('/:id/canvas/:itemId', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const parsed = UpdateCanvasItemRequest.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request body', details: parsed.error.issues });
+  }
+
+  const item = canvasItems.getById(req.params.itemId);
+  if (!item) {
+    return res.status(404).json({ error: 'Canvas item not found' });
+  }
+
+  if (item.sessionId !== req.params.id) {
+    return res.status(400).json({ error: 'Canvas item does not belong to this session' });
+  }
+
+  if (!VALID_INLINE_TYPES.includes(item.type)) {
+    return res.status(400).json({ error: `Cannot update content for type: ${item.type}. Editable types: ${VALID_INLINE_TYPES.join(', ')}` });
+  }
+
+  const updatedItem = canvasItems.updateContent(req.params.itemId, parsed.data.content);
+  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_UPDATE, { item: updatedItem });
+  res.json(updatedItem);
 });
 
 // GET /api/sessions/:id/canvas - List canvas items

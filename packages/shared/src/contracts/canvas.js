@@ -18,4 +18,8 @@ export const CanvasItemResponse = z.object({
   updatedAt: z.number(),
 });
 
+export const UpdateCanvasItemRequest = z.object({
+  content: z.string().min(0),
+});
+
 export const CanvasListResponse = z.array(CanvasItemResponse);

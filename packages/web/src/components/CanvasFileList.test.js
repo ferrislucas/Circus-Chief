@@ -82,6 +82,42 @@ describe('CanvasFileList', () => {
       expect(wrapper.find('.file-name').text()).toBe('myfile.txt');
     });
 
+    it('renders two-line layout structure', () => {
+      const wrapper = mountComponent({
+        items: [
+          { id: '1', filename: 'test.txt', type: 'text', createdAt: Date.now() },
+        ],
+      });
+
+      expect(wrapper.find('.file-row-top').exists()).toBe(true);
+      expect(wrapper.find('.file-row-bottom').exists()).toBe(true);
+    });
+
+    it('places filename in top container', () => {
+      const wrapper = mountComponent({
+        items: [
+          { id: '1', filename: 'myfile.txt', type: 'text', createdAt: Date.now() },
+        ],
+      });
+
+      const topRow = wrapper.find('.file-row-top');
+      expect(topRow.find('.file-name').exists()).toBe(true);
+      expect(topRow.find('.file-name').text()).toBe('myfile.txt');
+    });
+
+    it('places controls in bottom container', () => {
+      const wrapper = mountComponent({
+        items: [
+          { id: '1', filename: 'test.txt', type: 'text', createdAt: Date.now() },
+        ],
+      });
+
+      const bottomRow = wrapper.find('.file-row-bottom');
+      expect(bottomRow.find('.file-time').exists()).toBe(true);
+      expect(bottomRow.find('.btn-menu').exists()).toBe(true);
+      expect(bottomRow.find('.file-arrow').exists()).toBe(true);
+    });
+
     it('renders menu button for each item', () => {
       const wrapper = mountComponent({
         items: [
@@ -113,6 +149,16 @@ describe('CanvasFileList', () => {
       });
 
       expect(wrapper.find('.version-badge').exists()).toBe(false);
+    });
+
+    it('displays untitled for missing filename', () => {
+      const wrapper = mountComponent({
+        items: [
+          { id: '1', filename: '', type: 'text', createdAt: Date.now() },
+        ],
+      });
+
+      expect(wrapper.find('.file-name').text()).toBe('Untitled');
     });
   });
 
