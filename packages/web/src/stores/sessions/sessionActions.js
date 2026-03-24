@@ -61,7 +61,18 @@ export const sessionActions = {
     if (showLoading) this.loading = true;
     this.error = null;
     try {
-      this.currentSession = await api.getSession(id);
+      const fetchedSession = await api.getSession(id);
+      // Guard: only set currentSession if the user is still viewing this session.
+      // This prevents stale in-flight requests (e.g., from polling that was active
+      // for a previous session) from overwriting currentSession after navigation.
+      if (this.viewedSessionId && this.viewedSessionId !== id) {
+        // Session changed while we were fetching — discard this result for currentSession
+        // but still update the session in list arrays below.
+        const sessionIndex = this.sessions.findIndex((s) => s.id === id);
+        if (sessionIndex !== -1) this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...fetchedSession };
+        return;
+      }
+      this.currentSession = fetchedSession;
       if (this.currentSession?.parentSessionId) {
         let parentId = this.currentSession.parentSessionId;
         while (parentId) {

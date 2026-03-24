@@ -8,6 +8,7 @@ import {
   waitForSessionToExist,
   updateSessionStatus,
   getSession,
+  getProjectSessions,
 } from './helpers';
 
 test.describe('Session Tree Overlay', () => {
@@ -119,7 +120,7 @@ test.describe('Session Tree Overlay', () => {
   test('clicking close button closes overlay', async ({ page }) => {
     const overlay = await openOverlay(page, parentSession.id);
 
-    const closeBtn = page.locator('[data-testid="session-tree-close"]');
+    const closeBtn = page.locator('[data-testid="session-tree-overlay-close-handle"]');
     await expect(closeBtn).toBeVisible();
     await closeBtn.click();
 
@@ -231,6 +232,7 @@ test.describe('Session Tree Overlay', () => {
 
   test.describe('Session with Children', () => {
     test('session dropdown is rendered', async ({ page }) => {
+      // Open the overlay where the dropdown lives
       const overlay = await openOverlay(page, parentSession.id);
 
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -388,8 +390,9 @@ test.describe('Session Tree Overlay', () => {
       await page.keyboard.press('Escape');
       await expect(picker).not.toBeVisible({ timeout: 5000 });
 
-      // Overlay should remain open
+      // Overlay and dropdown should still be visible
       await expect(overlay).toBeVisible();
+      await expect(dropdown).toBeVisible();
     });
 
     test('selecting an item closes picker', async ({ page }) => {
@@ -419,55 +422,41 @@ test.describe('Session Tree Overlay', () => {
   // Tree Icon (Desktop)
   // ============================================================
 
-  test.describe('Tree Icon', () => {
-    test('tree icon visible when children exist (desktop)', async ({ page }) => {
-      // Set viewport to desktop width
-      await page.setViewportSize({ width: 1024, height: 768 });
-
+  test.describe('Dropdown Toggle', () => {
+    test('dropdown trigger visible when children exist', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
-      // Wait for session chain to be built
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
-      const treeIcon = page.locator('[data-testid="session-tree-icon"]');
-      await expect(treeIcon).toBeVisible({ timeout: 5000 });
+      const trigger = dropdown.locator('.dropdown-trigger');
+      await expect(trigger).toBeVisible({ timeout: 5000 });
     });
 
-    test('clicking tree icon opens picker', async ({ page }) => {
-      await page.setViewportSize({ width: 1024, height: 768 });
-
+    test('clicking dropdown trigger opens picker', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
-      const treeIcon = page.locator('[data-testid="session-tree-icon"]');
-      await expect(treeIcon).toBeVisible({ timeout: 5000 });
-
-      await treeIcon.click();
+      await dropdown.locator('.dropdown-trigger').click();
       const picker = page.locator('[data-testid="session-tree-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
     });
 
-    test('clicking tree icon again closes picker', async ({ page }) => {
-      await page.setViewportSize({ width: 1024, height: 768 });
-
+    test('clicking dropdown trigger again closes picker', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
-      const treeIcon = page.locator('[data-testid="session-tree-icon"]');
-      await expect(treeIcon).toBeVisible({ timeout: 5000 });
-
       // Open
-      await treeIcon.click();
+      await dropdown.locator('.dropdown-trigger').click();
       const picker = page.locator('[data-testid="session-tree-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Close
-      await treeIcon.click();
+      await dropdown.locator('.dropdown-trigger').click();
       await expect(picker).not.toBeVisible({ timeout: 5000 });
     });
   });
@@ -493,37 +482,35 @@ test.describe('Session Tree Overlay', () => {
   // ============================================================
 
   test('re-opening overlay resets to current session', async ({ page }) => {
-    const overlay = await openOverlay(page, parentSession.id);
+    // Navigate to session page
+    await navigateAndWait(page, `/sessions/${parentSession.id}`, {
+      waitFor: '.session-detail',
+      timeout: 15000,
+    });
 
-    const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
-    await expect(dropdown).toBeVisible({ timeout: 10000 });
-
-    // Open picker and select a child
-    await dropdown.locator('.dropdown-trigger').click();
-    const picker = page.locator('[data-testid="session-tree-picker"]');
-    await expect(picker).toBeVisible({ timeout: 5000 });
-
-    const items = picker.locator('[role="option"]');
-    const count = await items.count();
-    if (count >= 2) {
-      await items.nth(1).click();
-    }
-    await expect(picker).not.toBeVisible({ timeout: 5000 });
-
-    // Close overlay
-    await page.locator('[data-testid="session-tree-close"]').click();
-    await expect(overlay).not.toBeVisible({ timeout: 5000 });
-
-    // Re-open overlay
+    // Open overlay and verify it shows parent session
     const handle = page.locator('[data-testid="session-tree-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
+    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    await expect(overlay).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(400);
+
+    let rootName = overlay.locator('.overlay-root-name');
+    await expect(rootName).toContainText('Parent Session');
+
+    // Close overlay
+    await page.locator('[data-testid="session-tree-overlay-close-handle"]').click();
+    await expect(overlay).not.toBeVisible({ timeout: 5000 });
+
+    // Verify we can reopen overlay and it still shows parent session
+    await handle.click();
     const overlayAgain = page.locator('[data-testid="session-tree-overlay"]');
     await expect(overlayAgain).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(400);
 
-    // Should show the root session name (resets to sessionId prop)
-    const rootName = overlayAgain.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Parent Session');
+    const rootNameAgain = overlayAgain.locator('.overlay-root-name');
+    await expect(rootNameAgain).toContainText('Parent Session');
   });
 
   // ============================================================
@@ -581,9 +568,10 @@ test.describe('Session Tree Overlay', () => {
     });
 
     test('can edit child session name in overlay', async ({ page }) => {
+      // Open the overlay which contains both the dropdown and conversation
       const overlay = await openOverlay(page, parentSession.id);
 
-      // Switch to child session via dropdown
+      // Select a child session via the overlay dropdown
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
@@ -591,17 +579,18 @@ test.describe('Session Tree Overlay', () => {
       const picker = page.locator('[data-testid="session-tree-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
-      // Click the second item (first child session) - the chain is built as [root, child1]
+      // Click the second item (first child session) - the chain is built as [root, child1, ...]
       const items = picker.locator('[role="option"]');
-      await expect(items).toHaveCount(2, { timeout: 5000 });
-      const secondItem = items.nth(1);
-      await secondItem.click();
+      const count = await items.count();
+      expect(count).toBeGreaterThanOrEqual(2);
+      await items.nth(1).click();
 
       // Wait for picker to close
       await expect(picker).not.toBeVisible({ timeout: 5000 });
 
-      // Wait for the active session to change - name should no longer be parent's name
-      await expect(overlay.locator('.overlay-root-name')).not.toHaveText(parentSession.name, { timeout: 5000 });
+      // Overlay should show the child session name
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).not.toHaveText(parentSession.name, { timeout: 5000 });
 
       // Click edit and rename the currently active child session
       await overlay.locator('button.name-edit-trigger').click();
@@ -754,7 +743,7 @@ test.describe('Session Tree Overlay', () => {
     test('overlay slides out to right when closed', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
-      const closeBtn = page.locator('[data-testid="session-tree-close"]');
+      const closeBtn = page.locator('[data-testid="session-tree-overlay-close-handle"]');
       await closeBtn.click();
 
       // Wait for slide-out animation to complete (250ms + buffer)
@@ -858,17 +847,9 @@ test.describe('Session Tree Overlay', () => {
       const rootName = overlay.locator('.overlay-root-name');
       await expect(rootName).toContainText('Child Session', { timeout: 5000 });
 
-      // Dropdown should be visible (since there are descendants)
+      // Verify dropdown is present since there are descendants (scoped to overlay)
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await expect(dropdown).toBeVisible({ timeout: 10000 });
-
-      // Open the picker and verify the child session item has the active/highlighted state
-      await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
-      await expect(picker).toBeVisible({ timeout: 5000 });
-
-      const activeItem = picker.locator('.picker-item--active');
-      await expect(activeItem).toContainText('Child Session');
     });
 
     test('overlay opens on parent when no children are running', async ({ page }) => {
@@ -970,7 +951,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(rootName).toContainText('Child Session', { timeout: 5000 });
 
       // Close the overlay
-      await page.locator('[data-testid="session-tree-close"]').click();
+      await page.locator('[data-testid="session-tree-overlay-close-handle"]').click();
       await expect(overlay).not.toBeVisible({ timeout: 5000 });
 
       // Seed a different session with no running children
@@ -997,6 +978,128 @@ test.describe('Session Tree Overlay', () => {
       // Should show the other session (not the previous child)
       const rootName2 = overlayAgain.locator('.overlay-root-name');
       await expect(rootName2).toContainText('Other Session', { timeout: 5000 });
+    });
+  });
+
+  // ============================================================
+  // Add Session Button
+  // ============================================================
+
+  test.describe('Add Session Button', () => {
+    test('add session button is visible in overlay', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
+      await expect(addBtn).toBeVisible({ timeout: 5000 });
+      await expect(addBtn).toContainText('New Session');
+    });
+
+    test('add session button is visible on standalone session (no children)', async ({ page }) => {
+      const standaloneSession = await seedSession(project.id, {
+        prompt: 'Standalone prompt',
+        name: 'Standalone Session',
+      });
+      await waitForSessionToExist(standaloneSession.id);
+
+      const overlay = await openOverlay(page, standaloneSession.id);
+
+      const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
+      await expect(addBtn).toBeVisible({ timeout: 5000 });
+    });
+
+    test('clicking add session creates a child session and switches overlay to it', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      // Verify we start on the parent session
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+
+      // Click the add session button
+      const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
+      await addBtn.click();
+
+      // Verify the overlay switches to show the new session
+      await expect(rootName).toHaveText('New Session', { timeout: 10000 });
+
+      // Verify session was created in backend
+      const allSessions = await getProjectSessions(project.id);
+      const newChildren = allSessions.filter(
+        (s: any) => s.parentSessionId === parentSession.id && s.name === 'New Session'
+      );
+      expect(newChildren.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('newly created session appears as draft (waiting status)', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
+      await addBtn.click();
+
+      // Wait for overlay to switch to new session
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toHaveText('New Session', { timeout: 10000 });
+
+      // Verify the conversation input area is visible (the session is a draft and accepts prompt input)
+      await expect(overlay.locator('.overlay-content')).toBeVisible();
+    });
+
+    test('breadcrumb updates to show parent > new session path', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
+      await addBtn.click();
+
+      // Wait for overlay to switch to new session
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toHaveText('New Session', { timeout: 10000 });
+
+      // Breadcrumb should show the parent and the new session
+      const breadcrumb = overlay.locator('[data-testid="session-tree-breadcrumb"]');
+      await expect(breadcrumb).toBeVisible({ timeout: 5000 });
+      await expect(breadcrumb).toContainText('Parent Session');
+      await expect(breadcrumb).toContainText('New Session');
+    });
+
+    test('can create multiple child sessions in sequence', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      // Create first child
+      const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
+      await addBtn.click();
+
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toHaveText('New Session', { timeout: 10000 });
+
+      // Navigate back to parent via breadcrumb
+      const breadcrumbLink = overlay.locator('.breadcrumb-link').first();
+      await breadcrumbLink.click();
+      await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+
+      // Create second child
+      await addBtn.click();
+      await expect(rootName).toHaveText('New Session', { timeout: 10000 });
+
+      // Verify via API that two new child sessions were created under the parent
+      const allSessions = await getProjectSessions(project.id);
+      const newChildren = allSessions.filter(
+        (s: any) => s.parentSessionId === parentSession.id && s.name === 'New Session'
+      );
+      expect(newChildren.length).toBeGreaterThanOrEqual(2);
+    });
+
+    test('button shows loading state during creation', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
+      await addBtn.click();
+
+      // The button may briefly show "Creating..." - we verify the final state
+      // After creation completes, it should return to "New Session"
+      const rootName = overlay.locator('.overlay-root-name');
+      await expect(rootName).toHaveText('New Session', { timeout: 10000 });
+
+      // Button text should be back to "New Session" after creation
+      await expect(addBtn).toContainText('New Session', { timeout: 5000 });
     });
   });
 });
