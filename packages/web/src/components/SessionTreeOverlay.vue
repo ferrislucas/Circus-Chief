@@ -390,6 +390,8 @@ async function loadSessionData(sessionId) {
     // This is critical because ConversationTab reads sessionsStore.currentSession for
     // isDraft checks, status watchers, etc. Without this, currentSession could remain
     // pointed at the parent session after switching to a child in the overlay.
+    // Update viewedSessionId so the fetchSession guard allows setting currentSession.
+    sessionsStore.viewedSessionId = sessionId;
     await sessionsStore.fetchSession(sessionId, false);
     // Fetch conversations for this session
     await sessionsStore.fetchConversations(sessionId);
