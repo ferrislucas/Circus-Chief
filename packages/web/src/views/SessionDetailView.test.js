@@ -81,6 +81,10 @@ vi.mock('../composables/useApi.js', () => ({
     getSession: vi.fn(),
     getConversations: vi.fn(),
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
+    getKanbanBoard: vi.fn().mockResolvedValue(null),
+    getProjectSessions: vi.fn().mockResolvedValue([]),
+    getProjectTemplates: vi.fn().mockResolvedValue([]),
+    getCommandButtons: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -136,8 +140,11 @@ describe('SessionDetailView', () => {
   let sessionsStore;
   let canvasStore;
   let todosStore;
+  // Track mounted wrappers for cleanup to prevent memory leaks (OOM)
+  let mountedWrappers = [];
 
   beforeEach(() => {
+    vi.useFakeTimers();
     pinia = createPinia();
     setActivePinia(pinia);
 
@@ -162,7 +169,26 @@ describe('SessionDetailView', () => {
 
     // Mock window.confirm
     window.confirm = vi.fn(() => true);
+
+    mountedWrappers = [];
   });
+
+  afterEach(() => {
+    // Unmount all wrappers to clean up polling intervals, watchers, and subscriptions
+    for (const w of mountedWrappers) {
+      try { w.unmount(); } catch { /* already unmounted */ }
+    }
+    mountedWrappers = [];
+    // Restore real timers to clear any fake timer state
+    vi.useRealTimers();
+  });
+
+  // Helper that mounts and tracks wrapper for automatic cleanup
+  function trackedMount(...args) {
+    const wrapper = mount(...args);
+    mountedWrappers.push(wrapper);
+    return wrapper;
+  }
 
   describe('tabs configuration', () => {
     it('does not include Notes tab in tab list', async () => {
@@ -175,7 +201,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -211,7 +237,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -244,7 +270,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -278,7 +304,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -310,7 +336,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -342,7 +368,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -377,7 +403,7 @@ describe('SessionDetailView', () => {
       // Clear previous calls to isolate this test
       canvasStore.fetchItems.mockClear();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -410,7 +436,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -444,7 +470,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -476,7 +502,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -512,7 +538,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -547,7 +573,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -625,7 +651,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -660,7 +686,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -688,7 +714,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -725,7 +751,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -759,7 +785,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -829,7 +855,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -868,7 +894,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -940,7 +966,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -998,7 +1024,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1033,7 +1059,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1070,7 +1096,7 @@ describe('SessionDetailView', () => {
       todosStore.error = null;
       todosStore.loading = false;
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1104,7 +1130,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1137,7 +1163,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1184,7 +1210,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1217,7 +1243,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1256,7 +1282,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1295,7 +1321,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1331,7 +1357,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1371,7 +1397,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1412,7 +1438,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1449,7 +1475,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1497,7 +1523,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1562,7 +1588,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1603,7 +1629,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1646,7 +1672,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1694,7 +1720,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1727,7 +1753,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1760,7 +1786,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1793,7 +1819,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1825,7 +1851,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1858,7 +1884,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1891,7 +1917,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1923,7 +1949,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1956,7 +1982,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -1990,7 +2016,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2024,7 +2050,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2068,7 +2094,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-123');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2103,7 +2129,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2144,7 +2170,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2181,7 +2207,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2216,7 +2242,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2258,7 +2284,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2292,7 +2318,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2329,9 +2355,11 @@ describe('SessionDetailView', () => {
         { id: 'child-2', parentId: 'session-1', name: 'Child 2' },
       ];
 
-      // Mock sessionsStore.getChildSessions to return child sessions
-      // getChildSessions is a getter that returns a function: getChildSessions(parentId)
-      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue((parentId) => childSessions);
+      // Mock sessionsStore.getChildSessions to return child sessions only for the parent.
+      // Must return [] for child IDs to prevent infinite loop in buildSessionChain.
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'session-1' ? childSessions : []
+      );
 
       // Mock API to return summaries (prevent actual API calls)
       api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
@@ -2346,7 +2374,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2371,7 +2399,10 @@ describe('SessionDetailView', () => {
         { id: 'child-1', parentId: 'session-1', name: 'Child 1' },
       ];
 
-      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue((parentId) => childSessions);
+      // Return children only for the parent to prevent infinite loop in buildSessionChain
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'session-1' ? childSessions : []
+      );
 
       // Mock API to reject (summary doesn't exist)
       api.getSessionSummary.mockRejectedValue(new Error('Summary not found'));
@@ -2386,7 +2417,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2420,7 +2451,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2456,8 +2487,10 @@ describe('SessionDetailView', () => {
         createdAt: Date.now(),
       };
 
-      // Mock getChildSessions to return the child session
-      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => [childSession]);
+      // Mock getChildSessions to return the child session only for parent
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'session-1' ? [childSession] : []
+      );
 
       api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
 
@@ -2478,7 +2511,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1/summary');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2516,7 +2549,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2548,7 +2581,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2580,7 +2613,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2611,7 +2644,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2642,7 +2675,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2673,7 +2706,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2704,7 +2737,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2735,7 +2768,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2769,7 +2802,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2808,7 +2841,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session name to SessionHeaderPanel', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2834,7 +2867,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for edit mode', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2859,7 +2892,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes sessionId to SessionHeaderPanel for save functionality', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2881,7 +2914,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for Enter key save', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2903,7 +2936,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for Escape cancel', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2926,7 +2959,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for cancel button', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2948,7 +2981,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for empty name validation', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2970,7 +3003,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for whitespace trimming', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2992,7 +3025,7 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for API error handling', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3014,7 +3047,7 @@ describe('SessionDetailView', () => {
     });
 
     it('does not show name-edit-form in SessionHeaderPanel mock when not editing', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3030,7 +3063,7 @@ describe('SessionDetailView', () => {
     });
 
     it('SessionHeaderPanel receives session for clear button editing', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3047,7 +3080,7 @@ describe('SessionDetailView', () => {
     });
 
     it('SessionHeaderPanel receives session for clear input behavior', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3064,7 +3097,7 @@ describe('SessionDetailView', () => {
     });
 
     it('SessionHeaderPanel receives session for clear without save', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3098,7 +3131,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3131,7 +3164,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3166,7 +3199,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3198,7 +3231,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3231,7 +3264,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -3264,7 +3297,7 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
