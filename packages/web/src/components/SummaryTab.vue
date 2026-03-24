@@ -7,9 +7,23 @@
     />
 
     <!-- Session Overview Section -->
-    <div v-if="hasPrInfo" class="session-overview card">
+    <div v-if="hasPrInfo || summary?.shortSummary || loading" class="session-overview card">
       <div class="overview-header">
         <h3>Session Overview</h3>
+      </div>
+
+      <!-- Summary in Overview -->
+      <div v-if="summary?.shortSummary" class="overview-summary">
+        <p class="summary-text">{{ summary.shortSummary }}</p>
+        <div v-if="filesCount > 0" class="summary-meta">
+          <span class="summary-files">
+            {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
+          </span>
+        </div>
+      </div>
+      <div v-else-if="loading" class="overview-summary overview-summary-loading">
+        <span class="loading-spinner-small"></span>
+        <span>Loading summary...</span>
       </div>
 
       <!-- PR Info in Overview -->
@@ -155,6 +169,7 @@ const summary = ref(null);
 const loading = ref(false);
 const generating = ref(false);
 const generatingManual = ref(false);
+const filesCount = ref(0);
 
 // Computed property to get the session's prUrl
 // Check both sessions array and currentSession (the latter is always populated on session detail page)
@@ -214,6 +229,17 @@ onMounted(async () => {
   loading.value = true;
   try {
     summary.value = await api.getSessionSummary(props.sessionId);
+
+    // Fetch files count
+    try {
+      const result = await api.getSessionFilesCount(props.sessionId);
+      filesCount.value = result.count || 0;
+    } catch (error) {
+      console.warn('Failed to fetch files count:', error);
+      if (summary.value?.filesModified?.length) {
+        filesCount.value = summary.value.filesModified.length;
+      }
+    }
   } catch (err) {
     // Don't show error for missing summary
     if (!err.message.includes('404')) {
@@ -290,6 +316,52 @@ async function handleRegenerate() {
   margin: 0;
   font-size: 1rem;
   font-weight: 600;
+}
+
+.overview-summary {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.overview-summary-loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-soft);
+  font-size: 0.875rem;
+}
+
+.overview-summary .summary-text {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+.overview-summary .summary-meta {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.overview-summary .summary-files {
+  opacity: 0.8;
+}
+
+.loading-spinner-small {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .status-badge {
