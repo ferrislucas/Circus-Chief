@@ -1047,4 +1047,109 @@ describe('SessionTreeOverlay', () => {
       wrapper.unmount();
     });
   });
+
+  describe('active session spinner indicator', () => {
+    it('shows spinner when session is running', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'running' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'running' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const spinner = document.querySelector('.active-spinner');
+      expect(spinner).toBeTruthy();
+      wrapper.unmount();
+    });
+
+    it('shows spinner when session is starting', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'starting' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'starting' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const spinner = document.querySelector('.active-spinner');
+      expect(spinner).toBeTruthy();
+      wrapper.unmount();
+    });
+
+    it('does not show spinner when session is waiting', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'waiting' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'waiting' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const spinner = document.querySelector('.active-spinner');
+      expect(spinner).toBeFalsy();
+      wrapper.unmount();
+    });
+
+    it('does not show spinner when session is completed', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'completed' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'completed' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const spinner = document.querySelector('.active-spinner');
+      expect(spinner).toBeFalsy();
+      wrapper.unmount();
+    });
+
+    it('does not show spinner when session is error', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'error' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'error' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const spinner = document.querySelector('.active-spinner');
+      expect(spinner).toBeFalsy();
+      wrapper.unmount();
+    });
+
+    it('close handle ARIA label reflects running session status', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'running' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'running' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      expect(handle.getAttribute('aria-label')).toBe('Session running...');
+      expect(handle.getAttribute('title')).toBe('Session running...');
+      wrapper.unmount();
+    });
+
+    it('close handle ARIA label reflects starting session status', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'starting' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'starting' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      expect(handle.getAttribute('aria-label')).toBe('Session starting...');
+      expect(handle.getAttribute('title')).toBe('Session starting...');
+      wrapper.unmount();
+    });
+
+    it('close handle ARIA label is "Close session tree" for inactive sessions', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'waiting' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'waiting' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      expect(handle.getAttribute('aria-label')).toBe('Close session tree');
+      expect(handle.getAttribute('title')).toBe('Close session tree');
+      wrapper.unmount();
+    });
+
+    it('spinner has correct title for running status', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'running' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'running' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const spinner = document.querySelector('.active-spinner');
+      expect(spinner.getAttribute('title')).toBe('Session running...');
+      wrapper.unmount();
+    });
+
+    it('spinner has correct title for starting status', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'starting' });
+      mockSessionsStore.currentSession = { ...rootSession, status: 'starting' };
+      const wrapper = mountOverlay();
+      await nextTick();
+      const spinner = document.querySelector('.active-spinner');
+      expect(spinner.getAttribute('title')).toBe('Session starting...');
+      wrapper.unmount();
+    });
+  });
 });
