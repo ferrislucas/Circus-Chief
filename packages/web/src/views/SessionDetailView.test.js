@@ -55,8 +55,8 @@ vi.mock('../components/SessionTreeOverlay.vue', () => ({
   default: {
     name: 'SessionTreeOverlay',
     template: '<div class="tree-overlay">Tree Overlay</div>',
-    props: ['sessionId'],
-    emits: ['close']
+    props: ['sessionId', 'sessionChain', 'summariesMap'],
+    emits: ['close', 'session-created']
   }
 }));
 vi.mock('../components/SessionHeaderPanel.vue', () => ({
@@ -3322,6 +3322,225 @@ describe('SessionDetailView', () => {
       const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
       expect(treeOverlay.exists()).toBe(true);
       expect(treeOverlay.props('sessionId')).toBe('child-1'); // Should be the running child
+    });
+  });
+
+  describe('buildSessionChain', () => {
+    it('builds session chain from root through descendants', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+      };
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession, childSession];
+
+      // Mock getChildSessions to return child only for parent
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'parent-1' ? [childSession] : []
+      );
+
+      // Mock getRootSession to return the parent
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(
+        () => parentSession
+      );
+
+      api.getProjectSessions.mockResolvedValue([parentSession, childSession]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // sessionChain should be built with root and child
+      expect(wrapper.vm.sessionChain.length).toBe(2);
+      expect(wrapper.vm.sessionChain[0].id).toBe('parent-1');
+      expect(wrapper.vm.sessionChain[1].id).toBe('child-1');
+    });
+
+    it('passes sessionChain and summariesMap to SessionTreeOverlay', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+      };
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession, childSession];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'parent-1' ? [childSession] : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(
+        () => parentSession
+      );
+
+      api.getProjectSessions.mockResolvedValue([parentSession, childSession]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Open the overlay
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      expect(treeOverlay.exists()).toBe(true);
+      expect(treeOverlay.props('sessionChain')).toEqual(wrapper.vm.sessionChain);
+      expect(treeOverlay.props('summariesMap')).toEqual(wrapper.vm.summariesMap);
+    });
+
+    it('rebuilds session chain when session-created event is emitted', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => []);
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => parentSession);
+
+      api.getProjectSessions.mockResolvedValue([parentSession]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Initially chain has just the root
+      expect(wrapper.vm.sessionChain.length).toBe(1);
+
+      // Simulate a new child being created
+      const newChild = {
+        id: 'new-child',
+        name: 'New Child',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+      };
+      sessionsStore.sessions.push(newChild);
+
+      // Update mocks to include new child
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'parent-1' ? [newChild] : []
+      );
+      api.getProjectSessions.mockResolvedValue([parentSession, newChild]);
+
+      // Open overlay and emit session-created
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      treeOverlay.vm.$emit('session-created', 'new-child');
+      await flushPromises();
+      await nextTick();
+
+      // Session chain should now include the new child
+      expect(wrapper.vm.sessionChain.length).toBe(2);
+      expect(wrapper.vm.sessionChain[1].id).toBe('new-child');
+    });
+
+    it('fetches summaries for sessions in the chain', async () => {
+      // Switch to real timers so async summary fetches (.then chains) resolve naturally
+      vi.useRealTimers();
+
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => []);
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => parentSession);
+
+      api.getProjectSessions.mockResolvedValue([parentSession]);
+      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Parent summary' });
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      // Allow async summary fetches to resolve
+      await new Promise(r => setTimeout(r, 50));
+      await flushPromises();
+
+      // getSessionSummary should have been called for the session in the chain
+      expect(api.getSessionSummary).toHaveBeenCalledWith('parent-1');
     });
   });
 });
