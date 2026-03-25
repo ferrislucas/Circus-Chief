@@ -375,6 +375,67 @@ describe('ConversationTab - Model Initialization Bug', () => {
     });
   });
 
+  describe('Draft handleFormSubmit uses selectedModel.value over pendingModel', () => {
+    /**
+     * This test surfaces the bug where handleFormSubmit() for draft sessions
+     * reads from session.pendingModel instead of selectedModel.value (the UI dropdown).
+     *
+     * Scenario:
+     * 1. Session created with model 'claude-sonnet-4-20250514' (stored as both model and pendingModel)
+     * 2. User changes dropdown to 'claude-opus-4-6-20250616'
+     * 3. handleFormSubmit() should send 'claude-opus-4-6-20250616', not 'claude-sonnet-4-20250514'
+     *
+     * BUG (before fix): handleFormSubmit used session.pendingModel || session.model,
+     * ignoring the dropdown state entirely.
+     */
+    it('should use the dropdown model when user changes it, not the stale pendingModel', async () => {
+      // Setup: Draft session with sonnet as both model and pendingModel
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        model: 'sonnet',
+        pendingModel: 'sonnet',
+        projectId: 'proj-1',
+        mode: 'standard',
+      };
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        sessionId: 'sess-123',
+        isActive: true,
+      };
+      mockSessionsStore.activeConversationId = 'conv-1';
+      // Mark session as draft so handleFormSubmit() takes the draft path
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Model selector should be initialized to sonnet
+      const modelSelector = wrapper.findComponent(ModelSelector);
+      expect(modelSelector.exists()).toBe(true);
+      expect(modelSelector.props('modelValue')).toBe('sonnet');
+
+      // Simulate user changing the dropdown to opus
+      modelSelector.vm.$emit('update:modelValue', 'opus');
+      await flushAll(wrapper);
+
+      // Type a message and submit
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('Test prompt');
+      await flushAll(wrapper);
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      // startSession should receive the dropdown model ('opus'), not the stale pendingModel ('sonnet')
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
+        'sess-123',
+        'Test prompt',
+        'opus'
+      );
+    });
+  });
+
   describe('Model selection when sending messages', () => {
     it('should send message with a valid model even when activeConversation is null', async () => {
       // Setup: No active conversation
