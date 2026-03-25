@@ -196,6 +196,54 @@ describe('Sessions Store', () => {
       expect(store.error).toBe('API Error');
       expect(store.currentSession.model).toBe('claude-sonnet-4-6');
     });
+
+    it('includes pendingModel in PATCH for draft (waiting) sessions', async () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-6', status: 'waiting' };
+      store.sessions = [{ id: 'session-1', model: 'claude-sonnet-4-6', status: 'waiting' }];
+
+      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-6', pendingModel: 'claude-opus-4-6' });
+
+      await store.updateSessionModel('session-1', 'claude-opus-4-6');
+
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        model: 'claude-opus-4-6',
+        pendingModel: 'claude-opus-4-6',
+      });
+    });
+
+    it('does not include pendingModel in PATCH for running sessions', async () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-6', status: 'running' };
+      store.sessions = [{ id: 'session-1', model: 'claude-sonnet-4-6', status: 'running' }];
+
+      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-6' });
+
+      await store.updateSessionModel('session-1', 'claude-opus-4-6');
+
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        model: 'claude-opus-4-6',
+      });
+    });
+
+    it('finds draft session via currentSession when not in sessions list', async () => {
+      const store = useSessionsStore();
+
+      // Session is only in currentSession, not in the sessions array
+      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-6', status: 'waiting' };
+      store.sessions = [];
+
+      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-6', pendingModel: 'claude-opus-4-6' });
+
+      await store.updateSessionModel('session-1', 'claude-opus-4-6');
+
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        model: 'claude-opus-4-6',
+        pendingModel: 'claude-opus-4-6',
+      });
+    });
   });
 
   describe('updateSessionStatus', () => {
