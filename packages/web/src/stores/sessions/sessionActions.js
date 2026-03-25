@@ -206,6 +206,15 @@ export const sessionActions = {
     try {
       const updateData = { model };
       if (providerId !== undefined) updateData.providerId = providerId;
+
+      // For draft sessions, also update pendingModel so the backend
+      // fallback chain in draftSessionService.startDraft() stays in sync
+      const session = this.sessions.find(s => s.id === sessionId)
+        || (this.currentSession?.id === sessionId ? this.currentSession : null);
+      if (session && session.status === 'waiting') {
+        updateData.pendingModel = model;
+      }
+
       const updated = await api.updateSession(sessionId, updateData);
       this._updateSessionInAllLists(sessionId, updateData);
       return updated;

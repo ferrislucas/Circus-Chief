@@ -430,7 +430,8 @@ async function handleFormSubmit() {
   if (isDraft.value || isScheduledDraft.value) {
     const textareaRef = inputFormRef.value?.textareaRef;
     const currentValue = textareaRef?.value || input.value;
-    const sessionModel = sessionsStore.currentSession?.pendingModel
+    const sessionModel = selectedModel.value
+      || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
     await handleStart(currentValue, sessionModel);
   } else {
