@@ -1,5 +1,5 @@
 <template>
-  <div v-if="!isSessionRunning && conversations.length > 1" class="conversation-panel">
+  <div v-if="!isSessionRunning" class="conversation-panel">
     <!-- Compact header: conversation selector + new button -->
     <div class="panel-header">
       <div class="header-row">
