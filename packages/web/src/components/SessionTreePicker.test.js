@@ -128,8 +128,8 @@ describe('SessionTreePicker', () => {
       expect(items[0].find('.picker-item-status').text()).toBe('● Running');
       // Item at index 1 (completed) should have no status badge
       expect(items[1].find('.picker-item-status').exists()).toBe(false);
-      // Item at index 2 (error) should have error status badge
-      expect(items[2].find('.picker-item-status').text()).toBe('⚠ Error');
+      // Item at index 2 (error) should have no status badge
+      expect(items[2].find('.picker-item-status').exists()).toBe(false);
     });
 
     it('all items have consistent alignment regardless of count', () => {
@@ -242,13 +242,11 @@ describe('SessionTreePicker', () => {
       expect(status.classes()).toContain('status-scheduled');
     });
 
-    it('shows ⚠ Error for error status', () => {
+    it('shows no status badge for error status', () => {
       const wrapper = mountComponent({
         sessions: [{ ...sessions[0], status: 'error' }],
       });
-      const status = wrapper.find('.picker-item-status');
-      expect(status.text()).toBe('⚠ Error');
-      expect(status.classes()).toContain('status-error');
+      expect(wrapper.find('.picker-item-status').exists()).toBe(false);
     });
 
     it('shows no status badge for completed status', () => {
