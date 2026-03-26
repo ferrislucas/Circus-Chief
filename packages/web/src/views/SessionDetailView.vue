@@ -244,11 +244,16 @@ function resolveOverlayTarget(sessionId) {
   }
 }
 
-function handleOverlayClose() {
+async function handleOverlayClose() {
   treeOverlayOpen.value = false;
-  // Restore viewedSessionId to the main session after the overlay may have
-  // changed it to a child session.
-  sessionsStore.viewedSessionId = currentSessionId.value;
+  const parentId = currentSessionId.value;
+  sessionsStore.viewedSessionId = parentId;
+
+  // Restore parent session's data since the overlay may have overwritten
+  // currentSession, activeConversationId, conversations, and messages
+  await sessionsStore.fetchSession(parentId, false);
+  await sessionsStore.fetchConversations(parentId);
+  await sessionsStore.fetchMessages(parentId, false);
 }
 
 // Use composable for session initialization and WebSocket management

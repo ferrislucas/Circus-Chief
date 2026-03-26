@@ -335,6 +335,12 @@ export const useSessionsStore = defineStore('sessions', {
     // ==================== MESSAGE ACTIONS ====================
 
     async fetchMessages(sessionId, showLoading = true, conversationId = null) {
+      // Early guard: skip the API call if the user has navigated away from this session
+      if (this.viewedSessionId && this.viewedSessionId !== sessionId) {
+        console.log(`[STORE] fetchMessages: skipping for ${sessionId} (viewed: ${this.viewedSessionId})`);
+        return;
+      }
+
       if (showLoading) this.loading = true;
       this.error = null;
       try {
@@ -342,6 +348,13 @@ export const useSessionsStore = defineStore('sessions', {
         const fetchedMessages = cid
           ? await api.getConversationMessages(sessionId, cid)
           : await api.getSessionMessages(sessionId);
+
+        // Post-fetch guard: don't overwrite if the user navigated away while awaiting
+        if (this.viewedSessionId && this.viewedSessionId !== sessionId) {
+          console.log(`[STORE] fetchMessages: discarding stale results for ${sessionId} (viewed: ${this.viewedSessionId})`);
+          return;
+        }
+
         console.log(`[STORE] fetchMessages: session ${sessionId}, conversationId: ${cid || 'none'}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
         const fetchedIds = new Set(fetchedMessages.map(m => m.id));
         const newMessages = this.messages.filter(m => m.sessionId === sessionId && !fetchedIds.has(m.id));
