@@ -57,24 +57,6 @@
       </div>
     </div>
 
-    <!-- Activity Log Card -->
-    <WhatJustHappenedCard
-      v-if="session"
-      :session="session"
-      :summary="summary"
-      :descendant-summaries="descendantSummaries"
-    />
-
-    <!-- Child Sessions Section -->
-    <SessionCardWorkflowPanel
-      v-if="childSessions.length > 0"
-      variant="detail"
-      :session="session"
-      :summaries="descendantSummaries"
-      :summary="summary"
-      :command-buttons="commandButtons"
-    />
-
     <!-- Session Summary Section -->
     <div v-if="loading" class="loading-state">
       <span class="loading-spinner"></span>
@@ -97,16 +79,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
-import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { useSummaries } from '../composables/useSummaries.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
-import WhatJustHappenedCard from './WhatJustHappenedCard.vue';
-import SessionCardWorkflowPanel from './SessionCardWorkflowPanel.vue';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 
@@ -116,10 +94,8 @@ const props = defineProps({
 
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
-const commandButtonsStore = useCommandButtonsStore();
 const streamingStore = useSessionStreamingStore();
 const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial } = useSessionSubscription(props.sessionId);
-const { summaries: descendantSummaries, fetchSummariesBatch } = useSummaries();
 
 // Restore collapsed log state for this session
 streamingStore.restoreCollapsedLogState();
@@ -185,26 +161,6 @@ const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 const hasWarnings = computed(() => summary.value?.hasMergeConflicts || summary.value?.ciStatus === 'failure');
 
-// Get child sessions for this session
-const childSessions = computed(() => {
-  return sessionsStore.getChildSessions(props.sessionId);
-});
-
-// Command buttons for child session indicators
-const commandButtons = computed(() => {
-  const projectId = session.value?.projectId;
-  if (!projectId) return [];
-  return commandButtonsStore.getButtonsByProjectId(projectId);
-});
-
-// Fetch summaries for all descendant sessions
-async function fetchDescendantSummaries() {
-  const descendants = sessionsStore.getAllDescendants(props.sessionId);
-  if (descendants.length > 0) {
-    await fetchSummariesBatch(descendants);
-  }
-}
-
 function formatPrState(state) {
   const labels = {
     merged: 'Merged',
@@ -222,9 +178,6 @@ function extractPrNumber(url) {
 }
 
 onMounted(async () => {
-  // Fetch summaries for descendant sessions (don't await - not critical path)
-  fetchDescendantSummaries();
-
   // Fetch session summary
   loading.value = true;
   try {
@@ -260,17 +213,6 @@ onMounted(async () => {
     generating.value = isGenerating;
   });
 });
-
-// Watch for changes in descendants and fetch summaries reactively
-watch(
-  () => sessionsStore.getAllDescendants(props.sessionId),
-  (descendants) => {
-    if (descendants.length > 0) {
-      fetchDescendantSummaries();
-    }
-  },
-  { deep: true }
-);
 
 onUnmounted(() => {
   // Clean up if needed
