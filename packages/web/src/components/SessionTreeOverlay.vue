@@ -319,7 +319,7 @@ const rootSession = computed(() => {
 
 const rootSessionName = computed(() => {
   // Use sessionChain root if available (most reliable after buildSessionChain)
-  if (props.sessionChain.length > 0) return props.sessionChain[0].name || 'Session';
+  if (props.sessionChain.length > 0) return props.sessionChain[0].session?.name || 'Session';
   return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
 });
 
