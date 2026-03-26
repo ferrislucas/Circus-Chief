@@ -94,10 +94,10 @@
         @retry-summary="$emit('retrySummary', session.id)"
       />
 
-      <!-- Streaming log output for running sessions -->
+      <!-- Streaming log output for running sessions (root or children) -->
       <SessionLogStream
-        v-if="isRunning"
-        :session-id="session.id"
+        v-if="hasRunningSession"
+        :session-ids="runningSessionIds"
         data-testid="session-log-stream"
       />
     </router-link>
@@ -193,23 +193,52 @@ const onAddToBoardClick = () => {
   emit('addToBoard', props.session);
 };
 
-const isRunning = computed(() => ['running', 'starting'].includes(props.session.status));
-
 const dateToShow = computed(() => {
   return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
 });
 
-// Get individual session status for display
+// Get workflow status including child sessions
 const workflowStatus = computed(() => {
-  const status = props.session.status;
+  const rootStatus = props.session.status;
   const runningStatuses = ['running', 'starting'];
+
+  // Find child sessions from the store
+  const children = sessionsStore.sessions.filter(
+    s => s.parentSessionId === props.session.id,
+  );
+
+  // Count running sessions (root + children)
+  let runningCount = runningStatuses.includes(rootStatus) ? 1 : 0;
+  runningCount += children.filter(c => runningStatuses.includes(c.status)).length;
+
+  // Count scheduled sessions (root + children)
+  let scheduledCount = rootStatus === 'scheduled' ? 1 : 0;
+  scheduledCount += children.filter(c => c.status === 'scheduled').length;
+
   return {
-    runningCount: runningStatuses.includes(status) ? 1 : 0,
-    scheduledCount: status === 'scheduled' ? 1 : 0,
-    totalCount: 1,
-    effectiveStatus: status,
+    runningCount,
+    scheduledCount,
+    totalCount: 1 + children.length,
+    effectiveStatus: rootStatus,
   };
 });
+
+// Collect all running/starting session IDs in the workflow (root + children)
+const runningSessionIds = computed(() => {
+  const ids = [];
+  if (['running', 'starting'].includes(props.session.status)) {
+    ids.push(props.session.id);
+  }
+  // Find running child sessions from the store
+  const children = sessionsStore.sessions.filter(
+    s => s.parentSessionId === props.session.id
+      && ['running', 'starting'].includes(s.status),
+  );
+  children.forEach(c => ids.push(c.id));
+  return ids;
+});
+
+const hasRunningSession = computed(() => runningSessionIds.value.length > 0);
 
 // Scheduled time display (for this specific session when it's scheduled)
 const scheduledTimeDisplay = computed(() => {
