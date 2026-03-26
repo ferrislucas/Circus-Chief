@@ -31,7 +31,7 @@ describe('SessionLogStream', () => {
 
   function mountComponent(props = {}) {
     return mount(SessionLogStream, {
-      props: { sessionId: 'session-1', ...props },
+      props: { sessionIds: ['session-1'], ...props },
       global: {
         plugins: [createPinia()],
       },
@@ -136,12 +136,12 @@ describe('SessionLogStream', () => {
   });
 
   describe('interaction', () => {
-    it('clicking collapse toggle calls toggleSessionLogCollapsed with correct sessionId', async () => {
+    it('clicking collapse toggle calls toggleSessionLogCollapsed with first sessionId', async () => {
       mockStreamingStore.getSessionWorkLogs.mockReturnValue([
         { id: '1', type: 'tool_use', tool: 'Read', summary: 'test' },
       ]);
 
-      const wrapper = mountComponent({ sessionId: 'session-42' });
+      const wrapper = mountComponent({ sessionIds: ['session-42'] });
       await wrapper.find('.log-header').trigger('click');
 
       expect(mockStreamingStore.toggleSessionLogCollapsed).toHaveBeenCalledWith('session-42');
@@ -153,10 +153,72 @@ describe('SessionLogStream', () => {
       ]);
       mockStreamingStore.isSessionLogCollapsed.mockReturnValue(true);
 
-      const wrapper = mountComponent({ sessionId: 'session-42' });
+      const wrapper = mountComponent({ sessionIds: ['session-42'] });
       await wrapper.find('.log-collapsed').trigger('click');
 
       expect(mockStreamingStore.toggleSessionLogCollapsed).toHaveBeenCalledWith('session-42');
+    });
+  });
+
+  describe('multiple sessionIds', () => {
+    it('merges work logs from multiple sessions', () => {
+      mockStreamingStore.getSessionWorkLogs.mockImplementation((id) => {
+        if (id === 'session-a') return [{ id: 'a1', type: 'tool_use', tool: 'Read', summary: 'From A' }];
+        if (id === 'session-b') return [{ id: 'b1', type: 'tool_use', tool: 'Write', summary: 'From B' }];
+        return [];
+      });
+
+      const wrapper = mountComponent({ sessionIds: ['session-a', 'session-b'] });
+      const entries = wrapper.findAll('.log-entry');
+      expect(entries).toHaveLength(2);
+    });
+
+    it('caps merged logs at 15 entries', () => {
+      const logsA = Array.from({ length: 10 }, (_, i) => ({ id: `a${i}`, type: 'tool_use', tool: 'Read', summary: `A${i}` }));
+      const logsB = Array.from({ length: 10 }, (_, i) => ({ id: `b${i}`, type: 'tool_use', tool: 'Write', summary: `B${i}` }));
+
+      mockStreamingStore.getSessionWorkLogs.mockImplementation((id) => {
+        if (id === 'session-a') return logsA;
+        if (id === 'session-b') return logsB;
+        return [];
+      });
+
+      const wrapper = mountComponent({ sessionIds: ['session-a', 'session-b'] });
+      const entries = wrapper.findAll('.log-entry');
+      expect(entries).toHaveLength(15);
+    });
+
+    it('shows partial text from the first session that has it', () => {
+      mockStreamingStore.getSessionPartialText.mockImplementation((id) => {
+        if (id === 'session-a') return '';
+        if (id === 'session-b') return 'Partial from B';
+        return '';
+      });
+
+      const wrapper = mountComponent({ sessionIds: ['session-a', 'session-b'] });
+      expect(wrapper.find('.log-partial').text()).toBe('Partial from B');
+    });
+
+    it('shows thinking from the first session that has it', () => {
+      mockStreamingStore.getPartialThinking.mockImplementation((id) => {
+        if (id === 'session-a') return null;
+        if (id === 'session-b') return 'Thinking from B';
+        return null;
+      });
+
+      const wrapper = mountComponent({ sessionIds: ['session-a', 'session-b'] });
+      expect(wrapper.find('.log-thinking').text()).toBe('Thinking from B');
+    });
+
+    it('uses first sessionId for collapse state', () => {
+      mockStreamingStore.getSessionWorkLogs.mockReturnValue([
+        { id: '1', type: 'tool_use', tool: 'Read', summary: 'test' },
+      ]);
+      mockStreamingStore.isSessionLogCollapsed.mockImplementation((id) => id === 'root-session');
+
+      const wrapper = mountComponent({ sessionIds: ['root-session', 'child-session'] });
+      expect(wrapper.find('.session-log-stream').exists()).toBe(false);
+      expect(wrapper.find('.log-collapsed').exists()).toBe(true);
     });
   });
 });

@@ -31,12 +31,13 @@ vi.mock('../stores/commandButtons.js', () => ({
 }));
 
 // Mock sessions store
+const mockSessionsStoreData = {
+  sessions: [],
+  commandRunVersion: 0,
+  toggleSessionStar: vi.fn(),
+};
 vi.mock('../stores/sessions.js', () => ({
-  useSessionsStore: vi.fn(() => ({
-    sessions: [],
-    commandRunVersion: 0,
-    toggleSessionStar: vi.fn(),
-  })),
+  useSessionsStore: vi.fn(() => mockSessionsStoreData),
 }));
 
 // Mock kanban store
@@ -73,9 +74,9 @@ vi.mock('./PrIndicators.vue', () => ({
 vi.mock('./SessionLogStream.vue', () => ({
   default: defineComponent({
     name: 'SessionLogStream',
-    props: ['sessionId'],
+    props: ['sessionIds'],
     setup(props) {
-      return () => h('div', { class: 'session-log-stream-mock', 'data-session-id': props.sessionId });
+      return () => h('div', { class: 'session-log-stream-mock', 'data-session-ids': JSON.stringify(props.sessionIds) });
     },
   }),
 }));
@@ -104,6 +105,10 @@ describe('SessionCard', () => {
     // Reset and configure API mock
     mockApi.getSessionFilesCount.mockReset();
     mockApi.getSessionFilesCount.mockResolvedValue({ count: 0 });
+
+    // Reset sessions store mock data
+    mockSessionsStoreData.sessions = [];
+    mockSessionsStoreData.commandRunVersion = 0;
   });
   const baseSession = {
     id: 'session-123',
@@ -422,6 +427,28 @@ describe('SessionCard', () => {
       expect(sessionMeta.exists()).toBe(true);
       // The .status-error class should not be present
       expect(wrapper.find('.status-error').exists()).toBe(false);
+    });
+
+    it('shows running badge when child session is running but parent is not', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('does NOT show running badge when all children are completed', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'completed' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'completed' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(false);
     });
   });
 
@@ -974,12 +1001,38 @@ describe('SessionCard', () => {
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
     });
 
-    it('passes correct session.id as sessionId prop', () => {
+    it('passes correct session.id as sessionIds prop', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, id: 'session-xyz', status: 'running' },
       });
       const logStream = wrapper.find('.session-log-stream-mock');
-      expect(logStream.attributes('data-session-id')).toBe('session-xyz');
+      expect(JSON.parse(logStream.attributes('data-session-ids'))).toEqual(['session-xyz']);
+    });
+
+    it('renders SessionLogStream when child session is running but parent is not', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      expect(JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'))).toEqual(['child-1']);
+    });
+
+    it('includes both parent and child IDs when both are running', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      const sessionIds = JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'));
+      expect(sessionIds).toContain(baseSession.id);
+      expect(sessionIds).toContain('child-1');
     });
   });
 
