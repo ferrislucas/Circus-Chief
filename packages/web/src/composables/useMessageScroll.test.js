@@ -109,6 +109,39 @@ describe('useMessageScroll', () => {
       expect(() => scrollUtilities.handleScroll()).not.toThrow();
       expect(scrollUtilities.isNearBottom.value).toBe(true);
     });
+
+    it('programmatic scroll does not set userScrolledAway', async () => {
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      scrollUtilities.scrollToBottom();
+      await nextTick();
+
+      // Simulate the scroll event that fires after programmatic scroll
+      scrollUtilities.handleScroll();
+      expect(scrollUtilities.userScrolledAway.value).toBe(false);
+    });
+
+    it('user scrolling away from bottom sets userScrolledAway', () => {
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      mockContainer.scrollTop = 200; // distance = 1000 - 200 - 500 = 300 (above threshold)
+      scrollUtilities.handleScroll();
+
+      expect(scrollUtilities.userScrolledAway.value).toBe(true);
+    });
+
+    it('user scrolling back to bottom clears userScrolledAway', () => {
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+      scrollUtilities.userScrolledAway.value = true;
+
+      mockContainer.scrollTop = 450; // distance = 1000 - 450 - 500 = 50 (below threshold)
+      scrollUtilities.handleScroll();
+
+      expect(scrollUtilities.userScrolledAway.value).toBe(false);
+    });
   });
 
   describe('scrollToBottom', () => {
@@ -136,16 +169,41 @@ describe('useMessageScroll', () => {
       expect(mockContainer.scrollTop).toBe(1000);
     });
 
-    it('should set hasNewMessages and not scroll when not near bottom and not forced', async () => {
+    it('should set hasNewMessages and not scroll when user scrolled away and not forced', async () => {
       scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
       scrollUtilities.messagesContainer.value = mockContainer;
-      scrollUtilities.isNearBottom.value = false;
+      scrollUtilities.userScrolledAway.value = true;
 
       scrollUtilities.scrollToBottom(false);
       await nextTick();
 
       expect(mockContainer.scrollTop).toBe(0); // No scroll
       expect(scrollUtilities.hasNewMessages.value).toBe(true);
+    });
+
+    it('should auto-scroll when userScrolledAway is false even if isNearBottom is false', async () => {
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+      scrollUtilities.isNearBottom.value = false;
+      // userScrolledAway defaults to false
+
+      scrollUtilities.scrollToBottom(false);
+      await nextTick();
+
+      expect(mockContainer.scrollTop).toBe(mockContainer.scrollHeight);
+      expect(scrollUtilities.isNearBottom.value).toBe(true);
+      expect(scrollUtilities.hasNewMessages.value).toBe(false);
+    });
+
+    it('should reset userScrolledAway when force is true', async () => {
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+      scrollUtilities.userScrolledAway.value = true;
+
+      scrollUtilities.scrollToBottom(true);
+      await nextTick();
+
+      expect(scrollUtilities.userScrolledAway.value).toBe(false);
     });
 
     it('should not crash when container is null', async () => {
@@ -251,6 +309,17 @@ describe('useMessageScroll', () => {
 
       expect(scrollUtilities.isNearBottom.value).toBe(true);
       expect(scrollUtilities.hasNewMessages.value).toBe(false);
+    });
+
+    it('should reset userScrolledAway when conversation changes', async () => {
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+      scrollUtilities.userScrolledAway.value = true;
+
+      activeConversationId.value = 'conv-2';
+      await nextTick();
+
+      expect(scrollUtilities.userScrolledAway.value).toBe(false);
     });
   });
 

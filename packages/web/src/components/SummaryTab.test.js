@@ -250,8 +250,8 @@ describe('SummaryTab', () => {
             MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
             SessionLogStream: {
               name: 'SessionLogStream',
-              props: ['sessionId'],
-              template: '<div class="session-log-stream-stub">{{ sessionId }}</div>',
+              props: ['sessionIds'],
+              template: '<div class="session-log-stream-stub">{{ sessionIds }}</div>',
             },
           },
         },
@@ -260,7 +260,7 @@ describe('SummaryTab', () => {
 
       const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
       expect(logStream.exists()).toBe(true);
-      expect(logStream.props('sessionId')).toBe('sess-456');
+      expect(logStream.props('sessionIds')).toEqual(['sess-456']);
     });
 
     it('unmounts SessionLogStream when session status changes from running to completed', async () => {

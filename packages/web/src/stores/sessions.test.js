@@ -3857,6 +3857,121 @@ describe('Sessions Store', () => {
 
       consoleErrorSpy.mockRestore();
     });
+
+    it('skips API call when viewedSessionId does not match sessionId', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.messages = [{ id: 'existing-msg', role: 'user', content: 'Existing' }];
+
+      await store.fetchMessages('session-B', false);
+
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+      expect(api.getConversationMessages).not.toHaveBeenCalled();
+      // Messages should remain unchanged
+      expect(store.messages).toEqual([{ id: 'existing-msg', role: 'user', content: 'Existing' }]);
+    });
+
+    it('discards results when viewedSessionId changes during fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.messages = [{ id: 'original-msg', role: 'user', content: 'Original' }];
+
+      // Mock API to change viewedSessionId mid-flight (simulating user navigation)
+      api.getSessionMessages.mockImplementation(async () => {
+        // Simulate user navigating to a different session while the fetch is in-flight
+        store.viewedSessionId = 'session-B';
+        return [{ id: 'fetched-msg', role: 'assistant', content: 'Stale response' }];
+      });
+
+      await store.fetchMessages('session-A', false);
+
+      // Messages should NOT be overwritten with stale data
+      expect(store.messages).toEqual([{ id: 'original-msg', role: 'user', content: 'Original' }]);
+    });
+
+    it('allows API call when viewedSessionId is null (backwards compat)', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = null;
+      const mockMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      api.getSessionMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('any-session', false);
+
+      expect(api.getSessionMessages).toHaveBeenCalledWith('any-session');
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('proceeds normally when viewedSessionId matches sessionId', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      const mockMessages = [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi there' },
+      ];
+
+      api.getSessionMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-A', false);
+
+      expect(api.getSessionMessages).toHaveBeenCalledWith('session-A');
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('pre-fetch guard does not set loading or clear error when skipping', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.error = 'previous error';
+      store.loading = false;
+
+      await store.fetchMessages('session-B', true);
+
+      // loading should never have been set, error should remain
+      expect(store.loading).toBe(false);
+      expect(store.error).toBe('previous error');
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+    });
+
+    it('post-fetch guard still resets loading when discarding stale results', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+
+      api.getSessionMessages.mockImplementation(async () => {
+        store.viewedSessionId = 'session-B';
+        return [{ id: 'msg-stale', role: 'user', content: 'Stale' }];
+      });
+
+      await store.fetchMessages('session-A', true);
+
+      // Loading should be reset to false even though results were discarded
+      expect(store.loading).toBe(false);
+    });
+
+    it('pre-fetch guard skips when viewedSessionId mismatches with conversation fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.activeConversationId = 'conv-1';
+
+      await store.fetchMessages('session-B', false, 'conv-2');
+
+      expect(api.getConversationMessages).not.toHaveBeenCalled();
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+    });
+
+    it('post-fetch guard discards stale conversation results', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.messages = [{ id: 'original', role: 'user', content: 'Original' }];
+
+      api.getConversationMessages.mockImplementation(async () => {
+        store.viewedSessionId = 'session-B';
+        return [{ id: 'stale-conv-msg', role: 'assistant', content: 'Stale conv' }];
+      });
+
+      await store.fetchMessages('session-A', false, 'conv-1');
+
+      expect(store.messages).toEqual([{ id: 'original', role: 'user', content: 'Original' }]);
+    });
   });
 
   describe('branchConversation', () => {

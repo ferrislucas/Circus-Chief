@@ -3,7 +3,7 @@
     <!-- Live output for running sessions -->
     <SessionLogStream
       v-if="isRunning"
-      :session-id="sessionId"
+      :session-ids="[sessionId]"
     />
 
     <!-- Session Overview Section -->

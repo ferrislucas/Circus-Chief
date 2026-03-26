@@ -698,7 +698,7 @@ defineExpose({
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  background: rgba(55, 65, 81, 0.8);
+  background: rgba(55, 65, 81, 0.4);
   border-radius: 8px;
   cursor: pointer;
   z-index: 10;
@@ -709,7 +709,7 @@ defineExpose({
 }
 
 .overlay-close-handle:hover {
-  background: rgba(8, 145, 178, 0.9);
+  background: rgba(8, 145, 178, 0.7);
 }
 
 .overlay-close-handle:focus-visible {
@@ -799,7 +799,7 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 0.375rem 0.75rem;
+  padding: 0.625rem 0.75rem;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   border-radius: var(--border-radius, 6px);
@@ -1050,6 +1050,7 @@ defineExpose({
   text-decoration: none;
   transition: color 0.15s;
   flex-shrink: 0;
+  margin-right: 0.75rem;
 }
 
 .back-to-sessions-link:hover {
