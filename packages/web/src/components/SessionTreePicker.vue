@@ -87,7 +87,6 @@ function statusLabel(session) {
   const status = session.status;
   if (status === 'running' || status === 'starting') return '● Running';
   if (status === 'scheduled') return '⏰ Scheduled';
-  if (status === 'error') return '⚠ Error';
   return null;
 }
 
@@ -191,10 +190,6 @@ function handleKeydown(event) {
 
 .picker-item-status.status-scheduled {
   color: var(--color-primary, #06b6d4);
-}
-
-.picker-item-status.status-error {
-  color: var(--color-error, #f85149);
 }
 
 .picker-item-name {

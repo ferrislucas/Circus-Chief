@@ -3480,4 +3480,154 @@ describe('SessionDetailView', () => {
       expect(api.getSessionSummary).toHaveBeenCalledWith('parent-1');
     });
   });
+
+  describe('handleOverlayClose restores parent session state', () => {
+    it('restores viewedSessionId and refetches parent data on overlay close', async () => {
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1' },
+      ];
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Clear mocks from initialization
+      sessionsStore.fetchSession.mockClear();
+      sessionsStore.fetchConversations.mockClear();
+      sessionsStore.fetchMessages.mockClear();
+
+      // Simulate overlay being opened and viewedSessionId changed to a child
+      wrapper.vm.treeOverlayOpen = true;
+      sessionsStore.viewedSessionId = 'child-1';
+      await nextTick();
+
+      // Emit close event from the overlay
+      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      overlay.vm.$emit('close');
+      await nextTick();
+      await flushPromises();
+
+      // viewedSessionId should be restored to the parent
+      expect(sessionsStore.viewedSessionId).toBe('parent-1');
+
+      // Parent session data should be refetched
+      expect(sessionsStore.fetchSession).toHaveBeenCalledWith('parent-1', false);
+      expect(sessionsStore.fetchConversations).toHaveBeenCalledWith('parent-1');
+      expect(sessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false);
+    });
+
+    it('closes the overlay panel on close event', async () => {
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1' },
+      ];
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Open the overlay
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+
+      // Emit close
+      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      overlay.vm.$emit('close');
+      await nextTick();
+
+      expect(wrapper.vm.treeOverlayOpen).toBe(false);
+    });
+
+    it('restores parent state even when overlay did not change viewedSessionId', async () => {
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        { id: 'parent-1', name: 'Parent Session', status: 'running', projectId: 'proj-1' },
+      ];
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      sessionsStore.fetchSession.mockClear();
+      sessionsStore.fetchConversations.mockClear();
+      sessionsStore.fetchMessages.mockClear();
+
+      // Open and close overlay without changing viewedSessionId
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      overlay.vm.$emit('close');
+      await nextTick();
+      await flushPromises();
+
+      // Should still refetch to ensure consistency
+      expect(sessionsStore.fetchSession).toHaveBeenCalledWith('parent-1', false);
+      expect(sessionsStore.fetchConversations).toHaveBeenCalledWith('parent-1');
+      expect(sessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false);
+    });
+  });
 });

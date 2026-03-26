@@ -320,6 +320,11 @@ onUnmounted(() => {
 watch(
   () => sessionsStore.currentSession?.status,
   async (newStatus, oldStatus) => {
+    // Only react if currentSession matches this tab's session.
+    // When the overlay switches currentSession to a child session,
+    // the parent's ConversationTab must not react to the child's status changes.
+    if (sessionsStore.currentSession?.id !== props.sessionId) return;
+
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
       console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
       sessionsStore.clearPartialText();
@@ -373,6 +378,11 @@ watch(
 watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
+    // Only react if this tab's session is the currently viewed one.
+    // When the overlay loads a child session's conversations, it changes
+    // activeConversationId — the parent's ConversationTab must not react.
+    if (sessionsStore.viewedSessionId && sessionsStore.viewedSessionId !== props.sessionId) return;
+
     if (newConvId && newConvId !== oldConvId) {
       sessionsStore.clearPartialText();
       await nextTick();
