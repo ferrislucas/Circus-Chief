@@ -17,9 +17,9 @@ vi.mock('../stores/templates.js', () => ({
 vi.mock('./SessionLogStream.vue', () => ({
   default: defineComponent({
     name: 'SessionLogStream',
-    props: ['sessionId'],
+    props: ['sessionIds'],
     setup(props) {
-      return () => h('div', { class: 'session-log-stream-mock', 'data-session-id': props.sessionId });
+      return () => h('div', { class: 'session-log-stream-mock', 'data-session-ids': JSON.stringify(props.sessionIds) });
     },
   }),
 }));
@@ -400,10 +400,10 @@ describe('WorkflowSessionItem', () => {
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
     });
 
-    it('passes correct session.id as sessionId prop', () => {
+    it('passes correct session.id as sessionIds prop', () => {
       const wrapper = mountComponent({ id: 'child-session-42', status: 'running' });
       const logStream = wrapper.find('.session-log-stream-mock');
-      expect(logStream.attributes('data-session-id')).toBe('child-session-42');
+      expect(JSON.parse(logStream.attributes('data-session-ids'))).toEqual(['child-session-42']);
     });
   });
 });
