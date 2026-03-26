@@ -142,8 +142,8 @@ const summariesMap = ref({});
 const hasDescendants = computed(() => sessionChain.value.length > 1);
 
 /**
- * Build the linear session chain from root to leaf.
- * Fetches project sessions and summaries for each session in the chain.
+ * Build the full session tree from root, flattened depth-first with depth info.
+ * Fetches project sessions and summaries for each session in the tree.
  */
 async function buildSessionChain() {
   const sessionId = currentSessionId.value;
@@ -184,37 +184,33 @@ async function buildSessionChain() {
     if (current && !current.parentSessionId) {
       root = current;
     } else if (current) {
-      sessionChain.value = [current];
+      sessionChain.value = [{ session: current, depth: 0 }];
       return;
     } else {
       return;
     }
   }
 
-  // Walk the chain from root through descendants
-  const chain = [root];
-  let currentId = root.id;
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const children = sessionsStore.getChildSessions(currentId);
-    if (children.length === 0) break;
-
-    // Follow the first child (linear chain)
-    const child = children[0];
-    chain.push(child);
-    currentId = child.id;
+  // Walk the full tree depth-first from root, collecting {session, depth} entries
+  const tree = [];
+  function walkTree(session, depth) {
+    tree.push({ session, depth });
+    const children = sessionsStore.getChildSessions(session.id);
+    for (const child of children) {
+      walkTree(child, depth + 1);
+    }
   }
+  walkTree(root, 0);
 
-  sessionChain.value = chain;
+  sessionChain.value = tree;
 
-  // Fetch summaries for all sessions in the chain (non-blocking)
-  for (const sess of chain) {
-    if (!summariesMap.value[sess.id]) {
-      api.getSessionSummary(sess.id)
+  // Fetch summaries for all sessions in the tree (non-blocking)
+  for (const entry of tree) {
+    if (!summariesMap.value[entry.session.id]) {
+      api.getSessionSummary(entry.session.id)
         .then(summary => {
           if (summary) {
-            summariesMap.value = { ...summariesMap.value, [sess.id]: summary };
+            summariesMap.value = { ...summariesMap.value, [entry.session.id]: summary };
           }
         })
         .catch(() => { /* Summaries are not critical */ });

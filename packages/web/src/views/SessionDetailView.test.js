@@ -3374,10 +3374,12 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      // sessionChain should be built with root and child
+      // sessionChain should be built with root and child as {session, depth} entries
       expect(wrapper.vm.sessionChain.length).toBe(2);
-      expect(wrapper.vm.sessionChain[0].id).toBe('parent-1');
-      expect(wrapper.vm.sessionChain[1].id).toBe('child-1');
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('parent-1');
+      expect(wrapper.vm.sessionChain[0].depth).toBe(0);
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('child-1');
+      expect(wrapper.vm.sessionChain[1].depth).toBe(1);
     });
 
     it('passes sessionChain and summariesMap to SessionTreeOverlay', async () => {
@@ -3495,9 +3497,10 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      // Session chain should now include the new child
+      // Session chain should now include the new child as {session, depth} entries
       expect(wrapper.vm.sessionChain.length).toBe(2);
-      expect(wrapper.vm.sessionChain[1].id).toBe('new-child');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('new-child');
+      expect(wrapper.vm.sessionChain[1].depth).toBe(1);
     });
 
     it('fetches summaries for sessions in the chain', async () => {
