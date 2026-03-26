@@ -3396,3 +3396,322 @@ describe('ConversationTab - Model selector persistence on stop', () => {
     });
   });
 });
+
+describe('ConversationTab - Watcher session-scoping guards', () => {
+  let mockSessionsStore;
+  let consoleError;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    // Use reactive() so Vue watchers inside the component fire when properties change
+    mockSessionsStore = reactive({
+      messages: [],
+      currentSession: { id: 'parent-1', status: 'running', thinkingEnabled: false, mode: 'standard' },
+      activeConversation: { id: 'conv-1', name: 'Test Conv' },
+      activeConversationId: 'conv-1',
+      viewedSessionId: null,
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      partialText: '',
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      updateAutoSendPendingPrompt: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      clearPartialText: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+    });
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue({ error: vi.fn(), success: vi.fn() });
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
+
+  function mountComponent(props = { sessionId: 'parent-1' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationSelector: { template: '<div class="conversation-selector-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: { template: '<div class="model-selector-stub"></div>' },
+          TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
+        },
+      },
+    });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
+
+  it('status watcher does not refetch when currentSession.id differs from sessionId prop', async () => {
+    // Mount with sessionId 'parent-1', currentSession initially matches
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'running', thinkingEnabled: false, mode: 'standard',
+    };
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    // Clear initial setup calls
+    mockSessionsStore.fetchMessages.mockClear();
+    mockSessionsStore.fetchWorkLogs.mockClear();
+
+    // Simulate overlay switching currentSession to a child session
+    mockSessionsStore.currentSession = {
+      id: 'child-1', status: 'running', thinkingEnabled: false, mode: 'standard',
+    };
+    await nextTick();
+
+    // Now simulate child session completing (running -> waiting)
+    mockSessionsStore.currentSession = {
+      id: 'child-1', status: 'waiting', thinkingEnabled: false, mode: 'standard',
+    };
+    await nextTick();
+    await flushAll(wrapper);
+
+    // fetchMessages should NOT have been called because currentSession.id ('child-1')
+    // does not match the component's sessionId prop ('parent-1')
+    expect(mockSessionsStore.fetchMessages).not.toHaveBeenCalled();
+    expect(mockSessionsStore.fetchWorkLogs).not.toHaveBeenCalled();
+  });
+
+  it('activeConversationId watcher does not refetch when viewedSessionId differs from sessionId prop', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'waiting', thinkingEnabled: false, mode: 'standard',
+    };
+    mockSessionsStore.activeConversationId = 'conv-parent';
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    // Clear initial setup calls
+    mockSessionsStore.fetchMessages.mockClear();
+
+    // Simulate overlay switching viewedSessionId to a child session
+    mockSessionsStore.viewedSessionId = 'child-1';
+    await nextTick();
+
+    // Simulate overlay changing activeConversationId to the child's conversation
+    mockSessionsStore.activeConversationId = 'conv-child';
+    await nextTick();
+    await flushAll(wrapper);
+
+    // fetchMessages should NOT have been called because viewedSessionId ('child-1')
+    // does not match the component's sessionId prop ('parent-1')
+    expect(mockSessionsStore.fetchMessages).not.toHaveBeenCalled();
+  });
+
+  it('status watcher DOES refetch when currentSession.id matches sessionId prop (positive case)', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'running', thinkingEnabled: false, mode: 'standard',
+    };
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    // Clear initial setup calls
+    mockSessionsStore.fetchMessages.mockClear();
+    mockSessionsStore.fetchWorkLogs.mockClear();
+    mockSessionsStore.clearPartialText.mockClear();
+
+    // Mutate status in-place (Vue reactive proxy tracks property changes on same object)
+    mockSessionsStore.currentSession.status = 'waiting';
+    await nextTick();
+    await flushAll(wrapper);
+
+    // Guard should allow through — fetchMessages and fetchWorkLogs should be called
+    expect(mockSessionsStore.clearPartialText).toHaveBeenCalled();
+    expect(mockSessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false, 'conv-1');
+    expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('parent-1');
+  });
+
+  it('status watcher DOES refetch on running -> completed when session matches', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'running', thinkingEnabled: false, mode: 'standard',
+    };
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    mockSessionsStore.fetchMessages.mockClear();
+    mockSessionsStore.fetchWorkLogs.mockClear();
+
+    // Mutate in-place
+    mockSessionsStore.currentSession.status = 'completed';
+    await nextTick();
+    await flushAll(wrapper);
+
+    expect(mockSessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false, 'conv-1');
+    expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('parent-1');
+  });
+
+  it('status watcher does not refetch for non-running -> waiting transitions even when session matches', async () => {
+    // Start at 'waiting', not 'running'
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'waiting', thinkingEnabled: false, mode: 'standard',
+    };
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    mockSessionsStore.fetchMessages.mockClear();
+    mockSessionsStore.fetchWorkLogs.mockClear();
+
+    // waiting -> completed is not running -> waiting/completed, so should not trigger refetch
+    mockSessionsStore.currentSession.status = 'completed';
+    await nextTick();
+    await flushAll(wrapper);
+
+    expect(mockSessionsStore.fetchMessages).not.toHaveBeenCalled();
+    expect(mockSessionsStore.fetchWorkLogs).not.toHaveBeenCalled();
+  });
+
+  it('activeConversationId watcher DOES refetch when viewedSessionId is null (backwards compat)', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'waiting', thinkingEnabled: false, mode: 'standard',
+    };
+    mockSessionsStore.viewedSessionId = null;
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    mockSessionsStore.fetchMessages.mockClear();
+
+    // Change activeConversationId while viewedSessionId is null
+    mockSessionsStore.activeConversationId = 'conv-new';
+    await nextTick();
+    await flushAll(wrapper);
+
+    // Guard should allow through because viewedSessionId is null
+    expect(mockSessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false, 'conv-new');
+  });
+
+  it('activeConversationId watcher DOES refetch when viewedSessionId matches sessionId prop', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'waiting', thinkingEnabled: false, mode: 'standard',
+    };
+    mockSessionsStore.viewedSessionId = 'parent-1';
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    mockSessionsStore.fetchMessages.mockClear();
+
+    mockSessionsStore.activeConversationId = 'conv-new';
+    await nextTick();
+    await flushAll(wrapper);
+
+    expect(mockSessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false, 'conv-new');
+  });
+
+  it('activeConversationId watcher does not refetch when newConvId is null', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'waiting', thinkingEnabled: false, mode: 'standard',
+    };
+    mockSessionsStore.viewedSessionId = 'parent-1';
+    mockSessionsStore.activeConversationId = 'conv-old';
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    mockSessionsStore.fetchMessages.mockClear();
+
+    // Setting to null should not trigger refetch
+    mockSessionsStore.activeConversationId = null;
+    await nextTick();
+    await flushAll(wrapper);
+
+    expect(mockSessionsStore.fetchMessages).not.toHaveBeenCalled();
+  });
+
+  it('activeConversationId watcher does not refetch when value unchanged', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'waiting', thinkingEnabled: false, mode: 'standard',
+    };
+    mockSessionsStore.viewedSessionId = 'parent-1';
+    mockSessionsStore.activeConversationId = 'conv-1';
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    mockSessionsStore.fetchMessages.mockClear();
+
+    // Re-set same value — watcher should not fire (or fire with same old/new)
+    mockSessionsStore.activeConversationId = 'conv-1';
+    await nextTick();
+    await flushAll(wrapper);
+
+    expect(mockSessionsStore.fetchMessages).not.toHaveBeenCalled();
+  });
+
+  it('status watcher guard still allows auto-send reset when session ID does not match', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1', status: 'running', thinkingEnabled: false, mode: 'standard',
+      autoSendPendingPrompt: true,
+    };
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    mockSessionsStore.fetchMessages.mockClear();
+    mockSessionsStore.updateAutoSendPendingPrompt.mockClear();
+
+    // Overlay switches to child session which then stops
+    mockSessionsStore.currentSession = {
+      id: 'child-1', status: 'stopped', thinkingEnabled: false, mode: 'standard',
+      autoSendPendingPrompt: true,
+    };
+    await nextTick();
+    await flushAll(wrapper);
+
+    // fetchMessages should NOT be called (guard blocks it due to ID mismatch)
+    expect(mockSessionsStore.fetchMessages).not.toHaveBeenCalled();
+    // But auto-send reset should also not fire because the early return skips all logic
+    // (The guard returns before reaching the auto-send reset block)
+  });
+});

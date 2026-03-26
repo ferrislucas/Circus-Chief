@@ -15,6 +15,8 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   const messagesContainer = ref(null);
   const isNearBottom = ref(true);
   const hasNewMessages = ref(false);
+  const userScrolledAway = ref(false);
+  let programmaticScroll = false;
   let debounceTimer = null;
   const SCROLL_THRESHOLD = 100; // pixels from bottom
 
@@ -35,17 +37,33 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
     if (isNearBottom.value) {
       hasNewMessages.value = false;
     }
+    // Guard: programmatic scrolls should not affect userScrolledAway
+    if (programmaticScroll) {
+      programmaticScroll = false;
+      return;
+    }
+    // Track whether the user has manually scrolled away from the bottom
+    if (!isNearBottom.value) {
+      userScrolledAway.value = true;
+    } else {
+      userScrolledAway.value = false;
+    }
   }
 
   function scrollToBottom(force = false) {
-    if (!force && !isNearBottom.value) {
+    if (!force && userScrolledAway.value) {
       hasNewMessages.value = true;
       return;
+    }
+
+    if (force) {
+      userScrolledAway.value = false;
     }
 
     nextTick(() => {
       const el = getScrollEl();
       if (el) {
+        programmaticScroll = true;
         el.scrollTop = el.scrollHeight;
         isNearBottom.value = true;
         hasNewMessages.value = false;
@@ -114,6 +132,7 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
     () => {
       isNearBottom.value = true;
       hasNewMessages.value = false;
+      userScrolledAway.value = false;
     }
   );
 
@@ -150,6 +169,7 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
     messagesContainer,
     isNearBottom,
     hasNewMessages,
+    userScrolledAway,
     scrollToBottom,
     scrollToClaudesTurn,
     handleScroll,
