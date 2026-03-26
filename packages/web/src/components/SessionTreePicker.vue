@@ -7,38 +7,38 @@
     @keydown="handleKeydown"
   >
     <div
-      v-for="(session, index) in sessions"
-      :key="session.id"
+      v-for="(entry, index) in sessions"
+      :key="entry.session.id"
       class="picker-item"
       :class="{
-        'picker-item--active': session.id === activeSessionId,
+        'picker-item--active': entry.session.id === activeSessionId,
       }"
-      :style="{ paddingLeft: '0.5rem' }"
+      :style="{ paddingLeft: `${0.5 + entry.depth * 1}rem` }"
       role="option"
-      :aria-selected="session.id === activeSessionId ? 'true' : 'false'"
+      :aria-selected="entry.session.id === activeSessionId ? 'true' : 'false'"
       :tabindex="index === focusedIndex ? 0 : -1"
       :ref="el => { if (el) itemRefs[index] = el }"
       :data-index="index"
-      @click="emit('select', session.id)"
-      @keydown.enter.prevent="emit('select', session.id)"
+      @click="emit('select', entry.session.id)"
+      @keydown.enter.prevent="emit('select', entry.session.id)"
     >
       <div class="picker-item-label">
         <span class="picker-item-role">
           {{ getRoleLabel(index) }}
         </span>
         <span
-          v-if="statusLabel(session)"
-          :class="['picker-item-status', `status-${session.status}`]"
+          v-if="statusLabel(entry.session)"
+          :class="['picker-item-status', `status-${entry.session.status}`]"
         >
-          {{ statusLabel(session) }}
+          {{ statusLabel(entry.session) }}
         </span>
       </div>
-      <div class="picker-item-name" :title="session.name">
-        {{ session.name }}
+      <div class="picker-item-name" :title="entry.session.name">
+        {{ entry.session.name }}
       </div>
       <div class="picker-item-meta">
-        <span class="picker-item-summary">{{ getSummaryText(session.id) }}</span>
-        <span class="picker-item-date">{{ formatDate(session.lastActivityAt || session.updatedAt || session.createdAt) }}</span>
+        <span class="picker-item-summary">{{ getSummaryText(entry.session.id) }}</span>
+        <span class="picker-item-date">{{ formatDate(entry.session.lastActivityAt || entry.session.updatedAt || entry.session.createdAt) }}</span>
       </div>
     </div>
   </div>
@@ -69,7 +69,7 @@ const itemRefs = ref({});
 
 onMounted(() => {
   // Focus the active session item initially
-  const activeIndex = props.sessions.findIndex(s => s.id === props.activeSessionId);
+  const activeIndex = props.sessions.findIndex(e => e.session.id === props.activeSessionId);
   if (activeIndex >= 0) {
     focusedIndex.value = activeIndex;
     nextTick(() => {

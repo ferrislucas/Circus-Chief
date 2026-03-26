@@ -123,10 +123,10 @@ vi.mock('./SessionTreePicker.vue', () => ({
         'data-testid': 'session-tree-picker',
       }, this.sessions?.map(s =>
         h('div', {
-          key: s.id,
+          key: s.session.id,
           role: 'option',
-          onClick: () => this.$emit('select', s.id),
-        }, s.name)
+          onClick: () => this.$emit('select', s.session.id),
+        }, s.session.name)
       ));
     },
   }),
@@ -526,7 +526,7 @@ describe('SessionTreeOverlay', () => {
       projectId: 'proj-123',
     };
 
-    const chainSessions = [rootSession, childSession];
+    const chainSessions = [{ session: rootSession, depth: 0 }, { session: childSession, depth: 1 }];
     const chainSummaries = {
       'sess-root': { shortSummary: 'Root summary' },
       'child-1': { shortSummary: 'Child summary' },
@@ -551,7 +551,7 @@ describe('SessionTreeOverlay', () => {
       const wrapper = mount(SessionTreeOverlay, {
         props: {
           sessionId: 'sess-root',
-          sessionChain: [rootSession],
+          sessionChain: [{ session: rootSession, depth: 0 }],
           summariesMap: {},
         },
         global: { plugins: [router] },
@@ -739,7 +739,7 @@ describe('SessionTreeOverlay', () => {
       const wrapper = mount(SessionTreeOverlay, {
         props: {
           sessionId: 'sess-root',
-          sessionChain: [rootSession, child],
+          sessionChain: [{ session: rootSession, depth: 0 }, { session: child, depth: 1 }],
           summariesMap: {},
         },
         global: { plugins: [router] },
