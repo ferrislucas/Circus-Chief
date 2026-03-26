@@ -35,7 +35,7 @@
     <!-- Streaming log output for running child sessions -->
     <SessionLogStream
       v-if="isRunning"
-      :session-id="session.id"
+      :session-ids="[session.id]"
     />
   </div>
 
