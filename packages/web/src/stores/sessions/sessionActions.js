@@ -73,6 +73,14 @@ export const sessionActions = {
         return;
       }
       this.currentSession = fetchedSession;
+      // Add the fetched session to the sessions array if not already present
+      // This ensures getSessionById() can find it for computed properties like activeSessionName
+      const existingIndex = this.sessions.findIndex((s) => s.id === id);
+      if (existingIndex !== -1) {
+        this.sessions[existingIndex] = fetchedSession;
+      } else {
+        this.sessions.push(fetchedSession);
+      }
       if (this.currentSession?.parentSessionId) {
         let parentId = this.currentSession.parentSessionId;
         while (parentId) {

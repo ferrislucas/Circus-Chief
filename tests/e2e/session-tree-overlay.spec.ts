@@ -290,20 +290,13 @@ test.describe('Session Tree Overlay', () => {
       // Session names should still be displayed
       await expect(picker).toContainText('Parent Session');
 
-      // Verify all items are visible and have consistent alignment
+      // Verify all items are visible
       const items = picker.locator('[role="option"]');
       const count = await items.count();
       expect(count).toBeGreaterThanOrEqual(2);
-
-      // Check that all items have the same padding (no indentation)
-      const firstItemStyle = await items.nth(0).getAttribute('style');
-      for (let i = 1; i < count; i++) {
-        const itemStyle = await items.nth(i).getAttribute('style');
-        expect(itemStyle).toBe(firstItemStyle);
-      }
     });
 
-    test('all picker items have consistent left alignment', async ({ page }) => {
+    test('child picker items are indented more than parent', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -318,17 +311,17 @@ test.describe('Session Tree Overlay', () => {
       const count = await items.count();
       expect(count).toBeGreaterThanOrEqual(2);
 
-      // Get the padding-left value from the first item
-      const firstItemPadding = await items.nth(0).evaluate(el => {
-        return window.getComputedStyle(el).paddingLeft;
+      // Get the padding-left value from the first item (root/parent at depth 0)
+      const parentPadding = await items.nth(0).evaluate(el => {
+        return parseFloat(window.getComputedStyle(el).paddingLeft);
       });
 
-      // Verify all items have the same padding-left
+      // Child items (depth 1+) should have more padding than the parent
       for (let i = 1; i < count; i++) {
-        const itemPadding = await items.nth(i).evaluate(el => {
-          return window.getComputedStyle(el).paddingLeft;
+        const childPadding = await items.nth(i).evaluate(el => {
+          return parseFloat(window.getComputedStyle(el).paddingLeft);
         });
-        expect(itemPadding).toBe(firstItemPadding);
+        expect(childPadding).toBeGreaterThan(parentPadding);
       }
     });
 

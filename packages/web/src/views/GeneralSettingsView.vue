@@ -14,7 +14,7 @@
         Disable analytics tracking
       </label>
       <p class="form-help">
-        When enabled, no usage analytics will be collected. Changes take effect on next page load.
+        When checked, no usage analytics will be collected. Changes take effect on next page load.
       </p>
     </div>
 
