@@ -209,7 +209,7 @@ test.describe('Summary Tab Live Output', () => {
     // Wait for live output
     await page.waitForSelector('.session-log-stream', { timeout: 15000 });
 
-    // Verify DOM order: SessionLogStream should come before WhatJustHappenedCard
+    // Verify DOM order: SessionLogStream should be the first child of the summary tab
     const summaryTab = page.locator('.summary-tab');
     const children = await summaryTab.locator('> *').all();
 
