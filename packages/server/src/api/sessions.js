@@ -543,6 +543,35 @@ router.get('/:id/todos', requireSession, (req, res) => {
 
 // PATCH /:id and PATCH /:id/pending-prompt are handled by sessions-patch.js sub-router
 
+// GET /api/sessions/:id/workflow-latest-response - Get the most recent assistant response across the entire workflow
+router.get('/:id/workflow-latest-response', requireSession, (req, res) => {
+  try {
+    // Find the root of the workflow
+    const rootId = sessions.getRootSessionId(req.params.id);
+    if (!rootId) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Collect all session IDs in the workflow
+    const descendantIds = sessions.getAllDescendantIds(rootId);
+    const allSessionIds = [rootId, ...descendantIds];
+
+    // Find the most recent assistant message across all sessions
+    const message = messages.getLatestAssistantMessageForSessions(allSessionIds);
+    if (!message) {
+      return res.status(404).json({ error: 'No assistant response found' });
+    }
+
+    // Look up the session name for context
+    const messageSession = sessions.getById(message.sessionId);
+    const sessionName = messageSession?.name || null;
+
+    res.json({ message, sessionName });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/sessions/:id/summary - Get session summary
 router.get('/:id/summary', requireSession, async (req, res) => {
   // Check if generateIfMissing query param is set
