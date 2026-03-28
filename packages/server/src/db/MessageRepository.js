@@ -113,6 +113,28 @@ export class MessageRepository extends BaseRepository {
   }
 
   /**
+   * Get the most recent assistant message across multiple sessions.
+   * @param {string[]} sessionIds - Array of session IDs to search across
+   * @returns {Object|null} The most recent assistant message, or null if none exist
+   */
+  getLatestAssistantMessageForSessions(sessionIds) {
+    if (!sessionIds || sessionIds.length === 0) return null;
+
+    const placeholders = sessionIds.map(() => '?').join(', ');
+    const row = this.db
+      .prepare(
+        `SELECT * FROM conversation_messages
+         WHERE session_id IN (${placeholders})
+           AND role = 'assistant'
+         ORDER BY timestamp DESC
+         LIMIT 1`
+      )
+      .get(...sessionIds);
+
+    return row ? this.mapAll([row])[0] : null;
+  }
+
+  /**
    * Duplicates all messages from source conversations to target conversations.
    * @param {Map<string, string>} conversationIdMapping - Map of old conversation IDs to new IDs
    * @param {string} targetSessionId - The new session ID for the messages
