@@ -77,7 +77,10 @@ describe('SummaryTab', () => {
       props,
       global: {
         stubs: {
-          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          MarkdownViewer: {
+            template: '<div class="markdown-stub">{{ content }}</div>',
+            props: ['content'],
+          },
           SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
         },
       },
@@ -167,7 +170,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionId'],
@@ -193,7 +199,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionId'],
@@ -223,7 +232,10 @@ describe('SummaryTab', () => {
           props: { sessionId: 'sess-123' },
           global: {
             stubs: {
-              MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+              MarkdownViewer: {
+                template: '<div class="markdown-stub">{{ content }}</div>',
+                props: ['content'],
+              },
               SessionLogStream: {
                 name: 'SessionLogStream',
                 template: '<div class="session-log-stream-stub">SessionLogStream</div>',
@@ -249,7 +261,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-456' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionIds'],
@@ -277,7 +292,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
@@ -306,7 +324,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
