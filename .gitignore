@@ -51,6 +51,9 @@ temp/
 # Server port file (auto-generated)
 .server-port
 
+# DB path file for package tests (auto-generated)
+.db-path
+
 # VCR mode state file (auto-generated)
 .vcr-mode
 

@@ -38,8 +38,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Clean up stale port file
+# Clean up stale port and db-path files
 rm -f "$PORT_FILE"
+rm -f "$PROJECT_ROOT/.db-path"
 
 # --- Detect worktree ---
 is_worktree() {
@@ -87,11 +88,22 @@ echo '{"name":"claudetools-test","version":"1.0.0"}' > package.json
 
 npm install "$TARBALL_PATH" --save 2>&1 | tail -3
 
+# Symlink the tests directory so VCR cassettes are reachable.
+# The server resolves cassette paths relative to cwd (e.g. 'tests/e2e/cassettes'),
+# so they must be accessible from $INSTALL_DIR.
+ln -sf "$PROJECT_ROOT/tests" "$INSTALL_DIR/tests"
+
 echo ""
 echo "=== Starting server on port $SELECTED_PORT ==="
 echo "$SELECTED_PORT" > "$PORT_FILE"
 echo "${VCR_MODE:-}" > "$PROJECT_ROOT/.vcr-mode"
 
+# Use an absolute DB_PATH so the test process (seed scripts) can access the same database.
+# Without this, the server creates its DB at $INSTALL_DIR/claudetools.db but the seed scripts
+# default to $PROJECT_ROOT/claudetools.db — a completely different (empty) file.
+export DB_PATH="$INSTALL_DIR/claudetools.db"
+echo "$DB_PATH" > "$PROJECT_ROOT/.db-path"
+
 # Start the server from the installed package
 cd "$INSTALL_DIR"
-VCR_MODE="${VCR_MODE:-}" node node_modules/.bin/claudetools -p "$SELECTED_PORT"
+VCR_MODE="${VCR_MODE:-}" DB_PATH="$DB_PATH" node node_modules/.bin/claudetools -p "$SELECTED_PORT"
