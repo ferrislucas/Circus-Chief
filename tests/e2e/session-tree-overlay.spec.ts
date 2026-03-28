@@ -296,7 +296,7 @@ test.describe('Session Tree Overlay', () => {
       expect(count).toBeGreaterThanOrEqual(2);
     });
 
-    test('child picker items are indented more than parent', async ({ page }) => {
+    test('picker items are sorted by most recent activity first', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -311,18 +311,22 @@ test.describe('Session Tree Overlay', () => {
       const count = await items.count();
       expect(count).toBeGreaterThanOrEqual(2);
 
-      // Get the padding-left value from the first item (root/parent at depth 0)
-      const parentPadding = await items.nth(0).evaluate(el => {
-        return parseFloat(window.getComputedStyle(el).paddingLeft);
-      });
-
-      // Child items (depth 1+) should have more padding than the parent
-      for (let i = 1; i < count; i++) {
-        const childPadding = await items.nth(i).evaluate(el => {
+      // All items should have uniform padding (no depth-based indentation)
+      const paddings = [];
+      for (let i = 0; i < count; i++) {
+        const padding = await items.nth(i).evaluate(el => {
           return parseFloat(window.getComputedStyle(el).paddingLeft);
         });
-        expect(childPadding).toBeGreaterThan(parentPadding);
+        paddings.push(padding);
       }
+      // All items should have the same padding
+      for (let i = 1; i < paddings.length; i++) {
+        expect(paddings[i]).toBe(paddings[0]);
+      }
+
+      // The parent session (oldest, created first) should appear last
+      const lastItemName = await items.nth(count - 1).locator('.picker-item-name').textContent();
+      expect(lastItemName?.trim()).toBe('Parent Session');
     });
 
     test('active session is highlighted in picker', async ({ page }) => {

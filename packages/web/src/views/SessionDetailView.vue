@@ -202,6 +202,13 @@ async function buildSessionChain() {
   }
   walkTree(root, 0);
 
+  // Sort by latest message timestamp descending (reverse chronological)
+  tree.sort((a, b) => {
+    const aTime = a.session.lastActivityAt || a.session.updatedAt || a.session.createdAt || 0;
+    const bTime = b.session.lastActivityAt || b.session.updatedAt || b.session.createdAt || 0;
+    return bTime - aTime;
+  });
+
   sessionChain.value = tree;
 
   // Fetch summaries for all sessions in the tree (non-blocking)
