@@ -82,8 +82,9 @@ test.describe('Session Tree Overlay - Auto-select by most recent conversation ac
 
     // The overlay should auto-select the child with the most recent conversation
     // activity (childSession2), NOT the parent session.
-    const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Second Child', { timeout: 5000 });
+    // The .dropdown-name shows the active session; .overlay-root-name always shows the root.
+    const activeName = overlay.locator('.dropdown-name');
+    await expect(activeName).toContainText('Second Child', { timeout: 5000 });
   });
 
   test('overlay selects child with most recent messages over child with older messages', async ({ page }) => {
@@ -103,8 +104,8 @@ test.describe('Session Tree Overlay - Auto-select by most recent conversation ac
 
     // The overlay should auto-select childSession2 because it has the most recent
     // conversation activity, even though both children have messages and neither is running.
-    const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Second Child', { timeout: 5000 });
+    const activeName = overlay.locator('.dropdown-name');
+    await expect(activeName).toContainText('Second Child', { timeout: 5000 });
   });
 
   test('overlay selects child with conversation activity over parent with no messages', async ({ page }) => {
@@ -117,8 +118,8 @@ test.describe('Session Tree Overlay - Auto-select by most recent conversation ac
 
     // The overlay should auto-select childSession1 because it has conversation activity
     // while the parent and childSession2 have none.
-    const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('First Child', { timeout: 5000 });
+    const activeName = overlay.locator('.dropdown-name');
+    await expect(activeName).toContainText('First Child', { timeout: 5000 });
   });
 
   test('overlay selects parent when no sessions have conversation messages', async ({ page }) => {
@@ -128,6 +129,8 @@ test.describe('Session Tree Overlay - Auto-select by most recent conversation ac
 
     const overlay = await openOverlay(page, parentSession.id);
 
+    // When no children have activity, the overlay root name shows "Parent Session"
+    // and no dropdown-name selector is present (or it shows the parent).
     const rootName = overlay.locator('.overlay-root-name');
     await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
   });
@@ -149,8 +152,8 @@ test.describe('Session Tree Overlay - Auto-select by most recent conversation ac
 
     // The overlay should auto-select the grandchild because it has the most recent
     // conversation activity, even though it's 2 levels deep in the tree.
-    const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Grandchild Session', { timeout: 5000 });
+    const activeName = overlay.locator('.dropdown-name');
+    await expect(activeName).toContainText('Grandchild Session', { timeout: 5000 });
   });
 
   test('verify lastActivityAt reflects conversation messages via API', async ({ page }) => {
