@@ -239,7 +239,7 @@ function resolveOverlayTarget() {
     return;
   }
 
-  // Prefer running/starting children (skip the root at index 0)
+  // 1) Prefer running/starting children (skip the root at index 0)
   const runningChildren = chain
     .filter(entry => entry.session.status === 'running' || entry.session.status === 'starting')
     .filter(entry => entry.session.id !== currentSessionId.value);
@@ -251,10 +251,32 @@ function resolveOverlayTarget() {
       new Date(a.session.updatedAt || a.session.createdAt || 0)
     );
     overlaySessionId.value = sorted[0].session.id;
-  } else {
-    // No running children — use the current session
-    overlaySessionId.value = currentSessionId.value;
+    return;
   }
+
+  // 2) No running children — pick the session with the most recent
+  //    conversation activity (lastActivityAt), if any have real messages.
+  //    When a session has no messages, lastActivityAt falls back to updatedAt/createdAt.
+  //    We detect real conversation activity by checking if lastActivityAt > updatedAt,
+  //    which means there's a message timestamp beyond the session's own metadata update.
+  const withRealActivity = chain.filter(entry => {
+    const s = entry.session;
+    if (!s.lastActivityAt) return false;
+    // Real conversation activity: lastActivityAt is newer than the session's updatedAt
+    const activity = new Date(s.lastActivityAt).getTime();
+    const updated = new Date(s.updatedAt || s.createdAt || 0).getTime();
+    return activity > updated;
+  });
+  if (withRealActivity.length > 0) {
+    const sorted = [...withRealActivity].sort((a, b) =>
+      new Date(b.session.lastActivityAt) - new Date(a.session.lastActivityAt)
+    );
+    overlaySessionId.value = sorted[0].session.id;
+    return;
+  }
+
+  // 3) No conversation activity anywhere — use the current session
+  overlaySessionId.value = currentSessionId.value;
 }
 
 /**
