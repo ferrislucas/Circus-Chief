@@ -16,6 +16,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
     // Internal buffering state (not reactive to avoid extra renders)
     _outputBuffers: {}, // runId -> pending output string
     _flushTimers: {}, // runId -> setTimeout id
+    _lastAppendedText: {}, // runId -> { text, timestamp } for dedup of dual-channel WS broadcasts
   }),
 
   getters: {
@@ -258,6 +259,14 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
         return;
       }
 
+      // Don't flush output for completed runs — output is already finalized
+      // This prevents duplication if a flush timer fires after completeRun
+      if (this.runs[runId].status !== 'running') {
+        delete this._outputBuffers[runId];
+        delete this._flushTimers[runId];
+        return;
+      }
+
       // Combine existing output with buffer
       const combined = this.runs[runId].output + buffer;
       const { output, truncated } = this._truncateOutput(combined);
@@ -288,6 +297,21 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
         return;
       }
 
+      // Ignore output for completed runs to prevent duplication
+      // (WS output events can arrive after the complete event due to race conditions)
+      if (this.runs[runId].status !== 'running') {
+        return;
+      }
+
+      // Deduplicate identical output messages arriving from dual-channel WS broadcasts
+      // (server broadcasts to both session and project channels, client may receive both)
+      const now = Date.now();
+      const lastAppend = this._lastAppendedText[runId];
+      if (lastAppend && lastAppend.text === text && (now - lastAppend.timestamp) < 100) {
+        return; // Skip duplicate
+      }
+      this._lastAppendedText[runId] = { text, timestamp: now };
+
       // Append to buffer
       this._outputBuffers[runId] = (this._outputBuffers[runId] || '') + text;
 
@@ -317,6 +341,8 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       if (this.runs[runId]) {
         // Flush any pending buffered output first
         this.flushPendingOutput(runId);
+        // Clean up dedup tracking
+        delete this._lastAppendedText[runId];
 
         // FIX: Only replace output if server has a more complete version
         // (longer output), otherwise keep the output we accumulated via
@@ -403,6 +429,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
         delete this._flushTimers[runId];
       }
       delete this._outputBuffers[runId];
+      delete this._lastAppendedText[runId];
       delete this.runs[runId];
       delete this.collapsedStates[runId];
     },
@@ -414,6 +441,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
       this._flushTimers = {};
       this._outputBuffers = {};
+      this._lastAppendedText = {};
       this.runs = {};
       this.collapsedStates = {};
     },

@@ -1,7 +1,7 @@
 <template>
   <div class="conversation-tab">
     <!-- Unified Conversation Panel - selector + BTE cost display -->
-    <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" />
+    <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" :hide-new-conversation="hideNewConversation" />
 
     <ConversationMessages
       ref="conversationMessagesRef"
@@ -131,6 +131,7 @@ import { useProjectsStore } from '../stores/projects.js';
 const props = defineProps({
   sessionId: { type: String, required: true },
   scrollContainerRef: { type: Object, default: null },
+  hideNewConversation: { type: Boolean, default: false },
 });
 
 const sessionsStore = useSessionsStore();
