@@ -120,7 +120,7 @@ test.describe('Session Summaries', () => {
       );
     });
 
-    test('displays key actions as a checklist', async ({ page }) => {
+    test('key actions section is no longer rendered (removed)', async ({ page }) => {
       const session = await seedSession(project.id, {
         prompt: 'Test key actions display',
         name: 'Key Actions Test',
@@ -138,13 +138,7 @@ test.describe('Session Summaries', () => {
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
       const keyActionsList = page.locator('.key-actions-list');
-      await expect(keyActionsList).toBeVisible();
-
-      const items = keyActionsList.locator('li');
-      await expect(items).toHaveCount(3);
-      await expect(items.nth(0)).toContainText('Added login endpoint');
-      await expect(items.nth(1)).toContainText('Created user model');
-      await expect(items.nth(2)).toContainText('Set up JWT tokens');
+      await expect(keyActionsList).toHaveCount(0);
     });
 
     test('files modified section is no longer rendered (removed)', async ({ page }) => {
@@ -806,35 +800,6 @@ test.describe('Session Summaries', () => {
       // The summary-content card should NOT be in the DOM (v-else-if="summary")
       const summaryContent = page.locator('.summary-content');
       await expect(summaryContent).toHaveCount(0);
-    });
-
-    test('hides key actions section when keyActions is empty', async ({ page }) => {
-      const session = await seedSession(project.id, {
-        prompt: 'Test empty key actions',
-        name: 'Empty Key Actions Test',
-        startImmediately: false,
-      });
-      await waitForSessionToExist(session.id);
-
-      // Seed summary WITHOUT keyActions (null in DB -> empty array from API)
-      seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Empty key actions test',
-        fullSummary: 'Testing hidden key actions section',
-        outcome: 'completed',
-      });
-
-      await navigateAndWait(page, `/sessions/${session.id}/summary`);
-
-      // The summary content should be visible
-      await expect(page.locator('.summary-content')).toBeVisible();
-
-      // Key Actions list should NOT be visible (section is conditionally rendered)
-      const keyActionsList = page.locator('.key-actions-list');
-      await expect(keyActionsList).toHaveCount(0);
-
-      // The overview section should still be visible
-      const fullSummary = page.locator('.full-summary');
-      await expect(fullSummary).toBeVisible();
     });
 
     test('hides files modified section when filesModified is empty', async ({ page }) => {
