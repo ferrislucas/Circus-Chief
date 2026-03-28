@@ -722,10 +722,13 @@ test.describe('Session Tree Overlay', () => {
       await expect(overlay).toBeVisible({ timeout: 5000 });
 
       // Wait for slide-in animation to complete (300ms + buffer)
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(500);
+
+      // Re-assert visibility before measuring (guards against re-render during animation)
+      await expect(overlay).toBeVisible({ timeout: 5000 });
 
       // Verify it's positioned on the right side
-      const overlayBox = await overlay.boundingBox();
+      const overlayBox = await overlay.boundingBox({ timeout: 5000 });
       const viewportSize = page.viewportSize();
       if (overlayBox && viewportSize) {
         // Overlay should start from the right side (with some margin for padding)
