@@ -286,9 +286,13 @@ const rootSession = computed(() => {
 });
 
 const rootSessionName = computed(() => {
-  // Use sessionChain root if available (most reliable after buildSessionChain)
-  if (props.sessionChain.length > 0) return props.sessionChain[0].session?.name || 'Session';
-  return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
+  // Show the active (currently viewed) session name, not always the root.
+  // This ensures the overlay header reflects whichever session the user has
+  // navigated to via the picker, auto-select, or add-session.
+  const session = sessionsStore.getSessionById(activeSessionId.value);
+  if (session) return session.name || 'Session';
+  // Fallback to currentSession if activeSessionId hasn't loaded yet
+  return sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => {
@@ -631,7 +635,8 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .overlay-panel-wrapper {
