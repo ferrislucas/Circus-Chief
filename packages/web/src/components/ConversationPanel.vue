@@ -36,6 +36,7 @@
 
         <!-- New conversation button -->
         <button
+          v-if="!hideNewConversation"
           type="button"
           class="btn btn-new"
           @click="handleCreate"
@@ -56,6 +57,7 @@ import ConversationTreeItem from './ConversationTreeItem.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
+  hideNewConversation: { type: Boolean, default: false },
 });
 
 const sessionsStore = useSessionsStore();
