@@ -92,17 +92,21 @@ vi.mock('../composables/useApi.js', () => ({
 // and useSessionSubscription returns no-op handler stubs.
 vi.mock('../composables/useWebSocket.js', () => {
   const h = () => vi.fn(() => () => {});
+  // Return the SAME singleton object from every useWebSocket() call so that the
+  // component's top-level destructure and useSessionInitializer's internal call
+  // share the same send/on/off mocks (matches real singleton behaviour).
+  const wsSingleton = {
+    isConnected: { value: true },
+    send: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    disconnect: vi.fn(),
+    clearSessionBuffer: vi.fn(),
+    onReconnect: vi.fn(() => () => {}),
+  };
   return {
     ensureSubscribed: vi.fn(() => Promise.resolve()),
-    useWebSocket: vi.fn(() => ({
-      isConnected: { value: true },
-      send: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
-      disconnect: vi.fn(),
-      clearSessionBuffer: vi.fn(),
-      onReconnect: vi.fn(() => () => {}),
-    })),
+    useWebSocket: vi.fn(() => wsSingleton),
     useSessionSubscription: vi.fn(() => ({
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
