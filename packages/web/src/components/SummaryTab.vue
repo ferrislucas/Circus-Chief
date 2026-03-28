@@ -6,6 +6,31 @@
       :session-ids="[sessionId]"
     />
 
+    <!-- Most Recent Agent Response -->
+    <div v-if="latestResponse" class="latest-response card">
+      <div class="latest-response-header">
+        <h3>Latest Response</h3>
+        <div class="latest-response-meta">
+          <span v-if="latestResponse.sessionName" class="response-session-name">
+            from {{ latestResponse.sessionName }}
+          </span>
+          <span class="response-timestamp">
+            {{ formatRelativeTime(latestResponse.message.timestamp) }}
+          </span>
+        </div>
+      </div>
+      <div class="latest-response-content" :class="{ collapsed: !latestResponseExpanded && isContentLong }">
+        <MarkdownViewer :content="displayedContent" />
+      </div>
+      <button
+        v-if="isContentLong"
+        class="btn-link expand-toggle"
+        @click="latestResponseExpanded = !latestResponseExpanded"
+      >
+        {{ latestResponseExpanded ? 'Show less' : 'Show full response' }}
+      </button>
+    </div>
+
     <!-- Session Overview Section -->
     <div v-if="hasPrInfo || summary?.shortSummary || loading" class="session-overview card">
       <div class="overview-header">
@@ -87,6 +112,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
+import MarkdownViewer from './MarkdownViewer.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -146,6 +172,8 @@ const loading = ref(false);
 const generating = ref(false);
 const generatingManual = ref(false);
 const filesCount = ref(0);
+const latestResponse = ref(null);
+const latestResponseExpanded = ref(false);
 
 // Computed property to get the session's prUrl
 // Check both sessions array and currentSession (the latter is always populated on session detail page)
@@ -171,6 +199,34 @@ function formatPrState(state) {
   return labels[state] || state;
 }
 
+const isContentLong = computed(() =>
+  latestResponse.value?.message?.content?.length > 500
+);
+
+const displayedContent = computed(() => {
+  const content = latestResponse.value?.message?.content || '';
+  if (latestResponseExpanded.value || content.length <= 500) {
+    return content;
+  }
+  return content.slice(0, 500) + '...';
+});
+
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return '';
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (seconds < 60) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
 function extractPrNumber(url) {
   if (!url) return 'PR';
   const match = url.match(/\/pull\/(\d+)/);
@@ -182,6 +238,13 @@ onMounted(async () => {
   loading.value = true;
   try {
     summary.value = await api.getSessionSummary(props.sessionId);
+
+    // Fetch latest workflow response
+    try {
+      latestResponse.value = await api.getWorkflowLatestResponse(props.sessionId);
+    } catch (error) {
+      console.warn('Failed to fetch workflow latest response:', error);
+    }
 
     // Fetch files count
     try {
@@ -203,10 +266,17 @@ onMounted(async () => {
   }
 
   // Listen for WebSocket updates
-  onSummaryUpdate((newSummary) => {
+  onSummaryUpdate(async (newSummary) => {
     summary.value = newSummary;
     generating.value = false;       // Belt-and-suspenders: summary arrived = not generating
     generatingManual.value = false;
+
+    // Re-fetch latest response when summary updates (triggered by session status transitions)
+    try {
+      latestResponse.value = await api.getWorkflowLatestResponse(props.sessionId);
+    } catch (error) {
+      // Non-fatal
+    }
   });
 
   onSummaryGenerating((isGenerating) => {
@@ -386,6 +456,74 @@ async function handleRegenerate() {
 }
 
 .pr-link:hover {
+  text-decoration: underline;
+}
+
+/* Latest Response Styles */
+.latest-response {
+  margin-bottom: 1.5rem;
+}
+
+.latest-response-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.latest-response-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.latest-response-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.response-session-name {
+  opacity: 0.8;
+}
+
+.latest-response-content {
+  position: relative;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.latest-response-content.collapsed {
+  max-height: 300px;
+  overflow: hidden;
+}
+
+.latest-response-content.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(transparent, var(--color-background-soft, #1e1e1e));
+  pointer-events: none;
+}
+
+.expand-toggle {
+  display: inline-block;
+  margin-top: 0.5rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.expand-toggle:hover {
   text-decoration: underline;
 }
 

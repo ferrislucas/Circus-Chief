@@ -10,6 +10,7 @@ vi.mock('../composables/useApi.js', () => ({
     getSessionSummariesBatch: vi.fn().mockResolvedValue({}),
     regenerateSessionSummary: vi.fn().mockResolvedValue({ shortSummary: 'Test summary' }),
     generateSessionSummary: vi.fn().mockResolvedValue({ shortSummary: 'Test summary' }),
+    getWorkflowLatestResponse: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -49,6 +50,7 @@ describe('SummaryTab', () => {
 
     // Reset API mock implementations to defaults
     api.getSessionSummary.mockResolvedValue(null);
+    api.getWorkflowLatestResponse.mockResolvedValue(null);
 
     // Get actual store instances
     sessionsStore = useSessionsStore();
@@ -75,7 +77,10 @@ describe('SummaryTab', () => {
       props,
       global: {
         stubs: {
-          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          MarkdownViewer: {
+            template: '<div class="markdown-stub">{{ content }}</div>',
+            props: ['content'],
+          },
           SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
         },
       },
@@ -165,7 +170,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionId'],
@@ -191,7 +199,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionId'],
@@ -221,7 +232,10 @@ describe('SummaryTab', () => {
           props: { sessionId: 'sess-123' },
           global: {
             stubs: {
-              MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+              MarkdownViewer: {
+                template: '<div class="markdown-stub">{{ content }}</div>',
+                props: ['content'],
+              },
               SessionLogStream: {
                 name: 'SessionLogStream',
                 template: '<div class="session-log-stream-stub">SessionLogStream</div>',
@@ -247,7 +261,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-456' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionIds'],
@@ -275,7 +292,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
@@ -304,7 +324,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
@@ -315,6 +338,103 @@ describe('SummaryTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
+    });
+  });
+
+  describe('Latest Response', () => {
+    it('does not render latest response section when no response exists', async () => {
+      // Default mock returns null
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(false);
+    });
+
+    it('renders latest response section when response exists', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Test response content',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.text()).toContain('Test response content');
+    });
+
+    it('shows session name in latest response header', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Response text',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'My Child Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.text()).toContain('from My Child Session');
+    });
+
+    it('renders response content via MarkdownViewer', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: '# Hello World',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // The MarkdownViewer is stubbed; verify the content section exists and has content
+      const contentSection = wrapper.find('.latest-response-content');
+      expect(contentSection.exists()).toBe(true);
+      expect(contentSection.text()).toContain('Hello World');
+    });
+
+    it('shows expand toggle for long content', async () => {
+      const longContent = 'a'.repeat(600);
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: longContent,
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.expand-toggle').exists()).toBe(true);
+      expect(wrapper.find('.expand-toggle').text()).toBe('Show full response');
+    });
+
+    it('does not show expand toggle for short content', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Short response',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.expand-toggle').exists()).toBe(false);
     });
   });
 
