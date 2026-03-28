@@ -162,6 +162,7 @@
               :session-id="activeSessionId"
               :key="activeSessionId"
               :scroll-container-ref="overlayBodyRef"
+              :hide-new-conversation="true"
             />
           </div>
           </div><!-- end overlay-content -->
