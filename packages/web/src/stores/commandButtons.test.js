@@ -584,7 +584,7 @@ describe('CommandButtons Store', () => {
     it('appendOutput adds text to existing run', () => {
       const store = useCommandButtonsStore();
       store.runs = {
-        'run-1': { runId: 'run-1', output: 'Hello ', outputTruncated: false },
+        'run-1': { runId: 'run-1', status: 'running', output: 'Hello ', outputTruncated: false },
       };
 
       store.appendOutput('run-1', 'World');
@@ -597,6 +597,30 @@ describe('CommandButtons Store', () => {
       const store = useCommandButtonsStore();
       store.appendOutput('nonexistent', 'text');
       expect(store.runs['nonexistent']).toBeUndefined();
+    });
+
+    it('appendOutput ignores output for completed runs', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'success', output: 'final output', outputTruncated: false },
+      };
+
+      store.appendOutput('run-1', ' extra');
+      store.flushPendingOutput('run-1');
+
+      expect(store.runs['run-1'].output).toBe('final output');
+    });
+
+    it('appendOutput ignores output for errored runs', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', status: 'error', output: 'error output', outputTruncated: false },
+      };
+
+      store.appendOutput('run-1', ' extra');
+      store.flushPendingOutput('run-1');
+
+      expect(store.runs['run-1'].output).toBe('error output');
     });
 
     it('completeRun updates status and exit code', () => {
