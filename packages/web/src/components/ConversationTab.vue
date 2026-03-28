@@ -443,7 +443,13 @@ async function handleFormSubmit() {
     const sessionModel = selectedModel.value
       || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
-    await handleStart(currentValue, sessionModel);
+    const success = await handleStart(currentValue, sessionModel);
+    if (success) {
+      input.value = '';
+      if (textareaRef) textareaRef.value = '';
+      attachedFiles.value = [];
+      inputFormRef.value?.clearFiles();
+    }
   } else {
     const textareaRef = inputFormRef.value?.textareaRef;
     const currentValue = textareaRef?.value || input.value;
