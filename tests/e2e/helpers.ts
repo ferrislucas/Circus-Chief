@@ -123,6 +123,34 @@ export async function navigateAndWait(
 }
 
 /**
+ * Open the session tree overlay on the session detail page.
+ * Clicks the tree handle and waits for the overlay to appear.
+ * Returns a Locator scoped to the overlay container.
+ */
+export async function openSessionOverlay(page: Page, timeout = 10000) {
+  const handle = page.locator('[data-testid="session-tree-handle"]');
+  await handle.waitFor({ state: 'visible', timeout });
+  await handle.click();
+  const overlay = page.locator('.session-tree-overlay');
+  await overlay.waitFor({ state: 'visible', timeout });
+  return overlay;
+}
+
+/**
+ * Navigate to a session detail page and open the session tree overlay.
+ * Combines navigateAndWait + openSessionOverlay for convenience.
+ * Returns the overlay Locator.
+ */
+export async function navigateAndOpenOverlay(
+  page: Page,
+  url: string,
+  options: { timeout?: number; waitFor?: string } = {},
+) {
+  await navigateAndWait(page, url, options);
+  return openSessionOverlay(page, options.timeout || 10000);
+}
+
+/**
  * Wait for a session to exist in the API
  */
 export async function waitForSessionToExist(sessionId: string, timeout = 5000): Promise<any> {

@@ -4,6 +4,7 @@ import {
   seedSession,
   cleanupAll,
   navigateAndWait,
+  openSessionOverlay,
 } from './helpers';
 
 /**
@@ -47,7 +48,7 @@ test.describe('Session Detail Scroll Behavior', () => {
     // Mobile viewport (below 768px, uses top: 51px)
     await page.setViewportSize({ width: 375, height: 812 });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await expect(page.locator('.tabs')).toBeVisible({ timeout: 10000 });
 
     const layout = await page.evaluate(() => {
@@ -70,7 +71,8 @@ test.describe('Session Detail Scroll Behavior', () => {
   });
 
   test('page-level scroll reaches bottom of conversation', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await expect(page.locator('[data-testid="message-user"]')).toBeVisible({ timeout: 10000 });
 
     // The messages container uses max-height (viewport-relative) with overflow-y: auto.

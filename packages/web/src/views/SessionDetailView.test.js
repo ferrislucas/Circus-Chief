@@ -11,9 +11,6 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
 
 // Mock components
-vi.mock('../components/ConversationTab.vue', () => ({
-  default: { name: 'ConversationTab', template: '<div>Conversation Tab</div>' }
-}));
 vi.mock('../components/ChangesTab.vue', () => ({
   default: { name: 'ChangesTab', template: '<div>Changes Tab</div>' }
 }));
@@ -206,7 +203,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -228,7 +224,7 @@ describe('SessionDetailView', () => {
       expect(notesTab).toBeUndefined();
     });
 
-    it('includes Summary, Conversation, Changes, Canvas, Commands tabs', async () => {
+    it('includes Summary, Changes, Canvas, Commands tabs', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -242,7 +238,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -275,7 +270,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -309,7 +303,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -341,7 +334,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -373,7 +365,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -408,7 +399,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -441,7 +431,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -475,7 +464,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -507,7 +495,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -543,7 +530,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -578,7 +564,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -656,7 +641,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -691,7 +675,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -719,7 +702,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -756,7 +738,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -790,7 +771,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -860,7 +840,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -899,7 +878,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -971,7 +949,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1029,7 +1006,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1064,7 +1040,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1101,7 +1076,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1135,7 +1109,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1168,7 +1141,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1215,7 +1187,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1248,7 +1219,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1287,7 +1257,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1326,7 +1295,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1362,7 +1330,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1402,7 +1369,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1443,7 +1409,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1480,7 +1445,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1528,7 +1492,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1593,7 +1556,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1634,7 +1596,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1677,7 +1638,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1725,7 +1685,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1758,7 +1717,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1791,7 +1749,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1824,7 +1781,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1856,7 +1812,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1889,7 +1844,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1922,7 +1876,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1954,7 +1907,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1987,7 +1939,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2021,7 +1972,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2055,7 +2005,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2099,7 +2048,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2134,7 +2082,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2175,7 +2122,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2212,7 +2158,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2247,7 +2192,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2289,7 +2233,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2323,7 +2266,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2379,7 +2321,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2422,7 +2363,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2456,7 +2396,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2490,7 +2429,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2522,7 +2460,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2554,7 +2491,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2585,7 +2521,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2616,7 +2551,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2647,7 +2581,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2678,7 +2611,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2709,7 +2641,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2743,7 +2674,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2782,7 +2712,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2808,7 +2737,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2833,7 +2761,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2855,7 +2782,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2877,7 +2803,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2900,7 +2825,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2922,7 +2846,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2944,7 +2867,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2966,7 +2888,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2988,7 +2909,7 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            SummaryTab: true, ChangesTab: true,
             CanvasTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3004,7 +2925,7 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            SummaryTab: true, ChangesTab: true,
             CanvasTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3021,7 +2942,7 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            SummaryTab: true, ChangesTab: true,
             CanvasTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3038,7 +2959,7 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            SummaryTab: true, ChangesTab: true,
             CanvasTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3072,7 +2993,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3105,7 +3025,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3140,7 +3059,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3172,7 +3090,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3205,7 +3122,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3238,7 +3154,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3301,7 +3216,7 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            ChangesTab: true, CanvasTab: true,
             SummaryTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3353,7 +3268,7 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            ChangesTab: true, CanvasTab: true,
             SummaryTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3396,7 +3311,7 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            ChangesTab: true, CanvasTab: true,
             SummaryTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3467,7 +3382,7 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            ChangesTab: true, CanvasTab: true,
             SummaryTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3503,7 +3418,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -3558,7 +3472,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -3602,7 +3515,6 @@ describe('SessionDetailView', () => {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
