@@ -263,10 +263,12 @@ export class SessionRepository extends BaseRepository {
 
   /**
    * Collect all descendant session IDs (children, grandchildren, etc.) recursively.
+   * Uses a lightweight ID-only query to avoid expensive joins.
    * @param {string} sessionId - The starting session ID
    * @returns {string[]} Array of all descendant session IDs (does NOT include the starting session)
    */
   getAllDescendantIds(sessionId) {
+    const stmt = this.db.prepare('SELECT id FROM sessions WHERE parent_session_id = ?');
     const descendantIds = [];
     const stack = [sessionId];
     const visited = new Set();
@@ -276,10 +278,10 @@ export class SessionRepository extends BaseRepository {
       if (visited.has(currentId)) continue;
       visited.add(currentId);
 
-      const children = this.getChildSessions(currentId);
-      for (const child of children) {
-        descendantIds.push(child.id);
-        stack.push(child.id);
+      const childRows = stmt.all(currentId);
+      for (const row of childRows) {
+        descendantIds.push(row.id);
+        stack.push(row.id);
       }
     }
 
