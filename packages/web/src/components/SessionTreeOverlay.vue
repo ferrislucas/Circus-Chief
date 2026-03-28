@@ -162,6 +162,7 @@
               :session-id="activeSessionId"
               :key="activeSessionId"
               :scroll-container-ref="overlayBodyRef"
+              :hide-new-conversation="true"
             />
           </div>
           </div><!-- end overlay-content -->
@@ -630,7 +631,7 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .overlay-panel-wrapper {
