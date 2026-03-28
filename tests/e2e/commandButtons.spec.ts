@@ -62,8 +62,9 @@ test.describe('Command Buttons', () => {
     // Wait for command to finish
     await expect(page.locator('.status-running')).toBeHidden({ timeout: 15000 });
 
-    // Expand output
+    // Expand output and wait for actual command output to render
     await page.click('.output-header');
+    await expect(page.locator('.output-text')).toContainText('Persist output', { timeout: 5000 });
     const initialOutput = await page.textContent('.output-text');
     expect(initialOutput).toBeTruthy();
 
