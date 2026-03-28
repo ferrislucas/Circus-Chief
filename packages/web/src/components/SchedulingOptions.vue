@@ -330,4 +330,11 @@ watch(
   padding-top: 1rem;
   border-top: 1px solid var(--color-border);
 }
+
+/* Rec 10: Tighten spacing on mobile */
+@media (max-width: 480px) {
+  .form-group {
+    margin-bottom: 0.5rem;
+  }
+}
 </style>

@@ -3,13 +3,12 @@
     <!-- Header row with status, token display, and stop button -->
     <div class="running-header">
       <div class="running-status">
-        <span class="loading-spinner"></span>
         <span class="running-title">Claude is working...</span>
       </div>
       <div class="running-actions">
         <span v-if="activeModelDisplayName" class="running-model-label">{{ activeModelDisplayName }}</span>
         <button type="button" class="btn btn-danger btn-stop" @click="onStopClick" :disabled="stopping">
-          <span v-if="stopping" class="loading-spinner"></span>
+          <span class="loading-spinner"></span>
           Stop
         </button>
       </div>
