@@ -5,6 +5,7 @@ node_modules/
 dist/
 build/
 dist-package/
+.package-test/
 
 # Database
 *.db
