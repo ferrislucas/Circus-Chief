@@ -227,8 +227,8 @@ async function buildSessionChain() {
 
 /**
  * Resolve the overlay target session ID.
- * Selects the most recently active session from the full session tree.
- * If there are no children, falls back to the current session.
+ * If any children are running/starting, picks the most recently updated one.
+ * Otherwise, falls back to the current session.
  */
 function resolveOverlayTarget() {
   const chain = sessionChain.value;
@@ -239,12 +239,22 @@ function resolveOverlayTarget() {
     return;
   }
 
-  // Pick the session with the most recent activity
-  const sorted = [...chain].sort((a, b) =>
-    new Date(b.session.updatedAt || b.session.createdAt || 0) -
-    new Date(a.session.updatedAt || a.session.createdAt || 0)
-  );
-  overlaySessionId.value = sorted[0].session.id;
+  // Prefer running/starting children (skip the root at index 0)
+  const runningChildren = chain
+    .filter(entry => entry.session.status === 'running' || entry.session.status === 'starting')
+    .filter(entry => entry.session.id !== currentSessionId.value);
+
+  if (runningChildren.length > 0) {
+    // Pick the most recently updated running child
+    const sorted = [...runningChildren].sort((a, b) =>
+      new Date(b.session.updatedAt || b.session.createdAt || 0) -
+      new Date(a.session.updatedAt || a.session.createdAt || 0)
+    );
+    overlaySessionId.value = sorted[0].session.id;
+  } else {
+    // No running children — use the current session
+    overlaySessionId.value = currentSessionId.value;
+  }
 }
 
 /**
