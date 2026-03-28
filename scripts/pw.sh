@@ -39,6 +39,9 @@ else
     USE_DOCKER=false
 fi
 
+# Default: test against dev server, not the built package
+USE_PACKAGE_SERVER=false
+
 # Wait for server to be ready
 # Polls the server on the given port until it responds or timeout
 # Args: $1 = port number, $2 = timeout in seconds (default: 30)
@@ -117,15 +120,25 @@ detect_or_start_server() {
     fi
 
     # No valid server found, start one
-    print_info "Starting server..."
+    local start_script="$SCRIPT_DIR/start-server.sh"
+    if [ "$USE_PACKAGE_SERVER" = true ]; then
+        start_script="$SCRIPT_DIR/start-package-server.sh"
+        print_info "Starting server from built npm package..."
+    else
+        print_info "Starting server..."
+    fi
 
-    # Run start-server.sh in background
-    "$SCRIPT_DIR/start-server.sh" > /tmp/server-startup.log 2>&1 &
+    # Run start script in background
+    "$start_script" > /tmp/server-startup.log 2>&1 &
     local server_pid=$!
 
     # Wait for .server-port file to be created
+    # Package server needs longer timeout (build + npm install)
     local elapsed=0
     local timeout=30
+    if [ "$USE_PACKAGE_SERVER" = true ]; then
+        timeout=120
+    fi
     while [ $elapsed -lt $timeout ]; do
         if [ -f "$port_file" ]; then
             detected_port=$(cat "$port_file")
@@ -471,6 +484,11 @@ EOF
 
 # Main command router
 case "${1:-help}" in
+    test-package)
+        shift
+        USE_PACKAGE_SERVER=true
+        cmd_test "$@"
+        ;;
     test)
         shift
         cmd_test "$@"
