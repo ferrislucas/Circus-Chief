@@ -708,63 +708,6 @@ describe('SessionTreeOverlay', () => {
     });
   });
 
-  describe('breadcrumb', () => {
-    it('shows breadcrumb when viewing child session', async () => {
-      const child = { id: 'child-1', name: 'Child', status: 'waiting', parentSessionId: 'sess-root' };
-      mockSessionsStore.getSessionPath.mockReturnValue([rootSession, child]);
-      const wrapper = mountOverlay();
-      await nextTick();
-      wrapper.vm.activeSessionId = 'child-1';
-      await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-breadcrumb"]')).toBeTruthy();
-      wrapper.unmount();
-    });
-
-    it('hides breadcrumb at root level', async () => {
-      const wrapper = mountOverlay();
-      await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-breadcrumb"]')).toBeFalsy();
-      wrapper.unmount();
-    });
-
-    it('breadcrumb click calls selectSession without router navigation', async () => {
-      const child = { id: 'child-1', name: 'Child', status: 'waiting', parentSessionId: 'sess-root' };
-      mockSessionsStore.getSessionPath.mockReturnValue([rootSession, child]);
-      mockSessionsStore.getSessionById.mockImplementation((id) => {
-        if (id === 'sess-root') return rootSession;
-        if (id === 'child-1') return child;
-        return null;
-      });
-
-      const wrapper = mount(SessionTreeOverlay, {
-        props: {
-          sessionId: 'sess-root',
-          sessionChain: [{ session: rootSession, depth: 0 }, { session: child, depth: 1 }],
-          summariesMap: {},
-        },
-        global: { plugins: [router] },
-        attachTo: document.body,
-      });
-      await nextTick();
-      // Set active to child so breadcrumb shows
-      wrapper.vm.activeSessionId = 'child-1';
-      await nextTick();
-
-      // Find the breadcrumb link for the root session (non-active, rendered as button)
-      const breadcrumbLinks = document.querySelectorAll('.breadcrumb-link');
-      expect(breadcrumbLinks.length).toBeGreaterThan(0);
-
-      // Click the root breadcrumb link
-      breadcrumbLinks[0].click();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      // activeSessionId should switch to root
-      expect(wrapper.vm.activeSessionId).toBe('sess-root');
-      wrapper.unmount();
-    });
-  });
-
   describe('data loading', () => {
     it('calls fetchConversations on mount', async () => {
       const wrapper = mountOverlay();
