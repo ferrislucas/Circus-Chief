@@ -1043,7 +1043,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(overlay.locator('.overlay-content')).toBeVisible();
     });
 
-    test('breadcrumb updates to show parent > new session path', async ({ page }) => {
+    test('picker shows both parent and new child session after creation', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
       const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
@@ -1053,11 +1053,13 @@ test.describe('Session Tree Overlay', () => {
       const rootName = overlay.locator('.overlay-root-name');
       await expect(rootName).toHaveText('New Session', { timeout: 10000 });
 
-      // Breadcrumb should show the parent and the new session
-      const breadcrumb = overlay.locator('[data-testid="session-tree-breadcrumb"]');
-      await expect(breadcrumb).toBeVisible({ timeout: 5000 });
-      await expect(breadcrumb).toContainText('Parent Session');
-      await expect(breadcrumb).toContainText('New Session');
+      // Open picker and verify both parent and new session are listed
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
+      await dropdown.locator('.dropdown-trigger').click();
+      const picker = page.locator('[data-testid="session-tree-picker"]');
+      await expect(picker).toBeVisible({ timeout: 5000 });
+      await expect(picker).toContainText('Parent Session');
+      await expect(picker).toContainText('New Session');
     });
 
     test('can create multiple child sessions in sequence', async ({ page }) => {
@@ -1070,9 +1072,22 @@ test.describe('Session Tree Overlay', () => {
       const rootName = overlay.locator('.overlay-root-name');
       await expect(rootName).toHaveText('New Session', { timeout: 10000 });
 
-      // Navigate back to parent via breadcrumb
-      const breadcrumbLink = overlay.locator('.breadcrumb-link').first();
-      await breadcrumbLink.click();
+      // Navigate back to parent via session picker
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
+      await dropdown.locator('.dropdown-trigger').click();
+      const picker = page.locator('[data-testid="session-tree-picker"]');
+      await expect(picker).toBeVisible({ timeout: 5000 });
+
+      // Click the parent session item (first item in picker)
+      const items = picker.locator('[role="option"]');
+      const count = await items.count();
+      for (let i = 0; i < count; i++) {
+        const text = await items.nth(i).textContent();
+        if (text?.includes('Parent Session')) {
+          await items.nth(i).click();
+          break;
+        }
+      }
       await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
 
       // Create second child
