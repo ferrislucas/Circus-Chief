@@ -75,33 +75,36 @@ test.describe('Session Detail Scroll Behavior', () => {
     await openSessionOverlay(page);
     await expect(page.locator('[data-testid="message-user"]')).toBeVisible({ timeout: 10000 });
 
-    // The messages container uses max-height (viewport-relative) with overflow-y: auto.
-    // This is intentional for layout stability. The key check is that the container
-    // itself is scrollable and not trapped in a tiny fixed-pixel container.
+    // In the overlay, .overlay-body is the scroll container (ConversationTab passes
+    // overlayBodyRef as scrollContainerRef). The .messages div still has max-height
+    // but the effective scrollable area is the overlay-body.
+    // The key check is that the scroll container is tall enough and scrollable,
+    // not trapped in a tiny fixed-pixel container.
     const containerInfo = await page.evaluate(() => {
-      const container = document.querySelector('.messages');
-      if (!container) return null;
-      const style = window.getComputedStyle(container);
+      // Check overlay-body (the actual scroll container in overlay context)
+      const overlayBody = document.querySelector('.overlay-body');
+      if (!overlayBody) return null;
+      const style = window.getComputedStyle(overlayBody);
       return {
-        scrollHeight: container.scrollHeight,
-        clientHeight: container.clientHeight,
-        isScrollable: container.scrollHeight > container.clientHeight + 100,
-        maxHeight: style.maxHeight,
+        scrollHeight: overlayBody.scrollHeight,
+        clientHeight: overlayBody.clientHeight,
+        isScrollable: overlayBody.scrollHeight > overlayBody.clientHeight + 100,
+        overflowY: style.overflowY,
         // Verify it's not a tiny fixed-pixel container (old bug was 500px)
-        clientHeightPx: container.clientHeight,
+        clientHeightPx: overlayBody.clientHeight,
       };
     });
 
     expect(containerInfo).not.toBeNull();
-    // With 80 paragraphs, the messages container should be scrollable
+    // With 80 paragraphs, the scroll container should be scrollable
     expect(containerInfo!.isScrollable).toBe(true);
     // Container should be at least 300px tall (not trapped in a tiny box)
     expect(containerInfo!.clientHeightPx).toBeGreaterThan(300);
 
-    // Scroll to the very bottom of the messages container.
+    // Scroll to the very bottom of the overlay-body scroll container.
     // Override scroll-behavior to 'auto' so scrollTo lands instantly.
     await page.evaluate(() => {
-      const container = document.querySelector('.messages') as HTMLElement | null;
+      const container = document.querySelector('.overlay-body') as HTMLElement | null;
       if (container) {
         container.style.scrollBehavior = 'auto';
         container.scrollTop = container.scrollHeight;
@@ -111,7 +114,7 @@ test.describe('Session Detail Scroll Behavior', () => {
 
     // Verify we reached the bottom (allow small tolerance for sub-pixel rounding)
     const afterScroll = await page.evaluate(() => {
-      const container = document.querySelector('.messages');
+      const container = document.querySelector('.overlay-body');
       if (!container) return { distanceFromBottom: 999 };
       return { distanceFromBottom: container.scrollHeight - container.scrollTop - container.clientHeight };
     });
@@ -120,7 +123,7 @@ test.describe('Session Detail Scroll Behavior', () => {
     // Wait and verify no bounce-back
     await page.waitForTimeout(500);
     const afterWait = await page.evaluate(() => {
-      const container = document.querySelector('.messages');
+      const container = document.querySelector('.overlay-body');
       if (!container) return { distanceFromBottom: 999 };
       return { distanceFromBottom: container.scrollHeight - container.scrollTop - container.clientHeight };
     });

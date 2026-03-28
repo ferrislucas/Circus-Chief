@@ -159,6 +159,7 @@ test.describe('Scheduling UI', () => {
       // Verify via page reload that the time is still correct
       await page.reload();
       await page.waitForLoadState('networkidle');
+      await openSessionOverlay(page);
 
       const countdownTextAfterReload = page.locator('.countdown-text strong');
       await expect(countdownTextAfterReload).toBeVisible({ timeout: 5000 });
