@@ -170,9 +170,13 @@ async function buildSessionChain() {
   if (session?.projectId) {
     try {
       const projectSessions = await api.getProjectSessions(session.projectId, false, null);
-      // Merge into store without triggering loading state
+      // Merge into store without triggering loading state.
+      // Always update existing sessions so that computed fields like lastActivityAt stay fresh.
       for (const s of projectSessions) {
-        if (!sessionsStore.getSessionById(s.id)) {
+        const idx = sessionsStore.sessions.findIndex(existing => existing.id === s.id);
+        if (idx >= 0) {
+          sessionsStore.sessions[idx] = s;
+        } else {
           sessionsStore.sessions.push(s);
         }
       }
@@ -260,6 +264,16 @@ function resolveOverlayTarget() {
       new Date(a.session.updatedAt || a.session.createdAt || 0)
     );
     overlaySessionId.value = sorted[0].session.id;
+    return;
+  }
+
+  // No running children — select the session with the most recent conversation activity
+  const withActivity = chain
+    .filter(entry => entry.session.lastActivityAt)
+    .sort((a, b) => (b.session.lastActivityAt || 0) - (a.session.lastActivityAt || 0));
+
+  if (withActivity.length > 0) {
+    overlaySessionId.value = withActivity[0].session.id;
   } else {
     // No running children — pick the session with the most recent conversation activity.
     // The chain is already sorted by lastActivityAt descending, so chain[0] is the most recent.
