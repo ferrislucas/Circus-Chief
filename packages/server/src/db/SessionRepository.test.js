@@ -1614,6 +1614,79 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('getAllDescendantIds', () => {
+    it('returns empty array when session has no children', () => {
+      const session = repo.create(projectId, 'Solo Session', 'Prompt');
+      const descendants = repo.getAllDescendantIds(session.id);
+      expect(descendants).toEqual([]);
+    });
+
+    it('returns direct child IDs', () => {
+      const parent = repo.create(projectId, 'Parent', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
+
+      const descendants = repo.getAllDescendantIds(parent.id);
+
+      expect(descendants).toHaveLength(1);
+      expect(descendants).toContain(child.id);
+    });
+
+    it('returns grandchildren recursively', () => {
+      const root = repo.create(projectId, 'Root', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: root.id });
+      const grandchild = repo.create(projectId, 'Grandchild', 'Prompt', { parentSessionId: child.id });
+
+      const descendants = repo.getAllDescendantIds(root.id);
+
+      expect(descendants).toHaveLength(2);
+      expect(descendants).toContain(child.id);
+      expect(descendants).toContain(grandchild.id);
+    });
+
+    it('does not include the starting session itself', () => {
+      const root = repo.create(projectId, 'Root', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: root.id });
+
+      const descendants = repo.getAllDescendantIds(root.id);
+
+      expect(descendants).not.toContain(root.id);
+      expect(descendants).toContain(child.id);
+    });
+
+    it('handles multiple children at same level', () => {
+      const parent = repo.create(projectId, 'Parent', 'Prompt');
+      const child1 = repo.create(projectId, 'Child 1', 'Prompt', { parentSessionId: parent.id });
+      const child2 = repo.create(projectId, 'Child 2', 'Prompt', { parentSessionId: parent.id });
+      const child3 = repo.create(projectId, 'Child 3', 'Prompt', { parentSessionId: parent.id });
+
+      const descendants = repo.getAllDescendantIds(parent.id);
+
+      expect(descendants).toHaveLength(3);
+      expect(descendants).toContain(child1.id);
+      expect(descendants).toContain(child2.id);
+      expect(descendants).toContain(child3.id);
+    });
+
+    it('returns empty array for non-existent session', () => {
+      const descendants = repo.getAllDescendantIds('non-existent-id');
+      expect(descendants).toEqual([]);
+    });
+
+    it('handles deep hierarchy (4 levels)', () => {
+      const root = repo.create(projectId, 'Root', 'Prompt');
+      const levelA = repo.create(projectId, 'A', 'Prompt', { parentSessionId: root.id });
+      const levelB = repo.create(projectId, 'B', 'Prompt', { parentSessionId: levelA.id });
+      const levelC = repo.create(projectId, 'C', 'Prompt', { parentSessionId: levelB.id });
+
+      const descendants = repo.getAllDescendantIds(root.id);
+
+      expect(descendants).toHaveLength(3);
+      expect(descendants).toContain(levelA.id);
+      expect(descendants).toContain(levelB.id);
+      expect(descendants).toContain(levelC.id);
+    });
+  });
+
   describe('autoSendPendingPrompt', () => {
     it('defaults autoSendPendingPrompt to false on creation', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
