@@ -262,6 +262,31 @@ export class SessionRepository extends BaseRepository {
   }
 
   /**
+   * Collect all descendant session IDs (children, grandchildren, etc.) recursively.
+   * @param {string} sessionId - The starting session ID
+   * @returns {string[]} Array of all descendant session IDs (does NOT include the starting session)
+   */
+  getAllDescendantIds(sessionId) {
+    const descendantIds = [];
+    const stack = [sessionId];
+    const visited = new Set();
+
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+
+      const children = this.getChildSessions(currentId);
+      for (const child of children) {
+        descendantIds.push(child.id);
+        stack.push(child.id);
+      }
+    }
+
+    return descendantIds;
+  }
+
+  /**
    * Mapping of camelCase field names to their snake_case column names.
    * Values are passed through to SQLite as-is.
    */
