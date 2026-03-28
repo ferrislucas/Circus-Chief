@@ -44,6 +44,13 @@
         </div>
       </div>
 
+      <!-- Quick Responses Panel -->
+      <QuickResponsesPanel
+        :show-empty="true"
+        @insert="handleQuickResponseInsert"
+        @openSettings="quickResponseSettingsOpen = true"
+      />
+
       <SessionFormOptions
         :mode="mode"
         :model="model"
@@ -133,6 +140,13 @@
       :hide-builtin="true"
       @insert="handleSlashCommandInsert"
     />
+
+    <!-- Quick Response Settings Modal -->
+    <QuickResponseSettings
+      :isOpen="quickResponseSettingsOpen"
+      :projectId="route.params.id"
+      @close="quickResponseSettingsOpen = false"
+    />
   </div>
 </template>
 
@@ -154,6 +168,9 @@ import ResizableTextarea from '../components/ResizableTextarea.vue';
 import SlashCommandButton from '../components/SlashCommandButton.vue';
 import SlashCommandWizard from '../components/SlashCommandWizard.vue';
 import { useProjectsStore } from '../stores/projects.js';
+import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
+import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -173,6 +190,7 @@ const model = ref(null);
 const providerId = ref(null);
 const loading = ref(false);
 const showSlashCommandWizard = ref(false);
+const quickResponseSettingsOpen = ref(false);
 
 // Rec 9: Responsive textarea min height
 const textareaMinHeight = computed(() => window.innerWidth <= 480 ? 80 : 120);
@@ -448,6 +466,10 @@ onMounted(async () => {
   // Fetch templates for this project
   templatesStore.fetchProjectTemplates(projectId);
 
+  // Fetch quick responses for this project
+  const quickResponsesStore = useQuickResponsesStore();
+  quickResponsesStore.fetchForProject(projectId);
+
   // Pre-populate parent session ID if provided in route query
   if (route.query.parentSessionId) {
     parentSessionId.value = route.query.parentSessionId;
@@ -481,6 +503,26 @@ function handleSlashCommandInsert({ text }) {
 
     // Trigger input event to update prompt ref and UI
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.focus();
+  }
+}
+
+function handleQuickResponseInsert({ content, autoSubmit }) {
+  const textarea = textareaRef.value;
+  if (!textarea) return;
+
+  const existingText = textarea.value.trim();
+  const newContent = existingText
+    ? `${existingText}\n\n${content}`
+    : content;
+
+  textarea.value = newContent;
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+
+  if (autoSubmit) {
+    setTimeout(() => handleSubmit(), 0);
+  } else {
+    textarea.selectionStart = textarea.selectionEnd = newContent.length;
     textarea.focus();
   }
 }
