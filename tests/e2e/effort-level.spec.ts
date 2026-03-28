@@ -13,6 +13,7 @@ import {
   getAgentCallLogs,
   seedAgentCallLog,
   navigateAndWait,
+  openSessionOverlay,
   API_URL,
   waitForSessionToExist,
 } from './helpers';
@@ -425,13 +426,14 @@ test.describe('Effort Level Feature - E2E Tests', () => {
     test.use({ viewport: { width: 1280, height: 720 } });
 
     test('effort level dropdown is visible in conversation input area', async ({ page }) => {
-      const project = await seedProject('Conversation Dropdown Test', '/tmp/conversation-dropdown');
+      const project = await seedProject('Conversation Dropdown Test', '/tmp/summary-dropdown');
       const session = await seedSession(project.id, {
         prompt: 'Test prompt',
         effortLevel: 'high',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Check that effort level dropdown is visible in input form
       const dropdown = page.locator('.input-form #effort-select');
@@ -439,13 +441,14 @@ test.describe('Effort Level Feature - E2E Tests', () => {
     });
 
     test('dropdown reflects current session effortLevel', async ({ page }) => {
-      const project = await seedProject('Conversation Reflect Test', '/tmp/conversation-reflect');
+      const project = await seedProject('Conversation Reflect Test', '/tmp/summary-reflect');
       const session = await seedSession(project.id, {
         prompt: 'Test prompt',
         effortLevel: 'medium',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Check that dropdown shows "medium"
       const dropdown = page.locator('.input-form #effort-select');
@@ -454,13 +457,14 @@ test.describe('Effort Level Feature - E2E Tests', () => {
     });
 
     test('dropdown shows "auto" for null effortLevel', async ({ page }) => {
-      const project = await seedProject('Conversation Auto Test', '/tmp/conversation-auto');
+      const project = await seedProject('Conversation Auto Test', '/tmp/summary-auto');
       const session = await seedSession(project.id, {
         prompt: 'Test prompt',
         // effortLevel defaults to null (auto)
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Check that dropdown shows "auto"
       const dropdown = page.locator('.input-form #effort-select');
@@ -469,13 +473,14 @@ test.describe('Effort Level Feature - E2E Tests', () => {
     });
 
     test('changing dropdown to "max" updates session via API', async ({ page }) => {
-      const project = await seedProject('Conversation Change Max Test', '/tmp/conversation-change-max');
+      const project = await seedProject('Conversation Change Max Test', '/tmp/summary-change-max');
       const session = await seedSession(project.id, {
         prompt: 'Test prompt',
         effortLevel: 'low',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Change dropdown to "max"
       await page.locator('.input-form #effort-select').selectOption('max');
@@ -497,13 +502,14 @@ test.describe('Effort Level Feature - E2E Tests', () => {
     });
 
     test('changing dropdown to "low" updates session via API', async ({ page }) => {
-      const project = await seedProject('Conversation Change Low Test', '/tmp/conversation-change-low');
+      const project = await seedProject('Conversation Change Low Test', '/tmp/summary-change-low');
       const session = await seedSession(project.id, {
         prompt: 'Test prompt',
         effortLevel: 'high',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Change dropdown to "low"
       await page.locator('.input-form #effort-select').selectOption('low');
@@ -524,13 +530,14 @@ test.describe('Effort Level Feature - E2E Tests', () => {
     });
 
     test('changes persist across page refresh', async ({ page }) => {
-      const project = await seedProject('Conversation Persist Test', '/tmp/conversation-persist');
+      const project = await seedProject('Conversation Persist Test', '/tmp/summary-persist');
       const session = await seedSession(project.id, {
         prompt: 'Test prompt',
         effortLevel: 'medium',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Change dropdown to "high"
       await page.locator('.input-form #effort-select').selectOption('high');
@@ -547,6 +554,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
 
       // Reload page
       await page.reload();
+      await openSessionOverlay(page);
 
       // Wait for page to be ready
       await page.waitForSelector('.input-form #effort-select');
@@ -877,7 +885,8 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         startImmediately: false,
       });
 
-      await navigateAndWait(page, `${API_URL}/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `${API_URL}/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       const dropdown = page.locator('.input-form #effort-select');
 
