@@ -126,7 +126,7 @@ export class MessageRepository extends BaseRepository {
         `SELECT * FROM conversation_messages
          WHERE session_id IN (${placeholders})
            AND role = 'assistant'
-         ORDER BY timestamp DESC
+         ORDER BY timestamp DESC, rowid DESC
          LIMIT 1`
       )
       .get(...sessionIds);
