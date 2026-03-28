@@ -50,8 +50,15 @@ vi.mock('../stores/sessionStreaming.js', () => ({
   useSessionStreamingStore: vi.fn(() => mockStreamingStore),
 }));
 
+let reconnectCallback = null;
 vi.mock('./useWebSocket.js', () => ({
   useSessionSubscription: vi.fn((sessionId) => createMockSubscription(sessionId)),
+  useWebSocket: vi.fn(() => ({
+    onReconnect: vi.fn((cb) => {
+      reconnectCallback = cb;
+      return vi.fn(() => { reconnectCallback = null; });
+    }),
+  })),
 }));
 
 import { useRunningSessionSubscriptions } from './useRunningSessionSubscriptions.js';
@@ -69,6 +76,7 @@ describe('useRunningSessionSubscriptions', () => {
     // Reset mock state
     mockSessionsStore.sessions = [];
     Object.keys(mockSubscriptionInstances).forEach(k => delete mockSubscriptionInstances[k]);
+    reconnectCallback = null;
 
     mockStreamingStore.addSessionWorkLog.mockReset();
     mockStreamingStore.setSessionPartialText.mockReset();
@@ -770,6 +778,235 @@ describe('useRunningSessionSubscriptions', () => {
       vi.advanceTimersByTime(2000);
 
       expect(mockStreamingStore.clearSessionEphemeralState).toHaveBeenCalledWith('child-1');
+    });
+  });
+
+  describe('WebSocket reconnection re-hydration', () => {
+    it('reconnection triggers re-hydration for all subscribed sessions', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'session-1', status: 'running' },
+        { id: 'session-2', status: 'running' },
+      ];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+
+      // Wait for initial hydration fetches
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      });
+
+      // Reset fetch call count
+      globalThis.fetch.mockClear();
+
+      // Simulate WebSocket reconnection
+      expect(reconnectCallback).toBeTruthy();
+      reconnectCallback();
+
+      // Both sessions should have re-hydration fetches
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/session-1/streaming-state');
+        expect(globalThis.fetch).toHaveBeenCalledWith('/api/sessions/session-2/streaming-state');
+      });
+    });
+
+    it('reconnect handler is cleaned up on unmount', async () => {
+      mockSessionsStore.sessions = [
+        { id: 'session-1', status: 'running' },
+      ];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      const savedCallback = reconnectCallback;
+
+      // Unmount the component
+      wrapper.unmount();
+      wrapper = null;
+
+      // Reset fetch
+      globalThis.fetch.mockClear();
+
+      // The reconnectCallback should have been nulled by the cleanup function
+      expect(reconnectCallback).toBeNull();
+
+      // Invoking the saved callback should not trigger fetches (it was cleaned up)
+      if (savedCallback) savedCallback();
+      // No new fetches should have been made (sessions were unsubscribed)
+      expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('exponential backoff hydration retries', () => {
+    it('retries hydration with exponential backoff (1.5s, 3s, 6s, 12s)', async () => {
+      // Always return empty data so retries keep happening
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ workLogs: [], partialText: '', thinking: null }),
+        })
+      );
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      // Wait for initial fetch
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      // 1st retry after 1.5s
+      await vi.advanceTimersByTimeAsync(1500);
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      });
+
+      // 2nd retry after 3s
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+      });
+
+      // 3rd retry after 6s
+      await vi.advanceTimersByTimeAsync(6000);
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(4);
+      });
+
+      // 4th retry after 12s
+      await vi.advanceTimersByTimeAsync(12000);
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(5);
+      });
+    });
+
+    it('stops retrying after MAX_HYDRATION_RETRIES (4)', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ workLogs: [], partialText: '', thinking: null }),
+        })
+      );
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      // Exhaust all retries: 1.5s + 3s + 6s + 12s = 22.5s
+      await vi.advanceTimersByTimeAsync(1500);
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+
+      await vi.advanceTimersByTimeAsync(3000);
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(3));
+
+      await vi.advanceTimersByTimeAsync(6000);
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(4));
+
+      await vi.advanceTimersByTimeAsync(12000);
+      await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(5));
+
+      // Advance a long time — no more retries should occur
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(5);
+    });
+
+    it('retry cleanup on unsubscribe — no additional fetch after session stops', async () => {
+      globalThis.fetch = vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ workLogs: [], partialText: '', thinking: null }),
+        })
+      );
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      // Session stops before retry fires
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'completed' }];
+      await nextTick();
+
+      // Advance past all possible retry delays
+      await vi.advanceTimersByTimeAsync(30000);
+
+      // No retry fetch should have been made
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('successful hydration clears retry state — no further retries', async () => {
+      let fetchCallCount = 0;
+      const validSnapshot = {
+        workLogs: [{ id: '1', type: 'tool_use', content: 'test' }],
+        partialText: 'hello',
+        thinking: null,
+      };
+
+      globalThis.fetch = vi.fn(() => {
+        fetchCallCount++;
+        if (fetchCallCount <= 1) {
+          // First call returns empty
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ workLogs: [], partialText: '', thinking: null }),
+          });
+        }
+        // Retry returns valid data
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(validSnapshot),
+        });
+      });
+
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running' }];
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await nextTick();
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      });
+
+      // 1st retry at 1.5s returns valid data
+      await vi.advanceTimersByTimeAsync(1500);
+      await vi.waitFor(() => {
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      });
+      await vi.waitFor(() => {
+        expect(mockStreamingStore.hydrateSessionState).toHaveBeenCalledWith('session-1', validSnapshot);
+      });
+
+      // Advance further — no more retries
+      await vi.advanceTimersByTimeAsync(30000);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
   });
 });
