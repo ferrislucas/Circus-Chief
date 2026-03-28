@@ -3780,4 +3780,77 @@ describe('SessionDetailView', () => {
       expect(sessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false);
     });
   });
+
+  describe('auto-open overlay via query param', () => {
+    it('auto-opens tree overlay when route has ?overlay=open query param', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      // Navigate with the overlay query param
+      await router.push('/sessions/session-1?overlay=open');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Overlay should be open
+      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+
+      // Query param should be cleared (router.replace removes it)
+      expect(router.currentRoute.value.query.overlay).toBeUndefined();
+    });
+
+    it('does not auto-open tree overlay without query param', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      // Navigate WITHOUT the overlay query param
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Overlay should remain closed
+      expect(wrapper.vm.treeOverlayOpen).toBe(false);
+    });
+  });
 });
