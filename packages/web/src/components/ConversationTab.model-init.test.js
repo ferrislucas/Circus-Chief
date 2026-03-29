@@ -471,4 +471,70 @@ describe('ConversationTab - Model Initialization Bug', () => {
       );
     });
   });
+
+  describe('Draft session input clearing on start', () => {
+    it('should clear textarea when draft session starts successfully', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        model: 'sonnet',
+        pendingModel: 'sonnet',
+        projectId: 'proj-1',
+        mode: 'standard',
+      };
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        sessionId: 'sess-123',
+        isActive: true,
+      };
+      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+      mockSessionsStore.startSession.mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('My initial prompt');
+      await flushAll(wrapper);
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      // Textarea should be cleared after successful start
+      expect(textarea.element.value).toBe('');
+    });
+
+    it('should not clear textarea when draft session fails to start', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        model: 'sonnet',
+        pendingModel: 'sonnet',
+        projectId: 'proj-1',
+        mode: 'standard',
+      };
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        sessionId: 'sess-123',
+        isActive: true,
+      };
+      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+      mockSessionsStore.startSession.mockRejectedValue(new Error('Start failed'));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('My initial prompt');
+      await flushAll(wrapper);
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      // Textarea should NOT be cleared when start fails - user's input is preserved
+      expect(textarea.element.value).toBe('My initial prompt');
+    });
+  });
 });
