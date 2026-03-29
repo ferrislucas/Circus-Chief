@@ -695,7 +695,7 @@ defineExpose({
 
 .overlay-close-handle {
   position: absolute;
-  left: -48px;
+  left: 0;
   top: 50%;
   transform: translateY(-50%);
   width: 44px;
