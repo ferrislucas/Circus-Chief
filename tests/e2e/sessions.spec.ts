@@ -6,6 +6,7 @@ import {
   getSession,
   navigateAndWait,
   waitForSessionToExist,
+  openSessionOverlay,
 } from './helpers';
 
 test.describe('New Session - Thinking Toggle', () => {
@@ -126,7 +127,8 @@ test.describe('Session Management', () => {
     // Wait for session to be available
     await waitForSessionToExist(session.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // The initial user message should be visible
     await expect(page.locator('.message-content').getByText('Hello Claude', { exact: true })).toBeVisible({ timeout: 10000 });
@@ -146,7 +148,7 @@ test.describe('Session Management', () => {
     const storageKey2 = `session-draft-${session2.id}`;
 
     // Navigate to first session
-    await page.goto(`/sessions/${session1.id}/conversation`);
+    await page.goto(`/sessions/${session1.id}/summary`);
 
     // Set different drafts for each session in localStorage
     await page.evaluate(
@@ -166,7 +168,7 @@ test.describe('Session Management', () => {
     expect(storedValue).toBe('Draft for session 2');
 
     // Navigate to session 2
-    await page.goto(`/sessions/${session2.id}/conversation`);
+    await page.goto(`/sessions/${session2.id}/summary`);
 
     // Verify session 1's draft is still intact after navigating away
     storedValue = await page.evaluate((key) => localStorage.getItem(key), storageKey1);

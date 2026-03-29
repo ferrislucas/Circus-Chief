@@ -695,10 +695,10 @@ defineExpose({
 
 .overlay-close-handle {
   position: absolute;
-  left: 0;
+  left: -48px;
   top: 50%;
   transform: translateY(-50%);
-  width: 40px;
+  width: 44px;
   height: 100px;
   display: flex;
   flex-direction: column;
