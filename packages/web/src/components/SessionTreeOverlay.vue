@@ -286,9 +286,40 @@ const rootSession = computed(() => {
 });
 
 const rootSessionName = computed(() => {
-  // Use sessionChain root if available (most reliable after buildSessionChain)
-  if (props.sessionChain.length > 0) return props.sessionChain[0].session?.name || 'Session';
-  return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
+  // Show the active session name when there are no descendants (standalone session),
+  // or the root (parent) session name when in a tree with children.
+  //
+  // Read directly from reactive sources so name edits are reflected immediately.
+
+  if (!hasDescendants.value) {
+    // Standalone session: show the active session's name
+    // Check sessions array first (reactive), then currentSession
+    const active = sessionsStore.sessions.find(s => s.id === activeSessionId.value);
+    if (active?.name) return active.name;
+    if (sessionsStore.currentSession?.id === activeSessionId.value) {
+      return sessionsStore.currentSession.name || 'Session';
+    }
+    return 'Session';
+  }
+
+  // Tree with children: show the root session name
+  // Find root ID from the chain (depth 0 is always the root)
+  const chainRoot = props.sessionChain.find(entry => entry.depth === 0);
+  const rootId = chainRoot?.session?.id;
+
+  if (rootId) {
+    // Read from sessions array (reactive to updates via updateSession)
+    const storeRoot = sessionsStore.sessions.find(s => s.id === rootId);
+    if (storeRoot?.name) return storeRoot.name;
+    // Check currentSession as well
+    if (sessionsStore.currentSession?.id === rootId) {
+      return sessionsStore.currentSession.name || 'Session';
+    }
+  }
+
+  // Fallbacks
+  if (chainRoot?.session?.name) return chainRoot.session.name;
+  return sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => {
@@ -632,6 +663,7 @@ defineExpose({
   justify-content: flex-end;
   align-items: flex-start;
   overflow: hidden;
+  overflow-y: hidden;
 }
 
 .overlay-panel-wrapper {
@@ -783,10 +815,13 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* Ensure messages container scrolls within the overlay */
+/* Ensure messages container does NOT independently scroll within the overlay.
+   The .overlay-body is the sole scroll container; .messages just flows inside it.
+   This prevents two nested scroll containers from fighting each other during
+   streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-tree-overlay :deep(.messages) {
   max-height: none !important;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
 }
 

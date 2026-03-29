@@ -40,18 +40,6 @@ export function broadcastGeneratingStatus(sessionId, generating) {
 }
 
 /**
- * Broadcast conversation summary update to session subscribers
- * @param {string} sessionId - The session ID
- * @param {Object} data - The conversation summary data (conversationId, conversation/summary, etc.)
- */
-export function broadcastConversationSummaryUpdate(sessionId, data) {
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.CONVERSATION_SUMMARY_UPDATED, {
-    sessionId,
-    ...data,
-  });
-}
-
-/**
  * Broadcast session update to session and project subscribers
  * @param {string} sessionId - The session ID
  * @param {string|null} projectId - The project ID (null skips project broadcast)
