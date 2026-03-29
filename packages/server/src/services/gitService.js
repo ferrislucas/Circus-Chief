@@ -1,5 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { mkdir, writeFile, chmod } from 'fs/promises';
+import { join } from 'path';
 
 const execAsync = promisify(exec);
 
@@ -449,4 +451,69 @@ export async function getModifiedFilesCount(directory, branch) {
     logger.warn(`Failed to get modified files count for ${directory}:`, error.message);
     return 0;
   }
+}
+
+/**
+ * Get the git author info configured for a directory
+ * @param {string} directory
+ * @returns {Promise<{name: string, email: string} | null>}
+ */
+export async function getGitAuthor(directory) {
+  try {
+    const name = await git(directory, 'config user.name');
+    const email = await git(directory, 'config user.email');
+    if (name && email) {
+      return { name, email };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Install a commit-msg hook that adds the human developer as co-author.
+ * Creates a .claudetools-hooks/ directory in the worktree with a commit-msg
+ * hook, then sets core.hooksPath (worktree-specific) to use it.
+ *
+ * Only call this for worktree directories, not the main repo.
+ *
+ * @param {string} worktreePath - The worktree directory
+ * @returns {Promise<boolean>} - True if hook was installed
+ */
+export async function installCoAuthorHook(worktreePath) {
+  const author = await getGitAuthor(worktreePath);
+  if (!author) return false;
+
+  const hooksDir = join(worktreePath, '.claudetools-hooks');
+  const hookPath = join(hooksDir, 'commit-msg');
+
+  const coAuthorLine = `Co-Authored-By: ${author.name} <${author.email}>`;
+
+  // The hook script:
+  // 1. Reads the commit message file ($1)
+  // 2. Checks if the co-author line is already present
+  // 3. If not, appends it
+  const hookScript = `#!/bin/sh
+# claudetools: Auto-add human co-author to commits
+COMMIT_MSG_FILE="$1"
+CO_AUTHOR_LINE="${coAuthorLine}"
+
+# Only add if not already present
+if ! grep -qF "$CO_AUTHOR_LINE" "$COMMIT_MSG_FILE"; then
+  echo "" >> "$COMMIT_MSG_FILE"
+  echo "$CO_AUTHOR_LINE" >> "$COMMIT_MSG_FILE"
+fi
+`;
+
+  await mkdir(hooksDir, { recursive: true });
+  await writeFile(hookPath, hookScript, 'utf-8');
+  await chmod(hookPath, 0o755);
+
+  // Enable worktree-specific config (required for --worktree flag)
+  await git(worktreePath, 'config extensions.worktreeConfig true');
+  // Set hooksPath only for this worktree (doesn't affect main repo or other worktrees)
+  await git(worktreePath, `config --worktree core.hooksPath ${hooksDir}`);
+
+  return true;
 }
