@@ -804,12 +804,12 @@ test.describe('Session Tree Overlay', () => {
       await page.setViewportSize({ width: 1920, height: 800 });
       const overlay = await openOverlay(page, parentSession.id);
 
-      // Verify overlay can scroll vertically
-      const backdrop = page.locator('.overlay-backdrop');
-      await expect(backdrop).toHaveCSS('overflow-y', 'auto');
+      // Verify the overlay body can scroll vertically
+      const overlayBody = overlay.locator('.overlay-body');
+      await expect(overlayBody).toHaveCSS('overflow-y', 'auto');
 
       // Scroll should work
-      await overlay.locator('.overlay-content').evaluate(el => {
+      await overlayBody.evaluate(el => {
         el.scrollTop = 100;
       });
       // No errors should occur

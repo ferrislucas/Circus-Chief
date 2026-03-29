@@ -252,8 +252,28 @@ function resolveOverlayTarget() {
     );
     overlaySessionId.value = sorted[0].session.id;
   } else {
-    // No running children — use the current session
-    overlaySessionId.value = currentSessionId.value;
+    // No running children — check if any child has actual conversation activity.
+    // lastActivityAt falls back to updatedAt (or createdAt) when there are no messages.
+    // To detect real conversation activity, check if lastActivityAt differs from updatedAt.
+    const hasConversationActivity = (session) => {
+      return session.lastActivityAt && session.updatedAt
+        && session.lastActivityAt !== session.updatedAt;
+    };
+
+    const childrenWithConversation = chain
+      .filter(entry => entry.session.id !== currentSessionId.value)
+      .filter(entry => hasConversationActivity(entry.session));
+
+    if (childrenWithConversation.length > 0) {
+      // Pick the child with the most recent conversation activity
+      const sorted = [...childrenWithConversation].sort((a, b) =>
+        new Date(b.session.lastActivityAt) - new Date(a.session.lastActivityAt)
+      );
+      overlaySessionId.value = sorted[0].session.id;
+    } else {
+      // No child has actual conversation activity — use the current session
+      overlaySessionId.value = currentSessionId.value;
+    }
   }
 }
 

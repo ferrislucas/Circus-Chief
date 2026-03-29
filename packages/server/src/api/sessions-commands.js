@@ -175,6 +175,38 @@ router.get('/:id/command-buttons/runs/:runId', requireSession, (req, res) => {
   });
 });
 
+// DELETE /api/sessions/:id/command-buttons/:buttonId/runs - Delete all runs for a button in a session
+router.delete('/:id/command-buttons/:buttonId/runs', requireSessionAndProject, (req, res) => {
+  const sessionId = req.params.id;
+  const { buttonId } = req.params;
+
+  const button = commandButtons.getById(buttonId);
+  if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+
+  const { deletedRuns } = commandRuns.deleteByButtonAndSession(buttonId, sessionId);
+
+  const projectId = req.session_.projectId;
+
+  // Broadcast individual COMMAND_RUN_DELETED events for each deleted run
+  for (const run of deletedRuns) {
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
+      runId: run.id,
+      buttonId: run.buttonId,
+      sessionId,
+    });
+    broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
+      runId: run.id,
+      buttonId: run.buttonId,
+      sessionId,
+      projectId,
+    });
+  }
+
+  res.status(204).send();
+});
+
 // DELETE /api/sessions/:id/command-buttons/runs/:runId - Delete a command run record
 router.delete('/:id/command-buttons/runs/:runId', requireSessionAndProject, (req, res) => {
   const sessionId = req.params.id;

@@ -314,10 +314,10 @@ const close = () => {
 const handleRemoveRun = async () => {
   deleting.value = true;
   try {
-    await commandButtonsStore.deleteRun(props.sessionId, props.latestRun.runId);
+    await commandButtonsStore.deleteAllRunsForButton(props.sessionId, props.button.id);
     emit('close');
   } catch (err) {
-    console.error('Failed to remove run:', err);
+    console.error('Failed to remove runs:', err);
   } finally {
     deleting.value = false;
     showConfirmation.value = false;
