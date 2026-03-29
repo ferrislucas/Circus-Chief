@@ -418,28 +418,105 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
 });
 
 // ============================================================
-// Category 3: Quick Response Panel NOT in New Session View
-// (Panel was intentionally removed — quick responses are only
-//  available in the conversation reply flow, not on the initial
-//  session creation form.)
+// Category 3: Quick Response Panel in New Session View (4 tests)
 // ============================================================
 
 test.describe('Category 3: Quick Response Panel in New Session View', () => {
-  test('quick responses panel is not present in new session view', async ({ page }) => {
-    const project = await seedProject('QR NewSession Removed', '/tmp/qr-new-removed');
-    await seedQuickResponse(project.id, { label: 'Should Not Appear', content: 'Not here' });
+  test('panel displays responses in new session view', async ({ page }) => {
+    const project = await seedProject('QR NewSession Display', '/tmp/qr-new-1');
+    await seedQuickResponse(project.id, { label: 'New Session QR', content: 'New session content' });
 
     await page.goto(`/projects/${project.id}/sessions/new`);
     await waitForPageReady(page);
 
-    // QuickResponsesPanel was removed from the new session view (Rec 2).
-    // Verify it is NOT rendered even when the project has quick responses.
+    // Expand the panel
     const panel = page.locator('.quick-responses-panel');
-    await expect(panel).not.toBeVisible({ timeout: 3000 });
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await panel.click();
+    await page.waitForTimeout(300);
 
-    // The prompt textarea should still be present and functional
+    // Verify response chip is visible with correct label
+    const responseBtn = page.locator('.response-button', { hasText: 'New Session QR' });
+    await expect(responseBtn).toBeVisible({ timeout: 5000 });
+  });
+
+  test('clicking response inserts content into prompt textarea', async ({ page }) => {
+    const project = await seedProject('QR NewSession Insert', '/tmp/qr-new-2');
+    await seedQuickResponse(project.id, { label: 'Insert Prompt', content: 'Prompt content here' });
+
+    await page.goto(`/projects/${project.id}/sessions/new`);
+    await waitForPageReady(page);
+
+    // Expand and click response
+    const panel = page.locator('.quick-responses-panel');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await panel.click();
+    await page.waitForTimeout(300);
+
+    await page.locator('.response-button', { hasText: 'Insert Prompt' }).click();
+
+    // Verify prompt textarea contains the content
     const textarea = page.locator('textarea#prompt');
-    await expect(textarea).toBeVisible({ timeout: 5000 });
+    await expect(textarea).toHaveValue('Prompt content here', { timeout: 5000 });
+  });
+
+  test('auto-submit response triggers form submission in new session', async ({ page }) => {
+    const project = await seedProject('QR NewSession AutoSubmit', '/tmp/qr-new-3');
+    await seedQuickResponse(project.id, {
+      label: 'Auto Create',
+      content: 'Auto-create this session',
+      autoSubmit: true,
+    });
+
+    await page.goto(`/projects/${project.id}/sessions/new`);
+    await waitForPageReady(page);
+
+    // Expand and click auto-submit response
+    const panel = page.locator('.quick-responses-panel');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await panel.click();
+    await page.waitForTimeout(300);
+
+    await page.locator('.response-button', { hasText: 'Auto Create' }).click();
+
+    // Auto-submit should trigger form submission, which navigates away
+    await expect(page).not.toHaveURL(/\/sessions\/new/, { timeout: 10000 });
+  });
+
+  test('settings gear opens settings modal from new session view', async ({ page }) => {
+    const project = await seedProject('QR NewSession Settings', '/tmp/qr-new-settings');
+    await seedQuickResponse(project.id, { label: 'Settings Test', content: 'Settings content' });
+
+    const apiDone = page.waitForResponse(
+      (resp) => resp.url().includes('/quick-responses') && resp.status() === 200,
+      { timeout: 30000 }
+    );
+
+    await page.goto(`/projects/${project.id}/sessions/new`);
+    await apiDone;
+
+    // Expand the panel
+    const panel = page.locator('.quick-responses-panel');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await panel.click();
+
+    await expect(
+      page.locator('.responses-content, .empty-state')
+    ).toBeVisible({ timeout: 5000 });
+
+    // Click the settings gear button
+    const settingsBtn = page.locator('button[aria-label="Manage quick responses"]');
+    await expect(settingsBtn).toBeVisible({ timeout: 5000 });
+    await settingsBtn.click();
+
+    // Verify settings modal opens
+    const settingsModal = page.locator('.settings-panel[role="dialog"]');
+    await expect(settingsModal).toBeVisible({ timeout: 5000 });
+    await expect(settingsModal.locator('.settings-title')).toContainText('Quick Responses');
+
+    // Verify modal can be closed
+    await page.locator('.close-button').click();
+    await expect(settingsModal).not.toBeVisible({ timeout: 3000 });
   });
 });
 
