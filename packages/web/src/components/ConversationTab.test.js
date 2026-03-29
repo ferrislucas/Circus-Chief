@@ -3798,7 +3798,7 @@ describe('ConversationTab - Input clearing on submit', () => {
       global: {
         stubs: {
           ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
-          ConversationMessages: { template: '<div class="conversation-messages-stub"></div>' },
+          ConversationMessages: { template: '<div class="conversation-messages-stub"></div>', methods: { scrollToBottom: vi.fn() } },
           TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
           RunningState: { template: '<div class="running-state-stub"></div>' },
           WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },

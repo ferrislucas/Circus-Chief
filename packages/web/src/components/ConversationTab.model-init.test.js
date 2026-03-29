@@ -225,6 +225,18 @@ describe('ConversationTab - Model Initialization Bug', () => {
           ResizableTextarea: {
             template: '<textarea class="resizable-textarea"></textarea>',
             props: ['modelValue', 'minHeight', 'placeholder'],
+            mounted() {
+              // Expose value getter/setter like the real ResizableTextarea
+              // ConversationTab.handleFormSubmit accesses textareaRef.value to read and clear
+              const ta = this.$el;
+              Object.defineProperty(this, 'value', {
+                get() { return ta?.value || ''; },
+                set(val) { if (ta) ta.value = val; },
+              });
+              Object.defineProperty(this, 'focus', { value: () => ta?.focus() });
+              Object.defineProperty(this, 'blur', { value: () => ta?.blur() });
+              Object.defineProperty(this, 'select', { value: () => ta?.select() });
+            },
           },
           BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
