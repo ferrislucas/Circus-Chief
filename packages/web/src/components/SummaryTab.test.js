@@ -10,6 +10,7 @@ vi.mock('../composables/useApi.js', () => ({
     getSessionSummariesBatch: vi.fn().mockResolvedValue({}),
     regenerateSessionSummary: vi.fn().mockResolvedValue({ shortSummary: 'Test summary' }),
     generateSessionSummary: vi.fn().mockResolvedValue({ shortSummary: 'Test summary' }),
+    getWorkflowLatestResponse: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -49,6 +50,7 @@ describe('SummaryTab', () => {
 
     // Reset API mock implementations to defaults
     api.getSessionSummary.mockResolvedValue(null);
+    api.getWorkflowLatestResponse.mockResolvedValue(null);
 
     // Get actual store instances
     sessionsStore = useSessionsStore();
@@ -75,9 +77,10 @@ describe('SummaryTab', () => {
       props,
       global: {
         stubs: {
-          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
-          SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
-          WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+          MarkdownViewer: {
+            template: '<div class="markdown-stub">{{ content }}</div>',
+            props: ['content'],
+          },
           SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
         },
       },
@@ -154,143 +157,6 @@ describe('SummaryTab', () => {
     });
   });
 
-  describe('Child Sessions', () => {
-    function mountForChildSessions(props = { sessionId: 'sess-123' }) {
-      return shallowMount(SummaryTab, {
-        props,
-        global: {
-          stubs: {
-            RouterLink: { template: '<a><slot /></a>' },
-            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
-          },
-        },
-      });
-    }
-
-    it('does not render SessionCardWorkflowPanel when no child sessions', async () => {
-      // sessionsStore.sessions only contains the parent session with no parentSessionId
-      // so getChildSessions('sess-123') returns []
-      const wrapper = mountForChildSessions();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.workflow-sessions-panel').exists()).toBe(false);
-    });
-
-    it('renders SessionCardWorkflowPanel when child sessions exist', async () => {
-      // Add a child session that has parentSessionId matching 'sess-123'
-      sessionsStore.sessions = [
-        { id: 'sess-123', status: 'waiting' },
-        { id: 'child-1', name: 'Child Session', status: 'completed', parentSessionId: 'sess-123' },
-      ];
-
-      // Use mount instead of shallowMount to ensure component renders properly
-      const wrapper = mount(SummaryTab, {
-        props: { sessionId: 'sess-123' },
-        global: {
-          stubs: {
-            RouterLink: { template: '<a><slot /></a>' },
-          },
-        },
-      });
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.workflow-sessions-panel').exists()).toBe(true);
-    });
-  });
-
-  describe('WhatJustHappenedCard Integration', () => {
-    it('renders WhatJustHappenedCard when session has descendants', async () => {
-      sessionsStore.sessions = [
-        { id: 'sess-123', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' },
-        { id: 'child-1', name: 'Child Task', status: 'completed', parentSessionId: 'sess-123', updatedAt: '2024-01-01T01:00:00Z', lastActivityAt: '2024-01-01T01:00:00Z' },
-      ];
-      sessionsStore.currentSession = { id: 'sess-123', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' };
-
-      // Use shallowMount to properly test stub rendering
-      const wrapper = shallowMount(SummaryTab, {
-        props: { sessionId: 'sess-123' },
-        global: {
-          stubs: {
-            RouterLink: { template: '<a><slot /></a>' },
-            WhatJustHappenedCard: {
-              name: 'WhatJustHappenedCard',
-              props: ['session', 'summary', 'descendantSummaries'],
-              template: '<div class="what-just-happened-card-stub"></div>'
-            },
-          },
-        },
-      });
-      await flushAll(wrapper);
-
-      // Check for component existence (more reliable than stub class)
-      const whatJustHappenedCard = wrapper.findComponent({ name: 'WhatJustHappenedCard' });
-      expect(whatJustHappenedCard.exists()).toBe(true);
-    });
-
-    it('does not render WhatJustHappenedCard when no descendants', async () => {
-      // Only root session, no children
-      sessionsStore.sessions = [
-        { id: 'sess-123', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' },
-      ];
-      sessionsStore.currentSession = { id: 'sess-123', status: 'waiting', updatedAt: '2024-01-01T00:00:00Z' };
-
-      // Use mount() to test real v-if behavior (not stub)
-      const wrapper = mount(SummaryTab, {
-        props: { sessionId: 'sess-123' },
-        global: {
-          stubs: {
-            RouterLink: { template: '<a><slot /></a>' },
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
-            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
-          },
-        },
-      });
-      await flushAll(wrapper);
-
-      // Card should not render when no descendants exist
-      // Check for the actual component's data-testid, not the stub
-      expect(wrapper.find('[data-testid="what-just-happened-card"]').exists()).toBe(false);
-    });
-
-    it('passes correct props to WhatJustHappenedCard', async () => {
-      sessionsStore.sessions = [
-        { id: 'sess-123', name: 'Root Session', status: 'waiting', projectId: 'proj-1', updatedAt: '2024-01-01T00:00:00Z' },
-        { id: 'child-1', name: 'Child Task', status: 'completed', parentSessionId: 'sess-123', updatedAt: '2024-01-01T01:00:00Z', lastActivityAt: '2024-01-01T01:00:00Z' },
-      ];
-      sessionsStore.currentSession = { id: 'sess-123', name: 'Root Session', status: 'waiting', projectId: 'proj-1', updatedAt: '2024-01-01T00:00:00Z' };
-
-      const wrapper = shallowMount(SummaryTab, {
-        props: { sessionId: 'sess-123' },
-        global: {
-          stubs: {
-            RouterLink: { template: '<a><slot /></a>' },
-            WhatJustHappenedCard: {
-              name: 'WhatJustHappenedCard',
-              props: ['session', 'summary', 'descendantSummaries'],
-              template: '<div class="what-just-happened-card-stub"></div>'
-            },
-          },
-        },
-      });
-      await flushAll(wrapper);
-
-      const whatJustHappenedCard = wrapper.findComponent({ name: 'WhatJustHappenedCard' });
-      expect(whatJustHappenedCard.exists()).toBe(true);
-
-      // Verify session prop
-      expect(whatJustHappenedCard.props('session')).toBeDefined();
-      expect(whatJustHappenedCard.props('session').id).toBe('sess-123');
-      expect(whatJustHappenedCard.props('session').name).toBe('Root Session');
-
-      // Verify summary prop (initially null)
-      expect(whatJustHappenedCard.props('summary')).toBeNull();
-
-      // Verify descendantSummaries prop
-      expect(whatJustHappenedCard.props('descendantSummaries')).toBeDefined();
-      expect(typeof whatJustHappenedCard.props('descendantSummaries')).toBe('object');
-    });
-  });
-
   describe('SessionLogStream Integration', () => {
     it('renders SessionLogStream when session status is running', async () => {
       sessionsStore.currentSession = {
@@ -304,9 +170,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
-            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
-            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionId'],
@@ -332,9 +199,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
-            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
-            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionId'],
@@ -364,9 +232,10 @@ describe('SummaryTab', () => {
           props: { sessionId: 'sess-123' },
           global: {
             stubs: {
-              MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
-              SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
-              WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+              MarkdownViewer: {
+                template: '<div class="markdown-stub">{{ content }}</div>',
+                props: ['content'],
+              },
               SessionLogStream: {
                 name: 'SessionLogStream',
                 template: '<div class="session-log-stream-stub">SessionLogStream</div>',
@@ -392,9 +261,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-456' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
-            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
-            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               props: ['sessionIds'],
@@ -422,9 +292,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
-            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
-            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
@@ -453,9 +324,10 @@ describe('SummaryTab', () => {
         props: { sessionId: 'sess-123' },
         global: {
           stubs: {
-            MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
-            SessionCardWorkflowPanel: { template: '<div class="workflow-panel-stub"></div>' },
-            WhatJustHappenedCard: { template: '<div class="what-just-happened-card-stub"></div>' },
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
             SessionLogStream: {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
@@ -466,6 +338,103 @@ describe('SummaryTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
+    });
+  });
+
+  describe('Latest Response', () => {
+    it('does not render latest response section when no response exists', async () => {
+      // Default mock returns null
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(false);
+    });
+
+    it('renders latest response section when response exists', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Test response content',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.text()).toContain('Test response content');
+    });
+
+    it('shows session name in latest response header', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Response text',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'My Child Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.text()).toContain('from My Child Session');
+    });
+
+    it('renders response content via MarkdownViewer', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: '# Hello World',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // The MarkdownViewer is stubbed; verify the content section exists and has content
+      const contentSection = wrapper.find('.latest-response-content');
+      expect(contentSection.exists()).toBe(true);
+      expect(contentSection.text()).toContain('Hello World');
+    });
+
+    it('shows expand toggle for long content', async () => {
+      const longContent = 'a'.repeat(600);
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: longContent,
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.expand-toggle').exists()).toBe(true);
+      expect(wrapper.find('.expand-toggle').text()).toBe('Show full response');
+    });
+
+    it('does not show expand toggle for short content', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Short response',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.expand-toggle').exists()).toBe(false);
     });
   });
 

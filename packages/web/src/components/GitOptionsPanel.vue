@@ -1,26 +1,36 @@
 <template>
   <div v-if="gitStatus?.isGitRepo" class="form-group">
     <label class="form-label">Git Options</label>
-    <div class="quick-git-options">
-      <label class="radio-option">
-        <input type="radio" :value="'worktree'" :checked="modelValue === 'worktree'" @change="$emit('update:modelValue', 'worktree')" />
-        <span class="radio-label">Create isolated worktree</span>
-        <span class="radio-help">Separate working directory for this session</span>
-      </label>
-      <label class="radio-option">
-        <input type="radio" :value="'branch'" :checked="modelValue === 'branch'" @change="$emit('update:modelValue', 'branch')" />
-        <span class="radio-label">Create new branch</span>
-        <span class="radio-help">Work in the project directory</span>
-      </label>
-      <label class="radio-option">
-        <input type="radio" :value="''" :checked="modelValue === ''" @change="$emit('update:modelValue', '')" />
-        <span class="radio-label">Use current branch</span>
-        <span class="radio-help">{{ gitStatus.currentBranch }}</span>
-      </label>
+    <div class="segmented-control">
+      <button
+        type="button"
+        class="segment-btn"
+        :class="{ 'segment-btn--active': modelValue === 'worktree' }"
+        @click="$emit('update:modelValue', 'worktree')"
+      >
+        <span class="segment-label-full">Worktree</span>
+        <span class="segment-label-short">WT</span>
+      </button>
+      <button
+        type="button"
+        class="segment-btn"
+        :class="{ 'segment-btn--active': modelValue === 'branch' }"
+        @click="$emit('update:modelValue', 'branch')"
+      >
+        Branch
+      </button>
+      <button
+        type="button"
+        class="segment-btn"
+        :class="{ 'segment-btn--active': modelValue === '' }"
+        @click="$emit('update:modelValue', '')"
+      >
+        Current
+      </button>
     </div>
 
     <!-- Branch name input (shown for branch or worktree) -->
-    <div v-if="modelValue" class="quick-branch-section">
+    <div v-if="modelValue" class="branch-input-row">
       <label class="form-label form-label-small">Branch Name</label>
       <div class="quick-branch-input">
         <input
@@ -40,8 +50,10 @@
           Reset
         </button>
       </div>
-      <p class="form-help">Auto-generated from session name/prompt</p>
+      <p class="form-help">Auto-generated from prompt</p>
     </div>
+
+    <p v-if="modelValue === ''" class="current-branch-hint">On: {{ gitStatus.currentBranch }}</p>
   </div>
 
   <div v-if="loadingGit" class="git-loading">
@@ -83,7 +95,7 @@ defineEmits(['update:modelValue', 'update:branchName', 'branchEdit', 'resetBranc
 
 <style scoped>
 .form-help {
-  margin: 0.5rem 0 0;
+  margin: 0.25rem 0 0;
   font-size: 0.75rem;
   color: var(--color-text-soft);
 }
@@ -97,54 +109,50 @@ defineEmits(['update:modelValue', 'update:branchName', 'branchEdit', 'resetBranc
   margin-bottom: 1rem;
 }
 
-.quick-git-options {
+/* Segmented control (pill selector) */
+.segmented-control {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  background: var(--color-background-mute, var(--color-bg-soft, #2a2a3e));
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  padding: 0.1875rem;
+  gap: 0.125rem;
 }
 
-.radio-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
+.segment-btn {
+  flex: 1;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-soft);
+  background: transparent;
+  border: none;
   border-radius: 0.375rem;
   cursor: pointer;
-  transition: border-color 0.15s, background-color 0.15s;
+  transition: background-color 0.15s, color 0.15s;
+  white-space: nowrap;
 }
 
-.radio-option:hover {
-  border-color: var(--color-border-hover);
-  background-color: var(--color-bg-hover);
-}
-
-.radio-option:has(input:checked) {
-  border-color: var(--color-accent);
-  background-color: var(--color-accent-bg);
-}
-
-.radio-option input[type="radio"] {
-  margin-top: 0.125rem;
-}
-
-.radio-label {
-  font-weight: 500;
+.segment-btn:hover {
   color: var(--color-text);
 }
 
-.radio-help {
-  margin-left: auto;
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
+.segment-btn--active {
+  background-color: var(--color-primary, var(--color-accent, #22c55e));
+  color: #fff;
 }
 
-.quick-branch-section {
-  margin-top: 1rem;
-  padding: 1rem;
-  background-color: var(--color-bg-soft);
-  border-radius: 0.375rem;
+.segment-btn--active:hover {
+  color: #fff;
+}
+
+/* Show full label by default, hide short label */
+.segment-label-short {
+  display: none;
+}
+
+.branch-input-row {
+  margin-top: 0.5rem;
 }
 
 .form-label-small {
@@ -167,20 +175,24 @@ defineEmits(['update:modelValue', 'update:branchName', 'branchEdit', 'resetBranc
   font-size: 0.75rem;
 }
 
+.current-branch-hint {
+  margin-top: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
 @media (max-width: 480px) {
-  .radio-option {
-    flex-wrap: wrap;
-    padding: 0.5rem;
+  .segment-btn {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.75rem;
   }
 
-  .radio-help {
-    width: 100%;
-    margin-left: 1.5rem;
-    margin-top: 0.25rem;
+  /* On small screens, show abbreviated "WT" instead of "Worktree" */
+  .segment-label-full {
+    display: none;
   }
-
-  .quick-branch-section {
-    padding: 0.75rem;
+  .segment-label-short {
+    display: inline;
   }
 }
 </style>

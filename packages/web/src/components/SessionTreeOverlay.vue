@@ -88,7 +88,7 @@
               <!-- Display mode -->
               <template v-else>
                 <div class="session-name-wrapper">
-                  <span class="overlay-root-name">{{ activeSessionName }}</span>
+                  <span class="overlay-root-name">{{ rootSessionName }}</span>
                   <button class="btn-link name-edit-trigger" @click="startEditName" title="Edit session name">
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -157,44 +157,12 @@
 
           <!-- Content wrapper (with padding) -->
           <div class="overlay-body" ref="overlayBodyRef">
-            <!-- Breadcrumb (inline) -->
-            <nav
-              v-if="activeSessionPath.length > 1"
-              class="overlay-breadcrumb"
-              aria-label="Session hierarchy"
-              data-testid="session-tree-breadcrumb"
-            >
-              <ol class="breadcrumb-list">
-                <li
-                  v-for="(session, index) in activeSessionPath"
-                  :key="session.id"
-                  class="breadcrumb-item"
-                >
-                  <button
-                    v-if="session.id !== activeSessionId"
-                    class="breadcrumb-link"
-                    :title="session.name"
-                    @click="selectSession(session.id)"
-                  >
-                    {{ truncateName(session.name) }}
-                  </button>
-                  <span
-                    v-else
-                    class="breadcrumb-current"
-                    :title="session.name"
-                  >
-                    {{ truncateName(session.name) }}
-                  </span>
-                  <span v-if="index < activeSessionPath.length - 1" class="breadcrumb-separator">/</span>
-                </li>
-              </ol>
-            </nav>
-
             <!-- Conversation -->
             <ConversationTab
               :session-id="activeSessionId"
               :key="activeSessionId"
               :scroll-container-ref="overlayBodyRef"
+              :hide-new-conversation="true"
             />
           </div>
           </div><!-- end overlay-content -->
@@ -318,9 +286,16 @@ const rootSession = computed(() => {
 });
 
 const rootSessionName = computed(() => {
-  // Use sessionChain root if available (most reliable after buildSessionChain)
-  if (props.sessionChain.length > 0) return props.sessionChain[0].name || 'Session';
-  return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
+  // Always show the root (parent) session name in the overlay header.
+  // This stays fixed regardless of which child session is currently viewed.
+  // Priority 1: use the sessionChain prop (most reliable — contains the tree
+  // with depth info, so the root is always the entry with depth === 0).
+  const chainRoot = props.sessionChain.find(entry => entry.depth === 0);
+  if (chainRoot?.session?.name) return chainRoot.session.name;
+  // Priority 2: use getRootSession from the store
+  if (rootSession.value?.name) return rootSession.value.name;
+  // Priority 3: fallback to currentSession
+  return sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => {
@@ -330,10 +305,6 @@ const hasDescendants = computed(() => {
 const activeSessionName = computed(() => {
   const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
   return session?.name || 'Session';
-});
-
-const activeSessionPath = computed(() => {
-  return sessionsStore.getSessionPath(activeSessionId.value);
 });
 
 const overlaySessionStatus = computed(() => {
@@ -354,12 +325,6 @@ const backToSessionsUrl = computed(() => {
 });
 
 // Methods
-function truncateName(name, maxLength = 30) {
-  if (!name) return 'Unnamed';
-  if (name.length <= maxLength) return name;
-  return name.substring(0, maxLength - 3) + '...';
-}
-
 function close() {
   // Guard: don't re-trigger if already closing
   if (closing.value) {
@@ -673,7 +638,8 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
-  overflow-y: auto;
+  overflow: hidden;
+  overflow-y: hidden;
 }
 
 .overlay-panel-wrapper {
@@ -825,62 +791,13 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* Breadcrumb (inline) */
-.overlay-breadcrumb {
-  padding: 0.5rem;
-  margin-top: 0.5rem;
-  background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
-  border-radius: var(--border-radius, 6px);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-}
-
-.breadcrumb-list {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  flex-wrap: wrap;
-}
-
-.breadcrumb-item {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.8rem;
-}
-
-.breadcrumb-link {
-  background: none;
-  border: none;
-  color: var(--color-text-soft, #9ca3af);
-  cursor: pointer;
-  font-size: 0.8rem;
-  padding: 0;
-  text-decoration: none;
-  transition: color 0.15s;
-}
-
-.breadcrumb-link:hover {
-  color: var(--color-primary, #06b6d4);
-  text-decoration: underline;
-}
-
-.breadcrumb-current {
-  color: var(--color-text, #e5e7eb);
-  font-weight: 500;
-}
-
-.breadcrumb-separator {
-  color: var(--color-text-soft, #9ca3af);
-  margin: 0 0.25rem;
-}
-
-/* Ensure messages container scrolls within the overlay */
+/* Ensure messages container does NOT independently scroll within the overlay.
+   The .overlay-body is the sole scroll container; .messages just flows inside it.
+   This prevents two nested scroll containers from fighting each other during
+   streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-tree-overlay :deep(.messages) {
   max-height: none !important;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
 }
 

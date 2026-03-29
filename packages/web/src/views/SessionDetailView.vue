@@ -97,6 +97,8 @@ import SessionTreeHandle from '../components/SessionTreeHandle.vue';
 import SessionTreeOverlay from '../components/SessionTreeOverlay.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { api } from '../composables/useApi.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
+import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 const route = useRoute();
 const router = useRouter();
@@ -106,6 +108,11 @@ const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
 const uiStore = useUiStore();
 const kanbanStore = useKanbanStore();
+
+const { send, on, off } = useWebSocket();
+
+// Track current project subscription for cleanup on route change and unmount
+let currentProjectSubscriptionId = null;
 
 // Reactive session ID that tracks route changes
 // Used by the polling composable to track the current session
@@ -142,8 +149,8 @@ const summariesMap = ref({});
 const hasDescendants = computed(() => sessionChain.value.length > 1);
 
 /**
- * Build the linear session chain from root to leaf.
- * Fetches project sessions and summaries for each session in the chain.
+ * Build the full session tree from root, flattened depth-first with depth info.
+ * Fetches project sessions and summaries for each session in the tree.
  */
 async function buildSessionChain() {
   const sessionId = currentSessionId.value;
@@ -163,9 +170,13 @@ async function buildSessionChain() {
   if (session?.projectId) {
     try {
       const projectSessions = await api.getProjectSessions(session.projectId, false, null);
-      // Merge into store without triggering loading state
+      // Merge into store without triggering loading state.
+      // Always update existing sessions so that computed fields like lastActivityAt stay fresh.
       for (const s of projectSessions) {
-        if (!sessionsStore.getSessionById(s.id)) {
+        const idx = sessionsStore.sessions.findIndex(existing => existing.id === s.id);
+        if (idx >= 0) {
+          sessionsStore.sessions[idx] = s;
+        } else {
           sessionsStore.sessions.push(s);
         }
       }
@@ -184,37 +195,40 @@ async function buildSessionChain() {
     if (current && !current.parentSessionId) {
       root = current;
     } else if (current) {
-      sessionChain.value = [current];
+      sessionChain.value = [{ session: current, depth: 0 }];
       return;
     } else {
       return;
     }
   }
 
-  // Walk the chain from root through descendants
-  const chain = [root];
-  let currentId = root.id;
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const children = sessionsStore.getChildSessions(currentId);
-    if (children.length === 0) break;
-
-    // Follow the first child (linear chain)
-    const child = children[0];
-    chain.push(child);
-    currentId = child.id;
+  // Walk the full tree depth-first from root, collecting {session, depth} entries
+  const tree = [];
+  function walkTree(session, depth) {
+    tree.push({ session, depth });
+    const children = sessionsStore.getChildSessions(session.id);
+    for (const child of children) {
+      walkTree(child, depth + 1);
+    }
   }
+  walkTree(root, 0);
 
-  sessionChain.value = chain;
+  // Sort by latest message timestamp descending (reverse chronological)
+  tree.sort((a, b) => {
+    const aTime = a.session.lastActivityAt || a.session.updatedAt || a.session.createdAt || 0;
+    const bTime = b.session.lastActivityAt || b.session.updatedAt || b.session.createdAt || 0;
+    return bTime - aTime;
+  });
 
-  // Fetch summaries for all sessions in the chain (non-blocking)
-  for (const sess of chain) {
-    if (!summariesMap.value[sess.id]) {
-      api.getSessionSummary(sess.id)
+  sessionChain.value = tree;
+
+  // Fetch summaries for all sessions in the tree (non-blocking)
+  for (const entry of tree) {
+    if (!summariesMap.value[entry.session.id]) {
+      api.getSessionSummary(entry.session.id)
         .then(summary => {
           if (summary) {
-            summariesMap.value = { ...summariesMap.value, [sess.id]: summary };
+            summariesMap.value = { ...summariesMap.value, [entry.session.id]: summary };
           }
         })
         .catch(() => { /* Summaries are not critical */ });
@@ -224,24 +238,82 @@ async function buildSessionChain() {
 
 /**
  * Resolve the overlay target session ID.
- * If the session has running children, pre-navigate to the most recently updated one.
- * Otherwise, use the session itself.
+ * Priority order:
+ * 1. Running/starting children (most recently updated)
+ * 2. Session with the most recent conversation activity (lastActivityAt)
+ * 3. Current session (fallback)
  */
-function resolveOverlayTarget(sessionId) {
-  const children = sessionsStore.getChildSessions(sessionId);
-  const runningChildren = children.filter(
-    (c) => c.status === 'running' || c.status === 'starting'
-  );
+function resolveOverlayTarget() {
+  const chain = sessionChain.value;
+
+  // No children — use the current session
+  if (chain.length <= 1) {
+    overlaySessionId.value = currentSessionId.value;
+    return;
+  }
+
+  // 1) Prefer running/starting children (skip the root at index 0)
+  const runningChildren = chain
+    .filter(entry => entry.session.status === 'running' || entry.session.status === 'starting')
+    .filter(entry => entry.session.id !== currentSessionId.value);
 
   if (runningChildren.length > 0) {
     // Pick the most recently updated running child
-    runningChildren.sort((a, b) =>
-      new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0)
+    const sorted = [...runningChildren].sort((a, b) =>
+      new Date(b.session.updatedAt || b.session.createdAt || 0) -
+      new Date(a.session.updatedAt || a.session.createdAt || 0)
     );
-    overlaySessionId.value = runningChildren[0].id;
-  } else {
-    overlaySessionId.value = sessionId;
+    overlaySessionId.value = sorted[0].session.id;
+    return;
   }
+
+  // No running children — select the session with the most recent conversation activity
+  const withActivity = chain
+    .filter(entry => entry.session.lastActivityAt)
+    .sort((a, b) => (b.session.lastActivityAt || 0) - (a.session.lastActivityAt || 0));
+
+  if (withActivity.length > 0) {
+    overlaySessionId.value = withActivity[0].session.id;
+    return;
+  }
+
+  // 3) No conversation activity anywhere — use the current session
+  overlaySessionId.value = currentSessionId.value;
+}
+
+/**
+ * Handle SESSION_CREATED WebSocket events.
+ * When the overlay is closed and a new child session is created in our tree,
+ * update overlaySessionId so the next open navigates to the new child.
+ */
+function handleSessionCreated(msg) {
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId || msg.projectId !== projectId) return;
+
+  const newSession = msg.session;
+  if (!newSession?.parentSessionId) return;
+
+  // Only act when overlay is closed
+  if (treeOverlayOpen.value) return;
+
+  // Check if the new session's parent is in our session tree
+  const isChildOfTree = sessionChain.value.some(
+    entry => entry.session.id === newSession.parentSessionId
+  );
+  if (!isChildOfTree) return;
+
+  // Add to store so getters work (push directly to sessions array)
+  if (!sessionsStore.getSessionById(newSession.id)) {
+    sessionsStore.sessions.push(newSession);
+  }
+
+  // Update overlay target BEFORE the async chain rebuild so it's set immediately
+  if (newSession.status === 'running' || newSession.status === 'starting') {
+    overlaySessionId.value = newSession.id;
+  }
+
+  // Rebuild the tree to include the new child (async, fire-and-forget)
+  buildSessionChain();
 }
 
 async function handleOverlayClose() {
@@ -326,14 +398,30 @@ watch(
 );
 
 onMounted(async () => {
+  // Register the SESSION_CREATED handler
+  on(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
+
   // Initialize the session with WebSocket subscription and data fetching
   await initializeSession(currentSessionId.value);
 
-  // Resolve overlay target to pre-navigate to running child if present
-  resolveOverlayTarget(currentSessionId.value);
+  // Build session chain BEFORE resolving overlay target (resolveOverlayTarget reads sessionChain)
+  await buildSessionChain();
+  resolveOverlayTarget();
 
-  // Build session chain for picker
-  buildSessionChain();
+  // Subscribe to project channel for SESSION_CREATED events
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (projectId) {
+    send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
+    currentProjectSubscriptionId = projectId;
+  }
+
+  // Auto-open tree overlay if requested via query param (e.g., after new session creation)
+  if (route.query.overlay === 'open') {
+    treeOverlayOpen.value = true;
+    // Clear the query param so refresh doesn't re-open.
+    // Use path only — do NOT spread the route object (it's a read-only proxy).
+    router.replace({ path: route.path, query: {} });
+  }
 
   // Fetch kanban board so SessionHeaderPanel can show lane chip
   const session = sessionsStore.currentSession;
@@ -356,10 +444,21 @@ watch(
       cleanup();
       currentSessionId.value = newSessionId;
       await initializeSession(newSessionId);
-      // Resolve overlay target to pre-navigate to running child if present
-      resolveOverlayTarget(newSessionId);
-      // Rebuild session chain for picker
-      buildSessionChain();
+      // Build session chain BEFORE resolving overlay target (resolveOverlayTarget reads sessionChain)
+      await buildSessionChain();
+      resolveOverlayTarget();
+
+      // Update project subscription if project changed
+      const newProjectId = sessionsStore.currentSession?.projectId;
+      if (newProjectId !== currentProjectSubscriptionId) {
+        if (currentProjectSubscriptionId) {
+          send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
+        }
+        if (newProjectId) {
+          send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId: newProjectId });
+        }
+        currentProjectSubscriptionId = newProjectId || null;
+      }
     }
   }
 );
@@ -384,6 +483,13 @@ onActivated(() => {
 
 onUnmounted(() => {
   cleanup();
+  // Unsubscribe from project channel
+  if (currentProjectSubscriptionId) {
+    send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
+    currentProjectSubscriptionId = null;
+  }
+  // Remove the SESSION_CREATED handler
+  off(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
   // Clear viewedSessionId so other views (e.g., SessionListView) can use
   // fetchSession without the guard blocking them.
   sessionsStore.viewedSessionId = null;
