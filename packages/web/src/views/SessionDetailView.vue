@@ -48,7 +48,6 @@
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
         <SummaryTab v-if="activeTab === 'summary'" :key="route.params.id" :session-id="route.params.id" />
-        <ConversationTab v-else-if="activeTab === 'conversation'" :key="route.params.id" :session-id="route.params.id" />
         <ChangesTab v-else-if="activeTab === 'changes'" :key="route.params.id" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :key="route.params.id" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
@@ -85,7 +84,6 @@ import { useUiStore } from '../stores/ui.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { useSessionInitializer } from '../composables/useSessionInitializer.js';
-import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
@@ -419,7 +417,6 @@ const activeSessionStatus = computed(() => {
 
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
-  { id: 'conversation', label: 'Conversations' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
   { id: 'commands', label: 'Commands' }
@@ -546,7 +543,7 @@ async function handleDuplicate() {
   try {
     const newSession = await sessionsStore.duplicateSession(currentSessionId.value);
     uiStore.success('Session duplicated');
-    router.push(`/sessions/${newSession.id}/conversation`);
+    router.push(`/sessions/${newSession.id}/summary`);
   } catch (err) {
     uiStore.error(err.message);
   }
