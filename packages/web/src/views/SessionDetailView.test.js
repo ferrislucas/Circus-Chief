@@ -2767,6 +2767,206 @@ describe('SessionDetailView', () => {
       const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
       expect(treeHandle.isVisible()).toBe(true);
     });
+
+    it('passes isSessionActive=true when root is completed but a child session is running', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Populate sessionChain with a running child
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'running', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(true);
+    });
+
+    it('passes isSessionActive=true when root is waiting and a child session is starting', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Populate sessionChain with a starting child
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'waiting', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'starting', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(true);
+    });
+
+    it('passes isSessionActive=false when root and all children are completed', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Populate sessionChain with all completed sessions
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'completed', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+        { session: { id: 'child-2', status: 'completed', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(false);
+    });
+
+    it('passes correct sessionStatus from running child when root is completed', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Populate sessionChain with a running child
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'running', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('sessionStatus')).toBe('running');
+    });
+
+    it('updates isSessionActive reactively when sessionChain changes', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Start with all completed
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'completed', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(false);
+
+      // Update sessionChain to include a running child
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'running', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      expect(treeHandle.props('isSessionActive')).toBe(true);
+    });
   });
 
   describe('Session Name Editing', () => {
