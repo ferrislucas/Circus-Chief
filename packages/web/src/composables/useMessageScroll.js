@@ -64,7 +64,13 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
       const el = getScrollEl();
       if (el) {
         programmaticScroll = true;
-        el.scrollTop = el.scrollHeight;
+        // Use instant behavior to avoid smooth-scroll CSS animations fighting
+        // with rapid programmatic scroll updates during streaming.
+        if (typeof el.scrollTo === 'function') {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'instant' });
+        } else {
+          el.scrollTop = el.scrollHeight;
+        }
         isNearBottom.value = true;
         hasNewMessages.value = false;
       }
