@@ -43,6 +43,7 @@ export const useTodosStore = defineStore('todos', {
       this.loading = false;
       this.error = null;
       this.currentConversationId = null;
+      this.expanded = false;
     },
 
     toggleExpanded() {
