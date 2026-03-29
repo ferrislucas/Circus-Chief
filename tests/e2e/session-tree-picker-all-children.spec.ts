@@ -137,9 +137,13 @@ test.describe('Session Tree Picker Shows All Children', () => {
     // Picker should close
     await expect(picker).not.toBeVisible({ timeout: 5000 });
 
-    // Overlay should now show the selected child session name
-    const activeName = overlay.locator('.dropdown-name');
-    await expect(activeName).toContainText('Child Session 4', { timeout: 5000 });
+    // The overlay-root-name always shows the root (parent) session name
+    const rootName = overlay.locator('.overlay-root-name');
+    await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+
+    // The dropdown should now show the selected child session name
+    const dropdownName = overlay.locator('.dropdown-name');
+    await expect(dropdownName).toContainText('Child Session 4', { timeout: 5000 });
   });
 
   test('opening picker from a child session still shows all siblings', async ({ page }) => {
