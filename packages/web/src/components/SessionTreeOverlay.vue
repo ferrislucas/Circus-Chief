@@ -88,7 +88,7 @@
               <!-- Display mode -->
               <template v-else>
                 <div class="session-name-wrapper">
-                  <span class="overlay-root-name">{{ rootSessionName }}</span>
+                  <span class="overlay-root-name">{{ activeSessionName }}</span>
                   <button class="btn-link name-edit-trigger" @click="startEditName" title="Edit session name">
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>

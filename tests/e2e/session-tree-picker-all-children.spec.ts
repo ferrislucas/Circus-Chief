@@ -79,24 +79,23 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await expect(picker).toContainText('Child Session 4');
   });
 
-  test('child sessions are indented more than the parent', async ({ page }) => {
+  test('picker items have uniform padding (flat layout)', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
     const items = picker.locator('[role="option"]');
     const count = await items.count();
     expect(count).toBe(5);
 
-    // Get the padding of the parent (first item at depth 0)
-    const parentPadding = await items.nth(0).evaluate(el => {
+    // All items should have the same padding (flat layout, no indentation)
+    const firstPadding = await items.nth(0).evaluate(el => {
       return parseFloat(window.getComputedStyle(el).paddingLeft);
     });
 
-    // All child items (indices 1-4) should have more padding than the parent
     for (let i = 1; i < count; i++) {
-      const childPadding = await items.nth(i).evaluate(el => {
+      const itemPadding = await items.nth(i).evaluate(el => {
         return parseFloat(window.getComputedStyle(el).paddingLeft);
       });
-      expect(childPadding).toBeGreaterThan(parentPadding);
+      expect(itemPadding).toBe(firstPadding);
     }
   });
 

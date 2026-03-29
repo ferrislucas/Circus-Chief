@@ -296,7 +296,7 @@ test.describe('Session Tree Overlay', () => {
       expect(count).toBeGreaterThanOrEqual(2);
     });
 
-    test('child picker items are indented more than parent', async ({ page }) => {
+    test('picker items have uniform padding (flat layout)', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -311,17 +311,16 @@ test.describe('Session Tree Overlay', () => {
       const count = await items.count();
       expect(count).toBeGreaterThanOrEqual(2);
 
-      // Get the padding-left value from the first item (root/parent at depth 0)
-      const parentPadding = await items.nth(0).evaluate(el => {
+      // All items should have the same padding (flat layout, no indentation)
+      const firstPadding = await items.nth(0).evaluate(el => {
         return parseFloat(window.getComputedStyle(el).paddingLeft);
       });
 
-      // Child items (depth 1+) should have more padding than the parent
       for (let i = 1; i < count; i++) {
-        const childPadding = await items.nth(i).evaluate(el => {
+        const itemPadding = await items.nth(i).evaluate(el => {
           return parseFloat(window.getComputedStyle(el).paddingLeft);
         });
-        expect(childPadding).toBeGreaterThan(parentPadding);
+        expect(itemPadding).toBe(firstPadding);
       }
     });
 
