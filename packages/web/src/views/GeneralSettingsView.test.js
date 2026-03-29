@@ -76,7 +76,7 @@ describe('GeneralSettingsView', () => {
     });
 
     it('renders help text', () => {
-      expect(wrapper.text()).toContain('When enabled, no usage analytics will be collected.');
+      expect(wrapper.text()).toContain('When checked, no usage analytics will be collected.');
     });
 
     it('renders Save Settings button', () => {

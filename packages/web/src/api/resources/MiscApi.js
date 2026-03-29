@@ -82,6 +82,22 @@ export function MiscApi(ApiClient) {
       return this._post(`/sessions/${sessionId}/summary`);
     },
 
+    /**
+     * Get the most recent assistant response across the entire workflow
+     * @param {string} sessionId - Any session ID in the workflow
+     * @returns {Promise<{message: Object, sessionName: string}|null>}
+     */
+    async getWorkflowLatestResponse(sessionId) {
+      try {
+        return await this._get(`/sessions/${sessionId}/workflow-latest-response`);
+      } catch (err) {
+        if (err.message.includes('404')) {
+          return null;
+        }
+        throw err;
+      }
+    },
+
     // Notes
 
     /**

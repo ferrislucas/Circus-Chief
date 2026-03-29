@@ -135,7 +135,7 @@ detect_or_start_server() {
     # Wait for .server-port file to be created
     # Package server needs longer timeout (build + npm install)
     local elapsed=0
-    local timeout=30
+    local timeout=60
     if [ "$USE_PACKAGE_SERVER" = true ]; then
         timeout=120
     fi
@@ -144,8 +144,8 @@ detect_or_start_server() {
             detected_port=$(cat "$port_file")
             print_success "Server started with port: $detected_port"
 
-            # Wait for server to be ready
-            if wait_for_server "$detected_port" 30; then
+            # Wait for server to be ready (increased timeout from 30 to 90 seconds for builds)
+            if wait_for_server "$detected_port" 90; then
                 echo "$detected_port"
                 return 0
             else

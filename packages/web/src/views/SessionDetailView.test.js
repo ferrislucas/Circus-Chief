@@ -92,17 +92,21 @@ vi.mock('../composables/useApi.js', () => ({
 // and useSessionSubscription returns no-op handler stubs.
 vi.mock('../composables/useWebSocket.js', () => {
   const h = () => vi.fn(() => () => {});
+  // Return the SAME singleton object from every useWebSocket() call so that the
+  // component's top-level destructure and useSessionInitializer's internal call
+  // share the same send/on/off mocks (matches real singleton behaviour).
+  const wsSingleton = {
+    isConnected: { value: true },
+    send: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    disconnect: vi.fn(),
+    clearSessionBuffer: vi.fn(),
+    onReconnect: vi.fn(() => () => {}),
+  };
   return {
     ensureSubscribed: vi.fn(() => Promise.resolve()),
-    useWebSocket: vi.fn(() => ({
-      isConnected: { value: true },
-      send: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
-      disconnect: vi.fn(),
-      clearSessionBuffer: vi.fn(),
-      onReconnect: vi.fn(() => () => {}),
-    })),
+    useWebSocket: vi.fn(() => wsSingleton),
     useSessionSubscription: vi.fn(() => ({
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
@@ -132,8 +136,10 @@ vi.mock('../composables/useWebSocket.js', () => {
   };
 });
 
-// Import the mocked api for use in tests
+// Import the mocked api and useWebSocket for use in tests
 import { api } from '../composables/useApi.js';
+import { useWebSocket } from '../composables/useWebSocket.js';
+import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 describe('SessionDetailView', () => {
   let pinia;
@@ -2472,70 +2478,6 @@ describe('SessionDetailView', () => {
       expect(wrapper.exists()).toBe(true);
     });
 
-    it.skip('SessionCardWorkflowPanel receives summaries prop', async () => {
-      // SKIPPED: This test requires unmocking SummaryTab which is complex with Vitest.
-      // The SessionCardWorkflowPanel functionality is tested independently
-      // and SummaryTab integration is verified through E2E tests.
-      // Import real SummaryTab component for this test
-      vi.doUnmock('../components/SummaryTab.vue');
-      const { default: RealSummaryTab } = await import('../components/SummaryTab.vue?t=' + Date.now());
-
-      const childSession = {
-        id: 'child-1',
-        parentSessionId: 'session-1',
-        name: 'Child 1',
-        status: 'completed',
-        createdAt: Date.now(),
-      };
-
-      // Mock getChildSessions to return the child session only for parent
-      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
-        (parentId) => parentId === 'session-1' ? [childSession] : []
-      );
-
-      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
-
-      // Set up commandButtonsStore (needed by SummaryTab)
-      const commandButtonsStore = useCommandButtonsStore();
-      commandButtonsStore.buttons = [];
-      vi.spyOn(commandButtonsStore, 'fetchButtons').mockResolvedValue(undefined);
-
-      sessionsStore.currentSession = {
-        id: 'session-1',
-        name: 'Test Session',
-        status: 'running',
-        projectId: 'proj-1',
-      };
-      // Add both parent and child sessions to the sessions array
-      sessionsStore.sessions = [sessionsStore.currentSession, childSession];
-
-      await router.push('/sessions/session-1/summary');
-      await router.isReady();
-
-      const wrapper = trackedMount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: RealSummaryTab, // Use real SummaryTab component
-            CommandsTab: true,
-            PrIndicators: true,
-            SessionCardWorkflowPanel: false, // Don't stub to verify prop passing
-          },
-        },
-      });
-
-      await flushPromises();
-
-      // Verify SessionCardWorkflowPanel is rendered
-      const childPanel = wrapper.findComponent({ name: 'SessionCardWorkflowPanel' });
-      expect(childPanel.exists()).toBe(true);
-
-      // Verify summaries prop is passed (it should be defined, even if empty)
-      expect(childPanel.props('summaries')).toBeDefined();
-    });
   });
 
   describe('session active indicator', () => {
@@ -3115,200 +3057,106 @@ describe('SessionDetailView', () => {
     });
   });
 
-  describe('overlay pre-navigation to running child', () => {
+  describe('overlay pre-navigation to most recently active session', () => {
     // These tests verify that the overlay is pre-navigated to the most recently
-    // updated running child session when the user navigates to a parent session
+    // active session from the full session tree (based on updatedAt/createdAt)
 
-    it('overlaySessionId is set to running child when a running child exists', async () => {
-      // Populate the sessions store with parent and child sessions
+    it('selects the most recently active session from the tree', async () => {
+      // Root is oldest, middle child newer, leaf child newest
       sessionsStore.sessions = [
-        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-        { id: 'child-1', parentId: 'parent-1', name: 'Running Child', status: 'running', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
-        { id: 'child-2', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z', createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'child-1', name: 'Middle Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1', updatedAt: '2025-01-02T00:00:00Z', createdAt: '2025-01-02T00:00:00Z' },
+        { id: 'leaf-1', name: 'Leaf Child', status: 'running', projectId: 'proj-1', parentSessionId: 'child-1', updatedAt: '2025-01-03T00:00:00Z', createdAt: '2025-01-03T00:00:00Z' },
       ];
 
       sessionsStore.currentSession = sessionsStore.sessions[0];
+      api.getProjectSessions.mockResolvedValue(sessionsStore.sessions);
 
-      await router.push('/sessions/parent-1');
+      await router.push('/sessions/root-1');
       await router.isReady();
 
       const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            SummaryTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            CommandsTab: true,
-            PrIndicators: true,
-          },
+          stubs: { ConversationTab: true, SummaryTab: true, ChangesTab: true, CanvasTab: true, CommandsTab: true, PrIndicators: true },
         },
       });
 
       await flushPromises();
       await nextTick();
 
-      // overlaySessionId should be set to the running child
+      // overlaySessionId should be set to the leaf child (newest updatedAt)
+      expect(wrapper.vm.overlaySessionId).toBe('leaf-1');
+    });
+
+    it('falls back to current session when tree has only the root', async () => {
+      sessionsStore.sessions = [
+        { id: 'root-1', name: 'Root Only', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+      ];
+
+      sessionsStore.currentSession = sessionsStore.sessions[0];
+      api.getProjectSessions.mockResolvedValue(sessionsStore.sessions);
+
+      await router.push('/sessions/root-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { ConversationTab: true, SummaryTab: true, ChangesTab: true, CanvasTab: true, CommandsTab: true, PrIndicators: true },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // overlaySessionId should fall back to the current session
+      expect(wrapper.vm.overlaySessionId).toBe('root-1');
+    });
+
+    it('uses createdAt when updatedAt is null', async () => {
+      sessionsStore.sessions = [
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: null, createdAt: '2025-01-01T00:00:00Z' },
+        { id: 'child-1', name: 'Newer Child', status: 'running', projectId: 'proj-1', parentSessionId: 'root-1', updatedAt: null, createdAt: '2025-01-03T00:00:00Z' },
+        { id: 'child-2', name: 'Older Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1', updatedAt: null, createdAt: '2025-01-02T00:00:00Z' },
+      ];
+
+      sessionsStore.currentSession = sessionsStore.sessions[0];
+      api.getProjectSessions.mockResolvedValue(sessionsStore.sessions);
+
+      await router.push('/sessions/root-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { ConversationTab: true, SummaryTab: true, ChangesTab: true, CanvasTab: true, CommandsTab: true, PrIndicators: true },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Should pick the one with the newest createdAt
       expect(wrapper.vm.overlaySessionId).toBe('child-1');
     });
 
-    it('overlaySessionId falls back to parent when no running children exist', async () => {
-      // Populate the sessions store with parent and a non-running child
+    it('passes resolved overlaySessionId to SessionTreeOverlay', async () => {
       sessionsStore.sessions = [
-        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-        { id: 'child-1', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+        { id: 'child-1', name: 'Recently Active Child', status: 'running', projectId: 'proj-1', parentSessionId: 'root-1', updatedAt: '2025-01-02T00:00:00Z' },
       ];
 
       sessionsStore.currentSession = sessionsStore.sessions[0];
+      api.getProjectSessions.mockResolvedValue(sessionsStore.sessions);
 
-      await router.push('/sessions/parent-1');
+      await router.push('/sessions/root-1');
       await router.isReady();
 
       const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            SummaryTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            CommandsTab: true,
-            PrIndicators: true,
-          },
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // overlaySessionId should fall back to the parent session
-      expect(wrapper.vm.overlaySessionId).toBe('parent-1');
-    });
-
-    it('overlaySessionId picks the most recently updated running child', async () => {
-      // Populate the sessions store with parent and multiple children
-      sessionsStore.sessions = [
-        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-        { id: 'child-1', parentId: 'parent-1', name: 'Older Running Child', status: 'running', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
-        { id: 'child-2', parentId: 'parent-1', name: 'Newer Running Child', status: 'running', updatedAt: '2025-01-02T00:00:00Z', parentSessionId: 'parent-1' },
-        { id: 'child-3', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', updatedAt: '2025-01-03T00:00:00Z', parentSessionId: 'parent-1' },
-      ];
-
-      sessionsStore.currentSession = sessionsStore.sessions[0];
-
-      await router.push('/sessions/parent-1');
-      await router.isReady();
-
-      const wrapper = trackedMount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            SummaryTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            CommandsTab: true,
-            PrIndicators: true,
-          },
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // overlaySessionId should be the most recently updated running child (child-2)
-      expect(wrapper.vm.overlaySessionId).toBe('child-2');
-    });
-
-    it('overlaySessionId falls back to parent when getChildSessions returns empty array', async () => {
-      // Populate the sessions store with only a parent session (no children)
-      sessionsStore.sessions = [
-        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-      ];
-
-      sessionsStore.currentSession = sessionsStore.sessions[0];
-
-      await router.push('/sessions/parent-1');
-      await router.isReady();
-
-      const wrapper = trackedMount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            SummaryTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            CommandsTab: true,
-            PrIndicators: true,
-          },
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // overlaySessionId should fall back to the parent session
-      expect(wrapper.vm.overlaySessionId).toBe('parent-1');
-    });
-
-    it('overlaySessionId picks starting status child (considered running)', async () => {
-      // Populate the sessions store with parent and a starting child
-      sessionsStore.sessions = [
-        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-        { id: 'child-1', parentId: 'parent-1', name: 'Starting Child', status: 'starting', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
-      ];
-
-      sessionsStore.currentSession = sessionsStore.sessions[0];
-
-      await router.push('/sessions/parent-1');
-      await router.isReady();
-
-      const wrapper = trackedMount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            SummaryTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            CommandsTab: true,
-            PrIndicators: true,
-          },
-        },
-      });
-
-      await flushPromises();
-      await nextTick();
-
-      // overlaySessionId should pick the starting child
-      expect(wrapper.vm.overlaySessionId).toBe('child-1');
-    });
-
-    it('passes overlaySessionId to SessionTreeOverlay', async () => {
-      // Populate the sessions store with parent and running child
-      sessionsStore.sessions = [
-        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-        { id: 'child-1', parentId: 'parent-1', name: 'Running Child', status: 'running', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
-      ];
-
-      sessionsStore.currentSession = sessionsStore.sessions[0];
-
-      await router.push('/sessions/parent-1');
-      await router.isReady();
-
-      const wrapper = trackedMount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            SummaryTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            CommandsTab: true,
-            PrIndicators: true,
-          },
+          stubs: { ConversationTab: true, SummaryTab: true, ChangesTab: true, CanvasTab: true, CommandsTab: true, PrIndicators: true },
         },
       });
 
@@ -3322,7 +3170,242 @@ describe('SessionDetailView', () => {
       // Find the SessionTreeOverlay component and check its session-id prop
       const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
       expect(treeOverlay.exists()).toBe(true);
-      expect(treeOverlay.props('sessionId')).toBe('child-1'); // Should be the running child
+      expect(treeOverlay.props('sessionId')).toBe('child-1');
+    });
+  });
+
+  describe('auto-switch on child session creation', () => {
+    // Helper to mount the component and extract the WebSocket mock used by the component
+    async function mountWithWs(sessions, currentSessionOverride) {
+      const current = currentSessionOverride || sessions[0];
+      sessionsStore.sessions = sessions;
+      sessionsStore.currentSession = current;
+      api.getProjectSessions.mockResolvedValue(sessions);
+
+      await router.push(`/sessions/${current.id}`);
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { ConversationTab: true, SummaryTab: true, ChangesTab: true, CanvasTab: true, CommandsTab: true, PrIndicators: true },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Get the mock instance that the component received
+      const callIndex = useWebSocket.mock.results.length - 1;
+      const mockWs = useWebSocket.mock.results[callIndex].value;
+
+      return { wrapper, mockWs };
+    }
+
+    // Helper to extract the SESSION_CREATED handler from the mock
+    function getSessionCreatedHandler(mockWs) {
+      const call = mockWs.on.mock.calls.find(
+        ([type]) => type === WS_MESSAGE_TYPES.SESSION_CREATED
+      );
+      return call ? call[1] : null;
+    }
+
+    it('subscribes to project channel on mount', async () => {
+      const { mockWs } = await mountWithWs([
+        { id: 'root-1', name: 'Root', status: 'running', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      // Assert: send was called with SUBSCRIBE_PROJECT
+      expect(mockWs.send).toHaveBeenCalledWith(
+        WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT,
+        { projectId: 'proj-1' }
+      );
+
+      // Assert: on was called with SESSION_CREATED
+      const handler = getSessionCreatedHandler(mockWs);
+      expect(handler).toBeTypeOf('function');
+    });
+
+    it('updates overlaySessionId when a running child session is created and overlay is closed', async () => {
+      const { wrapper, mockWs } = await mountWithWs([
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      // overlay should be closed by default
+      expect(wrapper.vm.treeOverlayOpen).toBe(false);
+
+      const handler = getSessionCreatedHandler(mockWs);
+
+      // Simulate a SESSION_CREATED event for a new running child
+      handler({
+        projectId: 'proj-1',
+        session: { id: 'new-child', parentSessionId: 'root-1', status: 'running', name: 'New Child', projectId: 'proj-1', updatedAt: '2025-01-02T00:00:00Z' },
+      });
+
+      // overlaySessionId should be updated to the new child
+      expect(wrapper.vm.overlaySessionId).toBe('new-child');
+      // Session should be added to the store
+      expect(sessionsStore.sessions.find(s => s.id === 'new-child')).toBeTruthy();
+    });
+
+    it('does NOT update overlaySessionId when overlay is open', async () => {
+      const { wrapper, mockWs } = await mountWithWs([
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      // Open the overlay
+      wrapper.vm.treeOverlayOpen = true;
+
+      const handler = getSessionCreatedHandler(mockWs);
+      const prevOverlayId = wrapper.vm.overlaySessionId;
+
+      handler({
+        projectId: 'proj-1',
+        session: { id: 'new-child', parentSessionId: 'root-1', status: 'running', name: 'New Child', projectId: 'proj-1' },
+      });
+
+      // overlaySessionId should NOT change
+      expect(wrapper.vm.overlaySessionId).toBe(prevOverlayId);
+    });
+
+    it('ignores sessions from a different project', async () => {
+      const { wrapper, mockWs } = await mountWithWs([
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      const handler = getSessionCreatedHandler(mockWs);
+      const prevOverlayId = wrapper.vm.overlaySessionId;
+
+      handler({
+        projectId: 'other-project',
+        session: { id: 'new-child', parentSessionId: 'root-1', status: 'running', name: 'New Child', projectId: 'other-project' },
+      });
+
+      // overlaySessionId should NOT change
+      expect(wrapper.vm.overlaySessionId).toBe(prevOverlayId);
+    });
+
+    it('ignores sessions whose parent is not in the tree', async () => {
+      const { wrapper, mockWs } = await mountWithWs([
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      const handler = getSessionCreatedHandler(mockWs);
+      const prevOverlayId = wrapper.vm.overlaySessionId;
+
+      handler({
+        projectId: 'proj-1',
+        session: { id: 'new-child', parentSessionId: 'unknown-id', status: 'running', name: 'New Child', projectId: 'proj-1' },
+      });
+
+      // overlaySessionId should NOT change
+      expect(wrapper.vm.overlaySessionId).toBe(prevOverlayId);
+    });
+
+    it('does not update overlay target for non-active child sessions (status waiting)', async () => {
+      const { wrapper, mockWs } = await mountWithWs([
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      const handler = getSessionCreatedHandler(mockWs);
+      const prevOverlayId = wrapper.vm.overlaySessionId;
+
+      handler({
+        projectId: 'proj-1',
+        session: { id: 'new-child', parentSessionId: 'root-1', status: 'waiting', name: 'Waiting Child', projectId: 'proj-1' },
+      });
+
+      // overlaySessionId should NOT change (non-active status)
+      expect(wrapper.vm.overlaySessionId).toBe(prevOverlayId);
+      // But the session SHOULD be added to the store for tree building
+      expect(sessionsStore.sessions.find(s => s.id === 'new-child')).toBeTruthy();
+    });
+
+    it('does not add duplicate session to store', async () => {
+      const existingSession = { id: 'existing-child', parentSessionId: 'root-1', status: 'running', name: 'Existing Child', projectId: 'proj-1' };
+      const { mockWs } = await mountWithWs([
+        { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+        existingSession,
+      ]);
+
+      const handler = getSessionCreatedHandler(mockWs);
+      const countBefore = sessionsStore.sessions.filter(s => s.id === 'existing-child').length;
+
+      handler({
+        projectId: 'proj-1',
+        session: existingSession,
+      });
+
+      const countAfter = sessionsStore.sessions.filter(s => s.id === 'existing-child').length;
+      expect(countAfter).toBe(countBefore);
+    });
+
+    it('unsubscribes from project channel and removes handler on unmount', async () => {
+      const { wrapper, mockWs } = await mountWithWs([
+        { id: 'root-1', name: 'Root', status: 'running', projectId: 'proj-1', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' },
+      ]);
+
+      const handler = getSessionCreatedHandler(mockWs);
+
+      wrapper.unmount();
+
+      // Assert: send was called with UNSUBSCRIBE_PROJECT
+      expect(mockWs.send).toHaveBeenCalledWith(
+        WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT,
+        { projectId: 'proj-1' }
+      );
+
+      // Assert: off was called with the same handler that was registered via on
+      expect(mockWs.off).toHaveBeenCalledWith(
+        WS_MESSAGE_TYPES.SESSION_CREATED,
+        handler
+      );
+    });
+
+    it('updates project subscription on route change to different project', async () => {
+      // Start with project A
+      const sessionA = { id: 'session-a', name: 'Session A', status: 'running', projectId: 'proj-a', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' };
+      const sessionB = { id: 'session-b', name: 'Session B', status: 'running', projectId: 'proj-b', parentSessionId: null, updatedAt: '2025-01-01T00:00:00Z' };
+
+      sessionsStore.sessions = [sessionA, sessionB];
+      sessionsStore.currentSession = sessionA;
+      api.getProjectSessions.mockResolvedValue([sessionA]);
+
+      await router.push('/sessions/session-a');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { ConversationTab: true, SummaryTab: true, ChangesTab: true, CanvasTab: true, CommandsTab: true, PrIndicators: true },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const callIndex = useWebSocket.mock.results.length - 1;
+      const mockWs = useWebSocket.mock.results[callIndex].value;
+
+      // Clear mocks to isolate the route change calls
+      mockWs.send.mockClear();
+
+      // Navigate to session in project B
+      sessionsStore.currentSession = sessionB;
+      api.getProjectSessions.mockResolvedValue([sessionB]);
+      await router.push('/sessions/session-b');
+      await flushPromises();
+      await nextTick();
+
+      // Assert: unsubscribed from project A and subscribed to project B
+      expect(mockWs.send).toHaveBeenCalledWith(
+        WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT,
+        { projectId: 'proj-a' }
+      );
+      expect(mockWs.send).toHaveBeenCalledWith(
+        WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT,
+        { projectId: 'proj-b' }
+      );
     });
   });
 
@@ -3334,6 +3417,7 @@ describe('SessionDetailView', () => {
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: null,
+        lastActivityAt: 1000,
       };
       const childSession = {
         id: 'child-1',
@@ -3341,6 +3425,7 @@ describe('SessionDetailView', () => {
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
+        lastActivityAt: 2000,
       };
 
       sessionsStore.currentSession = parentSession;
@@ -3374,10 +3459,11 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      // sessionChain should be built with root and child
+      // sessionChain should contain both sessions sorted by lastActivityAt descending
       expect(wrapper.vm.sessionChain.length).toBe(2);
-      expect(wrapper.vm.sessionChain[0].id).toBe('parent-1');
-      expect(wrapper.vm.sessionChain[1].id).toBe('child-1');
+      // child-1 has lastActivityAt=2000 (most recent), parent-1 has lastActivityAt=1000
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('child-1');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
     });
 
     it('passes sessionChain and summariesMap to SessionTreeOverlay', async () => {
@@ -3387,6 +3473,7 @@ describe('SessionDetailView', () => {
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: null,
+        lastActivityAt: 2000,
       };
       const childSession = {
         id: 'child-1',
@@ -3394,6 +3481,7 @@ describe('SessionDetailView', () => {
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
+        lastActivityAt: 1000,
       };
 
       sessionsStore.currentSession = parentSession;
@@ -3441,6 +3529,7 @@ describe('SessionDetailView', () => {
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: null,
+        lastActivityAt: 1000,
       };
 
       sessionsStore.currentSession = parentSession;
@@ -3470,13 +3559,14 @@ describe('SessionDetailView', () => {
       // Initially chain has just the root
       expect(wrapper.vm.sessionChain.length).toBe(1);
 
-      // Simulate a new child being created
+      // Simulate a new child being created (more recent than parent)
       const newChild = {
         id: 'new-child',
         name: 'New Child',
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
+        lastActivityAt: 3000,
       };
       sessionsStore.sessions.push(newChild);
 
@@ -3495,9 +3585,85 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      // Session chain should now include the new child
+      // Session chain should now include the new child, sorted by lastActivityAt descending
       expect(wrapper.vm.sessionChain.length).toBe(2);
-      expect(wrapper.vm.sessionChain[1].id).toBe('new-child');
+      // new-child has lastActivityAt=3000 (most recent), so it comes first
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('new-child');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
+    });
+
+    it('sorts session chain by lastActivityAt descending (most recent first)', async () => {
+      const sessionA = {
+        id: 'session-a',
+        name: 'Session A (oldest)',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastActivityAt: 1000,
+      };
+      const sessionB = {
+        id: 'session-b',
+        name: 'Session B (middle)',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: 3000,
+      };
+      const sessionC = {
+        id: 'session-c',
+        name: 'Session C (newest)',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: 5000,
+      };
+      // Session D has no lastActivityAt, falls back to updatedAt
+      const sessionD = {
+        id: 'session-d',
+        name: 'Session D (fallback to updatedAt)',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: null,
+        updatedAt: 2000,
+      };
+
+      sessionsStore.currentSession = sessionA;
+      sessionsStore.sessions = [sessionA, sessionB, sessionC, sessionD];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'session-a' ? [sessionB, sessionC, sessionD] : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(
+        () => sessionA
+      );
+
+      api.getProjectSessions.mockResolvedValue([sessionA, sessionB, sessionC, sessionD]);
+
+      await router.push('/sessions/session-a');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Should contain all 4 sessions
+      expect(wrapper.vm.sessionChain.length).toBe(4);
+
+      // Order should be: C (5000), B (3000), D (2000 via updatedAt fallback), A (1000)
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('session-c');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('session-b');
+      expect(wrapper.vm.sessionChain[2].session.id).toBe('session-d');
+      expect(wrapper.vm.sessionChain[3].session.id).toBe('session-a');
     });
 
     it('fetches summaries for sessions in the chain', async () => {
@@ -3692,6 +3858,79 @@ describe('SessionDetailView', () => {
       expect(sessionsStore.fetchSession).toHaveBeenCalledWith('parent-1', false);
       expect(sessionsStore.fetchConversations).toHaveBeenCalledWith('parent-1');
       expect(sessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false);
+    });
+  });
+
+  describe('auto-open overlay via query param', () => {
+    it('auto-opens tree overlay when route has ?overlay=open query param', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      // Navigate with the overlay query param
+      await router.push('/sessions/session-1?overlay=open');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Overlay should be open
+      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+
+      // Query param should be cleared (router.replace removes it)
+      expect(router.currentRoute.value.query.overlay).toBeUndefined();
+    });
+
+    it('does not auto-open tree overlay without query param', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      // Navigate WITHOUT the overlay query param
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Overlay should remain closed
+      expect(wrapper.vm.treeOverlayOpen).toBe(false);
     });
   });
 });
