@@ -64,13 +64,13 @@ test.describe('Duplicate Session', () => {
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Duplicate' }).click();
 
     // After a successful duplicate, handleDuplicate() navigates to the new session:
-    //   router.push(`/sessions/${newSessionId}/conversation`)
+    //   router.push(`/sessions/${newSessionId}/summary`)
     // Waiting for that URL change confirms the duplicate API call succeeded.
-    await page.waitForURL(/\/sessions\/[^/]+\/conversation/, { timeout: 15000 });
+    await page.waitForURL(/\/sessions\/[^/]+\/summary/, { timeout: 15000 });
 
     // Extract the new session ID from the current URL
     const newUrl = page.url();
-    const newSessionIdMatch = newUrl.match(/\/sessions\/([^/]+)\/conversation/);
+    const newSessionIdMatch = newUrl.match(/\/sessions\/([^/]+)\/summary/);
     expect(newSessionIdMatch).toBeTruthy();
     const newSessionId = newSessionIdMatch![1];
 
