@@ -274,28 +274,7 @@ function resolveOverlayTarget() {
 
   if (withActivity.length > 0) {
     overlaySessionId.value = withActivity[0].session.id;
-  } else {
-    // No running children — pick the session with the most recent conversation activity.
-    // The chain is already sorted by lastActivityAt descending, so chain[0] is the most recent.
-    //
-    // Note: lastActivityAt falls back to updatedAt/createdAt when a session has no
-    // conversation messages. To detect real conversation activity, we check if
-    // lastActivityAt is strictly greater than the session's updatedAt (which means
-    // there are actual conversation messages beyond just session creation/updates).
-    const mostRecent = chain[0];
-    const hasRealActivity = (s) => {
-      const activity = s.lastActivityAt || 0;
-      const fallback = s.updatedAt || s.createdAt || 0;
-      return activity > fallback;
-    };
-
-    if (mostRecent.session.id !== currentSessionId.value && hasRealActivity(mostRecent.session)) {
-      // A different session has real conversation activity — select it
-      overlaySessionId.value = mostRecent.session.id;
-    } else {
-      // No real conversation activity or current session is most active — use current session
-      overlaySessionId.value = currentSessionId.value;
-    }
+    return;
   }
 
   // 3) No conversation activity anywhere — use the current session
