@@ -26,6 +26,7 @@ import {
   getSession,
   BASE_URL,
   API_URL,
+  openSessionOverlay,
 } from './helpers';
 
 test.describe('Session Message Persistence After Response Completes', () => {
@@ -50,8 +51,9 @@ test.describe('Session Message Persistence After Response Completes', () => {
     });
 
     // Step 2: Navigate to the session page while it's running
-    await page.goto(`${BASE_URL}/sessions/${session.id}/conversation`);
+    await page.goto(`${BASE_URL}/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // Step 3: Wait for streaming content to appear in the UI
     // Either the streaming indicator or a committed assistant message should appear
@@ -102,8 +104,9 @@ test.describe('Session Message Persistence After Response Completes', () => {
     trackSession(sessionId!);
 
     // Navigate to conversation tab (default is now summary tab)
-    await page.goto(`${BASE_URL}/sessions/${sessionId}/conversation`);
+    await page.goto(`${BASE_URL}/sessions/${sessionId}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // Step 4: Wait for the session to complete
     // The session runs via the real Claude API
@@ -143,8 +146,9 @@ test.describe('Session Message Persistence After Response Completes', () => {
     });
 
     // Step 2: Navigate to the session page
-    await page.goto(`${BASE_URL}/sessions/${session.id}/conversation`);
+    await page.goto(`${BASE_URL}/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // Step 3: Wait for the session to complete
     await waitForStatus(session.id, 'waiting', 60000);
@@ -159,6 +163,7 @@ test.describe('Session Message Persistence After Response Completes', () => {
     // Step 6: Refresh the page
     await page.reload();
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
     await page.waitForTimeout(2000);
 
     // Step 7: Record message counts AFTER refresh
@@ -191,8 +196,9 @@ test.describe('Session Message Persistence After Response Completes', () => {
     });
 
     // Step 2: Navigate and wait for completion
-    await page.goto(`${BASE_URL}/sessions/${session.id}/conversation`);
+    await page.goto(`${BASE_URL}/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
     await waitForStatus(session.id, 'waiting', 60000);
 
     // Step 3: Wait for UI to process the status change

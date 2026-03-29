@@ -296,6 +296,34 @@ test.describe('Session Tree Overlay', () => {
       expect(count).toBeGreaterThanOrEqual(2);
     });
 
+    test('picker items have uniform padding (flat layout)', async ({ page }) => {
+      const overlay = await openOverlay(page, parentSession.id);
+
+      const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
+      await expect(dropdown).toBeVisible({ timeout: 10000 });
+
+      await dropdown.locator('.dropdown-trigger').click();
+      const picker = page.locator('[data-testid="session-tree-picker"]');
+      await expect(picker).toBeVisible({ timeout: 5000 });
+
+      // Get all picker items
+      const items = picker.locator('[role="option"]');
+      const count = await items.count();
+      expect(count).toBeGreaterThanOrEqual(2);
+
+      // All items should have the same padding (flat layout, no indentation)
+      const firstPadding = await items.nth(0).evaluate(el => {
+        return parseFloat(window.getComputedStyle(el).paddingLeft);
+      });
+
+      for (let i = 1; i < count; i++) {
+        const itemPadding = await items.nth(i).evaluate(el => {
+          return parseFloat(window.getComputedStyle(el).paddingLeft);
+        });
+        expect(itemPadding).toBe(firstPadding);
+      }
+    });
+
     test('picker items are sorted by most recent activity first', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 

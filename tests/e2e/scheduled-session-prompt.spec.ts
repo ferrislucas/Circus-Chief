@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, cleanupAll, navigateAndWait, getSessionMessages } from './helpers';
+import { seedProject, cleanupAll, navigateAndWait, openSessionOverlay, getSessionMessages } from './helpers';
 
 /**
  * Test for Issue #435: Scheduled session prompt should appear in text input, not as message
@@ -32,7 +32,8 @@ test.describe('Scheduled Session Prompt Location (#435)', () => {
     const session = await createScheduledSession(project.id, testPrompt, futureTime);
 
     // Navigate to the session detail page (conversation tab)
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // VERIFY 1: Prompt should be in the text input field
     const textarea = page.locator('textarea');
@@ -60,7 +61,8 @@ test.describe('Scheduled Session Prompt Location (#435)', () => {
     const session = await createScheduledSession(project.id, testPrompt, futureTime);
 
     // Navigate to the session (conversation tab)
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Verify prompt is in textarea initially
     const textarea = page.locator('textarea');
