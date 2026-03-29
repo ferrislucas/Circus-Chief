@@ -8,6 +8,7 @@ import {
   seedProject,
   seedSession,
   getProvider,
+  openSessionOverlay,
 } from './helpers';
 
 /**
@@ -60,8 +61,9 @@ test.describe('Provider Model Sync in Model Selector', () => {
     expect(providerCheck.models?.some((m: any) => m.modelId === 'test-model-v1')).toBe(true);
 
     // Navigate to the session conversation tab
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // 5. Wait for the model selector to load with providers
     const modelSelect = page.locator('#model-select');
@@ -92,8 +94,9 @@ test.describe('Provider Model Sync in Model Selector', () => {
     await page.waitForLoadState('networkidle');
 
     // 8. Navigate back to the session conversation tab
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // 9. Assert the model selector now contains test-model-v2 and NOT test-model-v1
     const modelSelectAfter = page.locator('#model-select');
@@ -126,8 +129,9 @@ test.describe('Provider Model Sync in Model Selector', () => {
     expect(providerCheck.models?.some((m: any) => m.modelId === 'test-model-v1')).toBe(true);
 
     // Navigate to the session conversation tab
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // 5. Wait for the model selector to load with providers
     const modelSelect = page.locator('#model-select');
@@ -157,8 +161,9 @@ test.describe('Provider Model Sync in Model Selector', () => {
     await page.waitForLoadState('networkidle');
 
     // 8. Navigate back to the session conversation tab
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // 9. Assert the model selector now contains test-model-v2-updated and NOT test-model-v1
     const modelSelectAfter = page.locator('#model-select');

@@ -15,6 +15,7 @@ import {
   branchConversation,
   getConversationMessages,
   getAPIURL,
+  openSessionOverlay,
 } from './helpers';
 
 /**
@@ -127,7 +128,8 @@ test.describe('Multiple Conversations', () => {
   });
 
   test('new conversation button visible in UI', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // The "New Conversation" button should be visible
     const newBtn = page.locator('.btn-new');
@@ -136,7 +138,8 @@ test.describe('Multiple Conversations', () => {
   });
 
   test('clicking new conversation creates conversation and updates UI', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Click "New Conversation" button
     const newBtn = page.locator('.btn-new');
@@ -182,7 +185,8 @@ test.describe('Active Conversation Tracking and Switching', () => {
   });
 
   test('conversation selector hidden when only one conversation', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Dropdown container should NOT be visible with only 1 conversation
     const dropdownContainer = page.locator('.dropdown-container');
@@ -197,7 +201,8 @@ test.describe('Active Conversation Tracking and Switching', () => {
     // Create a second conversation
     await seedConversation(session.id, 'Second Conv');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Dropdown trigger should now be visible
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -208,7 +213,8 @@ test.describe('Active Conversation Tracking and Switching', () => {
     // Create a second conversation
     await seedConversation(session.id, 'Second Conv');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Click the dropdown trigger
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -228,7 +234,8 @@ test.describe('Active Conversation Tracking and Switching', () => {
     // Create second conversation (becomes active, has no messages)
     await seedConversation(session.id, 'Second Conv');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Second conv is active and empty - no user messages should be visible
     const userMessages = page.locator('[data-testid="message-user"]');
@@ -255,7 +262,8 @@ test.describe('Active Conversation Tracking and Switching', () => {
   test('active conversation highlighted in dropdown', async ({ page }) => {
     await seedConversation(session.id, 'Second Conv');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -272,7 +280,8 @@ test.describe('Active Conversation Tracking and Switching', () => {
     await seedConversation(session.id, 'Second Conv');
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // The entire conversation panel should be hidden when running
     const conversationPanel = page.locator('.conversation-panel');
@@ -300,7 +309,8 @@ test.describe('Conversation Branching', () => {
   });
 
   test('branch button visible on user messages', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Wait for the user message to appear
     const userMessage = page.locator('[data-testid="message-user"]');
@@ -315,7 +325,8 @@ test.describe('Conversation Branching', () => {
   });
 
   test('branch button not visible on assistant messages', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Wait for at least one message to appear
     const userMessage = page.locator('[data-testid="message-user"]');
@@ -333,7 +344,8 @@ test.describe('Conversation Branching', () => {
   });
 
   test('clicking branch button opens branch editor', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     const userMessage = page.locator('[data-testid="message-user"]');
     await expect(userMessage.first()).toBeVisible({ timeout: 10000 });
@@ -427,7 +439,8 @@ test.describe('Conversation Branching', () => {
     await new Promise((r) => setTimeout(r, 3000));
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -443,7 +456,8 @@ test.describe('Conversation Branching', () => {
   test('cannot branch while session is running', async ({ page }) => {
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // The conversation panel is hidden when running
     const conversationPanel = page.locator('.conversation-panel');
@@ -474,7 +488,8 @@ test.describe('Conversation Tree Visualization', () => {
     // Create a second root conversation
     await seedConversation(session.id, 'Second Root');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -504,7 +519,8 @@ test.describe('Conversation Tree Visualization', () => {
     await new Promise((r) => setTimeout(r, 3000));
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -533,7 +549,8 @@ test.describe('Conversation Tree Visualization', () => {
     await new Promise((r) => setTimeout(r, 3000));
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -561,7 +578,8 @@ test.describe('Conversation Tree Visualization', () => {
     await new Promise((r) => setTimeout(r, 3000));
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -578,7 +596,8 @@ test.describe('Conversation Tree Visualization', () => {
   test('conversation name displayed in tree', async ({ page }) => {
     await seedConversation(session.id, 'My Custom Name');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -594,7 +613,8 @@ test.describe('Conversation Tree Visualization', () => {
   test('message count shown in tree metadata', async ({ page }) => {
     await seedConversation(session.id, 'Second Conv');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -665,7 +685,8 @@ test.describe('Per-Conversation Token Tracking', () => {
     // Create a second conversation so the dropdown appears
     await seedConversation(session.id, 'Second Conv');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -768,7 +789,8 @@ test.describe('Conversation Deletion', () => {
   test('delete button visible on non-active conversations in dropdown', async ({ page }) => {
     await seedConversation(session.id, 'Deletable Conv');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');
@@ -789,7 +811,8 @@ test.describe('Conversation Deletion', () => {
   test('delete button not visible on active conversation', async ({ page }) => {
     await seedConversation(session.id, 'Keep Active');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Open dropdown
     const selectorBtn = page.locator('[data-testid="conversation-selector"]');

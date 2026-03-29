@@ -11,6 +11,7 @@ import {
   seedConversationHistory,
   seedWorkLog,
   getSessionMessages,
+  openSessionOverlay,
 } from './helpers';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
@@ -36,7 +37,8 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     // Wait for message content to render before checking specific elements
     await page.locator('.message-assistant .message-content').first().waitFor({ timeout: 10000 });
 
@@ -55,7 +57,8 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
@@ -72,7 +75,8 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
@@ -90,7 +94,8 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     // Wait for message content to render before checking specific elements
     await page.locator('.message-assistant .message-content').first().waitFor({ timeout: 10000 });
 
@@ -110,7 +115,8 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
@@ -128,7 +134,8 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
@@ -146,7 +153,8 @@ test.describe('Markdown Rendering', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
@@ -177,7 +185,8 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const toolsSection = page.locator('.message-assistant .message-tools').first();
@@ -194,7 +203,8 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const toolDetails = page.locator('.message-assistant .message-tools details').first();
@@ -219,7 +229,8 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const toolsSection = page.locator('.message-assistant .message-tools').first();
@@ -236,7 +247,8 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const toolDetails = page.locator('.message-assistant .message-tools details').first();
@@ -261,7 +273,8 @@ test.describe('Tool Usage Display', () => {
     );
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const toolBlocks = page.locator('.message-assistant .message-tools details');
@@ -298,7 +311,8 @@ test.describe('Work Log UI Panels', () => {
     });
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const workLogPanel = page.locator('.message-assistant .work-log-panel').first();
@@ -315,7 +329,8 @@ test.describe('Work Log UI Panels', () => {
     });
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const workLogHeader = page.locator('.message-assistant .work-log-panel summary').first();
@@ -338,7 +353,8 @@ test.describe('Work Log UI Panels', () => {
     });
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const workLogHeader = page.locator('.message-assistant .work-log-panel summary').first();
@@ -372,7 +388,8 @@ test.describe('Jump Navigation Buttons', () => {
     seedAssistantMessage(session.id, 'Hello! How can I help you?', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     // Button should not be visible when at bottom (hasNewMessages starts false)
@@ -385,7 +402,8 @@ test.describe('Jump Navigation Buttons', () => {
     seedConversationHistory(session.id, 30);
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(800);
 
     // On initial load, page auto-scrolls to bottom; hasNewMessages is false
@@ -399,7 +417,8 @@ test.describe('Jump Navigation Buttons', () => {
     seedAssistantMessage(session.id, 'Sure, I can help you with that!', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     // hasAssistantMessages=true, isNearBottom=true (loaded at bottom), isUsersTurn=true (waiting)
@@ -412,7 +431,8 @@ test.describe('Jump Navigation Buttons', () => {
     seedAssistantMessage(session.id, 'I am currently working...', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     // isUsersTurn = false when running
@@ -424,7 +444,8 @@ test.describe('Jump Navigation Buttons', () => {
     // Draft session = waiting status with no assistant messages
     const session = await seedSession(project.id, { prompt: 'Hello there, draft session', name: 'No Assistant Test' , startImmediately: false });
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const scrollToClaudeBtn = page.locator('.scroll-to-claude-btn');
@@ -450,7 +471,8 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'Hello! How can I help?', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
@@ -462,7 +484,8 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'How can I help?', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
@@ -476,7 +499,8 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'How can I help?', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
@@ -500,7 +524,8 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'I am here.', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     // Clear the textarea (pendingPrompt is pre-filled for startImmediately=false sessions)
@@ -516,7 +541,8 @@ test.describe('Resizable Textarea', () => {
     seedAssistantMessage(session.id, 'I am here.', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
@@ -544,7 +570,8 @@ test.describe('Model Name Display', () => {
     seedAssistantMessage(session.id, 'I am Claude Sonnet.', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const assistantMsg = page.locator('[data-testid="message-assistant"]').first();
@@ -558,7 +585,8 @@ test.describe('Model Name Display', () => {
     seedAssistantMessage(session.id, 'Got it!', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const userMsg = page.locator('[data-testid="message-user"]').first();
@@ -572,7 +600,8 @@ test.describe('Model Name Display', () => {
     seedAssistantMessage(session.id, 'I am Haiku.', 'claude-haiku-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const assistantMessages = page.locator('[data-testid="message-assistant"]');
@@ -609,7 +638,8 @@ test.describe('Message States & Error Handling', () => {
       name: 'Draft Session Test',
     });
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
@@ -623,7 +653,8 @@ test.describe('Message States & Error Handling', () => {
       startImmediately: false, // Don't auto-start - keeps it as a true draft
     });
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     // Draft sessions hide messages in the template (v-if="!isDraft && !isScheduledDraft")
@@ -637,7 +668,8 @@ test.describe('Message States & Error Handling', () => {
     seedAssistantMessage(session.id, 'Yes, I can help you!', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const inputForm = page.locator('.input-form');
@@ -649,7 +681,8 @@ test.describe('Message States & Error Handling', () => {
     seedAssistantMessage(session.id, 'Processing...', 'claude-sonnet-4-20250514');
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
     await page.waitForTimeout(500);
 
     const runningState = page.locator('.running-state');

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, cleanupCreatedResources, navigateAndWait, getSessionMessages, getSession, getAPIURL, getProject } from './helpers';
+import { seedProject, cleanupCreatedResources, navigateAndWait, getSessionMessages, getSession, getAPIURL, getProject, openSessionOverlay } from './helpers';
 
 /**
  * Test for Bug: Scheduled session prompt is not visible in conversation
@@ -125,7 +125,8 @@ test.describe('Scheduled Session Prompt Visibility Bug', () => {
       expect(userMessagesAfter[0].content).toBe(testPrompt);
 
       // Navigate to verify the UI also shows the user message
-      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
       const userMessageLocator = page.locator('[data-testid="message-user"]');
       const userMessageCount = await userMessageLocator.count();
 
@@ -168,7 +169,8 @@ test.describe('Scheduled Session Prompt Visibility Bug', () => {
       expect(userMessagesAfter.length).toBe(0);
 
       // Navigate to verify the UI also shows no user message
-      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
       const userMessageLocator = page.locator('[data-testid="message-user"]');
       const userMessageCount = await userMessageLocator.count();
 
@@ -190,7 +192,8 @@ test.describe('Scheduled Session Prompt Visibility Bug', () => {
     expect(messagesBefore.filter((m: any) => m.role === 'user').length).toBe(0);
 
     // Navigate to session
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Manually trigger the session start by calling the start API
     // First, change status to 'waiting' so we can use the /start endpoint
@@ -215,6 +218,7 @@ test.describe('Scheduled Session Prompt Visibility Bug', () => {
     // Reload page to see updated messages
     await page.reload();
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // BUG VERIFICATION: Check if user message was created
     const messagesAfter = await getSessionMessages(session.id);
