@@ -783,10 +783,13 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* Ensure messages container scrolls within the overlay */
+/* Ensure messages container does NOT independently scroll within the overlay.
+   The .overlay-body is the sole scroll container; .messages just flows inside it.
+   This prevents two nested scroll containers from fighting each other during
+   streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-tree-overlay :deep(.messages) {
   max-height: none !important;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
 }
 
