@@ -79,6 +79,26 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await expect(picker).toContainText('Child Session 4');
   });
 
+  test('picker items have uniform padding (flat layout)', async ({ page }) => {
+    const { picker } = await openOverlayAndPicker(page, parentSession.id);
+
+    const items = picker.locator('[role="option"]');
+    const count = await items.count();
+    expect(count).toBe(5);
+
+    // All items should have the same padding (flat layout, no indentation)
+    const firstPadding = await items.nth(0).evaluate(el => {
+      return parseFloat(window.getComputedStyle(el).paddingLeft);
+    });
+
+    for (let i = 1; i < count; i++) {
+      const itemPadding = await items.nth(i).evaluate(el => {
+        return parseFloat(window.getComputedStyle(el).paddingLeft);
+      });
+      expect(itemPadding).toBe(firstPadding);
+    }
+  });
+
   test('sessions are listed in reverse chronological order (most recent first)', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
