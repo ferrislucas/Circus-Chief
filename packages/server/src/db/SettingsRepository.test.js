@@ -253,7 +253,6 @@ describe('SettingsRepository', () => {
 
       expect(settings).toEqual({
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
         sessionTitlePrompt: '',
       });
     });
@@ -261,7 +260,6 @@ describe('SettingsRepository', () => {
     it('returns saved custom settings', () => {
       const customSettings = {
         disableSessionSummaries: true,
-        disableConversationSummaries: false,
         sessionTitlePrompt: 'Custom prompt',
       };
       repo.setSummarySettings(customSettings);
@@ -276,8 +274,6 @@ describe('SettingsRepository', () => {
 
       const settings = repo.getSummarySettings();
       expect(settings.disableSessionSummaries).toBe(true);
-      // disableConversationSummaries is not a boolean in partial data, so falls back to default (true)
-      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
     });
 
@@ -286,7 +282,6 @@ describe('SettingsRepository', () => {
       const settings = repo.getSummarySettings();
       expect(settings).toEqual({
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
         sessionTitlePrompt: '',
       });
     });
@@ -302,15 +297,12 @@ describe('SettingsRepository', () => {
     it('coerces values to correct types', () => {
       repo.set('summary_settings', JSON.stringify({
         disableSessionSummaries: 1, // truthy number
-        disableConversationSummaries: '', // falsy string - falls back to default
         sessionTitlePrompt: 123, // number
       }));
 
       const settings = repo.getSummarySettings();
       // getSummarySettings returns truthy/falsy values as-is (uses || operator)
-      // disableConversationSummaries: '' is not a boolean so it falls back to default (true)
       expect(settings.disableSessionSummaries).toBe(1);
-      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe(123);
     });
   });
@@ -319,7 +311,6 @@ describe('SettingsRepository', () => {
     it('saves and returns custom settings', () => {
       const customSettings = {
         disableSessionSummaries: true,
-        disableConversationSummaries: true,
         sessionTitlePrompt: 'Test prompt',
       };
       const saved = repo.setSummarySettings(customSettings);
@@ -331,7 +322,6 @@ describe('SettingsRepository', () => {
     it('validates and coerces disableSessionSummaries to boolean', () => {
       const saved = repo.setSummarySettings({
         disableSessionSummaries: 'true',
-        disableConversationSummaries: false,
         sessionTitlePrompt: '',
       });
 
@@ -339,21 +329,9 @@ describe('SettingsRepository', () => {
       expect(typeof saved.disableSessionSummaries).toBe('boolean');
     });
 
-    it('validates and coerces disableConversationSummaries to boolean', () => {
-      const saved = repo.setSummarySettings({
-        disableSessionSummaries: false,
-        disableConversationSummaries: 1,
-        sessionTitlePrompt: '',
-      });
-
-      expect(saved.disableConversationSummaries).toBe(true);
-      expect(typeof saved.disableConversationSummaries).toBe('boolean');
-    });
-
     it('converts sessionTitlePrompt to string', () => {
       const saved = repo.setSummarySettings({
         disableSessionSummaries: false,
-        disableConversationSummaries: false,
         sessionTitlePrompt: 12345,
       });
 
@@ -364,12 +342,10 @@ describe('SettingsRepository', () => {
     it('handles null and undefined values', () => {
       const saved = repo.setSummarySettings({
         disableSessionSummaries: null,
-        disableConversationSummaries: undefined,
         sessionTitlePrompt: null,
       });
 
       expect(saved.disableSessionSummaries).toBe(false);
-      expect(saved.disableConversationSummaries).toBe(false);
       // null is converted to empty string via `|| ''` in implementation
       expect(saved.sessionTitlePrompt).toBe('');
     });
@@ -377,7 +353,6 @@ describe('SettingsRepository', () => {
     it('persists settings across repository instances', () => {
       const customSettings = {
         disableSessionSummaries: true,
-        disableConversationSummaries: false,
         sessionTitlePrompt: 'Cross-instance test',
       };
       repo.setSummarySettings(customSettings);
@@ -390,18 +365,15 @@ describe('SettingsRepository', () => {
     it('updates existing settings', () => {
       repo.setSummarySettings({
         disableSessionSummaries: false,
-        disableConversationSummaries: false,
         sessionTitlePrompt: 'Original',
       });
 
       const updated = repo.setSummarySettings({
         disableSessionSummaries: true,
-        disableConversationSummaries: true,
         sessionTitlePrompt: 'Updated',
       });
 
       expect(updated.disableSessionSummaries).toBe(true);
-      expect(updated.disableConversationSummaries).toBe(true);
       expect(updated.sessionTitlePrompt).toBe('Updated');
       expect(repo.getSummarySettings()).toEqual(updated);
     });
@@ -412,7 +384,6 @@ describe('SettingsRepository', () => {
       // Set custom settings
       repo.setSummarySettings({
         disableSessionSummaries: true,
-        disableConversationSummaries: true,
         sessionTitlePrompt: 'Custom prompt',
       });
 
@@ -421,7 +392,6 @@ describe('SettingsRepository', () => {
 
       expect(defaults).toEqual({
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
         sessionTitlePrompt: '',
       });
       expect(repo.getSummarySettings()).toEqual(defaults);
@@ -431,7 +401,6 @@ describe('SettingsRepository', () => {
       const defaults = repo.resetSummarySettings();
       expect(defaults).toEqual({
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
         sessionTitlePrompt: '',
       });
     });
@@ -439,7 +408,6 @@ describe('SettingsRepository', () => {
     it('actually deletes the setting from database', () => {
       repo.setSummarySettings({
         disableSessionSummaries: true,
-        disableConversationSummaries: false,
         sessionTitlePrompt: 'Test',
       });
 

@@ -170,9 +170,13 @@ async function buildSessionChain() {
   if (session?.projectId) {
     try {
       const projectSessions = await api.getProjectSessions(session.projectId, false, null);
-      // Merge into store without triggering loading state
+      // Merge into store without triggering loading state.
+      // Always update existing sessions so that computed fields like lastActivityAt stay fresh.
       for (const s of projectSessions) {
-        if (!sessionsStore.getSessionById(s.id)) {
+        const idx = sessionsStore.sessions.findIndex(existing => existing.id === s.id);
+        if (idx >= 0) {
+          sessionsStore.sessions[idx] = s;
+        } else {
           sessionsStore.sessions.push(s);
         }
       }
@@ -209,6 +213,13 @@ async function buildSessionChain() {
   }
   walkTree(root, 0);
 
+  // Sort by latest message timestamp descending (reverse chronological)
+  tree.sort((a, b) => {
+    const aTime = a.session.lastActivityAt || a.session.updatedAt || a.session.createdAt || 0;
+    const bTime = b.session.lastActivityAt || b.session.updatedAt || b.session.createdAt || 0;
+    return bTime - aTime;
+  });
+
   sessionChain.value = tree;
 
   // Fetch summaries for all sessions in the tree (non-blocking)
@@ -227,8 +238,10 @@ async function buildSessionChain() {
 
 /**
  * Resolve the overlay target session ID.
- * If any children are running/starting, picks the most recently updated one.
- * Otherwise, falls back to the current session.
+ * Priority order:
+ * 1. Running/starting children (most recently updated)
+ * 2. Session with the most recent conversation activity (lastActivityAt)
+ * 3. Current session (fallback)
  */
 function resolveOverlayTarget() {
   const chain = sessionChain.value;
@@ -239,7 +252,7 @@ function resolveOverlayTarget() {
     return;
   }
 
-  // Prefer running/starting children (skip the root at index 0)
+  // 1) Prefer running/starting children (skip the root at index 0)
   const runningChildren = chain
     .filter(entry => entry.session.status === 'running' || entry.session.status === 'starting')
     .filter(entry => entry.session.id !== currentSessionId.value);
@@ -251,10 +264,21 @@ function resolveOverlayTarget() {
       new Date(a.session.updatedAt || a.session.createdAt || 0)
     );
     overlaySessionId.value = sorted[0].session.id;
-  } else {
-    // No running children — use the current session
-    overlaySessionId.value = currentSessionId.value;
+    return;
   }
+
+  // No running children — select the session with the most recent conversation activity
+  const withActivity = chain
+    .filter(entry => entry.session.lastActivityAt)
+    .sort((a, b) => (b.session.lastActivityAt || 0) - (a.session.lastActivityAt || 0));
+
+  if (withActivity.length > 0) {
+    overlaySessionId.value = withActivity[0].session.id;
+    return;
+  }
+
+  // 3) No conversation activity anywhere — use the current session
+  overlaySessionId.value = currentSessionId.value;
 }
 
 /**
@@ -389,6 +413,14 @@ onMounted(async () => {
   if (projectId) {
     send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
     currentProjectSubscriptionId = projectId;
+  }
+
+  // Auto-open tree overlay if requested via query param (e.g., after new session creation)
+  if (route.query.overlay === 'open') {
+    treeOverlayOpen.value = true;
+    // Clear the query param so refresh doesn't re-open.
+    // Use path only — do NOT spread the route object (it's a read-only proxy).
+    router.replace({ path: route.path, query: {} });
   }
 
   // Fetch kanban board so SessionHeaderPanel can show lane chip
