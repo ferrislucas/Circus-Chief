@@ -18,6 +18,7 @@ const mockSessionsStore = {
   sessions: [],
   messages: [],
   conversations: [],
+  activeConversationId: null,
   getSessionById: vi.fn(),
   getSessionPath: vi.fn(),
   getRootSession: vi.fn(),
@@ -31,6 +32,7 @@ const mockSessionsStore = {
   updateSessionStatus: vi.fn(),
   addMessage: vi.fn(),
   clearPartialText: vi.fn(),
+  clearRunningUsage: vi.fn(),
   setPartialText: vi.fn(),
   updateSession: vi.fn(),
   addConversation: vi.fn(),
@@ -40,6 +42,23 @@ const mockSessionsStore = {
 
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: () => mockSessionsStore,
+}));
+
+// Mock todos store
+const mockTodosStore = {
+  items: [],
+  loading: false,
+  error: null,
+  expanded: false,
+  currentConversationId: null,
+  clearTodos: vi.fn(),
+  fetchTodos: vi.fn(),
+  toggleExpanded: vi.fn(),
+  setExpanded: vi.fn(),
+};
+
+vi.mock('../stores/todos.js', () => ({
+  useTodosStore: () => mockTodosStore,
 }));
 
 // Mock useSessionSubscription
@@ -1092,6 +1111,126 @@ describe('SessionTreeOverlay', () => {
       await nextTick();
       const spinner = document.querySelector('.active-spinner');
       expect(spinner.getAttribute('title')).toBe('Session starting...');
+      wrapper.unmount();
+    });
+  });
+
+  describe('session switching state reset', () => {
+    const childSession = {
+      id: 'child-1',
+      name: 'Child Session',
+      status: 'running',
+      parentSessionId: 'sess-root',
+      projectId: 'proj-123',
+    };
+
+    const chainSessions = [{ session: rootSession, depth: 0 }, { session: childSession, depth: 1 }];
+
+    it('clears stale state when switching sessions', async () => {
+      mockSessionsStore.getSessionById.mockImplementation((id) => {
+        if (id === 'sess-root') return rootSession;
+        if (id === 'child-1') return childSession;
+        return null;
+      });
+
+      const wrapper = mount(SessionTreeOverlay, {
+        props: {
+          sessionId: 'sess-root',
+          sessionChain: chainSessions,
+          summariesMap: {},
+        },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      // Switch to child session
+      wrapper.vm.handlePickerSelect('child-1');
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      // Verify stale state was cleared
+      expect(mockSessionsStore.clearRunningUsage).toHaveBeenCalled();
+      expect(mockSessionsStore.clearPartialText).toHaveBeenCalled();
+      expect(mockTodosStore.clearTodos).toHaveBeenCalled();
+
+      wrapper.unmount();
+    });
+
+    it('fetches todos for new session after loading data', async () => {
+      mockSessionsStore.getSessionById.mockImplementation((id) => {
+        if (id === 'sess-root') return rootSession;
+        if (id === 'child-1') return childSession;
+        return null;
+      });
+
+      // After fetchConversations, activeConversationId should be set
+      mockSessionsStore.fetchConversations.mockImplementation(async () => {
+        mockSessionsStore.activeConversationId = 'conv-child-1';
+      });
+
+      const wrapper = mount(SessionTreeOverlay, {
+        props: {
+          sessionId: 'sess-root',
+          sessionChain: chainSessions,
+          summariesMap: {},
+        },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      // Reset mocks after initial mount calls
+      mockTodosStore.fetchTodos.mockClear();
+
+      // Switch to child session
+      wrapper.vm.handlePickerSelect('child-1');
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      // Verify todos were fetched for the new session
+      expect(mockTodosStore.fetchTodos).toHaveBeenCalledWith('child-1', 'conv-child-1');
+
+      wrapper.unmount();
+    });
+
+    it('does not fetch todos when no activeConversationId', async () => {
+      mockSessionsStore.getSessionById.mockImplementation((id) => {
+        if (id === 'sess-root') return rootSession;
+        if (id === 'child-1') return childSession;
+        return null;
+      });
+
+      // After fetchConversations, activeConversationId remains null
+      mockSessionsStore.fetchConversations.mockImplementation(async () => {
+        mockSessionsStore.activeConversationId = null;
+      });
+
+      const wrapper = mount(SessionTreeOverlay, {
+        props: {
+          sessionId: 'sess-root',
+          sessionChain: chainSessions,
+          summariesMap: {},
+        },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      // Reset mocks after initial mount calls
+      mockTodosStore.fetchTodos.mockClear();
+
+      // Switch to child session
+      wrapper.vm.handlePickerSelect('child-1');
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      // Verify todos were NOT fetched (no active conversation)
+      expect(mockTodosStore.fetchTodos).not.toHaveBeenCalled();
+
       wrapper.unmount();
     });
   });

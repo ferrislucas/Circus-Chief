@@ -176,6 +176,7 @@
 /* eslint-disable max-lines */
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
@@ -204,6 +205,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'session-created']);
 
 const sessionsStore = useSessionsStore();
+const todosStore = useTodosStore();
 const uiStore = useUiStore();
 
 // Internal state
@@ -445,6 +447,11 @@ async function switchToSession(newSessionId) {
   // Cleanup old subscription
   cleanupSubscription();
 
+  // Reset shared store state to avoid stale data from previous session
+  sessionsStore.clearRunningUsage();
+  sessionsStore.clearPartialText();
+  todosStore.clearTodos();
+
   // Switch
   activeSessionId.value = newSessionId;
   console.log('[switchToSession] activeSessionId SET to:', activeSessionId.value);
@@ -465,6 +472,11 @@ async function loadSessionData(sessionId) {
     await sessionsStore.fetchSession(sessionId, false);
     // Fetch conversations for this session
     await sessionsStore.fetchConversations(sessionId);
+
+    // Fetch todos for the new active conversation
+    if (sessionsStore.activeConversationId) {
+      todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
+    }
   } catch (err) {
     console.error('[SessionTreeOverlay] Failed to load session data:', err);
   }
