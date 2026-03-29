@@ -20,7 +20,7 @@ test.describe('Canvas Markdown Editor', () => {
   test.beforeEach(async () => {
     await cleanupAll();
     project = await seedProject('Editor Test Project', '/tmp/test');
-    session = await seedSession(project.id, { prompt: 'Test', name: 'Editor Test' });
+    session = await seedSession(project.id, { prompt: 'Test', name: 'Editor Test', startImmediately: false });
   });
 
   test.afterEach(async () => {
