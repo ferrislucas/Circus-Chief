@@ -16,6 +16,7 @@ import {
   seedConversation,
   getConversations,
   updateSessionStatus,
+  openSessionOverlay,
   API_URL,
   BASE_URL,
 } from './helpers';
@@ -79,7 +80,7 @@ test.describe('Dark Mode Styling', () => {
   });
 
   test('text uses light colors for readability', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     await page.waitForSelector('.session-name', { timeout: 8000 });
 
@@ -103,7 +104,7 @@ test.describe('Dark Mode Styling', () => {
     // Star the session first
     await toggleSessionStar(session.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     await page.waitForSelector('.btn-star.is-starred', { timeout: 8000 });
 
@@ -146,7 +147,7 @@ test.describe('Toast Notifications', () => {
     // Accept confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Archive
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -165,14 +166,16 @@ test.describe('Toast Notifications', () => {
     // Accept confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Duplicate
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
-    await page.waitForSelector('.menu-items', { timeout: 5000 });
+    const kebab = page.locator('button.btn-kebab[aria-label="Session actions"]');
+    await expect(kebab).toBeVisible({ timeout: 8000 });
+    await kebab.click();
+    const menuItems = page.locator('.menu-items');
+    await expect(menuItems).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(200);
-    await page.locator('.menu-items button.menu-item').filter({ hasText: 'Duplicate' }).click();
+    await menuItems.locator('button.menu-item').filter({ hasText: 'Duplicate' }).click();
 
     // Wait for success toast
     const toast = page.locator('.toast.toast-success');
@@ -180,9 +183,9 @@ test.describe('Toast Notifications', () => {
     await expect(toast.locator('.toast-message')).toContainText('duplicated', { ignoreCase: true });
 
     // Track the new session for cleanup
-    await page.waitForURL(/\/sessions\/[^/]+\/conversation/, { timeout: 15000 });
+    await page.waitForURL(/\/sessions\/[^/]+\/summary/, { timeout: 15000 });
     const newUrl = page.url();
-    const newSessionIdMatch = newUrl.match(/\/sessions\/([^/]+)\/conversation/);
+    const newSessionIdMatch = newUrl.match(/\/sessions\/([^/]+)\/summary/);
     if (newSessionIdMatch) {
       trackSession(newSessionIdMatch[1]);
     }
@@ -194,7 +197,7 @@ test.describe('Toast Notifications', () => {
     // Accept confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a toast
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -215,7 +218,7 @@ test.describe('Toast Notifications', () => {
     // Accept confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a toast
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -239,7 +242,7 @@ test.describe('Toast Notifications', () => {
     // Accept confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a success toast
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -271,7 +274,7 @@ test.describe('Toast Notifications', () => {
     // Accept confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive (will fail due to intercepted route)
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -295,7 +298,7 @@ test.describe('Toast Notifications', () => {
     // Accept all dialogs
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Star the session (produces a toast in some implementations) — actually, star doesn't produce a toast
     // Instead, archive via overflow menu and then check if the "Deleting..." info toast + "Session archived" success toast both appear
@@ -356,7 +359,7 @@ test.describe('Loading States & Spinners', () => {
     });
 
     // Navigate (don't wait for networkidle since we're delaying the response)
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
 
     // Loading state should be visible while waiting
     await expect(page.locator('.loading-state')).toBeVisible({ timeout: 3000 });
@@ -394,7 +397,7 @@ test.describe('Loading States & Spinners', () => {
     // Accept confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Intercept delete API and delay it
     await page.route(`**/api/sessions/${session.id}`, async (route) => {
@@ -421,7 +424,7 @@ test.describe('Loading States & Spinners', () => {
   test('loading spinner disappears after data loads', async ({ page }) => {
     const session = await seedSession(project.id, { prompt: 'test', name: 'Loading Done Test', startImmediately: false });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // After page is ready, loading state should not be visible
     await expect(page.locator('.loading-state')).not.toBeVisible();
@@ -449,7 +452,7 @@ test.describe('Responsive / Mobile Design', () => {
 
   test('desktop viewport shows tab links', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     await expect(page.locator('.tabs-desktop')).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.tabs-mobile')).not.toBeVisible();
@@ -458,7 +461,7 @@ test.describe('Responsive / Mobile Design', () => {
   test('mobile viewport shows tab dropdown on session detail', async ({ page }) => {
     // Set viewport BEFORE navigation (below 640px tab breakpoint)
     await page.setViewportSize({ width: 375, height: 812 });
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     await expect(page.locator('.tabs-mobile')).toBeVisible({ timeout: 8000 });
     await expect(page.locator('.tabs-desktop')).not.toBeVisible();
@@ -466,7 +469,7 @@ test.describe('Responsive / Mobile Design', () => {
 
   test('mobile tab dropdown navigates to correct tab', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     await page.waitForSelector('.tabs-mobile .tab-select', { timeout: 8000 });
 
@@ -481,7 +484,7 @@ test.describe('Responsive / Mobile Design', () => {
   test('session name font size adjusts for mobile', async ({ page }) => {
     // Set viewport below 768px header breakpoint
     await page.setViewportSize({ width: 375, height: 812 });
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     await page.waitForSelector('.session-name', { timeout: 8000 });
 
@@ -499,7 +502,7 @@ test.describe('Responsive / Mobile Design', () => {
 
   test('session header layout adjusts for mobile', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     await page.waitForSelector('.session-header-row', { timeout: 8000 });
 
@@ -533,7 +536,7 @@ test.describe('Overflow Menu', () => {
   });
 
   test('overflow menu opens on kebab click and shows all items', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Click kebab button
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -552,7 +555,7 @@ test.describe('Overflow Menu', () => {
   });
 
   test('overflow menu closes on overlay click', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -567,7 +570,7 @@ test.describe('Overflow Menu', () => {
   });
 
   test('overflow menu closes on Escape key', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -583,7 +586,7 @@ test.describe('Overflow Menu', () => {
   });
 
   test('overflow menu keyboard navigation with ArrowDown/Up', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -609,7 +612,7 @@ test.describe('Overflow Menu', () => {
     // Accept confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -630,18 +633,18 @@ test.describe('Overflow Menu', () => {
     await secondItem.dispatchEvent('keydown', { key: 'Enter', bubbles: true });
 
     // Should navigate to new session (duplicate successful)
-    await page.waitForURL(/\/sessions\/[^/]+\/conversation/, { timeout: 15000 });
+    await page.waitForURL(/\/sessions\/[^/]+\/summary/, { timeout: 15000 });
 
     // Track the new session for cleanup
     const newUrl = page.url();
-    const newSessionIdMatch = newUrl.match(/\/sessions\/([^/]+)\/conversation/);
+    const newSessionIdMatch = newUrl.match(/\/sessions\/([^/]+)\/summary/);
     if (newSessionIdMatch) {
       trackSession(newSessionIdMatch[1]);
     }
   });
 
   test('overflow menu has correct ARIA attributes', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     const kebab = page.locator('button.btn-kebab[aria-label="Session actions"]');
     await expect(kebab).toBeVisible({ timeout: 8000 });
@@ -665,7 +668,7 @@ test.describe('Overflow Menu', () => {
   });
 
   test('overflow menu delete item shows danger styling', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -712,7 +715,7 @@ test.describe('Modal Dialogs', () => {
       await dialog.dismiss(); // Don't actually delete
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Delete
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -730,7 +733,7 @@ test.describe('Modal Dialogs', () => {
     // Dismiss the confirm dialog (cancel)
     page.on('dialog', dialog => dialog.dismiss());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Delete
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -755,7 +758,7 @@ test.describe('Modal Dialogs', () => {
     // Accept the confirm dialog
     page.on('dialog', dialog => dialog.accept());
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Delete
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -779,7 +782,7 @@ test.describe('Modal Dialogs', () => {
       await dialog.dismiss(); // Don't actually duplicate
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Duplicate
     await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
@@ -796,7 +799,7 @@ test.describe('Modal Dialogs', () => {
   test('custom modal closes on Escape key', async ({ page }) => {
     // Need to trigger ScheduleSessionModal
     // The schedule button is inside the OrchestrationPanel, accessible from ConversationTab
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Look for schedule button in the orchestration panel
     const scheduleBtn = page.locator('button').filter({ hasText: /schedule/i }).first();
@@ -820,7 +823,7 @@ test.describe('Modal Dialogs', () => {
   });
 
   test('custom modal closes on overlay click', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Look for schedule button
     const scheduleBtn = page.locator('button').filter({ hasText: /schedule/i }).first();
@@ -882,7 +885,8 @@ test.describe('Collapsible Sections', () => {
   test('tool details section is collapsed by default', async ({ page }) => {
     const session = await seedSessionWithToolMessage();
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Wait for messages to render
     await page.waitForSelector('.message-tools details', { timeout: 10000 });
@@ -898,7 +902,8 @@ test.describe('Collapsible Sections', () => {
   test('clicking tool details summary expands the section', async ({ page }) => {
     const session = await seedSessionWithToolMessage();
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     await page.waitForSelector('.message-tools details', { timeout: 10000 });
 
@@ -913,7 +918,8 @@ test.describe('Collapsible Sections', () => {
   test('clicking expanded tool details collapses it', async ({ page }) => {
     const session = await seedSessionWithToolMessage();
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     await page.waitForSelector('.message-tools details', { timeout: 10000 });
 
@@ -1130,7 +1136,7 @@ test.describe('Tab Indicators', () => {
       filename: 'indicator-test.md',
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Canvas indicator dot should be visible
     await expect(page.locator('.canvas-indicator')).toBeVisible({ timeout: 8000 });
@@ -1149,7 +1155,7 @@ test.describe('Tab Indicators', () => {
       filename: 'item2.txt',
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Canvas tab label should contain "(2)"
     const canvasTab = page.locator('.tabs-desktop .tab').filter({ hasText: 'Canvas' });
@@ -1159,7 +1165,7 @@ test.describe('Tab Indicators', () => {
 
   test('tabs without indicators show clean labels', async ({ page }) => {
     // No canvas items, no changes seeded
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // No indicator dots should be visible
     await expect(page.locator('.canvas-indicator')).not.toBeVisible();

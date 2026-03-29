@@ -9,6 +9,7 @@ import {
   waitForPageReady,
   waitForSessionToExist,
   updateSessionStatus,
+  openSessionOverlay,
 } from './helpers';
 
 test.describe('WebSocket wake-from-sleep recovery', () => {
@@ -35,8 +36,9 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await seedAssistantMessage(session.id, 'hi there');
 
     // Navigate to session detail (conversation tab for messages)
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await waitForPageReady(page);
+    await openSessionOverlay(page);
 
     // Verify initial data is visible
     await expect(page.locator('text=hello').first()).toBeVisible({ timeout: 10000 });
@@ -91,8 +93,9 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await waitForPageReady(page);
+    await openSessionOverlay(page);
 
     // Simulate sleep
     const cdp = await page.context().newCDPSession(page);
@@ -188,8 +191,9 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'waiting');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await waitForPageReady(page);
+    await openSessionOverlay(page);
 
     // Wait for everything to settle
     await page.waitForTimeout(2000);
@@ -226,8 +230,9 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await waitForPageReady(page);
+    await openSessionOverlay(page);
 
     const cdp = await page.context().newCDPSession(page);
 
