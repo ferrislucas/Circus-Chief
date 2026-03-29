@@ -79,25 +79,18 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await expect(picker).toContainText('Child Session 4');
   });
 
-  test('child sessions are indented more than the parent', async ({ page }) => {
+  test('sessions are listed in reverse chronological order (most recent first)', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
     const items = picker.locator('[role="option"]');
     const count = await items.count();
     expect(count).toBe(5);
 
-    // Get the padding of the parent (first item at depth 0)
-    const parentPadding = await items.nth(0).evaluate(el => {
-      return parseFloat(window.getComputedStyle(el).paddingLeft);
-    });
-
-    // All child items (indices 1-4) should have more padding than the parent
-    for (let i = 1; i < count; i++) {
-      const childPadding = await items.nth(i).evaluate(el => {
-        return parseFloat(window.getComputedStyle(el).paddingLeft);
-      });
-      expect(childPadding).toBeGreaterThan(parentPadding);
-    }
+    // Sessions should be sorted by most recent activity first.
+    // Child sessions were created after the parent, so they should appear before the parent.
+    // The last item in the list should be the parent (oldest).
+    const lastItemName = await items.nth(count - 1).locator('.picker-item-name').textContent();
+    expect(lastItemName?.trim()).toBe('Parent Session');
   });
 
   test('selecting a sibling session switches the overlay conversation', async ({ page }) => {
@@ -117,7 +110,6 @@ test.describe('Session Tree Picker Shows All Children', () => {
       }
     }
     expect(child4Index).not.toBe(-1); // Child Session 4 should exist
-    expect(child4Index).toBeGreaterThanOrEqual(1); // Should not be at index 0 (parent)
 
     // Click the Child Session 4 item
     await items.nth(child4Index).click();
@@ -125,9 +117,13 @@ test.describe('Session Tree Picker Shows All Children', () => {
     // Picker should close
     await expect(picker).not.toBeVisible({ timeout: 5000 });
 
-    // Overlay should now show the selected child session name
+    // The overlay-root-name always shows the root (parent) session name
     const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Child Session 4', { timeout: 5000 });
+    await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+
+    // The dropdown should now show the selected child session name
+    const dropdownName = overlay.locator('.dropdown-name');
+    await expect(dropdownName).toContainText('Child Session 4', { timeout: 5000 });
   });
 
   test('opening picker from a child session still shows all siblings', async ({ page }) => {
