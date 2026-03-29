@@ -199,23 +199,10 @@ const dateToShow = computed(() => {
 
 /**
  * Get all sessions in the workflow tree (root + all descendants at any depth).
- * Uses iterative DFS to find children, grandchildren, etc.
+ * Delegates to the store getter which searches both sessions and activeSessions arrays.
  */
 function getWorkflowSessions() {
-  const all = [props.session];
-  const stack = [props.session.id];
-  const visited = new Set();
-  while (stack.length > 0) {
-    const currentId = stack.pop();
-    if (visited.has(currentId)) continue;
-    visited.add(currentId);
-    const children = sessionsStore.sessions.filter(s => s.parentSessionId === currentId);
-    for (const child of children) {
-      all.push(child);
-      stack.push(child.id);
-    }
-  }
-  return all;
+  return sessionsStore.getWorkflowSessions(props.session.id);
 }
 
 // Get workflow status including all descendant sessions (full tree traversal)

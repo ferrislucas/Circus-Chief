@@ -4863,6 +4863,79 @@ describe('Sessions Store', () => {
         expect(result.scheduledCount).toBe(1); // the child
         expect(result.totalCount).toBe(1); // only the child (descendants only)
       });
+
+      it('finds child in activeSessions when parent is in sessions', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'waiting', parentSessionId: null },
+        ];
+        store.activeSessions = [
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.runningCount).toBe(1);
+      });
+
+      it('finds root in activeSessions', () => {
+        const store = useSessionsStore();
+        store.sessions = [];
+        store.activeSessions = [
+          { id: 'root', status: 'waiting', parentSessionId: null },
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.effectiveStatus).toBe('running');
+        expect(result.runningCount).toBe(1);
+      });
+
+      it('deduplicates when session exists in both arrays', () => {
+        const store = useSessionsStore();
+        const child = { id: 'child-1', status: 'running', parentSessionId: 'root' };
+        store.sessions = [
+          { id: 'root', status: 'waiting', parentSessionId: null },
+          child,
+        ];
+        store.activeSessions = [child];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.runningCount).toBe(1);
+        expect(result.totalCount).toBe(1);
+      });
+    });
+
+    describe('getWorkflowEffectiveStatus', () => {
+      it('returns running when child is only in activeSessions', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'waiting', parentSessionId: null },
+        ];
+        store.activeSessions = [
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowEffectiveStatus('root');
+
+        expect(result).toBe('running');
+      });
+
+      it('returns idle when no running sessions exist in either array', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'completed', parentSessionId: null },
+        ];
+        store.activeSessions = [
+          { id: 'child-1', status: 'completed', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowEffectiveStatus('root');
+
+        expect(result).toBe('idle');
+      });
     });
   });
 
