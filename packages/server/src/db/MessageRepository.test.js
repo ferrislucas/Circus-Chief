@@ -608,4 +608,72 @@ describe('MessageRepository', () => {
       expect(targetMsgs).toHaveLength(0);
     });
   });
+
+  describe('getLatestAssistantMessageForSessions', () => {
+    it('returns null when sessionIds array is empty', () => {
+      expect(repo.getLatestAssistantMessageForSessions([])).toBeNull();
+    });
+
+    it('returns null when sessionIds is null or undefined', () => {
+      expect(repo.getLatestAssistantMessageForSessions(null)).toBeNull();
+      expect(repo.getLatestAssistantMessageForSessions(undefined)).toBeNull();
+    });
+
+    it('returns null when no assistant messages exist', () => {
+      repo.create(sessionId, 'user', 'Question 1', { conversationId });
+      repo.create(sessionId, 'user', 'Question 2', { conversationId });
+
+      const result = repo.getLatestAssistantMessageForSessions([sessionId]);
+      expect(result).toBeNull();
+    });
+
+    it('returns the most recent assistant message for a single session', async () => {
+      repo.create(sessionId, 'user', 'Question', { conversationId });
+      repo.create(sessionId, 'assistant', 'First answer', { conversationId });
+      await new Promise(resolve => setTimeout(resolve, 5));
+      repo.create(sessionId, 'assistant', 'Second answer', { conversationId });
+
+      const result = repo.getLatestAssistantMessageForSessions([sessionId]);
+
+      expect(result).not.toBeNull();
+      expect(result.role).toBe('assistant');
+      expect(result.content).toBe('Second answer');
+    });
+
+    it('returns the most recent assistant message across multiple sessions', async () => {
+      // Create a second session
+      const now = Date.now();
+      const sessionId2 = databaseManager.generateId();
+      const project2 = projectRepo.create('Another Project', '/tmp/another');
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(sessionId2, project2.id, 'Session 2', 'running', 'standard', now, now);
+
+      const conv2 = convRepo.create(sessionId2, 'Conv 2', true);
+
+      // Create assistant messages in both sessions with a delay to ensure different timestamps
+      repo.create(sessionId, 'assistant', 'Older response from session 1', { conversationId });
+      await new Promise(resolve => setTimeout(resolve, 5));
+      repo.create(sessionId2, 'assistant', 'Newer response from session 2', { conversationId: conv2.id });
+
+      const result = repo.getLatestAssistantMessageForSessions([sessionId, sessionId2]);
+
+      expect(result).not.toBeNull();
+      expect(result.role).toBe('assistant');
+      expect(result.content).toBe('Newer response from session 2');
+      expect(result.sessionId).toBe(sessionId2);
+    });
+
+    it('ignores user messages', () => {
+      repo.create(sessionId, 'assistant', 'Assistant response', { conversationId });
+      // Create a user message after the assistant one
+      repo.create(sessionId, 'user', 'Follow-up question', { conversationId });
+
+      const result = repo.getLatestAssistantMessageForSessions([sessionId]);
+
+      expect(result).not.toBeNull();
+      expect(result.role).toBe('assistant');
+      expect(result.content).toBe('Assistant response');
+    });
+  });
 });

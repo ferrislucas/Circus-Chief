@@ -157,8 +157,12 @@
 
           <!-- Content wrapper (with padding) -->
           <div class="overlay-body" ref="overlayBodyRef">
-            <!-- Conversation -->
+            <div v-if="switchingSession" class="session-switch-loading">
+              <span class="session-switch-spinner"></span>
+              <span class="session-switch-text">Loading session...</span>
+            </div>
             <ConversationTab
+              v-else
               :session-id="activeSessionId"
               :key="activeSessionId"
               :scroll-container-ref="overlayBodyRef"
@@ -212,6 +216,7 @@ const closing = ref(false);
 const activeSessionId = ref(props.sessionId);
 const isMobile = ref(false);
 const isCreatingSession = ref(false);
+const switchingSession = ref(false);
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
@@ -286,9 +291,16 @@ const rootSession = computed(() => {
 });
 
 const rootSessionName = computed(() => {
-  // Use sessionChain root if available (most reliable after buildSessionChain)
-  if (props.sessionChain.length > 0) return props.sessionChain[0].session?.name || 'Session';
-  return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
+  // Always show the root (parent) session name in the overlay header.
+  // This stays fixed regardless of which child session is currently viewed.
+  // Priority 1: use the sessionChain prop (most reliable — contains the tree
+  // with depth info, so the root is always the entry with depth === 0).
+  const chainRoot = props.sessionChain.find(entry => entry.depth === 0);
+  if (chainRoot?.session?.name) return chainRoot.session.name;
+  // Priority 2: use getRootSession from the store
+  if (rootSession.value?.name) return rootSession.value.name;
+  // Priority 3: fallback to currentSession
+  return sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => {
@@ -339,8 +351,8 @@ function afterLeave() {
   emit('close');  // Only emit after transition completes
 }
 
-function selectSession(sessionId) {
-  switchToSession(sessionId);
+async function selectSession(sessionId) {
+  await switchToSession(sessionId);
 }
 
 async function addChildSession() {
@@ -435,16 +447,19 @@ async function saveSessionName() {
 async function switchToSession(newSessionId) {
   if (newSessionId === activeSessionId.value) return;
 
-  // Cleanup old subscription
-  cleanupSubscription();
+  // Show spinner immediately
+  switchingSession.value = true;
 
-  // Switch
-  activeSessionId.value = newSessionId;
-  console.log('[switchToSession] activeSessionId SET to:', activeSessionId.value);
+  try {
+    cleanupSubscription();
+    activeSessionId.value = newSessionId;
 
-  // Load data for new session
-  await loadSessionData(newSessionId);
-  setupSubscription(newSessionId);
+    await loadSessionData(newSessionId);
+    setupSubscription(newSessionId);
+  } finally {
+    // Always hide spinner — even if something unexpected throws
+    switchingSession.value = false;
+  }
 }
 
 async function loadSessionData(sessionId) {
@@ -584,6 +599,7 @@ defineExpose({
   visible,
   afterLeave,
   isCreatingSession,
+  switchingSession,
   pickerOpen,
   handlePickerSelect,
 });
@@ -620,6 +636,38 @@ defineExpose({
     transition: transform 0.15s ease;
   }
 }
+
+/* Session switch loading spinner */
+.session-switch-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.session-switch-spinner {
+  display: inline-block;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid rgba(6, 182, 212, 0.2);
+  border-top-color: #06b6d4;
+  border-radius: 50%;
+  animation: session-switch-spin 0.8s linear infinite;
+}
+
+@keyframes session-switch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.session-switch-text {
+  color: #9ca3af;
+  font-size: 0.8125rem;
+}
 </style>
 
 <style scoped>
@@ -632,6 +680,7 @@ defineExpose({
   justify-content: flex-end;
   align-items: flex-start;
   overflow: hidden;
+  overflow-y: hidden;
 }
 
 .overlay-panel-wrapper {
@@ -783,10 +832,13 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* Ensure messages container scrolls within the overlay */
+/* Ensure messages container does NOT independently scroll within the overlay.
+   The .overlay-body is the sole scroll container; .messages just flows inside it.
+   This prevents two nested scroll containers from fighting each other during
+   streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-tree-overlay :deep(.messages) {
   max-height: none !important;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
 }
 
