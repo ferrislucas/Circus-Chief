@@ -10,6 +10,7 @@ import {
   cleanupCreatedResources,
   cleanupAll,
   navigateAndWait,
+  openSessionOverlay,
   waitForPageReady,
   updatePendingPrompt,
   updateSessionStatus,
@@ -538,7 +539,8 @@ test.describe('Category 5: Scheduling UI Components', () => {
     });
 
     // Navigate to session detail conversation tab (Edit Schedule button is in ConversationTab)
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Click "Edit Schedule" button
     const editButton = page.getByRole('button', { name: 'Edit Schedule' });
