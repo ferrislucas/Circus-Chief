@@ -169,11 +169,13 @@ test.describe('Toast Notifications', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Duplicate
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
-    await page.waitForSelector('.menu-items', { timeout: 5000 });
+    const kebab = page.locator('button.btn-kebab[aria-label="Session actions"]');
+    await expect(kebab).toBeVisible({ timeout: 8000 });
+    await kebab.click();
+    const menuItems = page.locator('.menu-items');
+    await expect(menuItems).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(200);
-    await page.locator('.menu-items button.menu-item').filter({ hasText: 'Duplicate' }).click();
+    await menuItems.locator('button.menu-item').filter({ hasText: 'Duplicate' }).click();
 
     // Wait for success toast
     const toast = page.locator('.toast.toast-success');
