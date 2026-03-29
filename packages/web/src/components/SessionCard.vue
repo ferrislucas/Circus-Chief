@@ -197,45 +197,53 @@ const dateToShow = computed(() => {
   return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
 });
 
-// Get workflow status including child sessions
+/**
+ * Get all sessions in the workflow tree (root + all descendants at any depth).
+ * Uses iterative DFS to find children, grandchildren, etc.
+ */
+function getWorkflowSessions() {
+  const all = [props.session];
+  const stack = [props.session.id];
+  const visited = new Set();
+  while (stack.length > 0) {
+    const currentId = stack.pop();
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+    const children = sessionsStore.sessions.filter(s => s.parentSessionId === currentId);
+    for (const child of children) {
+      all.push(child);
+      stack.push(child.id);
+    }
+  }
+  return all;
+}
+
+// Get workflow status including all descendant sessions (full tree traversal)
 const workflowStatus = computed(() => {
-  const rootStatus = props.session.status;
+  const allSessions = getWorkflowSessions();
   const runningStatuses = ['running', 'starting'];
 
-  // Find child sessions from the store
-  const children = sessionsStore.sessions.filter(
-    s => s.parentSessionId === props.session.id,
-  );
-
-  // Count running sessions (root + children)
-  let runningCount = runningStatuses.includes(rootStatus) ? 1 : 0;
-  runningCount += children.filter(c => runningStatuses.includes(c.status)).length;
-
-  // Count scheduled sessions (root + children)
-  let scheduledCount = rootStatus === 'scheduled' ? 1 : 0;
-  scheduledCount += children.filter(c => c.status === 'scheduled').length;
+  let runningCount = 0;
+  let scheduledCount = 0;
+  for (const s of allSessions) {
+    if (runningStatuses.includes(s.status)) runningCount++;
+    if (s.status === 'scheduled') scheduledCount++;
+  }
 
   return {
     runningCount,
     scheduledCount,
-    totalCount: 1 + children.length,
-    effectiveStatus: rootStatus,
+    totalCount: allSessions.length,
+    effectiveStatus: props.session.status,
   };
 });
 
-// Collect all running/starting session IDs in the workflow (root + children)
+// Collect all running/starting session IDs in the workflow (full tree traversal)
 const runningSessionIds = computed(() => {
-  const ids = [];
-  if (['running', 'starting'].includes(props.session.status)) {
-    ids.push(props.session.id);
-  }
-  // Find running child sessions from the store
-  const children = sessionsStore.sessions.filter(
-    s => s.parentSessionId === props.session.id
-      && ['running', 'starting'].includes(s.status),
-  );
-  children.forEach(c => ids.push(c.id));
-  return ids;
+  const runningStatuses = ['running', 'starting'];
+  return getWorkflowSessions()
+    .filter(s => runningStatuses.includes(s.status))
+    .map(s => s.id);
 });
 
 const hasRunningSession = computed(() => runningSessionIds.value.length > 0);
