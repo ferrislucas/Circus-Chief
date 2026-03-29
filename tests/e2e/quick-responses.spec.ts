@@ -10,6 +10,7 @@ import {
   navigateAndWait,
   waitForPageReady,
   getAPIURL,
+  openSessionOverlay,
 } from './helpers';
 
 const API_URL = getAPIURL();
@@ -91,7 +92,8 @@ async function navigateToSessionAndExpandPanel(page, sessionId: string) {
     { timeout: 30000 }
   );
 
-  await page.goto(`/sessions/${sessionId}/conversation`);
+  await page.goto(`/sessions/${sessionId}/summary`);
+  await openSessionOverlay(page);
 
   // Wait for the quick-responses API call to complete.
   await apiDone;
@@ -380,8 +382,9 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
 
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
     await waitForPageReady(page);
+    await openSessionOverlay(page);
 
     const panel = page.locator('.quick-responses-panel');
     await expect(panel).toBeVisible({ timeout: 10000 });

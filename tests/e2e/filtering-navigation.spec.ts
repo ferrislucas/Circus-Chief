@@ -574,7 +574,7 @@ test.describe('Session Detail Tab Navigation', () => {
     await cleanupCreatedResources();
   });
 
-  test('session detail defaults to conversation tab', async ({ page }) => {
+  test('session detail defaults to summary tab', async ({ page }) => {
     await navigateAndWait(page, `/sessions/${session.id}`);
 
     // The route uses optional :tab? param, so URL stays at /sessions/:id
