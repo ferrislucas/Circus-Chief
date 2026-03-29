@@ -68,8 +68,8 @@ test.describe('Command Buttons', () => {
     const initialOutput = await page.textContent('.output-text');
     expect(initialOutput).toBeTruthy();
 
-    // Switch to conversation tab and back
-    await page.click('text=Conversation');
+    // Switch to summary tab and back
+    await page.click('text=Summary');
     await expect(page.locator('.commands-tab')).toBeHidden();
     await page.click('text=Commands');
     // Wait for component to fully remount and restore state from store

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openSessionOverlay } from './helpers';
 
 /**
  * E2E tests for model selector default behavior
@@ -93,8 +94,9 @@ test.describe('Model Selector Default Value', () => {
     console.log('Created test session:', sessionId);
 
     // Navigate to the session's conversation tab
-    await page.goto(`/sessions/${sessionId}/conversation`);
+    await page.goto(`/sessions/${sessionId}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // Wait for the page to fully load
     await page.waitForTimeout(1500);
@@ -152,8 +154,9 @@ test.describe('Model Selector Default Value', () => {
     const sessionId = session.id;
 
     // Navigate to the session's conversation tab
-    await page.goto(`/sessions/${sessionId}/conversation`);
+    await page.goto(`/sessions/${sessionId}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
     await page.waitForTimeout(2000);
 
     // Take screenshot
