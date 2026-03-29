@@ -433,6 +433,14 @@ onMounted(async () => {
     currentProjectSubscriptionId = projectId;
   }
 
+  // Auto-open tree overlay if requested via query param (e.g., after new session creation)
+  if (route.query.overlay === 'open') {
+    treeOverlayOpen.value = true;
+    // Clear the query param so refresh doesn't re-open.
+    // Use path only — do NOT spread the route object (it's a read-only proxy).
+    router.replace({ path: route.path, query: {} });
+  }
+
   // Fetch kanban board so SessionHeaderPanel can show lane chip
   const session = sessionsStore.currentSession;
   if (session?.projectId) {
