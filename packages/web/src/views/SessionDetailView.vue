@@ -48,7 +48,6 @@
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
         <SummaryTab v-if="activeTab === 'summary'" :key="route.params.id" :session-id="route.params.id" />
-        <ConversationTab v-else-if="activeTab === 'conversation'" :key="route.params.id" :session-id="route.params.id" />
         <ChangesTab v-else-if="activeTab === 'changes'" :key="route.params.id" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :key="route.params.id" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
@@ -58,7 +57,7 @@
       <SessionTreeHandle
         v-show="!treeOverlayOpen"
         :is-session-active="isSessionActive"
-        :session-status="sessionsStore.currentSession?.status"
+        :session-status="activeSessionStatus"
         @open="treeOverlayOpen = true"
       />
 
@@ -85,7 +84,6 @@ import { useUiStore } from '../stores/ui.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { useSessionInitializer } from '../composables/useSessionInitializer.js';
-import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
@@ -282,6 +280,30 @@ function resolveOverlayTarget() {
 }
 
 /**
+ * Handle SESSION_UPDATED WebSocket events.
+ * When a session in our tree changes status, update the sessionChain snapshot
+ * so that isSessionActive and activeSessionStatus recompute correctly.
+ */
+function handleSessionUpdated(msg) {
+  const updatedSession = msg.session;
+  if (!updatedSession) return;
+
+  // Update the session in sessionChain if it's part of our tree
+  const idx = sessionChain.value.findIndex(
+    entry => entry.session.id === updatedSession.id
+  );
+  if (idx >= 0) {
+    // Replace the stale snapshot with the updated one, preserving depth
+    sessionChain.value[idx] = {
+      ...sessionChain.value[idx],
+      session: updatedSession,
+    };
+    // Trigger Vue reactivity by replacing the array ref
+    sessionChain.value = [...sessionChain.value];
+  }
+}
+
+/**
  * Handle SESSION_CREATED WebSocket events.
  * When the overlay is closed and a new child session is created in our tree,
  * update overlaySessionId so the next open navigates to the new child.
@@ -372,13 +394,29 @@ const buttonStatusesToDisplay = computed(() => {
 });
 
 const isSessionActive = computed(() => {
+  // Check current session first (fast path)
   const status = sessionsStore.currentSession?.status;
-  return status === 'running' || status === 'starting';
+  if (status === 'running' || status === 'starting') return true;
+
+  // Also check if any session in the chain (descendants) is running/starting
+  return sessionChain.value.some(entry =>
+    entry.session.status === 'running' || entry.session.status === 'starting'
+  );
+});
+
+const activeSessionStatus = computed(() => {
+  const currentStatus = sessionsStore.currentSession?.status;
+  if (currentStatus === 'running' || currentStatus === 'starting') return currentStatus;
+
+  // Find the first running/starting session in the chain
+  const active = sessionChain.value.find(entry =>
+    entry.session.status === 'running' || entry.session.status === 'starting'
+  );
+  return active?.session.status || currentStatus;
 });
 
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
-  { id: 'conversation', label: 'Conversations' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
   { id: 'commands', label: 'Commands' }
@@ -398,8 +436,9 @@ watch(
 );
 
 onMounted(async () => {
-  // Register the SESSION_CREATED handler
+  // Register the SESSION_CREATED and SESSION_UPDATED handlers
   on(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
+  on(WS_MESSAGE_TYPES.SESSION_UPDATED, handleSessionUpdated);
 
   // Initialize the session with WebSocket subscription and data fetching
   await initializeSession(currentSessionId.value);
@@ -488,8 +527,9 @@ onUnmounted(() => {
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
     currentProjectSubscriptionId = null;
   }
-  // Remove the SESSION_CREATED handler
+  // Remove the SESSION_CREATED and SESSION_UPDATED handlers
   off(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
+  off(WS_MESSAGE_TYPES.SESSION_UPDATED, handleSessionUpdated);
   // Clear viewedSessionId so other views (e.g., SessionListView) can use
   // fetchSession without the guard blocking them.
   sessionsStore.viewedSessionId = null;
@@ -503,7 +543,7 @@ async function handleDuplicate() {
   try {
     const newSession = await sessionsStore.duplicateSession(currentSessionId.value);
     uiStore.success('Session duplicated');
-    router.push(`/sessions/${newSession.id}/conversation`);
+    router.push(`/sessions/${newSession.id}/summary`);
   } catch (err) {
     uiStore.error(err.message);
   }

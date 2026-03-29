@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, seedSession, cleanupAll, navigateAndWait } from './helpers';
+import { seedProject, seedSession, cleanupAll, navigateAndWait, openSessionOverlay } from './helpers';
 
 test.describe('Scheduling UI', () => {
   test.describe.configure({ timeout: 60000 });
@@ -21,7 +21,8 @@ test.describe('Scheduling UI', () => {
       const session = await seedSession(project.id, { prompt: 'Initial content', startImmediately: false });
 
       // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Expand the Orchestration panel
       const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
@@ -43,7 +44,8 @@ test.describe('Scheduling UI', () => {
       const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
 
       // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Expand the Orchestration panel
       const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
@@ -71,7 +73,8 @@ test.describe('Scheduling UI', () => {
       const session = await seedSession(project.id, { prompt: 'Scheduled task: do something', startImmediately: false });
 
       // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Expand the Orchestration panel
       const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
@@ -104,7 +107,8 @@ test.describe('Scheduling UI', () => {
       const session = await seedSession(project.id, { prompt: 'Test scheduled time display', startImmediately: false });
 
       // Navigate to the session
-      await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
 
       // Expand the Orchestration panel
       const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
@@ -155,6 +159,7 @@ test.describe('Scheduling UI', () => {
       // Verify via page reload that the time is still correct
       await page.reload();
       await page.waitForLoadState('networkidle');
+      await openSessionOverlay(page);
 
       const countdownTextAfterReload = page.locator('.countdown-text strong');
       await expect(countdownTextAfterReload).toBeVisible({ timeout: 5000 });
