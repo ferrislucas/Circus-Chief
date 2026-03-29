@@ -3417,6 +3417,7 @@ describe('SessionDetailView', () => {
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: null,
+        lastActivityAt: 1000,
       };
       const childSession = {
         id: 'child-1',
@@ -3424,6 +3425,7 @@ describe('SessionDetailView', () => {
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
+        lastActivityAt: 2000,
       };
 
       sessionsStore.currentSession = parentSession;
@@ -3457,12 +3459,11 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      // sessionChain should be built with root and child as {session, depth} entries
+      // sessionChain should contain both sessions sorted by lastActivityAt descending
       expect(wrapper.vm.sessionChain.length).toBe(2);
-      expect(wrapper.vm.sessionChain[0].session.id).toBe('parent-1');
-      expect(wrapper.vm.sessionChain[0].depth).toBe(0);
-      expect(wrapper.vm.sessionChain[1].session.id).toBe('child-1');
-      expect(wrapper.vm.sessionChain[1].depth).toBe(1);
+      // child-1 has lastActivityAt=2000 (most recent), parent-1 has lastActivityAt=1000
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('child-1');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
     });
 
     it('passes sessionChain and summariesMap to SessionTreeOverlay', async () => {
@@ -3472,6 +3473,7 @@ describe('SessionDetailView', () => {
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: null,
+        lastActivityAt: 2000,
       };
       const childSession = {
         id: 'child-1',
@@ -3479,6 +3481,7 @@ describe('SessionDetailView', () => {
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
+        lastActivityAt: 1000,
       };
 
       sessionsStore.currentSession = parentSession;
@@ -3526,6 +3529,7 @@ describe('SessionDetailView', () => {
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: null,
+        lastActivityAt: 1000,
       };
 
       sessionsStore.currentSession = parentSession;
@@ -3555,13 +3559,14 @@ describe('SessionDetailView', () => {
       // Initially chain has just the root
       expect(wrapper.vm.sessionChain.length).toBe(1);
 
-      // Simulate a new child being created
+      // Simulate a new child being created (more recent than parent)
       const newChild = {
         id: 'new-child',
         name: 'New Child',
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
+        lastActivityAt: 3000,
       };
       sessionsStore.sessions.push(newChild);
 
@@ -3580,10 +3585,85 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      // Session chain should now include the new child as {session, depth} entries
+      // Session chain should now include the new child, sorted by lastActivityAt descending
       expect(wrapper.vm.sessionChain.length).toBe(2);
-      expect(wrapper.vm.sessionChain[1].session.id).toBe('new-child');
-      expect(wrapper.vm.sessionChain[1].depth).toBe(1);
+      // new-child has lastActivityAt=3000 (most recent), so it comes first
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('new-child');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
+    });
+
+    it('sorts session chain by lastActivityAt descending (most recent first)', async () => {
+      const sessionA = {
+        id: 'session-a',
+        name: 'Session A (oldest)',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastActivityAt: 1000,
+      };
+      const sessionB = {
+        id: 'session-b',
+        name: 'Session B (middle)',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: 3000,
+      };
+      const sessionC = {
+        id: 'session-c',
+        name: 'Session C (newest)',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: 5000,
+      };
+      // Session D has no lastActivityAt, falls back to updatedAt
+      const sessionD = {
+        id: 'session-d',
+        name: 'Session D (fallback to updatedAt)',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: null,
+        updatedAt: 2000,
+      };
+
+      sessionsStore.currentSession = sessionA;
+      sessionsStore.sessions = [sessionA, sessionB, sessionC, sessionD];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'session-a' ? [sessionB, sessionC, sessionD] : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(
+        () => sessionA
+      );
+
+      api.getProjectSessions.mockResolvedValue([sessionA, sessionB, sessionC, sessionD]);
+
+      await router.push('/sessions/session-a');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Should contain all 4 sessions
+      expect(wrapper.vm.sessionChain.length).toBe(4);
+
+      // Order should be: C (5000), B (3000), D (2000 via updatedAt fallback), A (1000)
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('session-c');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('session-b');
+      expect(wrapper.vm.sessionChain[2].session.id).toBe('session-d');
+      expect(wrapper.vm.sessionChain[3].session.id).toBe('session-a');
     });
 
     it('fetches summaries for sessions in the chain', async () => {
