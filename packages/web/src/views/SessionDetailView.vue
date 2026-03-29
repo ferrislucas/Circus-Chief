@@ -58,7 +58,7 @@
       <SessionTreeHandle
         v-show="!treeOverlayOpen"
         :is-session-active="isSessionActive"
-        :session-status="sessionsStore.currentSession?.status"
+        :session-status="activeTreeStatus"
         @open="treeOverlayOpen = true"
       />
 
@@ -364,8 +364,21 @@ const buttonStatusesToDisplay = computed(() => {
 });
 
 const isSessionActive = computed(() => {
+  if (sessionChain.value.length > 0) {
+    return sessionChain.value.some(
+      entry => entry.session.status === 'running' || entry.session.status === 'starting'
+    );
+  }
+  // Fallback before chain is built
   const status = sessionsStore.currentSession?.status;
   return status === 'running' || status === 'starting';
+});
+
+const activeTreeStatus = computed(() => {
+  const active = sessionChain.value.find(
+    entry => entry.session.status === 'running' || entry.session.status === 'starting'
+  );
+  return active?.session.status || sessionsStore.currentSession?.status || '';
 });
 
 const tabs = computed(() => [
