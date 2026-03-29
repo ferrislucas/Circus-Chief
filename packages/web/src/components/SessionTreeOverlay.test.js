@@ -205,7 +205,7 @@ describe('SessionTreeOverlay', () => {
       wrapper.unmount();
     });
 
-    it('displays root session name in header', async () => {
+    it('displays active session name in header', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const name = document.querySelector('.overlay-root-name');
