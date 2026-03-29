@@ -286,7 +286,11 @@ const rootSession = computed(() => {
 });
 
 const rootSessionName = computed(() => {
-  // Use sessionChain root if available (most reliable after buildSessionChain)
+  // Read the active session's name from the store for reactivity
+  // (sessionChain holds stale references after store updates via spread)
+  const activeSession = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  if (activeSession) return activeSession.name || 'Session';
+  // Fallback to sessionChain root
   if (props.sessionChain.length > 0) return props.sessionChain[0].session?.name || 'Session';
   return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
 });

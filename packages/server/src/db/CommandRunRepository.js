@@ -137,6 +137,29 @@ export class CommandRunRepository extends BaseRepository {
   }
 
   /**
+   * Delete all non-running runs for a button within a session.
+   * Returns info about deleted runs (needed for WebSocket broadcasting).
+   * @param {string} buttonId - Button ID
+   * @param {string} sessionId - Session ID
+   * @returns {{ deletedCount: number, deletedRuns: Array<{ id: string, buttonId: string }> }}
+   */
+  deleteByButtonAndSession(buttonId, sessionId) {
+    // First get the IDs of runs we'll delete (for broadcasting)
+    const runs = this.db
+      .prepare('SELECT id, button_id FROM command_runs WHERE button_id = ? AND session_id = ? AND status != ?')
+      .all(buttonId, sessionId, 'running');
+
+    const result = this.db
+      .prepare('DELETE FROM command_runs WHERE button_id = ? AND session_id = ? AND status != ?')
+      .run(buttonId, sessionId, 'running');
+
+    return {
+      deletedCount: result.changes,
+      deletedRuns: runs.map(r => ({ id: r.id, buttonId: r.button_id })),
+    };
+  }
+
+  /**
    * Delete all runs for a session (useful for testing or cleanup)
    */
   deleteBySessionId(sessionId) {

@@ -86,13 +86,14 @@ describe('SessionTreePicker', () => {
       });
     });
 
-    it('items have no depth-based padding (uniform alignment)', () => {
+    it('items have depth-based padding for indentation', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
-      // All items should have no inline padding-left style — uniform CSS padding applies
-      items.forEach(item => {
-        expect(item.attributes('style')).toBeUndefined();
-      });
+      // Root (depth 0) should have 0.5rem padding-left
+      expect(items[0].attributes('style')).toBe('padding-left: 0.5rem;');
+      // Children (depth 1) should have 1.5rem padding-left
+      expect(items[1].attributes('style')).toBe('padding-left: 1.5rem;');
+      expect(items[2].attributes('style')).toBe('padding-left: 1.5rem;');
     });
 
     it('renders correctly with single session (no children)', () => {
@@ -118,7 +119,7 @@ describe('SessionTreePicker', () => {
       expect(items).toHaveLength(1);
       expect(items[0].find('.picker-item-role').exists()).toBe(true);
       expect(items[0].find('.picker-item-role').text()).toBe('');
-      expect(items[0].attributes('style')).toBeUndefined();
+      expect(items[0].attributes('style')).toBe('padding-left: 0.5rem;');
     });
 
     it('status badges display correctly without hierarchy labels', () => {
@@ -165,9 +166,9 @@ describe('SessionTreePicker', () => {
 
       const items = wrapper.findAll('.picker-item');
       expect(items).toHaveLength(10);
-      // All items should have no inline padding style — uniform CSS padding applies
+      // All items at depth 1 should have the same padding-left
       items.forEach(item => {
-        expect(item.attributes('style')).toBeUndefined();
+        expect(item.attributes('style')).toBe('padding-left: 1.5rem;');
       });
     });
 
@@ -190,7 +191,7 @@ describe('SessionTreePicker', () => {
       expect(nameEl.classes()).toContain('picker-item-name');
     });
 
-    it('items at all depths have uniform alignment (no indentation)', () => {
+    it('items at different depths have increasing indentation', () => {
       const deepSessions = [
         { session: { id: 'd0', name: 'Root', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
         { session: { id: 'd1', name: 'Child', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
@@ -205,10 +206,10 @@ describe('SessionTreePicker', () => {
       });
 
       const items = wrapper.findAll('.picker-item');
-      // No inline style — uniform CSS padding applies to all depths
-      items.forEach(item => {
-        expect(item.attributes('style')).toBeUndefined();
-      });
+      // Depth 0 = 0.5rem, depth 1 = 1.5rem, depth 2 = 2.5rem
+      expect(items[0].attributes('style')).toBe('padding-left: 0.5rem;');
+      expect(items[1].attributes('style')).toBe('padding-left: 1.5rem;');
+      expect(items[2].attributes('style')).toBe('padding-left: 2.5rem;');
     });
   });
 
