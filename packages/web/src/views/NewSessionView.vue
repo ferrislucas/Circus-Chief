@@ -606,7 +606,7 @@ async function handleSubmit() {
     fileAttachment.value?.clear();
     // Clear the draft from localStorage after successful submission
     localStorage.removeItem(storageKey.value);
-    router.push(`/sessions/${session.id}`);
+    router.push(`/sessions/${session.id}?overlay=open`);
   } catch (err) {
     error.value = err.message;
   } finally {

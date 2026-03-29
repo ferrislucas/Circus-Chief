@@ -286,9 +286,16 @@ const rootSession = computed(() => {
 });
 
 const rootSessionName = computed(() => {
-  // Use sessionChain root if available (most reliable after buildSessionChain)
-  if (props.sessionChain.length > 0) return props.sessionChain[0].session?.name || 'Session';
-  return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
+  // Always show the root (parent) session name in the overlay header.
+  // This stays fixed regardless of which child session is currently viewed.
+  // Priority 1: use the sessionChain prop (most reliable — contains the tree
+  // with depth info, so the root is always the entry with depth === 0).
+  const chainRoot = props.sessionChain.find(entry => entry.depth === 0);
+  if (chainRoot?.session?.name) return chainRoot.session.name;
+  // Priority 2: use getRootSession from the store
+  if (rootSession.value?.name) return rootSession.value.name;
+  // Priority 3: fallback to currentSession
+  return sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => {
@@ -632,6 +639,7 @@ defineExpose({
   justify-content: flex-end;
   align-items: flex-start;
   overflow: hidden;
+  overflow-y: hidden;
 }
 
 .overlay-panel-wrapper {
@@ -783,10 +791,13 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* Ensure messages container scrolls within the overlay */
+/* Ensure messages container does NOT independently scroll within the overlay.
+   The .overlay-body is the sole scroll container; .messages just flows inside it.
+   This prevents two nested scroll containers from fighting each other during
+   streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-tree-overlay :deep(.messages) {
   max-height: none !important;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
 }
 
