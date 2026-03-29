@@ -286,12 +286,15 @@ const rootSession = computed(() => {
 });
 
 const rootSessionName = computed(() => {
-  // Show the active (currently viewed) session name, not always the root.
-  // This ensures the overlay header reflects whichever session the user has
-  // navigated to via the picker, auto-select, or add-session.
-  const session = sessionsStore.getSessionById(activeSessionId.value);
-  if (session) return session.name || 'Session';
-  // Fallback to currentSession if activeSessionId hasn't loaded yet
+  // Always show the root (parent) session name in the overlay header.
+  // This stays fixed regardless of which child session is currently viewed.
+  // Priority 1: use the sessionChain prop (most reliable — contains the tree
+  // with depth info, so the root is always the entry with depth === 0).
+  const chainRoot = props.sessionChain.find(entry => entry.depth === 0);
+  if (chainRoot?.session?.name) return chainRoot.session.name;
+  // Priority 2: use getRootSession from the store
+  if (rootSession.value?.name) return rootSession.value.name;
+  // Priority 3: fallback to currentSession
   return sessionsStore.currentSession?.name || 'Session';
 });
 
@@ -635,8 +638,8 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
+  overflow-y: hidden;
 }
 
 .overlay-panel-wrapper {
