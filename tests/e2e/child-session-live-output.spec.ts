@@ -154,6 +154,87 @@ test.describe('Child Session Live Output on Session List', () => {
     await expect(logStream).toBeVisible({ timeout: 15000 });
   });
 
+  test('grandchild running session shows live output on root card', async ({ page }) => {
+    // Create parent → child → grandchild chain
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent task',
+      name: 'Parent Session',
+    });
+    await waitForSessionToExist(parent.id);
+    await updateSessionStatus(parent.id, 'waiting');
+
+    const child = await seedChildSession(project.id, parent.id, {
+      prompt: 'Child task',
+      name: 'Child Session',
+    });
+    await waitForSessionToExist(child.id);
+    await updateSessionStatus(child.id, 'waiting');
+
+    const grandchild = await seedChildSession(project.id, child.id, {
+      prompt: 'Grandchild task',
+      name: 'Grandchild Session',
+    });
+    await waitForSessionToExist(grandchild.id);
+    await updateSessionStatus(grandchild.id, 'running');
+
+    // Navigate to session list
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.session-card',
+    });
+
+    // Seed a work log on the grandchild session
+    await seedWorkLog(grandchild.id, {
+      type: 'tool_input',
+      content: JSON.stringify({ command: 'git status' }),
+      toolName: 'Bash',
+    });
+
+    // The live output pane should be visible on the root card
+    const logStream = page.locator('.session-log-stream');
+    await expect(logStream).toBeVisible({ timeout: 15000 });
+
+    // Verify at least one log entry rendered
+    const logEntry = page.locator('.log-entry');
+    await expect(async () => {
+      const count = await logEntry.count();
+      expect(count).toBeGreaterThanOrEqual(1);
+    }).toPass({ timeout: 10000 });
+  });
+
+  test('running badge appears on parent card when grandchild is running', async ({ page }) => {
+    // Create parent → child → grandchild chain
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent task',
+      name: 'Parent Session GC Badge',
+    });
+    await waitForSessionToExist(parent.id);
+    await updateSessionStatus(parent.id, 'waiting');
+
+    const child = await seedChildSession(project.id, parent.id, {
+      prompt: 'Child task',
+      name: 'Child Session GC Badge',
+    });
+    await waitForSessionToExist(child.id);
+    await updateSessionStatus(child.id, 'waiting');
+
+    const grandchild = await seedChildSession(project.id, child.id, {
+      prompt: 'Grandchild task',
+      name: 'Grandchild Session GC Badge',
+    });
+    await waitForSessionToExist(grandchild.id);
+    await updateSessionStatus(grandchild.id, 'running');
+
+    // Navigate to session list
+    await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+      waitFor: '.session-card',
+    });
+
+    // The parent card should display a "running" status badge
+    const runningBadge = page.locator('.status-running');
+    await expect(runningBadge).toBeVisible({ timeout: 15000 });
+    await expect(runningBadge).toContainText('running');
+  });
+
   test('work logs from multiple running children appear in live output', async ({ page }) => {
     const parent = await seedSession(project.id, {
       prompt: 'Parent task',
