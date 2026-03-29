@@ -79,24 +79,38 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await expect(picker).toContainText('Child Session 4');
   });
 
-  test('child sessions are indented more than the parent', async ({ page }) => {
+  test('picker items have uniform padding (flat layout)', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
     const items = picker.locator('[role="option"]');
     const count = await items.count();
     expect(count).toBe(5);
 
-    // All picker items use uniform padding (no depth-based indentation)
-    const parentPadding = await items.nth(0).evaluate(el => {
+    // All items should have the same padding (flat layout, no indentation)
+    const firstPadding = await items.nth(0).evaluate(el => {
       return parseFloat(window.getComputedStyle(el).paddingLeft);
     });
 
     for (let i = 1; i < count; i++) {
-      const childPadding = await items.nth(i).evaluate(el => {
+      const itemPadding = await items.nth(i).evaluate(el => {
         return parseFloat(window.getComputedStyle(el).paddingLeft);
       });
-      expect(childPadding).toBeGreaterThanOrEqual(parentPadding);
+      expect(itemPadding).toBe(firstPadding);
     }
+  });
+
+  test('sessions are listed in reverse chronological order (most recent first)', async ({ page }) => {
+    const { picker } = await openOverlayAndPicker(page, parentSession.id);
+
+    const items = picker.locator('[role="option"]');
+    const count = await items.count();
+    expect(count).toBe(5);
+
+    // Sessions should be sorted by most recent activity first.
+    // Child sessions were created after the parent, so they should appear before the parent.
+    // The last item in the list should be the parent (oldest).
+    const lastItemName = await items.nth(count - 1).locator('.picker-item-name').textContent();
+    expect(lastItemName?.trim()).toBe('Parent Session');
   });
 
   test('selecting a sibling session switches the overlay conversation', async ({ page }) => {
@@ -116,7 +130,6 @@ test.describe('Session Tree Picker Shows All Children', () => {
       }
     }
     expect(child4Index).not.toBe(-1); // Child Session 4 should exist
-    expect(child4Index).toBeGreaterThanOrEqual(1); // Should not be at index 0 (parent)
 
     // Click the Child Session 4 item
     await items.nth(child4Index).click();
