@@ -13,7 +13,6 @@
       :class="{
         'picker-item--active': entry.session.id === activeSessionId,
       }"
-      :style="{ paddingLeft: `${(entry.depth || 0) * 1.5 + 0.5}rem` }"
       role="option"
       :aria-selected="entry.session.id === activeSessionId ? 'true' : 'false'"
       :tabindex="index === focusedIndex ? 0 : -1"
