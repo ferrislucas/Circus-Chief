@@ -472,23 +472,33 @@ export async function getGitAuthor(directory) {
 }
 
 /**
- * Install a commit-msg hook that adds the human developer as co-author.
- * Creates a hooks/ directory inside the worktree's git internal dir
- * (e.g. .git/worktrees/<id>/hooks/commit-msg), then sets core.hooksPath
- * (worktree-specific) to point to it. This avoids polluting the working tree.
+ * Configure git author and co-author hook for a worktree session.
  *
- * Reads the author from the main project directory (not the worktree) to
- * capture the human developer's identity before the session may override it.
+ * 1. Reads the human developer's identity from the main project directory
+ * 2. Pins that identity as user.name/user.email in the worktree config
+ *    so the human is always the commit Author, even if the session's
+ *    environment tries to override it
+ * 3. Installs a commit-msg hook (in the git internal dir, not the working
+ *    tree) that appends "Co-Authored-By: Claude <noreply@anthropic.com>"
+ *    to every commit, ensuring Claude gets attribution as co-author
  *
  * Only call this for worktree directories, not the main repo.
  *
  * @param {string} worktreePath - The worktree directory
  * @param {string} projectDir - The main project directory (to read author from)
- * @returns {Promise<boolean>} - True if hook was installed
+ * @returns {Promise<boolean>} - True if setup succeeded
  */
 export async function installCoAuthorHook(worktreePath, projectDir) {
   const author = await getGitAuthor(projectDir || worktreePath);
   if (!author) return false;
+
+  // Enable worktree-specific config (required for --worktree flag)
+  await git(worktreePath, 'config extensions.worktreeConfig true');
+
+  // Pin the human's identity in the worktree config so they are always
+  // the commit Author, regardless of what the session does later
+  await git(worktreePath, `config --worktree user.name "${author.name}"`);
+  await git(worktreePath, `config --worktree user.email "${author.email}"`);
 
   // Use the git internal dir for this worktree (e.g. .git/worktrees/<id>)
   // so we don't pollute the working directory with hook files
@@ -496,14 +506,14 @@ export async function installCoAuthorHook(worktreePath, projectDir) {
   const hooksDir = join(gitDir, 'hooks');
   const hookPath = join(hooksDir, 'commit-msg');
 
-  const coAuthorLine = `Co-Authored-By: ${author.name} <${author.email}>`;
+  const coAuthorLine = 'Co-Authored-By: Claude <noreply@anthropic.com>';
 
   // The hook script:
   // 1. Reads the commit message file ($1)
   // 2. Checks if the co-author line is already present
   // 3. If not, appends it
   const hookScript = `#!/bin/sh
-# claudetools: Auto-add human co-author to commits
+# claudetools: Auto-add Claude as co-author on commits
 COMMIT_MSG_FILE="$1"
 CO_AUTHOR_LINE="${coAuthorLine}"
 
@@ -518,8 +528,6 @@ fi
   await writeFile(hookPath, hookScript, 'utf-8');
   await chmod(hookPath, 0o755);
 
-  // Enable worktree-specific config (required for --worktree flag)
-  await git(worktreePath, 'config extensions.worktreeConfig true');
   // Set hooksPath only for this worktree (doesn't affect main repo or other worktrees)
   await git(worktreePath, `config --worktree core.hooksPath ${hooksDir}`);
 
