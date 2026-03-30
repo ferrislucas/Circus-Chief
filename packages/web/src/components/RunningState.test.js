@@ -32,9 +32,16 @@ describe('RunningState', () => {
       expect(wrapper.find('.running-title').text()).toBe('Claude is working...');
     });
 
-    it('should render loading spinner', () => {
+    it('should render loading spinner inside stop button', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.loading-spinner').exists()).toBe(true);
+      const btn = wrapper.find('.btn-stop');
+      expect(btn.find('.loading-spinner').exists()).toBe(true);
+    });
+
+    it('should not render loading spinner in the status area', () => {
+      const wrapper = mountComponent();
+      const status = wrapper.find('.running-status');
+      expect(status.find('.loading-spinner').exists()).toBe(false);
     });
 
     it('should render stop button', () => {
@@ -75,10 +82,13 @@ describe('RunningState', () => {
       expect(wrapper.find('.btn-stop').attributes('disabled')).toBeDefined();
     });
 
-    it('should show spinner when stopping', () => {
-      const wrapper = mountComponent({ stopping: true });
-      const btn = wrapper.find('.btn-stop');
-      expect(btn.find('.loading-spinner').exists()).toBe(true);
+    it('should always show spinner in stop button regardless of stopping state', () => {
+      // Spinner is always visible in the stop button (not conditionally shown only when stopping)
+      const wrapperNotStopping = mountComponent({ stopping: false });
+      expect(wrapperNotStopping.find('.btn-stop').find('.loading-spinner').exists()).toBe(true);
+
+      const wrapperStopping = mountComponent({ stopping: true });
+      expect(wrapperStopping.find('.btn-stop').find('.loading-spinner').exists()).toBe(true);
     });
   });
 
