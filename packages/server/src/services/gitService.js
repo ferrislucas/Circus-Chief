@@ -473,19 +473,27 @@ export async function getGitAuthor(directory) {
 
 /**
  * Install a commit-msg hook that adds the human developer as co-author.
- * Creates a .claudetools-hooks/ directory in the worktree with a commit-msg
- * hook, then sets core.hooksPath (worktree-specific) to use it.
+ * Creates a hooks/ directory inside the worktree's git internal dir
+ * (e.g. .git/worktrees/<id>/hooks/commit-msg), then sets core.hooksPath
+ * (worktree-specific) to point to it. This avoids polluting the working tree.
+ *
+ * Reads the author from the main project directory (not the worktree) to
+ * capture the human developer's identity before the session may override it.
  *
  * Only call this for worktree directories, not the main repo.
  *
  * @param {string} worktreePath - The worktree directory
+ * @param {string} projectDir - The main project directory (to read author from)
  * @returns {Promise<boolean>} - True if hook was installed
  */
-export async function installCoAuthorHook(worktreePath) {
-  const author = await getGitAuthor(worktreePath);
+export async function installCoAuthorHook(worktreePath, projectDir) {
+  const author = await getGitAuthor(projectDir || worktreePath);
   if (!author) return false;
 
-  const hooksDir = join(worktreePath, '.claudetools-hooks');
+  // Use the git internal dir for this worktree (e.g. .git/worktrees/<id>)
+  // so we don't pollute the working directory with hook files
+  const gitDir = await git(worktreePath, 'rev-parse --git-dir');
+  const hooksDir = join(gitDir, 'hooks');
   const hookPath = join(hooksDir, 'commit-msg');
 
   const coAuthorLine = `Co-Authored-By: ${author.name} <${author.email}>`;

@@ -683,50 +683,84 @@ describe('gitService', () => {
       }
     });
 
-    it('installs hook in worktree and sets hooksPath config', async () => {
+    /** Helper to get the git internal dir for a worktree */
+    function getGitDir(wtPath) {
+      return execSync('git rev-parse --git-dir', { cwd: wtPath }).toString().trim();
+    }
+
+    it('installs hook in git internal dir and sets hooksPath config', async () => {
       worktreePath = join(testDir, '.worktrees', 'hook-test-1');
       await createWorktreeForBranch(testDir, 'hook-test-1', worktreePath, { skipFetch: true });
 
-      const result = await installCoAuthorHook(worktreePath);
+      const result = await installCoAuthorHook(worktreePath, testDir);
 
       expect(result).toBe(true);
 
-      // Verify hooks directory was created
-      expect(existsSync(join(worktreePath, '.claudetools-hooks'))).toBe(true);
-      expect(existsSync(join(worktreePath, '.claudetools-hooks', 'commit-msg'))).toBe(true);
+      // Verify hooks directory was created inside the git internal dir, NOT the working tree
+      const gitDir = getGitDir(worktreePath);
+      const hooksDir = join(gitDir, 'hooks');
+      expect(existsSync(hooksDir)).toBe(true);
+      expect(existsSync(join(hooksDir, 'commit-msg'))).toBe(true);
+
+      // Verify NO .claudetools-hooks in the working tree
+      expect(existsSync(join(worktreePath, '.claudetools-hooks'))).toBe(false);
 
       // Verify hook content contains the co-author line
-      const hookContent = await readFile(join(worktreePath, '.claudetools-hooks', 'commit-msg'), 'utf-8');
+      const hookContent = await readFile(join(hooksDir, 'commit-msg'), 'utf-8');
       expect(hookContent).toContain('Co-Authored-By: Test <test@test.com>');
 
       // Verify worktree config has hooksPath set
-      const hooksPath = execSync('git config --worktree core.hooksPath', { cwd: worktreePath })
+      const configuredHooksPath = execSync('git config --worktree core.hooksPath', { cwd: worktreePath })
         .toString()
         .trim();
-      expect(hooksPath).toBe(join(worktreePath, '.claudetools-hooks'));
+      expect(configuredHooksPath).toBe(hooksDir);
     });
 
-    it('returns false when no git author is configured', async () => {
+    it('returns false when no git author is configured in project dir', async () => {
       worktreePath = join(testDir, '.worktrees', 'hook-test-no-author');
       await createWorktreeForBranch(testDir, 'hook-test-no-author', worktreePath, { skipFetch: true });
 
-      // Set empty author info in the worktree (overrides global config)
-      execSync('git config --local user.name ""', { cwd: worktreePath });
-      execSync('git config --local user.email ""', { cwd: worktreePath });
+      // Clear author info in testDir (the "project dir" we pass)
+      const savedName = execSync('git config --local user.name', { cwd: testDir }).toString().trim();
+      const savedEmail = execSync('git config --local user.email', { cwd: testDir }).toString().trim();
+      execSync('git config --local user.name ""', { cwd: testDir });
+      execSync('git config --local user.email ""', { cwd: testDir });
 
-      const result = await installCoAuthorHook(worktreePath);
+      try {
+        const result = await installCoAuthorHook(worktreePath, testDir);
+        expect(result).toBe(false);
+      } finally {
+        // Restore author info for other tests
+        execSync(`git config --local user.name "${savedName}"`, { cwd: testDir });
+        execSync(`git config --local user.email "${savedEmail}"`, { cwd: testDir });
+      }
+    });
 
-      expect(result).toBe(false);
+    it('reads author from projectDir, not the worktree', async () => {
+      worktreePath = join(testDir, '.worktrees', 'hook-test-proj-author');
+      await createWorktreeForBranch(testDir, 'hook-test-proj-author', worktreePath, { skipFetch: true });
 
-      // Verify no hooks directory was created
-      expect(existsSync(join(worktreePath, '.claudetools-hooks'))).toBe(false);
+      // Enable worktree-specific config in the worktree, then override user.name there
+      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
+      execSync('git config --worktree user.name "Worktree User"', { cwd: worktreePath });
+      execSync('git config --worktree user.email "worktree@example.com"', { cwd: worktreePath });
+
+      // Pass testDir as projectDir — the hook should use testDir's author, not the worktree's
+      const result = await installCoAuthorHook(worktreePath, testDir);
+      expect(result).toBe(true);
+
+      // The hook should contain the testDir author ("Test"), not the worktree override
+      const gitDir = getGitDir(worktreePath);
+      const hookContent = await readFile(join(gitDir, 'hooks', 'commit-msg'), 'utf-8');
+      expect(hookContent).toContain('Co-Authored-By: Test <test@test.com>');
+      expect(hookContent).not.toContain('Worktree User');
     });
 
     it('hook appends co-author to commit message', async () => {
       worktreePath = join(testDir, '.worktrees', 'hook-test-commit');
       await createWorktreeForBranch(testDir, 'hook-test-commit', worktreePath, { skipFetch: true });
 
-      const installed = await installCoAuthorHook(worktreePath);
+      const installed = await installCoAuthorHook(worktreePath, testDir);
       expect(installed).toBe(true);
 
       // Create a file and commit — the hook should add the co-author
@@ -744,7 +778,7 @@ describe('gitService', () => {
       worktreePath = join(testDir, '.worktrees', 'hook-test-dedupe');
       await createWorktreeForBranch(testDir, 'hook-test-dedupe', worktreePath, { skipFetch: true });
 
-      const installed = await installCoAuthorHook(worktreePath);
+      const installed = await installCoAuthorHook(worktreePath, testDir);
       expect(installed).toBe(true);
 
       // Commit with the co-author already in the message
@@ -765,10 +799,10 @@ describe('gitService', () => {
       await createWorktreeForBranch(testDir, 'hook-isolate-1', worktreePath1, { skipFetch: true });
       await createWorktreeForBranch(testDir, 'hook-isolate-2', worktreePath2, { skipFetch: true });
 
-      await installCoAuthorHook(worktreePath1);
-      await installCoAuthorHook(worktreePath2);
+      await installCoAuthorHook(worktreePath1, testDir);
+      await installCoAuthorHook(worktreePath2, testDir);
 
-      // Each worktree should have its own hooksPath pointing to its own directory
+      // Each worktree should have its own hooksPath in its git internal dir
       const hooksPath1 = execSync('git config --worktree core.hooksPath', { cwd: worktreePath1 })
         .toString()
         .trim();
@@ -776,9 +810,12 @@ describe('gitService', () => {
         .toString()
         .trim();
 
-      expect(hooksPath1).toBe(join(worktreePath1, '.claudetools-hooks'));
-      expect(hooksPath2).toBe(join(worktreePath2, '.claudetools-hooks'));
       expect(hooksPath1).not.toBe(hooksPath2);
+      // Both should point to their respective git internal dirs, not working tree
+      expect(hooksPath1).not.toContain('.claudetools-hooks');
+      expect(hooksPath2).not.toContain('.claudetools-hooks');
+      expect(hooksPath1).toContain('hooks');
+      expect(hooksPath2).toContain('hooks');
 
       // Cleanup both worktrees
       try {
