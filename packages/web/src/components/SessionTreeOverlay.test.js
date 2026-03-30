@@ -235,6 +235,9 @@ describe('SessionTreeOverlay', () => {
     it('renders ConversationTab with correct session id', async () => {
       const wrapper = mountOverlay();
       await nextTick();
+      // Wait for async onMounted to complete (loadSessionData + setupSubscription)
+      // before ConversationTab renders, since switchingSession starts as true.
+      await new Promise(r => setTimeout(r, 10));
       const conv = document.querySelector('.conversation-tab-mock');
       expect(conv).toBeTruthy();
       expect(conv.getAttribute('data-session-id')).toBe('sess-root');
