@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile } from 'fs/promises';
+import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -15,7 +15,7 @@ import {
   getGitAuthor,
   getOriginDefaultBranch,
   getUntrackedFiles,
-  installCoAuthorHook,
+  pinAuthorInWorktree,
   isGitRepo,
   setLogger,
 } from './gitService.js';
@@ -669,11 +669,10 @@ describe('gitService', () => {
     });
   });
 
-  describe('installCoAuthorHook', () => {
+  describe('pinAuthorInWorktree', () => {
     let worktreePath;
 
     afterEach(async () => {
-      // Clean up worktree if created
       if (worktreePath && existsSync(worktreePath)) {
         try {
           execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
@@ -683,153 +682,67 @@ describe('gitService', () => {
       }
     });
 
-    /** Helper to get the git internal dir for a worktree */
-    function getGitDir(wtPath) {
-      return execSync('git rev-parse --git-dir', { cwd: wtPath }).toString().trim();
-    }
+    it('pins human identity in worktree config from projectDir', async () => {
+      worktreePath = join(testDir, '.worktrees', 'pin-test-1');
+      await createWorktreeForBranch(testDir, 'pin-test-1', worktreePath, { skipFetch: true });
 
-    it('pins human author in worktree config and installs Claude co-author hook', async () => {
-      worktreePath = join(testDir, '.worktrees', 'hook-test-1');
-      await createWorktreeForBranch(testDir, 'hook-test-1', worktreePath, { skipFetch: true });
-
-      const result = await installCoAuthorHook(worktreePath, testDir);
-
+      const result = await pinAuthorInWorktree(worktreePath, testDir);
       expect(result).toBe(true);
 
-      // Verify human's identity is pinned in worktree config
       const userName = execSync('git config --worktree user.name', { cwd: worktreePath }).toString().trim();
       const userEmail = execSync('git config --worktree user.email', { cwd: worktreePath }).toString().trim();
       expect(userName).toBe('Test');
       expect(userEmail).toBe('test@test.com');
-
-      // Verify hooks directory was created inside the git internal dir, NOT the working tree
-      const gitDir = getGitDir(worktreePath);
-      const hooksDir = join(gitDir, 'hooks');
-      expect(existsSync(hooksDir)).toBe(true);
-      expect(existsSync(join(hooksDir, 'commit-msg'))).toBe(true);
-      expect(existsSync(join(worktreePath, '.claudetools-hooks'))).toBe(false);
-
-      // Verify hook adds Claude as co-author, not the human
-      const hookContent = await readFile(join(hooksDir, 'commit-msg'), 'utf-8');
-      expect(hookContent).toContain('Co-Authored-By: Claude <noreply@anthropic.com>');
-      expect(hookContent).not.toContain('Test <test@test.com>');
-
-      // Verify worktree config has hooksPath set
-      const configuredHooksPath = execSync('git config --worktree core.hooksPath', { cwd: worktreePath })
-        .toString()
-        .trim();
-      expect(configuredHooksPath).toBe(hooksDir);
     });
 
     it('returns false when no git author is configured in project dir', async () => {
-      worktreePath = join(testDir, '.worktrees', 'hook-test-no-author');
-      await createWorktreeForBranch(testDir, 'hook-test-no-author', worktreePath, { skipFetch: true });
+      worktreePath = join(testDir, '.worktrees', 'pin-test-no-author');
+      await createWorktreeForBranch(testDir, 'pin-test-no-author', worktreePath, { skipFetch: true });
 
-      // Clear author info in testDir (the "project dir" we pass)
       const savedName = execSync('git config --local user.name', { cwd: testDir }).toString().trim();
       const savedEmail = execSync('git config --local user.email', { cwd: testDir }).toString().trim();
       execSync('git config --local user.name ""', { cwd: testDir });
       execSync('git config --local user.email ""', { cwd: testDir });
 
       try {
-        const result = await installCoAuthorHook(worktreePath, testDir);
+        const result = await pinAuthorInWorktree(worktreePath, testDir);
         expect(result).toBe(false);
       } finally {
-        // Restore author info for other tests
         execSync(`git config --local user.name "${savedName}"`, { cwd: testDir });
         execSync(`git config --local user.email "${savedEmail}"`, { cwd: testDir });
       }
     });
 
-    it('pins author from projectDir even when worktree has different config', async () => {
-      worktreePath = join(testDir, '.worktrees', 'hook-test-proj-author');
-      await createWorktreeForBranch(testDir, 'hook-test-proj-author', worktreePath, { skipFetch: true });
+    it('overwrites existing worktree author with projectDir author', async () => {
+      worktreePath = join(testDir, '.worktrees', 'pin-test-overwrite');
+      await createWorktreeForBranch(testDir, 'pin-test-overwrite', worktreePath, { skipFetch: true });
 
       // Pre-set a different author in the worktree
       execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
-      execSync('git config --worktree user.name "Worktree User"', { cwd: worktreePath });
-      execSync('git config --worktree user.email "worktree@example.com"', { cwd: worktreePath });
+      execSync('git config --worktree user.name "Someone Else"', { cwd: worktreePath });
+      execSync('git config --worktree user.email "else@example.com"', { cwd: worktreePath });
 
-      // installCoAuthorHook should overwrite with the projectDir author
-      const result = await installCoAuthorHook(worktreePath, testDir);
+      const result = await pinAuthorInWorktree(worktreePath, testDir);
       expect(result).toBe(true);
 
-      // Worktree config should now have the projectDir author, not the pre-set one
       const userName = execSync('git config --worktree user.name', { cwd: worktreePath }).toString().trim();
       const userEmail = execSync('git config --worktree user.email', { cwd: worktreePath }).toString().trim();
       expect(userName).toBe('Test');
       expect(userEmail).toBe('test@test.com');
     });
 
-    it('commit Author is the human and Claude is co-author', async () => {
-      worktreePath = join(testDir, '.worktrees', 'hook-test-commit');
-      await createWorktreeForBranch(testDir, 'hook-test-commit', worktreePath, { skipFetch: true });
+    it('pinned author is used as commit Author', async () => {
+      worktreePath = join(testDir, '.worktrees', 'pin-test-commit');
+      await createWorktreeForBranch(testDir, 'pin-test-commit', worktreePath, { skipFetch: true });
 
-      const installed = await installCoAuthorHook(worktreePath, testDir);
-      expect(installed).toBe(true);
+      await pinAuthorInWorktree(worktreePath, testDir);
 
-      // Create a file and commit
       await writeFile(join(worktreePath, 'test.txt'), 'hello');
       execSync('git add test.txt', { cwd: worktreePath });
       execSync('git commit -m "Test commit"', { cwd: worktreePath });
 
-      // Check that the Author is the human (from pinned worktree config)
       const author = execSync('git log -1 --format="%an <%ae>"', { cwd: worktreePath }).toString().trim();
       expect(author).toBe('Test <test@test.com>');
-
-      // Check that Claude is the co-author in the commit message
-      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
-      expect(body).toContain('Test commit');
-      expect(body).toContain('Co-Authored-By: Claude <noreply@anthropic.com>');
-    });
-
-    it('hook does not duplicate Claude co-author if already present', async () => {
-      worktreePath = join(testDir, '.worktrees', 'hook-test-dedupe');
-      await createWorktreeForBranch(testDir, 'hook-test-dedupe', worktreePath, { skipFetch: true });
-
-      const installed = await installCoAuthorHook(worktreePath, testDir);
-      expect(installed).toBe(true);
-
-      // Commit with the Claude co-author already in the message
-      await writeFile(join(worktreePath, 'test2.txt'), 'world');
-      execSync('git add test2.txt', { cwd: worktreePath });
-      execSync('git commit -m "Test with co-author\n\nCo-Authored-By: Claude <noreply@anthropic.com>"', { cwd: worktreePath });
-
-      // Check the commit log — Claude co-author should appear exactly once
-      const log = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
-      const count = (log.match(/Co-Authored-By: Claude <noreply@anthropic.com>/g) || []).length;
-      expect(count).toBe(1);
-    });
-
-    it('each worktree gets its own isolated hooksPath', async () => {
-      const worktreePath1 = join(testDir, '.worktrees', 'hook-isolate-1');
-      const worktreePath2 = join(testDir, '.worktrees', 'hook-isolate-2');
-
-      await createWorktreeForBranch(testDir, 'hook-isolate-1', worktreePath1, { skipFetch: true });
-      await createWorktreeForBranch(testDir, 'hook-isolate-2', worktreePath2, { skipFetch: true });
-
-      await installCoAuthorHook(worktreePath1, testDir);
-      await installCoAuthorHook(worktreePath2, testDir);
-
-      // Each worktree should have its own hooksPath in its git internal dir
-      const hooksPath1 = execSync('git config --worktree core.hooksPath', { cwd: worktreePath1 })
-        .toString()
-        .trim();
-      const hooksPath2 = execSync('git config --worktree core.hooksPath', { cwd: worktreePath2 })
-        .toString()
-        .trim();
-
-      expect(hooksPath1).not.toBe(hooksPath2);
-      expect(hooksPath1).toContain('hooks');
-      expect(hooksPath2).toContain('hooks');
-
-      // Cleanup both worktrees
-      try {
-        execSync(`git worktree remove --force "${worktreePath2}"`, { cwd: testDir });
-      } catch {
-        // Ignore cleanup errors
-      }
-      worktreePath = worktreePath1; // Only clean up first one in afterEach
     });
   });
 });

@@ -32,8 +32,8 @@ export async function setupGitForSession({ projectDir, gitMode, gitBranch, sessi
     // Create a worktree in .worktrees/{sessionId}
     const worktreePath = join(projectDir, '.worktrees', sessionId);
     await gitService.createWorktreeForBranch(projectDir, gitBranch, worktreePath);
-    // Install co-author hook in the worktree (isolated, self-cleaning)
-    await gitService.installCoAuthorHook(worktreePath, projectDir);
+    // Pin the human developer's git identity so they are the commit Author
+    await gitService.pinAuthorInWorktree(worktreePath, projectDir);
     return {
       workingDirectory: worktreePath,
       gitWorktree: worktreePath,
