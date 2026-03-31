@@ -31,6 +31,9 @@
       </button>
     </div>
 
+    <!-- Scheduling Info (only for scheduled sessions) -->
+    <SchedulingInfo v-if="isScheduled" :session="session" />
+
     <!-- Session Overview Section -->
     <div v-if="hasPrInfo || summary?.shortSummary || loading" class="session-overview card">
       <div class="overview-header">
@@ -113,6 +116,7 @@ import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
+import SchedulingInfo from './SchedulingInfo.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -185,6 +189,7 @@ const isRunning = computed(() => {
   const status = session.value?.status;
   return status === 'running' || status === 'starting';
 });
+const isScheduled = computed(() => session.value?.status === 'scheduled');
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 const hasWarnings = computed(() => summary.value?.hasMergeConflicts || summary.value?.ciStatus === 'failure');
