@@ -11,6 +11,7 @@ vi.mock('../composables/useApi.js', () => ({
     regenerateSessionSummary: vi.fn().mockResolvedValue({ shortSummary: 'Test summary' }),
     generateSessionSummary: vi.fn().mockResolvedValue({ shortSummary: 'Test summary' }),
     getWorkflowLatestResponse: vi.fn().mockResolvedValue(null),
+    getSessionFilesCount: vi.fn().mockResolvedValue({ count: 0 }),
   },
 }));
 
@@ -24,6 +25,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
     onWorkLog: vi.fn(() => vi.fn()),
     onPartial: vi.fn(() => vi.fn()),
     onThinkingPartial: vi.fn(() => vi.fn()),
+    onMessage: vi.fn(() => vi.fn()),
   })),
 }));
 
@@ -38,6 +40,7 @@ import SummaryTab from './SummaryTab.vue';
 import { api } from '../composables/useApi.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
+import { useSessionSubscription } from '../composables/useWebSocket.js';
 
 describe('SummaryTab', () => {
   let sessionsStore;
@@ -435,6 +438,130 @@ describe('SummaryTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.find('.expand-toggle').exists()).toBe(false);
+    });
+  });
+
+  describe('Latest Response Real-Time Updates', () => {
+    /**
+     * Helper: retrieve the onMessage callback captured by the mock.
+     * useSessionSubscription returns an object with onMessage (a vi.fn).
+     * That vi.fn was called with a callback when the component registered
+     * the handler — we extract it so tests can fire it manually.
+     */
+    function getOnMessageCallback() {
+      // The mock returns a fresh object each call; get the latest call's return value
+      const subscription = useSessionSubscription.mock.results.at(-1).value;
+      // onMessage is a vi.fn(() => vi.fn()) — the outer fn was called with the
+      // component's callback, so it's the first (and only) call arg.
+      return subscription.onMessage.mock.calls[0][0];
+    }
+
+    it('updates latestResponse when assistant message arrives via onMessage', async () => {
+      // Mount with no initial latest response
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(false);
+
+      // Fire the onMessage callback with an assistant message
+      const onMessageCb = getOnMessageCallback();
+      onMessageCb({
+        role: 'assistant',
+        content: 'New real-time response',
+        timestamp: Date.now(),
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.text()).toContain('New real-time response');
+    });
+
+    it('does not update latestResponse for user messages', async () => {
+      // Set an initial latest response from the API
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Initial API response',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.text()).toContain('Initial API response');
+
+      // Fire onMessage with a user message
+      const onMessageCb = getOnMessageCallback();
+      onMessageCb({
+        role: 'user',
+        content: 'User question',
+        timestamp: Date.now(),
+      });
+      await flushAll(wrapper);
+
+      // Should still show the original API response, not the user message
+      expect(wrapper.text()).toContain('Initial API response');
+      expect(wrapper.text()).not.toContain('User question');
+    });
+
+    it('does not update latestResponse for empty assistant messages', async () => {
+      // Set an initial latest response from the API
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Initial API response',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.text()).toContain('Initial API response');
+
+      // Fire onMessage with empty assistant message
+      const onMessageCb = getOnMessageCallback();
+      onMessageCb({
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+      });
+      await flushAll(wrapper);
+
+      // Should still show the original response
+      expect(wrapper.text()).toContain('Initial API response');
+    });
+
+    it('shows session name from current session in real-time update', async () => {
+      // Set the session name
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        name: 'My Session',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // No initial response
+      expect(wrapper.find('.latest-response').exists()).toBe(false);
+
+      // Fire onMessage with an assistant message
+      const onMessageCb = getOnMessageCallback();
+      onMessageCb({
+        role: 'assistant',
+        content: 'Real-time content',
+        timestamp: Date.now(),
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.text()).toContain('from My Session');
+      expect(wrapper.text()).toContain('Real-time content');
     });
   });
 

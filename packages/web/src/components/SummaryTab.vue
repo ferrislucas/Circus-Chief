@@ -121,7 +121,7 @@ const props = defineProps({
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const streamingStore = useSessionStreamingStore();
-const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial } = useSessionSubscription(props.sessionId);
+const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial, onMessage } = useSessionSubscription(props.sessionId);
 
 // Restore collapsed log state for this session
 streamingStore.restoreCollapsedLogState();
@@ -145,6 +145,16 @@ onPartial((text) => {
 onThinkingPartial((thinking) => {
   if (thinking) {
     streamingStore.setPartialThinking(thinking, props.sessionId);
+  }
+});
+
+// Listen for new assistant messages to update Latest Response in real time
+onMessage((message) => {
+  if (message.role === 'assistant' && message.content) {
+    latestResponse.value = {
+      message,
+      sessionName: session.value?.name || null,
+    };
   }
 });
 
