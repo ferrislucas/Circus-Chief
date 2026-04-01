@@ -542,8 +542,9 @@ test.describe('Category 5: Scheduling UI Components', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
 
-    // Click "Edit Schedule" button
-    const editButton = page.getByRole('button', { name: 'Edit Schedule' });
+    // Click "Edit Schedule" button (scoped to overlay to avoid duplicate from SummaryTab)
+    const overlay = page.getByTestId('session-tree-overlay');
+    const editButton = overlay.getByRole('button', { name: 'Edit Schedule' });
     await expect(editButton).toBeVisible({ timeout: 10000 });
     await editButton.click();
 
