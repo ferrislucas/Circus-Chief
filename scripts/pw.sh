@@ -133,11 +133,13 @@ detect_or_start_server() {
     local server_pid=$!
 
     # Wait for .server-port file to be created
-    # Package server needs longer timeout (build + npm install)
+    # Timeout must cover the full build step (yarn build) which runs before
+    # .server-port is written. Builds typically take 15-30s, so 120s gives margin.
+    # Package server needs even longer (build + npm install).
     local elapsed=0
-    local timeout=60
+    local timeout=120
     if [ "$USE_PACKAGE_SERVER" = true ]; then
-        timeout=120
+        timeout=180
     fi
     while [ $elapsed -lt $timeout ]; do
         if [ -f "$port_file" ]; then

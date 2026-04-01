@@ -128,31 +128,28 @@ test.describe('Multiple Conversations', () => {
     expect(activeConvs[0].name).toBe('Second Conversation');
   });
 
-  test('new conversation button visible in UI', async ({ page }) => {
+  test('new conversation button hidden in overlay', async ({ page }) => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
 
-    // The "New Conversation" button should be visible
+    // The "New Conversation" button should be hidden in the overlay
+    // (the overlay uses hideNewConversation prop to avoid cluttering the UI)
     const newBtn = page.locator('.btn-new');
-    await expect(newBtn).toBeVisible({ timeout: 10000 });
-    await expect(newBtn).toContainText('New Conversation');
+    await expect(newBtn).not.toBeVisible({ timeout: 10000 });
   });
 
-  test('clicking new conversation creates conversation and updates UI', async ({ page }) => {
+  test('creating conversation via API updates session', async ({ page }) => {
+    // The overlay hides the "New Conversation" button, so test via API
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
 
-    // Click "New Conversation" button
-    const newBtn = page.locator('.btn-new');
-    await expect(newBtn).toBeVisible({ timeout: 10000 });
-    await newBtn.click();
-
-    // Wait for the new conversation to be created
-    await page.waitForTimeout(1000);
+    // Create a conversation via API
+    const newConv = await seedConversation(session.id, 'API Created Conv');
 
     // Verify conversations count increased
     const convs = await getConversations(session.id);
     expect(convs).toHaveLength(2);
+    expect(newConv.name).toBe('API Created Conv');
   });
 
   test('cannot create conversation while session is running', async () => {
@@ -193,9 +190,9 @@ test.describe('Active Conversation Tracking and Switching', () => {
     const dropdownContainer = page.locator('.dropdown-container');
     await expect(dropdownContainer).not.toBeVisible({ timeout: 5000 });
 
-    // But the "New Conversation" button should be visible
+    // The "New Conversation" button is intentionally hidden in the overlay
     const newBtn = page.locator('.btn-new');
-    await expect(newBtn).toBeVisible({ timeout: 10000 });
+    await expect(newBtn).not.toBeVisible({ timeout: 10000 });
   });
 
   test('conversation selector appears when multiple conversations exist', async ({ page }) => {
