@@ -69,8 +69,10 @@ async function safeFetchOrigin(directory) {
  * @param {string} command
  * @returns {Promise<string>}
  */
-async function git(directory, command) {
-  const { stdout } = await execAsync(`git ${command}`, { cwd: directory });
+async function git(directory, command, opts = {}) {
+  const execOpts = { cwd: directory };
+  if (opts.env) execOpts.env = opts.env;
+  const { stdout } = await execAsync(`git ${command}`, execOpts);
   return stdout.trim();
 }
 
@@ -454,14 +456,20 @@ export async function getModifiedFilesCount(directory, branch) {
 }
 
 /**
- * Get the git author info configured for a directory
+ * Get the git author info from the global config (~/.gitconfig).
+ *
+ * Uses `--global` so that a contaminated local config (e.g. one that
+ * already has Claude Code's identity) is bypassed.
+ *
  * @param {string} directory
+ * @param {Object} [options]
+ * @param {Object} [options.env] - Custom environment variables (useful for tests)
  * @returns {Promise<{name: string, email: string} | null>}
  */
-export async function getGitAuthor(directory) {
+export async function getGitAuthor(directory, { env } = {}) {
   try {
-    const name = await git(directory, 'config user.name');
-    const email = await git(directory, 'config user.email');
+    const name = await git(directory, 'config --global user.name', { env });
+    const email = await git(directory, 'config --global user.email', { env });
     if (name && email) {
       return { name, email };
     }
@@ -486,8 +494,8 @@ export async function getGitAuthor(directory) {
  * @param {string} projectDir - The main project directory (to read author from)
  * @returns {Promise<boolean>} - True if author was pinned
  */
-export async function pinAuthorInWorktree(worktreePath, projectDir) {
-  const author = await getGitAuthor(projectDir || worktreePath);
+export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}) {
+  const author = await getGitAuthor(projectDir || worktreePath, { env });
   if (!author) return false;
 
   // Enable worktree-specific config (required for --worktree flag)

@@ -633,44 +633,76 @@ describe('gitService', () => {
   });
 
   describe('getGitAuthor', () => {
-    it('returns author info when user.name and user.email are configured', async () => {
-      const author = await getGitAuthor(testDir);
-      expect(author).toEqual({ name: 'Test', email: 'test@test.com' });
+    /**
+     * Create an env object that isolates git global config by redirecting HOME.
+     * This works on all git versions (GIT_CONFIG_GLOBAL requires git 2.32+).
+     * @param {string} fakeHomePath - Directory containing a .gitconfig file
+     */
+    function createIsolatedGitEnv(fakeHomePath) {
+      return {
+        ...process.env,
+        HOME: fakeHomePath,
+        XDG_CONFIG_HOME: '/dev/null',
+      };
+    }
+
+    let fakeHome;
+
+    beforeEach(async () => {
+      fakeHome = await mkdtemp(join(tmpdir(), 'fake-home-'));
     });
 
-    it('returns null when user.name is empty', async () => {
-      // Set to empty string — git config returns empty, which is falsy
-      execSync('git config --local user.name ""', { cwd: testDir });
-      const author = await getGitAuthor(testDir);
+    afterEach(async () => {
+      if (fakeHome) await rm(fakeHome, { recursive: true, force: true });
+    });
+
+    it('returns author info when global user.name and user.email are configured', async () => {
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human\n\temail = human@example.com\n');
+
+      const author = await getGitAuthor(testDir, { env: createIsolatedGitEnv(fakeHome) });
+      expect(author).toEqual({ name: 'Human', email: 'human@example.com' });
+    });
+
+    it('returns null when global user.name is missing', async () => {
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\temail = human@example.com\n');
+
+      const author = await getGitAuthor(testDir, { env: createIsolatedGitEnv(fakeHome) });
       expect(author).toBeNull();
     });
 
-    it('returns null when user.email is empty', async () => {
-      execSync('git config --local user.email ""', { cwd: testDir });
-      const author = await getGitAuthor(testDir);
+    it('returns null when global user.email is missing', async () => {
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human\n');
+
+      const author = await getGitAuthor(testDir, { env: createIsolatedGitEnv(fakeHome) });
       expect(author).toBeNull();
     });
 
-    it('returns null for non-git directory', async () => {
-      // Use a temp dir without git, with HOME isolated to prevent global config fallback
-      const nonGitDir = await mkdtemp(join(tmpdir(), 'non-git-'));
-      try {
-        // Create a custom gitService runner that isolates HOME
-        const { execAsync: isolatedExec } = await import('./gitService.js');
-        // For non-git dir, git commands will fail, so getGitAuthor should return null
-        // But global config may still be found. Use env isolation for this test.
-        const author = await getGitAuthor(nonGitDir);
-        // This may return global config on some systems; the real test is that
-        // it handles errors gracefully. We just verify it doesn't throw.
-        expect(typeof author === 'object' || author === null).toBe(true);
-      } finally {
-        await rm(nonGitDir, { recursive: true, force: true });
-      }
+    it('returns null when no global config exists', async () => {
+      // fakeHome has no .gitconfig file
+      const author = await getGitAuthor(testDir, { env: createIsolatedGitEnv(fakeHome) });
+      expect(author).toBeNull();
     });
   });
 
   describe('pinAuthorInWorktree', () => {
     let worktreePath;
+    let fakeHome;
+
+    /**
+     * Create an env object that isolates git global config by redirecting HOME.
+     * Works on all git versions (GIT_CONFIG_GLOBAL requires git 2.32+).
+     */
+    function createIsolatedGitEnv(fakeHomePath) {
+      return {
+        ...process.env,
+        HOME: fakeHomePath,
+        XDG_CONFIG_HOME: '/dev/null',
+      };
+    }
+
+    beforeEach(async () => {
+      fakeHome = await mkdtemp(join(tmpdir(), 'fake-home-'));
+    });
 
     afterEach(async () => {
       if (worktreePath && existsSync(worktreePath)) {
@@ -680,40 +712,44 @@ describe('gitService', () => {
           // Ignore cleanup errors
         }
       }
+      if (fakeHome) await rm(fakeHome, { recursive: true, force: true });
     });
 
-    it('pins human identity in worktree config from projectDir', async () => {
+    it('pins human identity in worktree config from global config, even when local config is contaminated', async () => {
       worktreePath = join(testDir, '.worktrees', 'pin-test-1');
       await createWorktreeForBranch(testDir, 'pin-test-1', worktreePath, { skipFetch: true });
 
-      const result = await pinAuthorInWorktree(worktreePath, testDir);
+      // Simulate contamination: local config has Claude Code's identity
+      execSync('git config --local user.name "Claude Code"', { cwd: testDir });
+      execSync('git config --local user.email "noreply@anthropic.com"', { cwd: testDir });
+
+      // Global config (in fake HOME) has the real human identity
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human\n\temail = human@example.com\n');
+
+      const result = await pinAuthorInWorktree(worktreePath, testDir, {
+        env: createIsolatedGitEnv(fakeHome),
+      });
       expect(result).toBe(true);
 
       const userName = execSync('git config --worktree user.name', { cwd: worktreePath }).toString().trim();
       const userEmail = execSync('git config --worktree user.email', { cwd: worktreePath }).toString().trim();
-      expect(userName).toBe('Test');
-      expect(userEmail).toBe('test@test.com');
+      // Should have the human's identity, NOT Claude Code
+      expect(userName).toBe('Human');
+      expect(userEmail).toBe('human@example.com');
     });
 
-    it('returns false when no git author is configured in project dir', async () => {
+    it('returns false when no global git author is configured', async () => {
       worktreePath = join(testDir, '.worktrees', 'pin-test-no-author');
       await createWorktreeForBranch(testDir, 'pin-test-no-author', worktreePath, { skipFetch: true });
 
-      const savedName = execSync('git config --local user.name', { cwd: testDir }).toString().trim();
-      const savedEmail = execSync('git config --local user.email', { cwd: testDir }).toString().trim();
-      execSync('git config --local user.name ""', { cwd: testDir });
-      execSync('git config --local user.email ""', { cwd: testDir });
-
-      try {
-        const result = await pinAuthorInWorktree(worktreePath, testDir);
-        expect(result).toBe(false);
-      } finally {
-        execSync(`git config --local user.name "${savedName}"`, { cwd: testDir });
-        execSync(`git config --local user.email "${savedEmail}"`, { cwd: testDir });
-      }
+      // fakeHome has no .gitconfig
+      const result = await pinAuthorInWorktree(worktreePath, testDir, {
+        env: createIsolatedGitEnv(fakeHome),
+      });
+      expect(result).toBe(false);
     });
 
-    it('overwrites existing worktree author with projectDir author', async () => {
+    it('overwrites existing worktree author with global author', async () => {
       worktreePath = join(testDir, '.worktrees', 'pin-test-overwrite');
       await createWorktreeForBranch(testDir, 'pin-test-overwrite', worktreePath, { skipFetch: true });
 
@@ -722,27 +758,41 @@ describe('gitService', () => {
       execSync('git config --worktree user.name "Someone Else"', { cwd: worktreePath });
       execSync('git config --worktree user.email "else@example.com"', { cwd: worktreePath });
 
-      const result = await pinAuthorInWorktree(worktreePath, testDir);
+      // Global config has the correct human identity
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human\n\temail = human@example.com\n');
+
+      const result = await pinAuthorInWorktree(worktreePath, testDir, {
+        env: createIsolatedGitEnv(fakeHome),
+      });
       expect(result).toBe(true);
 
       const userName = execSync('git config --worktree user.name', { cwd: worktreePath }).toString().trim();
       const userEmail = execSync('git config --worktree user.email', { cwd: worktreePath }).toString().trim();
-      expect(userName).toBe('Test');
-      expect(userEmail).toBe('test@test.com');
+      expect(userName).toBe('Human');
+      expect(userEmail).toBe('human@example.com');
     });
 
-    it('pinned author is used as commit Author', async () => {
+    it('pinned author is used as commit Author even when local config is contaminated', async () => {
       worktreePath = join(testDir, '.worktrees', 'pin-test-commit');
       await createWorktreeForBranch(testDir, 'pin-test-commit', worktreePath, { skipFetch: true });
 
-      await pinAuthorInWorktree(worktreePath, testDir);
+      // Simulate contamination in local config
+      execSync('git config --local user.name "Claude Code"', { cwd: testDir });
+      execSync('git config --local user.email "noreply@anthropic.com"', { cwd: testDir });
+
+      // Global config has the human identity
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human\n\temail = human@example.com\n');
+
+      await pinAuthorInWorktree(worktreePath, testDir, {
+        env: createIsolatedGitEnv(fakeHome),
+      });
 
       await writeFile(join(worktreePath, 'test.txt'), 'hello');
       execSync('git add test.txt', { cwd: worktreePath });
       execSync('git commit -m "Test commit"', { cwd: worktreePath });
 
       const author = execSync('git log -1 --format="%an <%ae>"', { cwd: worktreePath }).toString().trim();
-      expect(author).toBe('Test <test@test.com>');
+      expect(author).toBe('Human <human@example.com>');
     });
   });
 });
