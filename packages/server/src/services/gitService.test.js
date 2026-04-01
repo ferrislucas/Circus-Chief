@@ -682,6 +682,19 @@ describe('gitService', () => {
       const author = await getGitAuthor(testDir, { env: createIsolatedGitEnv(fakeHome) });
       expect(author).toBeNull();
     });
+
+    it('reads global config and ignores contaminated local config', async () => {
+      // Simulate contamination: local repo config has Claude Code's identity
+      execSync('git config --local user.name "Claude Code"', { cwd: testDir });
+      execSync('git config --local user.email "noreply@anthropic.com"', { cwd: testDir });
+
+      // Global config (in fake HOME) has the real human identity
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human Dev\n\temail = human@dev.com\n');
+
+      const author = await getGitAuthor(testDir, { env: createIsolatedGitEnv(fakeHome) });
+      // Must return the global identity, NOT the local "Claude Code" identity
+      expect(author).toEqual({ name: 'Human Dev', email: 'human@dev.com' });
+    });
   });
 
   describe('pinAuthorInWorktree', () => {
@@ -770,6 +783,40 @@ describe('gitService', () => {
       const userEmail = execSync('git config --worktree user.email', { cwd: worktreePath }).toString().trim();
       expect(userName).toBe('Human');
       expect(userEmail).toBe('human@example.com');
+    });
+
+    it('falls back to worktreePath when projectDir is null', async () => {
+      worktreePath = join(testDir, '.worktrees', 'pin-test-fallback');
+      await createWorktreeForBranch(testDir, 'pin-test-fallback', worktreePath, { skipFetch: true });
+
+      // Global config has the human identity
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Fallback Human\n\temail = fallback@example.com\n');
+
+      // Pass null for projectDir — should fall back to worktreePath
+      const result = await pinAuthorInWorktree(worktreePath, null, {
+        env: createIsolatedGitEnv(fakeHome),
+      });
+      expect(result).toBe(true);
+
+      const userName = execSync('git config --worktree user.name', { cwd: worktreePath }).toString().trim();
+      const userEmail = execSync('git config --worktree user.email', { cwd: worktreePath }).toString().trim();
+      expect(userName).toBe('Fallback Human');
+      expect(userEmail).toBe('fallback@example.com');
+    });
+
+    it('enables extensions.worktreeConfig on the worktree', async () => {
+      worktreePath = join(testDir, '.worktrees', 'pin-test-ext');
+      await createWorktreeForBranch(testDir, 'pin-test-ext', worktreePath, { skipFetch: true });
+
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human\n\temail = human@example.com\n');
+
+      await pinAuthorInWorktree(worktreePath, testDir, {
+        env: createIsolatedGitEnv(fakeHome),
+      });
+
+      // extensions.worktreeConfig must be true for --worktree flag to work
+      const extValue = execSync('git config extensions.worktreeConfig', { cwd: worktreePath }).toString().trim();
+      expect(extValue).toBe('true');
     });
 
     it('pinned author is used as commit Author even when local config is contaminated', async () => {
