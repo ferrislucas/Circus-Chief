@@ -693,13 +693,38 @@ router.post('/:id/duplicate', requireSession, async (req, res) => {
 
 // DELETE /api/sessions/:id - Delete session
 router.delete('/:id', requireSessionAndProject, async (req, res) => {
-  // Clean up active session if running
-  cleanupActiveSession(req.params.id);
+  // Collect all descendant session IDs before any deletions
+  // (database ON DELETE SET NULL would orphan them otherwise)
+  const descendantIds = sessions.getAllDescendantIds(req.params.id);
 
-  // Clean up summary service debounce timers
-  summaryService.cleanupSession(req.params.id);
+  // Helper: clean up and delete a single session by ID
+  const cleanupAndDeleteSession = async (sessionId) => {
+    // Clean up active session if running
+    cleanupActiveSession(sessionId);
 
-  // Remove git worktree if session has one (skip for child sessions - they may share parent's worktree)
+    // Clean up summary service debounce timers
+    summaryService.cleanupSession(sessionId);
+
+    // Clean up attachment files from disk
+    try {
+      attachments.deleteSessionAttachmentsFromDisk(req.workingDirectory, sessionId);
+    } catch (error) {
+      console.warn(`Failed to remove attachment files for session ${sessionId}:`, error.message);
+    }
+
+    // Broadcast deletion to close any open WebSocket subscriptions
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId });
+
+    // Delete session (cascade will handle messages, canvas items, notes)
+    sessions.delete(sessionId);
+  };
+
+  // Delete all descendants first (leaves before branches to avoid orphaning)
+  for (const descendantId of descendantIds.reverse()) {
+    await cleanupAndDeleteSession(descendantId);
+  }
+
+  // Remove git worktree if parent session has one (skip for child sessions - they may share parent's worktree)
   if (req.session_.gitWorktree && !req.session_.parentSessionId) {
     try {
       await gitService.removeWorktree(req.project.workingDirectory, req.session_.gitWorktree, true);
@@ -709,25 +734,22 @@ router.delete('/:id', requireSessionAndProject, async (req, res) => {
     }
   }
 
-  // Clean up attachment files from disk
-  try {
-    attachments.deleteSessionAttachmentsFromDisk(req.workingDirectory, req.session_.id);
-  } catch (error) {
-    // Log but don't fail - files may already be removed
-    console.warn(`Failed to remove attachment files for session ${req.session_.id}:`, error.message);
-  }
-
-  // Broadcast deletion to close any open WebSocket subscriptions
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId: req.params.id });
+  // Clean up and delete the parent session itself
+  await cleanupAndDeleteSession(req.params.id);
 
   // Broadcast deletion to project subscribers for real-time list updates
+  // (sends one event per deleted session so the frontend can remove them all)
   broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_DELETED, {
     projectId: req.session_.projectId,
     sessionId: req.params.id,
   });
 
-  // Delete session (cascade will handle messages, canvas items, notes)
-  sessions.delete(req.params.id);
+  for (const descendantId of descendantIds) {
+    broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_DELETED, {
+      projectId: req.session_.projectId,
+      sessionId: descendantId,
+    });
+  }
 
   // Execute on_session_deleted hook if configured (non-blocking)
   // Skip for child sessions - they share parent's resources and shouldn't trigger teardown
