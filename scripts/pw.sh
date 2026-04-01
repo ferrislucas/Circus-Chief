@@ -124,8 +124,10 @@ detect_or_start_server() {
     local server_pid=$!
 
     # Wait for .server-port file to be created
+    # Timeout must cover the full build step (yarn build) which runs before
+    # .server-port is written. Builds typically take 15-30s, so 120s gives margin.
     local elapsed=0
-    local timeout=60
+    local timeout=120
     while [ $elapsed -lt $timeout ]; do
         if [ -f "$port_file" ]; then
             detected_port=$(cat "$port_file")
