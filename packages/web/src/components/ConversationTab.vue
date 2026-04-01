@@ -163,7 +163,7 @@ const attachedFiles = ref([]);
 const selectedModel = ref(null);
 
 // Draft saving composable
-const { saveStatus, saveError, handleInput, savePendingPrompt } = useDraftSaving({
+const { saveStatus, saveError, handleInput, savePendingPrompt, flush: flushDraft } = useDraftSaving({
   input,
   canSendMessage: computed(() => canSendMessage.value),
   isRunning: computed(() => isRunning.value),
@@ -314,6 +314,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  // Flush any pending draft save immediately before the component is destroyed.
+  // This ensures drafts typed within the debounce window (500ms) are not lost
+  // when the overlay closes or the user switches sessions.
+  flushDraft();
   sessionsStore.clearWorkLogs();
 });
 
@@ -444,7 +448,13 @@ async function handleFormSubmit() {
     const sessionModel = selectedModel.value
       || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
-    await handleStart(currentValue, sessionModel);
+    const success = await handleStart(currentValue, sessionModel);
+    if (success) {
+      input.value = '';
+      if (textareaRef) textareaRef.value = '';
+      attachedFiles.value = [];
+      inputFormRef.value?.clearFiles();
+    }
   } else {
     const textareaRef = inputFormRef.value?.textareaRef;
     const currentValue = textareaRef?.value || input.value;
@@ -525,6 +535,10 @@ function handleSlashCommandInsert({ text }) {
     }
   });
 }
+
+// Expose flushDraft so parent components (e.g. SessionTreeOverlay) can
+// force-save pending drafts before switching sessions.
+defineExpose({ flushDraft });
 </script>
 
 <style scoped>

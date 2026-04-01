@@ -163,6 +163,7 @@
             </div>
             <ConversationTab
               v-else
+              ref="conversationTabRef"
               :session-id="activeSessionId"
               :key="activeSessionId"
               :scroll-container-ref="overlayBodyRef"
@@ -218,10 +219,16 @@ const closing = ref(false);
 const activeSessionId = ref(props.sessionId);
 const isMobile = ref(false);
 const isCreatingSession = ref(false);
-const switchingSession = ref(false);
+// Start as true so ConversationTab doesn't mount until loadSessionData completes.
+// This prevents a race condition where ConversationTab reads currentSession before
+// it has been set to the overlay's target session.
+const switchingSession = ref(true);
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
+
+// Template ref to the ConversationTab for flushing drafts before session switch
+const conversationTabRef = ref(null);
 
 // Picker state
 const pickerOpen = ref(false);
@@ -449,6 +456,10 @@ async function saveSessionName() {
 async function switchToSession(newSessionId) {
   if (newSessionId === activeSessionId.value) return;
 
+  // Flush any pending draft save for the CURRENT session before switching.
+  // This ensures that text typed within the debounce window is persisted.
+  conversationTabRef.value?.flushDraft?.();
+
   // Show spinner immediately
   switchingSession.value = true;
 
@@ -456,6 +467,8 @@ async function switchToSession(newSessionId) {
     // Reset shared store state to avoid stale data from previous session
     sessionsStore.clearRunningUsage();
     sessionsStore.clearPartialText();
+    sessionsStore.messages = [];
+    sessionsStore.workLogs = {};
     todosStore.clearTodos();
 
     cleanupSubscription();
@@ -481,6 +494,13 @@ async function loadSessionData(sessionId) {
     await sessionsStore.fetchSession(sessionId, false);
     // Fetch conversations for this session
     await sessionsStore.fetchConversations(sessionId);
+
+    // Fetch messages and work logs for the new session's active conversation.
+    // Without this, sessionsStore.messages would still contain stale data from
+    // the previously viewed session — ConversationTab's onMounted and watchers
+    // do not fetch messages on their own.
+    await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
+    await sessionsStore.fetchWorkLogs(sessionId);
 
     // Fetch todos for the new active conversation
     if (sessionsStore.activeConversationId) {
@@ -591,9 +611,15 @@ onMounted(async () => {
   window.addEventListener('resize', checkMobile);
   checkMobile();
 
-  // Load data for the active session
-  await loadSessionData(activeSessionId.value);
-  setupSubscription(activeSessionId.value);
+  // Load data for the active session, then reveal ConversationTab.
+  // switchingSession starts as true, so ConversationTab won't mount until
+  // currentSession is set to the correct overlay session.
+  try {
+    await loadSessionData(activeSessionId.value);
+    setupSubscription(activeSessionId.value);
+  } finally {
+    switchingSession.value = false;
+  }
 });
 
 onUnmounted(() => {
@@ -708,7 +734,7 @@ defineExpose({
 
 .overlay-close-handle {
   position: absolute;
-  left: -48px;
+  left: 0;
   top: 50%;
   transform: translateY(-50%);
   width: 44px;

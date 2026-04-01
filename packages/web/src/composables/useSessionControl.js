@@ -61,13 +61,15 @@ export function useSessionControl({ getSessionId }) {
    * @param {string} model - The model to use
    */
   async function handleStart(prompt, model) {
-    if (restarting.value || !prompt?.trim()) return;
+    if (restarting.value || !prompt?.trim()) return false;
 
     restarting.value = true;
     try {
       await sessionsStore.startSession(getSessionId(), prompt, model);
+      return true;
     } catch (err) {
       uiStore.error(err.message);
+      return false;
     } finally {
       restarting.value = false;
     }
