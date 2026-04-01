@@ -17,14 +17,30 @@ vi.mock('../composables/useApi.js', () => ({
 // Note: Not mocking sessions and UI stores - will use actual Pinia instances
 
 // Mock WebSocket composable
-vi.mock('../composables/useWebSocket.js', () => ({
-  useSessionSubscription: vi.fn(() => ({
+// Factory that creates a fresh subscription mock, tracking calls per sessionId
+const subscriptionsBySessionId = {};
+function createMockSubscription() {
+  return {
     onSummaryUpdate: vi.fn(() => vi.fn()),
     onSummaryGenerating: vi.fn(() => vi.fn()),
     onWorkLog: vi.fn(() => vi.fn()),
     onPartial: vi.fn(() => vi.fn()),
     onThinkingPartial: vi.fn(() => vi.fn()),
-  })),
+    onChangesUpdate: vi.fn(() => vi.fn()),
+    onStatus: vi.fn(() => vi.fn()),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+  };
+}
+vi.mock('../composables/useWebSocket.js', () => ({
+  useSessionSubscription: vi.fn((sessionId) => {
+    const sub = createMockSubscription();
+    if (!subscriptionsBySessionId[sessionId]) {
+      subscriptionsBySessionId[sessionId] = [];
+    }
+    subscriptionsBySessionId[sessionId].push(sub);
+    return sub;
+  }),
 }));
 
 // Mock router
@@ -36,6 +52,7 @@ vi.mock('vue-router', () => ({
 
 import SummaryTab from './SummaryTab.vue';
 import { api } from '../composables/useApi.js';
+import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 
@@ -47,6 +64,9 @@ describe('SummaryTab', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+
+    // Clear subscription tracking
+    Object.keys(subscriptionsBySessionId).forEach(k => delete subscriptionsBySessionId[k]);
 
     // Reset API mock implementations to defaults
     api.getSessionSummary.mockResolvedValue(null);
@@ -338,6 +358,278 @@ describe('SummaryTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
+    });
+  });
+
+  describe('Descendant Session Live Output', () => {
+    function mountWithLogStream(props = { sessionId: 'sess-123' }) {
+      return mount(SummaryTab, {
+        props,
+        global: {
+          stubs: {
+            MarkdownViewer: {
+              template: '<div class="markdown-stub">{{ content }}</div>',
+              props: ['content'],
+            },
+            SessionLogStream: {
+              name: 'SessionLogStream',
+              props: ['sessionIds'],
+              template: '<div class="session-log-stream-stub">{{ sessionIds }}</div>',
+            },
+          },
+        },
+      });
+    }
+
+    it('renders SessionLogStream when parent is waiting but a child session is running', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'running', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
+      expect(logStream.exists()).toBe(true);
+    });
+
+    it('includes running child session IDs in sessionIds prop', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'running', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
+      expect(logStream.props('sessionIds')).toEqual(['child-1']);
+    });
+
+    it('includes both parent and child IDs when both are running', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'running', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
+      expect(logStream.props('sessionIds')).toEqual(['sess-123', 'child-1']);
+    });
+
+    it('includes deeply nested running descendants (grandchild)', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'waiting', parentSessionId: 'sess-123', projectId: 'proj-1' },
+        { id: 'grandchild-1', status: 'running', parentSessionId: 'child-1', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
+      expect(logStream.exists()).toBe(true);
+      expect(logStream.props('sessionIds')).toEqual(['grandchild-1']);
+    });
+
+    it('excludes non-running child sessions from sessionIds', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'completed', parentSessionId: 'sess-123', projectId: 'proj-1' },
+        { id: 'child-2', status: 'running', parentSessionId: 'sess-123', projectId: 'proj-1' },
+        { id: 'child-3', status: 'error', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
+      expect(logStream.exists()).toBe(true);
+      // Only child-2 is running
+      expect(logStream.props('sessionIds')).toEqual(['child-2']);
+    });
+
+    it('does not render SessionLogStream when parent is waiting and no children are running', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'completed', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
+    });
+
+    it('subscribes to WebSocket events for running descendant sessions', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'running', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      // useSessionSubscription should have been called for the child session
+      expect(useSessionSubscription).toHaveBeenCalledWith('child-1');
+
+      // The descendant subscription should have called subscribe()
+      const childSubs = subscriptionsBySessionId['child-1'];
+      expect(childSubs).toBeDefined();
+      expect(childSubs.length).toBeGreaterThanOrEqual(1);
+      // The descendant subscription (not the initial parent one) calls subscribe()
+      const descendantSub = childSubs.find(s => s.subscribe.mock.calls.length > 0);
+      expect(descendantSub).toBeDefined();
+      expect(descendantSub.subscribe).toHaveBeenCalled();
+    });
+
+    it('unsubscribes from descendant when child session stops running', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'running', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      // Confirm it was subscribed
+      const childSubs = subscriptionsBySessionId['child-1'];
+      const descendantSub = childSubs.find(s => s.subscribe.mock.calls.length > 0);
+      expect(descendantSub).toBeDefined();
+      expect(descendantSub.unsubscribe).not.toHaveBeenCalled();
+
+      // Change child status to completed — replace sessions array to trigger reactivity
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'completed', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+      await flushAll(wrapper);
+
+      // SessionLogStream should be gone (no running sessions)
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
+      // unsubscribe should have been called
+      expect(descendantSub.unsubscribe).toHaveBeenCalled();
+    });
+
+    it('cleans up all descendant subscriptions on unmount', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'running', parentSessionId: 'sess-123', projectId: 'proj-1' },
+        { id: 'child-2', status: 'starting', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      // Both children should be subscribed
+      const child1Sub = subscriptionsBySessionId['child-1']?.find(s => s.subscribe.mock.calls.length > 0);
+      const child2Sub = subscriptionsBySessionId['child-2']?.find(s => s.subscribe.mock.calls.length > 0);
+      expect(child1Sub).toBeDefined();
+      expect(child2Sub).toBeDefined();
+
+      // Unmount
+      wrapper.unmount();
+
+      // Both should be unsubscribed
+      expect(child1Sub.unsubscribe).toHaveBeenCalled();
+      expect(child2Sub.unsubscribe).toHaveBeenCalled();
+    });
+
+    it('subscribes to new running descendant when added dynamically', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      // Initially no SessionLogStream
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
+
+      // Add a running child session
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-new', status: 'running', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+      await flushAll(wrapper);
+
+      // SessionLogStream should now appear
+      expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(true);
+      const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
+      expect(logStream.props('sessionIds')).toEqual(['child-new']);
+
+      // Should have subscribed to the new child
+      expect(useSessionSubscription).toHaveBeenCalledWith('child-new');
+    });
+
+    it('includes starting child sessions in live output', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'starting', parentSessionId: 'sess-123', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountWithLogStream();
+      await flushAll(wrapper);
+
+      const logStream = wrapper.findComponent({ name: 'SessionLogStream' });
+      expect(logStream.exists()).toBe(true);
+      expect(logStream.props('sessionIds')).toEqual(['child-1']);
     });
   });
 
