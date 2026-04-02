@@ -29,6 +29,8 @@ const mockSessionsStore = {
   fetchSessions: vi.fn(),
   fetchConversations: vi.fn(),
   fetchMessages: vi.fn(),
+  fetchWorkLogs: vi.fn(),
+  workLogs: {},
   updateSessionStatus: vi.fn(),
   addMessage: vi.fn(),
   clearPartialText: vi.fn(),
@@ -188,6 +190,8 @@ describe('SessionTreeOverlay', () => {
     mockSessionsStore.fetchSession.mockResolvedValue(undefined);
     mockSessionsStore.fetchSessions.mockResolvedValue(undefined);
     mockSessionsStore.fetchConversations.mockResolvedValue(undefined);
+    mockSessionsStore.fetchMessages.mockResolvedValue(undefined);
+    mockSessionsStore.fetchWorkLogs.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -898,6 +902,8 @@ describe('SessionTreeOverlay', () => {
       expect(wrapper.vm.activeSessionId).toBe('new-sess');
       expect(mockSessionsStore.fetchSession).toHaveBeenCalledWith('new-sess', false);
       expect(mockSessionsStore.fetchConversations).toHaveBeenCalledWith('new-sess');
+      expect(mockSessionsStore.fetchMessages).toHaveBeenCalledWith('new-sess', false, mockSessionsStore.activeConversationId);
+      expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('new-sess');
       wrapper.unmount();
     });
 
@@ -1311,6 +1317,8 @@ describe('SessionTreeOverlay', () => {
       // Verify stale state was cleared
       expect(mockSessionsStore.clearRunningUsage).toHaveBeenCalled();
       expect(mockSessionsStore.clearPartialText).toHaveBeenCalled();
+      expect(mockSessionsStore.messages).toEqual([]);
+      expect(mockSessionsStore.workLogs).toEqual({});
       expect(mockTodosStore.clearTodos).toHaveBeenCalled();
 
       wrapper.unmount();
