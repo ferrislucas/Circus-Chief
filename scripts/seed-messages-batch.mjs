@@ -32,6 +32,7 @@ const { dbPath, messages } = JSON.parse(raw);
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = OFF');
 
 // Cache resolved conversation IDs by sessionId
 const convCache = new Map();
