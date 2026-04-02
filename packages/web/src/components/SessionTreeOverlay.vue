@@ -467,6 +467,8 @@ async function switchToSession(newSessionId) {
     // Reset shared store state to avoid stale data from previous session
     sessionsStore.clearRunningUsage();
     sessionsStore.clearPartialText();
+    sessionsStore.messages = [];
+    sessionsStore.workLogs = {};
     todosStore.clearTodos();
 
     cleanupSubscription();
@@ -492,6 +494,13 @@ async function loadSessionData(sessionId) {
     await sessionsStore.fetchSession(sessionId, false);
     // Fetch conversations for this session
     await sessionsStore.fetchConversations(sessionId);
+
+    // Fetch messages and work logs for the new session's active conversation.
+    // Without this, sessionsStore.messages would still contain stale data from
+    // the previously viewed session — ConversationTab's onMounted and watchers
+    // do not fetch messages on their own.
+    await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
+    await sessionsStore.fetchWorkLogs(sessionId);
 
     // Fetch todos for the new active conversation
     if (sessionsStore.activeConversationId) {

@@ -52,6 +52,14 @@ vi.mock('vue-router', () => ({
   }),
 }));
 
+vi.mock('./SchedulingInfo.vue', () => ({
+  default: {
+    name: 'SchedulingInfo',
+    props: ['session'],
+    template: '<div class="scheduling-info-stub" data-testid="scheduling-info">SchedulingInfo</div>',
+  },
+}));
+
 import SummaryTab from './SummaryTab.vue';
 import { api } from '../composables/useApi.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
@@ -104,6 +112,11 @@ describe('SummaryTab', () => {
             props: ['content'],
           },
           SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
+          SchedulingInfo: {
+            name: 'SchedulingInfo',
+            template: '<div class="scheduling-info-stub" data-testid="scheduling-info">SchedulingInfo</div>',
+            props: ['session'],
+          },
         },
       },
     });
@@ -201,6 +214,11 @@ describe('SummaryTab', () => {
               props: ['sessionId'],
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
             },
+            SchedulingInfo: {
+              name: 'SchedulingInfo',
+              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
+              props: ['session'],
+            },
           },
         },
       });
@@ -229,6 +247,11 @@ describe('SummaryTab', () => {
               name: 'SessionLogStream',
               props: ['sessionId'],
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
+            },
+            SchedulingInfo: {
+              name: 'SchedulingInfo',
+              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
+              props: ['session'],
             },
           },
         },
@@ -262,6 +285,7 @@ describe('SummaryTab', () => {
                 name: 'SessionLogStream',
                 template: '<div class="session-log-stream-stub">SessionLogStream</div>',
               },
+              SchedulingInfo: true,
             },
           },
         });
@@ -292,6 +316,11 @@ describe('SummaryTab', () => {
               props: ['sessionIds'],
               template: '<div class="session-log-stream-stub">{{ sessionIds }}</div>',
             },
+            SchedulingInfo: {
+              name: 'SchedulingInfo',
+              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
+              props: ['session'],
+            },
           },
         },
       });
@@ -321,6 +350,11 @@ describe('SummaryTab', () => {
             SessionLogStream: {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
+            },
+            SchedulingInfo: {
+              name: 'SchedulingInfo',
+              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
+              props: ['session'],
             },
           },
         },
@@ -353,6 +387,11 @@ describe('SummaryTab', () => {
             SessionLogStream: {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
+            },
+            SchedulingInfo: {
+              name: 'SchedulingInfo',
+              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
+              props: ['session'],
             },
           },
         },
@@ -853,6 +892,57 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.latest-response').exists()).toBe(true);
       expect(wrapper.text()).toContain('from My Session');
       expect(wrapper.text()).toContain('Real-time content');
+    });
+  });
+
+  describe('Scheduling Info', () => {
+    it('renders SchedulingInfo when session status is scheduled', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SchedulingInfo' }).exists()).toBe(true);
+    });
+
+    it('does not render SchedulingInfo for non-scheduled sessions', async () => {
+      // Default session has status: 'waiting'
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SchedulingInfo' }).exists()).toBe(false);
+    });
+
+    it('passes session prop to SchedulingInfo', async () => {
+      const scheduledSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.currentSession = scheduledSession;
+      sessionsStore.sessions = [scheduledSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
+      expect(schedulingInfo.exists()).toBe(true);
+      expect(schedulingInfo.props('session')).toEqual(scheduledSession);
+    });
+
+    it('does not render SchedulingInfo when session is null', async () => {
+      sessionsStore.currentSession = null;
+      sessionsStore.sessions = [];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SchedulingInfo' }).exists()).toBe(false);
     });
   });
 
