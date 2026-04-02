@@ -137,12 +137,13 @@ test.describe('Scheduling UI', () => {
       // Expected: Should show "in about 1 hour" or similar future time
       // Actual (bug): Shows "56 years ago" or other incorrect past time
 
-      // Wait for the scheduling info panel to appear
-      const schedulingPanel = page.locator('.scheduling-info.scheduled-panel');
+      // Wait for the scheduling info panel to appear (scoped to overlay to avoid duplicate from SummaryTab)
+      const overlay = page.getByTestId('session-tree-overlay');
+      const schedulingPanel = overlay.locator('.scheduling-info.scheduled-panel');
       await expect(schedulingPanel).toBeVisible({ timeout: 5000 });
 
       // Get the countdown text element
-      const countdownText = page.locator('.countdown-text strong');
+      const countdownText = overlay.locator('.countdown-text strong');
       await expect(countdownText).toBeVisible({ timeout: 3000 });
 
       // Get the text content
@@ -161,7 +162,8 @@ test.describe('Scheduling UI', () => {
       await page.waitForLoadState('networkidle');
       await openSessionOverlay(page);
 
-      const countdownTextAfterReload = page.locator('.countdown-text strong');
+      const overlayAfterReload = page.getByTestId('session-tree-overlay');
+      const countdownTextAfterReload = overlayAfterReload.locator('.countdown-text strong');
       await expect(countdownTextAfterReload).toBeVisible({ timeout: 5000 });
 
       const timeTextAfterReload = await countdownTextAfterReload.textContent();
