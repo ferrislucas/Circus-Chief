@@ -1036,6 +1036,74 @@ describe('SessionCard', () => {
     });
   });
 
+  describe('grandchild tree traversal for runningSessionIds and workflowStatus', () => {
+    it('grandchild running session shows SessionLogStream on root card', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'running', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      expect(JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'))).toEqual(['grandchild-1']);
+    });
+
+    it('great-grandchild running session shows SessionLogStream', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'waiting', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'great-grandchild-1', parentSessionId: 'grandchild-1', status: 'running', name: 'GGC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      expect(JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'))).toEqual(['great-grandchild-1']);
+    });
+
+    it('multiple running descendants at different depths', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'running', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      const sessionIds = JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'));
+      expect(sessionIds).toContain(baseSession.id);
+      expect(sessionIds).toContain('grandchild-1');
+    });
+
+    it('running badge shown when grandchild is running', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'running', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('running badge NOT shown when all descendants are completed', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'completed', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'completed', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'completed' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(false);
+    });
+  });
+
   describe('scheduled time display', () => {
     it('shows scheduled time when session status is "scheduled" and scheduledAt is set', () => {
       // Schedule for 2 hours in the future

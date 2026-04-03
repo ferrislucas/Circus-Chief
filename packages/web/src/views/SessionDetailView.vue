@@ -48,7 +48,6 @@
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
         <SummaryTab v-if="activeTab === 'summary'" :key="route.params.id" :session-id="route.params.id" />
-        <ConversationTab v-else-if="activeTab === 'conversation'" :key="route.params.id" :session-id="route.params.id" />
         <ChangesTab v-else-if="activeTab === 'changes'" :key="route.params.id" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
         <CanvasTab v-else-if="activeTab === 'canvas'" :key="route.params.id" :session-id="route.params.id" />
         <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
@@ -58,7 +57,7 @@
       <SessionTreeHandle
         v-show="!treeOverlayOpen"
         :is-session-active="isSessionActive"
-        :session-status="sessionsStore.currentSession?.status"
+        :session-status="activeSessionStatus"
         @open="treeOverlayOpen = true"
       />
 
@@ -85,7 +84,6 @@ import { useUiStore } from '../stores/ui.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { useSessionInitializer } from '../composables/useSessionInitializer.js';
-import ConversationTab from '../components/ConversationTab.vue';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
@@ -213,6 +211,13 @@ async function buildSessionChain() {
   }
   walkTree(root, 0);
 
+  // Sort by latest message timestamp descending (reverse chronological)
+  tree.sort((a, b) => {
+    const aTime = a.session.lastActivityAt || a.session.updatedAt || a.session.createdAt || 0;
+    const bTime = b.session.lastActivityAt || b.session.updatedAt || b.session.createdAt || 0;
+    return bTime - aTime;
+  });
+
   sessionChain.value = tree;
 
   // Fetch summaries for all sessions in the tree (non-blocking)
@@ -231,10 +236,10 @@ async function buildSessionChain() {
 
 /**
  * Resolve the overlay target session ID.
- * Priority:
- * 1. Running/starting children — picks the most recently updated one
- * 2. Child with the most recent conversation activity (lastActivityAt)
- * 3. Falls back to the current session
+ * Priority order:
+ * 1. Running/starting children (most recently updated)
+ * 2. Session with the most recent conversation activity (lastActivityAt)
+ * 3. Current session (fallback)
  */
 function resolveOverlayTarget() {
   const chain = sessionChain.value;
@@ -245,7 +250,7 @@ function resolveOverlayTarget() {
     return;
   }
 
-  // Prefer running/starting children (skip the root at index 0)
+  // 1) Prefer running/starting children (skip the root at index 0)
   const runningChildren = chain
     .filter(entry => entry.session.status === 'running' || entry.session.status === 'starting')
     .filter(entry => entry.session.id !== currentSessionId.value);
@@ -267,9 +272,34 @@ function resolveOverlayTarget() {
 
   if (withActivity.length > 0) {
     overlaySessionId.value = withActivity[0].session.id;
-  } else {
-    // No conversation activity anywhere — use the current session
-    overlaySessionId.value = currentSessionId.value;
+    return;
+  }
+
+  // 3) No conversation activity anywhere — use the current session
+  overlaySessionId.value = currentSessionId.value;
+}
+
+/**
+ * Handle SESSION_UPDATED WebSocket events.
+ * When a session in our tree changes status, update the sessionChain snapshot
+ * so that isSessionActive and activeSessionStatus recompute correctly.
+ */
+function handleSessionUpdated(msg) {
+  const updatedSession = msg.session;
+  if (!updatedSession) return;
+
+  // Update the session in sessionChain if it's part of our tree
+  const idx = sessionChain.value.findIndex(
+    entry => entry.session.id === updatedSession.id
+  );
+  if (idx >= 0) {
+    // Replace the stale snapshot with the updated one, preserving depth
+    sessionChain.value[idx] = {
+      ...sessionChain.value[idx],
+      session: updatedSession,
+    };
+    // Trigger Vue reactivity by replacing the array ref
+    sessionChain.value = [...sessionChain.value];
   }
 }
 
@@ -364,13 +394,29 @@ const buttonStatusesToDisplay = computed(() => {
 });
 
 const isSessionActive = computed(() => {
+  // Check current session first (fast path)
   const status = sessionsStore.currentSession?.status;
-  return status === 'running' || status === 'starting';
+  if (status === 'running' || status === 'starting') return true;
+
+  // Also check if any session in the chain (descendants) is running/starting
+  return sessionChain.value.some(entry =>
+    entry.session.status === 'running' || entry.session.status === 'starting'
+  );
+});
+
+const activeSessionStatus = computed(() => {
+  const currentStatus = sessionsStore.currentSession?.status;
+  if (currentStatus === 'running' || currentStatus === 'starting') return currentStatus;
+
+  // Find the first running/starting session in the chain
+  const active = sessionChain.value.find(entry =>
+    entry.session.status === 'running' || entry.session.status === 'starting'
+  );
+  return active?.session.status || currentStatus;
 });
 
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
-  { id: 'conversation', label: 'Conversations' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
   { id: 'commands', label: 'Commands' }
@@ -390,8 +436,9 @@ watch(
 );
 
 onMounted(async () => {
-  // Register the SESSION_CREATED handler
+  // Register the SESSION_CREATED and SESSION_UPDATED handlers
   on(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
+  on(WS_MESSAGE_TYPES.SESSION_UPDATED, handleSessionUpdated);
 
   // Initialize the session with WebSocket subscription and data fetching
   await initializeSession(currentSessionId.value);
@@ -405,6 +452,14 @@ onMounted(async () => {
   if (projectId) {
     send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
     currentProjectSubscriptionId = projectId;
+  }
+
+  // Auto-open tree overlay if requested via query param (e.g., after new session creation)
+  if (route.query.overlay === 'open') {
+    treeOverlayOpen.value = true;
+    // Clear the query param so refresh doesn't re-open.
+    // Use path only — do NOT spread the route object (it's a read-only proxy).
+    router.replace({ path: route.path, query: {} });
   }
 
   // Fetch kanban board so SessionHeaderPanel can show lane chip
@@ -472,8 +527,9 @@ onUnmounted(() => {
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
     currentProjectSubscriptionId = null;
   }
-  // Remove the SESSION_CREATED handler
+  // Remove the SESSION_CREATED and SESSION_UPDATED handlers
   off(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
+  off(WS_MESSAGE_TYPES.SESSION_UPDATED, handleSessionUpdated);
   // Clear viewedSessionId so other views (e.g., SessionListView) can use
   // fetchSession without the guard blocking them.
   sessionsStore.viewedSessionId = null;
@@ -487,7 +543,7 @@ async function handleDuplicate() {
   try {
     const newSession = await sessionsStore.duplicateSession(currentSessionId.value);
     uiStore.success('Session duplicated');
-    router.push(`/sessions/${newSession.id}/conversation`);
+    router.push(`/sessions/${newSession.id}/summary`);
   } catch (err) {
     uiStore.error(err.message);
   }
