@@ -5,6 +5,7 @@ import {
   cleanupAll,
   waitForSessionStatus,
   navigateAndWait,
+  openSessionOverlay,
   waitForSessionToExist,
 } from './helpers';
 
@@ -33,8 +34,9 @@ test.describe('Slash Commands', () => {
     await waitForSessionStatus(page, sessionId, 'waiting', 30000);
 
     // Navigate directly to the session conversation
-    await page.goto(`/sessions/${sessionId}/conversation`);
+    await page.goto(`/sessions/${sessionId}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // Wait for the input form to be visible (indicates session loaded and in sendable state)
     const inputForm = page.locator('.input-form');

@@ -4,6 +4,7 @@ import {
   seedSession,
   cleanupCreatedResources,
   getSession,
+  openSessionOverlay,
   API_URL,
 } from './helpers';
 
@@ -52,8 +53,9 @@ test.describe('Draft session model dropdown sync', () => {
     expect(initialSession.status).toBe('waiting');
 
     // Navigate to the session's conversation tab
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // Wait for the model selector to appear and be populated
     const modelSelect = page.locator('#model-select');
@@ -119,8 +121,9 @@ test.describe('Draft session model dropdown sync', () => {
     });
 
     // Navigate to the session
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     const modelSelect = page.locator('#model-select');
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
@@ -158,6 +161,7 @@ test.describe('Draft session model dropdown sync', () => {
     // Reload the page
     await page.reload();
     await page.waitForLoadState('networkidle');
+    await openSessionOverlay(page);
 
     // Wait for model selector to appear again
     const modelSelectAfterReload = page.locator('#model-select');
