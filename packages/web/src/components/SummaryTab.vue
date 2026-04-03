@@ -31,6 +31,9 @@
       </button>
     </div>
 
+    <!-- Scheduling Info (only for scheduled sessions) -->
+    <SchedulingInfo v-if="isScheduled" :session="session" />
+
     <!-- Session Overview Section -->
     <div v-if="hasPrInfo || summary?.shortSummary || loading" class="session-overview card">
       <div class="overview-header">
@@ -113,6 +116,7 @@ import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
+import SchedulingInfo from './SchedulingInfo.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -121,7 +125,7 @@ const props = defineProps({
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const streamingStore = useSessionStreamingStore();
-const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial } = useSessionSubscription(props.sessionId);
+const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial, onMessage } = useSessionSubscription(props.sessionId);
 
 // Restore collapsed log state for this session
 streamingStore.restoreCollapsedLogState();
@@ -145,6 +149,16 @@ onPartial((text) => {
 onThinkingPartial((thinking) => {
   if (thinking) {
     streamingStore.setPartialThinking(thinking, props.sessionId);
+  }
+});
+
+// Listen for new assistant messages to update Latest Response in real time
+onMessage((message) => {
+  if (message.role === 'assistant' && message.content) {
+    latestResponse.value = {
+      message,
+      sessionName: session.value?.name || null,
+    };
   }
 });
 
@@ -262,6 +276,7 @@ const isRunning = computed(() => {
   const status = session.value?.status;
   return status === 'running' || status === 'starting';
 });
+const isScheduled = computed(() => session.value?.status === 'scheduled');
 
 // Collect IDs of this session + any running descendants for the live output panel
 const runningSessionIds = computed(() => {
