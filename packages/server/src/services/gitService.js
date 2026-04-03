@@ -67,8 +67,10 @@ async function safeFetchOrigin(directory) {
  * @param {string} command
  * @returns {Promise<string>}
  */
-async function git(directory, command) {
-  const { stdout } = await execAsync(`git ${command}`, { cwd: directory });
+async function git(directory, command, opts = {}) {
+  const execOpts = { cwd: directory };
+  if (opts.env) execOpts.env = opts.env;
+  const { stdout } = await execAsync(`git ${command}`, execOpts);
   return stdout.trim();
 }
 
@@ -449,4 +451,58 @@ export async function getModifiedFilesCount(directory, branch) {
     logger.warn(`Failed to get modified files count for ${directory}:`, error.message);
     return 0;
   }
+}
+
+/**
+ * Get the git author info from the global config (~/.gitconfig).
+ *
+ * Uses `--global` so that a contaminated local config (e.g. one that
+ * already has Claude Code's identity) is bypassed.
+ *
+ * @param {string} directory
+ * @param {Object} [options]
+ * @param {Object} [options.env] - Custom environment variables (useful for tests)
+ * @returns {Promise<{name: string, email: string} | null>}
+ */
+export async function getGitAuthor(directory, { env } = {}) {
+  try {
+    const name = await git(directory, 'config --global user.name', { env });
+    const email = await git(directory, 'config --global user.email', { env });
+    if (name && email) {
+      return { name, email };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pin the human developer's git identity in a worktree's config.
+ *
+ * Reads user.name/user.email from the main project directory and writes
+ * them into the worktree-specific config (--worktree). This ensures the
+ * human is always the commit Author, even if the session's environment
+ * tries to override it. Claude Code already adds its own Co-Authored-By
+ * trailer via its system prompt, so no hook is needed.
+ *
+ * Only call this for worktree directories, not the main repo.
+ *
+ * @param {string} worktreePath - The worktree directory
+ * @param {string} projectDir - The main project directory (to read author from)
+ * @returns {Promise<boolean>} - True if author was pinned
+ */
+export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}) {
+  const author = await getGitAuthor(projectDir || worktreePath, { env });
+  if (!author) return false;
+
+  // Enable worktree-specific config (required for --worktree flag)
+  await git(worktreePath, 'config extensions.worktreeConfig true');
+
+  // Pin the human's identity in the worktree config so they are always
+  // the commit Author, regardless of what the session does later
+  await git(worktreePath, `config --worktree user.name "${author.name}"`);
+  await git(worktreePath, `config --worktree user.email "${author.email}"`);
+
+  return true;
 }
