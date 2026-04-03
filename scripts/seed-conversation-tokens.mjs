@@ -43,6 +43,7 @@ const {
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = OFF');
 
 // Resolve conversation ID
 let resolvedConvId = conversationId || null;
