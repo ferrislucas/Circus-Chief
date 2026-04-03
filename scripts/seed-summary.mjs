@@ -35,6 +35,7 @@ const ciFailuresJson = ciFailures != null ? JSON.stringify(ciFailures) : null;
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = OFF');
 
 // Ensure session exists before creating summary (fixes foreign key constraint error)
 const existingSession = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
