@@ -23,6 +23,7 @@ import notesRouter from './sessions-notes.js';
 import conversationsRouter from './sessions-conversations.js';
 import commandsRouter from './sessions-commands.js';
 import patchRouter from './sessions-patch.js';
+import archiveRouter from './sessions-archive.js';
 
 const router = Router();
 
@@ -31,6 +32,7 @@ router.use('/', notesRouter);
 router.use('/', conversationsRouter);
 router.use('/', commandsRouter);
 router.use('/', patchRouter);
+router.use('/', archiveRouter);
 
 // TTL cache for files-count endpoint (60 second TTL)
 const filesCountCache = new Map();
@@ -609,53 +611,6 @@ router.put('/:id/summary', requireSession, async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
-
-// POST /api/sessions/:id/archive - Archive a session
-router.post('/:id/archive', requireSession, (req, res) => {
-  // Only allow archiving stopped/waiting/error sessions (not active sessions like starting/running)
-  if (!['stopped', 'waiting', 'error'].includes(req.session_.status)) {
-    return res.status(400).json({ error: 'Can only archive stopped, waiting, or error sessions' });
-  }
-
-  const updated = sessions.update(req.params.id, { archived: true });
-
-  // Broadcast update to project subscribers
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  res.json(updated);
-});
-
-// POST /api/sessions/:id/unarchive - Unarchive a session
-router.post('/:id/unarchive', requireSession, (req, res) => {
-  const updated = sessions.update(req.params.id, { archived: false });
-
-  // Broadcast update to project subscribers
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  res.json(updated);
-});
-
-// POST /api/sessions/:id/star - Toggle star status for a session
-router.post('/:id/star', requireSession, (req, res) => {
-  const updated = sessions.update(req.params.id, { starred: !req.session_.starred });
-
-  // Broadcast update to project subscribers
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  res.json(updated);
 });
 
 // POST /api/sessions/:id/schedule - Schedule a follow-up message for an existing session
