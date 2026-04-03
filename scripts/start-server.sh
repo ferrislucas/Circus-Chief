@@ -111,21 +111,24 @@ if lsof -i:${SELECTED_PORT} >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
-# Write port to file for tool discovery
-#
-# Other tools (like playwright.config.ts) read this file to know which
-# port the server is running on.
-# -----------------------------------------------------------------------------
-echo "$SELECTED_PORT" > "$PORT_FILE"
-
-# Write VCR mode for pw.sh to detect mismatches
-echo "${VCR_MODE:-}" > ".vcr-mode"
-
-# -----------------------------------------------------------------------------
 # Start the server
 #
 # Use VCR mode if VCR_MODE is set (for E2E tests)
 # VCR_MODE can be: auto (default), record, or replay
 # -----------------------------------------------------------------------------
 echo "Starting server on port ${SELECTED_PORT}..."
-VCR_MODE="${VCR_MODE:-}" yarn build && NODE_ENV=production VCR_MODE="${VCR_MODE}" node packages/server/src/index.js -p ${SELECTED_PORT}
+
+# Build first, then write port file AFTER build completes.
+# This prevents pw.sh from detecting the port and starting health checks
+# while the build is still running (which can cause 30s timeout failures).
+VCR_MODE="${VCR_MODE:-}" yarn build
+
+# Write port to file for tool discovery (after build, before server start)
+# Other tools (like playwright.config.ts) read this file to know which
+# port the server is running on.
+echo "$SELECTED_PORT" > "$PORT_FILE"
+
+# Write VCR mode for pw.sh to detect mismatches
+echo "${VCR_MODE:-}" > ".vcr-mode"
+
+NODE_ENV=production VCR_MODE="${VCR_MODE}" node packages/server/src/index.js -p ${SELECTED_PORT}

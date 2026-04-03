@@ -199,6 +199,41 @@ describe('useSessionControl', () => {
       expect(mockUiStore.error).toHaveBeenCalledWith('Start failed');
     });
 
+    it('should return true on successful start', async () => {
+      mockSessionsStore.startSession.mockResolvedValue();
+      const { handleStart } = createControl();
+
+      const result = await handleStart('test prompt', 'sonnet');
+
+      expect(result).toBe(true);
+    });
+
+    it('should return false on start failure', async () => {
+      mockSessionsStore.startSession.mockRejectedValue(new Error('Start failed'));
+      const { handleStart } = createControl();
+
+      const result = await handleStart('test prompt', 'sonnet');
+
+      expect(result).toBe(false);
+    });
+
+    it('should return false when prompt is empty', async () => {
+      const { handleStart } = createControl();
+
+      const result = await handleStart('', 'sonnet');
+
+      expect(result).toBe(false);
+    });
+
+    it('should return false when restarting is already true', async () => {
+      const { handleStart, restarting } = createControl();
+      restarting.value = true;
+
+      const result = await handleStart('test prompt', 'sonnet');
+
+      expect(result).toBe(false);
+    });
+
     it('should set restarting to false after completion', async () => {
       mockSessionsStore.startSession.mockResolvedValue();
       const { handleStart, restarting } = createControl();
