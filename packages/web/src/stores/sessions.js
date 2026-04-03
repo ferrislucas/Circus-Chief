@@ -43,118 +43,157 @@ export const useSessionsStore = defineStore('sessions', {
   getters: {
     // ==================== SESSION GETTERS ====================
 
+    // Helper: find a session by ID across both arrays (sessions first, then activeSessions)
+    _findSessionById: (state) => (id) => {
+      return state.sessions.find((s) => s.id === id) || state.activeSessions.find((s) => s.id === id);
+    },
+
+    // Helper: find children across both store arrays (deduplicated)
+    _findChildren: (state) => (parentId) => {
+      const fromSessions = state.sessions.filter(s => s.parentSessionId === parentId);
+      const fromActive = state.activeSessions.filter(s => s.parentSessionId === parentId);
+      const seen = new Set(fromSessions.map(s => s.id));
+      const merged = [...fromSessions];
+      for (const s of fromActive) {
+        if (!seen.has(s.id)) { merged.push(s); seen.add(s.id); }
+      }
+      return merged;
+    },
+
     getSessionById: (state) => (id) => {
       return state.sessions.find((s) => s.id === id);
     },
 
-    getChildSessions: (state) => (parentId) => {
-      return state.sessions.filter((s) => s.parentSessionId === parentId);
-    },
+    getChildSessions() { return (parentId) => this._findChildren(parentId); },
 
-    hasChildren: (state) => (sessionId) => {
-      return state.sessions.some((s) => s.parentSessionId === sessionId);
-    },
+    hasChildren() { return (sessionId) => this._findChildren(sessionId).length > 0; },
 
-    getChildCount: (state) => (sessionId) => {
-      return state.sessions.filter((s) => s.parentSessionId === sessionId).length;
-    },
+    getChildCount() { return (sessionId) => this._findChildren(sessionId).length; },
 
-    getAllDescendants: (state) => (sessionId) => {
-      const descendants = [];
-      const stack = [sessionId];
-      const visited = new Set();
-      while (stack.length > 0) {
-        const currentId = stack.pop();
-        if (visited.has(currentId)) continue;
-        visited.add(currentId);
-        const children = state.sessions.filter((s) => s.parentSessionId === currentId);
-        for (const child of children) {
-          descendants.push(child);
-          stack.push(child.id);
+    getAllDescendants() {
+      return (sessionId) => {
+        const descendants = [];
+        const stack = [sessionId];
+        const visited = new Set();
+        while (stack.length > 0) {
+          const currentId = stack.pop();
+          if (visited.has(currentId)) continue;
+          visited.add(currentId);
+          const children = this._findChildren(currentId);
+          for (const child of children) {
+            descendants.push(child);
+            stack.push(child.id);
+          }
         }
-      }
-      return descendants;
-    },
-
-    getWorkflowEffectiveStatus: (state) => (rootSessionId) => {
-      const root = state.sessions.find((s) => s.id === rootSessionId);
-      if (!root) return 'idle';
-      const allSessions = [root];
-      const stack = [rootSessionId];
-      const visited = new Set();
-      while (stack.length > 0) {
-        const currentId = stack.pop();
-        if (visited.has(currentId)) continue;
-        visited.add(currentId);
-        const children = state.sessions.filter((s) => s.parentSessionId === currentId);
-        for (const child of children) {
-          allSessions.push(child);
-          stack.push(child.id);
-        }
-      }
-      const runningStatuses = ['running', 'starting'];
-      return allSessions.some((s) => runningStatuses.includes(s.status)) ? 'running' : 'idle';
-    },
-
-    getSessionPath: (state) => (sessionId) => {
-      const path = [];
-      const findSession = (id) => {
-        if (state.currentSession?.id === id) return state.currentSession;
-        return state.sessions.find((s) => s.id === id);
+        return descendants;
       };
-      let current = findSession(sessionId);
-      while (current) {
-        path.unshift(current);
-        if (!current.parentSessionId) break;
-        current = findSession(current.parentSessionId);
-      }
-      return path;
     },
 
-    getRootSession: (state) => (sessionId) => {
-      let current = state.sessions.find((s) => s.id === sessionId);
-      while (current?.parentSessionId) {
-        current = state.sessions.find((s) => s.id === current.parentSessionId);
-      }
-      return current || null;
+    getWorkflowEffectiveStatus() {
+      return (rootSessionId) => {
+        const root = this._findSessionById(rootSessionId);
+        if (!root) return 'idle';
+        const allSessions = [root];
+        const stack = [rootSessionId];
+        const visited = new Set();
+        while (stack.length > 0) {
+          const currentId = stack.pop();
+          if (visited.has(currentId)) continue;
+          visited.add(currentId);
+          const children = this._findChildren(currentId);
+          for (const child of children) {
+            allSessions.push(child);
+            stack.push(child.id);
+          }
+        }
+        const runningStatuses = ['running', 'starting'];
+        return allSessions.some((s) => runningStatuses.includes(s.status)) ? 'running' : 'idle';
+      };
     },
 
-    getWorkflowAggregatedStatus: (state) => (rootSessionId) => {
-      const root = state.sessions.find((s) => s.id === rootSessionId);
-      if (!root) {
-        return {
-          effectiveStatus: 'idle', runningCount: 0, scheduledCount: 0,
-          waitingCount: 0, completedCount: 0, totalCount: 0,
-          hasScheduledDescendant: false, rootIsScheduled: false,
+    getSessionPath() {
+      return (sessionId) => {
+        const path = [];
+        const findSession = (id) => {
+          if (this.currentSession?.id === id) return this.currentSession;
+          return this._findSessionById(id);
         };
-      }
-      const allSessions = [root];
-      const stack = [rootSessionId];
-      const visited = new Set();
-      while (stack.length > 0) {
-        const currentId = stack.pop();
-        if (visited.has(currentId)) continue;
-        visited.add(currentId);
-        const children = state.sessions.filter((s) => s.parentSessionId === currentId);
-        for (const child of children) { allSessions.push(child); stack.push(child.id); }
-      }
-      const runningStatuses = ['running', 'starting'];
-      let runningCount = 0, scheduledCount = 0, waitingCount = 0, completedCount = 0;
-      for (const session of allSessions) {
-        if (runningStatuses.includes(session.status)) runningCount++;
-        else if (session.status === 'scheduled') scheduledCount++;
-        else if (session.status === 'waiting') waitingCount++;
-        else if (session.status === 'completed' || session.status === 'stopped') completedCount++;
-      }
-      return {
-        effectiveStatus: runningCount > 0 ? 'running' : 'idle',
-        runningCount,
-        scheduledCount,
-        waitingCount,
-        completedCount,
-        totalCount: allSessions.length - 1,
-        hasScheduledDescendant: allSessions.slice(1).some((s) => s.status === 'scheduled'),
-        rootIsScheduled: root.status === 'scheduled',
+        let current = findSession(sessionId);
+        while (current) {
+          path.unshift(current);
+          if (!current.parentSessionId) break;
+          current = findSession(current.parentSessionId);
+        }
+        return path;
+      };
+    },
+
+    getRootSession() {
+      return (sessionId) => {
+        let current = this._findSessionById(sessionId);
+        while (current?.parentSessionId) {
+          current = this._findSessionById(current.parentSessionId);
+        }
+        return current || null;
+      };
+    },
+
+    getWorkflowAggregatedStatus() {
+      return (rootSessionId) => {
+        const root = this._findSessionById(rootSessionId);
+        if (!root) {
+          return {
+            effectiveStatus: 'idle', runningCount: 0, scheduledCount: 0,
+            waitingCount: 0, completedCount: 0, totalCount: 0,
+            hasScheduledDescendant: false, rootIsScheduled: false,
+          };
+        }
+        const allSessions = [root];
+        const stack = [rootSessionId];
+        const visited = new Set();
+        while (stack.length > 0) {
+          const currentId = stack.pop();
+          if (visited.has(currentId)) continue;
+          visited.add(currentId);
+          const children = this._findChildren(currentId);
+          for (const child of children) { allSessions.push(child); stack.push(child.id); }
+        }
+        const runningStatuses = ['running', 'starting'];
+        let runningCount = 0, scheduledCount = 0, waitingCount = 0, completedCount = 0;
+        for (const session of allSessions) {
+          if (runningStatuses.includes(session.status)) runningCount++;
+          else if (session.status === 'scheduled') scheduledCount++;
+          else if (session.status === 'waiting') waitingCount++;
+          else if (session.status === 'completed' || session.status === 'stopped') completedCount++;
+        }
+        return {
+          effectiveStatus: runningCount > 0 ? 'running' : 'idle',
+          runningCount,
+          scheduledCount,
+          waitingCount,
+          completedCount,
+          totalCount: allSessions.length - 1,
+          hasScheduledDescendant: allSessions.slice(1).some((s) => s.status === 'scheduled'),
+          rootIsScheduled: root.status === 'scheduled',
+        };
+      };
+    },
+
+    getWorkflowSessions() {
+      return (rootSessionId) => {
+        const root = this._findSessionById(rootSessionId);
+        if (!root) return [];
+        const all = [root];
+        const stack = [rootSessionId];
+        const visited = new Set();
+        while (stack.length > 0) {
+          const currentId = stack.pop();
+          if (visited.has(currentId)) continue;
+          visited.add(currentId);
+          const children = this._findChildren(currentId);
+          for (const child of children) { all.push(child); stack.push(child.id); }
+        }
+        return all;
       };
     },
 

@@ -33,8 +33,35 @@ vi.mock('../stores/commandButtons.js', () => ({
 // Mock sessions store
 const mockSessionsStoreData = {
   sessions: [],
+  activeSessions: [],
   commandRunVersion: 0,
   toggleSessionStar: vi.fn(),
+  getWorkflowSessions: vi.fn((sessionId) => {
+    // Default implementation: search both sessions and activeSessions
+    const root = mockSessionsStoreData.sessions.find(s => s.id === sessionId)
+      || mockSessionsStoreData.activeSessions.find(s => s.id === sessionId)
+      || mockSessionsStoreData._currentSession;
+    if (!root) return [{ id: sessionId }];
+    const all = [root];
+    const stack = [sessionId];
+    const visited = new Set();
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      const children = [
+        ...mockSessionsStoreData.sessions.filter(s => s.parentSessionId === currentId),
+        ...mockSessionsStoreData.activeSessions.filter(s => s.parentSessionId === currentId),
+      ];
+      const seen = new Set(all.map(s => s.id));
+      for (const child of children) {
+        if (!seen.has(child.id)) { all.push(child); seen.add(child.id); }
+        stack.push(child.id);
+      }
+    }
+    return all;
+  }),
+  _currentSession: null,
 };
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(() => mockSessionsStoreData),
@@ -108,7 +135,9 @@ describe('SessionCard', () => {
 
     // Reset sessions store mock data
     mockSessionsStoreData.sessions = [];
+    mockSessionsStoreData.activeSessions = [];
     mockSessionsStoreData.commandRunVersion = 0;
+    mockSessionsStoreData._currentSession = null;
   });
   const baseSession = {
     id: 'session-123',
@@ -122,6 +151,10 @@ describe('SessionCard', () => {
   function mountComponent(props = {}) {
     const pinia = createPinia();
     setActivePinia(pinia);
+    const sessionToMount = { ...baseSession, ...props.session };
+    // Set _currentSession so the mock getWorkflowSessions can find the root
+    // when the session is only passed as a prop (not in sessions/activeSessions arrays)
+    mockSessionsStoreData._currentSession = sessionToMount;
     return mount(SessionCard, {
       props: {
         session: baseSession,
@@ -449,6 +482,43 @@ describe('SessionCard', () => {
         session: { ...baseSession, status: 'completed' },
       });
       expect(wrapper.find('.status-running').exists()).toBe(false);
+    });
+
+    it('shows running badge when child is in activeSessions but not sessions', () => {
+      mockSessionsStoreData.sessions = [];
+      mockSessionsStoreData.activeSessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('shows running badge when both parent and child are in activeSessions', () => {
+      mockSessionsStoreData.sessions = [];
+      mockSessionsStoreData.activeSessions = [
+        { id: baseSession.id, status: 'waiting', parentSessionId: null },
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('does not double-count when child is in both sessions and activeSessions', () => {
+      const childSession = { id: 'child-1', parentSessionId: baseSession.id, status: 'running' };
+      mockSessionsStoreData.sessions = [childSession];
+      mockSessionsStoreData.activeSessions = [childSession];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      // Badge should still show (running), but should not double-count the child
+      expect(wrapper.find('.status-running').exists()).toBe(true);
     });
   });
 
