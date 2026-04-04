@@ -64,7 +64,7 @@ describe('SettingsApi', () => {
   describe('Summary Settings', () => {
     describe('getSummarySettings', () => {
       it('sends GET to /settings/summary', async () => {
-        const settings = { disableSessionSummaries: false, disableConversationSummaries: false, sessionTitlePrompt: '' };
+        const settings = { disableSessionSummaries: false, sessionTitlePrompt: '' };
         mockFetch.mockReturnValue(mockResponse(settings));
 
         const result = await client.getSummarySettings();

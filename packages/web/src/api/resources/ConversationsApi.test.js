@@ -104,19 +104,6 @@ describe('ConversationsApi', () => {
     });
   });
 
-  describe('generateConversationSummary', () => {
-    it('sends POST to /sessions/:id/conversations/:convId/summary', async () => {
-      mockFetch.mockReturnValue(mockResponse({ summary: 'A summary' }));
-
-      const result = await client.generateConversationSummary('sess-123', 'conv-1');
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations/conv-1/summary', expect.objectContaining({
-        method: 'POST',
-      }));
-      expect(result.summary).toBe('A summary');
-    });
-  });
-
   describe('branchConversation', () => {
     it('sends POST to branch endpoint', async () => {
       const branchData = { messageId: 'msg-5', name: 'Branch', prompt: 'Follow up' };

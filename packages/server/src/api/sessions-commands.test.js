@@ -23,8 +23,6 @@ vi.mock('../services/sessionManager.js', () => ({
 vi.mock('../services/summaryService.js', () => ({
   getSummary: vi.fn().mockResolvedValue(null),
   regenerateSummary: vi.fn().mockResolvedValue(null),
-  generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
-  isConversationSummaryEnabled: vi.fn().mockReturnValue(true),
   cleanupSession: vi.fn(),
 }));
 
