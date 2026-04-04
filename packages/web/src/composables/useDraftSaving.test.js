@@ -176,6 +176,61 @@ describe('useDraftSaving', () => {
     });
   });
 
+  describe('flush', () => {
+    it('should immediately save unsaved input', async () => {
+      api.updateSessionPendingPrompt.mockResolvedValue({});
+      const { handleInput, flush } = createDraftSaving();
+
+      // Type something (marks status as unsaved, starts debounce timer)
+      handleInput({ target: { value: 'unsaved text' } });
+
+      // Flush before debounce fires
+      flush();
+
+      expect(api.updateSessionPendingPrompt).toHaveBeenCalledTimes(1);
+      expect(api.updateSessionPendingPrompt).toHaveBeenCalledWith('session-123', 'unsaved text');
+    });
+
+    it('should cancel pending debounce timers', async () => {
+      api.updateSessionPendingPrompt.mockResolvedValue({});
+      const { handleInput, flush } = createDraftSaving();
+
+      handleInput({ target: { value: 'test' } });
+
+      // Flush immediately
+      flush();
+
+      // Clear mock to detect any further calls
+      api.updateSessionPendingPrompt.mockClear();
+
+      // Advance past the debounce window — should NOT fire a second save
+      vi.advanceTimersByTime(1000);
+      await vi.runAllTimersAsync();
+
+      expect(api.updateSessionPendingPrompt).not.toHaveBeenCalled();
+    });
+
+    it('should not save when status is already saved', () => {
+      const { flush, saveStatus } = createDraftSaving();
+      expect(saveStatus.value).toBe('saved');
+
+      flush();
+
+      expect(api.updateSessionPendingPrompt).not.toHaveBeenCalled();
+    });
+
+    it('should save when status is saving (in-flight debounce)', () => {
+      api.updateSessionPendingPrompt.mockResolvedValue({});
+      const { flush, saveStatus } = createDraftSaving();
+      input.value = 'in-flight text';
+      saveStatus.value = 'saving';
+
+      flush();
+
+      expect(api.updateSessionPendingPrompt).toHaveBeenCalledWith('session-123', 'in-flight text');
+    });
+  });
+
   describe('cleanup', () => {
     it('should clear all timers on cleanup', () => {
       const { handleInput, cleanup } = createDraftSaving();

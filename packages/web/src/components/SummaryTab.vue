@@ -1,9 +1,9 @@
 <template>
   <div class="summary-tab">
-    <!-- Live output for running sessions -->
+    <!-- Live output for running sessions (includes child sessions) -->
     <SessionLogStream
-      v-if="isRunning"
-      :session-ids="[sessionId]"
+      v-if="runningSessionIds.length > 0"
+      :session-ids="runningSessionIds"
     />
 
     <!-- Most Recent Agent Response -->
@@ -30,6 +30,9 @@
         {{ latestResponseExpanded ? 'Show less' : 'Show full response' }}
       </button>
     </div>
+
+    <!-- Scheduling Info (only for scheduled sessions) -->
+    <SchedulingInfo v-if="isScheduled" :session="session" />
 
     <!-- Session Overview Section -->
     <div v-if="hasPrInfo || summary?.shortSummary || loading" class="session-overview card">
@@ -100,11 +103,19 @@
       :regenerating="generatingManual"
       @regenerate="handleRegenerate"
     />
+
+    <!-- Empty state for sessions with no content -->
+    <div v-else-if="!latestResponse && !isRunning" class="summary-empty-state">
+      <div class="summary-empty-state-content">
+        <p class="summary-empty-state-text">This session hasn't started yet.</p>
+        <p class="summary-empty-state-hint">Start the session or send a message to see a summary here.</p>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
@@ -113,6 +124,7 @@ import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
+import SchedulingInfo from './SchedulingInfo.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -121,7 +133,7 @@ const props = defineProps({
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const streamingStore = useSessionStreamingStore();
-const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial } = useSessionSubscription(props.sessionId);
+const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial, onMessage } = useSessionSubscription(props.sessionId);
 
 // Restore collapsed log state for this session
 streamingStore.restoreCollapsedLogState();
@@ -147,6 +159,93 @@ onThinkingPartial((thinking) => {
     streamingStore.setPartialThinking(thinking, props.sessionId);
   }
 });
+
+// Listen for new assistant messages to update Latest Response in real time
+onMessage((message) => {
+  if (message.role === 'assistant' && message.content) {
+    latestResponse.value = {
+      message,
+      sessionName: session.value?.name || null,
+    };
+  }
+});
+
+// --- Descendant session streaming subscriptions ---
+// Track active descendant subscriptions so we can clean them up
+const descendantSubscriptions = {};
+
+function subscribeToDescendant(sessionId) {
+  if (descendantSubscriptions[sessionId]) return;
+
+  const sub = useSessionSubscription(sessionId);
+  const cleanups = [];
+
+  cleanups.push(sub.onWorkLog((log) => {
+    streamingStore.addSessionWorkLog(sessionId, log);
+  }));
+
+  cleanups.push(sub.onPartial((text) => {
+    if (text) {
+      streamingStore.setSessionPartialText(sessionId, text);
+    }
+  }));
+
+  cleanups.push(sub.onThinkingPartial((thinking) => {
+    if (thinking) {
+      streamingStore.setPartialThinking(thinking, sessionId);
+    }
+  }));
+
+  sub.subscribe();
+
+  descendantSubscriptions[sessionId] = {
+    subscription: sub,
+    cleanup: () => {
+      cleanups.forEach(fn => fn && fn());
+      sub.unsubscribe();
+    },
+  };
+
+  // Hydrate streaming state for this descendant
+  hydrateDescendantState(sessionId);
+}
+
+function unsubscribeFromDescendant(sessionId) {
+  const entry = descendantSubscriptions[sessionId];
+  if (entry) {
+    entry.cleanup();
+    delete descendantSubscriptions[sessionId];
+  }
+}
+
+async function hydrateDescendantState(sessionId) {
+  if (typeof window === 'undefined') return;
+  try {
+    const response = await fetch(`/api/sessions/${sessionId}/streaming-state`);
+    if (response.ok) {
+      const snapshot = await response.json();
+      if (snapshot && (snapshot.workLogs?.length || snapshot.partialText || snapshot.thinking)) {
+        streamingStore.hydrateSessionState(sessionId, snapshot);
+      }
+    }
+  } catch (error) {
+    // Non-fatal
+  }
+}
+
+// Watch for running descendants and subscribe/unsubscribe dynamically
+watch(
+  () => sessionsStore.getAllDescendants(props.sessionId)
+    .filter(d => d.status === 'running' || d.status === 'starting')
+    .map(d => d.id),
+  (newIds, oldIds = []) => {
+    const added = newIds.filter(id => !oldIds.includes(id));
+    const removed = oldIds.filter(id => !newIds.includes(id));
+    added.forEach(id => subscribeToDescendant(id));
+    removed.forEach(id => unsubscribeFromDescendant(id));
+  },
+  { immediate: true },
+);
 
 // Hydrate streaming state from server on mount (browser only)
 onMounted(async () => {
@@ -184,6 +283,24 @@ const session = computed(() =>
 const isRunning = computed(() => {
   const status = session.value?.status;
   return status === 'running' || status === 'starting';
+});
+const isScheduled = computed(() => session.value?.status === 'scheduled');
+
+// Collect IDs of this session + any running descendants for the live output panel
+const runningSessionIds = computed(() => {
+  const ids = [];
+  if (isRunning.value) {
+    ids.push(props.sessionId);
+  }
+  // Include running child/descendant sessions so the parent summary tab
+  // shows live output even when the parent itself is in 'waiting' status
+  const descendants = sessionsStore.getAllDescendants(props.sessionId);
+  for (const d of descendants) {
+    if (d.status === 'running' || d.status === 'starting') {
+      ids.push(d.id);
+    }
+  }
+  return ids;
 });
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
@@ -285,7 +402,8 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  // Clean up if needed
+  // Clean up descendant streaming subscriptions
+  Object.keys(descendantSubscriptions).forEach(id => unsubscribeFromDescendant(id));
 });
 
 async function handleRegenerate() {
@@ -525,6 +643,33 @@ async function handleRegenerate() {
 
 .expand-toggle:hover {
   text-decoration: underline;
+}
+
+/* Empty State Styles */
+.summary-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.summary-empty-state-content {
+  max-width: 320px;
+}
+
+.summary-empty-state-text {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0 0 0.5rem;
+}
+
+.summary-empty-state-hint {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  margin: 0;
+  line-height: 1.4;
 }
 
 </style>

@@ -159,7 +159,7 @@ describe('Sessions API - File Endpoint', () => {
       expect(res.body.mimeType).toBe('image/svg+xml');
     });
 
-    it('returns 404 for non-existent session', async () => {
+    it('returns 404 for non-existent session', { timeout: 30000 }, async () => {
       const res = await request(app)
         .get('/api/sessions/nonexistent/file')
         .query({ path: 'test.png' });

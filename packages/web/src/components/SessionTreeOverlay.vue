@@ -157,8 +157,13 @@
 
           <!-- Content wrapper (with padding) -->
           <div class="overlay-body" ref="overlayBodyRef">
-            <!-- Conversation -->
+            <div v-if="switchingSession" class="session-switch-loading">
+              <span class="session-switch-spinner"></span>
+              <span class="session-switch-text">Loading session...</span>
+            </div>
             <ConversationTab
+              v-else
+              ref="conversationTabRef"
               :session-id="activeSessionId"
               :key="activeSessionId"
               :scroll-container-ref="overlayBodyRef"
@@ -176,6 +181,7 @@
 /* eslint-disable max-lines */
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
@@ -204,6 +210,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'session-created']);
 
 const sessionsStore = useSessionsStore();
+const todosStore = useTodosStore();
 const uiStore = useUiStore();
 
 // Internal state
@@ -212,9 +219,16 @@ const closing = ref(false);
 const activeSessionId = ref(props.sessionId);
 const isMobile = ref(false);
 const isCreatingSession = ref(false);
+// Start as true so ConversationTab doesn't mount until loadSessionData completes.
+// This prevents a race condition where ConversationTab reads currentSession before
+// it has been set to the overlay's target session.
+const switchingSession = ref(true);
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
+
+// Template ref to the ConversationTab for flushing drafts before session switch
+const conversationTabRef = ref(null);
 
 // Picker state
 const pickerOpen = ref(false);
@@ -346,8 +360,8 @@ function afterLeave() {
   emit('close');  // Only emit after transition completes
 }
 
-function selectSession(sessionId) {
-  switchToSession(sessionId);
+async function selectSession(sessionId) {
+  await switchToSession(sessionId);
 }
 
 async function addChildSession() {
@@ -442,16 +456,31 @@ async function saveSessionName() {
 async function switchToSession(newSessionId) {
   if (newSessionId === activeSessionId.value) return;
 
-  // Cleanup old subscription
-  cleanupSubscription();
+  // Flush any pending draft save for the CURRENT session before switching.
+  // This ensures that text typed within the debounce window is persisted.
+  conversationTabRef.value?.flushDraft?.();
 
-  // Switch
-  activeSessionId.value = newSessionId;
-  console.log('[switchToSession] activeSessionId SET to:', activeSessionId.value);
+  // Show spinner immediately
+  switchingSession.value = true;
 
-  // Load data for new session
-  await loadSessionData(newSessionId);
-  setupSubscription(newSessionId);
+  try {
+    // Reset shared store state to avoid stale data from previous session
+    sessionsStore.clearRunningUsage();
+    sessionsStore.clearPartialText();
+    sessionsStore.messages = [];
+    sessionsStore.workLogs = {};
+    todosStore.clearTodos();
+
+    cleanupSubscription();
+    activeSessionId.value = newSessionId;
+    console.log('[switchToSession] activeSessionId SET to:', activeSessionId.value);
+
+    await loadSessionData(newSessionId);
+    setupSubscription(newSessionId);
+  } finally {
+    // Always hide spinner — even if something unexpected throws
+    switchingSession.value = false;
+  }
 }
 
 async function loadSessionData(sessionId) {
@@ -465,6 +494,18 @@ async function loadSessionData(sessionId) {
     await sessionsStore.fetchSession(sessionId, false);
     // Fetch conversations for this session
     await sessionsStore.fetchConversations(sessionId);
+
+    // Fetch messages and work logs for the new session's active conversation.
+    // Without this, sessionsStore.messages would still contain stale data from
+    // the previously viewed session — ConversationTab's onMounted and watchers
+    // do not fetch messages on their own.
+    await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
+    await sessionsStore.fetchWorkLogs(sessionId);
+
+    // Fetch todos for the new active conversation
+    if (sessionsStore.activeConversationId) {
+      todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
+    }
   } catch (err) {
     console.error('[SessionTreeOverlay] Failed to load session data:', err);
   }
@@ -570,9 +611,15 @@ onMounted(async () => {
   window.addEventListener('resize', checkMobile);
   checkMobile();
 
-  // Load data for the active session
-  await loadSessionData(activeSessionId.value);
-  setupSubscription(activeSessionId.value);
+  // Load data for the active session, then reveal ConversationTab.
+  // switchingSession starts as true, so ConversationTab won't mount until
+  // currentSession is set to the correct overlay session.
+  try {
+    await loadSessionData(activeSessionId.value);
+    setupSubscription(activeSessionId.value);
+  } finally {
+    switchingSession.value = false;
+  }
 });
 
 onUnmounted(() => {
@@ -591,6 +638,7 @@ defineExpose({
   visible,
   afterLeave,
   isCreatingSession,
+  switchingSession,
   pickerOpen,
   handlePickerSelect,
 });
@@ -627,6 +675,38 @@ defineExpose({
     transition: transform 0.15s ease;
   }
 }
+
+/* Session switch loading spinner */
+.session-switch-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.session-switch-spinner {
+  display: inline-block;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid rgba(6, 182, 212, 0.2);
+  border-top-color: #06b6d4;
+  border-radius: 50%;
+  animation: session-switch-spin 0.8s linear infinite;
+}
+
+@keyframes session-switch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.session-switch-text {
+  color: #9ca3af;
+  font-size: 0.8125rem;
+}
 </style>
 
 <style scoped>
@@ -657,7 +737,7 @@ defineExpose({
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 40px;
+  width: 44px;
   height: 100px;
   display: flex;
   flex-direction: column;
