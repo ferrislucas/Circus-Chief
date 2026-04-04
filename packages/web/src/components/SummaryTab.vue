@@ -103,6 +103,14 @@
       :regenerating="generatingManual"
       @regenerate="handleRegenerate"
     />
+
+    <!-- Empty state for sessions with no content -->
+    <div v-else-if="!latestResponse && !isRunning" class="summary-empty-state">
+      <div class="summary-empty-state-content">
+        <p class="summary-empty-state-text">This session hasn't started yet.</p>
+        <p class="summary-empty-state-hint">Start the session or send a message to see a summary here.</p>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -635,6 +643,33 @@ async function handleRegenerate() {
 
 .expand-toggle:hover {
   text-decoration: underline;
+}
+
+/* Empty State Styles */
+.summary-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  text-align: center;
+}
+
+.summary-empty-state-content {
+  max-width: 320px;
+}
+
+.summary-empty-state-text {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0 0 0.5rem;
+}
+
+.summary-empty-state-hint {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  margin: 0;
+  line-height: 1.4;
 }
 
 </style>
