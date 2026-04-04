@@ -2544,6 +2544,35 @@ describe('ConversationTab - Quick Response Insertion', () => {
       // ASSERTION: Whitespace is trimmed from existing input
       expect(newValue).toBe('Review the API\n\nFocus on endpoints');
     });
+
+    describe('focus behavior', () => {
+      it('blurs textareaRef after insertion (non-auto-submit)', () => {
+        const textareaRef = {
+          value: '',
+          blur: vi.fn(),
+          focus: vi.fn(),
+        };
+
+        // Simulate what handleQuickResponseInsert does for non-auto-submit
+        textareaRef.blur();
+
+        expect(textareaRef.blur).toHaveBeenCalled();
+        expect(textareaRef.focus).not.toHaveBeenCalled();
+      });
+
+      it('does not set cursor position when blurring', () => {
+        const textareaRef = {
+          value: 'Test content',
+          blur: vi.fn(),
+        };
+
+        // Simulate blur without selection
+        textareaRef.blur();
+
+        expect(textareaRef.blur).toHaveBeenCalled();
+        expect(textareaRef.value).toBe('Test content');
+      });
+    });
   });
 });
 

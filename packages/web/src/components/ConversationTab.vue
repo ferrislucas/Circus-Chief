@@ -482,8 +482,7 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
       const textareaRef = inputFormRef.value?.textareaRef;
       if (textareaRef) {
         textareaRef.value = newValue;
-        textareaRef.focus();
-        textareaRef.selectionStart = textareaRef.selectionEnd = textareaRef.value.length;
+        textareaRef.blur();
 
         if (canSendMessage.value && newValue.trim()) {
           savePendingPrompt(newValue);
