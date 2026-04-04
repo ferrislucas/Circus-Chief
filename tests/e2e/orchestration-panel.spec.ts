@@ -9,6 +9,7 @@ import {
   cleanupAll,
   cleanupTemplates,
   navigateAndWait,
+  openSessionOverlay,
 } from './helpers';
 
 // ============================================================
@@ -36,7 +37,8 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     const panel = page.locator('.orchestration-panel');
     await expect(panel).toBeVisible();
@@ -53,7 +55,8 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Panel content should NOT be visible (collapsed by default)
     const content = page.locator('.orchestration-content');
@@ -81,7 +84,8 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
     // Enable auto-reschedule via API
     await updateSessionScheduling(session.id, { autoRescheduleEnabled: true });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Content should be visible without clicking (auto-expanded)
     const content = page.locator('.orchestration-content');
@@ -106,7 +110,8 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
     // Set next template via API
     await setNextTemplate(session.id, template.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Content should be visible without clicking (auto-expanded)
     const content = page.locator('.orchestration-content');
@@ -143,7 +148,8 @@ test.describe('Orchestration Panel - Schedule Button State', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -166,7 +172,8 @@ test.describe('Orchestration Panel - Schedule Button State', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -193,7 +200,8 @@ test.describe('Orchestration Panel - Schedule Button State', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -244,7 +252,8 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -267,7 +276,8 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -301,7 +311,8 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand panel → click configure
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -332,7 +343,8 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand panel → click configure
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -380,7 +392,8 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
     // Enable auto-reschedule via API first
     await updateSessionScheduling(session.id, { autoRescheduleEnabled: true });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Panel should be expanded (auto-expanded because autoRescheduleEnabled)
     const content = page.locator('.orchestration-content');
@@ -453,7 +466,8 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -483,7 +497,8 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -510,7 +525,8 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -542,7 +558,8 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -592,7 +609,8 @@ test.describe('Orchestration Panel - Template Selector', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -620,7 +638,8 @@ test.describe('Orchestration Panel - Template Selector', () => {
     // Set next template via API before navigating
     await setNextTemplate(session.id, template1.id);
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Panel should be auto-expanded (because template is set)
     const content = page.locator('.orchestration-content');
@@ -664,7 +683,8 @@ test.describe('Orchestration Panel - Integration', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -699,7 +719,8 @@ test.describe('Orchestration Panel - Integration', () => {
       startImmediately: false,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Expand the panel
     const panelHeader = page.locator('.orchestration-panel .panel-header');
@@ -763,7 +784,8 @@ test.describe('Orchestration Panel - Integration', () => {
       rescheduleDelayMinutes: 15,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}/conversation`);
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Panel should be auto-expanded (template + auto-reschedule set)
     const content = page.locator('.orchestration-content');
