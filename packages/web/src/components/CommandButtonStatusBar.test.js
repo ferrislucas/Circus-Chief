@@ -169,7 +169,7 @@ describe('CommandButtonStatusBar', () => {
     // Verify modal is rendered with the correct props
     const modal = wrapper.findComponent({ name: 'ButtonStatusModal' });
     expect(modal.exists()).toBe(true);
-    expect(modal.props('button')).toEqual({ label: 'Build', command: 'npm run build' });
+    expect(modal.props('button')).toEqual({ id: 'btn-1', label: 'Build', command: 'npm run build' });
   });
 
   it('passes sessionId prop to ButtonStatusModal', async () => {
