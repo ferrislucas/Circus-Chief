@@ -3995,7 +3995,7 @@ describe('ConversationTab connection status', () => {
       global: {
         stubs: {
           ConversationPanel: { template: '<div class="conv-panel-stub"></div>' },
-          ConversationMessages: { template: '<div class="conv-msgs-stub"></div>' },
+          ConversationMessages: { template: '<div class="conv-msgs-stub"></div>', methods: { scrollToBottom: vi.fn() } },
           TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
           RunningState: { template: '<div class="running-state-stub"></div>' },
           InputForm: { template: '<div class="input-form-stub"></div>' },
