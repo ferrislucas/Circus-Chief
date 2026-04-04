@@ -4,6 +4,7 @@ import { ref, nextTick } from 'vue';
 // vi.hoisted runs BEFORE vi.mock factories, so these refs are available
 // when useWebSocket (and useConnectionStatus's module-level code) first executes.
 const { mockConnectionStatus, mockReconnectAttempt } = vi.hoisted(() => {
+  // eslint-disable-next-line no-undef -- require is valid in Vitest's Node.js runtime
   const { ref: hoistedRef } = require('vue');
   return {
     mockConnectionStatus: hoistedRef('connected'),
