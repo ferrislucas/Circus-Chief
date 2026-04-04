@@ -112,6 +112,10 @@ describe('SummaryTab', () => {
             props: ['content'],
           },
           SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
+          SummaryContent: {
+            name: 'SummaryContent',
+            template: '<div class="summary-content-stub"></div>',
+          },
           SchedulingInfo: {
             name: 'SchedulingInfo',
             template: '<div class="scheduling-info-stub" data-testid="scheduling-info">SchedulingInfo</div>',
@@ -768,6 +772,69 @@ describe('SummaryTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.find('.expand-toggle').exists()).toBe(false);
+    });
+  });
+
+  describe('Empty State', () => {
+    it('shows empty state when session has no summary, no latest response, and is not running', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(true);
+      expect(wrapper.text()).toContain("This session hasn't started yet.");
+      expect(wrapper.text()).toContain('Start the session or send a message to see a summary here.');
+    });
+
+    it('does not show empty state while loading', async () => {
+      api.getSessionSummary.mockReturnValue(new Promise(() => {}));
+
+      const wrapper = mountComponent();
+      await nextTick();
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.find('.loading-state').exists()).toBe(true);
+    });
+
+    it('does not show empty state when summary exists', async () => {
+      api.getSessionSummary.mockResolvedValue({ shortSummary: 'A summary', fullSummary: 'Details' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.findComponent({ name: 'SummaryContent' }).exists()).toBe(true);
+    });
+
+    it('does not show empty state when latest response exists', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: { content: 'A response', timestamp: Date.now(), role: 'assistant' },
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+    });
+
+    it('does not show empty state when session is running', async () => {
+      sessionsStore.currentSession = { id: 'sess-123', status: 'running' };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+    });
+
+    it('does not show empty state when session is starting', async () => {
+      sessionsStore.currentSession = { id: 'sess-123', status: 'starting' };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
     });
   });
 
