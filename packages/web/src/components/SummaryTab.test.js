@@ -780,7 +780,7 @@ describe('SummaryTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.empty-state').exists()).toBe(true);
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(true);
       expect(wrapper.text()).toContain("This session hasn't started yet.");
       expect(wrapper.text()).toContain('Start the session or send a message to see a summary here.');
     });
@@ -791,7 +791,7 @@ describe('SummaryTab', () => {
       const wrapper = mountComponent();
       await nextTick();
 
-      expect(wrapper.find('.empty-state').exists()).toBe(false);
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
       expect(wrapper.find('.loading-state').exists()).toBe(true);
     });
 
@@ -801,7 +801,7 @@ describe('SummaryTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.empty-state').exists()).toBe(false);
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
       expect(wrapper.findComponent({ name: 'SummaryContent' }).exists()).toBe(true);
     });
 
@@ -813,7 +813,7 @@ describe('SummaryTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.empty-state').exists()).toBe(false);
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
       expect(wrapper.find('.latest-response').exists()).toBe(true);
     });
 
@@ -824,7 +824,7 @@ describe('SummaryTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.empty-state').exists()).toBe(false);
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
     });
 
     it('does not show empty state when session is starting', async () => {
@@ -834,7 +834,7 @@ describe('SummaryTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.empty-state').exists()).toBe(false);
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
     });
   });
 
