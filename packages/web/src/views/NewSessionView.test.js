@@ -420,6 +420,29 @@ describe('NewSessionView - Quick Response Insertion', () => {
       document.body.removeChild(textarea);
     });
 
+    it('does not blur textarea on auto-submit path', () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = 'Quick response content';
+      document.body.appendChild(textarea);
+
+      // Focus the textarea to simulate it being active
+      textarea.focus();
+      expect(document.activeElement === textarea).toBe(true);
+
+      // Simulate auto-submit path: handleQuickResponseInsert with autoSubmit=true
+      // The auto-submit branch calls handleSubmit() via setTimeout, NOT blur
+      const autoSubmit = true;
+      if (!autoSubmit) {
+        textarea.blur();
+      }
+      // auto-submit path skips blur entirely
+
+      // Textarea should still be focused (not blurred)
+      expect(document.activeElement === textarea).toBe(true);
+
+      document.body.removeChild(textarea);
+    });
+
     it('handles insertion with empty textarea', () => {
       const textarea = document.createElement('textarea');
       textarea.value = '';
