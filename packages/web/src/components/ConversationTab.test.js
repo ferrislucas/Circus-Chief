@@ -3948,29 +3948,88 @@ describe('ConversationTab - Input clearing on submit', () => {
   });
 });
 
-describe('ConversationTab connection status (non-stale defaults)', () => {
-  it('useConnectionStatus mock returns isStale=false by default', async () => {
-    // Verify the mock is set up correctly for other tests in this file.
-    // When isStale is false, connection-stale class should NOT be applied.
-    const mod = await import('../composables/useConnectionStatus.js');
-    const { isStale } = mod.useConnectionStatus();
-    expect(isStale.value).toBe(false);
+describe('ConversationTab connection status', () => {
+  let mockSessionsStoreLocal;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    mockSessionsStoreLocal = {
+      messages: [],
+      currentSession: { id: 'sess-123', status: 'waiting', thinkingEnabled: false, mode: 'standard' },
+      activeConversation: { id: 'conv-1', name: 'Test Conv' },
+      activeConversationId: 'conv-1',
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateSessionModel: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      updateAutoSendPendingPrompt: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      clearPartialText: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      viewedSessionId: null,
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStoreLocal);
   });
+
+  function mountForConnectionTest() {
+    return mount(ConversationTab, {
+      props: { sessionId: 'sess-123' },
+      global: {
+        stubs: {
+          ConversationPanel: { template: '<div class="conv-panel-stub"></div>' },
+          ConversationMessages: { template: '<div class="conv-msgs-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          RunningState: { template: '<div class="running-state-stub"></div>' },
+          InputForm: { template: '<div class="input-form-stub"></div>' },
+          SchedulingInfo: { template: '<div class="scheduling-info-stub"></div>' },
+          QuickResponseSettings: { template: '<div></div>' },
+          ScheduleSessionModal: { template: '<div></div>' },
+          AutoRescheduleModal: { template: '<div></div>' },
+          SlashCommandWizard: { template: '<div></div>' },
+          StaleBadge: {
+            props: ['isStale'],
+            template: '<div v-if="isStale" class="stale-badge" data-testid="stale-badge">Content may be outdated</div>',
+          },
+        },
+      },
+    });
+  }
 
   it('connection-stale class is NOT applied when isStale is false', async () => {
-    // With the mock returning isStale ref(false), the template condition
-    // :class="{ 'connection-stale': isStale }" evaluates to false
-    const mod = await import('../composables/useConnectionStatus.js');
-    const { isStale } = mod.useConnectionStatus();
-    expect(isStale.value).toBe(false);
+    const wrapper = mountForConnectionTest();
+    await flushPromises();
+    await nextTick();
+
+    const tab = wrapper.find('.conversation-tab');
+    expect(tab.exists()).toBe(true);
+    expect(tab.classes()).not.toContain('connection-stale');
+    wrapper.unmount();
   });
 
-  it('"Content may be outdated" badge is NOT shown when connected', async () => {
-    // With the mock returning isStale ref(false), the v-if="isStale"
-    // on the stale-badge div evaluates to false, so the badge is hidden
-    const mod = await import('../composables/useConnectionStatus.js');
-    const { isStale, connectionStatus } = mod.useConnectionStatus();
-    expect(isStale.value).toBe(false);
-    expect(connectionStatus.value).toBe('connected');
+  it('stale-badge is NOT shown when connected', async () => {
+    const wrapper = mountForConnectionTest();
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('[data-testid="stale-badge"]').exists()).toBe(false);
+    wrapper.unmount();
   });
 });

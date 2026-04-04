@@ -159,4 +159,17 @@ describe('ConnectionBanner', () => {
     expect(dot.classes()).not.toContain('dot-pulse');
     wrapper.unmount();
   });
+
+  it('has role="alert" for accessibility', async () => {
+    mockIsStale.value = true;
+    mockConnectionStatus.value = 'disconnected';
+
+    const wrapper = mount(ConnectionBanner);
+    await nextTick();
+
+    const banner = wrapper.find('[data-testid="connection-banner"]');
+    expect(banner.exists()).toBe(true);
+    expect(banner.attributes('role')).toBe('alert');
+    wrapper.unmount();
+  });
 });

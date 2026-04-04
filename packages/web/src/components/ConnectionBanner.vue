@@ -55,15 +55,15 @@ const bannerText = computed(() => {
 }
 
 .banner-warning {
-  background-color: rgba(245, 158, 11, 0.15);
-  border-bottom: 1px solid rgba(245, 158, 11, 0.3);
-  color: var(--color-warning, #f59e0b);
+  background-color: rgba(210, 153, 34, 0.15);
+  border-bottom: 1px solid rgba(210, 153, 34, 0.3);
+  color: var(--color-warning);
 }
 
 .banner-error {
-  background-color: rgba(239, 68, 68, 0.15);
-  border-bottom: 1px solid rgba(239, 68, 68, 0.3);
-  color: var(--color-error, #ef4444);
+  background-color: rgba(248, 81, 73, 0.15);
+  border-bottom: 1px solid rgba(248, 81, 73, 0.3);
+  color: var(--color-error);
 }
 
 .banner-dot {
@@ -74,11 +74,11 @@ const bannerText = computed(() => {
 }
 
 .banner-warning .banner-dot {
-  background-color: var(--color-warning, #f59e0b);
+  background-color: var(--color-warning);
 }
 
 .banner-error .banner-dot {
-  background-color: var(--color-error, #ef4444);
+  background-color: var(--color-error);
 }
 
 .dot-pulse {
