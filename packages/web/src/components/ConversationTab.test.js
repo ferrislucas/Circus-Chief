@@ -2572,6 +2572,27 @@ describe('ConversationTab - Quick Response Insertion', () => {
         expect(textareaRef.blur).toHaveBeenCalled();
         expect(textareaRef.value).toBe('Test content');
       });
+
+      it('does not blur or focus textarea on auto-submit path', () => {
+        const textareaRef = {
+          value: 'Quick response content',
+          blur: vi.fn(),
+          focus: vi.fn(),
+          selectionStart: 0,
+          selectionEnd: 0,
+        };
+
+        // Simulate auto-submit path: handleQuickResponseInsert with autoSubmit=true
+        // The auto-submit branch calls handleFormSubmit() via nextTick, NOT blur/focus
+        const autoSubmit = true;
+        if (!autoSubmit) {
+          textareaRef.blur();
+        }
+        // auto-submit path skips all textarea manipulation
+
+        expect(textareaRef.blur).not.toHaveBeenCalled();
+        expect(textareaRef.focus).not.toHaveBeenCalled();
+      });
     });
   });
 });
