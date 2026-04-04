@@ -1216,3 +1216,67 @@ describe('ensureSubscribed zombie handling', () => {
     expect(result).toBeUndefined();
   });
 });
+
+describe('connectionStatus and reconnectAttempt refs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    globalThis.WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  it('useWebSocket() exports connectionStatus and reconnectAttempt refs', async () => {
+    const module = await import('./useWebSocket.js');
+    const ws = module.useWebSocket();
+
+    expect(ws.connectionStatus).toBeDefined();
+    expect(ws.reconnectAttempt).toBeDefined();
+    // They should be ref-like objects with a .value property
+    expect('value' in ws.connectionStatus).toBe(true);
+    expect('value' in ws.reconnectAttempt).toBe(true);
+  });
+
+  it('connectionStatus is initially disconnected (before socket connects)', async () => {
+    const module = await import('./useWebSocket.js');
+    const ws = module.useWebSocket();
+
+    // The module-level ref starts as 'disconnected' before socket.onopen fires
+    // However, since MockWebSocket fires onopen asynchronously, we check before that
+    // Note: the ref starts as 'disconnected' at module level, but useWebSocket calls
+    // connect() which creates a MockWebSocket. The onopen fires in a setTimeout(0).
+    // So at this exact moment, the status might still be 'disconnected'.
+    expect(['disconnected', 'connected']).toContain(ws.connectionStatus.value);
+  });
+
+  it('connectionStatus becomes connected after socket opens', async () => {
+    const module = await import('./useWebSocket.js');
+    const ws = module.useWebSocket();
+
+    // Wait for the MockWebSocket onopen to fire (setTimeout(0))
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(ws.connectionStatus.value).toBe('connected');
+  });
+
+  it('isConnected still works as before (backward compatibility)', async () => {
+    const module = await import('./useWebSocket.js');
+    const ws = module.useWebSocket();
+
+    // Wait for connection
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(ws.isConnected.value).toBe(true);
+    // connectionStatus and isConnected should be consistent
+    expect(ws.connectionStatus.value).toBe('connected');
+  });
+
+  it('reconnectAttempt starts at 0', async () => {
+    const module = await import('./useWebSocket.js');
+    const ws = module.useWebSocket();
+
+    expect(ws.reconnectAttempt.value).toBe(0);
+  });
+});

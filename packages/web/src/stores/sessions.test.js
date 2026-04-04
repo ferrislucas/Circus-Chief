@@ -27,7 +27,6 @@ vi.mock('../composables/useApi.js', () => ({
     getConversation: vi.fn(),
     updateConversation: vi.fn(),
     deleteConversation: vi.fn(),
-    generateConversationSummary: vi.fn(),
     getConversationMessages: vi.fn(),
     branchConversation: vi.fn(),
   },
