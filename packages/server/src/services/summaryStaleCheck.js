@@ -1,7 +1,6 @@
 /**
  * Staleness detection for session summaries.
- * Extracted from summaryService.js to break the circular dependency
- * between conversationSummary.js and summaryService.js.
+ * Extracted from summaryService.js for modularity.
  */
 
 import { sessionSummaries, messages } from '../database.js';

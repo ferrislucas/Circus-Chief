@@ -530,7 +530,6 @@ test.describe('Session Summaries', () => {
 
       const settings = await response.json();
       expect(settings.disableSessionSummaries).toBe(false);
-      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
       expect(settings.defaultSessionTitlePrompt).toBeDefined();
       expect(settings.defaultSessionTitlePrompt.length).toBeGreaterThan(0);
@@ -542,7 +541,6 @@ test.describe('Session Summaries', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           disableSessionSummaries: true,
-          disableConversationSummaries: false,
           sessionTitlePrompt: '',
         }),
       });
@@ -551,7 +549,6 @@ test.describe('Session Summaries', () => {
       const getResponse = await fetch(`${API_URL}/api/settings/summary`);
       const settings = await getResponse.json();
       expect(settings.disableSessionSummaries).toBe(true);
-      expect(settings.disableConversationSummaries).toBe(false);
     });
 
     test('PUT /settings/summary accepts custom session title prompt', async () => {
@@ -560,7 +557,6 @@ test.describe('Session Summaries', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           disableSessionSummaries: false,
-          disableConversationSummaries: false,
           sessionTitlePrompt: 'Custom title format',
         }),
       });
@@ -578,7 +574,6 @@ test.describe('Session Summaries', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           disableSessionSummaries: true,
-          disableConversationSummaries: true,
           sessionTitlePrompt: 'Custom prompt',
         }),
       });
@@ -593,7 +588,6 @@ test.describe('Session Summaries', () => {
       const getResponse = await fetch(`${API_URL}/api/settings/summary`);
       const settings = await getResponse.json();
       expect(settings.disableSessionSummaries).toBe(false);
-      expect(settings.disableConversationSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
     });
   });

@@ -12,7 +12,6 @@ vi.mock('../websocket.js', () => ({
 
 // Mock summary service
 vi.mock('../services/summaryService.js', () => ({
-  generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
   onSessionActivity: vi.fn(),
   propagatePrUrlToParent: vi.fn(),
 }));

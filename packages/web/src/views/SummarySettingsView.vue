@@ -19,19 +19,6 @@
     </div>
 
     <div class="form-group">
-      <label class="checkbox-label">
-        <input
-          type="checkbox"
-          v-model="disableConversationSummaries"
-        />
-        Disable conversation summaries
-      </label>
-      <p class="form-help">
-        When enabled, automatic conversation summaries will not be generated when switching between conversations.
-      </p>
-    </div>
-
-    <div class="form-group">
       <label class="form-label" for="sessionTitlePrompt">Custom Session Title Prompt</label>
       <ResizableTextarea
         id="sessionTitlePrompt"
@@ -69,7 +56,6 @@ const settingsStore = useSettingsStore();
 const uiStore = useUiStore();
 
 const disableSessionSummaries = ref(false);
-const disableConversationSummaries = ref(true);
 const sessionTitlePrompt = ref('');
 const saving = ref(false);
 const error = ref(null);
@@ -83,7 +69,6 @@ import { watch } from 'vue';
 watch(() => settingsStore.summarySettings, (settings) => {
   if (settings) {
     disableSessionSummaries.value = settings.disableSessionSummaries;
-    disableConversationSummaries.value = settings.disableConversationSummaries;
     // Use saved prompt, or fall back to default for editing
     sessionTitlePrompt.value = settings.sessionTitlePrompt || settings.defaultSessionTitlePrompt || '';
   }
@@ -96,7 +81,6 @@ async function handleSave() {
   try {
     await settingsStore.updateSummarySettings({
       disableSessionSummaries: disableSessionSummaries.value,
-      disableConversationSummaries: disableConversationSummaries.value,
       sessionTitlePrompt: sessionTitlePrompt.value,
     });
     uiStore.success('Summary settings saved successfully');
