@@ -93,20 +93,18 @@ router.get('/summary', (req, res) => {
  */
 router.put('/summary', (req, res) => {
   try {
-    const { disableSessionSummaries, disableConversationSummaries, sessionTitlePrompt } = req.body;
+    const { disableSessionSummaries, sessionTitlePrompt } = req.body;
 
     // Validate that all required fields are present
     if (typeof disableSessionSummaries !== 'boolean' ||
-        typeof disableConversationSummaries !== 'boolean' ||
         typeof sessionTitlePrompt !== 'string') {
       return res.status(400).json({
-        error: 'Invalid summary settings. disableSessionSummaries and disableConversationSummaries must be booleans, sessionTitlePrompt must be a string'
+        error: 'Invalid summary settings. disableSessionSummaries must be a boolean, sessionTitlePrompt must be a string'
       });
     }
 
     const updatedSettings = settings.setSummarySettings({
       disableSessionSummaries,
-      disableConversationSummaries,
       sessionTitlePrompt,
     });
 

@@ -1,4 +1,13 @@
 <template>
+  <!-- Connection status dot — renders outside v-if="hasData" so it's visible even with no metrics -->
+  <span
+    v-if="connectionStatus !== 'connected'"
+    class="connection-status-dot"
+    :class="statusDotClass"
+    :title="statusDotTooltip"
+    data-testid="connection-status-dot"
+  ></span>
+
   <div
     v-if="hasData"
     class="system-indicators"
@@ -107,11 +116,26 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { getColorForPercent } from '../utils/systemIndicators.js';
 import SystemStatDetailModal from './SystemStatDetailModal.vue';
 
-const { on, off } = useWebSocket();
+const { on, off, connectionStatus, reconnectAttempt } = useWebSocket();
 
 const metrics = ref(null);
 const hasData = computed(() => metrics.value !== null);
 const selectedStat = ref(null);
+
+const statusDotClass = computed(() => {
+  if (connectionStatus.value === 'reconnecting') return 'dot-amber dot-pulse';
+  if (connectionStatus.value === 'disconnected') return 'dot-red';
+  return '';
+});
+
+const statusDotTooltip = computed(() => {
+  if (connectionStatus.value === 'reconnecting') {
+    const attempt = reconnectAttempt.value;
+    return `Reconnecting${attempt > 0 ? ` (attempt ${attempt})` : ''}...`;
+  }
+  if (connectionStatus.value === 'disconnected') return 'Disconnected';
+  return '';
+});
 
 function handleMetrics(message) {
   metrics.value = message;
@@ -184,5 +208,31 @@ onUnmounted(() => {
   border-radius: 2px;
   transition: width 0.5s ease, background-color 0.3s ease;
   max-width: 100%;
+}
+
+/* Connection status dot */
+.connection-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.dot-amber {
+  background-color: var(--color-warning);
+}
+
+.dot-red {
+  background-color: var(--color-error);
+}
+
+.dot-pulse {
+  animation: status-dot-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes status-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 </style>

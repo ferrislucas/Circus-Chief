@@ -18,6 +18,18 @@ async function flushAll(wrapper) {
   }
 }
 
+// Mock useConnectionStatus composable
+vi.mock('../composables/useConnectionStatus.js', async () => {
+  const { ref } = await import('vue');
+  return {
+    useConnectionStatus: () => ({
+      isStale: ref(false),
+      connectionStatus: ref('connected'),
+      reconnectAttempt: ref(0),
+    }),
+  };
+});
+
 // Mock the API - MUST be before imports that use it
 vi.mock('../composables/useApi.js', () => ({
   api: {
@@ -579,6 +591,32 @@ describe('CanvasTab', () => {
       expect(mockReplace).toHaveBeenCalledWith({
         query: { item: '3' }
       });
+    });
+  });
+
+  describe('connection status styling', () => {
+    it('connection-stale class is NOT applied when connected', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'file1.png', createdAt: 1000 },
+      ]);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const canvasTab = wrapper.find('.canvas-tab');
+      expect(canvasTab.exists()).toBe(true);
+      expect(canvasTab.classes()).not.toContain('connection-stale');
+    });
+
+    it('stale-badge is NOT shown when connected', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'file1.png', createdAt: 1000 },
+      ]);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="stale-badge"]').exists()).toBe(false);
     });
   });
 });

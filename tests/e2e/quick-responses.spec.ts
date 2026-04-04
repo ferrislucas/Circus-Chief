@@ -430,17 +430,21 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
 
+    // Click the settings gear button
     const settingsBtn = page.locator('button[aria-label="Manage quick responses"]');
     await expect(settingsBtn).toBeVisible({ timeout: 5000 });
     await settingsBtn.click();
 
+    // Verify settings modal opens
     const settingsModal = page.locator('.settings-panel[role="dialog"]');
     await expect(settingsModal).toBeVisible({ timeout: 5000 });
 
-    // Click "+ Add" inside the modal — proves it's interactable, not obscured
+    // Click the "+ Add" button inside the settings modal — this proves the modal
+    // is interactable (not obscured by the session overlay behind it)
     const addBtn = settingsModal.locator('.add-button').first();
     await addBtn.click();
 
+    // Assert the Add Quick Response dialog opens
     const dialog = page.locator('.dialog-overlay .dialog');
     await expect(dialog).toBeVisible({ timeout: 5000 });
   });
