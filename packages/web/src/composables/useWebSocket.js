@@ -9,6 +9,8 @@ let reconnectDelay = WS_RECONNECT_BASE_DELAY;
 let hasConnectedBefore = false;
 const listeners = new Map();
 const isConnected = ref(false);
+const connectionStatus = ref('disconnected'); // 'connected' | 'disconnected' | 'reconnecting'
+const reconnectAttempt = ref(0);
 // Buffer for messages that arrive before handlers are registered
 // Specifically buffers SESSION_USAGE_UPDATE messages to prevent loss during subscription lag
 const messageBuffer = new Map(); // Map of sessionId -> array of buffered messages
@@ -30,6 +32,8 @@ function connect() {
   socket.onopen = () => {
     console.log('WebSocket connected');
     isConnected.value = true;
+    connectionStatus.value = 'connected';
+    reconnectAttempt.value = 0;
     reconnectDelay = WS_RECONNECT_BASE_DELAY;
 
     // Flush queued outbound messages
@@ -91,7 +95,14 @@ function connect() {
     socket = null;
 
     // Don't reconnect on clean close
-    if (event.code === 1000) return;
+    if (event.code === 1000) {
+      connectionStatus.value = 'disconnected';
+      return;
+    }
+
+    // Abnormal close — schedule reconnect
+    connectionStatus.value = 'reconnecting';
+    reconnectAttempt.value++;
 
     // Exponential backoff reconnection
     reconnectTimeout = setTimeout(() => {
@@ -118,6 +129,10 @@ if (typeof document !== 'undefined') {
           socket.close();
           socket = null;
         }
+        // Explicitly set reconnecting status since onclose won't fire
+        // (we nulled it above to prevent the reconnect loop)
+        connectionStatus.value = 'reconnecting';
+        reconnectAttempt.value++;
         connect();
       }
     }
@@ -210,6 +225,8 @@ export function useWebSocket() {
 
   return {
     isConnected,
+    connectionStatus,
+    reconnectAttempt,
     send,
     on,
     off,

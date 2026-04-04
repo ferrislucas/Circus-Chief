@@ -24,6 +24,8 @@
       </div>
     </header>
 
+    <ConnectionBanner />
+
     <main class="app-main">
       <router-view :key="$route.fullPath" />
     </main>
@@ -36,6 +38,7 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 import ToastContainer from './components/ToastContainer.vue';
 import SystemIndicators from './components/SystemIndicators.vue';
+import ConnectionBanner from './components/ConnectionBanner.vue';
 import { useVisualViewport } from './composables/useVisualViewport.js';
 
 // Initialize visual viewport tracking for iOS Safari browser chrome offset
