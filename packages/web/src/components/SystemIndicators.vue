@@ -220,11 +220,11 @@ onUnmounted(() => {
 }
 
 .dot-amber {
-  background-color: var(--color-warning, #f59e0b);
+  background-color: var(--color-warning);
 }
 
 .dot-red {
-  background-color: var(--color-error, #ef4444);
+  background-color: var(--color-error);
 }
 
 .dot-pulse {

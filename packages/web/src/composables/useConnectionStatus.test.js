@@ -1,11 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
-import { ref, defineComponent, nextTick } from 'vue';
-import { WS_DISCONNECT_DISPLAY_DELAY } from '@claudetools/shared';
+import { ref, nextTick } from 'vue';
 
-// Reactive refs shared across the mock and test code
-const mockConnectionStatus = ref('connected');
-const mockReconnectAttempt = ref(0);
+// vi.hoisted runs BEFORE vi.mock factories, so these refs are available
+// when useWebSocket (and useConnectionStatus's module-level code) first executes.
+const { mockConnectionStatus, mockReconnectAttempt } = vi.hoisted(() => {
+  const { ref: hoistedRef } = require('vue');
+  return {
+    mockConnectionStatus: hoistedRef('connected'),
+    mockReconnectAttempt: hoistedRef(0),
+  };
+});
 
 vi.mock('./useWebSocket.js', () => ({
   useWebSocket: () => ({
@@ -21,56 +25,52 @@ vi.mock('./useWebSocket.js', () => ({
   }),
 }));
 
-import { useConnectionStatus } from './useConnectionStatus.js';
-
-/**
- * Mount the composable inside a tiny wrapper component so Vue lifecycle
- * hooks (onUnmounted) have a proper component context.
- */
-function mountComposable() {
-  let result;
-  const wrapper = mount(defineComponent({
-    setup() {
-      result = useConnectionStatus();
-      return {};
-    },
-    render() { return null; },
-  }));
-  return { result, wrapper };
-}
+// Import after mock is set up. Because useConnectionStatus.js now
+// runs its singleton watcher at module-level, the mock must be ready first.
+import { useConnectionStatus, WS_DISCONNECT_DISPLAY_DELAY } from './useConnectionStatus.js';
 
 describe('useConnectionStatus', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
-    // Reset shared refs to defaults
+    // Reset shared refs to defaults — this triggers the singleton watcher
     mockConnectionStatus.value = 'connected';
     mockReconnectAttempt.value = 0;
+    await nextTick();
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
+  it('WS_DISCONNECT_DISPLAY_DELAY is exported as 2000', () => {
+    expect(WS_DISCONNECT_DISPLAY_DELAY).toBe(2000);
+  });
+
   it('exposes connectionStatus from useWebSocket', () => {
-    const { result, wrapper } = mountComposable();
+    const result = useConnectionStatus();
     expect(result.connectionStatus).toBe(mockConnectionStatus);
-    wrapper.unmount();
   });
 
   it('exposes reconnectAttempt from useWebSocket', () => {
-    const { result, wrapper } = mountComposable();
+    const result = useConnectionStatus();
     expect(result.reconnectAttempt).toBe(mockReconnectAttempt);
-    wrapper.unmount();
   });
 
   it('isStale is false when connected', () => {
-    const { result, wrapper } = mountComposable();
+    const result = useConnectionStatus();
     expect(result.isStale.value).toBe(false);
-    wrapper.unmount();
+  });
+
+  it('all callers share the same singleton refs', () => {
+    const a = useConnectionStatus();
+    const b = useConnectionStatus();
+    expect(a.isStale).toBe(b.isStale);
+    expect(a.connectionStatus).toBe(b.connectionStatus);
+    expect(a.reconnectAttempt).toBe(b.reconnectAttempt);
   });
 
   it('isStale remains false during the first 2 seconds after disconnect', async () => {
-    const { result, wrapper } = mountComposable();
+    const result = useConnectionStatus();
 
     // Simulate disconnect
     mockConnectionStatus.value = 'reconnecting';
@@ -80,11 +80,10 @@ describe('useConnectionStatus', () => {
     vi.advanceTimersByTime(WS_DISCONNECT_DISPLAY_DELAY - 1);
 
     expect(result.isStale.value).toBe(false);
-    wrapper.unmount();
   });
 
   it('isStale becomes true after WS_DISCONNECT_DISPLAY_DELAY ms of disconnect', async () => {
-    const { result, wrapper } = mountComposable();
+    const result = useConnectionStatus();
 
     mockConnectionStatus.value = 'reconnecting';
     await nextTick();
@@ -92,11 +91,10 @@ describe('useConnectionStatus', () => {
     vi.advanceTimersByTime(WS_DISCONNECT_DISPLAY_DELAY);
 
     expect(result.isStale.value).toBe(true);
-    wrapper.unmount();
   });
 
   it('isStale stays false if connection recovers within WS_DISCONNECT_DISPLAY_DELAY (timer cancelled)', async () => {
-    const { result, wrapper } = mountComposable();
+    const result = useConnectionStatus();
 
     // Disconnect
     mockConnectionStatus.value = 'reconnecting';
@@ -115,11 +113,10 @@ describe('useConnectionStatus', () => {
 
     // isStale should still be false because the timer was cancelled
     expect(result.isStale.value).toBe(false);
-    wrapper.unmount();
   });
 
   it('isStale becomes false immediately on reconnect after being stale', async () => {
-    const { result, wrapper } = mountComposable();
+    const result = useConnectionStatus();
 
     // Disconnect and wait for stale
     mockConnectionStatus.value = 'reconnecting';
@@ -132,11 +129,10 @@ describe('useConnectionStatus', () => {
     await nextTick();
 
     expect(result.isStale.value).toBe(false);
-    wrapper.unmount();
   });
 
   it('does not start a second timer if already timing', async () => {
-    const { result, wrapper } = mountComposable();
+    const result = useConnectionStatus();
 
     // First disconnect
     mockConnectionStatus.value = 'reconnecting';
@@ -154,23 +150,5 @@ describe('useConnectionStatus', () => {
 
     // Should be stale based on original timer, not the second status change
     expect(result.isStale.value).toBe(true);
-    wrapper.unmount();
-  });
-
-  it('clears debounce timer on unmount', async () => {
-    const { result, wrapper } = mountComposable();
-
-    // Disconnect to start the timer
-    mockConnectionStatus.value = 'reconnecting';
-    await nextTick();
-
-    // Unmount before timer fires
-    wrapper.unmount();
-
-    // Advance past the timer
-    vi.advanceTimersByTime(WS_DISCONNECT_DISPLAY_DELAY + 1000);
-
-    // isStale should still be false because the timer was cleaned up
-    expect(result.isStale.value).toBe(false);
   });
 });

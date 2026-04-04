@@ -7,9 +7,7 @@
     @drop.prevent="handleDrop"
   >
     <!-- Stale content badge -->
-    <div v-if="isStale" class="stale-badge" data-testid="stale-badge">
-      Content may be outdated
-    </div>
+    <StaleBadge :isStale="isStale" />
 
     <!-- Upload header - only show in list view -->
     <div v-if="!shouldShowViewer || !selectedItem" class="canvas-header">
@@ -121,6 +119,7 @@ import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import CanvasFileList from './CanvasFileList.vue';
 import CanvasFileViewer from './CanvasFileViewer.vue';
 import CanvasTrash from './CanvasTrash.vue';
+import StaleBadge from './StaleBadge.vue';
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -333,18 +332,6 @@ function handleCancelSelection() {
 
 .canvas-tab.connection-stale {
   opacity: 0.5;
-}
-
-.stale-badge {
-  padding: 0.375rem 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--color-warning, #f59e0b);
-  background-color: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  border-radius: var(--border-radius, 6px);
-  text-align: center;
-  margin-bottom: 0.5rem;
 }
 
 .canvas-tab.drag-over {
