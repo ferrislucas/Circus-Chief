@@ -270,10 +270,10 @@ describe('Kanban API', () => {
     });
 
     it('returns 404 when board does not exist', async () => {
-      // Use valid UUIDs so Zod validation passes, then it hits the board check
+      // Use valid RFC 4122 UUIDs so Zod validation passes, then it hits the board check
       const res = await request(app)
         .put(`/api/projects/${projectId}/kanban/lanes/reorder`)
-        .send(['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002']);
+        .send(['10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000002']);
 
       expect(res.status).toBe(404);
     });
@@ -517,7 +517,7 @@ describe('Kanban API', () => {
 
       const res = await request(app)
         .put(`/api/projects/${projectId}/kanban/lanes/non-existent/cards/reorder`)
-        .send(['00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000002']);
+        .send(['10000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000002']);
 
       expect(res.status).toBe(404);
     });
