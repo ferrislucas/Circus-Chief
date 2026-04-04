@@ -4040,6 +4040,45 @@ describe('Sessions Store', () => {
       consoleErrorSpy.mockRestore();
     });
 
+    it('does not set error when viewedSessionId changes during a failed fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.error = null;
+
+      api.getSessionMessages.mockImplementation(async () => {
+        // Simulate user navigating away while the request is in flight
+        store.viewedSessionId = 'session-B';
+        throw new Error('Network error');
+      });
+
+      await store.fetchMessages('session-A', false);
+
+      // Error should NOT be set because user navigated away
+      expect(store.error).toBeNull();
+    });
+
+    it('sets error when viewedSessionId matches on failed fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+
+      api.getSessionMessages.mockRejectedValue(new Error('API Error'));
+
+      await store.fetchMessages('session-A', false);
+
+      expect(store.error).toBe('API Error');
+    });
+
+    it('sets error when viewedSessionId is null on failed fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = null;
+
+      api.getSessionMessages.mockRejectedValue(new Error('API Error'));
+
+      await store.fetchMessages('any-session', false);
+
+      expect(store.error).toBe('API Error');
+    });
+
     it('skips API call when viewedSessionId does not match sessionId', async () => {
       const store = useSessionsStore();
       store.viewedSessionId = 'session-A';
