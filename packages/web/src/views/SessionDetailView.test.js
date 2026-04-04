@@ -3375,6 +3375,63 @@ describe('SessionDetailView', () => {
       expect(treeOverlay.exists()).toBe(true);
       expect(treeOverlay.props('sessionId')).toBe('child-1'); // Should be the running child
     });
+
+    it('re-resolves overlaySessionId when overlay is opened after session activity changes', async () => {
+      // Start with parent and two waiting children (no running sessions)
+      sessionsStore.sessions = [
+        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
+        { id: 'child-1', name: 'Waiting Child 1', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
+        { id: 'child-2', name: 'Waiting Child 2', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
+      ];
+
+      sessionsStore.currentSession = sessionsStore.sessions[0];
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Initially overlaySessionId should fall back to the parent (no running children)
+      expect(wrapper.vm.overlaySessionId).toBe('parent-1');
+
+      // Simulate a child transitioning to 'running' status after mount
+      const runningChild = { ...sessionsStore.sessions[1], status: 'running', updatedAt: '2025-01-02T00:00:00Z' };
+      sessionsStore.sessions[1] = runningChild;
+
+      // Update the sessionChain to reflect the status change (as handleSessionUpdated would do)
+      const idx = wrapper.vm.sessionChain.findIndex(entry => entry.session.id === 'child-1');
+      if (idx >= 0) {
+        wrapper.vm.sessionChain[idx] = { ...wrapper.vm.sessionChain[idx], session: runningChild };
+        wrapper.vm.sessionChain = [...wrapper.vm.sessionChain];
+      }
+      await nextTick();
+
+      // overlaySessionId is still stale (points to parent)
+      expect(wrapper.vm.overlaySessionId).toBe('parent-1');
+
+      // Now open the overlay via handleOverlayOpen — this should re-resolve
+      wrapper.vm.handleOverlayOpen();
+      await nextTick();
+
+      // overlaySessionId should now point to the newly-running child
+      expect(wrapper.vm.overlaySessionId).toBe('child-1');
+      // And the overlay should be open
+      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+    });
   });
 
   describe('buildSessionChain', () => {
