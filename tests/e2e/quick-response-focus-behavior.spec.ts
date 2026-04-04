@@ -5,6 +5,7 @@ import {
   seedQuickResponse,
   cleanupCreatedResources,
   waitForPageReady,
+  openSessionOverlay,
 } from './helpers';
 
 /**
@@ -70,13 +71,14 @@ test.describe('Quick Response Focus Behavior', () => {
       startImmediately: false,
     });
 
-    // Wait for quick-responses API call before navigating
+    // Set up the quick-responses API response listener BEFORE navigating
     const apiDone = page.waitForResponse(
       (resp) => resp.url().includes('/quick-responses') && resp.status() === 200,
       { timeout: 30000 }
     );
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
 
     // Wait for the quick-responses API call to complete
     await apiDone;
