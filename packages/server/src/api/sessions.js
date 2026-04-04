@@ -23,6 +23,7 @@ import notesRouter from './sessions-notes.js';
 import conversationsRouter from './sessions-conversations.js';
 import commandsRouter from './sessions-commands.js';
 import patchRouter from './sessions-patch.js';
+import archiveRouter from './sessions-archive.js';
 
 const router = Router();
 
@@ -31,6 +32,7 @@ router.use('/', notesRouter);
 router.use('/', conversationsRouter);
 router.use('/', commandsRouter);
 router.use('/', patchRouter);
+router.use('/', archiveRouter);
 
 // TTL cache for files-count endpoint (60 second TTL)
 const filesCountCache = new Map();
@@ -543,6 +545,35 @@ router.get('/:id/todos', requireSession, (req, res) => {
 
 // PATCH /:id and PATCH /:id/pending-prompt are handled by sessions-patch.js sub-router
 
+// GET /api/sessions/:id/workflow-latest-response - Get the most recent assistant response across the entire workflow
+router.get('/:id/workflow-latest-response', requireSession, (req, res) => {
+  try {
+    // Find the root of the workflow
+    const rootId = sessions.getRootSessionId(req.params.id);
+    if (!rootId) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    // Collect all session IDs in the workflow
+    const descendantIds = sessions.getAllDescendantIds(rootId);
+    const allSessionIds = [rootId, ...descendantIds];
+
+    // Find the most recent assistant message across all sessions
+    const message = messages.getLatestAssistantMessageForSessions(allSessionIds);
+    if (!message) {
+      return res.status(404).json({ error: 'No assistant response found' });
+    }
+
+    // Look up the session name for context
+    const messageSession = sessions.getById(message.sessionId);
+    const sessionName = messageSession?.name || null;
+
+    res.json({ message, sessionName });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/sessions/:id/summary - Get session summary
 router.get('/:id/summary', requireSession, async (req, res) => {
   // Check if generateIfMissing query param is set
@@ -582,53 +613,6 @@ router.put('/:id/summary', requireSession, async (req, res) => {
   }
 });
 
-// POST /api/sessions/:id/archive - Archive a session
-router.post('/:id/archive', requireSession, (req, res) => {
-  // Only allow archiving stopped/waiting/error sessions (not active sessions like starting/running)
-  if (!['stopped', 'waiting', 'error'].includes(req.session_.status)) {
-    return res.status(400).json({ error: 'Can only archive stopped, waiting, or error sessions' });
-  }
-
-  const updated = sessions.update(req.params.id, { archived: true });
-
-  // Broadcast update to project subscribers
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  res.json(updated);
-});
-
-// POST /api/sessions/:id/unarchive - Unarchive a session
-router.post('/:id/unarchive', requireSession, (req, res) => {
-  const updated = sessions.update(req.params.id, { archived: false });
-
-  // Broadcast update to project subscribers
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  res.json(updated);
-});
-
-// POST /api/sessions/:id/star - Toggle star status for a session
-router.post('/:id/star', requireSession, (req, res) => {
-  const updated = sessions.update(req.params.id, { starred: !req.session_.starred });
-
-  // Broadcast update to project subscribers
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-    session: updated,
-  });
-
-  res.json(updated);
-});
-
 // POST /api/sessions/:id/schedule - Schedule a follow-up message for an existing session
 router.post('/:id/schedule', requireSessionAndProject, async (req, res) => {
   try {
@@ -664,13 +648,38 @@ router.post('/:id/duplicate', requireSession, async (req, res) => {
 
 // DELETE /api/sessions/:id - Delete session
 router.delete('/:id', requireSessionAndProject, async (req, res) => {
-  // Clean up active session if running
-  cleanupActiveSession(req.params.id);
+  // Collect all descendant session IDs before any deletions
+  // (database ON DELETE SET NULL would orphan them otherwise)
+  const descendantIds = sessions.getAllDescendantIds(req.params.id);
 
-  // Clean up summary service debounce timers
-  summaryService.cleanupSession(req.params.id);
+  // Helper: clean up and delete a single session by ID
+  const cleanupAndDeleteSession = async (sessionId) => {
+    // Clean up active session if running
+    cleanupActiveSession(sessionId);
 
-  // Remove git worktree if session has one (skip for child sessions - they may share parent's worktree)
+    // Clean up summary service debounce timers
+    summaryService.cleanupSession(sessionId);
+
+    // Clean up attachment files from disk
+    try {
+      attachments.deleteSessionAttachmentsFromDisk(req.workingDirectory, sessionId);
+    } catch (error) {
+      console.warn(`Failed to remove attachment files for session ${sessionId}:`, error.message);
+    }
+
+    // Broadcast deletion to close any open WebSocket subscriptions
+    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId });
+
+    // Delete session (cascade will handle messages, canvas items, notes)
+    sessions.delete(sessionId);
+  };
+
+  // Delete all descendants first (leaves before branches to avoid orphaning)
+  for (const descendantId of descendantIds.reverse()) {
+    await cleanupAndDeleteSession(descendantId);
+  }
+
+  // Remove git worktree if parent session has one (skip for child sessions - they may share parent's worktree)
   if (req.session_.gitWorktree && !req.session_.parentSessionId) {
     try {
       await gitService.removeWorktree(req.project.workingDirectory, req.session_.gitWorktree, true);
@@ -680,25 +689,22 @@ router.delete('/:id', requireSessionAndProject, async (req, res) => {
     }
   }
 
-  // Clean up attachment files from disk
-  try {
-    attachments.deleteSessionAttachmentsFromDisk(req.workingDirectory, req.session_.id);
-  } catch (error) {
-    // Log but don't fail - files may already be removed
-    console.warn(`Failed to remove attachment files for session ${req.session_.id}:`, error.message);
-  }
-
-  // Broadcast deletion to close any open WebSocket subscriptions
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId: req.params.id });
+  // Clean up and delete the parent session itself
+  await cleanupAndDeleteSession(req.params.id);
 
   // Broadcast deletion to project subscribers for real-time list updates
+  // (sends one event per deleted session so the frontend can remove them all)
   broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_DELETED, {
     projectId: req.session_.projectId,
     sessionId: req.params.id,
   });
 
-  // Delete session (cascade will handle messages, canvas items, notes)
-  sessions.delete(req.params.id);
+  for (const descendantId of descendantIds) {
+    broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_DELETED, {
+      projectId: req.session_.projectId,
+      sessionId: descendantId,
+    });
+  }
 
   // Execute on_session_deleted hook if configured (non-blocking)
   // Skip for child sessions - they share parent's resources and shouldn't trigger teardown

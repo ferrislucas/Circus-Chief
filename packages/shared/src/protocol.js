@@ -24,6 +24,7 @@ export const WS_MESSAGE_TYPES = {
   SESSION_UPDATED: 'session:updated',
   CANVAS_ADD: 'canvas:add',
   CANVAS_REMOVE: 'canvas:remove',
+  CANVAS_UPDATE: 'canvas:update',
   TODOS_UPDATE: 'todos:update',
   CHANGES_UPDATE: 'changes:update',
 

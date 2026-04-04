@@ -225,6 +225,18 @@ describe('ConversationTab - Model Initialization Bug', () => {
           ResizableTextarea: {
             template: '<textarea class="resizable-textarea"></textarea>',
             props: ['modelValue', 'minHeight', 'placeholder'],
+            mounted() {
+              // Expose value getter/setter like the real ResizableTextarea
+              // ConversationTab.handleFormSubmit accesses textareaRef.value to read and clear
+              const ta = this.$el;
+              Object.defineProperty(this, 'value', {
+                get() { return ta?.value || ''; },
+                set(val) { if (ta) ta.value = val; },
+              });
+              Object.defineProperty(this, 'focus', { value: () => ta?.focus() });
+              Object.defineProperty(this, 'blur', { value: () => ta?.blur() });
+              Object.defineProperty(this, 'select', { value: () => ta?.select() });
+            },
           },
           BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
@@ -375,6 +387,67 @@ describe('ConversationTab - Model Initialization Bug', () => {
     });
   });
 
+  describe('Draft handleFormSubmit uses selectedModel.value over pendingModel', () => {
+    /**
+     * This test surfaces the bug where handleFormSubmit() for draft sessions
+     * reads from session.pendingModel instead of selectedModel.value (the UI dropdown).
+     *
+     * Scenario:
+     * 1. Session created with model 'claude-sonnet-4-20250514' (stored as both model and pendingModel)
+     * 2. User changes dropdown to 'claude-opus-4-6-20250616'
+     * 3. handleFormSubmit() should send 'claude-opus-4-6-20250616', not 'claude-sonnet-4-20250514'
+     *
+     * BUG (before fix): handleFormSubmit used session.pendingModel || session.model,
+     * ignoring the dropdown state entirely.
+     */
+    it('should use the dropdown model when user changes it, not the stale pendingModel', async () => {
+      // Setup: Draft session with sonnet as both model and pendingModel
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        model: 'sonnet',
+        pendingModel: 'sonnet',
+        projectId: 'proj-1',
+        mode: 'standard',
+      };
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        sessionId: 'sess-123',
+        isActive: true,
+      };
+      mockSessionsStore.activeConversationId = 'conv-1';
+      // Mark session as draft so handleFormSubmit() takes the draft path
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Model selector should be initialized to sonnet
+      const modelSelector = wrapper.findComponent(ModelSelector);
+      expect(modelSelector.exists()).toBe(true);
+      expect(modelSelector.props('modelValue')).toBe('sonnet');
+
+      // Simulate user changing the dropdown to opus
+      modelSelector.vm.$emit('update:modelValue', 'opus');
+      await flushAll(wrapper);
+
+      // Type a message and submit
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('Test prompt');
+      await flushAll(wrapper);
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      // startSession should receive the dropdown model ('opus'), not the stale pendingModel ('sonnet')
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
+        'sess-123',
+        'Test prompt',
+        'opus'
+      );
+    });
+  });
+
   describe('Model selection when sending messages', () => {
     it('should send message with a valid model even when activeConversation is null', async () => {
       // Setup: No active conversation
@@ -408,6 +481,72 @@ describe('ConversationTab - Model Initialization Bug', () => {
         [], // attachments
         'sonnet' // model - should NOT be null
       );
+    });
+  });
+
+  describe('Draft session input clearing on start', () => {
+    it('should clear textarea when draft session starts successfully', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        model: 'sonnet',
+        pendingModel: 'sonnet',
+        projectId: 'proj-1',
+        mode: 'standard',
+      };
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        sessionId: 'sess-123',
+        isActive: true,
+      };
+      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+      mockSessionsStore.startSession.mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('My initial prompt');
+      await flushAll(wrapper);
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      // Textarea should be cleared after successful start
+      expect(textarea.element.value).toBe('');
+    });
+
+    it('should not clear textarea when draft session fails to start', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        model: 'sonnet',
+        pendingModel: 'sonnet',
+        projectId: 'proj-1',
+        mode: 'standard',
+      };
+      mockSessionsStore.activeConversation = {
+        id: 'conv-1',
+        sessionId: 'sess-123',
+        isActive: true,
+      };
+      mockSessionsStore.activeConversationId = 'conv-1';
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+      mockSessionsStore.startSession.mockRejectedValue(new Error('Start failed'));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('My initial prompt');
+      await flushAll(wrapper);
+
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      // Textarea should NOT be cleared when start fails - user's input is preserved
+      expect(textarea.element.value).toBe('My initial prompt');
     });
   });
 });

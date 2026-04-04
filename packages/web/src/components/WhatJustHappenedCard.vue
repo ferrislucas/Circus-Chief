@@ -10,26 +10,10 @@
         <!-- Chain step -->
         <div class="chain-step" :data-testid="`chain-step-${index}`">
           <div
-            class="chain-step-icon"
-            :class="{
-              'completed': step.status === 'completed' || step.status === 'stopped',
-              'error': step.status === 'error',
-              'running': step.status === 'running' || step.status === 'starting'
-            }"
-            :data-testid="`chain-step-icon-${index}`"
+            class="chain-step-number"
+            :data-testid="`chain-step-number-${index}`"
           >
-            <svg v-if="step.status === 'completed' || step.status === 'stopped'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            <svg v-else-if="step.status === 'error'" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <line x1="15" y1="9" x2="9" y2="15"></line>
-              <line x1="9" y1="9" x2="15" y2="15"></line>
-            </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
+            {{ index + 1 }}
           </div>
 
           <div class="chain-step-content">
@@ -45,6 +29,13 @@
             </div>
             <div v-else-if="step.status === 'error'" class="chain-step-error">
               Errored: {{ step.errorMessage || 'An error occurred' }}
+            </div>
+            <div
+              v-if="formatStepTimestamp(step)"
+              class="chain-step-timestamp"
+              :data-testid="`chain-step-timestamp-${index}`"
+            >
+              {{ formatStepTimestamp(step) }}
             </div>
           </div>
         </div>
@@ -176,6 +167,21 @@ function getStepSummary(sessionId) {
 }
 
 /**
+ * Format the timestamp for a step
+ */
+function formatStepTimestamp(step) {
+  const timestamp = step.lastActivityAt || step.updatedAt;
+  if (!timestamp) return null;
+  return new Date(timestamp).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+/**
  * Generate workflow tally text
  */
 const workflowTally = computed(() => {
@@ -252,7 +258,7 @@ const lastActivityTime = computed(() => {
   align-items: flex-start;
 }
 
-.chain-step-icon {
+.chain-step-number {
   flex-shrink: 0;
   width: 24px;
   height: 24px;
@@ -262,27 +268,8 @@ const lastActivityTime = computed(() => {
   border-radius: 50%;
   background: var(--color-bg-secondary);
   color: var(--color-text-secondary);
-}
-
-.chain-step-icon.completed {
-  background: rgba(46, 160, 67, 0.15);
-  color: var(--color-success);
-}
-
-.chain-step-icon.error {
-  background: rgba(248, 81, 73, 0.15);
-  color: var(--color-error);
-}
-
-.chain-step-icon.running {
-  background: rgba(210, 153, 34, 0.15);
-  color: var(--color-warning);
-  animation: pulse 2s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  font-weight: 500;
+  font-size: 0.875rem;
 }
 
 .chain-step-content {
@@ -305,6 +292,12 @@ const lastActivityTime = computed(() => {
 .chain-step-error {
   font-size: 0.875rem;
   color: var(--color-error);
+}
+
+.chain-step-timestamp {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  margin-top: 0.25rem;
 }
 
 .chain-connector {

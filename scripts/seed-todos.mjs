@@ -33,6 +33,7 @@ const { dbPath, sessionId, conversationId, todos } = JSON.parse(raw);
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = OFF');
 
 // Delete existing todos for this conversation
 db.prepare('DELETE FROM session_todos WHERE conversation_id = ?').run(conversationId);

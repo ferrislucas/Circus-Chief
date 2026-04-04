@@ -94,10 +94,10 @@
         @retry-summary="$emit('retrySummary', session.id)"
       />
 
-      <!-- Streaming log output for running sessions -->
+      <!-- Streaming log output for running sessions (root or children) -->
       <SessionLogStream
-        v-if="isRunning"
-        :session-id="session.id"
+        v-if="hasRunningSession"
+        :session-ids="runningSessionIds"
         data-testid="session-log-stream"
       />
     </router-link>
@@ -193,23 +193,47 @@ const onAddToBoardClick = () => {
   emit('addToBoard', props.session);
 };
 
-const isRunning = computed(() => ['running', 'starting'].includes(props.session.status));
-
 const dateToShow = computed(() => {
   return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
 });
 
-// Get individual session status for display
+/**
+ * Get all sessions in the workflow tree (root + all descendants at any depth).
+ * Delegates to the store getter which searches both sessions and activeSessions arrays.
+ */
+function getWorkflowSessions() {
+  return sessionsStore.getWorkflowSessions(props.session.id);
+}
+
+// Get workflow status including all descendant sessions (full tree traversal)
 const workflowStatus = computed(() => {
-  const status = props.session.status;
+  const allSessions = getWorkflowSessions();
   const runningStatuses = ['running', 'starting'];
+
+  let runningCount = 0;
+  let scheduledCount = 0;
+  for (const s of allSessions) {
+    if (runningStatuses.includes(s.status)) runningCount++;
+    if (s.status === 'scheduled') scheduledCount++;
+  }
+
   return {
-    runningCount: runningStatuses.includes(status) ? 1 : 0,
-    scheduledCount: status === 'scheduled' ? 1 : 0,
-    totalCount: 1,
-    effectiveStatus: status,
+    runningCount,
+    scheduledCount,
+    totalCount: allSessions.length,
+    effectiveStatus: props.session.status,
   };
 });
+
+// Collect all running/starting session IDs in the workflow (full tree traversal)
+const runningSessionIds = computed(() => {
+  const runningStatuses = ['running', 'starting'];
+  return getWorkflowSessions()
+    .filter(s => runningStatuses.includes(s.status))
+    .map(s => s.id);
+});
+
+const hasRunningSession = computed(() => runningSessionIds.value.length > 0);
 
 // Scheduled time display (for this specific session when it's scheduled)
 const scheduledTimeDisplay = computed(() => {

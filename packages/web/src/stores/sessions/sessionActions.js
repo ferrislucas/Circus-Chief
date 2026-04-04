@@ -61,7 +61,26 @@ export const sessionActions = {
     if (showLoading) this.loading = true;
     this.error = null;
     try {
-      this.currentSession = await api.getSession(id);
+      const fetchedSession = await api.getSession(id);
+      // Guard: only set currentSession if the user is still viewing this session.
+      // This prevents stale in-flight requests (e.g., from polling that was active
+      // for a previous session) from overwriting currentSession after navigation.
+      if (this.viewedSessionId && this.viewedSessionId !== id) {
+        // Session changed while we were fetching — discard this result for currentSession
+        // but still update the session in list arrays below.
+        const sessionIndex = this.sessions.findIndex((s) => s.id === id);
+        if (sessionIndex !== -1) this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...fetchedSession };
+        return;
+      }
+      this.currentSession = fetchedSession;
+      // Add the fetched session to the sessions array if not already present
+      // This ensures getSessionById() can find it for computed properties like activeSessionName
+      const existingIndex = this.sessions.findIndex((s) => s.id === id);
+      if (existingIndex !== -1) {
+        this.sessions[existingIndex] = fetchedSession;
+      } else {
+        this.sessions.push(fetchedSession);
+      }
       if (this.currentSession?.parentSessionId) {
         let parentId = this.currentSession.parentSessionId;
         while (parentId) {
@@ -195,6 +214,15 @@ export const sessionActions = {
     try {
       const updateData = { model };
       if (providerId !== undefined) updateData.providerId = providerId;
+
+      // For draft sessions, also update pendingModel so the backend
+      // fallback chain in draftSessionService.startDraft() stays in sync
+      const session = this.sessions.find(s => s.id === sessionId)
+        || (this.currentSession?.id === sessionId ? this.currentSession : null);
+      if (session && session.status === 'waiting') {
+        updateData.pendingModel = model;
+      }
+
       const updated = await api.updateSession(sessionId, updateData);
       this._updateSessionInAllLists(sessionId, updateData);
       return updated;

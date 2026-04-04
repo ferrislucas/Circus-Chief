@@ -70,7 +70,7 @@ describe('CanvasTab', () => {
     props: ['item', 'sessionId', 'versions', 'showBackButton'],
     emits: ['back', 'selectVersion', 'delete', 'deleteAll'],
     template: `<div class="canvas-file-viewer">
-      <button v-if="showBackButton" class="breadcrumb-back">← Canvas</button>
+      <button v-if="showBackButton" class="breadcrumb-back">← Back to list</button>
       Viewing {{ item?.filename }}
     </div>`,
   });
@@ -489,8 +489,8 @@ describe('CanvasTab', () => {
       // Viewer should be shown with explicit selection
       expect(wrapper.find('.canvas-file-viewer').exists()).toBe(true);
       expect(wrapper.text()).toContain('doc.txt');
-      // Back button should NOT be visible with only one item (nowhere to go back to)
-      expect(wrapper.find('.breadcrumb-back').exists()).toBe(false);
+      // Back button should always be visible so users can navigate back to the list
+      expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
     });
 
     it('shows back button when item is explicitly selected from multiple items', async () => {
@@ -507,7 +507,7 @@ describe('CanvasTab', () => {
       expect(canvasStore.items).toHaveLength(2);
       // Back button should be present when viewing an item
       expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
-      expect(wrapper.text()).toContain('← Canvas');
+      expect(wrapper.text()).toContain('← Back to list');
       expect(wrapper.text()).toContain('doc2.txt');
     });
   });

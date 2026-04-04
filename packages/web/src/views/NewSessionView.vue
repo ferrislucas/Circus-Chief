@@ -6,11 +6,11 @@
     <h1>New Session</h1>
 
     <form @submit.prevent="handleSubmit" class="form card">
-      <!-- NEW: Start From Template selector - populates all fields -->
-      <div v-if="allTemplates.length > 0" class="form-group template-prefill-section">
-        <label class="form-label" for="start-from-template">Start From Template (optional)</label>
-        <select id="start-from-template" v-model="startFromTemplateId" class="form-input" @change="handleStartFromTemplateChange">
-          <option :value="null">Select a template to pre-fill the form...</option>
+      <!-- Start From Template selector (Rec 7: slimmed down) -->
+      <div v-if="allTemplates.length > 0" class="form-group">
+        <label class="form-label" for="start-from-template">Start From Template</label>
+        <select id="start-from-template" v-model="startFromTemplateId" class="form-input" @change="handleStartFromTemplateChange" title="Selecting a template will populate all form fields below. You can still edit before starting.">
+          <option :value="null">Select a template to pre-fill...</option>
           <optgroup v-if="projectTemplates.length" label="Project Templates">
             <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
               {{ template.name }}
@@ -22,9 +22,6 @@
             </option>
           </optgroup>
         </select>
-        <p class="form-help">
-          Selecting a template will populate all form fields below. You can still edit before starting.
-        </p>
       </div>
 
       <div class="form-group">
@@ -33,7 +30,7 @@
           ref="textareaRef"
           class="form-input form-textarea"
           placeholder="What would you like Claude to help you with?"
-          :min-height="120"
+          :min-height="textareaMinHeight"
           required
           @input="handleInput"
           @keydown="handleKeydown"
@@ -47,7 +44,7 @@
         </div>
       </div>
 
-      <!-- Quick Responses Panel - shows quick response templates below the prompt -->
+      <!-- Quick Responses Panel -->
       <QuickResponsesPanel
         :show-empty="true"
         @insert="handleQuickResponseInsert"
@@ -70,16 +67,6 @@
 
       <div v-if="error" class="error-message">{{ error }}</div>
 
-      <!-- Scheduling Options -->
-      <SchedulingOptions v-model="schedulingData" />
-
-      <div class="form-actions">
-        <button type="submit" class="btn btn-primary btn-full-width" :disabled="loading">
-          <span v-if="loading" class="loading-spinner"></span>
-          {{ startImmediately ? 'Start Session' : 'Create Draft' }}
-        </button>
-      </div>
-
       <!-- Git Options -->
       <GitOptionsPanel
         :gitStatus="gitStatus"
@@ -94,48 +81,56 @@
         @resetBranch="resetBranchName"
       />
 
-      <!-- Next Template (optional) -->
-      <div v-if="allTemplates.length > 0" class="form-group">
-        <label class="form-label" for="template">Next Template (optional)</label>
-        <select id="template" v-model="selectedTemplateId" class="form-input">
-          <option :value="null">None - single session</option>
-          <optgroup v-if="projectTemplates.length" label="Project Templates">
-            <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
-              {{ template.name }}
+      <!-- Advanced Options — shown inline (no collapsible) when relevant -->
+      <div v-if="showAdvancedOptions" ref="advancedOptionsRef" class="advanced-options">
+        <!-- Scheduling Options (hidden when starting immediately) -->
+        <SchedulingOptions v-if="!startImmediately" v-model="schedulingData" />
+
+        <!-- Next Template (optional) -->
+        <div v-if="allTemplates.length > 0" class="form-group">
+          <label class="form-label" for="template">Next Template (optional)</label>
+          <select id="template" v-model="selectedTemplateId" class="form-input">
+            <option :value="null">None - single session</option>
+            <optgroup v-if="projectTemplates.length" label="Project Templates">
+              <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
+                {{ template.name }}
+              </option>
+            </optgroup>
+            <optgroup v-if="globalTemplates.length" label="Global Templates">
+              <option v-for="template in globalTemplates" :key="template.id" :value="template.id">
+                {{ template.name }}
+              </option>
+            </optgroup>
+          </select>
+          <p class="form-help">
+            After this session completes, the selected template will automatically start a new session.
+          </p>
+        </div>
+
+        <!-- Parent Session (optional) -->
+        <div v-if="availableSessions.length > 0" class="form-group">
+          <label class="form-label" for="parent-session">Parent Session (optional)</label>
+          <select id="parent-session" v-model="parentSessionId" class="form-input">
+            <option :value="null">None - create standalone session</option>
+            <option v-for="session in availableSessions" :key="session.id" :value="session.id">
+              {{ session.name }}
             </option>
-          </optgroup>
-          <optgroup v-if="globalTemplates.length" label="Global Templates">
-            <option v-for="template in globalTemplates" :key="template.id" :value="template.id">
-              {{ template.name }}
-            </option>
-          </optgroup>
-        </select>
-        <p class="form-help">
-          After this session completes, the selected template will automatically start a new session.
-        </p>
+          </select>
+          <p class="form-help">
+            Choose a parent session to link this as a child session. Child sessions help organize related work.
+          </p>
+        </div>
       </div>
 
-      <!-- Parent Session (optional) -->
-      <div v-if="availableSessions.length > 0" class="form-group">
-        <label class="form-label" for="parent-session">Parent Session (optional)</label>
-        <select id="parent-session" v-model="parentSessionId" class="form-input">
-          <option :value="null">None - create standalone session</option>
-          <option v-for="session in availableSessions" :key="session.id" :value="session.id">
-            {{ session.name }}
-          </option>
-        </select>
-        <p class="form-help">
-          Choose a parent session to link this as a child session. Child sessions help organize related work.
-        </p>
+      <!-- Submit + Cancel (Rec 1: moved to bottom, sticky on mobile) -->
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" @click="goBack">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-submit" :disabled="loading">
+          <span v-if="loading" class="loading-spinner"></span>
+          {{ startImmediately ? 'Start Session' : 'Create Draft' }}
+        </button>
       </div>
     </form>
-
-    <!-- Quick Response Settings Modal -->
-    <QuickResponseSettings
-      :isOpen="quickResponseSettingsOpen"
-      :projectId="route.params.id"
-      @close="quickResponseSettingsOpen = false"
-    />
 
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
@@ -144,6 +139,13 @@
       mode="insert"
       :hide-builtin="true"
       @insert="handleSlashCommandInsert"
+    />
+
+    <!-- Quick Response Settings Modal -->
+    <QuickResponseSettings
+      :isOpen="quickResponseSettingsOpen"
+      :projectId="route.params.id"
+      @close="quickResponseSettingsOpen = false"
     />
   </div>
 </template>
@@ -155,20 +157,20 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { api } from '../composables/useApi.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import { generateWorktreeBranch } from '@claudetools/shared';
 import FileAttachment from '../components/FileAttachment.vue';
 import SessionFormOptions from '../components/SessionFormOptions.vue';
 import GitOptionsPanel from '../components/GitOptionsPanel.vue';
-import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
-import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 import SchedulingOptions from '../components/SchedulingOptions.vue';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
 import SlashCommandButton from '../components/SlashCommandButton.vue';
 import SlashCommandWizard from '../components/SlashCommandWizard.vue';
 import { useProjectsStore } from '../stores/projects.js';
+import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
+import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -176,7 +178,6 @@ const sessionsStore = useSessionsStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
-const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
 
 const prompt = ref('');
@@ -188,8 +189,12 @@ const mode = ref('yolo');
 const model = ref(null);
 const providerId = ref(null);
 const loading = ref(false);
-const quickResponseSettingsOpen = ref(false);
 const showSlashCommandWizard = ref(false);
+const quickResponseSettingsOpen = ref(false);
+
+// Rec 9: Responsive textarea min height
+const textareaMinHeight = computed(() => window.innerWidth <= 480 ? 80 : 120);
+
 
 // Track which fields are using project defaults
 const usingDefaults = ref({
@@ -212,6 +217,7 @@ const handleKeydown = useSubmitShortcut(() => {
 const gitStatus = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
+const advancedOptionsRef = ref(null);
 const selectedTemplateId = ref(null);
 const startFromTemplateId = ref(null);
 const parentSessionId = ref(null);
@@ -244,6 +250,11 @@ const availableSessions = computed(() => {
   return sessionsStore.sessions
     .filter((s) => s.status === 'completed')
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+});
+
+// Rec 4: Show advanced options only when there's content to show
+const showAdvancedOptions = computed(() => {
+  return !startImmediately.value || allTemplates.value.length > 0 || availableSessions.value.length > 0;
 });
 
 const loadingGit = ref(false);
@@ -322,8 +333,28 @@ watch(thinkingEnabled, () => {
   usingDefaults.value.thinkingEnabled = false;
 });
 
-watch(startImmediately, () => {
+// Rec 3: Reset scheduling data when startImmediately is toggled on
+// Also auto-scroll to the advanced options section when toggled off
+watch(startImmediately, (newVal) => {
   usingDefaults.value.startImmediately = false;
+  if (newVal) {
+    // Clear any scheduling data when switching to start immediately
+    schedulingData.value = {
+      scheduledAt: null,
+      autoRescheduleEnabled: false,
+      rescheduleDelayMinutes: 15,
+      rescheduleOnTokenLimit: true,
+      rescheduleOnServiceError: true,
+      maxRescheduleCount: null,
+      maxTotalTokens: null,
+      rescheduleAtTokenCount: null,
+    };
+  } else {
+    // Scroll the advanced options into view after Vue renders the section
+    nextTick(() => {
+      advancedOptionsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
 });
 
 watch(quickGitMode, () => {
@@ -436,6 +467,7 @@ onMounted(async () => {
   templatesStore.fetchProjectTemplates(projectId);
 
   // Fetch quick responses for this project
+  const quickResponsesStore = useQuickResponsesStore();
   quickResponsesStore.fetchForProject(projectId);
 
   // Pre-populate parent session ID if provided in route query
@@ -443,6 +475,11 @@ onMounted(async () => {
     parentSessionId.value = route.query.parentSessionId;
   }
 });
+
+// Rec 1: Navigate back to sessions list
+function goBack() {
+  router.push(`/projects/${route.params.id}/sessions`);
+}
 
 function handleBranchEdit() {
   editingBranch.value = true;
@@ -474,7 +511,6 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
   const textarea = textareaRef.value;
   if (!textarea) return;
 
-  // Combine existing message with quick response content
   const existingText = textarea.value.trim();
   const newContent = existingText
     ? `${existingText}\n\n${content}`
@@ -484,13 +520,10 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
   textarea.dispatchEvent(new Event('input', { bubbles: true }));
 
   if (autoSubmit) {
-    // Auto-submit: submit the form
-    setTimeout(() => {
-      handleSubmit();
-    }, 0);
+    setTimeout(() => handleSubmit(), 0);
   } else {
-    // Non-auto-submit: blur textarea to allow content review
-    textarea.blur();
+    textarea.selectionStart = textarea.selectionEnd = newContent.length;
+    textarea.focus();
   }
 }
 
@@ -573,7 +606,7 @@ async function handleSubmit() {
     fileAttachment.value?.clear();
     // Clear the draft from localStorage after successful submission
     localStorage.removeItem(storageKey.value);
-    router.push(`/sessions/${session.id}`);
+    router.push(`/sessions/${session.id}?overlay=open`);
   } catch (err) {
     error.value = err.message;
   } finally {
@@ -596,22 +629,13 @@ h1 {
   margin-top: 0;
 }
 
-.form {
-  width: 100%;
-}
+/* Rec 8: Constrain form width */
+.form { width: 100%; max-width: 640px; margin: 0 auto; }
 
 .form-help {
   margin: 0.5rem 0 0;
   font-size: 0.75rem;
   color: var(--color-text-soft);
-}
-
-.template-prefill-section {
-  background-color: var(--color-bg-soft);
-  padding: 1rem;
-  border-radius: 0.5rem;
-  border: 1px dashed var(--color-border);
-  margin-bottom: 1rem;
 }
 
 .attachment-row {
@@ -621,15 +645,35 @@ h1 {
   align-items: center;
 }
 
+/* Rec 1: Form actions as flex row with Cancel + Submit */
 .form-actions {
-  margin-bottom: 1.5rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
 }
 
-.btn-full-width {
-  width: 100%;
-  padding-top: 1rem;
-  padding-bottom: 1rem;
-  font-size: 1.1rem;
+.btn-submit {
+  flex: 1;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  font-size: 1.05rem;
+}
+
+.btn-secondary {
+  padding: 0.75rem 1.25rem;
+  font-size: 1.05rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  border-radius: var(--border-radius, 4px);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-border-hover);
+  color: var(--color-text);
 }
 
 .error-message {
@@ -637,10 +681,35 @@ h1 {
   margin-bottom: 1rem;
 }
 
+/* Advanced Options section */
+.advanced-options {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 @media (max-width: 480px) {
   h1 {
     margin-bottom: 0.5rem;
     font-size: 1.5rem;
+  }
+
+  /* Rec 10: Tighten card padding on mobile */
+  .form.card {
+    padding: 0.75rem;
+  }
+}
+
+/* Rec 1: Sticky form actions on mobile */
+@media (max-width: 640px) {
+  .form-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e));
+    border-top: 1px solid var(--color-border);
+    padding: 0.75rem 1rem;
+    margin: 0 -1rem -1rem;
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    z-index: 10;
   }
 }
 </style>

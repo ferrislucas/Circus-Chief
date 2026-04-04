@@ -8,34 +8,69 @@ import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue';
  * @param {import('vue').Ref<Array>} options.messages - Reactive messages array
  * @param {import('vue').Ref<string>} options.partialText - Streaming partial text
  * @param {import('vue').Ref<string|null>} options.activeConversationId - Active conversation ID
+ * @param {import('vue').Ref<HTMLElement|null>} [options.scrollContainer] - Optional alternate scroll container
  * @returns {Object} Scroll management utilities
  */
-export function useMessageScroll({ messages, partialText, activeConversationId }) {
+export function useMessageScroll({ messages, partialText, activeConversationId, scrollContainer }) {
   const messagesContainer = ref(null);
   const isNearBottom = ref(true);
   const hasNewMessages = ref(false);
+  const userScrolledAway = ref(false);
+  let programmaticScroll = false;
   let debounceTimer = null;
   const SCROLL_THRESHOLD = 100; // pixels from bottom
 
+  /**
+   * Resolve which element to use for scrolling.
+   * When scrollContainer is provided (e.g. overlay's .overlay-body), use it.
+   * Otherwise fall back to messagesContainer (the .messages div).
+   */
+  function getScrollEl() {
+    return scrollContainer?.value || messagesContainer.value;
+  }
+
   function handleScroll() {
-    if (!messagesContainer.value) return;
-    const el = messagesContainer.value;
+    const el = getScrollEl();
+    if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     isNearBottom.value = distanceFromBottom < SCROLL_THRESHOLD;
     if (isNearBottom.value) {
       hasNewMessages.value = false;
     }
+    // Guard: programmatic scrolls should not affect userScrolledAway
+    if (programmaticScroll) {
+      programmaticScroll = false;
+      return;
+    }
+    // Track whether the user has manually scrolled away from the bottom
+    if (!isNearBottom.value) {
+      userScrolledAway.value = true;
+    } else {
+      userScrolledAway.value = false;
+    }
   }
 
   function scrollToBottom(force = false) {
-    if (!force && !isNearBottom.value) {
+    if (!force && userScrolledAway.value) {
       hasNewMessages.value = true;
       return;
     }
 
+    if (force) {
+      userScrolledAway.value = false;
+    }
+
     nextTick(() => {
-      if (messagesContainer.value) {
-        messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight;
+      const el = getScrollEl();
+      if (el) {
+        programmaticScroll = true;
+        // Use instant behavior to avoid smooth-scroll CSS animations fighting
+        // with rapid programmatic scroll updates during streaming.
+        if (typeof el.scrollTo === 'function') {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'instant' });
+        } else {
+          el.scrollTop = el.scrollHeight;
+        }
         isNearBottom.value = true;
         hasNewMessages.value = false;
       }
@@ -44,7 +79,11 @@ export function useMessageScroll({ messages, partialText, activeConversationId }
 
   function scrollToClaudesTurn() {
     nextTick(() => {
-      if (!messagesContainer.value) return;
+      const scrollEl = getScrollEl();
+      if (!scrollEl) return;
+
+      // Use messagesContainer for DOM queries (it contains the message elements)
+      const queryEl = messagesContainer.value || scrollEl;
 
       // Find last assistant message
       const msgArray = messages.value || [];
@@ -52,16 +91,16 @@ export function useMessageScroll({ messages, partialText, activeConversationId }
       if (lastAssistantIdx < 0) return;
 
       const lastAssistantMsg = msgArray[lastAssistantIdx];
-      const el = messagesContainer.value.querySelector(
+      const el = queryEl.querySelector(
         `[data-message-id="${lastAssistantMsg.id}"]`
       );
       if (!el) return;
 
       // Scroll so the message is near the top of the visible area
-      const containerRect = messagesContainer.value.getBoundingClientRect();
+      const containerRect = scrollEl.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
-      const scrollOffset = elRect.top - containerRect.top + messagesContainer.value.scrollTop - 16;
-      messagesContainer.value.scrollTop = scrollOffset;
+      const scrollOffset = elRect.top - containerRect.top + scrollEl.scrollTop - 16;
+      scrollEl.scrollTop = scrollOffset;
     });
   }
 
@@ -99,13 +138,15 @@ export function useMessageScroll({ messages, partialText, activeConversationId }
     () => {
       isNearBottom.value = true;
       hasNewMessages.value = false;
+      userScrolledAway.value = false;
     }
   );
 
   // Lifecycle management
   onMounted(() => {
-    if (messagesContainer.value) {
-      messagesContainer.value.addEventListener('scroll', handleScroll, { passive: true });
+    const el = getScrollEl();
+    if (el) {
+      el.addEventListener('scroll', handleScroll, { passive: true });
     }
   });
 
@@ -113,15 +154,28 @@ export function useMessageScroll({ messages, partialText, activeConversationId }
     if (debounceTimer) {
       clearTimeout(debounceTimer);
     }
-    if (messagesContainer.value) {
-      messagesContainer.value.removeEventListener('scroll', handleScroll);
+    const el = getScrollEl();
+    if (el) {
+      el.removeEventListener('scroll', handleScroll);
     }
   });
+
+  // Re-attach scroll listener if scrollContainer changes after mount
+  // (e.g. when the parent ref resolves after the child mounts)
+  watch(
+    () => scrollContainer?.value,
+    (newEl, oldEl) => {
+      if (oldEl) oldEl.removeEventListener('scroll', handleScroll);
+      if (newEl) newEl.addEventListener('scroll', handleScroll, { passive: true });
+    },
+    { immediate: false }
+  );
 
   return {
     messagesContainer,
     isNearBottom,
     hasNewMessages,
+    userScrolledAway,
     scrollToBottom,
     scrollToClaudesTurn,
     handleScroll,

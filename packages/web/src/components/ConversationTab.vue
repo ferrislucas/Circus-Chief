@@ -1,7 +1,7 @@
 <template>
   <div class="conversation-tab">
     <!-- Unified Conversation Panel - selector + BTE cost display -->
-    <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" />
+    <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" :hide-new-conversation="hideNewConversation" />
 
     <ConversationMessages
       ref="conversationMessagesRef"
@@ -9,6 +9,7 @@
       :is-draft="isDraft"
       :is-scheduled-draft="isScheduledDraft"
       :session-status="sessionsStore.currentSession?.status"
+      :scroll-container-ref="scrollContainerRef"
     />
 
     <!-- Todo drawer - only shows when todos exist -->
@@ -129,6 +130,8 @@ import { useProjectsStore } from '../stores/projects.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
+  scrollContainerRef: { type: Object, default: null },
+  hideNewConversation: { type: Boolean, default: false },
 });
 
 const sessionsStore = useSessionsStore();
@@ -160,7 +163,7 @@ const attachedFiles = ref([]);
 const selectedModel = ref(null);
 
 // Draft saving composable
-const { saveStatus, saveError, handleInput, savePendingPrompt } = useDraftSaving({
+const { saveStatus, saveError, handleInput, savePendingPrompt, flush: flushDraft } = useDraftSaving({
   input,
   canSendMessage: computed(() => canSendMessage.value),
   isRunning: computed(() => isRunning.value),
@@ -311,6 +314,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  // Flush any pending draft save immediately before the component is destroyed.
+  // This ensures drafts typed within the debounce window (500ms) are not lost
+  // when the overlay closes or the user switches sessions.
+  flushDraft();
   sessionsStore.clearWorkLogs();
 });
 
@@ -318,6 +325,11 @@ onUnmounted(() => {
 watch(
   () => sessionsStore.currentSession?.status,
   async (newStatus, oldStatus) => {
+    // Only react if currentSession matches this tab's session.
+    // When the overlay switches currentSession to a child session,
+    // the parent's ConversationTab must not react to the child's status changes.
+    if (sessionsStore.currentSession?.id !== props.sessionId) return;
+
     if (oldStatus === 'running' && (newStatus === 'waiting' || newStatus === 'completed')) {
       console.log(`[CONV] Status changed from ${oldStatus} to ${newStatus}, refetching messages and work logs`);
       sessionsStore.clearPartialText();
@@ -371,6 +383,11 @@ watch(
 watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
+    // Only react if this tab's session is the currently viewed one.
+    // When the overlay loads a child session's conversations, it changes
+    // activeConversationId — the parent's ConversationTab must not react.
+    if (sessionsStore.viewedSessionId && sessionsStore.viewedSessionId !== props.sessionId) return;
+
     if (newConvId && newConvId !== oldConvId) {
       sessionsStore.clearPartialText();
       await nextTick();
@@ -428,9 +445,16 @@ async function handleFormSubmit() {
   if (isDraft.value || isScheduledDraft.value) {
     const textareaRef = inputFormRef.value?.textareaRef;
     const currentValue = textareaRef?.value || input.value;
-    const sessionModel = sessionsStore.currentSession?.pendingModel
+    const sessionModel = selectedModel.value
+      || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
-    await handleStart(currentValue, sessionModel);
+    const success = await handleStart(currentValue, sessionModel);
+    if (success) {
+      input.value = '';
+      if (textareaRef) textareaRef.value = '';
+      attachedFiles.value = [];
+      inputFormRef.value?.clearFiles();
+    }
   } else {
     const textareaRef = inputFormRef.value?.textareaRef;
     const currentValue = textareaRef?.value || input.value;
@@ -510,6 +534,10 @@ function handleSlashCommandInsert({ text }) {
     }
   });
 }
+
+// Expose flushDraft so parent components (e.g. SessionTreeOverlay) can
+// force-save pending drafts before switching sessions.
+defineExpose({ flushDraft });
 </script>
 
 <style scoped>

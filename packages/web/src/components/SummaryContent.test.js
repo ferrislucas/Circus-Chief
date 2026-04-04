@@ -4,7 +4,6 @@ import SummaryContent from './SummaryContent.vue';
 
 const baseSummary = {
   fullSummary: 'This session implemented a new feature.',
-  keyActions: ['Added authentication', 'Updated tests'],
   filesModified: ['src/auth.js'],
   generatedAt: new Date('2024-01-15T10:30:00Z').getTime(),
 };
@@ -19,36 +18,16 @@ function mountComponent(props = {}) {
 }
 
 describe('SummaryContent', () => {
-  describe('section ordering', () => {
-    it('renders Key Actions section before Overview section', () => {
+  describe('Details section', () => {
+    it('renders Details section with full summary', () => {
       const wrapper = mountComponent();
 
-      const sections = wrapper.findAll('.summary-section');
-      const headings = sections.map((s) => s.find('h3').text());
-
-      const keyActionsIndex = headings.indexOf('Key Actions');
-      const overviewIndex = headings.indexOf('Overview');
-
-      expect(keyActionsIndex).toBeGreaterThanOrEqual(0);
-      expect(overviewIndex).toBeGreaterThanOrEqual(0);
-      expect(keyActionsIndex).toBeLessThan(overviewIndex);
-    });
-
-    it('does not render Key Actions section when keyActions is empty', () => {
-      const wrapper = mountComponent({
-        summary: { ...baseSummary, keyActions: [] },
+      const detailsSection = wrapper.findAll('.summary-section').find((s) => {
+        return s.find('h3').text() === 'Details';
       });
 
-      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
-      expect(headings).not.toContain('Key Actions');
-    });
-
-    it('does not render Key Actions section when keyActions is absent', () => {
-      const { keyActions: _, ...summaryWithoutActions } = baseSummary;
-      const wrapper = mountComponent({ summary: summaryWithoutActions });
-
-      const headings = wrapper.findAll('.summary-section h3').map((h) => h.text());
-      expect(headings).not.toContain('Key Actions');
+      expect(detailsSection).toBeDefined();
+      expect(detailsSection.find('.full-summary').text()).toBe(baseSummary.fullSummary);
     });
   });
 

@@ -7,38 +7,37 @@
     @keydown="handleKeydown"
   >
     <div
-      v-for="(session, index) in sessions"
-      :key="session.id"
+      v-for="(entry, index) in sessions"
+      :key="entry.session.id"
       class="picker-item"
       :class="{
-        'picker-item--active': session.id === activeSessionId,
+        'picker-item--active': entry.session.id === activeSessionId,
       }"
-      :style="{ paddingLeft: '0.5rem' }"
       role="option"
-      :aria-selected="session.id === activeSessionId ? 'true' : 'false'"
+      :aria-selected="entry.session.id === activeSessionId ? 'true' : 'false'"
       :tabindex="index === focusedIndex ? 0 : -1"
       :ref="el => { if (el) itemRefs[index] = el }"
       :data-index="index"
-      @click="emit('select', session.id)"
-      @keydown.enter.prevent="emit('select', session.id)"
+      @click="emit('select', entry.session.id)"
+      @keydown.enter.prevent="emit('select', entry.session.id)"
     >
       <div class="picker-item-label">
         <span class="picker-item-role">
           {{ getRoleLabel(index) }}
         </span>
         <span
-          v-if="statusLabel(session)"
-          :class="['picker-item-status', `status-${session.status}`]"
+          v-if="statusLabel(entry.session)"
+          :class="['picker-item-status', `status-${entry.session.status}`]"
         >
-          {{ statusLabel(session) }}
+          {{ statusLabel(entry.session) }}
         </span>
       </div>
-      <div class="picker-item-name" :title="session.name">
-        {{ session.name }}
+      <div class="picker-item-name" :title="entry.session.name">
+        {{ entry.session.name }}
       </div>
       <div class="picker-item-meta">
-        <span class="picker-item-summary">{{ getSummaryText(session.id) }}</span>
-        <span class="picker-item-date">{{ formatDate(session.lastActivityAt || session.updatedAt || session.createdAt) }}</span>
+        <span class="picker-item-summary">{{ getSummaryText(entry.session.id) }}</span>
+        <span class="picker-item-date">{{ formatDate(entry.session.lastActivityAt || entry.session.updatedAt || entry.session.createdAt) }}</span>
       </div>
     </div>
   </div>
@@ -69,7 +68,7 @@ const itemRefs = ref({});
 
 onMounted(() => {
   // Focus the active session item initially
-  const activeIndex = props.sessions.findIndex(s => s.id === props.activeSessionId);
+  const activeIndex = props.sessions.findIndex(e => e.session.id === props.activeSessionId);
   if (activeIndex >= 0) {
     focusedIndex.value = activeIndex;
     nextTick(() => {
@@ -87,7 +86,6 @@ function statusLabel(session) {
   const status = session.status;
   if (status === 'running' || status === 'starting') return '● Running';
   if (status === 'scheduled') return '⏰ Scheduled';
-  if (status === 'error') return '⚠ Error';
   return null;
 }
 
@@ -130,6 +128,12 @@ function handleKeydown(event) {
 
 <style scoped>
 .session-tree-picker {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  z-index: 20;
+  margin-top: 0.25rem;
   background: var(--color-background-secondary, #1f2937);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   border-radius: 6px;
@@ -185,10 +189,6 @@ function handleKeydown(event) {
 
 .picker-item-status.status-scheduled {
   color: var(--color-primary, #06b6d4);
-}
-
-.picker-item-status.status-error {
-  color: var(--color-error, #f85149);
 }
 
 .picker-item-name {

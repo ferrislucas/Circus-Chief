@@ -1,100 +1,120 @@
 <template>
   <div class="viewer-header">
-    <div class="viewer-header-left">
+    <!-- Line 1: Filename alone -->
+    <div class="viewer-header-top">
+      <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
+    </div>
+
+    <!-- Line 2: Breadcrumb and actions -->
+    <div class="viewer-header-middle">
       <!-- Breadcrumb navigation - only visible when there are multiple items to go back to -->
       <button
         v-if="showBackButton"
         class="breadcrumb-back"
         @click="$emit('back')"
       >
-        ← Canvas
+        ← Back to list
       </button>
       <span v-if="showBackButton" class="breadcrumb-separator">/</span>
       <div class="viewer-filename-wrapper">
         <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
         <span class="viewer-meta">{{ formatLastModified(item.updatedAt) }}</span>
       </div>
-    </div>
 
-    <div class="viewer-header-right">
-      <!-- Version dropdown -->
-      <details
-        v-if="versions.length > 1"
-        class="version-dropdown"
-      >
-        <summary class="version-badge">
-          v{{ versions.length - currentVersionIndex }}
-          <span class="dropdown-arrow">&#9662;</span>
-        </summary>
-        <ul class="version-list">
-          <li
-            v-for="(v, index) in versions"
-            :key="v.id"
-            :class="{ active: v.id === item.id }"
-            @click="$emit('selectVersion', v.id)"
-          >
-            <span class="version-number">v{{ versions.length - index }}</span>
-            <span class="version-time">{{ formatRelativeTime(v.createdAt) }}</span>
-            <span v-if="v.id === item.id" class="version-current">(current)</span>
-          </li>
-        </ul>
-      </details>
-
-      <!-- Three-dot menu -->
-      <div class="file-menu-container" ref="menuContainerRef">
+      <div class="header-actions">
+        <!-- Edit/Done toggle for markdown files -->
         <button
-          class="btn-menu"
-          :aria-label="'File actions'"
-          :aria-expanded="menuOpen.toString()"
-          aria-haspopup="menu"
-          @click="toggleMenu"
+          v-if="item.type === 'markdown'"
+          class="btn-edit-toggle"
+          @click="$emit('edit')"
         >
-          ⋮
+          {{ isEditing ? 'Done' : 'Edit' }}
         </button>
 
-        <Transition name="fade">
-          <div
-            v-if="menuOpen"
-            class="menu-overlay"
-            @click="closeMenu"
-          ></div>
-        </Transition>
-
-        <Transition name="slide">
-          <ul
-            v-if="menuOpen"
-            class="file-menu-items"
-            role="menu"
-            @keydown="handleMenuKeyDown"
-          >
-            <li role="none">
-              <button
-                :class="['menu-item', { 'is-highlighted': menuHighlightedIndex === 0 }]"
-                role="menuitem"
-                @click="handleMenuCopyFilename"
-                @mouseenter="menuHighlightedIndex = 0"
-                @mouseleave="menuHighlightedIndex = null"
-              >
-                <span class="menu-item-icon">📝</span>
-                <span class="menu-item-text">Copy filename</span>
-              </button>
-            </li>
-            <li role="none" class="menu-divider"></li>
-            <li role="none">
-              <button
-                :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 1 }]"
-                role="menuitem"
-                @click="handleMenuDeleteAll"
-                @mouseenter="menuHighlightedIndex = 1"
-                @mouseleave="menuHighlightedIndex = null"
-              >
-                <span class="menu-item-icon">🗑</span>
-                <span class="menu-item-text">Delete file</span>
-              </button>
+        <!-- Version dropdown -->
+        <details
+          v-if="versions.length > 1"
+          class="version-dropdown"
+        >
+          <summary class="version-badge">
+            v{{ versions.length - currentVersionIndex }}
+            <span class="dropdown-arrow">&#9662;</span>
+          </summary>
+          <ul class="version-list">
+            <li
+              v-for="(v, index) in versions"
+              :key="v.id"
+              :class="{ active: v.id === item.id }"
+              @click="$emit('selectVersion', v.id)"
+            >
+              <span class="version-number">v{{ versions.length - index }}</span>
+              <span class="version-time">{{ formatRelativeTime(v.createdAt) }}</span>
+              <span v-if="v.id === item.id" class="version-current">(current)</span>
             </li>
           </ul>
-        </Transition>
+        </details>
+
+        <!-- Three-dot menu -->
+        <div class="file-menu-container" ref="menuContainerRef">
+          <button
+            class="btn-menu"
+            :aria-label="'File actions'"
+            :aria-expanded="menuOpen.toString()"
+            aria-haspopup="menu"
+            @click="toggleMenu"
+          >
+            ⋮
+          </button>
+
+          <Transition name="fade">
+            <div
+              v-if="menuOpen"
+              class="menu-overlay"
+              @click="closeMenu"
+            ></div>
+          </Transition>
+
+          <Transition name="slide">
+            <ul
+              v-if="menuOpen"
+              class="file-menu-items"
+              role="menu"
+              @keydown="handleMenuKeyDown"
+            >
+              <li role="none">
+                <button
+                  :class="['menu-item', { 'is-highlighted': menuHighlightedIndex === 0 }]"
+                  role="menuitem"
+                  @click="handleMenuCopyFilename"
+                  @mouseenter="menuHighlightedIndex = 0"
+                  @mouseleave="menuHighlightedIndex = null"
+                >
+                  <span class="menu-item-icon">📝</span>
+                  <span class="menu-item-text">Copy filename</span>
+                </button>
+              </li>
+              <li role="none" class="menu-divider"></li>
+              <li role="none">
+                <button
+                  :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 1 }]"
+                  role="menuitem"
+                  @click="handleMenuDeleteAll"
+                  @mouseenter="menuHighlightedIndex = 1"
+                  @mouseleave="menuHighlightedIndex = null"
+                >
+                  <span class="menu-item-icon">🗑</span>
+                  <span class="menu-item-text">Delete file</span>
+                </button>
+              </li>
+            </ul>
+          </Transition>
+        </div>
       </div>
+    </div>
+
+    <!-- Line 3: Last modified timestamp -->
+    <div class="viewer-header-bottom">
+      <span class="viewer-meta">{{ formatLastModified(item.updatedAt) }}</span>
     </div>
   </div>
 </template>
@@ -115,9 +135,13 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  isEditing: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-const emit = defineEmits(['back', 'selectVersion', 'deleteAll']);
+const emit = defineEmits(['back', 'selectVersion', 'deleteAll', 'edit']);
 
 const menuOpen = ref(false);
 const menuHighlightedIndex = ref(null);
@@ -256,26 +280,43 @@ function formatLastModified(timestamp) {
 <style scoped>
 .viewer-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
   padding: 0.75rem 1rem;
   background: var(--color-background-soft);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   margin-bottom: 1rem;
-  flex-wrap: wrap;
 }
 
-.viewer-header-left {
+.viewer-header-top {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
-  flex: 1;
 }
 
-.viewer-header-right {
+.viewer-header-middle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.viewer-header-bottom {
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.breadcrumb-container {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.header-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -298,38 +339,40 @@ function formatLastModified(timestamp) {
   text-decoration: underline;
 }
 
-.breadcrumb-separator {
-  color: var(--color-text-soft);
-  margin: 0 0.5rem;
-  font-size: 0.875rem;
-}
-
-.viewer-filename-wrapper {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
 .viewer-filename {
   font-weight: 600;
   font-size: 1rem;
   word-break: break-word;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.4;
 }
 
 .viewer-meta {
   color: var(--color-text-soft);
   font-size: 0.75rem;
   font-weight: 400;
-  margin-top: 0.125rem;
 }
 
-@media (max-width: 640px) {
-  .viewer-meta {
-    font-size: 0.6875rem;
-  }
+/* Edit/Done toggle button */
+.btn-edit-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #374151);
+  background: transparent;
+  color: var(--color-primary, #22d3ee);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  min-height: 28px;
+}
+
+.btn-edit-toggle:hover {
+  background: rgba(34, 211, 238, 0.1);
+  border-color: var(--color-primary, #22d3ee);
 }
 
 /* Version dropdown */
@@ -542,11 +585,12 @@ function formatLastModified(timestamp) {
 /* Mobile styles */
 @media (max-width: 640px) {
   .viewer-header {
-    padding: 0.5rem 0.5rem;
+    padding: 0.75rem 0.75rem;
     gap: 0.5rem;
   }
 
-  .viewer-header-left {
+  .viewer-header-middle {
+    flex-wrap: wrap;
     gap: 0.5rem;
   }
 
@@ -554,14 +598,16 @@ function formatLastModified(timestamp) {
     font-size: 0.875rem;
   }
 
-  .breadcrumb-separator {
-    margin: 0 0.25rem;
+  .viewer-filename {
+    font-size: 0.95rem;
   }
 
-  .viewer-filename {
-    font-size: 0.875rem;
-    min-width: 0;
-    flex: 1;
+  .viewer-meta {
+    font-size: 0.6875rem;
+  }
+
+  .header-actions {
+    gap: 0.375rem;
   }
 
   .version-dropdown summary {
