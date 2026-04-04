@@ -105,10 +105,10 @@
     />
 
     <!-- Empty state for sessions with no content -->
-    <div v-else-if="!latestResponse && !isRunning" class="empty-state">
-      <div class="empty-state-content">
-        <p class="empty-state-text">This session hasn't started yet.</p>
-        <p class="empty-state-hint">Start the session or send a message to see a summary here.</p>
+    <div v-else-if="!latestResponse && !isRunning" class="summary-empty-state">
+      <div class="summary-empty-state-content">
+        <p class="summary-empty-state-text">This session hasn't started yet.</p>
+        <p class="summary-empty-state-hint">Start the session or send a message to see a summary here.</p>
       </div>
     </div>
   </div>
@@ -646,7 +646,7 @@ async function handleRegenerate() {
 }
 
 /* Empty State Styles */
-.empty-state {
+.summary-empty-state {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -654,18 +654,18 @@ async function handleRegenerate() {
   text-align: center;
 }
 
-.empty-state-content {
+.summary-empty-state-content {
   max-width: 320px;
 }
 
-.empty-state-text {
+.summary-empty-state-text {
   font-size: 1rem;
   font-weight: 500;
   color: var(--color-text);
   margin: 0 0 0.5rem;
 }
 
-.empty-state-hint {
+.summary-empty-state-hint {
   font-size: 0.875rem;
   color: var(--color-text-soft);
   margin: 0;
