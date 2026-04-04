@@ -1266,6 +1266,104 @@ describe('ButtonStatusModal.vue', () => {
       expect(mockDeleteAllRunsForButton).toHaveBeenCalledWith('test-session-1', 'btn-1');
       expect(closeEmitted).toBe(true);
     });
+
+    it('shows error message when bulk delete fails', async () => {
+      mockDeleteAllRunsForButton.mockClear();
+      mockDeleteAllRunsForButton.mockRejectedValue(new Error('Network error'));
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      await wrapper.find('[data-testid="remove-run-button"]').trigger('click');
+      await nextTick();
+      await wrapper.find('[data-testid="confirm-remove-button"]').trigger('click');
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+
+      // Error message should be displayed
+      const errorEl = wrapper.find('[data-testid="delete-error"]');
+      expect(errorEl.exists()).toBe(true);
+      expect(errorEl.text()).toBe('Failed to remove runs. Please try again.');
+
+      // Confirmation should still be visible (not dismissed)
+      expect(wrapper.find('[data-testid="confirm-remove-button"]').exists()).toBe(true);
+    });
+
+    it('clears error message when cancel is clicked after a failed deletion', async () => {
+      mockDeleteAllRunsForButton.mockClear();
+      mockDeleteAllRunsForButton.mockRejectedValue(new Error('Network error'));
+
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+        },
+      });
+
+      // Trigger failed deletion
+      await wrapper.find('[data-testid="remove-run-button"]').trigger('click');
+      await nextTick();
+      await wrapper.find('[data-testid="confirm-remove-button"]').trigger('click');
+      await flushPromises();
+      await nextTick();
+
+      // Error should be visible
+      expect(wrapper.find('[data-testid="delete-error"]').exists()).toBe(true);
+
+      // Click cancel
+      await wrapper.find('[data-testid="cancel-remove-button"]').trigger('click');
+      await nextTick();
+
+      // Error should be cleared and confirmation dismissed
+      expect(wrapper.find('[data-testid="delete-error"]').exists()).toBe(false);
+      expect(wrapper.find('[data-testid="remove-run-button"]').exists()).toBe(true);
+    });
+
+    it('clears error message on retry', async () => {
+      mockDeleteAllRunsForButton.mockClear();
+      mockDeleteAllRunsForButton.mockRejectedValueOnce(new Error('Network error'));
+      mockDeleteAllRunsForButton.mockResolvedValueOnce(undefined);
+
+      let closeEmitted = false;
+      const wrapper = mount(ButtonStatusModal, {
+        props: {
+          button: baseButton,
+          latestRun: { ...baseRun, status: 'success' },
+          isOpen: true,
+          sessionId: 'test-session-1',
+          'onClose': () => { closeEmitted = true; },
+        },
+      });
+
+      // First attempt (fails)
+      await wrapper.find('[data-testid="remove-run-button"]').trigger('click');
+      await nextTick();
+      await wrapper.find('[data-testid="confirm-remove-button"]').trigger('click');
+      await flushPromises();
+      await nextTick();
+
+      // Error should be visible
+      expect(wrapper.find('[data-testid="delete-error"]').exists()).toBe(true);
+
+      // Second attempt (succeeds)
+      await wrapper.find('[data-testid="confirm-remove-button"]').trigger('click');
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+
+      // Modal should close on success
+      expect(closeEmitted).toBe(true);
+    });
   });
 
   describe('on-demand output fetching', () => {
