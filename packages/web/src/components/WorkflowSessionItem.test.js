@@ -24,6 +24,17 @@ vi.mock('./SessionLogStream.vue', () => ({
   }),
 }));
 
+// Mock ButtonStatusModal component
+vi.mock('./ButtonStatusModal.vue', () => ({
+  default: defineComponent({
+    name: 'ButtonStatusModal',
+    props: ['button', 'latestRun', 'isOpen'],
+    setup() {
+      return () => h('div', { class: 'button-status-modal-mock' });
+    },
+  }),
+}));
+
 // Mock router-link
 const RouterLinkStub = {
   name: 'RouterLinkStub',
@@ -404,6 +415,41 @@ describe('WorkflowSessionItem', () => {
       const wrapper = mountComponent({ id: 'child-session-42', status: 'running' });
       const logStream = wrapper.find('.session-log-stream-mock');
       expect(JSON.parse(logStream.attributes('data-session-ids'))).toEqual(['child-session-42']);
+    });
+  });
+
+  describe('ButtonStatusModal integration', () => {
+    it('passes button id to ButtonStatusModal when indicator is clicked', async () => {
+      const commandButtons = [
+        { id: 'btn-99', label: 'Lint', command: 'npm run lint', showOnList: true },
+      ];
+      const latestCommandRuns = [
+        { buttonId: 'btn-99', runId: 'run-1', status: 'success', exitCode: 0 },
+      ];
+
+      const wrapper = mountComponent({}, { commandButtons, latestCommandRuns });
+
+      // Verify indicator renders
+      const indicators = wrapper.findAll('.button-status-indicator');
+      expect(indicators.length).toBe(1);
+
+      // Click the indicator to open the modal
+      await indicators[0].trigger('click');
+
+      // Verify modal receives button.id
+      const modal = wrapper.findComponent({ name: 'ButtonStatusModal' });
+      expect(modal.exists()).toBe(true);
+      expect(modal.props('button')).toEqual({
+        id: 'btn-99',
+        label: 'Lint',
+        command: 'npm run lint',
+      });
+    });
+
+    it('does not show modal when no indicator has been clicked', () => {
+      const wrapper = mountComponent();
+      const modal = wrapper.findComponent({ name: 'ButtonStatusModal' });
+      expect(modal.exists()).toBe(false);
     });
   });
 });
