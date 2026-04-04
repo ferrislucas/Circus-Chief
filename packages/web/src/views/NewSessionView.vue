@@ -522,8 +522,8 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
   if (autoSubmit) {
     setTimeout(() => handleSubmit(), 0);
   } else {
-    textarea.selectionStart = textarea.selectionEnd = newContent.length;
-    textarea.focus();
+    // Non-auto-submit: blur textarea to allow content review
+    textarea.blur();
   }
 }
 
