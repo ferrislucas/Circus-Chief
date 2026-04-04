@@ -56,16 +56,6 @@ export function ConversationsApi(ApiClient) {
     },
 
     /**
-     * Generate summary for a conversation
-     * @param {string} sessionId - Session ID
-     * @param {string} conversationId - Conversation ID
-     * @returns {Promise<Object>}
-     */
-    async generateConversationSummary(sessionId, conversationId) {
-      return this._post(`/sessions/${sessionId}/conversations/${conversationId}/summary`);
-    },
-
-    /**
      * Create a branch from a conversation at a specific message
      * @param {string} sessionId - Session ID
      * @param {string} conversationId - Source conversation ID

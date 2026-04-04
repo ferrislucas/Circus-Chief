@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { projects, sessions, messages, conversations, settings } from '../src/database.js';
+import { projects, sessions, messages, conversations } from '../src/database.js';
 
 // Mock the websocket module
 vi.mock('../src/websocket.js', () => ({
@@ -35,9 +35,6 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   }),
 }));
 
-// Import summaryService after mock setup
-import * as summaryService from '../src/services/summaryService.js';
-
 describe('Sessions Conversations API', () => {
   let project;
   let session;
@@ -50,8 +47,6 @@ describe('Sessions Conversations API', () => {
   });
 
   afterEach(() => {
-    summaryService.cleanupSession(session.id);
-    settings.resetSummarySettings();
     vi.unstubAllEnvs();
   });
 
@@ -295,79 +290,6 @@ describe('Sessions Conversations API', () => {
 
       expect(result.name).toBe('Short message');
       expect(result.name.endsWith('...')).toBe(false);
-    });
-  });
-
-  describe('Conversation summary generation', () => {
-    it('generates summary for conversation', async () => {
-      settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
-      const conv = conversations.create(session.id, 'Test Conv', true);
-      // Need >= 4 messages to meet the minimum threshold for summary generation
-      messages.create(session.id, 'user', 'Help me with this', { conversationId: conv.id });
-      messages.create(session.id, 'assistant', 'Sure, I can help', { conversationId: conv.id });
-      messages.create(session.id, 'user', 'Can you explain more?', { conversationId: conv.id });
-      messages.create(session.id, 'assistant', 'Of course!', { conversationId: conv.id });
-
-      const result = await summaryService.generateConversationSummary(session.id, conv.id);
-
-      // Returns the summary string directly
-      expect(result).not.toBeNull();
-      expect(typeof result).toBe('string');
-      expect(result.length).toBeGreaterThan(0);
-    });
-
-    it('stores summary on conversation record', async () => {
-      settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
-      const conv = conversations.create(session.id, 'Test Conv', true);
-      // Need >= 4 messages to meet the minimum threshold for summary generation
-      messages.create(session.id, 'user', 'Help me', { conversationId: conv.id });
-      messages.create(session.id, 'assistant', 'Sure thing', { conversationId: conv.id });
-      messages.create(session.id, 'user', 'What else can you do?', { conversationId: conv.id });
-      messages.create(session.id, 'assistant', 'Many things!', { conversationId: conv.id });
-
-      await summaryService.generateConversationSummary(session.id, conv.id);
-
-      const updated = conversations.getById(conv.id);
-      expect(updated.summary).toBeDefined();
-      expect(updated.summary.length).toBeGreaterThan(0);
-      expect(updated.summaryGeneratedAt).toBeDefined();
-    });
-
-    it('returns null for short conversations (< 4 messages)', async () => {
-      settings.setSummarySettings({ disableConversationSummaries: false, disableSessionSummaries: false, sessionTitlePrompt: '' });
-      const conv = conversations.create(session.id, 'Brief', true);
-      // Only 1 message — below the 4-message minimum threshold
-      messages.create(session.id, 'user', 'Hello', { conversationId: conv.id });
-
-      const result = await summaryService.generateConversationSummary(session.id, conv.id);
-
-      // Short conversations (< 4 messages) are skipped — returns null instead of a canned string
-      expect(result).toBeNull();
-    });
-
-    it('returns null for conversation with no messages', async () => {
-      const conv = conversations.create(session.id, 'Empty', true);
-
-      const result = await summaryService.generateConversationSummary(session.id, conv.id);
-
-      expect(result).toBeNull();
-    });
-
-    it('returns null for non-existent conversation', async () => {
-      const result = await summaryService.generateConversationSummary(session.id, 'non-existent');
-
-      expect(result).toBeNull();
-    });
-
-    it('returns null for conversation from different session', async () => {
-      const otherSession = sessions.create(project.id, 'Other Session', 'Prompt', 'standard');
-      const conv = conversations.create(otherSession.id, 'Other Conv', true);
-      messages.create(otherSession.id, 'user', 'Hello', { conversationId: conv.id });
-
-      // Try to get summary with wrong session ID
-      const result = await summaryService.generateConversationSummary(session.id, conv.id);
-
-      expect(result).toBeNull();
     });
   });
 
