@@ -1,5 +1,10 @@
 <template>
-  <div class="conversation-tab">
+  <div class="conversation-tab" :class="{ 'connection-stale': isStale }">
+    <!-- Stale content badge -->
+    <div v-if="isStale" class="stale-badge" data-testid="stale-badge">
+      Content may be outdated
+    </div>
+
     <!-- Unified Conversation Panel - selector + BTE cost display -->
     <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" :hide-new-conversation="hideNewConversation" />
 
@@ -115,6 +120,7 @@ import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
+import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
@@ -141,6 +147,7 @@ const defaultsStore = useProjectDefaultsStore();
 const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
 const { getModelDisplayName } = useModelInfo();
+const { isStale } = useConnectionStatus();
 const route = useRoute();
 
 // Session control composable
@@ -204,6 +211,7 @@ const inputHasContent = computed(() => {
 });
 
 const isSendDisabled = computed(() => {
+  if (isStale.value) return true;
   if (sessionsStore.currentSession?.status === 'scheduled') {
     const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
     const now = new Date();
@@ -215,6 +223,9 @@ const isSendDisabled = computed(() => {
 });
 
 const sendButtonDisabledReason = computed(() => {
+  if (isStale.value) {
+    return 'Waiting for connection...';
+  }
   if (!inputHasContent.value) {
     return 'Enter a message to send';
   }
@@ -545,5 +556,22 @@ defineExpose({ flushDraft });
 .conversation-tab {
   display: flex;
   flex-direction: column;
+  transition: opacity 0.3s ease;
+}
+
+.conversation-tab.connection-stale {
+  opacity: 0.5;
+}
+
+.stale-badge {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-warning, #f59e0b);
+  background-color: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--border-radius, 6px);
+  text-align: center;
+  margin-bottom: 0.5rem;
 }
 </style>

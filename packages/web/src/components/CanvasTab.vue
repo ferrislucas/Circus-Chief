@@ -1,11 +1,16 @@
 <template>
   <div
     class="canvas-tab"
-    :class="{ 'drag-over': isDragOver }"
+    :class="{ 'drag-over': isDragOver, 'connection-stale': isStale }"
     @dragover.prevent="handleDragOver"
     @dragleave="handleDragLeave"
     @drop.prevent="handleDrop"
   >
+    <!-- Stale content badge -->
+    <div v-if="isStale" class="stale-badge" data-testid="stale-badge">
+      Content may be outdated
+    </div>
+
     <!-- Upload header - only show in list view -->
     <div v-if="!shouldShowViewer || !selectedItem" class="canvas-header">
       <label v-if="!showTrash" class="btn btn-primary" :class="{ disabled: uploading }">
@@ -112,6 +117,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useUiStore } from '../stores/ui.js';
+import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import CanvasFileList from './CanvasFileList.vue';
 import CanvasFileViewer from './CanvasFileViewer.vue';
 import CanvasTrash from './CanvasTrash.vue';
@@ -126,6 +132,7 @@ const route = useRoute();
 const router = useRouter();
 const canvasStore = useCanvasStore();
 const uiStore = useUiStore();
+const { isStale } = useConnectionStatus();
 
 // Fetch canvas items when tab is mounted/navigated to
 onMounted(() => {
@@ -321,7 +328,23 @@ function handleCancelSelection() {
 .canvas-tab {
   padding: 1rem 0;
   min-height: 200px;
-  transition: background-color 0.2s, border-color 0.2s;
+  transition: background-color 0.2s, border-color 0.2s, opacity 0.3s ease;
+}
+
+.canvas-tab.connection-stale {
+  opacity: 0.5;
+}
+
+.stale-badge {
+  padding: 0.375rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-warning, #f59e0b);
+  background-color: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--border-radius, 6px);
+  text-align: center;
+  margin-bottom: 0.5rem;
 }
 
 .canvas-tab.drag-over {

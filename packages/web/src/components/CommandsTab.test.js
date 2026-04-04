@@ -1,6 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+
+// Mock useConnectionStatus composable
+vi.mock('../composables/useConnectionStatus.js', async () => {
+  const { ref } = await import('vue');
+  return {
+    useConnectionStatus: () => ({
+      isStale: ref(false),
+      connectionStatus: ref('connected'),
+      reconnectAttempt: ref(0),
+    }),
+  };
+});
+
 import CommandsTab from './CommandsTab.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
@@ -413,6 +426,39 @@ describe('CommandsTab', () => {
 
       // Component should render and display empty state gracefully
       expect(wrapper.exists()).toBe(true);
+    });
+  });
+
+  describe('connection status - command buttons enabled when connected', () => {
+    it('command buttons are NOT disabled when connected (isStale=false)', async () => {
+      commandButtonsStore.buttons = [
+        { id: 'btn-1', name: 'Test', command: 'npm test', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mount(CommandsTab, {
+        props: {
+          projectId: 'proj-1',
+          sessionId: 'session-1',
+        },
+        global: {
+          plugins: [pinia],
+          stubs: {
+            LoadingSpinner: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // The commands list should be visible
+      const commandsList = wrapper.find('[data-testid="commands-tab-list"]');
+      expect(commandsList.exists()).toBe(true);
+
+      // The run button should NOT be disabled when isStale is false
+      const runButton = wrapper.find('[data-testid="run-button"]');
+      expect(runButton.exists()).toBe(true);
+      expect(runButton.element.disabled).toBe(false);
+      wrapper.unmount();
     });
   });
 });

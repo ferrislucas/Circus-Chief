@@ -128,6 +128,18 @@ vi.mock('../composables/useSubmitShortcut.js', () => ({
   useSubmitShortcut: vi.fn(() => vi.fn()),
 }));
 
+// Mock connection status composable
+vi.mock('../composables/useConnectionStatus.js', async () => {
+  const { ref } = await import('vue');
+  return {
+    useConnectionStatus: () => ({
+      isStale: ref(false),
+      connectionStatus: ref('connected'),
+      reconnectAttempt: ref(0),
+    }),
+  };
+});
+
 import ConversationTab from './ConversationTab.vue';
 import ModelSelector from './ModelSelector.vue';
 import { useSessionsStore } from '../stores/sessions.js';
