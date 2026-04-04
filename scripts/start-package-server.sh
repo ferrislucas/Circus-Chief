@@ -30,11 +30,12 @@ WORKTREE_PORT_START=5001
 MAIN_PORT=5000
 INSTALL_DIR="$PROJECT_ROOT/.package-test"
 
-# Clean up on exit
+# Clean up on exit — remove marker files so pw.sh doesn't find stale state
 cleanup() {
     if [ -n "$SERVER_PID" ]; then
         kill "$SERVER_PID" 2>/dev/null || true
     fi
+    rm -f "$PORT_FILE" "$PROJECT_ROOT/.db-path" "$PROJECT_ROOT/.vcr-mode"
 }
 trap cleanup EXIT
 

@@ -17,6 +17,13 @@ import { execSync } from 'child_process';
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = dirname(dirname(__filename));
 const DIST = join(ROOT, 'dist-package');
+const version = process.argv.find(a => a.startsWith('--version='))?.split('=')[1] || '0.1.0';
+
+/** cpSync filter: exclude test files but always keep directories */
+const excludeTests = (src) => {
+  if (statSync(src).isDirectory()) return true;
+  return !src.endsWith('.test.js');
+};
 
 // --- 1. Clean ---
 console.log('Cleaning dist-package/...');
@@ -31,25 +38,20 @@ execSync('yarn workspace @claudetools/web build', { cwd: ROOT, stdio: 'inherit' 
 console.log('Copying packages/web/dist...');
 cpSync(join(ROOT, 'packages/web/dist'), join(DIST, 'packages/web/dist'), { recursive: true });
 
-console.log('Copying packages/shared/src...');
-cpSync(join(ROOT, 'packages/shared/src'), join(DIST, 'packages/shared/src'), { recursive: true });
-
-// Copy shared package.json (needed for exports resolution)
-cpSync(join(ROOT, 'packages/shared/package.json'), join(DIST, 'packages/shared/package.json'));
-
-console.log('Copying packages/server/src...');
+console.log('Copying packages/server/src (excluding tests)...');
 cpSync(join(ROOT, 'packages/server/src'), join(DIST, 'packages/server/src'), {
   recursive: true,
-  filter: (src) => !src.endsWith('.test.js'),
+  filter: excludeTests,
 });
 
 console.log('Copying packages/shared/src (excluding tests)...');
-// Re-copy shared without test files (overwrite the previous copy)
-rmSync(join(DIST, 'packages/shared/src'), { recursive: true, force: true });
 cpSync(join(ROOT, 'packages/shared/src'), join(DIST, 'packages/shared/src'), {
   recursive: true,
-  filter: (src) => !src.endsWith('.test.js'),
+  filter: excludeTests,
 });
+
+// Copy shared package.json (needed for exports resolution)
+cpSync(join(ROOT, 'packages/shared/package.json'), join(DIST, 'packages/shared/package.json'));
 
 console.log('Copying packages/server/bin...');
 cpSync(join(ROOT, 'packages/server/bin'), join(DIST, 'packages/server/bin'), { recursive: true });
@@ -72,6 +74,10 @@ function rewriteFile(filePath) {
 
   let updated = content;
 
+  // NOTE: Only static `import ... from '...'` syntax is rewritten here.
+  // If require() or dynamic import() of @claudetools/shared are introduced,
+  // this script must be updated to handle those patterns as well.
+  //
   // Rewrite: from '@claudetools/shared/contracts/foo' → relative path to shared/src/contracts/foo
   // Rewrite: from '@claudetools/shared' → relative path to shared/src/index.js
   updated = updated.replace(
@@ -116,12 +122,9 @@ const sharedPkg = JSON.parse(readFileSync(join(ROOT, 'packages/shared/package.js
 const deps = { ...sharedPkg.dependencies, ...serverPkg.dependencies };
 delete deps['@claudetools/shared'];
 
-// Add undeclared runtime deps (used in server but not in its package.json)
-deps['nanoid'] = '^5.0.0';
-
 const publishPkg = {
   name: 'claudetools',
-  version: '0.1.0',
+  version,
   description: 'Local-first web UI for managing Claude Code sessions',
   type: 'module',
   bin: {
@@ -143,6 +146,8 @@ const publishPkg = {
 writeFileSync(join(DIST, 'package.json'), JSON.stringify(publishPkg, null, 2) + '\n');
 
 // --- 6. Write CLI entry point ---
+// This intentionally overwrites the dev cli.js copied in step 3 with a
+// production version that sets NODE_ENV=production before starting the server.
 console.log('Writing bin/cli.js...');
 
 const cli = `#!/usr/bin/env node
@@ -159,7 +164,7 @@ console.log('Package built in dist-package/');
 console.log('');
 console.log('To test locally:');
 console.log('  cd dist-package && npm pack');
-console.log('  npx ./dist-package/claudetools-0.1.0.tgz');
+console.log(`  npx ./dist-package/claudetools-${version}.tgz`);
 console.log('');
 console.log('To publish:');
 console.log('  cd dist-package && npm publish');
