@@ -31,12 +31,40 @@ vi.mock('../stores/commandButtons.js', () => ({
 }));
 
 // Mock sessions store
+const mockSessionsStoreData = {
+  sessions: [],
+  activeSessions: [],
+  commandRunVersion: 0,
+  toggleSessionStar: vi.fn(),
+  getWorkflowSessions: vi.fn((sessionId) => {
+    // Default implementation: search both sessions and activeSessions
+    const root = mockSessionsStoreData.sessions.find(s => s.id === sessionId)
+      || mockSessionsStoreData.activeSessions.find(s => s.id === sessionId)
+      || mockSessionsStoreData._currentSession;
+    if (!root) return [{ id: sessionId }];
+    const all = [root];
+    const stack = [sessionId];
+    const visited = new Set();
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      const children = [
+        ...mockSessionsStoreData.sessions.filter(s => s.parentSessionId === currentId),
+        ...mockSessionsStoreData.activeSessions.filter(s => s.parentSessionId === currentId),
+      ];
+      const seen = new Set(all.map(s => s.id));
+      for (const child of children) {
+        if (!seen.has(child.id)) { all.push(child); seen.add(child.id); }
+        stack.push(child.id);
+      }
+    }
+    return all;
+  }),
+  _currentSession: null,
+};
 vi.mock('../stores/sessions.js', () => ({
-  useSessionsStore: vi.fn(() => ({
-    sessions: [],
-    commandRunVersion: 0,
-    toggleSessionStar: vi.fn(),
-  })),
+  useSessionsStore: vi.fn(() => mockSessionsStoreData),
 }));
 
 // Mock kanban store
@@ -73,9 +101,9 @@ vi.mock('./PrIndicators.vue', () => ({
 vi.mock('./SessionLogStream.vue', () => ({
   default: defineComponent({
     name: 'SessionLogStream',
-    props: ['sessionId'],
+    props: ['sessionIds'],
     setup(props) {
-      return () => h('div', { class: 'session-log-stream-mock', 'data-session-id': props.sessionId });
+      return () => h('div', { class: 'session-log-stream-mock', 'data-session-ids': JSON.stringify(props.sessionIds) });
     },
   }),
 }));
@@ -104,6 +132,12 @@ describe('SessionCard', () => {
     // Reset and configure API mock
     mockApi.getSessionFilesCount.mockReset();
     mockApi.getSessionFilesCount.mockResolvedValue({ count: 0 });
+
+    // Reset sessions store mock data
+    mockSessionsStoreData.sessions = [];
+    mockSessionsStoreData.activeSessions = [];
+    mockSessionsStoreData.commandRunVersion = 0;
+    mockSessionsStoreData._currentSession = null;
   });
   const baseSession = {
     id: 'session-123',
@@ -117,6 +151,10 @@ describe('SessionCard', () => {
   function mountComponent(props = {}) {
     const pinia = createPinia();
     setActivePinia(pinia);
+    const sessionToMount = { ...baseSession, ...props.session };
+    // Set _currentSession so the mock getWorkflowSessions can find the root
+    // when the session is only passed as a prop (not in sessions/activeSessions arrays)
+    mockSessionsStoreData._currentSession = sessionToMount;
     return mount(SessionCard, {
       props: {
         session: baseSession,
@@ -422,6 +460,65 @@ describe('SessionCard', () => {
       expect(sessionMeta.exists()).toBe(true);
       // The .status-error class should not be present
       expect(wrapper.find('.status-error').exists()).toBe(false);
+    });
+
+    it('shows running badge when child session is running but parent is not', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('does NOT show running badge when all children are completed', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'completed' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'completed' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(false);
+    });
+
+    it('shows running badge when child is in activeSessions but not sessions', () => {
+      mockSessionsStoreData.sessions = [];
+      mockSessionsStoreData.activeSessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('shows running badge when both parent and child are in activeSessions', () => {
+      mockSessionsStoreData.sessions = [];
+      mockSessionsStoreData.activeSessions = [
+        { id: baseSession.id, status: 'waiting', parentSessionId: null },
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('does not double-count when child is in both sessions and activeSessions', () => {
+      const childSession = { id: 'child-1', parentSessionId: baseSession.id, status: 'running' };
+      mockSessionsStoreData.sessions = [childSession];
+      mockSessionsStoreData.activeSessions = [childSession];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      // Badge should still show (running), but should not double-count the child
+      expect(wrapper.find('.status-running').exists()).toBe(true);
     });
   });
 
@@ -974,12 +1071,106 @@ describe('SessionCard', () => {
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
     });
 
-    it('passes correct session.id as sessionId prop', () => {
+    it('passes correct session.id as sessionIds prop', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, id: 'session-xyz', status: 'running' },
       });
       const logStream = wrapper.find('.session-log-stream-mock');
-      expect(logStream.attributes('data-session-id')).toBe('session-xyz');
+      expect(JSON.parse(logStream.attributes('data-session-ids'))).toEqual(['session-xyz']);
+    });
+
+    it('renders SessionLogStream when child session is running but parent is not', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      expect(JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'))).toEqual(['child-1']);
+    });
+
+    it('includes both parent and child IDs when both are running', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      const sessionIds = JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'));
+      expect(sessionIds).toContain(baseSession.id);
+      expect(sessionIds).toContain('child-1');
+    });
+  });
+
+  describe('grandchild tree traversal for runningSessionIds and workflowStatus', () => {
+    it('grandchild running session shows SessionLogStream on root card', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'running', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      expect(JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'))).toEqual(['grandchild-1']);
+    });
+
+    it('great-grandchild running session shows SessionLogStream', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'waiting', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'great-grandchild-1', parentSessionId: 'grandchild-1', status: 'running', name: 'GGC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      expect(JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'))).toEqual(['great-grandchild-1']);
+    });
+
+    it('multiple running descendants at different depths', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'running', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+      expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
+      const sessionIds = JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'));
+      expect(sessionIds).toContain(baseSession.id);
+      expect(sessionIds).toContain('grandchild-1');
+    });
+
+    it('running badge shown when grandchild is running', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'running', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('running badge NOT shown when all descendants are completed', () => {
+      mockSessionsStoreData.sessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'completed', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+        { id: 'grandchild-1', parentSessionId: 'child-1', status: 'completed', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'completed' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(false);
     });
   });
 

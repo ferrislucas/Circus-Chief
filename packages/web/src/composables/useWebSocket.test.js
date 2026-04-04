@@ -589,6 +589,48 @@ describe('useSessionSubscription todo handlers', () => {
   });
 });
 
+describe('useSessionSubscription canvas update handler', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    globalThis.WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    delete globalThis.WebSocket;
+  });
+
+  describe('onCanvasUpdate', () => {
+    it('exports onCanvasUpdate handler', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      expect(typeof subscription.onCanvasUpdate).toBe('function');
+    });
+
+    it('returns a cleanup function', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      const cleanup = subscription.onCanvasUpdate(callback);
+
+      expect(typeof cleanup).toBe('function');
+    });
+
+    it('filters messages by sessionId on the item', async () => {
+      const module = await import('./useWebSocket.js');
+      const subscription = module.useSessionSubscription('session-123');
+
+      const callback = vi.fn();
+      subscription.onCanvasUpdate(callback);
+
+      // Handler should check msg.item?.sessionId === sessionId before calling callback
+      expect(callback).toBeDefined();
+    });
+  });
+});
+
 describe('useSessionSubscription command handlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();

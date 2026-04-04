@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import { createRouter, createMemoryHistory } from 'vue-router';
@@ -11,9 +11,6 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
 
 // Mock components
-vi.mock('../components/ConversationTab.vue', () => ({
-  default: { name: 'ConversationTab', template: '<div>Conversation Tab</div>' }
-}));
 vi.mock('../components/ChangesTab.vue', () => ({
   default: { name: 'ChangesTab', template: '<div>Changes Tab</div>' }
 }));
@@ -55,8 +52,8 @@ vi.mock('../components/SessionTreeOverlay.vue', () => ({
   default: {
     name: 'SessionTreeOverlay',
     template: '<div class="tree-overlay">Tree Overlay</div>',
-    props: ['sessionId'],
-    emits: ['close']
+    props: ['sessionId', 'sessionChain', 'summariesMap'],
+    emits: ['close', 'session-created']
   }
 }));
 vi.mock('../components/SessionHeaderPanel.vue', () => ({
@@ -81,6 +78,10 @@ vi.mock('../composables/useApi.js', () => ({
     getSession: vi.fn(),
     getConversations: vi.fn(),
     getSessionChanges: vi.fn().mockResolvedValue({ staged: '', unstaged: '', untracked: '' }),
+    getKanbanBoard: vi.fn().mockResolvedValue(null),
+    getProjectSessions: vi.fn().mockResolvedValue([]),
+    getProjectTemplates: vi.fn().mockResolvedValue([]),
+    getCommandButtons: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -108,6 +109,7 @@ vi.mock('../composables/useWebSocket.js', () => {
       onError: h(),
       onCanvasAdd: h(),
       onCanvasRemove: h(),
+      onCanvasUpdate: h(),
       onTodosUpdate: h(),
       onSessionUpdate: h(),
       onSummaryUpdate: h(),
@@ -136,8 +138,11 @@ describe('SessionDetailView', () => {
   let sessionsStore;
   let canvasStore;
   let todosStore;
+  // Track mounted wrappers for cleanup to prevent memory leaks (OOM)
+  let mountedWrappers = [];
 
   beforeEach(() => {
+    vi.useFakeTimers();
     pinia = createPinia();
     setActivePinia(pinia);
 
@@ -162,7 +167,26 @@ describe('SessionDetailView', () => {
 
     // Mock window.confirm
     window.confirm = vi.fn(() => true);
+
+    mountedWrappers = [];
   });
+
+  afterEach(() => {
+    // Unmount all wrappers to clean up polling intervals, watchers, and subscriptions
+    for (const w of mountedWrappers) {
+      try { w.unmount(); } catch { /* already unmounted */ }
+    }
+    mountedWrappers = [];
+    // Restore real timers to clear any fake timer state
+    vi.useRealTimers();
+  });
+
+  // Helper that mounts and tracks wrapper for automatic cleanup
+  function trackedMount(...args) {
+    const wrapper = mount(...args);
+    mountedWrappers.push(wrapper);
+    return wrapper;
+  }
 
   describe('tabs configuration', () => {
     it('does not include Notes tab in tab list', async () => {
@@ -175,11 +199,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -201,7 +224,7 @@ describe('SessionDetailView', () => {
       expect(notesTab).toBeUndefined();
     });
 
-    it('includes Summary, Conversation, Changes, Canvas, Commands tabs', async () => {
+    it('includes Summary, Changes, Canvas, Commands tabs', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -211,11 +234,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -244,11 +266,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -278,11 +299,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -310,11 +330,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -342,11 +361,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -377,11 +395,10 @@ describe('SessionDetailView', () => {
       // Clear previous calls to isolate this test
       canvasStore.fetchItems.mockClear();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -410,11 +427,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -444,11 +460,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -476,11 +491,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -512,11 +526,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -547,11 +560,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -625,11 +637,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -660,11 +671,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -688,11 +698,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -725,11 +734,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -759,11 +767,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -829,11 +836,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -868,11 +874,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -940,11 +945,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -998,11 +1002,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1033,11 +1036,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1070,11 +1072,10 @@ describe('SessionDetailView', () => {
       todosStore.error = null;
       todosStore.loading = false;
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1104,11 +1105,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1137,11 +1137,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1184,11 +1183,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1217,11 +1215,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1256,11 +1253,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1295,11 +1291,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1331,11 +1326,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1371,11 +1365,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1412,11 +1405,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1449,11 +1441,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1497,11 +1488,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1562,11 +1552,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1603,11 +1592,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1646,11 +1634,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1694,11 +1681,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1727,11 +1713,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1760,11 +1745,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1793,11 +1777,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1825,11 +1808,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1858,11 +1840,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1891,11 +1872,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1923,11 +1903,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1956,11 +1935,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -1990,11 +1968,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2024,11 +2001,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2068,11 +2044,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-123');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2103,11 +2078,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2144,11 +2118,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2181,11 +2154,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2216,11 +2188,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2258,11 +2229,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2292,11 +2262,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2329,9 +2298,11 @@ describe('SessionDetailView', () => {
         { id: 'child-2', parentId: 'session-1', name: 'Child 2' },
       ];
 
-      // Mock sessionsStore.getChildSessions to return child sessions
-      // getChildSessions is a getter that returns a function: getChildSessions(parentId)
-      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue((parentId) => childSessions);
+      // Mock sessionsStore.getChildSessions to return child sessions only for the parent.
+      // Must return [] for child IDs to prevent infinite loop in buildSessionChain.
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'session-1' ? childSessions : []
+      );
 
       // Mock API to return summaries (prevent actual API calls)
       api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
@@ -2346,11 +2317,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2371,7 +2341,10 @@ describe('SessionDetailView', () => {
         { id: 'child-1', parentId: 'session-1', name: 'Child 1' },
       ];
 
-      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue((parentId) => childSessions);
+      // Return children only for the parent to prevent infinite loop in buildSessionChain
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'session-1' ? childSessions : []
+      );
 
       // Mock API to reject (summary doesn't exist)
       api.getSessionSummary.mockRejectedValue(new Error('Summary not found'));
@@ -2386,11 +2359,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2420,11 +2392,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2440,68 +2411,6 @@ describe('SessionDetailView', () => {
       expect(wrapper.exists()).toBe(true);
     });
 
-    it.skip('SessionCardWorkflowPanel receives summaries prop', async () => {
-      // SKIPPED: This test requires unmocking SummaryTab which is complex with Vitest.
-      // The SessionCardWorkflowPanel functionality is tested independently
-      // and SummaryTab integration is verified through E2E tests.
-      // Import real SummaryTab component for this test
-      vi.doUnmock('../components/SummaryTab.vue');
-      const { default: RealSummaryTab } = await import('../components/SummaryTab.vue?t=' + Date.now());
-
-      const childSession = {
-        id: 'child-1',
-        parentSessionId: 'session-1',
-        name: 'Child 1',
-        status: 'completed',
-        createdAt: Date.now(),
-      };
-
-      // Mock getChildSessions to return the child session
-      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => [childSession]);
-
-      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
-
-      // Set up commandButtonsStore (needed by SummaryTab)
-      const commandButtonsStore = useCommandButtonsStore();
-      commandButtonsStore.buttons = [];
-      vi.spyOn(commandButtonsStore, 'fetchButtons').mockResolvedValue(undefined);
-
-      sessionsStore.currentSession = {
-        id: 'session-1',
-        name: 'Test Session',
-        status: 'running',
-        projectId: 'proj-1',
-      };
-      // Add both parent and child sessions to the sessions array
-      sessionsStore.sessions = [sessionsStore.currentSession, childSession];
-
-      await router.push('/sessions/session-1/summary');
-      await router.isReady();
-
-      const wrapper = mount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ConversationTab: true,
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: RealSummaryTab, // Use real SummaryTab component
-            CommandsTab: true,
-            PrIndicators: true,
-            SessionCardWorkflowPanel: false, // Don't stub to verify prop passing
-          },
-        },
-      });
-
-      await flushPromises();
-
-      // Verify SessionCardWorkflowPanel is rendered
-      const childPanel = wrapper.findComponent({ name: 'SessionCardWorkflowPanel' });
-      expect(childPanel.exists()).toBe(true);
-
-      // Verify summaries prop is passed (it should be defined, even if empty)
-      expect(childPanel.props('summaries')).toBeDefined();
-    });
   });
 
   describe('session active indicator', () => {
@@ -2516,11 +2425,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2548,11 +2456,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2580,11 +2487,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2611,11 +2517,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2642,11 +2547,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2673,11 +2577,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             ChangesTab: true,
             CanvasTab: true,
             SummaryTab: true,
@@ -2704,7 +2607,103 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/session-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('sessionStatus')).toBe('starting');
+    });
+
+    it('hides SessionTreeHandle when overlay is open', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.isVisible()).toBe(false);
+    });
+
+    it('shows SessionTreeHandle when overlay is closed', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      wrapper.vm.treeOverlayOpen = false;
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.isVisible()).toBe(true);
+    });
+
+    it('passes isSessionActive=true when root is completed but a child session is running', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
@@ -2720,8 +2719,177 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
+      // Populate sessionChain with a running child
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'running', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
       const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
-      expect(treeHandle.props('sessionStatus')).toBe('starting');
+      expect(treeHandle.props('isSessionActive')).toBe(true);
+    });
+
+    it('passes isSessionActive=true when root is waiting and a child session is starting', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Populate sessionChain with a starting child
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'waiting', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'starting', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(true);
+    });
+
+    it('passes isSessionActive=false when root and all children are completed', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Populate sessionChain with all completed sessions
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'completed', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+        { session: { id: 'child-2', status: 'completed', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(false);
+    });
+
+    it('passes correct sessionStatus from running child when root is completed', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Populate sessionChain with a running child
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'running', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('sessionStatus')).toBe('running');
+    });
+
+    it('updates isSessionActive reactively when sessionChain changes', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Start with all completed
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'completed', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      expect(treeHandle.props('isSessionActive')).toBe(false);
+
+      // Update sessionChain to include a running child
+      wrapper.vm.sessionChain = [
+        { session: { id: 'session-1', status: 'completed', projectId: 'proj-1' }, depth: 0 },
+        { session: { id: 'child-1', status: 'running', projectId: 'proj-1', parentSessionId: 'session-1' }, depth: 1 },
+      ];
+      await nextTick();
+
+      expect(treeHandle.props('isSessionActive')).toBe(true);
     });
   });
 
@@ -2740,11 +2908,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session name to SessionHeaderPanel', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2766,11 +2933,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for edit mode', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2791,11 +2957,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes sessionId to SessionHeaderPanel for save functionality', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2813,11 +2978,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for Enter key save', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2835,11 +2999,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for Escape cancel', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2858,11 +3021,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for cancel button', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2880,11 +3042,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for empty name validation', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2902,11 +3063,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for whitespace trimming', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2924,11 +3084,10 @@ describe('SessionDetailView', () => {
     });
 
     it('passes session to SessionHeaderPanel for API error handling', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -2946,11 +3105,11 @@ describe('SessionDetailView', () => {
     });
 
     it('does not show name-edit-form in SessionHeaderPanel mock when not editing', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            SummaryTab: true, ChangesTab: true,
             CanvasTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -2962,11 +3121,11 @@ describe('SessionDetailView', () => {
     });
 
     it('SessionHeaderPanel receives session for clear button editing', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            SummaryTab: true, ChangesTab: true,
             CanvasTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -2979,11 +3138,11 @@ describe('SessionDetailView', () => {
     });
 
     it('SessionHeaderPanel receives session for clear input behavior', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            SummaryTab: true, ChangesTab: true,
             CanvasTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -2996,11 +3155,11 @@ describe('SessionDetailView', () => {
     });
 
     it('SessionHeaderPanel receives session for clear without save', async () => {
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true, SummaryTab: true, ChangesTab: true,
+            SummaryTab: true, ChangesTab: true,
             CanvasTab: true, CommandsTab: true, PrIndicators: true,
           },
         },
@@ -3030,11 +3189,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3063,11 +3221,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3098,11 +3255,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3130,11 +3286,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3163,11 +3318,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3196,11 +3350,10 @@ describe('SessionDetailView', () => {
       await router.push('/sessions/parent-1');
       await router.isReady();
 
-      const wrapper = mount(SessionDetailView, {
+      const wrapper = trackedMount(SessionDetailView, {
         global: {
           plugins: [pinia, router],
           stubs: {
-            ConversationTab: true,
             SummaryTab: true,
             ChangesTab: true,
             CanvasTab: true,
@@ -3221,6 +3374,528 @@ describe('SessionDetailView', () => {
       const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
       expect(treeOverlay.exists()).toBe(true);
       expect(treeOverlay.props('sessionId')).toBe('child-1'); // Should be the running child
+    });
+  });
+
+  describe('buildSessionChain', () => {
+    it('builds session chain from root through descendants', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastActivityAt: 1000,
+      };
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        lastActivityAt: 2000,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession, childSession];
+
+      // Mock getChildSessions to return child only for parent
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'parent-1' ? [childSession] : []
+      );
+
+      // Mock getRootSession to return the parent
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(
+        () => parentSession
+      );
+
+      api.getProjectSessions.mockResolvedValue([parentSession, childSession]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // sessionChain should contain both sessions sorted by lastActivityAt descending
+      expect(wrapper.vm.sessionChain.length).toBe(2);
+      // child-1 has lastActivityAt=2000 (most recent), parent-1 has lastActivityAt=1000
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('child-1');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
+    });
+
+    it('passes sessionChain and summariesMap to SessionTreeOverlay', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastActivityAt: 2000,
+      };
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        lastActivityAt: 1000,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession, childSession];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'parent-1' ? [childSession] : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(
+        () => parentSession
+      );
+
+      api.getProjectSessions.mockResolvedValue([parentSession, childSession]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Open the overlay
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      expect(treeOverlay.exists()).toBe(true);
+      expect(treeOverlay.props('sessionChain')).toEqual(wrapper.vm.sessionChain);
+      expect(treeOverlay.props('summariesMap')).toEqual(wrapper.vm.summariesMap);
+    });
+
+    it('rebuilds session chain when session-created event is emitted', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastActivityAt: 1000,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => []);
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => parentSession);
+
+      api.getProjectSessions.mockResolvedValue([parentSession]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Initially chain has just the root
+      expect(wrapper.vm.sessionChain.length).toBe(1);
+
+      // Simulate a new child being created (more recent than parent)
+      const newChild = {
+        id: 'new-child',
+        name: 'New Child',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        lastActivityAt: 3000,
+      };
+      sessionsStore.sessions.push(newChild);
+
+      // Update mocks to include new child
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'parent-1' ? [newChild] : []
+      );
+      api.getProjectSessions.mockResolvedValue([parentSession, newChild]);
+
+      // Open overlay and emit session-created
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      treeOverlay.vm.$emit('session-created', 'new-child');
+      await flushPromises();
+      await nextTick();
+
+      // Session chain should now include the new child, sorted by lastActivityAt descending
+      expect(wrapper.vm.sessionChain.length).toBe(2);
+      // new-child has lastActivityAt=3000 (most recent), so it comes first
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('new-child');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
+    });
+
+    it('sorts session chain by lastActivityAt descending (most recent first)', async () => {
+      const sessionA = {
+        id: 'session-a',
+        name: 'Session A (oldest)',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastActivityAt: 1000,
+      };
+      const sessionB = {
+        id: 'session-b',
+        name: 'Session B (middle)',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: 3000,
+      };
+      const sessionC = {
+        id: 'session-c',
+        name: 'Session C (newest)',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: 5000,
+      };
+      // Session D has no lastActivityAt, falls back to updatedAt
+      const sessionD = {
+        id: 'session-d',
+        name: 'Session D (fallback to updatedAt)',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: null,
+        updatedAt: 2000,
+      };
+
+      sessionsStore.currentSession = sessionA;
+      sessionsStore.sessions = [sessionA, sessionB, sessionC, sessionD];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'session-a' ? [sessionB, sessionC, sessionD] : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(
+        () => sessionA
+      );
+
+      api.getProjectSessions.mockResolvedValue([sessionA, sessionB, sessionC, sessionD]);
+
+      await router.push('/sessions/session-a');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Should contain all 4 sessions
+      expect(wrapper.vm.sessionChain.length).toBe(4);
+
+      // Order should be: C (5000), B (3000), D (2000 via updatedAt fallback), A (1000)
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('session-c');
+      expect(wrapper.vm.sessionChain[1].session.id).toBe('session-b');
+      expect(wrapper.vm.sessionChain[2].session.id).toBe('session-d');
+      expect(wrapper.vm.sessionChain[3].session.id).toBe('session-a');
+    });
+
+    it('fetches summaries for sessions in the chain', async () => {
+      // Switch to real timers so async summary fetches (.then chains) resolve naturally
+      vi.useRealTimers();
+
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+        parentSessionId: null,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(() => []);
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => parentSession);
+
+      api.getProjectSessions.mockResolvedValue([parentSession]);
+      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Parent summary' });
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      // Allow async summary fetches to resolve
+      await new Promise(r => setTimeout(r, 50));
+      await flushPromises();
+
+      // getSessionSummary should have been called for the session in the chain
+      expect(api.getSessionSummary).toHaveBeenCalledWith('parent-1');
+    });
+  });
+
+  describe('handleOverlayClose restores parent session state', () => {
+    it('restores viewedSessionId and refetches parent data on overlay close', async () => {
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1' },
+      ];
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Clear mocks from initialization
+      sessionsStore.fetchSession.mockClear();
+      sessionsStore.fetchConversations.mockClear();
+      sessionsStore.fetchMessages.mockClear();
+
+      // Simulate overlay being opened and viewedSessionId changed to a child
+      wrapper.vm.treeOverlayOpen = true;
+      sessionsStore.viewedSessionId = 'child-1';
+      await nextTick();
+
+      // Emit close event from the overlay
+      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      overlay.vm.$emit('close');
+      await nextTick();
+      await flushPromises();
+
+      // viewedSessionId should be restored to the parent
+      expect(sessionsStore.viewedSessionId).toBe('parent-1');
+
+      // Parent session data should be refetched
+      expect(sessionsStore.fetchSession).toHaveBeenCalledWith('parent-1', false);
+      expect(sessionsStore.fetchConversations).toHaveBeenCalledWith('parent-1');
+      expect(sessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false);
+    });
+
+    it('closes the overlay panel on close event', async () => {
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1' },
+      ];
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      // Open the overlay
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+
+      // Emit close
+      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      overlay.vm.$emit('close');
+      await nextTick();
+
+      expect(wrapper.vm.treeOverlayOpen).toBe(false);
+    });
+
+    it('restores parent state even when overlay did not change viewedSessionId', async () => {
+      sessionsStore.currentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        { id: 'parent-1', name: 'Parent Session', status: 'running', projectId: 'proj-1' },
+      ];
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      sessionsStore.fetchSession.mockClear();
+      sessionsStore.fetchConversations.mockClear();
+      sessionsStore.fetchMessages.mockClear();
+
+      // Open and close overlay without changing viewedSessionId
+      wrapper.vm.treeOverlayOpen = true;
+      await nextTick();
+
+      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      overlay.vm.$emit('close');
+      await nextTick();
+      await flushPromises();
+
+      // Should still refetch to ensure consistency
+      expect(sessionsStore.fetchSession).toHaveBeenCalledWith('parent-1', false);
+      expect(sessionsStore.fetchConversations).toHaveBeenCalledWith('parent-1');
+      expect(sessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false);
+    });
+  });
+
+  describe('auto-open overlay via query param', () => {
+    it('auto-opens tree overlay when route has ?overlay=open query param', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      // Navigate with the overlay query param
+      await router.push('/sessions/session-1?overlay=open');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Overlay should be open
+      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+
+      // Query param should be cleared (router.replace removes it)
+      expect(router.currentRoute.value.query.overlay).toBeUndefined();
+    });
+
+    it('does not auto-open tree overlay without query param', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      // Navigate WITHOUT the overlay query param
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      // Overlay should remain closed
+      expect(wrapper.vm.treeOverlayOpen).toBe(false);
     });
   });
 });

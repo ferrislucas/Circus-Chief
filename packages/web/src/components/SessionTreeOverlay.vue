@@ -1,34 +1,58 @@
 <template>
   <Teleport to="body">
-    <Transition name="slide-left" appear>
+    <Transition name="slide-left" appear @after-leave="afterLeave">
       <div
         v-if="visible"
         class="overlay-backdrop"
         data-testid="session-tree-overlay"
         @click.self="close"
       >
-        <div class="overlay-content session-tree-overlay" @click.stop>
+        <div class="overlay-panel-wrapper" @click.stop>
+          <!-- Close handle anchored to left edge of panel -->
+          <div
+            class="overlay-close-handle"
+            tabindex="0"
+            role="button"
+            :aria-label="isOverlaySessionActive
+              ? (overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
+              : 'Close session tree'"
+            :title="isOverlaySessionActive
+              ? (overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
+              : 'Close session tree'"
+            data-testid="session-tree-overlay-close-handle"
+            @click="close"
+            @keydown.enter.prevent="close"
+            @keydown.space.prevent="close"
+          >
+            <svg
+              class="handle-icon"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M4 2v4h3v2H4v4h3M10 4h3M10 8h3M10 12h3"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span
+              v-if="isOverlaySessionActive"
+              class="active-spinner"
+              :title="overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
+            ></span>
+          </div>
+
+          <!-- Existing overlay-content -->
+          <div class="overlay-content session-tree-overlay">
           <!-- Header (no padding constraints) -->
           <div class="overlay-header">
-            <div class="overlay-header-left">
-              <router-link
-                :to="backToSessionsUrl"
-                class="back-to-sessions-link"
-                title="Back to Sessions"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="19" y1="12" x2="5" y2="12"></line>
-                  <polyline points="12 19 5 12 12 5"></polyline>
-                </svg>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="8" y1="6" x2="21" y2="6"></line>
-                  <line x1="8" y1="12" x2="21" y2="12"></line>
-                  <line x1="8" y1="18" x2="21" y2="18"></line>
-                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                </svg>
-              </router-link>
+            <!-- Row 1: Session Name -->
+            <div class="overlay-header-row">
               <!-- Editing mode -->
               <template v-if="isEditingName">
                 <div class="name-edit-form">
@@ -64,7 +88,7 @@
               <!-- Display mode -->
               <template v-else>
                 <div class="session-name-wrapper">
-                  <span class="overlay-root-name">{{ activeSessionName }}</span>
+                  <span class="overlay-root-name">{{ rootSessionName }}</span>
                   <button class="btn-link name-edit-trigger" @click="startEditName" title="Edit session name">
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                       <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
@@ -74,136 +98,173 @@
                 </div>
               </template>
             </div>
-            <div class="overlay-header-right">
+
+            <!-- Row 2: Session Selector -->
+            <div v-if="hasDescendants" class="overlay-header-row overlay-header-selector" ref="pickerAreaRef" data-testid="session-tree-dropdown">
               <button
-                v-if="hasDescendants && !isMobile"
-                class="tree-icon-btn"
-                data-testid="session-tree-icon"
-                :title="pickerOpen ? 'Close session tree' : 'Open session tree'"
+                class="dropdown-trigger"
+                data-testid="overlay-picker-trigger"
+                :aria-expanded="pickerOpen ? 'true' : 'false'"
                 @click="togglePicker"
               >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path
-                    d="M4 2v4h3v2H4v4h3M10 4h3M10 8h3M10 12h3"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
+                <span class="dropdown-name">{{ activeSessionDisplayName }}</span>
+                <span class="dropdown-chevron">{{ pickerOpen ? '&#9650;' : '&#9660;' }}</span>
               </button>
-              <button
-                class="close-btn"
-                data-testid="session-tree-close"
-                aria-label="Close overlay"
-                @click="close"
+              <SessionTreePicker
+                v-if="pickerOpen"
+                :sessions="sessionChain"
+                :active-session-id="activeSessionId"
+                :summaries="summariesMap"
+                @select="handlePickerSelect"
+              />
+            </div>
+
+            <!-- Row 3: Back to List + New Session -->
+            <div class="overlay-header-row overlay-header-actions">
+              <router-link
+                :to="backToSessionsUrl"
+                class="back-to-sessions-link"
+                title="Back to Sessions"
               >
-                ✕
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="19" y1="12" x2="5" y2="12"></line>
+                  <polyline points="12 19 5 12 12 5"></polyline>
+                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </router-link>
+              <button
+                class="add-session-btn"
+                data-testid="overlay-add-session-btn"
+                title="Create a new child session"
+                :disabled="isCreatingSession"
+                @click="addChildSession"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                {{ isCreatingSession ? 'Creating...' : 'New Session' }}
               </button>
             </div>
           </div>
 
           <!-- Content wrapper (with padding) -->
-          <div class="overlay-body">
-            <!-- Breadcrumb (inline) -->
-            <nav
-              v-if="activeSessionPath.length > 1"
-              class="overlay-breadcrumb"
-              aria-label="Session hierarchy"
-              data-testid="session-tree-breadcrumb"
-            >
-              <ol class="breadcrumb-list">
-                <li
-                  v-for="(session, index) in activeSessionPath"
-                  :key="session.id"
-                  class="breadcrumb-item"
-                >
-                  <button
-                    v-if="session.id !== activeSessionId"
-                    class="breadcrumb-link"
-                    :title="session.name"
-                    @click="selectSession(session.id)"
-                  >
-                    {{ truncateName(session.name) }}
-                  </button>
-                  <span
-                    v-else
-                    class="breadcrumb-current"
-                    :title="session.name"
-                  >
-                    {{ truncateName(session.name) }}
-                  </span>
-                  <span v-if="index < activeSessionPath.length - 1" class="breadcrumb-separator">/</span>
-                </li>
-              </ol>
-            </nav>
-
-            <!-- Dropdown trigger -->
-            <div
-              v-if="hasDescendants"
-              class="overlay-dropdown"
-              data-testid="session-tree-dropdown"
-            >
-              <button
-                class="dropdown-trigger"
-                :aria-expanded="pickerOpen ? 'true' : 'false'"
-                @click="togglePicker"
-              >
-                <span class="dropdown-name">{{ activeSessionName }}</span>
-                <span class="dropdown-chevron">{{ pickerOpen ? '▲' : '▼' }}</span>
-              </button>
+          <div class="overlay-body" ref="overlayBodyRef">
+            <div v-if="switchingSession" class="session-switch-loading">
+              <span class="session-switch-spinner"></span>
+              <span class="session-switch-text">Loading session...</span>
             </div>
-
-            <!-- Picker -->
-            <SessionTreePicker
-              v-if="pickerOpen"
-              :sessions="sessionChain"
-              :active-session-id="activeSessionId"
-              :summaries="summariesMap"
-              @select="handlePickerSelect"
-            />
-
-            <!-- Conversation -->
             <ConversationTab
+              v-else
+              ref="conversationTabRef"
               :session-id="activeSessionId"
               :key="activeSessionId"
+              :scroll-container-ref="overlayBodyRef"
+              :hide-new-conversation="true"
             />
           </div>
-        </div>
+          </div><!-- end overlay-content -->
+        </div><!-- end overlay-panel-wrapper -->
       </div>
     </Transition>
   </Teleport>
 </template>
 
 <script setup>
+/* eslint-disable max-lines */
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
-import SessionTreePicker from './SessionTreePicker.vue';
+
 import ConversationTab from './ConversationTab.vue';
+import SessionTreePicker from './SessionTreePicker.vue';
 
 const props = defineProps({
   sessionId: {
     type: String,
     required: true,
   },
+  /** Session chain from parent (lifted from internal buildSessionChain) */
+  sessionChain: {
+    type: Array,
+    default: () => [],
+  },
+  /** Summaries map from parent (lifted from internal summary fetching) */
+  summariesMap: {
+    type: Object,
+    default: () => ({}),
+  },
 });
 
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'session-created']);
 
 const sessionsStore = useSessionsStore();
+const todosStore = useTodosStore();
 const uiStore = useUiStore();
 
 // Internal state
 const visible = ref(true);
+const closing = ref(false);
 const activeSessionId = ref(props.sessionId);
-const pickerOpen = ref(false);
 const isMobile = ref(false);
-const summariesMap = ref({});
-const sessionChain = ref([]);
+const isCreatingSession = ref(false);
+// Start as true so ConversationTab doesn't mount until loadSessionData completes.
+// This prevents a race condition where ConversationTab reads currentSession before
+// it has been set to the overlay's target session.
+const switchingSession = ref(true);
+
+// Overlay body ref for scroll container override
+const overlayBodyRef = ref(null);
+
+// Template ref to the ConversationTab for flushing drafts before session switch
+const conversationTabRef = ref(null);
+
+// Picker state
+const pickerOpen = ref(false);
+const pickerAreaRef = ref(null);
+
+const activeSessionDisplayName = computed(() => {
+  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  return session?.name || 'Session';
+});
+
+function togglePicker() {
+  pickerOpen.value = !pickerOpen.value;
+}
+
+function handlePickerSelect(sessionId) {
+  pickerOpen.value = false;
+  selectSession(sessionId);
+}
+
+function handlePickerEscape(event) {
+  if (event.key === 'Escape' && pickerOpen.value) {
+    event.stopPropagation();
+    pickerOpen.value = false;
+  }
+}
+
+function handleClickOutsidePicker(event) {
+  if (pickerOpen.value) {
+    const picker = document.querySelector('[data-testid="session-tree-picker"]');
+    const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
+    if (picker && !picker.contains(event.target) &&
+        (!trigger || !trigger.contains(event.target))) {
+      pickerOpen.value = false;
+    }
+  }
+}
 
 // Name editing state
 const isEditingName = ref(false);
@@ -239,13 +300,20 @@ const rootSession = computed(() => {
 });
 
 const rootSessionName = computed(() => {
-  // Use sessionChain root if available (most reliable after buildSessionChain)
-  if (sessionChain.value.length > 0) return sessionChain.value[0].name || 'Session';
-  return rootSession.value?.name || sessionsStore.currentSession?.name || 'Session';
+  // Always show the root (parent) session name in the overlay header.
+  // This stays fixed regardless of which child session is currently viewed.
+  // Priority 1: use the sessionChain prop (most reliable — contains the tree
+  // with depth info, so the root is always the entry with depth === 0).
+  const chainRoot = props.sessionChain.find(entry => entry.depth === 0);
+  if (chainRoot?.session?.name) return chainRoot.session.name;
+  // Priority 2: use getRootSession from the store
+  if (rootSession.value?.name) return rootSession.value.name;
+  // Priority 3: fallback to currentSession
+  return sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => {
-  return sessionChain.value.length > 1;
+  return props.sessionChain.length > 1;
 });
 
 const activeSessionName = computed(() => {
@@ -253,8 +321,13 @@ const activeSessionName = computed(() => {
   return session?.name || 'Session';
 });
 
-const activeSessionPath = computed(() => {
-  return sessionsStore.getSessionPath(activeSessionId.value);
+const overlaySessionStatus = computed(() => {
+  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  return session?.status || '';
+});
+
+const isOverlaySessionActive = computed(() => {
+  return overlaySessionStatus.value === 'running' || overlaySessionStatus.value === 'starting';
 });
 
 const backToSessionsUrl = computed(() => {
@@ -266,27 +339,74 @@ const backToSessionsUrl = computed(() => {
 });
 
 // Methods
-function truncateName(name, maxLength = 30) {
-  if (!name) return 'Unnamed';
-  if (name.length <= maxLength) return name;
-  return name.substring(0, maxLength - 3) + '...';
-}
-
 function close() {
-  emit('close');
+  // Guard: don't re-trigger if already closing
+  if (closing.value) {
+    console.log('[SessionTreeOverlay] Already closing, ignoring close() call');
+    return;
+  }
+  console.log('[SessionTreeOverlay] close() called, setting closing=true, visible=false');
+  closing.value = true;
+  visible.value = false;  // This triggers the leave transition
 }
 
-function togglePicker() {
-  pickerOpen.value = !pickerOpen.value;
+function afterLeave() {
+  if (!closing.value) {
+    console.log('[SessionTreeOverlay] afterLeave() called but not closing, ignoring');
+    return;
+  }
+  console.log('[SessionTreeOverlay] afterLeave() called, emitting close event');
+  closing.value = false; // Reset state
+  emit('close');  // Only emit after transition completes
 }
 
-function selectSession(sessionId) {
-  switchToSession(sessionId);
+async function selectSession(sessionId) {
+  await switchToSession(sessionId);
 }
 
-function handlePickerSelect(sessionId) {
-  pickerOpen.value = false;
-  switchToSession(sessionId);
+async function addChildSession() {
+  if (isCreatingSession.value) return;
+
+  const currentSession = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  if (!currentSession?.projectId) {
+    uiStore.error('Cannot create session: no project context');
+    return;
+  }
+
+  isCreatingSession.value = true;
+  try {
+    // Use api.createSession directly instead of sessionsStore.createSession to avoid
+    // setting store.loading = true, which would cause SessionDetailView to unmount
+    // the overlay (it conditionally renders based on !sessionsStore.loading).
+    // prompt must be non-empty to pass Zod validation (z.string().min(1))
+    // Only inherit git settings when the parent has an actual gitWorktree.
+    // The server handles worktree inheritance for child sessions (checks parentSession.gitWorktree).
+    // For branch-only or no-git parents, omit git params to avoid triggering
+    // git checkout in directories that may not be git repos.
+    const gitMode = currentSession.gitWorktree ? 'worktree' : undefined;
+    const gitBranch = currentSession.gitWorktree ? currentSession.gitBranch : undefined;
+
+    const newSession = await api.createSession(currentSession.projectId, {
+      prompt: ' ',
+      name: 'New Session',
+      parentSessionId: activeSessionId.value,
+      startImmediately: false,
+      ...(gitMode && gitBranch ? { gitMode, gitBranch } : {}),
+    });
+
+    // Add to store manually (mirrors what sessionsStore.createSession does)
+    sessionsStore.sessions.unshift(newSession);
+
+    // Notify parent to rebuild session chain so it includes the new child
+    emit('session-created', newSession.id);
+
+    // Switch the overlay to the new session
+    await switchToSession(newSession.id);
+  } catch (err) {
+    uiStore.error(err.message || 'Failed to create child session');
+  } finally {
+    isCreatingSession.value = false;
+  }
 }
 
 // Name editing functions
@@ -336,15 +456,31 @@ async function saveSessionName() {
 async function switchToSession(newSessionId) {
   if (newSessionId === activeSessionId.value) return;
 
-  // Cleanup old subscription
-  cleanupSubscription();
+  // Flush any pending draft save for the CURRENT session before switching.
+  // This ensures that text typed within the debounce window is persisted.
+  conversationTabRef.value?.flushDraft?.();
 
-  // Switch
-  activeSessionId.value = newSessionId;
+  // Show spinner immediately
+  switchingSession.value = true;
 
-  // Load data for new session
-  await loadSessionData(newSessionId);
-  setupSubscription(newSessionId);
+  try {
+    // Reset shared store state to avoid stale data from previous session
+    sessionsStore.clearRunningUsage();
+    sessionsStore.clearPartialText();
+    sessionsStore.messages = [];
+    sessionsStore.workLogs = {};
+    todosStore.clearTodos();
+
+    cleanupSubscription();
+    activeSessionId.value = newSessionId;
+    console.log('[switchToSession] activeSessionId SET to:', activeSessionId.value);
+
+    await loadSessionData(newSessionId);
+    setupSubscription(newSessionId);
+  } finally {
+    // Always hide spinner — even if something unexpected throws
+    switchingSession.value = false;
+  }
 }
 
 async function loadSessionData(sessionId) {
@@ -353,9 +489,23 @@ async function loadSessionData(sessionId) {
     // This is critical because ConversationTab reads sessionsStore.currentSession for
     // isDraft checks, status watchers, etc. Without this, currentSession could remain
     // pointed at the parent session after switching to a child in the overlay.
+    // Update viewedSessionId so the fetchSession guard allows setting currentSession.
+    sessionsStore.viewedSessionId = sessionId;
     await sessionsStore.fetchSession(sessionId, false);
     // Fetch conversations for this session
     await sessionsStore.fetchConversations(sessionId);
+
+    // Fetch messages and work logs for the new session's active conversation.
+    // Without this, sessionsStore.messages would still contain stale data from
+    // the previously viewed session — ConversationTab's onMounted and watchers
+    // do not fetch messages on their own.
+    await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
+    await sessionsStore.fetchWorkLogs(sessionId);
+
+    // Fetch todos for the new active conversation
+    if (sessionsStore.activeConversationId) {
+      todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
+    }
   } catch (err) {
     console.error('[SessionTreeOverlay] Failed to load session data:', err);
   }
@@ -425,101 +575,18 @@ function cleanupSubscription() {
   }
 }
 
-async function buildSessionChain() {
-  // Ensure the current session is fetched first to populate the hierarchy
-  const currentSession = sessionsStore.getSessionById(props.sessionId) || sessionsStore.currentSession;
-  if (!currentSession) {
-    try {
-      await sessionsStore.fetchSession(props.sessionId, false);
-    } catch {
-      return;
-    }
-  }
-
-  // Fetch the project's sessions directly via API to avoid setting store.loading = true
-  // which would interfere with the main SessionDetailView rendering
-  const session = sessionsStore.getSessionById(props.sessionId) || sessionsStore.currentSession;
-  if (session?.projectId) {
-    try {
-      const projectSessions = await api.getProjectSessions(session.projectId, false, null);
-      // Merge into store without triggering loading state
-      for (const s of projectSessions) {
-        if (!sessionsStore.getSessionById(s.id)) {
-          sessionsStore.sessions.push(s);
-        }
-      }
-    } catch {
-      // Not critical if project sessions fail to load
-    }
-  }
-
-  // Find root
-  const root = sessionsStore.getRootSession(props.sessionId);
-  if (!root) {
-    // Current session is the root itself
-    const current = sessionsStore.getSessionById(props.sessionId) || sessionsStore.currentSession;
-    if (current) {
-      sessionChain.value = [current];
-    }
-    return;
-  }
-
-  // Walk the chain from root through descendants
-  const chain = [root];
-  let currentId = root.id;
-
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const children = sessionsStore.getChildSessions(currentId);
-    if (children.length === 0) break;
-
-    // Follow the first child (linear chain)
-    const child = children[0];
-    chain.push(child);
-    currentId = child.id;
-  }
-
-  sessionChain.value = chain;
-
-  // Fetch summaries for all sessions in the chain (non-blocking)
-  for (const sess of chain) {
-    if (!summariesMap.value[sess.id]) {
-      api.getSessionSummary(sess.id)
-        .then(summary => {
-          if (summary) {
-            summariesMap.value = { ...summariesMap.value, [sess.id]: summary };
-          }
-        })
-        .catch(() => { /* Summaries are not critical */ });
-    }
-  }
-}
-
 function checkMobile() {
   isMobile.value = window.innerWidth < 768;
 }
 
 function handleEscape(event) {
   if (event.key === 'Escape') {
-    if (isEditingName.value) {
-      cancelEditName();
-    } else if (pickerOpen.value) {
+    if (pickerOpen.value) {
       pickerOpen.value = false;
+    } else if (isEditingName.value) {
+      cancelEditName();
     } else {
       close();
-    }
-  }
-}
-
-function handleClickOutsidePicker(event) {
-  if (pickerOpen.value) {
-    const picker = document.querySelector('[data-testid="session-tree-picker"]');
-    const dropdown = document.querySelector('[data-testid="session-tree-dropdown"]');
-    const treeIcon = document.querySelector('[data-testid="session-tree-icon"]');
-    if (picker && !picker.contains(event.target) &&
-        (!dropdown || !dropdown.contains(event.target)) &&
-        (!treeIcon || !treeIcon.contains(event.target))) {
-      pickerOpen.value = false;
     }
   }
 }
@@ -544,10 +611,15 @@ onMounted(async () => {
   window.addEventListener('resize', checkMobile);
   checkMobile();
 
-  // Load data and build chain
-  await loadSessionData(activeSessionId.value);
-  setupSubscription(activeSessionId.value);
-  await buildSessionChain();
+  // Load data for the active session, then reveal ConversationTab.
+  // switchingSession starts as true, so ConversationTab won't mount until
+  // currentSession is set to the correct overlay session.
+  try {
+    await loadSessionData(activeSessionId.value);
+    setupSubscription(activeSessionId.value);
+  } finally {
+    switchingSession.value = false;
+  }
 });
 
 onUnmounted(() => {
@@ -561,9 +633,14 @@ onUnmounted(() => {
 // Expose for testing
 defineExpose({
   activeSessionId,
-  pickerOpen,
   isMobile,
-  sessionChain,
+  closing,
+  visible,
+  afterLeave,
+  isCreatingSession,
+  switchingSession,
+  pickerOpen,
+  handlePickerSelect,
 });
 </script>
 
@@ -572,27 +649,22 @@ defineExpose({
 /* Slide-left transition (unscoped for Teleport compatibility) */
 .slide-left-enter-active,
 .slide-left-leave-active {
-  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-              transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .slide-left-enter-from {
-  opacity: 0;
   transform: translateX(100%);
 }
 
 .slide-left-enter-to {
-  opacity: 1;
   transform: translateX(0);
 }
 
 .slide-left-leave-from {
-  opacity: 1;
   transform: translateX(0);
 }
 
 .slide-left-leave-to {
-  opacity: 0;
   transform: translateX(100%);
 }
 
@@ -600,13 +672,40 @@ defineExpose({
 @media (prefers-reduced-motion: reduce) {
   .slide-left-enter-active,
   .slide-left-leave-active {
-    transition: opacity 0.15s ease;
+    transition: transform 0.15s ease;
   }
+}
 
-  .slide-left-enter-from,
-  .slide-left-leave-to {
-    transform: none;
+/* Session switch loading spinner */
+.session-switch-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.session-switch-spinner {
+  display: inline-block;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid rgba(6, 182, 212, 0.2);
+  border-top-color: #06b6d4;
+  border-radius: 50%;
+  animation: session-switch-spin 0.8s linear infinite;
+}
+
+@keyframes session-switch-spin {
+  to {
+    transform: rotate(360deg);
   }
+}
+
+.session-switch-text {
+  color: #9ca3af;
+  font-size: 0.8125rem;
 }
 </style>
 
@@ -619,13 +718,78 @@ defineExpose({
   display: flex;
   justify-content: flex-end;
   align-items: flex-start;
+  overflow: hidden;
+  overflow-y: hidden;
+}
+
+.overlay-panel-wrapper {
+  position: relative;
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 900px;
+  width: 100%;
+  overflow: visible;
+}
+
+.overlay-close-handle {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: rgba(55, 65, 81, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  z-index: 10;
+  transition: background-color 0.2s ease;
+  min-width: 44px;
+  min-height: 44px;
+  border: none;
+}
+
+.overlay-close-handle:hover {
+  background: rgba(8, 145, 178, 0.7);
+}
+
+.overlay-close-handle:focus-visible {
+  outline: 2px solid var(--color-primary, #06b6d4);
+  outline-offset: 2px;
+}
+
+.overlay-close-handle .handle-icon {
+  color: var(--color-text-soft, #9ca3af);
+  transition: color 0.2s ease;
+}
+
+.overlay-close-handle:hover .handle-icon {
+  color: #fff;
+}
+
+.overlay-close-handle .active-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(6, 182, 212, 0.3);
+  border-top-color: #06b6d4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .overlay-content {
+  flex: 1;
   width: 100%;
-  max-width: 900px;
-  height: 100vh;
-  height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -643,24 +807,30 @@ defineExpose({
 
 .overlay-header {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 1rem;
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-  min-height: 60px;
   flex-shrink: 0;
   z-index: 10;
   width: 100%;
 }
 
-.overlay-header-left {
+.overlay-header-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  flex: 1;
+  width: 100%;
   min-width: 0;
+}
+
+.overlay-header-selector {
+  position: relative;
+}
+
+.overlay-header-actions {
+  justify-content: space-between;
 }
 
 .overlay-root-name {
@@ -670,126 +840,23 @@ defineExpose({
   word-break: break-word;
 }
 
-.overlay-header-right {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
-.tree-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: none;
-  border-radius: var(--border-radius, 6px);
-  cursor: pointer;
-  color: var(--color-text-soft, #9ca3af);
-  transition: color 0.15s, background-color 0.15s;
-}
-
-.tree-icon-btn:hover {
-  color: var(--color-primary, #06b6d4);
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.close-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: none;
-  border-radius: var(--border-radius, 6px);
-  cursor: pointer;
-  color: var(--color-text-soft, #9ca3af);
-  font-size: 1rem;
-  transition: color 0.15s, background-color 0.15s;
-}
-
-.close-btn:hover {
-  color: var(--color-text, #e5e7eb);
-  background: rgba(255, 255, 255, 0.1);
-}
-
-/* Breadcrumb (inline) */
-.overlay-breadcrumb {
-  padding: 0.5rem;
-  margin-top: 0.5rem;
-  background: var(--color-background-secondary, rgba(0, 0, 0, 0.1));
-  border-radius: var(--border-radius, 6px);
-  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-}
-
-.breadcrumb-list {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  flex-wrap: wrap;
-}
-
-.breadcrumb-item {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.8rem;
-}
-
-.breadcrumb-link {
-  background: none;
-  border: none;
-  color: var(--color-text-soft, #9ca3af);
-  cursor: pointer;
-  font-size: 0.8rem;
-  padding: 0;
-  text-decoration: none;
-  transition: color 0.15s;
-}
-
-.breadcrumb-link:hover {
-  color: var(--color-primary, #06b6d4);
-  text-decoration: underline;
-}
-
-.breadcrumb-current {
-  color: var(--color-text, #e5e7eb);
-  font-weight: 500;
-}
-
-.breadcrumb-separator {
-  color: var(--color-text-soft, #9ca3af);
-  margin: 0 0.25rem;
-}
-
-/* Dropdown trigger */
-.overlay-dropdown {
-  margin-top: 0.5rem;
-}
-
 .dropdown-trigger {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 0.5rem 0.75rem;
-  background: var(--color-background-secondary, #1f2937);
+  padding: 0.625rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   border-radius: var(--border-radius, 6px);
   color: var(--color-text, #e5e7eb);
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   transition: background-color 0.15s;
 }
 
 .dropdown-trigger:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .dropdown-name {
@@ -804,10 +871,13 @@ defineExpose({
   flex-shrink: 0;
 }
 
-/* Ensure messages container scrolls within the overlay */
+/* Ensure messages container does NOT independently scroll within the overlay.
+   The .overlay-body is the sole scroll container; .messages just flows inside it.
+   This prevents two nested scroll containers from fighting each other during
+   streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-tree-overlay :deep(.messages) {
   max-height: none !important;
-  overflow-y: auto;
+  overflow-y: visible;
   flex: 1;
 }
 
@@ -819,11 +889,10 @@ defineExpose({
   .overlay-header {
     padding: 1rem 0.5rem;
   }
-
 }
 
 @media (min-width: 769px) and (max-width: 1024px) {
-  .overlay-content {
+  .overlay-panel-wrapper {
     max-width: 700px;
   }
 }
@@ -938,6 +1007,32 @@ defineExpose({
   background: rgba(0, 188, 212, 0.1);
 }
 
+.add-session-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
+  border-radius: var(--border-radius, 6px);
+  color: var(--color-text-soft, #9ca3af);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.add-session-btn:hover:not(:disabled) {
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--color-primary, #06b6d4);
+  border-color: rgba(6, 182, 212, 0.3);
+}
+
+.add-session-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-link {
   background: none;
   border: none;
@@ -951,8 +1046,8 @@ defineExpose({
   color: var(--color-text-soft, #9ca3af);
   text-decoration: none;
   transition: color 0.15s;
-  margin-right: 0.75rem;
   flex-shrink: 0;
+  margin-right: 0.75rem;
 }
 
 .back-to-sessions-link:hover {

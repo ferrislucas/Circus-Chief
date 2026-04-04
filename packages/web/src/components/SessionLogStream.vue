@@ -58,15 +58,41 @@ import { computed } from 'vue';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 
 const props = defineProps({
-  sessionId: { type: String, required: true },
+  sessionIds: { type: Array, required: true },
 });
 
 const streamingStore = useSessionStreamingStore();
 
-const recentLogs = computed(() => streamingStore.getSessionWorkLogs(props.sessionId));
-const partialText = computed(() => streamingStore.getSessionPartialText(props.sessionId));
-const thinking = computed(() => streamingStore.getPartialThinking(props.sessionId));
-const isCollapsed = computed(() => streamingStore.isSessionLogCollapsed(props.sessionId));
+// Merge work logs from all running sessions
+const recentLogs = computed(() => {
+  const allLogs = props.sessionIds.flatMap(
+    id => streamingStore.getSessionWorkLogs(id),
+  );
+  return allLogs.slice(-15);
+});
+
+// Show partial text from the first session that has it
+const partialText = computed(() => {
+  for (const id of props.sessionIds) {
+    const text = streamingStore.getSessionPartialText(id);
+    if (text) return text;
+  }
+  return '';
+});
+
+// Show thinking from the first session that has it
+const thinking = computed(() => {
+  for (const id of props.sessionIds) {
+    const t = streamingStore.getPartialThinking(id);
+    if (t) return t;
+  }
+  return '';
+});
+
+// Collapsed state uses the root session ID (first in array)
+const isCollapsed = computed(() =>
+  streamingStore.isSessionLogCollapsed(props.sessionIds[0]),
+);
 
 const hasContent = computed(() => recentLogs.value.length > 0 || partialText.value || thinking.value);
 
@@ -81,7 +107,7 @@ const partialTextPreview = computed(() => {
 });
 
 function toggleCollapse() {
-  streamingStore.toggleSessionLogCollapsed(props.sessionId);
+  streamingStore.toggleSessionLogCollapsed(props.sessionIds[0]);
 }
 </script>
 

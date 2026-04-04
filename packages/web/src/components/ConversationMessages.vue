@@ -18,17 +18,6 @@
     <!-- Streaming partial message -->
     <StreamingMessage v-if="!isDraft && partialText" :content="partialText" />
 
-    <!-- Jump to latest button (Slack-style) -->
-    <button
-      v-if="!isNearBottom && hasNewMessages && messages.length > 0"
-      class="jump-to-latest"
-      @click="scrollToBottom(true)"
-    >
-      <svg class="jump-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M8 3v10M4 9l4 4 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <span>New messages</span>
-    </button>
   </div>
 
   <!-- Token cost panel - aligned with scroll-to-claude-btn -->
@@ -63,6 +52,7 @@ const props = defineProps({
   isDraft: { type: Boolean, default: false },
   isScheduledDraft: { type: Boolean, default: false },
   sessionStatus: { type: String, default: null },
+  scrollContainerRef: { type: Object, default: null },
 });
 
 const sessionsStore = useSessionsStore();
@@ -77,10 +67,11 @@ const messages = computed(() => sessionsStore.messages);
 const partialText = computed(() => sessionsStore.partialText);
 
 // Scroll management composable
-const { messagesContainer, isNearBottom, hasNewMessages, scrollToBottom, scrollToClaudesTurn } = useMessageScroll({
+const { messagesContainer, isNearBottom, scrollToBottom, scrollToClaudesTurn } = useMessageScroll({
   messages,
   partialText,
   activeConversationId: computed(() => sessionsStore.activeConversationId),
+  scrollContainer: computed(() => props.scrollContainerRef),
 });
 
 const canBranch = computed(() => {
@@ -194,60 +185,6 @@ defineExpose({ scrollToBottom });
 
 .scroll-to-claude-btn:active {
   transform: scale(0.95);
-}
-
-/* Slack-style new messages button */
-.jump-to-latest {
-  position: sticky;
-  bottom: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  width: fit-content;
-  margin: 0 auto;
-  padding: 0.5rem 0.875rem;
-  background: #1a1d21;
-  color: #e8e8e8;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 24px;
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.3),
-    0 4px 12px rgba(0, 0, 0, 0.25);
-  z-index: 10;
-  animation: slideUp 0.15s ease-out;
-  transition: background 0.15s ease, box-shadow 0.15s ease;
-}
-
-.jump-to-latest:hover {
-  background: #222529;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.35),
-    0 6px 16px rgba(0, 0, 0, 0.3);
-}
-
-.jump-to-latest:active {
-  transform: translateX(-50%) scale(0.97);
-}
-
-.jump-arrow {
-  flex-shrink: 0;
-  opacity: 0.9;
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateX(-50%) translateY(8px);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(-50%) translateY(0);
-    opacity: 1;
-  }
 }
 
 /* Responsive messages container height */

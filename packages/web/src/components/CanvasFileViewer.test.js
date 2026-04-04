@@ -3,6 +3,17 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
 
+// Mock md-editor-v3 — used by MarkdownEditor component
+vi.mock('md-editor-v3', () => ({
+  MdEditor: defineComponent({
+    name: 'MdEditor',
+    props: ['modelValue', 'theme', 'preview', 'language', 'noUploadImg', 'showCodeRowNumber'],
+    emits: ['update:modelValue'],
+    template: '<textarea class="mock-md-editor" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+  }),
+}));
+vi.mock('md-editor-v3/lib/style.css', () => ({}));
+
 // Mock the API module before importing component
 vi.mock('../composables/useApi.js', () => ({
   api: {
@@ -99,7 +110,7 @@ describe('CanvasFileViewer', () => {
 
       expect(wrapper.find('.breadcrumb-back').exists()).toBe(true);
       expect(wrapper.find('.breadcrumb-separator').exists()).toBe(true);
-      expect(wrapper.find('.breadcrumb-back').text()).toBe('← Canvas');
+      expect(wrapper.find('.breadcrumb-back').text()).toBe('← Back to list');
     });
   });
 
@@ -384,6 +395,110 @@ describe('CanvasFileViewer', () => {
 
       // Should now show "1h ago"
       expect(wrapper.find('.viewer-meta').text()).toBe('Modified 1h ago');
+    });
+  });
+
+  describe('edit mode for markdown files', () => {
+    it('shows Edit button for markdown items', () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'readme.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+      });
+
+      expect(wrapper.find('.btn-edit-toggle').exists()).toBe(true);
+      expect(wrapper.find('.btn-edit-toggle').text()).toBe('Edit');
+    });
+
+    it('does NOT show Edit button for non-markdown items (text)', () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'notes.txt', type: 'text', content: 'Hello', createdAt: Date.now() },
+      });
+
+      expect(wrapper.find('.btn-edit-toggle').exists()).toBe(false);
+    });
+
+    it('does NOT show Edit button for image items', () => {
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'photo.png',
+          type: 'image',
+          data: 'base64data',
+          mimeType: 'image/png',
+          createdAt: Date.now(),
+        },
+      });
+
+      expect(wrapper.find('.btn-edit-toggle').exists()).toBe(false);
+    });
+
+    it('toggles to Done when Edit is clicked', async () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'readme.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+      });
+
+      const editBtn = wrapper.find('.btn-edit-toggle');
+      expect(editBtn.text()).toBe('Edit');
+
+      await editBtn.trigger('click');
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.btn-edit-toggle').text()).toBe('Done');
+    });
+
+    it('shows MarkdownViewer in read mode and hides it in edit mode', async () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'readme.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+      });
+
+      // In read mode, the viewer-markdown element should be visible (not editing)
+      expect(wrapper.find('.viewer-markdown').exists()).toBe(true);
+      expect(wrapper.find('.viewer-content-editing').exists()).toBe(false);
+
+      // Click Edit
+      await wrapper.find('.btn-edit-toggle').trigger('click');
+      await flushAll(wrapper);
+
+      // In edit mode, should show editing container and hide MarkdownViewer
+      expect(wrapper.find('.viewer-content-editing').exists()).toBe(true);
+      expect(wrapper.find('.viewer-markdown').exists()).toBe(false);
+    });
+
+    it('returns to read mode when Done is clicked', async () => {
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'readme.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+      });
+
+      // Enter edit mode
+      await wrapper.find('.btn-edit-toggle').trigger('click');
+      await flushAll(wrapper);
+      expect(wrapper.find('.btn-edit-toggle').text()).toBe('Done');
+
+      // Exit edit mode
+      await wrapper.find('.btn-edit-toggle').trigger('click');
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.btn-edit-toggle').text()).toBe('Edit');
+      expect(wrapper.find('.viewer-markdown').exists()).toBe(true);
+      expect(wrapper.find('.viewer-content-editing').exists()).toBe(false);
+    });
+
+    it('calls endEditing when component unmounts while in edit mode', async () => {
+      const { useCanvasStore } = await import('../stores/canvas.js');
+      const store = useCanvasStore();
+      const endEditingSpy = vi.spyOn(store, 'endEditing');
+
+      const wrapper = mountComponent({
+        item: { id: '1', filename: 'readme.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+      });
+
+      // Enter edit mode
+      await wrapper.find('.btn-edit-toggle').trigger('click');
+      await flushAll(wrapper);
+
+      // Unmount while editing
+      wrapper.unmount();
+
+      expect(endEditingSpy).toHaveBeenCalledWith('readme.md');
     });
   });
 });

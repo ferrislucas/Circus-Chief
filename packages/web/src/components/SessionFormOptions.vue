@@ -181,9 +181,13 @@ defineEmits([
 
 @media (max-width: 480px) {
   .options-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  /* Let the last item span full width */
+  .options-row > :last-child {
+    grid-column: 1 / -1;
   }
 }
 </style>

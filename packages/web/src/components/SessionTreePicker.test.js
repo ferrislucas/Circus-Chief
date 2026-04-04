@@ -11,25 +11,34 @@ describe('SessionTreePicker', () => {
 
     sessions = [
       {
-        id: 'root-1',
-        name: 'Root Session',
-        status: 'completed',
-        createdAt: Date.now() - 7200000,
-        lastActivityAt: Date.now() - 3600000,
+        session: {
+          id: 'root-1',
+          name: 'Root Session',
+          status: 'completed',
+          createdAt: Date.now() - 7200000,
+          lastActivityAt: Date.now() - 3600000,
+        },
+        depth: 0,
       },
       {
-        id: 'child-1',
-        name: 'Child Session 1',
-        status: 'running',
-        createdAt: Date.now() - 3600000,
-        lastActivityAt: Date.now() - 1800000,
+        session: {
+          id: 'child-1',
+          name: 'Child Session 1',
+          status: 'running',
+          createdAt: Date.now() - 3600000,
+          lastActivityAt: Date.now() - 1800000,
+        },
+        depth: 1,
       },
       {
-        id: 'child-2',
-        name: 'Child Session 2',
-        status: 'waiting',
-        createdAt: Date.now() - 1800000,
-        lastActivityAt: Date.now() - 900000,
+        session: {
+          id: 'child-2',
+          name: 'Child Session 2',
+          status: 'waiting',
+          createdAt: Date.now() - 1800000,
+          lastActivityAt: Date.now() - 900000,
+        },
+        depth: 1,
       },
     ];
 
@@ -77,22 +86,25 @@ describe('SessionTreePicker', () => {
       });
     });
 
-    it('all items have consistent padding', () => {
+    it('items have no depth-based padding (uniform alignment)', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
-      // All items should have the same padding-left
+      // All items should have no inline padding-left style — uniform CSS padding applies
       items.forEach(item => {
-        expect(item.attributes('style')).toContain('padding-left: 0.5rem');
+        expect(item.attributes('style')).toBeUndefined();
       });
     });
 
     it('renders correctly with single session (no children)', () => {
       const singleSession = [{
-        id: 'single-1',
-        name: 'Only Session',
-        status: 'completed',
-        createdAt: Date.now(),
-        lastActivityAt: Date.now(),
+        session: {
+          id: 'single-1',
+          name: 'Only Session',
+          status: 'completed',
+          createdAt: Date.now(),
+          lastActivityAt: Date.now(),
+        },
+        depth: 0,
       }];
       const wrapper = mount(SessionTreePicker, {
         props: {
@@ -106,14 +118,14 @@ describe('SessionTreePicker', () => {
       expect(items).toHaveLength(1);
       expect(items[0].find('.picker-item-role').exists()).toBe(true);
       expect(items[0].find('.picker-item-role').text()).toBe('');
-      expect(items[0].attributes('style')).toContain('padding-left: 0.5rem');
+      expect(items[0].attributes('style')).toBeUndefined();
     });
 
     it('status badges display correctly without hierarchy labels', () => {
       const sessionsWithStatuses = [
-        { id: 's1', name: 'Session 1', status: 'running', createdAt: Date.now(), lastActivityAt: Date.now() },
-        { id: 's2', name: 'Session 2', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() },
-        { id: 's3', name: 'Session 3', status: 'error', createdAt: Date.now(), lastActivityAt: Date.now() },
+        { session: { id: 's1', name: 'Session 1', status: 'running', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
+        { session: { id: 's2', name: 'Session 2', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
+        { session: { id: 's3', name: 'Session 3', status: 'error', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
       ];
       const wrapper = mount(SessionTreePicker, {
         props: {
@@ -128,17 +140,20 @@ describe('SessionTreePicker', () => {
       expect(items[0].find('.picker-item-status').text()).toBe('● Running');
       // Item at index 1 (completed) should have no status badge
       expect(items[1].find('.picker-item-status').exists()).toBe(false);
-      // Item at index 2 (error) should have error status badge
-      expect(items[2].find('.picker-item-status').text()).toBe('⚠ Error');
+      // Item at index 2 (error) should have no status badge
+      expect(items[2].find('.picker-item-status').exists()).toBe(false);
     });
 
-    it('all items have consistent alignment regardless of count', () => {
+    it('all items at the same depth have consistent alignment', () => {
       const manySessions = Array.from({ length: 10 }, (_, i) => ({
-        id: `s-${i}`,
-        name: `Session ${i}`,
-        status: 'completed',
-        createdAt: Date.now() - (i * 1000000),
-        lastActivityAt: Date.now() - (i * 500000),
+        session: {
+          id: `s-${i}`,
+          name: `Session ${i}`,
+          status: 'completed',
+          createdAt: Date.now() - (i * 1000000),
+          lastActivityAt: Date.now() - (i * 500000),
+        },
+        depth: 1,
       }));
       const wrapper = mount(SessionTreePicker, {
         props: {
@@ -150,9 +165,9 @@ describe('SessionTreePicker', () => {
 
       const items = wrapper.findAll('.picker-item');
       expect(items).toHaveLength(10);
-      // All items should have the same padding-left regardless of position
+      // All items should have no inline padding style — uniform CSS padding applies
       items.forEach(item => {
-        expect(item.attributes('style')).toContain('padding-left: 0.5rem');
+        expect(item.attributes('style')).toBeUndefined();
       });
     });
 
@@ -167,12 +182,33 @@ describe('SessionTreePicker', () => {
     it('truncates long session names with CSS', () => {
       const longName = 'A'.repeat(100);
       const wrapper = mountComponent({
-        sessions: [{ ...sessions[0], name: longName }],
+        sessions: [{ session: { ...sessions[0].session, name: longName }, depth: 0 }],
       });
       const nameEl = wrapper.find('.picker-item-name');
       expect(nameEl.text()).toBe(longName);
       // The CSS class should apply text-overflow: ellipsis
       expect(nameEl.classes()).toContain('picker-item-name');
+    });
+
+    it('items at all depths have uniform alignment (no indentation)', () => {
+      const deepSessions = [
+        { session: { id: 'd0', name: 'Root', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
+        { session: { id: 'd1', name: 'Child', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
+        { session: { id: 'd2', name: 'Grandchild', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 2 },
+      ];
+      const wrapper = mount(SessionTreePicker, {
+        props: {
+          sessions: deepSessions,
+          activeSessionId: 'd0',
+          summaries: {},
+        },
+      });
+
+      const items = wrapper.findAll('.picker-item');
+      // No inline style — uniform CSS padding applies to all depths
+      items.forEach(item => {
+        expect(item.attributes('style')).toBeUndefined();
+      });
     });
   });
 
@@ -227,7 +263,7 @@ describe('SessionTreePicker', () => {
 
     it('shows ● Running for starting status', () => {
       const wrapper = mountComponent({
-        sessions: [{ ...sessions[0], status: 'starting' }],
+        sessions: [{ session: { ...sessions[0].session, status: 'starting' }, depth: 0 }],
       });
       const status = wrapper.find('.picker-item-status');
       expect(status.text()).toBe('● Running');
@@ -235,32 +271,30 @@ describe('SessionTreePicker', () => {
 
     it('shows ⏰ Scheduled for scheduled status', () => {
       const wrapper = mountComponent({
-        sessions: [{ ...sessions[0], status: 'scheduled' }],
+        sessions: [{ session: { ...sessions[0].session, status: 'scheduled' }, depth: 0 }],
       });
       const status = wrapper.find('.picker-item-status');
       expect(status.text()).toBe('⏰ Scheduled');
       expect(status.classes()).toContain('status-scheduled');
     });
 
-    it('shows ⚠ Error for error status', () => {
+    it('shows no status badge for error status', () => {
       const wrapper = mountComponent({
-        sessions: [{ ...sessions[0], status: 'error' }],
+        sessions: [{ session: { ...sessions[0].session, status: 'error' }, depth: 0 }],
       });
-      const status = wrapper.find('.picker-item-status');
-      expect(status.text()).toBe('⚠ Error');
-      expect(status.classes()).toContain('status-error');
+      expect(wrapper.find('.picker-item-status').exists()).toBe(false);
     });
 
     it('shows no status badge for completed status', () => {
       const wrapper = mountComponent({
-        sessions: [{ ...sessions[0], status: 'completed' }],
+        sessions: [{ session: { ...sessions[0].session, status: 'completed' }, depth: 0 }],
       });
       expect(wrapper.find('.picker-item-status').exists()).toBe(false);
     });
 
     it('shows no status badge for waiting status', () => {
       const wrapper = mountComponent({
-        sessions: [{ ...sessions[0], status: 'waiting' }],
+        sessions: [{ session: { ...sessions[0].session, status: 'waiting' }, depth: 0 }],
       });
       expect(wrapper.find('.picker-item-status').exists()).toBe(false);
     });

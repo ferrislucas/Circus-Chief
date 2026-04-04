@@ -196,6 +196,54 @@ describe('Sessions Store', () => {
       expect(store.error).toBe('API Error');
       expect(store.currentSession.model).toBe('claude-sonnet-4-6');
     });
+
+    it('includes pendingModel in PATCH for draft (waiting) sessions', async () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-6', status: 'waiting' };
+      store.sessions = [{ id: 'session-1', model: 'claude-sonnet-4-6', status: 'waiting' }];
+
+      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-6', pendingModel: 'claude-opus-4-6' });
+
+      await store.updateSessionModel('session-1', 'claude-opus-4-6');
+
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        model: 'claude-opus-4-6',
+        pendingModel: 'claude-opus-4-6',
+      });
+    });
+
+    it('does not include pendingModel in PATCH for running sessions', async () => {
+      const store = useSessionsStore();
+
+      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-6', status: 'running' };
+      store.sessions = [{ id: 'session-1', model: 'claude-sonnet-4-6', status: 'running' }];
+
+      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-6' });
+
+      await store.updateSessionModel('session-1', 'claude-opus-4-6');
+
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        model: 'claude-opus-4-6',
+      });
+    });
+
+    it('finds draft session via currentSession when not in sessions list', async () => {
+      const store = useSessionsStore();
+
+      // Session is only in currentSession, not in the sessions array
+      store.currentSession = { id: 'session-1', model: 'claude-sonnet-4-6', status: 'waiting' };
+      store.sessions = [];
+
+      api.updateSession.mockResolvedValue({ id: 'session-1', model: 'claude-opus-4-6', pendingModel: 'claude-opus-4-6' });
+
+      await store.updateSessionModel('session-1', 'claude-opus-4-6');
+
+      expect(api.updateSession).toHaveBeenCalledWith('session-1', {
+        model: 'claude-opus-4-6',
+        pendingModel: 'claude-opus-4-6',
+      });
+    });
   });
 
   describe('updateSessionStatus', () => {
@@ -3809,6 +3857,121 @@ describe('Sessions Store', () => {
 
       consoleErrorSpy.mockRestore();
     });
+
+    it('skips API call when viewedSessionId does not match sessionId', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.messages = [{ id: 'existing-msg', role: 'user', content: 'Existing' }];
+
+      await store.fetchMessages('session-B', false);
+
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+      expect(api.getConversationMessages).not.toHaveBeenCalled();
+      // Messages should remain unchanged
+      expect(store.messages).toEqual([{ id: 'existing-msg', role: 'user', content: 'Existing' }]);
+    });
+
+    it('discards results when viewedSessionId changes during fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.messages = [{ id: 'original-msg', role: 'user', content: 'Original' }];
+
+      // Mock API to change viewedSessionId mid-flight (simulating user navigation)
+      api.getSessionMessages.mockImplementation(async () => {
+        // Simulate user navigating to a different session while the fetch is in-flight
+        store.viewedSessionId = 'session-B';
+        return [{ id: 'fetched-msg', role: 'assistant', content: 'Stale response' }];
+      });
+
+      await store.fetchMessages('session-A', false);
+
+      // Messages should NOT be overwritten with stale data
+      expect(store.messages).toEqual([{ id: 'original-msg', role: 'user', content: 'Original' }]);
+    });
+
+    it('allows API call when viewedSessionId is null (backwards compat)', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = null;
+      const mockMessages = [{ id: 'msg-1', role: 'user', content: 'Hello' }];
+
+      api.getSessionMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('any-session', false);
+
+      expect(api.getSessionMessages).toHaveBeenCalledWith('any-session');
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('proceeds normally when viewedSessionId matches sessionId', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      const mockMessages = [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi there' },
+      ];
+
+      api.getSessionMessages.mockResolvedValue(mockMessages);
+
+      await store.fetchMessages('session-A', false);
+
+      expect(api.getSessionMessages).toHaveBeenCalledWith('session-A');
+      expect(store.messages).toEqual(mockMessages);
+    });
+
+    it('pre-fetch guard does not set loading or clear error when skipping', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.error = 'previous error';
+      store.loading = false;
+
+      await store.fetchMessages('session-B', true);
+
+      // loading should never have been set, error should remain
+      expect(store.loading).toBe(false);
+      expect(store.error).toBe('previous error');
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+    });
+
+    it('post-fetch guard still resets loading when discarding stale results', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+
+      api.getSessionMessages.mockImplementation(async () => {
+        store.viewedSessionId = 'session-B';
+        return [{ id: 'msg-stale', role: 'user', content: 'Stale' }];
+      });
+
+      await store.fetchMessages('session-A', true);
+
+      // Loading should be reset to false even though results were discarded
+      expect(store.loading).toBe(false);
+    });
+
+    it('pre-fetch guard skips when viewedSessionId mismatches with conversation fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.activeConversationId = 'conv-1';
+
+      await store.fetchMessages('session-B', false, 'conv-2');
+
+      expect(api.getConversationMessages).not.toHaveBeenCalled();
+      expect(api.getSessionMessages).not.toHaveBeenCalled();
+    });
+
+    it('post-fetch guard discards stale conversation results', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.messages = [{ id: 'original', role: 'user', content: 'Original' }];
+
+      api.getConversationMessages.mockImplementation(async () => {
+        store.viewedSessionId = 'session-B';
+        return [{ id: 'stale-conv-msg', role: 'assistant', content: 'Stale conv' }];
+      });
+
+      await store.fetchMessages('session-A', false, 'conv-1');
+
+      expect(store.messages).toEqual([{ id: 'original', role: 'user', content: 'Original' }]);
+    });
   });
 
   describe('branchConversation', () => {
@@ -4699,6 +4862,79 @@ describe('Sessions Store', () => {
         expect(result.runningCount).toBe(1); // the root
         expect(result.scheduledCount).toBe(1); // the child
         expect(result.totalCount).toBe(1); // only the child (descendants only)
+      });
+
+      it('finds child in activeSessions when parent is in sessions', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'waiting', parentSessionId: null },
+        ];
+        store.activeSessions = [
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.runningCount).toBe(1);
+      });
+
+      it('finds root in activeSessions', () => {
+        const store = useSessionsStore();
+        store.sessions = [];
+        store.activeSessions = [
+          { id: 'root', status: 'waiting', parentSessionId: null },
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.effectiveStatus).toBe('running');
+        expect(result.runningCount).toBe(1);
+      });
+
+      it('deduplicates when session exists in both arrays', () => {
+        const store = useSessionsStore();
+        const child = { id: 'child-1', status: 'running', parentSessionId: 'root' };
+        store.sessions = [
+          { id: 'root', status: 'waiting', parentSessionId: null },
+          child,
+        ];
+        store.activeSessions = [child];
+
+        const result = store.getWorkflowAggregatedStatus('root');
+
+        expect(result.runningCount).toBe(1);
+        expect(result.totalCount).toBe(1);
+      });
+    });
+
+    describe('getWorkflowEffectiveStatus', () => {
+      it('returns running when child is only in activeSessions', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'waiting', parentSessionId: null },
+        ];
+        store.activeSessions = [
+          { id: 'child-1', status: 'running', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowEffectiveStatus('root');
+
+        expect(result).toBe('running');
+      });
+
+      it('returns idle when no running sessions exist in either array', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'root', status: 'completed', parentSessionId: null },
+        ];
+        store.activeSessions = [
+          { id: 'child-1', status: 'completed', parentSessionId: 'root' },
+        ];
+
+        const result = store.getWorkflowEffectiveStatus('root');
+
+        expect(result).toBe('idle');
       });
     });
   });

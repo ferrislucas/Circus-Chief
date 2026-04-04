@@ -62,13 +62,14 @@ test.describe('Command Buttons', () => {
     // Wait for command to finish
     await expect(page.locator('.status-running')).toBeHidden({ timeout: 15000 });
 
-    // Expand output
+    // Expand output and wait for actual command output to render
     await page.click('.output-header');
+    await expect(page.locator('.output-text')).toContainText('Persist output', { timeout: 5000 });
     const initialOutput = await page.textContent('.output-text');
     expect(initialOutput).toBeTruthy();
 
-    // Switch to conversation tab and back
-    await page.click('text=Conversation');
+    // Switch to summary tab and back
+    await page.click('text=Summary');
     await expect(page.locator('.commands-tab')).toBeHidden();
     await page.click('text=Commands');
     // Wait for component to fully remount and restore state from store

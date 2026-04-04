@@ -75,6 +75,31 @@ export function useDraftSaving({ input, canSendMessage, isRunning, getSessionId 
   }
 
   /**
+   * Immediately flush any pending (debounced) draft save.
+   * Clears timers and saves the current input value if there's unsaved text.
+   * Call this before the component is destroyed or the session switches.
+   */
+  function flush() {
+    // Clear pending debounce timers so they don't fire after flush
+    if (inputSyncTimer) {
+      clearTimeout(inputSyncTimer);
+      inputSyncTimer = null;
+    }
+    if (draftSaveTimer) {
+      clearTimeout(draftSaveTimer);
+      draftSaveTimer = null;
+    }
+
+    // If there's unsaved content, save it immediately
+    if (saveStatus.value === 'unsaved' || saveStatus.value === 'saving') {
+      const currentValue = input.value;
+      if (currentValue != null) {
+        savePendingPrompt(currentValue);
+      }
+    }
+  }
+
+  /**
    * Clean up timers. Should be called on component unmount.
    */
   function cleanup() {
@@ -89,6 +114,7 @@ export function useDraftSaving({ input, canSendMessage, isRunning, getSessionId 
     saveError,
     handleInput,
     savePendingPrompt,
+    flush,
     cleanup,
   };
 }

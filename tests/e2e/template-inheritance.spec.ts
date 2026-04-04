@@ -15,6 +15,7 @@ import {
   cleanupTemplates,
   getTemplate,
   getProjectTemplates,
+  navigateAndWait,
 } from './helpers';
 
 test.describe.configure({ timeout: 60000 });
@@ -375,7 +376,7 @@ test.describe('Template Setting Inheritance — Auto-Trigger', () => {
     const parent = await seedSession(project.id, {
       prompt: 'Parent session',
       name: '[TEST] Model Root',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       startImmediately: false,
     });
 
@@ -385,7 +386,7 @@ test.describe('Template Setting Inheritance — Auto-Trigger', () => {
     const child = await waitForChildSession(parent.id, 25000);
     const childSession = await getSession(child.id);
 
-    expect(childSession.model).toBe('claude-sonnet-4-20250514');
+    expect(childSession.model).toBe('claude-sonnet-4-6');
   });
 
   test('child inherits rescheduling properties from root session', async () => {
@@ -491,7 +492,7 @@ test.describe('Template Setting Inheritance — Multi-Level Chain', () => {
       prompt: 'Root session A',
       name: '[TEST] Chain Root A',
       mode: 'plan',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       startImmediately: false,
     });
     await updateSessionFields(rootSession.id, { thinkingEnabled: true });
@@ -510,7 +511,7 @@ test.describe('Template Setting Inheritance — Multi-Level Chain', () => {
     // B should have templateB's overrides
     expect(sessionB.mode).toBe('standard');            // from templateB
     expect(sessionB.thinkingEnabled).toBe(false);       // from templateB
-    expect(sessionB.model).toBe('claude-sonnet-4-20250514'); // inherited from root A (templateB model is null)
+    expect(sessionB.model).toBe('claude-sonnet-4-6'); // inherited from root A (templateB model is null)
 
     // Trigger B → creates C
     const childC = await waitForChildSession(childB.id, 25000);
@@ -519,7 +520,7 @@ test.describe('Template Setting Inheritance — Multi-Level Chain', () => {
     // C should inherit from root A, NOT from intermediate parent B
     expect(sessionC.mode).toBe('plan');                // from root A, not B's 'standard'
     expect(sessionC.thinkingEnabled).toBe(true);       // from root A, not B's false
-    expect(sessionC.model).toBe('claude-sonnet-4-20250514'); // from root A
+    expect(sessionC.model).toBe('claude-sonnet-4-6'); // from root A
     expect(sessionC.autoRescheduleEnabled).toBe(true); // from root A
     expect(sessionC.rescheduleDelayMinutes).toBe(45);  // from root A
   });
@@ -542,7 +543,7 @@ test.describe('Template Setting Inheritance — Multi-Level Chain', () => {
       prompt: 'Root session override',
       name: '[TEST] Chain Root Override',
       mode: 'plan',           // root has 'plan'
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       startImmediately: false,
     });
     await updateSessionFields(rootSession.id, { thinkingEnabled: true }); // root has true
@@ -562,7 +563,7 @@ test.describe('Template Setting Inheritance — Multi-Level Chain', () => {
     // Template's explicit thinkingEnabled=false overrides root's true
     expect(childSession.thinkingEnabled).toBe(false);
     // Template's null model inherits from root
-    expect(childSession.model).toBe('claude-sonnet-4-20250514');
+    expect(childSession.model).toBe('claude-sonnet-4-6');
   });
 });
 
@@ -636,5 +637,102 @@ test.describe('Template Inherit UI — Visible in Session Detail', () => {
     // The child session should have thinkingEnabled: true visible
     const childSession = await getSession(child.id);
     expect(childSession.thinkingEnabled).toBe(true);
+  });
+});
+
+// ============================================================
+// Describe Block 6: Template Model Inheritance — Conversation Overlay Verification
+// ============================================================
+
+test.describe('Template Model Inheritance — Conversation Overlay Verification', () => {
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+    project = await seedProject('[TEST] Model Inherit Overlay', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+  });
+
+  async function openOverlay(page: any, sessionId: string) {
+    await navigateAndWait(page, `/sessions/${sessionId}`, {
+      waitFor: '.session-detail',
+      timeout: 15000,
+    });
+    const handle = page.locator('[data-testid="session-tree-handle"]');
+    await expect(handle).toBeVisible({ timeout: 10000 });
+    await handle.click();
+    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    await expect(overlay).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(400); // Wait for slide-in animation
+    return overlay;
+  }
+
+  test('child session inherits model from root and shows it in overlay ModelSelector', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Model Inherit Overlay',
+      prompt: 'Model overlay test',
+    });
+    // template.model is null by default (inherit)
+
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent session',
+      name: '[TEST] Model Root Overlay',
+      model: 'claude-sonnet-4-6',
+      startImmediately: false,
+    });
+
+    await setNextTemplate(parent.id, template.id);
+    await sendSessionMessage(parent.id, 'Go');
+
+    const child = await waitForChildSession(parent.id, 25000);
+    const childSession = await getSession(child.id);
+
+    // Verify API-level inheritance
+    expect(childSession.model).toBe('claude-sonnet-4-6');
+
+    // Open the conversation overlay on the child session
+    const overlay = await openOverlay(page, child.id);
+
+    // Verify the ModelSelector inside the overlay shows the inherited model
+    const modelSelector = overlay.locator('.model-selector');
+    await expect(modelSelector).toBeVisible({ timeout: 10000 });
+    await expect(modelSelector).toHaveAttribute('data-model', 'claude-sonnet-4-6');
+  });
+
+  test('child session uses template explicit model over root model in overlay ModelSelector', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Model Override Overlay',
+      prompt: 'Model override overlay test',
+    });
+    await updateTemplate(template.id, { model: 'claude-opus-4-6' });
+
+    const parent = await seedSession(project.id, {
+      prompt: 'Parent session',
+      name: '[TEST] Model Root Override Overlay',
+      model: 'claude-sonnet-4-6',
+      startImmediately: false,
+    });
+
+    await setNextTemplate(parent.id, template.id);
+    await sendSessionMessage(parent.id, 'Go');
+
+    const child = await waitForChildSession(parent.id, 25000);
+    const childSession = await getSession(child.id);
+
+    // Template's explicit model wins over root
+    expect(childSession.model).toBe('claude-opus-4-6');
+
+    // Open the conversation overlay on the child session
+    const overlay = await openOverlay(page, child.id);
+
+    // Verify the ModelSelector inside the overlay shows the template's model, not the root's
+    const modelSelector = overlay.locator('.model-selector');
+    await expect(modelSelector).toBeVisible({ timeout: 10000 });
+    await expect(modelSelector).toHaveAttribute('data-model', 'claude-opus-4-6');
   });
 });

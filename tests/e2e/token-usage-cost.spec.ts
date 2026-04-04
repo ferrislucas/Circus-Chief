@@ -22,6 +22,7 @@ import {
   getTokenWeights,
   seedConversationTokens,
   getAPIURL,
+  openSessionOverlay,
 } from './helpers';
 
 const DEFAULT_WEIGHTS = { input: 1.0, output: 5.0, cacheRead: 0.1, cacheCreation: 1.25 };
@@ -117,27 +118,31 @@ test.describe('Token Cost Panel — BTE Display', () => {
 
   test('cost panel is visible when tokens have non-zero cost', async ({ page }) => {
     seedConversationTokens(sessionId, null, { inputTokens: 5000, outputTokens: 2000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    await navigateAndWait(page, `/sessions/${sessionId}/summary`);
+    await openSessionOverlay(page);
     await expect(page.locator('.token-cost-panel')).toBeVisible({ timeout: 10000 });
   });
 
   test('cost panel is hidden when cost is zero', async ({ page }) => {
     // Seed all-zero tokens → BTE = 0 → v-if="hasNonZeroCost" is false → panel hidden
     seedConversationTokens(sessionId, null, { inputTokens: 0, outputTokens: 0 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    await navigateAndWait(page, `/sessions/${sessionId}/summary`);
+    await openSessionOverlay(page);
     await expect(page.locator('.token-cost-panel')).not.toBeVisible({ timeout: 10000 });
   });
 
   test('displays BTE value in collapsed view', async ({ page }) => {
     // input=10000, output=2000 → BTE = 10000×1.0 + 2000×5.0 = 20000 → "20.0K"
     seedConversationTokens(sessionId, null, { inputTokens: 10000, outputTokens: 2000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    await navigateAndWait(page, `/sessions/${sessionId}/summary`);
+    await openSessionOverlay(page);
     await expect(page.locator('.token-cost-panel .cost-value')).toHaveText('20.0K', { timeout: 10000 });
   });
 
   test('clicking cost display expands breakdown', async ({ page }) => {
     seedConversationTokens(sessionId, null, { inputTokens: 10000, outputTokens: 2000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    await navigateAndWait(page, `/sessions/${sessionId}/summary`);
+    await openSessionOverlay(page);
     await page.locator('.token-cost-panel .cost-display').click();
     await expect(page.locator('.token-breakdown')).toBeVisible({ timeout: 10000 });
   });
@@ -150,7 +155,8 @@ test.describe('Token Cost Panel — BTE Display', () => {
       cacheReadInputTokens: 5000,
       cacheCreationInputTokens: 1000,
     });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    await navigateAndWait(page, `/sessions/${sessionId}/summary`);
+    await openSessionOverlay(page);
     await page.locator('.token-cost-panel .cost-display').click();
     await expect(page.locator('.token-breakdown')).toBeVisible({ timeout: 10000 });
 
@@ -192,7 +198,8 @@ test.describe('Token Weights Modal', () => {
     await resetTokenWeights();
     // Seed tokens so the cost panel is visible (BTE > 0)
     seedConversationTokens(sessionId, null, { inputTokens: 10000, outputTokens: 2000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    await navigateAndWait(page, `/sessions/${sessionId}/summary`);
+    await openSessionOverlay(page);
     // Expand cost panel to reveal the gear/settings button
     await page.locator('.token-cost-panel .cost-display').click();
     await expect(page.locator('.token-breakdown')).toBeVisible({ timeout: 10000 });
@@ -329,7 +336,8 @@ test.describe('Per-Conversation Token Tracking', () => {
     // input=5000, output=1000 → BTE = 5000×1.0 + 1000×5.0 = 10000 → "10.0K" (with default weights)
     seedConversationTokens(sessionId, convA.id, { inputTokens: 5000, outputTokens: 1000 });
     // Full page load ensures Pinia store initializes fresh and fetches current (default) weights from API
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    await navigateAndWait(page, `/sessions/${sessionId}/summary`);
+    await openSessionOverlay(page);
     // Wait for settings to be fetched before asserting BTE (TokenCostPanel fetches on mount)
     await page.waitForTimeout(500);
     await expect(page.locator('.token-cost-panel .cost-value')).toHaveText('10.0K', { timeout: 10000 });
@@ -346,7 +354,8 @@ test.describe('Per-Conversation Token Tracking', () => {
 
     // input=5000, output=1000 → BTE = 5000×1.0 + 1000×10.0 = 15000 → "15.0K"
     seedConversationTokens(sessionId, convA.id, { inputTokens: 5000, outputTokens: 1000 });
-    await navigateAndWait(page, `/sessions/${sessionId}/conversation`);
+    await navigateAndWait(page, `/sessions/${sessionId}/summary`);
+    await openSessionOverlay(page);
     // Wait for the settings store to fetch custom weights from API before asserting
     await page.waitForTimeout(500);
     await expect(page.locator('.token-cost-panel .cost-value')).toHaveText('15.0K', { timeout: 10000 });

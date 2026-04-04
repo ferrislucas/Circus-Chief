@@ -10,6 +10,7 @@ import {
   navigateAndWait,
   waitForPageReady,
   getAPIURL,
+  openSessionOverlay,
 } from './helpers';
 
 const API_URL = getAPIURL();
@@ -91,7 +92,8 @@ async function navigateToSessionAndExpandPanel(page, sessionId: string) {
     { timeout: 30000 }
   );
 
-  await page.goto(`/sessions/${sessionId}/conversation`);
+  await page.goto(`/sessions/${sessionId}/summary`);
+  await openSessionOverlay(page);
 
   // Wait for the quick-responses API call to complete.
   await apiDone;
@@ -380,8 +382,9 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
 
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
 
-    await page.goto(`/sessions/${session.id}/conversation`);
+    await page.goto(`/sessions/${session.id}/summary`);
     await waitForPageReady(page);
+    await openSessionOverlay(page);
 
     const panel = page.locator('.quick-responses-panel');
     await expect(panel).toBeVisible({ timeout: 10000 });
@@ -418,7 +421,7 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
 });
 
 // ============================================================
-// Category 3: Quick Response Panel in New Session View (3 tests)
+// Category 3: Quick Response Panel in New Session View (4 tests)
 // ============================================================
 
 test.describe('Category 3: Quick Response Panel in New Session View', () => {
@@ -479,8 +482,7 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
 
     await page.locator('.response-button', { hasText: 'Auto Create' }).click();
 
-    // Auto-submit should trigger form submission, which navigates away from the new session view.
-    // Verify we navigate away (URL changes to session detail)
+    // Auto-submit should trigger form submission, which navigates away
     await expect(page).not.toHaveURL(/\/sessions\/new/, { timeout: 10000 });
   });
 
@@ -488,8 +490,6 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     const project = await seedProject('QR NewSession Settings', '/tmp/qr-new-settings');
     await seedQuickResponse(project.id, { label: 'Settings Test', content: 'Settings content' });
 
-    // Wait for the quick-responses API call to complete before interacting.
-    // The store fetch fires without await in onMounted, so we need to catch it.
     const apiDone = page.waitForResponse(
       (resp) => resp.url().includes('/quick-responses') && resp.status() === 200,
       { timeout: 30000 }
@@ -503,17 +503,16 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     await expect(panel).toBeVisible({ timeout: 10000 });
     await panel.click();
 
-    // Wait for responses content or empty state to appear
     await expect(
       page.locator('.responses-content, .empty-state')
     ).toBeVisible({ timeout: 5000 });
 
-    // Click the settings gear button (only visible when panel is expanded)
+    // Click the settings gear button
     const settingsBtn = page.locator('button[aria-label="Manage quick responses"]');
     await expect(settingsBtn).toBeVisible({ timeout: 5000 });
     await settingsBtn.click();
 
-    // Verify settings modal opens with correct title
+    // Verify settings modal opens
     const settingsModal = page.locator('.settings-panel[role="dialog"]');
     await expect(settingsModal).toBeVisible({ timeout: 5000 });
     await expect(settingsModal.locator('.settings-title')).toContainText('Quick Responses');
