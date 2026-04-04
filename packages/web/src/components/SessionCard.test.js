@@ -21,13 +21,14 @@ vi.mock('vue-router', () => ({
   })),
 }));
 
-// Mock commandButtons store
+// Mock commandButtons store - use mutable mock data so tests can override
+const mockCommandButtonsData = {
+  buttons: [],
+  getButtonsByProjectId: vi.fn(() => mockCommandButtonsData.buttons),
+  getLatestRunForButton: vi.fn(() => null),
+};
 vi.mock('../stores/commandButtons.js', () => ({
-  useCommandButtonsStore: vi.fn(() => ({
-    buttons: [],
-    getButtonsByProjectId: vi.fn(() => []),
-    getLatestRunForButton: vi.fn(() => null),
-  })),
+  useCommandButtonsStore: vi.fn(() => mockCommandButtonsData),
 }));
 
 // Mock sessions store
@@ -138,6 +139,11 @@ describe('SessionCard', () => {
     mockSessionsStoreData.activeSessions = [];
     mockSessionsStoreData.commandRunVersion = 0;
     mockSessionsStoreData._currentSession = null;
+
+    // Reset commandButtons store mock data
+    mockCommandButtonsData.buttons = [];
+    mockCommandButtonsData.getButtonsByProjectId.mockImplementation(() => mockCommandButtonsData.buttons);
+    mockCommandButtonsData.getLatestRunForButton.mockReturnValue(null);
   });
   const baseSession = {
     id: 'session-123',
@@ -669,6 +675,40 @@ describe('SessionCard', () => {
       // Verify component exists and is not broken by icon addition
       expect(wrapper.vm).toBeDefined();
       expect(wrapper.exists()).toBe(true);
+    });
+
+    it('passes button id to ButtonStatusModal when indicator is clicked', async () => {
+      // Set up buttons in mock store
+      mockCommandButtonsData.buttons = [
+        { id: 'btn-42', label: 'Deploy', command: 'npm run deploy', showOnList: true },
+      ];
+      mockCommandButtonsData.getButtonsByProjectId.mockImplementation(() => mockCommandButtonsData.buttons);
+
+      const session = {
+        ...baseSession,
+        projectId: 'proj-1',
+        latestCommandRuns: [
+          { buttonId: 'btn-42', runId: 'run-1', status: 'success', exitCode: 0 },
+        ],
+      };
+
+      const wrapper = mountComponent({ session });
+
+      // Verify indicator renders
+      const indicators = wrapper.findAll('.button-status-indicator');
+      expect(indicators.length).toBe(1);
+
+      // Click the indicator to open the modal
+      await indicators[0].trigger('click');
+
+      // Verify modal receives button.id
+      const modal = wrapper.findComponent({ name: 'ButtonStatusModal' });
+      expect(modal.exists()).toBe(true);
+      expect(modal.props('button')).toEqual({
+        id: 'btn-42',
+        label: 'Deploy',
+        command: 'npm run deploy',
+      });
     });
   });
 
