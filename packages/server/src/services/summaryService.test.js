@@ -69,7 +69,6 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
               outcome,
               pr_url: null,
               session_title: 'Mock: Test Session',
-              conversation_summary: 'Mock conversation summary for testing',
             },
           },
         ],

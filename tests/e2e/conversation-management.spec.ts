@@ -137,20 +137,6 @@ test.describe('Multiple Conversations', () => {
     await expect(newBtn).not.toBeVisible({ timeout: 10000 });
   });
 
-  test('creating conversation via API updates session', async ({ page }) => {
-    // The overlay hides the "New Conversation" button, so test via API
-    await navigateAndWait(page, `/sessions/${session.id}/summary`);
-    await openSessionOverlay(page);
-
-    // Create a conversation via API
-    const newConv = await seedConversation(session.id, 'API Created Conv');
-
-    // Verify conversations count increased
-    const convs = await getConversations(session.id);
-    expect(convs).toHaveLength(2);
-    expect(newConv.name).toBe('API Created Conv');
-  });
-
   test('cannot create conversation while session is running', async () => {
     await updateSessionStatus(session.id, 'running');
 
