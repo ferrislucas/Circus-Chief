@@ -120,7 +120,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<null>}
      */
     async deleteAllRunsForButton(sessionId, buttonId) {
-      return this._delete(`/sessions/${sessionId}/command-buttons/${buttonId}/runs`);
+      return this._delete(`/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`);
     },
   });
 }

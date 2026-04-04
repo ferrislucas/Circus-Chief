@@ -144,19 +144,23 @@ export class CommandRunRepository extends BaseRepository {
    * @returns {{ deletedCount: number, deletedRuns: Array<{ id: string, buttonId: string }> }}
    */
   deleteByButtonAndSession(buttonId, sessionId) {
-    // First get the IDs of runs we'll delete (for broadcasting)
-    const runs = this.db
-      .prepare('SELECT id, button_id FROM command_runs WHERE button_id = ? AND session_id = ? AND status != ?')
-      .all(buttonId, sessionId, 'running');
+    const deleteRuns = this.db.transaction(() => {
+      // First get the IDs of runs we'll delete (for broadcasting)
+      const runs = this.db
+        .prepare('SELECT id, button_id FROM command_runs WHERE button_id = ? AND session_id = ? AND status != ?')
+        .all(buttonId, sessionId, 'running');
 
-    const result = this.db
-      .prepare('DELETE FROM command_runs WHERE button_id = ? AND session_id = ? AND status != ?')
-      .run(buttonId, sessionId, 'running');
+      const result = this.db
+        .prepare('DELETE FROM command_runs WHERE button_id = ? AND session_id = ? AND status != ?')
+        .run(buttonId, sessionId, 'running');
 
-    return {
-      deletedCount: result.changes,
-      deletedRuns: runs.map(r => ({ id: r.id, buttonId: r.button_id })),
-    };
+      return {
+        deletedCount: result.changes,
+        deletedRuns: runs.map(r => ({ id: r.id, buttonId: r.button_id })),
+      };
+    });
+
+    return deleteRuns();
   }
 
   /**

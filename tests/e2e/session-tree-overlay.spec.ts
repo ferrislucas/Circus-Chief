@@ -861,7 +861,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(overlayBody).toHaveCSS('overflow-y', 'auto');
 
       // Scroll should work
-      await overlayBody.evaluate(el => {
+      await overlay.locator('.overlay-content').evaluate(el => {
         el.scrollTop = 100;
       });
       // No errors should occur

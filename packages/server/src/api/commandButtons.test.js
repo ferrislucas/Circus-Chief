@@ -843,7 +843,7 @@ describe('Command Buttons API', () => {
     });
   });
 
-  describe('DELETE /api/sessions/:sessionId/command-buttons/:buttonId/runs', () => {
+  describe('DELETE /api/sessions/:sessionId/command-buttons/:buttonId/runs/all', () => {
     beforeEach(() => {
       vi.clearAllMocks();
       commandRunner.isRunning.mockReturnValue(false);
@@ -859,7 +859,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('bulk-run-3', 1, 'error output');
 
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs`
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
       );
 
       expect(res.status).toBe(204);
@@ -872,7 +872,7 @@ describe('Command Buttons API', () => {
 
     it('returns 204 even when no runs exist (idempotent)', async () => {
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs`
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
       );
 
       expect(res.status).toBe(204);
@@ -880,7 +880,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 when session not found', async () => {
       const res = await request(app).delete(
-        `/api/sessions/nonexistent/command-buttons/${buttonId}/runs`
+        `/api/sessions/nonexistent/command-buttons/${buttonId}/runs/all`
       );
 
       expect(res.status).toBe(404);
@@ -889,7 +889,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 when button not found', async () => {
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/nonexistent/runs`
+        `/api/sessions/${sessionId}/command-buttons/nonexistent/runs/all`
       );
 
       expect(res.status).toBe(404);
@@ -904,7 +904,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('bulk-bc-2', 0, 'output2');
 
       await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs`
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
       );
 
       // Verify session broadcasts
@@ -935,7 +935,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('bulk-completed', 0, 'output');
 
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs`
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
       );
 
       expect(res.status).toBe(204);
@@ -962,7 +962,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('bulk-del-2', 0, 'output');
 
       await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs`
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
       );
 
       expect(commandRuns.getById('bulk-del-1')).toBeNull();
