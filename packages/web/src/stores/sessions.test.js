@@ -430,6 +430,94 @@ describe('Sessions Store', () => {
       });
     });
 
+    describe('fetchWorkLogs viewedSessionId guard', () => {
+      it('skips API call when viewedSessionId does not match sessionId', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+        store.workLogs = { '_unassociated': [{ id: 'existing-log', content: 'existing' }] };
+
+        await store.fetchWorkLogs('session-B');
+
+        expect(api.getSessionWorkLogs).not.toHaveBeenCalled();
+        // Work logs should remain unchanged
+        expect(store.workLogs).toEqual({ '_unassociated': [{ id: 'existing-log', content: 'existing' }] });
+      });
+
+      it('discards results when viewedSessionId changes during fetch', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+        store.workLogs = { '_unassociated': [{ id: 'original-log', content: 'original' }] };
+
+        // Mock API to change viewedSessionId mid-flight (simulating user navigation)
+        api.getSessionWorkLogs.mockImplementation(async () => {
+          store.viewedSessionId = 'session-B';
+          return { 'msg-1': [{ id: 'fetched-log', content: 'stale' }], '_unassociated': [] };
+        });
+
+        await store.fetchWorkLogs('session-A');
+
+        // Work logs should NOT be overwritten with stale data
+        expect(store.workLogs).toEqual({ '_unassociated': [{ id: 'original-log', content: 'original' }] });
+      });
+
+      it('allows API call when viewedSessionId is null (backwards compat)', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = null;
+
+        api.getSessionWorkLogs.mockResolvedValue({
+          'msg-1': [{ id: 'log-1', content: 'test' }],
+          '_unassociated': [],
+        });
+
+        await store.fetchWorkLogs('any-session');
+
+        expect(api.getSessionWorkLogs).toHaveBeenCalledWith('any-session');
+        expect(store.workLogs['msg-1']).toEqual([{ id: 'log-1', content: 'test' }]);
+      });
+
+      it('proceeds normally when viewedSessionId matches sessionId', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+
+        api.getSessionWorkLogs.mockResolvedValue({
+          'msg-1': [{ id: 'log-1', content: 'test' }],
+          '_unassociated': [{ id: 'log-2', content: 'unassociated' }],
+        });
+
+        await store.fetchWorkLogs('session-A');
+
+        expect(api.getSessionWorkLogs).toHaveBeenCalledWith('session-A');
+        expect(store.workLogs['msg-1']).toEqual([{ id: 'log-1', content: 'test' }]);
+        expect(store.workLogs['_unassociated']).toEqual([{ id: 'log-2', content: 'unassociated' }]);
+      });
+
+      it('error handler respects the guard when viewedSessionId mismatches', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+        store.workLogs = { '_unassociated': [{ id: 'existing', content: 'existing' }] };
+        store.error = null;
+
+        // Pre-fetch guard will skip before any API call
+        await store.fetchWorkLogs('session-B');
+
+        expect(api.getSessionWorkLogs).not.toHaveBeenCalled();
+        expect(store.workLogs).toEqual({ '_unassociated': [{ id: 'existing', content: 'existing' }] });
+        expect(store.error).toBeNull();
+      });
+
+      it('error handler sets error when viewedSessionId matches', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+        store.workLogs = {};
+
+        api.getSessionWorkLogs.mockRejectedValue(new Error('API Error'));
+
+        await store.fetchWorkLogs('session-A');
+
+        expect(store.error).toBe('API Error');
+      });
+    });
+
     describe('work log deduplication', () => {
       it('prevents duplicate work logs when addWorkLog receives the same log twice', () => {
         const store = useSessionsStore();
@@ -678,6 +766,100 @@ describe('Sessions Store', () => {
         expect(store.conversations).toEqual([]);
         expect(store.activeConversationId).toBeNull();
         expect(store.error).toBe('Network error');
+      });
+
+      it('skips API call when viewedSessionId does not match sessionId', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+        store.conversations = [{ id: 'existing-conv', name: 'Existing', isActive: true }];
+        store.activeConversationId = 'existing-conv';
+
+        await store.fetchConversations('session-B');
+
+        expect(api.getConversations).not.toHaveBeenCalled();
+        // Conversations should remain unchanged
+        expect(store.conversations).toEqual([{ id: 'existing-conv', name: 'Existing', isActive: true }]);
+        expect(store.activeConversationId).toBe('existing-conv');
+      });
+
+      it('discards results when viewedSessionId changes during fetch', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+        store.conversations = [{ id: 'original-conv', name: 'Original', isActive: true }];
+        store.activeConversationId = 'original-conv';
+
+        // Mock API to change viewedSessionId mid-flight (simulating user navigation)
+        api.getConversations.mockImplementation(async () => {
+          store.viewedSessionId = 'session-B';
+          return [{ id: 'fetched-conv', name: 'Stale', isActive: true }];
+        });
+
+        await store.fetchConversations('session-A');
+
+        // Conversations should NOT be overwritten with stale data
+        expect(store.conversations).toEqual([{ id: 'original-conv', name: 'Original', isActive: true }]);
+        expect(store.activeConversationId).toBe('original-conv');
+      });
+
+      it('allows API call when viewedSessionId is null (backwards compat)', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = null;
+        const mockConversations = [{ id: 'conv-1', name: 'First', isActive: true }];
+
+        api.getConversations.mockResolvedValue(mockConversations);
+
+        await store.fetchConversations('any-session');
+
+        expect(api.getConversations).toHaveBeenCalledWith('any-session');
+        expect(store.conversations).toEqual(mockConversations);
+        expect(store.activeConversationId).toBe('conv-1');
+      });
+
+      it('proceeds normally when viewedSessionId matches sessionId', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+        const mockConversations = [
+          { id: 'conv-1', name: 'First', isActive: false },
+          { id: 'conv-2', name: 'Second', isActive: true },
+        ];
+
+        api.getConversations.mockResolvedValue(mockConversations);
+
+        await store.fetchConversations('session-A');
+
+        expect(api.getConversations).toHaveBeenCalledWith('session-A');
+        expect(store.conversations).toEqual(mockConversations);
+        expect(store.activeConversationId).toBe('conv-2');
+      });
+
+      it('error handler respects the guard when viewedSessionId mismatches', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+        store.conversations = [{ id: 'existing', name: 'Existing', isActive: true }];
+        store.activeConversationId = 'existing';
+        store.error = null;
+
+        // Pre-fetch guard will skip before reaching catch, but verify state is preserved
+        await store.fetchConversations('session-B');
+
+        // The pre-fetch guard skips before any API call, preserving state
+        expect(api.getConversations).not.toHaveBeenCalled();
+        expect(store.conversations).toEqual([{ id: 'existing', name: 'Existing', isActive: true }]);
+        expect(store.activeConversationId).toBe('existing');
+        expect(store.error).toBeNull();
+      });
+
+      it('error handler sets error when viewedSessionId matches', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = 'session-A';
+
+        api.getConversations.mockRejectedValue(new Error('API Error'));
+
+        await store.fetchConversations('session-A');
+
+        expect(store.error).toBe('API Error');
+        expect(store.conversations).toEqual([]);
+        expect(store.activeConversationId).toBeNull();
       });
     });
 
@@ -3855,6 +4037,45 @@ describe('Sessions Store', () => {
       );
 
       consoleErrorSpy.mockRestore();
+    });
+
+    it('does not set error when viewedSessionId changes during a failed fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+      store.error = null;
+
+      api.getSessionMessages.mockImplementation(async () => {
+        // Simulate user navigating away while the request is in flight
+        store.viewedSessionId = 'session-B';
+        throw new Error('Network error');
+      });
+
+      await store.fetchMessages('session-A', false);
+
+      // Error should NOT be set because user navigated away
+      expect(store.error).toBeNull();
+    });
+
+    it('sets error when viewedSessionId matches on failed fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = 'session-A';
+
+      api.getSessionMessages.mockRejectedValue(new Error('API Error'));
+
+      await store.fetchMessages('session-A', false);
+
+      expect(store.error).toBe('API Error');
+    });
+
+    it('sets error when viewedSessionId is null on failed fetch', async () => {
+      const store = useSessionsStore();
+      store.viewedSessionId = null;
+
+      api.getSessionMessages.mockRejectedValue(new Error('API Error'));
+
+      await store.fetchMessages('any-session', false);
+
+      expect(store.error).toBe('API Error');
     });
 
     it('skips API call when viewedSessionId does not match sessionId', async () => {
