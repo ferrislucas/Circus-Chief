@@ -82,7 +82,7 @@ export const useKanbanStore = defineStore('kanban', {
       if (!this.board) return null;
       for (const lane of this.board.lanes) {
         const cardIndex = lane.cards?.findIndex((c) => c.id === cardId);
-        if (cardIndex !== -1 && cardIndex !== undefined) {
+        if (cardIndex !== -1) {
           return { lane, cardIndex, card: lane.cards[cardIndex] };
         }
       }
@@ -309,7 +309,7 @@ export const useKanbanStore = defineStore('kanban', {
         if (this.board) {
           for (const lane of this.board.lanes) {
             const cardIndex = lane.cards?.findIndex((c) => c.id === cardId);
-            if (cardIndex !== -1 && cardIndex !== undefined) {
+            if (cardIndex !== -1) {
               lane.cards.splice(cardIndex, 1);
               break;
             }

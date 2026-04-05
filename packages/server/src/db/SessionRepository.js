@@ -82,10 +82,6 @@ export class SessionRepository extends BaseRepository {
   }
 
   static #mapSession(row) {
-    // DEBUG: Log scheduled_at value from database
-    if (row.scheduled_at) {
-      console.log('[DEBUG] scheduled_at from DB:', row.scheduled_at, 'type:', typeof row.scheduled_at);
-    }
     return {
       id: row.id,
       projectId: row.project_id,

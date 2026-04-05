@@ -224,12 +224,8 @@ describe('useTodosStore', () => {
     describe('fetchTodos', () => {
       it('sets loading to true during fetch', async () => {
         const { api } = await import('../composables/useApi.js');
-        api.getSessionTodos.mockImplementation(
-          () =>
-            new Promise((resolve) => {
-              setTimeout(() => resolve([]), 10);
-            })
-        );
+        const delayedResolve = () => new Promise((resolve) => setTimeout(() => resolve([]), 10));
+        api.getSessionTodos.mockImplementation(delayedResolve);
 
         const promise = store.fetchTodos('session-1');
         expect(store.loading).toBe(true);
