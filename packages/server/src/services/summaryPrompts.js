@@ -3,6 +3,8 @@
  * Pure functions with no side effects.
  */
 
+import { DEFAULT_SESSION_TITLE_PROMPT } from '@claudetools/shared';
+
 // Maximum retry attempts for failed parsing
 export const MAX_RETRIES = 2;
 
@@ -12,12 +14,8 @@ export const MIN_MESSAGES_FOR_SUMMARY = 3;
 // Maximum number of recent messages to include in generation (optimized for token efficiency)
 export const MAX_MESSAGES = 10;
 
-// Default prompt for strategic session titles
-export const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
-- state the goal of the session - ignore the goal of the conversation, we're interested in the goal of the session as a whole
-- If a PR was created, format as "PR #N: <strategic goal>"
-- Only change the title if the session's fundamental purpose has changed
-- Keep titles concise (max 60 characters)`;
+// Re-export from shared for backward compatibility
+export { DEFAULT_SESSION_TITLE_PROMPT };
 
 // System prompt for summary generation (static instructions that benefit from prompt caching)
 export const SUMMARY_SYSTEM_PROMPT = `You are updating a session summary for a Claude Code session.
