@@ -14,11 +14,8 @@ export const MAX_MESSAGES = 10;
 
 // Default prompt for strategic session titles
 export const DEFAULT_SESSION_TITLE_PROMPT = `Guidelines for generating session titles:
-- The title should capture the SESSION'S STRATEGIC GOAL, not current tactical activity
-- Focus on WHAT the user ultimately wants to achieve (e.g., "Add dark mode support")
-- NOT the current step (e.g., "Fix TypeScript error", "Update tests")
+- state the goal of the session - ignore the goal of the conversation, we're interested in the goal of the session as a whole
 - If a PR was created, format as "PR #N: <strategic goal>"
-- PRESERVE the existing title if it still reflects the strategic goal
 - Only change the title if the session's fundamental purpose has changed
 - Keep titles concise (max 60 characters)`;
 

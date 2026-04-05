@@ -41,8 +41,8 @@ describe('summaryPrompts', () => {
   });
 
   describe('DEFAULT_SESSION_TITLE_PROMPT', () => {
-    it('includes strategic goal guidance', () => {
-      expect(DEFAULT_SESSION_TITLE_PROMPT).toContain('STRATEGIC GOAL');
+    it('includes session goal guidance', () => {
+      expect(DEFAULT_SESSION_TITLE_PROMPT).toContain('goal of the session');
     });
 
     it('includes PR format guidance', () => {
@@ -159,7 +159,7 @@ describe('summaryPrompts', () => {
     it('uses default session title prompt when none provided', () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
       const result = buildIncrementalPrompt(null, recentMessages, 'running', null);
-      expect(result).toContain('STRATEGIC GOAL');
+      expect(result).toContain('goal of the session');
     });
 
     it('uses custom session title prompt when provided', () => {
