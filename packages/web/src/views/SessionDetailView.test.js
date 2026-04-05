@@ -48,9 +48,9 @@ vi.mock('../components/SessionTreeHandle.vue', () => ({
     emits: ['open']
   }
 }));
-vi.mock('../components/SessionTreeOverlay.vue', () => ({
+vi.mock('../components/SessionChatOverlay.vue', () => ({
   default: {
-    name: 'SessionTreeOverlay',
+    name: 'SessionChatOverlay',
     template: '<div class="tree-overlay">Tree Overlay</div>',
     props: ['sessionId', 'sessionChain', 'summariesMap'],
     emits: ['close', 'session-created']
@@ -2652,7 +2652,7 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
       const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
@@ -2685,7 +2685,7 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      wrapper.vm.treeOverlayOpen = false;
+      wrapper.vm.chatOverlayOpen = false;
       await nextTick();
 
       const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
@@ -3338,7 +3338,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.vm.overlaySessionId).toBe('child-1');
     });
 
-    it('passes overlaySessionId to SessionTreeOverlay', async () => {
+    it('passes overlaySessionId to SessionChatOverlay', async () => {
       // Populate the sessions store with parent and running child
       sessionsStore.sessions = [
         { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
@@ -3367,11 +3367,11 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       // Open the overlay so it's rendered in the DOM
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      // Find the SessionTreeOverlay component and check its session-id prop
-      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      // Find the SessionChatOverlay component and check its session-id prop
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       expect(treeOverlay.exists()).toBe(true);
       expect(treeOverlay.props('sessionId')).toBe('child-1'); // Should be the running child
     });
@@ -3430,7 +3430,7 @@ describe('SessionDetailView', () => {
       // overlaySessionId should now point to the newly-running child
       expect(wrapper.vm.overlaySessionId).toBe('child-1');
       // And the overlay should be open
-      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+      expect(wrapper.vm.chatOverlayOpen).toBe(true);
     });
   });
 
@@ -3491,7 +3491,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
     });
 
-    it('passes sessionChain and summariesMap to SessionTreeOverlay', async () => {
+    it('passes sessionChain and summariesMap to SessionChatOverlay', async () => {
       const parentSession = {
         id: 'parent-1',
         name: 'Parent Session',
@@ -3538,10 +3538,10 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       // Open the overlay
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       expect(treeOverlay.exists()).toBe(true);
       expect(treeOverlay.props('sessionChain')).toEqual(wrapper.vm.sessionChain);
       expect(treeOverlay.props('summariesMap')).toEqual(wrapper.vm.summariesMap);
@@ -3602,10 +3602,10 @@ describe('SessionDetailView', () => {
       api.getProjectSessions.mockResolvedValue([parentSession, newChild]);
 
       // Open overlay and emit session-created
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       treeOverlay.vm.$emit('session-created', 'new-child');
       await flushPromises();
       await nextTick();
@@ -3772,12 +3772,12 @@ describe('SessionDetailView', () => {
       sessionsStore.fetchMessages.mockClear();
 
       // Simulate overlay being opened and viewedSessionId changed to a child
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       sessionsStore.viewedSessionId = 'child-1';
       await nextTick();
 
       // Emit close event from the overlay
-      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const overlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       overlay.vm.$emit('close');
       await nextTick();
       await flushPromises();
@@ -3821,17 +3821,17 @@ describe('SessionDetailView', () => {
       await flushPromises();
 
       // Open the overlay
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+      expect(wrapper.vm.chatOverlayOpen).toBe(true);
 
       // Emit close
-      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const overlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       overlay.vm.$emit('close');
       await nextTick();
 
-      expect(wrapper.vm.treeOverlayOpen).toBe(false);
+      expect(wrapper.vm.chatOverlayOpen).toBe(false);
     });
 
     it('restores parent state even when overlay did not change viewedSessionId', async () => {
@@ -3868,10 +3868,10 @@ describe('SessionDetailView', () => {
       sessionsStore.fetchMessages.mockClear();
 
       // Open and close overlay without changing viewedSessionId
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const overlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       overlay.vm.$emit('close');
       await nextTick();
       await flushPromises();
@@ -3915,7 +3915,7 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       // Overlay should be open
-      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+      expect(wrapper.vm.chatOverlayOpen).toBe(true);
 
       // Query param should be cleared (router.replace removes it)
       expect(router.currentRoute.value.query.overlay).toBeUndefined();
@@ -3952,7 +3952,7 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       // Overlay should remain closed
-      expect(wrapper.vm.treeOverlayOpen).toBe(false);
+      expect(wrapper.vm.chatOverlayOpen).toBe(false);
     });
   });
 });

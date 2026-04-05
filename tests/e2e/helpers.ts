@@ -131,7 +131,7 @@ export async function openSessionOverlay(page: Page, timeout = 10000) {
   const handle = page.locator('[data-testid="session-tree-handle"]');
   await handle.waitFor({ state: 'visible', timeout });
   await handle.click();
-  const overlay = page.locator('.session-tree-overlay');
+  const overlay = page.locator('.session-chat-overlay');
   await overlay.waitFor({ state: 'visible', timeout });
   return overlay;
 }

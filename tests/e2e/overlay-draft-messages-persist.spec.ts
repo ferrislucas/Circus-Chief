@@ -68,7 +68,7 @@ test.describe('Overlay: draft session messages persist after completion', () => 
     const handle = page.locator('[data-testid="session-tree-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
-    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
     // Wait for slide-in animation to complete (300ms + buffer)
     await page.waitForTimeout(400);

@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { h, defineComponent, nextTick } from 'vue';
-import SessionTreeOverlay from './SessionTreeOverlay.vue';
+import SessionChatOverlay from './SessionChatOverlay.vue';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@claudetools/shared';
 
@@ -153,7 +153,7 @@ vi.mock('./SessionTreePicker.vue', () => ({
   }),
 }));
 
-describe('SessionTreeOverlay', () => {
+describe('SessionChatOverlay', () => {
   let pinia;
   let router;
   const rootSession = {
@@ -196,11 +196,11 @@ describe('SessionTreeOverlay', () => {
 
   afterEach(() => {
     // Clean up teleported content
-    document.querySelectorAll('[data-testid="session-tree-overlay"]').forEach(el => el.remove());
+    document.querySelectorAll('[data-testid="session-chat-overlay"]').forEach(el => el.remove());
   });
 
   function mountOverlay(propsOverrides = {}) {
-    return mount(SessionTreeOverlay, {
+    return mount(SessionChatOverlay, {
       props: {
         sessionId: 'sess-root',
         ...propsOverrides,
@@ -223,7 +223,7 @@ describe('SessionTreeOverlay', () => {
     it('renders overlay with correct test id', async () => {
       const wrapper = mountOverlay();
       await nextTick();
-      const overlay = document.querySelector('[data-testid="session-tree-overlay"]');
+      const overlay = document.querySelector('[data-testid="session-chat-overlay"]');
       expect(overlay).toBeTruthy();
       wrapper.unmount();
     });
@@ -281,7 +281,7 @@ describe('SessionTreeOverlay', () => {
     it('renders close handle with correct test id', async () => {
       const wrapper = mountOverlay();
       await nextTick();
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle).toBeTruthy();
       wrapper.unmount();
     });
@@ -289,10 +289,10 @@ describe('SessionTreeOverlay', () => {
     it('close handle has correct ARIA attributes', async () => {
       const wrapper = mountOverlay();
       await nextTick();
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle).toBeTruthy();
       expect(handle.getAttribute('role')).toBe('button');
-      expect(handle.getAttribute('aria-label')).toBe('Close session tree');
+      expect(handle.getAttribute('aria-label')).toBe('Close session chat');
       expect(handle.getAttribute('tabindex')).toBe('0');
       wrapper.unmount();
     });
@@ -301,7 +301,7 @@ describe('SessionTreeOverlay', () => {
   describe('close behavior', () => {
     it('emits close on Escape when picker is closed', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onClose },
         attachTo: document.body,
@@ -317,14 +317,14 @@ describe('SessionTreeOverlay', () => {
 
     it('emits close when clicking the backdrop', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onClose },
         attachTo: document.body,
       });
       await nextTick();
       // Click the backdrop (overlay-backdrop) directly, not the content
-      const backdrop = document.querySelector('[data-testid="session-tree-overlay"]');
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
       backdrop.click();
       await nextTick();
       await waitForTransition();
@@ -335,7 +335,7 @@ describe('SessionTreeOverlay', () => {
 
     it('does not emit close when clicking inside overlay content', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onClose },
         attachTo: document.body,
@@ -351,13 +351,13 @@ describe('SessionTreeOverlay', () => {
 
     it('emits close when close handle is clicked', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onClose },
         attachTo: document.body,
       });
       await nextTick();
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle).toBeTruthy();
       handle.click();
       await nextTick();
@@ -369,13 +369,13 @@ describe('SessionTreeOverlay', () => {
 
     it('emits close when Enter is pressed on close handle', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onClose },
         attachTo: document.body,
       });
       await nextTick();
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle).toBeTruthy();
       handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await nextTick();
@@ -387,13 +387,13 @@ describe('SessionTreeOverlay', () => {
 
     it('emits close when Space is pressed on close handle', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onClose },
         attachTo: document.body,
       });
       await nextTick();
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle).toBeTruthy();
       handle.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
       await nextTick();
@@ -407,7 +407,7 @@ describe('SessionTreeOverlay', () => {
   describe('close animation', () => {
     it('delays close event until after transition completes', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onClose },
         attachTo: document.body,
@@ -415,7 +415,7 @@ describe('SessionTreeOverlay', () => {
       await nextTick();
 
       // Trigger close
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       handle.click();
       await nextTick();
 
@@ -441,7 +441,7 @@ describe('SessionTreeOverlay', () => {
       expect(wrapper.vm.closing).toBe(false);
 
       // Trigger close
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       handle.click();
       await nextTick();
 
@@ -450,19 +450,19 @@ describe('SessionTreeOverlay', () => {
       expect(wrapper.vm.visible).toBe(false);
 
       // Clean up
-      document.querySelectorAll('[data-testid="session-tree-overlay"]').forEach(el => el.remove());
+      document.querySelectorAll('[data-testid="session-chat-overlay"]').forEach(el => el.remove());
     });
 
     it('guards against rapid close attempts', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onClose },
         attachTo: document.body,
       });
       await nextTick();
 
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
 
       // Click close multiple times rapidly
       handle.click();
@@ -487,8 +487,8 @@ describe('SessionTreeOverlay', () => {
       const wrapper = mountOverlay();
       await nextTick();
 
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
-      const backdrop = document.querySelector('[data-testid="session-tree-overlay"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
 
       // Trigger close
       handle.click();
@@ -509,12 +509,12 @@ describe('SessionTreeOverlay', () => {
 
       // Test each close trigger
       const triggers = [
-        () => document.querySelector('[data-testid="session-tree-overlay-close-handle"]').click(),
-        () => document.querySelector('[data-testid="session-tree-overlay"]').click(),
+        () => document.querySelector('[data-testid="session-chat-overlay-close-handle"]').click(),
+        () => document.querySelector('[data-testid="session-chat-overlay"]').click(),
       ];
 
       for (const trigger of triggers) {
-        const testWrapper = mount(SessionTreeOverlay, {
+        const testWrapper = mount(SessionChatOverlay, {
           props: { sessionId: 'sess-root' },
           attrs: { onClose },
           attachTo: document.body,
@@ -538,7 +538,7 @@ describe('SessionTreeOverlay', () => {
 
         // Clean up
         onClose.mockClear();
-        document.querySelectorAll('[data-testid="session-tree-overlay"]').forEach(el => el.remove());
+        document.querySelectorAll('[data-testid="session-chat-overlay"]').forEach(el => el.remove());
       }
     });
   });
@@ -559,7 +559,7 @@ describe('SessionTreeOverlay', () => {
     };
 
     function mountWithPicker(propsOverrides = {}) {
-      return mount(SessionTreeOverlay, {
+      return mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
@@ -574,7 +574,7 @@ describe('SessionTreeOverlay', () => {
     }
 
     it('does not show picker when sessionChain has only 1 session', async () => {
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: [{ session: rootSession, depth: 0 }],
@@ -666,7 +666,7 @@ describe('SessionTreeOverlay', () => {
 
     it('Escape key closes picker without closing the overlay', async () => {
       const onClose = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
@@ -782,7 +782,7 @@ describe('SessionTreeOverlay', () => {
     it('positions overlay on right side of viewport', async () => {
       const wrapper = mountOverlay();
       await nextTick();
-      const backdrop = document.querySelector('[data-testid="session-tree-overlay"]');
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
       expect(backdrop).toBeTruthy();
       // Verify the backdrop class exists which has justify-content: flex-end
       expect(backdrop.classList.contains('overlay-backdrop')).toBe(true);
@@ -913,7 +913,7 @@ describe('SessionTreeOverlay', () => {
       api.createSession.mockResolvedValue(newSession);
 
       const onSessionCreated = vi.fn();
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
         attrs: { onSessionCreated },
         global: { plugins: [router] },
@@ -1046,7 +1046,7 @@ describe('SessionTreeOverlay', () => {
         return null;
       });
 
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
@@ -1087,7 +1087,7 @@ describe('SessionTreeOverlay', () => {
       mockSessionsStore.fetchSession.mockResolvedValue(undefined);
       mockSessionsStore.fetchConversations.mockResolvedValue(undefined);
 
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
@@ -1126,7 +1126,7 @@ describe('SessionTreeOverlay', () => {
       });
       mockSessionsStore.fetchSession.mockRejectedValue(new Error('Network error'));
 
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
@@ -1150,7 +1150,7 @@ describe('SessionTreeOverlay', () => {
     });
 
     it('does not show spinner when selecting the already-active session', async () => {
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
@@ -1230,7 +1230,7 @@ describe('SessionTreeOverlay', () => {
       mockSessionsStore.currentSession = { ...rootSession, status: 'running' };
       const wrapper = mountOverlay();
       await nextTick();
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle.getAttribute('aria-label')).toBe('Session running...');
       expect(handle.getAttribute('title')).toBe('Session running...');
       wrapper.unmount();
@@ -1241,20 +1241,20 @@ describe('SessionTreeOverlay', () => {
       mockSessionsStore.currentSession = { ...rootSession, status: 'starting' };
       const wrapper = mountOverlay();
       await nextTick();
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle.getAttribute('aria-label')).toBe('Session starting...');
       expect(handle.getAttribute('title')).toBe('Session starting...');
       wrapper.unmount();
     });
 
-    it('close handle ARIA label is "Close session tree" for inactive sessions', async () => {
+    it('close handle ARIA label is "Close session chat" for inactive sessions', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'waiting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'waiting' };
       const wrapper = mountOverlay();
       await nextTick();
-      const handle = document.querySelector('[data-testid="session-tree-overlay-close-handle"]');
-      expect(handle.getAttribute('aria-label')).toBe('Close session tree');
-      expect(handle.getAttribute('title')).toBe('Close session tree');
+      const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
+      expect(handle.getAttribute('aria-label')).toBe('Close session chat');
+      expect(handle.getAttribute('title')).toBe('Close session chat');
       wrapper.unmount();
     });
 
@@ -1297,7 +1297,7 @@ describe('SessionTreeOverlay', () => {
         return null;
       });
 
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
@@ -1336,7 +1336,7 @@ describe('SessionTreeOverlay', () => {
         mockSessionsStore.activeConversationId = 'conv-child-1';
       });
 
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
@@ -1374,7 +1374,7 @@ describe('SessionTreeOverlay', () => {
         mockSessionsStore.activeConversationId = null;
       });
 
-      const wrapper = mount(SessionTreeOverlay, {
+      const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
           sessionChain: chainSessions,
