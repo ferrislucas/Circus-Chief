@@ -11,7 +11,7 @@ import {
 /**
  * E2E tests for: Draft session model dropdown → PATCH sync
  *
- * Bug: When a user creates a draft session (via SessionTreeOverlay or API),
+ * Bug: When a user creates a draft session (via SessionChatOverlay or API),
  * then changes the model dropdown before sending the first message, the session
  * starts with the wrong model. This happens because:
  *   1. handleFormSubmit() reads session.pendingModel instead of the UI dropdown value

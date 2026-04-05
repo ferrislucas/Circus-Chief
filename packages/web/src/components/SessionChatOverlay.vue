@@ -4,7 +4,7 @@
       <div
         v-if="visible"
         class="overlay-backdrop"
-        data-testid="session-tree-overlay"
+        data-testid="session-chat-overlay"
         @click.self="close"
       >
         <div class="overlay-panel-wrapper" @click.stop>
@@ -15,11 +15,11 @@
             role="button"
             :aria-label="isOverlaySessionActive
               ? (overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
-              : 'Close session tree'"
+              : 'Close session chat'"
             :title="isOverlaySessionActive
               ? (overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
-              : 'Close session tree'"
-            data-testid="session-tree-overlay-close-handle"
+              : 'Close session chat'"
+            data-testid="session-chat-overlay-close-handle"
             @click="close"
             @keydown.enter.prevent="close"
             @keydown.space.prevent="close"
@@ -48,7 +48,7 @@
           </div>
 
           <!-- Existing overlay-content -->
-          <div class="overlay-content session-tree-overlay">
+          <div class="overlay-content session-chat-overlay">
           <!-- Header (no padding constraints) -->
           <div class="overlay-header">
             <!-- Row 1: Session Name -->
@@ -110,7 +110,7 @@
                 <span class="dropdown-name">{{ activeSessionDisplayName }}</span>
                 <span class="dropdown-chevron">{{ pickerOpen ? '&#9650;' : '&#9660;' }}</span>
               </button>
-              <SessionTreePicker
+              <SessionChatPicker
                 v-if="pickerOpen"
                 :sessions="sessionChain"
                 :active-session-id="activeSessionId"
@@ -188,7 +188,7 @@ import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
 
 import ConversationTab from './ConversationTab.vue';
-import SessionTreePicker from './SessionTreePicker.vue';
+import SessionChatPicker from './SessionChatPicker.vue';
 
 const props = defineProps({
   sessionId: {
@@ -257,7 +257,7 @@ function handlePickerEscape(event) {
 
 function handleClickOutsidePicker(event) {
   if (pickerOpen.value) {
-    const picker = document.querySelector('[data-testid="session-tree-picker"]');
+    const picker = document.querySelector('[data-testid="session-chat-picker"]');
     const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
     if (picker && !picker.contains(event.target) &&
         (!trigger || !trigger.contains(event.target))) {
@@ -342,20 +342,20 @@ const backToSessionsUrl = computed(() => {
 function close() {
   // Guard: don't re-trigger if already closing
   if (closing.value) {
-    console.log('[SessionTreeOverlay] Already closing, ignoring close() call');
+    console.log('[SessionChatOverlay] Already closing, ignoring close() call');
     return;
   }
-  console.log('[SessionTreeOverlay] close() called, setting closing=true, visible=false');
+  console.log('[SessionChatOverlay] close() called, setting closing=true, visible=false');
   closing.value = true;
   visible.value = false;  // This triggers the leave transition
 }
 
 function afterLeave() {
   if (!closing.value) {
-    console.log('[SessionTreeOverlay] afterLeave() called but not closing, ignoring');
+    console.log('[SessionChatOverlay] afterLeave() called but not closing, ignoring');
     return;
   }
-  console.log('[SessionTreeOverlay] afterLeave() called, emitting close event');
+  console.log('[SessionChatOverlay] afterLeave() called, emitting close event');
   closing.value = false; // Reset state
   emit('close');  // Only emit after transition completes
 }
@@ -507,7 +507,7 @@ async function loadSessionData(sessionId) {
       todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
     }
   } catch (err) {
-    console.error('[SessionTreeOverlay] Failed to load session data:', err);
+    console.error('[SessionChatOverlay] Failed to load session data:', err);
   }
 }
 
@@ -875,7 +875,7 @@ defineExpose({
    The .overlay-body is the sole scroll container; .messages just flows inside it.
    This prevents two nested scroll containers from fighting each other during
    streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
-.session-tree-overlay :deep(.messages) {
+.session-chat-overlay :deep(.messages) {
   max-height: none !important;
   overflow-y: visible;
   flex: 1;
