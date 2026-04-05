@@ -5,17 +5,50 @@ This document explains how claudetools is packaged for distribution via `npx cla
 ## Quick Start
 
 ```bash
-# Build the publishable package
-node scripts/build-package.js
+# Build for publishing — CLI flags
+node scripts/build-package.js --version=0.2.0 --posthog-key=phc_xxxxx
+
+# Build for publishing — environment variables (for CI/CD)
+POSTHOG_KEY=phc_xxxxx node scripts/build-package.js --version=0.2.0
+
+# Build for local testing (no analytics)
+node scripts/build-package.js --version=0.2.0
 
 # Test locally
 cd dist-package && npm pack
 cd /tmp && mkdir test && cd test
-npm install /path/to/dist-package/claudetools-0.1.0.tgz
+npm install /path/to/dist-package/claudetools-0.2.0.tgz
 npx claudetools
 
 # Publish
 cd dist-package && npm publish
+```
+
+## PostHog Analytics Configuration
+
+The PostHog API key is a **public client-side key** (always visible in the browser bundle). It's injected at build time via Vite environment variables.
+
+### Resolution order (first non-empty wins)
+
+| Value | CLI flag | Environment variable | Default |
+|-------|----------|---------------------|---------|
+| API key | `--posthog-key=<key>` | `POSTHOG_KEY` | empty (analytics disabled) |
+| API host | `--posthog-host=<host>` | `POSTHOG_HOST` | `https://us.i.posthog.com` |
+
+CLI flags take precedence over environment variables.
+
+- Omitting the key produces a working package with analytics disabled
+- `scripts/start-package-server.sh` intentionally provides no key since E2E tests don't need analytics
+- After the Vite build, the script verifies the key appears in the output bundle (if one was provided)
+
+### GitHub Actions
+
+```yaml
+- name: Build package
+  env:
+    POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+    POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}  # optional
+  run: node scripts/build-package.js --version=${{ github.ref_name }}
 ```
 
 ## How It Works
