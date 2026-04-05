@@ -58,7 +58,7 @@
         v-show="!treeOverlayOpen"
         :is-session-active="isSessionActive"
         :session-status="activeSessionStatus"
-        @open="treeOverlayOpen = true"
+        @open="handleOverlayOpen"
       />
 
       <!-- Session Tree Overlay -->
@@ -336,6 +336,11 @@ function handleSessionCreated(msg) {
 
   // Rebuild the tree to include the new child (async, fire-and-forget)
   buildSessionChain();
+}
+
+function handleOverlayOpen() {
+  resolveOverlayTarget();
+  treeOverlayOpen.value = true;
 }
 
 async function handleOverlayClose() {
@@ -642,6 +647,7 @@ defineExpose({
   treeOverlayOpen,
   sessionChain,
   summariesMap,
+  handleOverlayOpen,
 });
 </script>
 

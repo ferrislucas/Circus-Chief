@@ -42,6 +42,7 @@
         :button="button"
         :run="commandButtonsStore.getLatestRunForButton(button.id, sessionId)"
         :session-id="sessionId"
+        :disabled="isStale"
         @run="onButtonRun(button.id)"
         @kill="onButtonKill(button.id)"
         @send-to-canvas="onSendToCanvas"
@@ -56,6 +57,7 @@ import { useRouter } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useUiStore } from '../stores/ui.js';
+import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import { api } from '../composables/useApi.js';
 import { stripAnsi } from '../utils/ansi.js';
 import CommandButtonItem from './CommandButtonItem.vue';
@@ -74,6 +76,7 @@ const props = defineProps({
 const router = useRouter();
 const commandButtonsStore = useCommandButtonsStore();
 const uiStore = useUiStore();
+const { isStale } = useConnectionStatus();
 
 // Map button ID to current run ID
 const currentRunIds = reactive({});

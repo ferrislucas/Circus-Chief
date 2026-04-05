@@ -417,6 +417,36 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     const settingsModal = page.locator('.settings-panel[role="dialog"]');
     await expect(settingsModal).toBeVisible({ timeout: 5000 });
     await expect(settingsModal.locator('.settings-title')).toContainText('Quick Responses');
+
+    // Close the modal to prove it was interactable (not obscured by session overlay)
+    await page.locator('.close-button').click();
+    await expect(settingsModal).not.toBeVisible({ timeout: 3000 });
+  });
+
+  test('settings modal is interactable from session overlay', async ({ page }) => {
+    const project = await seedProject('QR Overlay Interact', '/tmp/qr-overlay-interact');
+    await seedQuickResponse(project.id, { label: 'Interact Test', content: 'Test content' });
+
+    const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
+    await navigateToSessionAndExpandPanel(page, session.id);
+
+    // Click the settings gear button
+    const settingsBtn = page.locator('button[aria-label="Manage quick responses"]');
+    await expect(settingsBtn).toBeVisible({ timeout: 5000 });
+    await settingsBtn.click();
+
+    // Verify settings modal opens
+    const settingsModal = page.locator('.settings-panel[role="dialog"]');
+    await expect(settingsModal).toBeVisible({ timeout: 5000 });
+
+    // Click the "+ Add" button inside the settings modal — this proves the modal
+    // is interactable (not obscured by the session overlay behind it)
+    const addBtn = settingsModal.locator('.add-button').first();
+    await addBtn.click();
+
+    // Assert the Add Quick Response dialog opens
+    const dialog = page.locator('.dialog-overlay .dialog');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
   });
 });
 

@@ -3,7 +3,6 @@ import { messages, conversations, projects } from '../database.js';
 import { continueSessionWithExistingMessage } from '../services/sessionManager.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
-import * as summaryService from '../services/summaryService.js';
 import { requireSession } from '../middleware/sessionLookup.js';
 
 const router = Router();
@@ -23,15 +22,6 @@ router.post('/:id/conversations', requireSession, async (req, res) => {
   }
 
   const { name } = req.body;
-
-  // Auto-generate summary for the current active conversation before creating new one
-  const previousActive = conversations.getActiveBySessionId(req.params.id);
-  if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
-    // Generate summary in background (don't block the request)
-    summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
-      console.error('Failed to generate conversation summary:', err);
-    });
-  }
 
   const conversation = conversations.create(req.params.id, name || null, true);
 
@@ -68,18 +58,6 @@ router.patch('/:id/conversations/:convId', requireSession, async (req, res) => {
   // Block switching conversation while session is running
   if (isActive && req.session_.status === 'running') {
     return res.status(400).json({ error: 'Cannot switch conversation while session is running' });
-  }
-
-  // If switching to this conversation, generate summary for the previous active one
-  if (isActive && !conversation.isActive) {
-    const previousActive = conversations.getActiveBySessionId(req.params.id);
-    if (previousActive && previousActive.id !== req.params.convId && !previousActive.summary &&
-        summaryService.isConversationSummaryEnabled(req.params.id)) {
-      // Generate summary in background
-      summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
-        console.error('Failed to generate conversation summary:', err);
-      });
-    }
   }
 
   const updateData = {};
@@ -122,21 +100,6 @@ router.delete('/:id/conversations/:convId', requireSession, (req, res) => {
   res.status(204).send();
 });
 
-// POST /api/sessions/:id/conversations/:convId/summary - Generate summary for conversation
-router.post('/:id/conversations/:convId/summary', requireSession, async (req, res) => {
-  const conversation = conversations.getById(req.params.convId);
-  if (!conversation || conversation.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-
-  try {
-    const summary = await summaryService.generateConversationSummary(req.params.id, req.params.convId);
-    res.json({ summary });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // POST /api/sessions/:id/conversations/:convId/branch - Create a branch from a conversation
 router.post('/:id/conversations/:convId/branch', requireSession, async (req, res) => {
   // Block branching while session is running
@@ -168,15 +131,6 @@ router.post('/:id/conversations/:convId/branch', requireSession, async (req, res
       null, // name is auto-generated from prompt
       prompt
     );
-
-    // Generate summary for the previous active conversation before branching
-    const previousActive = conversations.getActiveBySessionId(req.params.id);
-    if (previousActive && !previousActive.summary && summaryService.isConversationSummaryEnabled(req.params.id)) {
-      // Generate summary in background (don't block the request)
-      summaryService.generateConversationSummary(req.params.id, previousActive.id).catch((err) => {
-        console.error('Failed to generate conversation summary:', err);
-      });
-    }
 
     // Broadcast the new conversation to session subscribers
     broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CONVERSATION_CREATED, {

@@ -1,5 +1,8 @@
 <template>
-  <div class="conversation-tab">
+  <div class="conversation-tab" :class="{ 'connection-stale': isStale }">
+    <!-- Stale content badge -->
+    <StaleBadge :isStale="isStale" />
+
     <!-- Unified Conversation Panel - selector + BTE cost display -->
     <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" :hide-new-conversation="hideNewConversation" />
 
@@ -115,6 +118,7 @@ import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
+import { useConnectionStatus } from '../composables/useConnectionStatus.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
@@ -125,6 +129,7 @@ import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import AutoRescheduleModal from './AutoRescheduleModal.vue';
 import SchedulingInfo from './SchedulingInfo.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
+import StaleBadge from './StaleBadge.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useProjectsStore } from '../stores/projects.js';
 
@@ -141,6 +146,7 @@ const defaultsStore = useProjectDefaultsStore();
 const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
 const { getModelDisplayName } = useModelInfo();
+const { isStale } = useConnectionStatus();
 const route = useRoute();
 
 // Session control composable
@@ -204,6 +210,7 @@ const inputHasContent = computed(() => {
 });
 
 const isSendDisabled = computed(() => {
+  if (isStale.value) return true;
   if (sessionsStore.currentSession?.status === 'scheduled') {
     const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
     const now = new Date();
@@ -215,6 +222,9 @@ const isSendDisabled = computed(() => {
 });
 
 const sendButtonDisabledReason = computed(() => {
+  if (isStale.value) {
+    return 'Waiting for connection...';
+  }
   if (!inputHasContent.value) {
     return 'Enter a message to send';
   }
@@ -482,8 +492,7 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
       const textareaRef = inputFormRef.value?.textareaRef;
       if (textareaRef) {
         textareaRef.value = newValue;
-        textareaRef.focus();
-        textareaRef.selectionStart = textareaRef.selectionEnd = textareaRef.value.length;
+        textareaRef.blur();
 
         if (canSendMessage.value && newValue.trim()) {
           savePendingPrompt(newValue);
@@ -545,5 +554,10 @@ defineExpose({ flushDraft });
 .conversation-tab {
   display: flex;
   flex-direction: column;
+  transition: opacity 0.3s ease;
+}
+
+.conversation-tab.connection-stale {
+  opacity: 0.5;
 }
 </style>

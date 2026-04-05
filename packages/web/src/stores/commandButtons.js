@@ -422,6 +422,16 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       this.clearRun(runId);
     },
 
+    async deleteAllRunsForButton(sessionId, buttonId) {
+      await api.deleteAllRunsForButton(sessionId, buttonId);
+      // Clear all runs for this button from local state
+      for (const runId of Object.keys(this.runs)) {
+        if (this.runs[runId].buttonId === buttonId && this.runs[runId].sessionId === sessionId) {
+          this.clearRun(runId);
+        }
+      }
+    },
+
     clearRun(runId) {
       // Clean up any pending timers/buffers
       if (this._flushTimers[runId]) {
