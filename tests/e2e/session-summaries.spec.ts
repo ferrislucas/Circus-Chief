@@ -870,10 +870,10 @@ test.describe('Session Summaries', () => {
       await expect(workTimeLabel).toBeVisible();
     });
 
-    test('shows cost metric when session has token usage', async ({ page }) => {
+    test('shows tokens metric when session has token usage', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test cost metric',
-        name: 'Cost Metric Test',
+        prompt: 'Test tokens metric',
+        name: 'Tokens Metric Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
@@ -886,19 +886,25 @@ test.describe('Session Summaries', () => {
 
       // Seed a summary so the tab shows the overview card
       seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Cost test summary',
-        fullSummary: 'Testing cost metric in summary',
+        shortSummary: 'Tokens test summary',
+        fullSummary: 'Testing tokens metric in summary',
         outcome: 'completed',
       });
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-      // Verify cost metric is displayed
+      // Verify tokens metric is displayed
       const metrics = page.locator('.overview-metrics');
       await expect(metrics).toBeVisible();
 
-      const costLabel = metrics.locator('.metric-label').filter({ hasText: 'Cost' });
-      await expect(costLabel).toBeVisible();
+      const tokenLabel = metrics.locator('.metric-label').filter({ hasText: 'Tokens' });
+      await expect(tokenLabel).toBeVisible();
+
+      // Verify the tokens value is non-zero
+      const tokenValue = page.locator('.overview-metrics .metric')
+        .filter({ hasText: 'Tokens' })
+        .locator('.metric-value');
+      await expect(tokenValue).not.toHaveText('0');
     });
 
     test('shows session count > 1 for workflow with children', async ({ page }) => {

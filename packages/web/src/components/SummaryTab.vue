@@ -48,9 +48,9 @@
           <span class="metric-value">{{ sessionCount }}</span>
           <span class="metric-label">Sessions</span>
         </div>
-        <div class="metric" v-if="hasNonZeroCost">
-          <span class="metric-value">{{ formattedCost }}</span>
-          <span class="metric-label">Cost</span>
+        <div class="metric" v-if="hasTokenUsage">
+          <span class="metric-value">{{ formattedTokens }}</span>
+          <span class="metric-label">Tokens</span>
         </div>
         <div class="metric" v-if="formattedDuration">
           <span class="metric-value">{{ formattedDuration }}</span>
@@ -211,12 +211,12 @@ const sessionCount = computed(() => {
   return descendants.length + 1; // +1 for the session itself
 });
 
-const hasNonZeroCost = computed(() => {
+const hasTokenUsage = computed(() => {
   const bte = sessionsStore.getSessionBillableTokens(props.sessionId);
   return bte > 0;
 });
 
-const formattedCost = computed(() => {
+const formattedTokens = computed(() => {
   const bte = sessionsStore.getSessionBillableTokens(props.sessionId);
   return formatTokenCount(bte);
 });
@@ -225,14 +225,21 @@ const workTimeMs = computed(() => {
   const s = session.value;
   if (!s) return null;
   const start = s.createdAt;
-  const end = s.lastActivityAt || s.updatedAt || Date.now();
+  if (!start) return null;
+  const end = s.lastActivityAt || s.updatedAt;
+  if (!end) {
+    // Only use Date.now() for sessions that are still active
+    const status = s.status;
+    if (status === 'completed' || status === 'error') return null;
+    return Date.now() - start;
+  }
   return end - start;
 });
 
 const formattedDuration = computed(() => formatDuration(workTimeMs.value));
 
 const hasMetrics = computed(() =>
-  sessionCount.value > 1 || hasNonZeroCost.value || formattedDuration.value || filesCount.value > 0
+  sessionCount.value > 1 || hasTokenUsage.value || formattedDuration.value || filesCount.value > 0
 );
 
 function formatDuration(ms) {
