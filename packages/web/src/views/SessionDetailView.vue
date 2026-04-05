@@ -61,7 +61,7 @@
         @open="handleOverlayOpen"
       />
 
-      <!-- Session Tree Overlay -->
+      <!-- Session Chat Overlay -->
       <SessionChatOverlay
         v-if="chatOverlayOpen"
         :session-id="overlaySessionId"
