@@ -153,4 +153,28 @@ describe('CommandButtonsApi', () => {
       expect(result.success).toBe(true);
     });
   });
+
+  describe('deleteCommandRun', () => {
+    it('sends DELETE to /sessions/:id/command-buttons/runs/:runId', async () => {
+      mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
+
+      await client.deleteCommandRun('sess-123', 'run-1');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs/run-1', expect.objectContaining({
+        method: 'DELETE',
+      }));
+    });
+  });
+
+  describe('deleteAllRunsForButton', () => {
+    it('sends DELETE to /sessions/:id/command-buttons/:buttonId/runs/all', async () => {
+      mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
+
+      await client.deleteAllRunsForButton('sess-123', 'btn-1');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/btn-1/runs/all', expect.objectContaining({
+        method: 'DELETE',
+      }));
+    });
+  });
 });

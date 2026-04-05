@@ -489,6 +489,106 @@ describe('CommandRunRepository', () => {
     });
   });
 
+  describe('deleteByButtonAndSession', () => {
+    let button2Id;
+
+    beforeEach(() => {
+      const buttonRepository = new CommandButtonRepository();
+      const projectRepository = new ProjectRepository();
+      const project = projectRepository.create('Test Project DBS', '/tmp/test-dbs');
+      const button2 = buttonRepository.create({
+        projectId: project.id,
+        label: 'Test Button DBS',
+        command: 'echo dbs',
+      });
+      button2Id = button2.id;
+    });
+
+    it('deletes all runs for a button in a session', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0, 'output1');
+      repository.create({ id: 'run-2', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-2', 0, 'output2');
+      repository.create({ id: 'run-3', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-3', 0, 'output3');
+
+      const result = repository.deleteByButtonAndSession(testButtonId, testSessionId);
+
+      expect(result.deletedCount).toBe(3);
+      expect(repository.getById('run-1')).toBeNull();
+      expect(repository.getById('run-2')).toBeNull();
+      expect(repository.getById('run-3')).toBeNull();
+    });
+
+    it('returns deleted run info for broadcasting', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0, 'output1');
+      repository.create({ id: 'run-2', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-2', 0, 'output2');
+
+      const result = repository.deleteByButtonAndSession(testButtonId, testSessionId);
+
+      expect(result.deletedRuns).toHaveLength(2);
+      expect(result.deletedRuns).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'run-1', buttonId: testButtonId }),
+          expect.objectContaining({ id: 'run-2', buttonId: testButtonId }),
+        ])
+      );
+    });
+
+    it('skips running runs', () => {
+      repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-1', 0, 'output1');
+      repository.create({ id: 'run-2', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-2', 1, 'error output');
+      repository.create({ id: 'run-running', sessionId: testSessionId, buttonId: testButtonId });
+      // run-running stays in 'running' status
+
+      const result = repository.deleteByButtonAndSession(testButtonId, testSessionId);
+
+      expect(result.deletedCount).toBe(2);
+      expect(repository.getById('run-running')).not.toBeNull();
+      expect(repository.getById('run-running').status).toBe('running');
+    });
+
+    it('does not affect runs for other buttons in the same session', () => {
+      repository.create({ id: 'run-a', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-a', 0, 'output');
+      repository.create({ id: 'run-b', sessionId: testSessionId, buttonId: button2Id });
+      repository.complete('run-b', 0, 'output');
+
+      repository.deleteByButtonAndSession(testButtonId, testSessionId);
+
+      expect(repository.getById('run-a')).toBeNull();
+      expect(repository.getById('run-b')).not.toBeNull();
+    });
+
+    it('does not affect runs for the same button in other sessions', () => {
+      const sessionRepository = new SessionRepository();
+      const projectRepository = new ProjectRepository();
+      const project = projectRepository.create('Test Project DS2', '/tmp/test-ds2');
+      const session2 = sessionRepository.create(project.id, 'Session 2', 'prompt 2');
+
+      repository.create({ id: 'run-s1', sessionId: testSessionId, buttonId: testButtonId });
+      repository.complete('run-s1', 0, 'output');
+      repository.create({ id: 'run-s2', sessionId: session2.id, buttonId: testButtonId });
+      repository.complete('run-s2', 0, 'output');
+
+      repository.deleteByButtonAndSession(testButtonId, testSessionId);
+
+      expect(repository.getById('run-s1')).toBeNull();
+      expect(repository.getById('run-s2')).not.toBeNull();
+    });
+
+    it('returns deletedCount 0 when no matching runs exist', () => {
+      const result = repository.deleteByButtonAndSession('nonexistent-button', 'nonexistent-session');
+
+      expect(result.deletedCount).toBe(0);
+      expect(result.deletedRuns).toEqual([]);
+    });
+  });
+
   describe('deleteById', () => {
     it('deletes a single run by ID', () => {
       repository.create({ id: 'run-1', sessionId: testSessionId, buttonId: testButtonId });

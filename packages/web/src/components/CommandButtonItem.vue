@@ -26,7 +26,7 @@
           v-if="!run || run.status !== 'running'"
           class="btn btn-primary btn-sm"
           @click="handleRun"
-          :disabled="run?.status === 'running' || isSubmitting"
+          :disabled="run?.status === 'running' || isSubmitting || disabled"
           :class="{ 'is-loading': isSubmitting }"
           data-testid="run-button"
         >
@@ -130,6 +130,10 @@ const props = defineProps({
   sessionId: {
     type: String,
     required: true,
+  },
+  disabled: {
+    type: Boolean,
+    default: false,
   },
 });
 

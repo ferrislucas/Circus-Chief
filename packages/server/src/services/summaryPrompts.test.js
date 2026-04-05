@@ -5,15 +5,11 @@ import {
   MAX_RETRIES,
   DEFAULT_SESSION_TITLE_PROMPT,
   SUMMARY_SYSTEM_PROMPT,
-  CONVERSATION_SUMMARY_SYSTEM_PROMPT,
-  COMBINED_SUMMARY_SYSTEM_PROMPT,
   formatMessages,
   buildIncrementalPrompt,
-  buildConversationSummaryPrompt,
   stripMarkdownCodeBlock,
   trackMessageMetadata,
   parseSummaryResponse,
-  parseConversationSummaryResponse,
 } from './summaryPrompts.js';
 
 describe('summaryPrompts', () => {
@@ -42,15 +38,6 @@ describe('summaryPrompts', () => {
       expect(SUMMARY_SYSTEM_PROMPT).not.toContain('${existingSummary}');
     });
 
-    it('CONVERSATION_SUMMARY_SYSTEM_PROMPT contains conversation instructions', () => {
-      expect(CONVERSATION_SUMMARY_SYSTEM_PROMPT).toContain('conversation thread');
-      expect(CONVERSATION_SUMMARY_SYSTEM_PROMPT).toContain('Key actions taken');
-    });
-
-    it('COMBINED_SUMMARY_SYSTEM_PROMPT contains both session and conversation instructions', () => {
-      expect(COMBINED_SUMMARY_SYSTEM_PROMPT).toContain('SESSION SUMMARY');
-      expect(COMBINED_SUMMARY_SYSTEM_PROMPT).toContain('CONVERSATION SUMMARY');
-    });
   });
 
   describe('DEFAULT_SESSION_TITLE_PROMPT', () => {
@@ -215,19 +202,6 @@ describe('summaryPrompts', () => {
       const result = buildIncrementalPrompt(null, recentMessages, 'running', { childContext });
       expect(result).toContain('CHILD SESSIONS (2)');
       expect(result).toContain('Child 1 (running)');
-    });
-  });
-
-  describe('buildConversationSummaryPrompt', () => {
-    it('formats conversation messages into prompt', () => {
-      const conversationMessages = [
-        { role: 'user', content: 'Help me with this' },
-        { role: 'assistant', content: 'Sure, let me help' },
-      ];
-      const result = buildConversationSummaryPrompt(conversationMessages);
-      expect(result).toContain('CONVERSATION:');
-      expect(result).toContain('User: Help me with this');
-      expect(result).toContain('Assistant: Sure, let me help');
     });
   });
 
@@ -536,29 +510,4 @@ describe('summaryPrompts', () => {
     });
   });
 
-  describe('parseConversationSummaryResponse', () => {
-    it('parses valid JSON response with summary field', () => {
-      const responseText = JSON.stringify({ summary: 'Conversation about feature X' });
-      const result = parseConversationSummaryResponse(responseText);
-      expect(result).toBe('Conversation about feature X');
-    });
-
-    it('returns fallback when summary field missing', () => {
-      const result = parseConversationSummaryResponse(JSON.stringify({}));
-      expect(result).toBe('Summary generation failed');
-    });
-
-    it('truncates raw text to 200 chars on parse failure', () => {
-      const longText = 'A'.repeat(300);
-      const result = parseConversationSummaryResponse(longText);
-      expect(result.length).toBe(200);
-    });
-
-    it('strips code blocks before parsing', () => {
-      const jsonContent = { summary: 'Test conversation summary' };
-      const responseText = '```json\n' + JSON.stringify(jsonContent) + '\n```';
-      const result = parseConversationSummaryResponse(responseText);
-      expect(result).toBe('Test conversation summary');
-    });
-  });
 });

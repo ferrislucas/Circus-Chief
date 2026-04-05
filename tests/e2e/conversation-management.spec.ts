@@ -14,7 +14,6 @@ import {
   deleteConversationRaw,
   branchConversation,
   getConversationMessages,
-  generateConversationSummary,
   getAPIURL,
   openSessionOverlay,
 } from './helpers';
@@ -136,20 +135,6 @@ test.describe('Multiple Conversations', () => {
     // (the overlay uses hideNewConversation prop to avoid cluttering the UI)
     const newBtn = page.locator('.btn-new');
     await expect(newBtn).not.toBeVisible({ timeout: 10000 });
-  });
-
-  test('creating conversation via API updates session', async ({ page }) => {
-    // The overlay hides the "New Conversation" button, so test via API
-    await navigateAndWait(page, `/sessions/${session.id}/summary`);
-    await openSessionOverlay(page);
-
-    // Create a conversation via API
-    const newConv = await seedConversation(session.id, 'API Created Conv');
-
-    // Verify conversations count increased
-    const convs = await getConversations(session.id);
-    expect(convs).toHaveLength(2);
-    expect(newConv.name).toBe('API Created Conv');
   });
 
   test('cannot create conversation while session is running', async () => {
@@ -729,42 +714,6 @@ test.describe('Per-Conversation Summaries', () => {
     expect(created.summaryGeneratedAt).toBeNull();
   });
 
-  test('summary endpoint returns response for conversation', async () => {
-    const convs = await getConversations(session.id);
-    const conv = convs[0];
-
-    // Call the summary generation endpoint
-    const response = await generateConversationSummary(session.id, conv.id);
-
-    // The endpoint should return a response
-    expect(response.status).toBeDefined();
-    // Either 200 (success) or 500 (service unavailable) are valid outcomes
-    expect([200, 500]).toContain(response.status);
-  });
-
-  test('switching conversations triggers background summary generation', async () => {
-    // Create a second conversation
-    const conv2 = await seedConversation(session.id, 'Summary Check Conv');
-
-    // Get initial state of first conversation
-    const convsBefore = await getConversations(session.id);
-    const initialConv = convsBefore.find((c: any) => c.id !== conv2.id);
-
-    // Switch back to the first conversation
-    await switchConversation(session.id, initialConv.id);
-
-    // Wait a bit for background summary generation
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // Fetch conversations again
-    const convsAfter = await getConversations(session.id);
-    const conv2After = convsAfter.find((c: any) => c.id === conv2.id);
-
-    // The conversation should still exist with summary fields
-    expect(conv2After).toBeTruthy();
-    expect(conv2After).toHaveProperty('summary');
-    expect(conv2After).toHaveProperty('summaryGeneratedAt');
-  });
 });
 
 test.describe('Conversation Deletion', () => {

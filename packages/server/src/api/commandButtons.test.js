@@ -843,6 +843,133 @@ describe('Command Buttons API', () => {
     });
   });
 
+  describe('DELETE /api/sessions/:sessionId/command-buttons/:buttonId/runs/all', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      commandRunner.isRunning.mockReturnValue(false);
+    });
+
+    it('returns 204 when runs are deleted successfully', async () => {
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'bulk-run-1', sessionId, buttonId });
+      commandRuns.complete('bulk-run-1', 0, 'output1');
+      commandRuns.create({ id: 'bulk-run-2', sessionId, buttonId });
+      commandRuns.complete('bulk-run-2', 0, 'output2');
+      commandRuns.create({ id: 'bulk-run-3', sessionId, buttonId });
+      commandRuns.complete('bulk-run-3', 1, 'error output');
+
+      const res = await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+      );
+
+      expect(res.status).toBe(204);
+
+      // Verify all runs are deleted
+      expect(commandRuns.getById('bulk-run-1')).toBeNull();
+      expect(commandRuns.getById('bulk-run-2')).toBeNull();
+      expect(commandRuns.getById('bulk-run-3')).toBeNull();
+    });
+
+    it('returns 204 even when no runs exist (idempotent)', async () => {
+      const res = await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+      );
+
+      expect(res.status).toBe(204);
+    });
+
+    it('returns 404 when session not found', async () => {
+      const res = await request(app).delete(
+        `/api/sessions/nonexistent/command-buttons/${buttonId}/runs/all`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Session not found');
+    });
+
+    it('returns 404 when button not found', async () => {
+      const res = await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/nonexistent/runs/all`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Command button not found');
+    });
+
+    it('broadcasts COMMAND_RUN_DELETED for each deleted run', async () => {
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'bulk-bc-1', sessionId, buttonId });
+      commandRuns.complete('bulk-bc-1', 0, 'output1');
+      commandRuns.create({ id: 'bulk-bc-2', sessionId, buttonId });
+      commandRuns.complete('bulk-bc-2', 0, 'output2');
+
+      await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+      );
+
+      // Verify session broadcasts
+      const sessionBroadcasts = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
+      );
+      expect(sessionBroadcasts.length).toBe(2);
+
+      // Verify project broadcasts
+      const projectBroadcasts = broadcastToProject.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
+      );
+      expect(projectBroadcasts.length).toBe(2);
+
+      // Verify each broadcast has the correct data
+      for (const broadcast of sessionBroadcasts) {
+        expect(broadcast[2].buttonId).toBe(buttonId);
+        expect(broadcast[2].sessionId).toBe(sessionId);
+        expect(['bulk-bc-1', 'bulk-bc-2']).toContain(broadcast[2].runId);
+      }
+    });
+
+    it('does not delete running runs', async () => {
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'bulk-running', sessionId, buttonId });
+      // This one stays in 'running' status
+      commandRuns.create({ id: 'bulk-completed', sessionId, buttonId });
+      commandRuns.complete('bulk-completed', 0, 'output');
+
+      const res = await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+      );
+
+      expect(res.status).toBe(204);
+
+      // Running run should still exist
+      expect(commandRuns.getById('bulk-running')).not.toBeNull();
+      expect(commandRuns.getById('bulk-running').status).toBe('running');
+
+      // Completed run should be deleted
+      expect(commandRuns.getById('bulk-completed')).toBeNull();
+
+      // Only 1 broadcast (for the completed run)
+      const sessionBroadcasts = broadcastToSession.mock.calls.filter(
+        (call) => call[1] === WS_MESSAGE_TYPES.COMMAND_RUN_DELETED
+      );
+      expect(sessionBroadcasts.length).toBe(1);
+    });
+
+    it('actually deletes runs from the database', async () => {
+      const { commandRuns } = await import('../database.js');
+      commandRuns.create({ id: 'bulk-del-1', sessionId, buttonId });
+      commandRuns.complete('bulk-del-1', 0, 'output');
+      commandRuns.create({ id: 'bulk-del-2', sessionId, buttonId });
+      commandRuns.complete('bulk-del-2', 0, 'output');
+
+      await request(app).delete(
+        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+      );
+
+      expect(commandRuns.getById('bulk-del-1')).toBeNull();
+      expect(commandRuns.getById('bulk-del-2')).toBeNull();
+    });
+  });
+
   describe('GET /api/sessions/:sessionId/command-buttons/runs/:runId', () => {
     beforeEach(() => {
       // Clear mocks before each test

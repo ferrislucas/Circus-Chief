@@ -405,7 +405,9 @@ export const useSessionsStore = defineStore('sessions', {
         }
         console.log(`[STORE] fetchMessages: updated store with ${this.messages.length} messages`);
       } catch (err) {
-        this.error = err.message;
+        if (!this.viewedSessionId || this.viewedSessionId === sessionId) {
+          this.error = err.message;
+        }
         console.error(`[STORE] fetchMessages: error fetching messages for session ${sessionId}:`, err.message);
       } finally { if (showLoading) this.loading = false; }
     },
@@ -418,9 +420,16 @@ export const useSessionsStore = defineStore('sessions', {
     // ==================== WORK LOG ACTIONS ====================
 
     async fetchWorkLogs(sessionId) {
+      // Pre-fetch guard: skip if user navigated away
+      if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+
       this.error = null;
       try {
         const grouped = await api.getSessionWorkLogs(sessionId);
+
+        // Post-fetch guard: discard if user navigated away during await
+        if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+
         const fetchedLogIds = new Set();
         for (const messageId of Object.keys(grouped)) {
           for (const log of grouped[messageId] || []) fetchedLogIds.add(log.id);
@@ -429,7 +438,11 @@ export const useSessionsStore = defineStore('sessions', {
         const newUnassociatedLogs = existingUnassociated.filter(log => !fetchedLogIds.has(log.id));
         const fetchedUnassociated = grouped['_unassociated'] || [];
         this.workLogs = { ...grouped, '_unassociated': [...fetchedUnassociated, ...newUnassociatedLogs] };
-      } catch (err) { this.error = err.message; }
+      } catch (err) {
+        if (!this.viewedSessionId || this.viewedSessionId === sessionId) {
+          this.error = err.message;
+        }
+      }
     },
 
     addWorkLog(log) {
