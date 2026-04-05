@@ -21,7 +21,7 @@ export const conversationActions = {
       this.activeConversationId = active?.id || this.conversations[0]?.id || null;
     } catch (err) {
       // Only set error/clear state if still on this session
-      if (!this.viewedSessionId || this.viewedSessionId === sessionId) {
+      if (this.viewedSessionId && this.viewedSessionId === sessionId) {
         this.error = err.message;
         this.conversations = [];
         this.activeConversationId = null;
