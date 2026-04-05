@@ -138,7 +138,7 @@ test.describe('Scheduling UI', () => {
       // Actual (bug): Shows "56 years ago" or other incorrect past time
 
       // Wait for the scheduling info panel to appear (scoped to overlay to avoid duplicate from SummaryTab)
-      const overlay = page.getByTestId('session-tree-overlay');
+      const overlay = page.getByTestId('session-chat-overlay');
       const schedulingPanel = overlay.locator('.scheduling-info.scheduled-panel');
       await expect(schedulingPanel).toBeVisible({ timeout: 5000 });
 
@@ -162,7 +162,7 @@ test.describe('Scheduling UI', () => {
       await page.waitForLoadState('networkidle');
       await openSessionOverlay(page);
 
-      const overlayAfterReload = page.getByTestId('session-tree-overlay');
+      const overlayAfterReload = page.getByTestId('session-chat-overlay');
       const countdownTextAfterReload = overlayAfterReload.locator('.countdown-text strong');
       await expect(countdownTextAfterReload).toBeVisible({ timeout: 5000 });
 
