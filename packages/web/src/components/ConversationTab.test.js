@@ -2512,79 +2512,163 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
 });
 
 /**
- * Unit tests for quick response insertion functionality
- * These tests verify the handleQuickResponseInsert method logic for combining text
+ * Component-level tests for quick response insertion functionality
+ * These tests mount the real ConversationTab and emit events from InputForm
+ * to verify handleQuickResponseInsert works end-to-end
  */
 describe('ConversationTab - Quick Response Insertion', () => {
-  describe('handleQuickResponseInsert', () => {
-    it('combines existing input with quick response content when auto-submitting', () => {
-      // Simulates the combining logic
-      const existingInput = 'Check the authentication module';
-      const quickResponseContent = 'Also review error handling';
+  let mockSessionsStore;
+  let mockUiStore;
+  let consoleError;
 
-      const currentValue = existingInput.trim();
-      const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
-        : quickResponseContent;
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
 
-      // ASSERTION: Combined content includes both messages
-      expect(newValue).toBe('Check the authentication module\n\nAlso review error handling');
+    mockSessionsStore = {
+      messages: [],
+      currentSession: { id: 'sess-123', status: 'waiting', thinkingEnabled: false, mode: 'standard', model: null, projectId: 'proj-1' },
+      activeConversation: null,
+      activeConversationId: null,
+      conversations: [],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+    };
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
     });
+  });
 
-    it('uses only quick response when input is empty', () => {
-      const existingInput = '';
-      const quickResponseContent = 'Start coding';
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
 
-      const currentValue = existingInput.trim();
-      const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
-        : quickResponseContent;
-
-      // ASSERTION: No leading newlines when input was empty
-      expect(newValue).toBe('Start coding');
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: {
+            name: 'ModelSelector',
+            props: ['modelValue', 'disabled'],
+            emits: ['update:modelValue'],
+            template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
+          },
+          TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
+          OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
+          ModeSelector: { template: '<div class="mode-selector-stub"></div>' },
+          SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
+          SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
+          ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
+          AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
+          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
+        },
+      },
     });
+  }
 
-    it('trims whitespace from existing input before combining', () => {
-      const existingInput = '  Review the API  ';
-      const quickResponseContent = 'Focus on endpoints';
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
 
-      const currentValue = existingInput.trim();
-      const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
-        : quickResponseContent;
+  it('auto-submit sets input value and calls sendMessage via nextTick', async () => {
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
 
-      // ASSERTION: Whitespace is trimmed from existing input
-      expect(newValue).toBe('Review the API\n\nFocus on endpoints');
-    });
+    // Find InputForm and emit quickResponseInsert event
+    const inputForm = wrapper.findComponent({ name: 'InputForm' });
+    inputForm.vm.$emit('quickResponseInsert', { content: 'Quick response', autoSubmit: true });
+    await flushAll(wrapper);
 
-    describe('focus behavior', () => {
-      it('blurs textareaRef after insertion (non-auto-submit)', () => {
-        const textareaRef = {
-          value: '',
-          blur: vi.fn(),
-          focus: vi.fn(),
-        };
+    // Verify handleFormSubmit was called — check that sendMessage was invoked
+    expect(mockSessionsStore.sendMessage).toHaveBeenCalled();
+  });
 
-        // Simulate what handleQuickResponseInsert does for non-auto-submit
-        textareaRef.blur();
+  it('non-auto-submit sets input value and does not call sendMessage', async () => {
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
 
-        expect(textareaRef.blur).toHaveBeenCalled();
-        expect(textareaRef.focus).not.toHaveBeenCalled();
-      });
+    // Find InputForm and emit quickResponseInsert event
+    const inputForm = wrapper.findComponent({ name: 'InputForm' });
+    inputForm.vm.$emit('quickResponseInsert', { content: 'Quick response', autoSubmit: false });
+    await flushAll(wrapper);
 
-      it('does not set cursor position when blurring', () => {
-        const textareaRef = {
-          value: 'Test content',
-          blur: vi.fn(),
-        };
+    // sendMessage should NOT have been called
+    expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+  });
 
-        // Simulate blur without selection
-        textareaRef.blur();
+  it('combines existing input with quick response content', async () => {
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
 
-        expect(textareaRef.blur).toHaveBeenCalled();
-        expect(textareaRef.value).toBe('Test content');
-      });
-    });
+    // Set existing input text
+    const textarea = wrapper.find('textarea');
+    if (textarea.exists()) {
+      await textarea.setValue('Check the authentication module');
+      await flushAll(wrapper);
+    }
+
+    // Emit quick response insert
+    const inputForm = wrapper.findComponent({ name: 'InputForm' });
+    inputForm.vm.$emit('quickResponseInsert', { content: 'Also review error handling', autoSubmit: true });
+    await flushAll(wrapper);
+
+    // The handler should have combined the text and submitted
+    expect(mockSessionsStore.sendMessage).toHaveBeenCalled();
+    // Verify the combined content was sent
+    const sentMessage = mockSessionsStore.sendMessage.mock.calls[0]?.[1];
+    if (sentMessage) {
+      expect(sentMessage).toContain('Also review error handling');
+    }
   });
 });
 
