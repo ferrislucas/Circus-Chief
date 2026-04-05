@@ -10,7 +10,7 @@ import {
   updateSessionStatus,
 } from './helpers';
 
-test.describe('Session Tree Overlay Scroll Behavior', () => {
+test.describe('Session Chat Overlay Scroll Behavior', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
