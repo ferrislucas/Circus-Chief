@@ -2085,16 +2085,46 @@ export async function getSlashCommands(directory: string): Promise<any[]> {
 }
 
 /**
- * Get a single slash command's details via the API.
- * Returns command object or null.
+ * Get a specific slash command by name and directory.
+ * Returns null if not found.
  */
-export async function getSlashCommand(directory: string, name: string): Promise<any> {
+export async function getSlashCommand(
+  directory: string,
+  name: string
+): Promise<any> {
   const res = await fetch(
     `${API_URL}/api/commands/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`
   );
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`getSlashCommand failed: ${res.status}`);
   return res.json();
+}
+
+/**
+ * Seed token usage directly into the DB for a session ( Uses scripts/seed-session-tokens.mjs.
+ */
+export function seedSessionTokens(
+  sessionId: string,
+  tokens: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  }
+): any {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-session-tokens.mjs');
+  const payload = {
+    dbPath: getDBPath(),
+    sessionId,
+    ...tokens,
+  };
+  const input = JSON.stringify(payload);
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
 }
 
 /**

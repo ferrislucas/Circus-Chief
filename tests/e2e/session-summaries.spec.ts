@@ -13,6 +13,8 @@ import {
   seedAssistantMessage,
   updateSessionWithPR,
   getAPIURL,
+  seedSessionTokens,
+  seedChildSession,
 } from './helpers';
 
 const API_URL = getAPIURL();
@@ -823,6 +825,178 @@ test.describe('Session Summaries', () => {
       // The overview section should still be visible
       const fullSummary = page.locator('.full-summary');
       await expect(fullSummary).toBeVisible();
+    });
+  });
+
+  // ============================================================
+  // Category 10: Summary Tab — Overview Metrics (5 tests)
+  // Tests for session count, cost, work time, and files count
+  // ============================================================
+
+  test.describe('Category 10: Summary Tab — Overview Metrics', () => {
+    test('shows work time metric for completed session', async ({ page }) => {
+      const session = await seedSession(project.id, {
+        prompt: 'Test work time metric',
+        name: 'Work Time Metric Test',
+        startImmediately: false,
+      });
+      await waitForSessionToExist(session.id);
+
+      // Seed token usage and a summary so the overview card shows
+      seedSessionTokens(session.id, {
+        inputTokens: 10000,
+        outputTokens: 5000,
+      });
+      seedSessionSummaryDirect(session.id, {
+        shortSummary: 'Work time test',
+        fullSummary: 'Testing work time metric display',
+        outcome: 'completed',
+      });
+
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+
+      // Verify the overview metrics row is visible
+      const metrics = page.locator('.overview-metrics');
+      await expect(metrics).toBeVisible();
+
+      // Verify the Work Time metric label is present
+      const workTimeLabel = metrics.locator('.metric-label').filter({ hasText: 'Work Time' });
+      await expect(workTimeLabel).toBeVisible();
+    });
+
+    test('shows tokens metric when session has token usage', async ({ page }) => {
+      const session = await seedSession(project.id, {
+        prompt: 'Test tokens metric',
+        name: 'Tokens Metric Test',
+        startImmediately: false,
+      });
+      await waitForSessionToExist(session.id);
+
+      // Seed token usage via direct DB write
+      seedSessionTokens(session.id, {
+        inputTokens: 10000,
+        outputTokens: 5000,
+      });
+
+      // Seed a summary so the tab shows the overview card
+      seedSessionSummaryDirect(session.id, {
+        shortSummary: 'Tokens test summary',
+        fullSummary: 'Testing tokens metric in summary',
+        outcome: 'completed',
+      });
+
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+
+      // Verify tokens metric is displayed
+      const metrics = page.locator('.overview-metrics');
+      await expect(metrics).toBeVisible();
+
+      const tokenLabel = metrics.locator('.metric-label').filter({ hasText: 'Tokens' });
+      await expect(tokenLabel).toBeVisible();
+
+      // Verify the tokens value is non-zero
+      const tokenValue = page.locator('.overview-metrics .metric')
+        .filter({ hasText: 'Tokens' })
+        .locator('.metric-value');
+      await expect(tokenValue).not.toHaveText('0');
+    });
+
+    test('shows session count > 1 for workflow with children', async ({ page }) => {
+      const parentSession = await seedSession(project.id, {
+        prompt: 'Test session count',
+        name: 'Session Count Test',
+        startImmediately: false,
+      });
+      await waitForSessionToExist(parentSession.id);
+
+      // Create 2 child sessions
+      await seedChildSession(project.id, parentSession.id, {
+        prompt: 'Child 1',
+        name: 'Child Session 1',
+      });
+      await seedChildSession(project.id, parentSession.id, {
+        prompt: 'Child 2',
+        name: 'Child Session 2',
+      });
+
+      // Seed parent summary so the overview shows
+      seedSessionSummaryDirect(parentSession.id, {
+        shortSummary: 'Workflow test',
+        fullSummary: 'Testing session count with children',
+        outcome: 'completed',
+      });
+
+      // Navigate to parent session detail -> Summary tab
+      await navigateAndWait(page, `/sessions/${parentSession.id}/summary`);
+
+      // Verify session count shows 3 (parent + 2 children)
+      const metrics = page.locator('.overview-metrics');
+      await expect(metrics).toBeVisible();
+
+      const sessionsLabel = metrics.locator('.metric-label').filter({ hasText: 'Sessions' });
+      await expect(sessionsLabel).toBeVisible();
+
+      const sessionCountValue = page.locator('.overview-metrics .metric')
+        .filter({ hasText: 'Sessions' })
+        .locator('.metric-value');
+      await expect(sessionCountValue).toHaveText('3');
+    });
+
+    test('shows files count in metrics row instead of summary-meta', async ({ page }) => {
+      const session = await seedSession(project.id, {
+        prompt: 'Test files count in metrics',
+        name: 'Files Count Metrics Test',
+        startImmediately: false,
+      });
+      await waitForSessionToExist(session.id);
+
+      // Seed a summary with files modified
+      seedSessionSummaryDirect(session.id, {
+        shortSummary: 'Files test',
+        fullSummary: 'Testing files count in metrics row',
+        outcome: 'completed',
+        filesModified: ['src/auth.js', 'src/models/user.js', 'src/utils/helpers.js'],
+      });
+
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+
+      // Verify old summary-meta div is gone
+      const summaryMeta = page.locator('.summary-meta');
+      await expect(summaryMeta).toHaveCount(0);
+
+      // Verify files count appears in metrics row
+      const metrics = page.locator('.overview-metrics');
+      await expect(metrics).toBeVisible();
+
+      const fileLabel = metrics.locator('.metric-label').filter({ hasText: 'File' });
+      await expect(fileLabel).toBeVisible();
+    });
+
+    test('hides metrics row when no meaningful values', async ({ page }) => {
+      const session = await seedSession(project.id, {
+        prompt: 'Test no metrics',
+        name: 'No Metrics Test',
+        startImmediately: false,
+      });
+      await waitForSessionToExist(session.id);
+
+      // Seed a summary but no children, no token usage, no files
+      seedSessionSummaryDirect(session.id, {
+        shortSummary: 'No metrics test',
+        fullSummary: 'Testing that metrics row is hidden when no meaningful values',
+        outcome: 'completed',
+      });
+
+      // Navigate to session detail -> Summary tab
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+
+      // The overview card should still show (because of the summary)
+      const overviewCard = page.locator('.session-overview.card');
+      await expect(overviewCard).toBeVisible();
+
+      // The metrics row should NOT be present
+      const metrics = page.locator('.overview-metrics');
+      await expect(metrics).toHaveCount(0);
     });
   });
 });
