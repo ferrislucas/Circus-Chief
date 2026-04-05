@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 build/
+dist-package/
+.package-test/
 
 # Database
 *.db
@@ -40,6 +42,7 @@ Thumbs.db
 # Environment
 .env
 .env.local
+.env.production
 .env.*.local
 
 # Temporary files
@@ -48,6 +51,9 @@ temp/
 
 # Server port file (auto-generated)
 .server-port
+
+# DB path file for package tests (auto-generated)
+.db-path
 
 # VCR mode state file (auto-generated)
 .vcr-mode

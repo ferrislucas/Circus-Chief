@@ -92,5 +92,17 @@ describe('PostHog Plugin', () => {
 
       vi.unstubAllEnvs();
     });
+
+    it('does NOT call posthog.init when disableAnalytics is true', async () => {
+      vi.stubEnv('VITE_POSTHOG_KEY', 'phc_test_key');
+
+      const { initPostHog, isPostHogInitialized } = await import('./posthog.js');
+      initPostHog({ disableAnalytics: true });
+
+      expect(posthog.init).not.toHaveBeenCalled();
+      expect(isPostHogInitialized()).toBe(false);
+
+      vi.unstubAllEnvs();
+    });
   });
 });
