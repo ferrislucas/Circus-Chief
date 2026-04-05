@@ -405,7 +405,7 @@ export const useSessionsStore = defineStore('sessions', {
         }
         console.log(`[STORE] fetchMessages: updated store with ${this.messages.length} messages`);
       } catch (err) {
-        if (!this.viewedSessionId || this.viewedSessionId === sessionId) {
+        if (this.viewedSessionId && this.viewedSessionId === sessionId) {
           this.error = err.message;
         }
         console.error(`[STORE] fetchMessages: error fetching messages for session ${sessionId}:`, err.message);
@@ -439,7 +439,7 @@ export const useSessionsStore = defineStore('sessions', {
         const fetchedUnassociated = grouped['_unassociated'] || [];
         this.workLogs = { ...grouped, '_unassociated': [...fetchedUnassociated, ...newUnassociatedLogs] };
       } catch (err) {
-        if (!this.viewedSessionId || this.viewedSessionId === sessionId) {
+        if (this.viewedSessionId && this.viewedSessionId === sessionId) {
           this.error = err.message;
         }
       }
