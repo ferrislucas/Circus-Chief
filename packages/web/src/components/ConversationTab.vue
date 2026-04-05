@@ -545,7 +545,7 @@ function handleSlashCommandInsert({ text }) {
   });
 }
 
-// Expose flushDraft so parent components (e.g. SessionTreeOverlay) can
+// Expose flushDraft so parent components (e.g. SessionChatOverlay) can
 // force-save pending drafts before switching sessions.
 defineExpose({ flushDraft });
 </script>

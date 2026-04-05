@@ -40,7 +40,7 @@ test.describe('Session Tree Overlay Scroll Behavior', () => {
     const handle = page.locator('[data-testid="session-tree-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
-    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
     // Wait for slide-in animation to complete
     await page.waitForTimeout(400);
