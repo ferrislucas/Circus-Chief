@@ -14,7 +14,10 @@ POSTHOG_KEY=phc_xxxxx node scripts/build-package.js --version=0.2.0
 # Build for local testing (no analytics)
 node scripts/build-package.js --version=0.2.0
 
-# Test locally
+# Run E2E tests against the built package
+./scripts/pw.sh test-package
+
+# Test locally (manual)
 cd dist-package && npm pack
 cd /tmp && mkdir test && cd test
 npm install /path/to/dist-package/claudetools-0.2.0.tgz
@@ -130,6 +133,38 @@ The build script filters out `*.test.js` files from both `server` and `shared` p
 ### The `nanoid` dependency
 
 `nanoid` is used in the server source but isn't declared in `packages/server/package.json` (it resolves via hoisting in the monorepo). The build script explicitly adds it to the published `package.json`.
+
+## E2E Testing Against the Built Package
+
+`./scripts/pw.sh test-package` runs the full Playwright E2E suite against the actual npm artifact. This validates that `npx claudetools` will work for real users — not just that the source code works in the monorepo.
+
+### What it does
+
+1. **Builds the package** — runs `scripts/build-package.js` to produce `dist-package/`
+2. **Packs a tarball** — runs `npm pack` inside `dist-package/`, producing a `.tgz` identical to what `npm publish` would upload
+3. **Installs in an isolated directory** — creates `.package-test/` with a fresh `package.json` and installs the tarball via `npm install`, simulating a real user install
+4. **Symlinks test cassettes** — links `tests/` into the install directory so VCR replay cassettes are reachable at the expected relative path
+5. **Starts the server from the installed binary** — runs `node node_modules/.bin/claudetools`, the same entry point a user gets from `npx claudetools`
+6. **Runs Playwright tests** — same E2E suite as `./scripts/pw.sh test`, but hitting the package-installed server
+
+### Why this catches issues that `pw.sh test` doesn't
+
+`pw.sh test` builds and runs the source tree in-place with workspace symlinks intact. `pw.sh test-package` exercises the full packaging pipeline — if a file is missing from `package.json` `files`, if a `bin` entry is broken, if an import rewrite was missed, or if a dependency isn't declared, the tests will fail.
+
+### Usage
+
+```bash
+# Run all E2E tests against the built package
+./scripts/pw.sh test-package
+
+# Run specific tests against the built package
+./scripts/pw.sh test-package --grep="session"
+
+# Re-record VCR cassettes while testing the package
+VCR_MODE=record ./scripts/pw.sh test-package
+```
+
+The command uses VCR replay mode by default (no API key needed) and auto-assigns a worktree-safe port, same as `pw.sh test`.
 
 ## What Gets Checked In
 
