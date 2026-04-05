@@ -65,10 +65,10 @@ test.describe('Overlay: draft session messages persist after completion', () => 
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
-    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
     // Wait for slide-in animation to complete (300ms + buffer)
     await page.waitForTimeout(400);
@@ -80,7 +80,7 @@ test.describe('Overlay: draft session messages persist after completion', () => 
     await expect(dropdown).toBeVisible({ timeout: 10000 });
     await dropdown.locator('.dropdown-trigger').click();
 
-    const picker = page.locator('[data-testid="session-tree-picker"]');
+    const picker = page.locator('[data-testid="session-chat-picker"]');
     await expect(picker).toBeVisible({ timeout: 5000 });
 
     // Click the child session (second item in the picker)

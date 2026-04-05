@@ -12,7 +12,7 @@ import {
 } from './helpers';
 
 /**
- * Tests for the session tree overlay's automatic session selection behavior.
+ * Tests for the session chat overlay's automatic session selection behavior.
  *
  * Expected behavior: When opening the overlay, it should automatically select
  * the session in the tree with the most recent **conversation activity**
@@ -20,7 +20,7 @@ import {
  * the session's status. This allows users to quickly resume where the most
  * recent work was happening.
  */
-test.describe('Session Tree Overlay - Auto-select by most recent conversation activity', () => {
+test.describe('Session Chat Overlay - Auto-select by most recent conversation activity', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
@@ -59,10 +59,10 @@ test.describe('Session Tree Overlay - Auto-select by most recent conversation ac
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
-    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
     // Wait for slide-in animation to complete (300ms + buffer)
     await page.waitForTimeout(400);

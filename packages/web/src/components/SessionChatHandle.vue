@@ -1,6 +1,6 @@
 <template>
   <div
-    class="session-tree-handle"
+    class="session-chat-handle"
     tabindex="0"
     role="button"
     :aria-label="isSessionActive
@@ -9,7 +9,7 @@
     :title="isSessionActive
       ? (sessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
       : 'Open session tree'"
-    data-testid="session-tree-handle"
+    data-testid="session-chat-handle"
     @click="handleOpen"
     @keydown.enter.prevent="handleOpen"
     @keydown.space.prevent="handleOpen"
@@ -59,7 +59,7 @@ function handleOpen() {
 </script>
 
 <style scoped>
-.session-tree-handle {
+.session-chat-handle {
   position: fixed;
   right: 0;
   top: 50%;
@@ -80,12 +80,12 @@ function handleOpen() {
   min-height: 44px;
 }
 
-.session-tree-handle:hover {
+.session-chat-handle:hover {
   background: rgba(8, 145, 178, 0.9);
   transform: translateY(-50%) translateX(-4px);
 }
 
-.session-tree-handle:focus-visible {
+.session-chat-handle:focus-visible {
   outline: 2px solid var(--color-primary, #06b6d4);
   outline-offset: 2px;
 }
@@ -95,7 +95,7 @@ function handleOpen() {
   transition: color 0.2s ease;
 }
 
-.session-tree-handle:hover .handle-icon {
+.session-chat-handle:hover .handle-icon {
   color: #fff;
 }
 
