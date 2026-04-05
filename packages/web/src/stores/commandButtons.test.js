@@ -12,6 +12,8 @@ vi.mock('../composables/useApi.js', () => ({
     getActiveRuns: vi.fn(),
     killCommandRun: vi.fn(),
     getCommandRun: vi.fn(),
+    deleteCommandRun: vi.fn(),
+    deleteAllRunsForButton: vi.fn(),
     getLatestRunsForProject: vi.fn(),
   },
 }));
@@ -1372,6 +1374,111 @@ describe('CommandButtons Store', () => {
       // Run status should remain running (will be updated by server response)
       expect(store.runs[runId].status).toBe('running');
       expect(store.error).toBeNull();
+    });
+  });
+
+  describe('deleteAllRunsForButton', () => {
+    it('calls api.deleteAllRunsForButton with correct parameters', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteAllRunsForButton.mockResolvedValue(null);
+
+      store.runs['run-1'] = {
+        runId: 'run-1',
+        buttonId: 'btn-1',
+        sessionId: 'session-1',
+        status: 'success',
+        output: 'output',
+        exitCode: 0,
+      };
+
+      await store.deleteAllRunsForButton('session-1', 'btn-1');
+
+      expect(api.deleteAllRunsForButton).toHaveBeenCalledWith('session-1', 'btn-1');
+    });
+
+    it('clears all matching runs from local state', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteAllRunsForButton.mockResolvedValue(null);
+
+      store.runs = {
+        'run-1': { runId: 'run-1', buttonId: 'btn-1', sessionId: 'session-1', status: 'success', output: 'o1', exitCode: 0 },
+        'run-2': { runId: 'run-2', buttonId: 'btn-1', sessionId: 'session-1', status: 'error', output: 'o2', exitCode: 1 },
+        'run-3': { runId: 'run-3', buttonId: 'btn-1', sessionId: 'session-1', status: 'success', output: 'o3', exitCode: 0 },
+      };
+
+      await store.deleteAllRunsForButton('session-1', 'btn-1');
+
+      expect(store.runs['run-1']).toBeUndefined();
+      expect(store.runs['run-2']).toBeUndefined();
+      expect(store.runs['run-3']).toBeUndefined();
+    });
+
+    it('does not clear runs for other buttons', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteAllRunsForButton.mockResolvedValue(null);
+
+      store.runs = {
+        'run-1': { runId: 'run-1', buttonId: 'btn-1', sessionId: 'session-1', status: 'success', output: 'o1', exitCode: 0 },
+        'run-2': { runId: 'run-2', buttonId: 'btn-2', sessionId: 'session-1', status: 'success', output: 'o2', exitCode: 0 },
+      };
+
+      await store.deleteAllRunsForButton('session-1', 'btn-1');
+
+      expect(store.runs['run-1']).toBeUndefined();
+      expect(store.runs['run-2']).toBeDefined();
+    });
+
+    it('does not clear runs for same button in other sessions', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteAllRunsForButton.mockResolvedValue(null);
+
+      store.runs = {
+        'run-1': { runId: 'run-1', buttonId: 'btn-1', sessionId: 'session-1', status: 'success', output: 'o1', exitCode: 0 },
+        'run-2': { runId: 'run-2', buttonId: 'btn-1', sessionId: 'session-2', status: 'success', output: 'o2', exitCode: 0 },
+      };
+
+      await store.deleteAllRunsForButton('session-1', 'btn-1');
+
+      expect(store.runs['run-1']).toBeUndefined();
+      expect(store.runs['run-2']).toBeDefined();
+    });
+
+    it('propagates API errors', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteAllRunsForButton.mockRejectedValue(new Error('Server error'));
+
+      store.runs = {
+        'run-1': { runId: 'run-1', buttonId: 'btn-1', sessionId: 'session-1', status: 'success', output: 'o1', exitCode: 0 },
+      };
+
+      await expect(store.deleteAllRunsForButton('session-1', 'btn-1')).rejects.toThrow('Server error');
+
+      // Runs should NOT be cleared from local state since API failed
+      expect(store.runs['run-1']).toBeDefined();
+    });
+
+    it('cleans up timers, buffers, and collapsed states for deleted runs', async () => {
+      const store = useCommandButtonsStore();
+      api.deleteAllRunsForButton.mockResolvedValue(null);
+
+      const runId = 'run-cleanup';
+      store.runs[runId] = {
+        runId,
+        buttonId: 'btn-1',
+        sessionId: 'session-1',
+        status: 'success',
+        output: 'output',
+        exitCode: 0,
+      };
+      store._flushTimers[runId] = setTimeout(() => {}, 10000);
+      store._outputBuffers[runId] = 'buffered text';
+      store.collapsedStates[runId] = true;
+
+      await store.deleteAllRunsForButton('session-1', 'btn-1');
+
+      expect(store._flushTimers[runId]).toBeUndefined();
+      expect(store._outputBuffers[runId]).toBeUndefined();
+      expect(store.collapsedStates[runId]).toBeUndefined();
     });
   });
 

@@ -6,15 +6,26 @@ import { api } from '../../composables/useApi.js';
  */
 export const conversationActions = {
   async fetchConversations(sessionId) {
+    // Pre-fetch guard: skip if user navigated away
+    if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+
     this.error = null;
     try {
-      this.conversations = await api.getConversations(sessionId);
+      const conversations = await api.getConversations(sessionId);
+
+      // Post-fetch guard: discard if user navigated away during await
+      if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+
+      this.conversations = conversations;
       const active = this.conversations.find((c) => c.isActive);
       this.activeConversationId = active?.id || this.conversations[0]?.id || null;
     } catch (err) {
-      this.error = err.message;
-      this.conversations = [];
-      this.activeConversationId = null;
+      // Only set error/clear state if still on this session
+      if (!this.viewedSessionId || this.viewedSessionId === sessionId) {
+        this.error = err.message;
+        this.conversations = [];
+        this.activeConversationId = null;
+      }
     }
   },
 

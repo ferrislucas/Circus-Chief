@@ -7,7 +7,6 @@
  * - summaryPrompts.js — prompt templates, parsing, formatting
  * - prUrlService.js — PR URL extraction, validation, enrichment
  * - childSessionContext.js — child session hierarchy and file aggregation
- * - conversationSummary.js — conversation-specific summary generation
  * - withConcurrencyGuard.js — concurrency guard utility
  * - summaryBroadcast.js — WebSocket broadcast helpers
  */
@@ -21,8 +20,6 @@ import {
   MAX_RETRIES,
   DEFAULT_SESSION_TITLE_PROMPT,
   SUMMARY_SYSTEM_PROMPT,
-  CONVERSATION_SUMMARY_SYSTEM_PROMPT,
-  COMBINED_SUMMARY_SYSTEM_PROMPT,
   formatMessages,
   buildIncrementalPrompt,
   parseSummaryResponse,
@@ -31,7 +28,6 @@ import {
 } from './summaryPrompts.js';
 import { extractPrUrlIfNeeded, parsePrUrl, validatePrUrl, enrichPrData } from './prUrlService.js';
 import { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './childSessionContext.js';
-import { isConversationSummaryEnabled, generateConversationSummary, doGenerateSessionAndConversationSummary } from './conversationSummary.js';
 import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
 import { isSummaryStale } from './summaryStaleCheck.js';
 
@@ -471,22 +467,6 @@ export function cleanupSession(sessionId) {
 }
 
 /**
- * Generate both session and conversation summaries in a single API call (with concurrency guard)
- * @param {string} sessionId - The session ID
- * @param {string} conversationId - The conversation ID
- * @returns {Promise<Object>} Object with sessionSummary and conversationSummary
- */
-export async function generateSessionAndConversationSummary(sessionId, conversationId) {
-  return guard.run(
-    sessionId,
-    () => doGenerateSessionAndConversationSummary(sessionId, conversationId, generateSummary),
-    {
-      onFollowUp: (key) => generateSummary(key),
-    }
-  );
-}
-
-/**
  * Propagate summary update to parent sessions
  * @param {string} sessionId - The child session ID that was updated
  */
@@ -533,8 +513,6 @@ export {
   MAX_RETRIES,
   DEFAULT_SESSION_TITLE_PROMPT,
   SUMMARY_SYSTEM_PROMPT,
-  CONVERSATION_SUMMARY_SYSTEM_PROMPT,
-  COMBINED_SUMMARY_SYSTEM_PROMPT,
   formatMessages,
   buildIncrementalPrompt,
   parseSummaryResponse,
@@ -550,9 +528,6 @@ export { parsePrUrl, validatePrUrl, extractPrUrlIfNeeded, enrichPrData as _enric
 
 // From childSessionContext.js
 export { getChildSessions, buildChildSessionContext, aggregateFilesModified };
-
-// From conversationSummary.js
-export { isConversationSummaryEnabled, generateConversationSummary };
 
 // Read-only accessors for concurrency guard state
 export const isGenerationActive = (key) => guard.isActive(key);

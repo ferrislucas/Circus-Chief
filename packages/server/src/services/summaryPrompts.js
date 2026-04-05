@@ -37,36 +37,6 @@ Outcome guidelines:
 - "failed": Task encountered errors and couldn't proceed
 - "ongoing": Session is still active/waiting for user input`;
 
-// System prompt for conversation summary generation
-export const CONVERSATION_SUMMARY_SYSTEM_PROMPT = `You are generating a brief summary for a conversation thread within a Claude Code session.
-
-Generate a concise summary of this conversation. Focus on:
-1. The main topic or goal discussed
-2. Key actions taken or decisions made
-3. Current status (completed, in progress, blocked, etc.)`;
-
-// Combined system prompt for generating both session and conversation summaries in one call
-export const COMBINED_SUMMARY_SYSTEM_PROMPT = `You are generating summaries for a Claude Code session.
-
-Generate TWO summaries:
-
-1. SESSION SUMMARY - An overview of the entire session:
-   - Preserves important context from the existing summary
-   - Incorporates new actions and progress from recent messages
-   - Updates the outcome status if changed
-   - Maintains a coherent narrative of the full session
-
-   Session outcome guidelines:
-   - "completed": Task was fully accomplished
-   - "partial": Some progress made but task incomplete
-   - "failed": Task encountered errors and couldn't proceed
-   - "ongoing": Session is still active/waiting for user input
-
-2. CONVERSATION SUMMARY - A brief summary of the active conversation thread:
-   - The main topic or goal discussed
-   - Key actions taken or decisions made
-   - Current status (completed, in progress, blocked, etc.)`;
-
 /**
  * Format messages for the prompt
  * @param {Array} messageList - List of messages
@@ -129,19 +99,6 @@ ${formattedMessages}
 
 Session title guidelines:
 ${sessionTitlePrompt}`;
-}
-
-/**
- * Build prompt for conversation summary generation
- * @param {Array} conversationMessages - Messages in the conversation
- * @returns {string}
- */
-export function buildConversationSummaryPrompt(conversationMessages) {
-  const formattedMessages = formatMessages(conversationMessages);
-
-  // Return only dynamic content - static instructions are in system prompt
-  return `CONVERSATION:
-${formattedMessages}`;
 }
 
 /**
@@ -208,23 +165,6 @@ export function parseSummaryResponse(responseText) {
       sessionTitle: null,
       _parseFailed: true,
     };
-  }
-}
-
-/**
- * Parse conversation summary response
- * @param {string} responseText
- * @returns {string} The summary text
- */
-export function parseConversationSummaryResponse(responseText) {
-  const textToParse = stripMarkdownCodeBlock(responseText);
-
-  try {
-    const parsed = JSON.parse(textToParse);
-    return parsed.summary || 'Summary generation failed';
-  } catch {
-    // If parsing fails, return the raw text truncated
-    return textToParse.substring(0, 200);
   }
 }
 

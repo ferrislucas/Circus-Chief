@@ -116,7 +116,6 @@ export class SettingsRepository {
     if (!value) {
       return {
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
         sessionTitlePrompt: '',
       };
     }
@@ -124,13 +123,11 @@ export class SettingsRepository {
       const parsed = JSON.parse(value);
       return {
         disableSessionSummaries: parsed.disableSessionSummaries || false,
-        disableConversationSummaries: typeof parsed.disableConversationSummaries === 'boolean' ? parsed.disableConversationSummaries : true,
         sessionTitlePrompt: parsed.sessionTitlePrompt || '',
       };
     } catch {
       return {
         disableSessionSummaries: false,
-        disableConversationSummaries: true,
         sessionTitlePrompt: '',
       };
     }
@@ -140,13 +137,11 @@ export class SettingsRepository {
    * Set summary settings
    * @param {Object} settings - Summary settings
    * @param {boolean} settings.disableSessionSummaries - Disable session summaries
-   * @param {boolean} settings.disableConversationSummaries - Disable conversation summaries
    * @param {string} settings.sessionTitlePrompt - Custom session title prompt
    */
   setSummarySettings(settings) {
     const validated = {
       disableSessionSummaries: Boolean(settings.disableSessionSummaries),
-      disableConversationSummaries: Boolean(settings.disableConversationSummaries),
       sessionTitlePrompt: String(settings.sessionTitlePrompt || ''),
     };
     this.set(SUMMARY_SETTINGS_KEY, JSON.stringify(validated));
@@ -161,7 +156,6 @@ export class SettingsRepository {
     this.delete(SUMMARY_SETTINGS_KEY);
     return {
       disableSessionSummaries: false,
-      disableConversationSummaries: true,
       sessionTitlePrompt: '',
     };
   }

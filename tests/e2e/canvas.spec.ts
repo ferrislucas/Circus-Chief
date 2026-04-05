@@ -21,7 +21,7 @@ test.describe('Canvas Management', () => {
   test.beforeEach(async () => {
     await cleanupAll();
     project = await seedProject('Test Project', '/tmp/test');
-    session = await seedSession(project.id, { prompt: 'Test', name: 'Canvas Test' });
+    session = await seedSession(project.id, { prompt: 'Test', name: 'Canvas Test', startImmediately: false });
   });
 
   test.afterEach(async () => {
@@ -54,7 +54,7 @@ test.describe('Canvas Trash & Soft Delete', () => {
   test.beforeEach(async () => {
     await cleanupAll();
     project = await seedProject('Trash Test Project', '/tmp/test');
-    session = await seedSession(project.id, { prompt: 'Test', name: 'Trash Test' });
+    session = await seedSession(project.id, { prompt: 'Test', name: 'Trash Test', startImmediately: false });
   });
 
   test.afterEach(async () => {
