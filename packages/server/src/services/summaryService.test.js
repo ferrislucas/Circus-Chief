@@ -277,8 +277,8 @@ describe('summaryService', () => {
     it('uses default session title prompt when none provided', () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
       const result = buildIncrementalPrompt(null, recentMessages, 'running', null);
-      expect(result).toContain('STRATEGIC GOAL');
-      expect(result).toContain('PRESERVE the existing title');
+      expect(result).toContain('goal of the session');
+      expect(result).toContain('If a PR was created');
       expect(result).toContain('max 60 characters');
     });
 
@@ -287,7 +287,7 @@ describe('summaryService', () => {
       const recentMessages = [{ role: 'user', content: 'Test' }];
       const result = buildIncrementalPrompt(null, recentMessages, 'running', { projectTitlePrompt: customPrompt });
       expect(result).toContain(customPrompt);
-      expect(result).not.toContain('STRATEGIC GOAL'); // Should not have default when custom provided
+      expect(result).not.toContain('goal of the session'); // Should not have default when custom provided
     });
 
     it('includes previous title in context when existing summary provided', () => {
