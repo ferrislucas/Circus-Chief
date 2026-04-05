@@ -40,18 +40,18 @@ vi.mock('../components/SessionHierarchyBreadcrumb.vue', () => ({
     props: ['path', 'currentSessionId']
   }
 }));
-vi.mock('../components/SessionTreeHandle.vue', () => ({
+vi.mock('../components/SessionChatHandle.vue', () => ({
   default: {
-    name: 'SessionTreeHandle',
-    template: '<div class="tree-handle">Tree Handle</div>',
+    name: 'SessionChatHandle',
+    template: '<div class="session-chat-handle">Chat Handle</div>',
     props: ['isSessionActive', 'sessionStatus'],
     emits: ['open']
   }
 }));
-vi.mock('../components/SessionTreeOverlay.vue', () => ({
+vi.mock('../components/SessionChatOverlay.vue', () => ({
   default: {
-    name: 'SessionTreeOverlay',
-    template: '<div class="tree-overlay">Tree Overlay</div>',
+    name: 'SessionChatOverlay',
+    template: '<div class="session-chat-overlay">Chat Overlay</div>',
     props: ['sessionId', 'sessionChain', 'summariesMap'],
     emits: ['close', 'session-created']
   }
@@ -2414,7 +2414,7 @@ describe('SessionDetailView', () => {
   });
 
   describe('session active indicator', () => {
-    it('passes isSessionActive=true to SessionTreeHandle when running', async () => {
+    it('passes isSessionActive=true to SessionChatHandle when running', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2440,12 +2440,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
       expect(treeHandle.props('sessionStatus')).toBe('running');
     });
 
-    it('passes isSessionActive=true to SessionTreeHandle when starting', async () => {
+    it('passes isSessionActive=true to SessionChatHandle when starting', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2471,12 +2471,12 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
       expect(treeHandle.props('sessionStatus')).toBe('starting');
     });
 
-    it('passes isSessionActive=false to SessionTreeHandle when completed', async () => {
+    it('passes isSessionActive=false to SessionChatHandle when completed', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2502,11 +2502,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(false);
     });
 
-    it('passes isSessionActive=false to SessionTreeHandle when waiting', async () => {
+    it('passes isSessionActive=false to SessionChatHandle when waiting', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2532,11 +2532,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(false);
     });
 
-    it('passes isSessionActive=false to SessionTreeHandle when error', async () => {
+    it('passes isSessionActive=false to SessionChatHandle when error', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2562,11 +2562,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(false);
     });
 
-    it('passes sessionStatus=running to SessionTreeHandle for running status', async () => {
+    it('passes sessionStatus=running to SessionChatHandle for running status', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2592,11 +2592,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('sessionStatus')).toBe('running');
     });
 
-    it('passes sessionStatus=starting to SessionTreeHandle for starting status', async () => {
+    it('passes sessionStatus=starting to SessionChatHandle for starting status', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2622,11 +2622,11 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('sessionStatus')).toBe('starting');
     });
 
-    it('hides SessionTreeHandle when overlay is open', async () => {
+    it('hides SessionChatHandle when overlay is open', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2652,14 +2652,14 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.isVisible()).toBe(false);
     });
 
-    it('shows SessionTreeHandle when overlay is closed', async () => {
+    it('shows SessionChatHandle when overlay is closed', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -2685,10 +2685,10 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      wrapper.vm.treeOverlayOpen = false;
+      wrapper.vm.chatOverlayOpen = false;
       await nextTick();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.isVisible()).toBe(true);
     });
 
@@ -2726,7 +2726,7 @@ describe('SessionDetailView', () => {
       ];
       await nextTick();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
     });
 
@@ -2764,7 +2764,7 @@ describe('SessionDetailView', () => {
       ];
       await nextTick();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
     });
 
@@ -2803,7 +2803,7 @@ describe('SessionDetailView', () => {
       ];
       await nextTick();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(false);
     });
 
@@ -2841,7 +2841,7 @@ describe('SessionDetailView', () => {
       ];
       await nextTick();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('sessionStatus')).toBe('running');
     });
 
@@ -2879,7 +2879,7 @@ describe('SessionDetailView', () => {
       ];
       await nextTick();
 
-      const treeHandle = wrapper.findComponent({ name: 'SessionTreeHandle' });
+      const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(false);
 
       // Update sessionChain to include a running child
@@ -3338,7 +3338,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.vm.overlaySessionId).toBe('child-1');
     });
 
-    it('passes overlaySessionId to SessionTreeOverlay', async () => {
+    it('passes overlaySessionId to SessionChatOverlay', async () => {
       // Populate the sessions store with parent and running child
       sessionsStore.sessions = [
         { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
@@ -3367,11 +3367,11 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       // Open the overlay so it's rendered in the DOM
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      // Find the SessionTreeOverlay component and check its session-id prop
-      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      // Find the SessionChatOverlay component and check its session-id prop
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       expect(treeOverlay.exists()).toBe(true);
       expect(treeOverlay.props('sessionId')).toBe('child-1'); // Should be the running child
     });
@@ -3430,7 +3430,7 @@ describe('SessionDetailView', () => {
       // overlaySessionId should now point to the newly-running child
       expect(wrapper.vm.overlaySessionId).toBe('child-1');
       // And the overlay should be open
-      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+      expect(wrapper.vm.chatOverlayOpen).toBe(true);
     });
   });
 
@@ -3491,7 +3491,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
     });
 
-    it('passes sessionChain and summariesMap to SessionTreeOverlay', async () => {
+    it('passes sessionChain and summariesMap to SessionChatOverlay', async () => {
       const parentSession = {
         id: 'parent-1',
         name: 'Parent Session',
@@ -3538,10 +3538,10 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       // Open the overlay
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       expect(treeOverlay.exists()).toBe(true);
       expect(treeOverlay.props('sessionChain')).toEqual(wrapper.vm.sessionChain);
       expect(treeOverlay.props('summariesMap')).toEqual(wrapper.vm.summariesMap);
@@ -3602,10 +3602,10 @@ describe('SessionDetailView', () => {
       api.getProjectSessions.mockResolvedValue([parentSession, newChild]);
 
       // Open overlay and emit session-created
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      const treeOverlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       treeOverlay.vm.$emit('session-created', 'new-child');
       await flushPromises();
       await nextTick();
@@ -3772,12 +3772,12 @@ describe('SessionDetailView', () => {
       sessionsStore.fetchMessages.mockClear();
 
       // Simulate overlay being opened and viewedSessionId changed to a child
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       sessionsStore.viewedSessionId = 'child-1';
       await nextTick();
 
       // Emit close event from the overlay
-      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const overlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       overlay.vm.$emit('close');
       await nextTick();
       await flushPromises();
@@ -3821,17 +3821,17 @@ describe('SessionDetailView', () => {
       await flushPromises();
 
       // Open the overlay
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+      expect(wrapper.vm.chatOverlayOpen).toBe(true);
 
       // Emit close
-      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const overlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       overlay.vm.$emit('close');
       await nextTick();
 
-      expect(wrapper.vm.treeOverlayOpen).toBe(false);
+      expect(wrapper.vm.chatOverlayOpen).toBe(false);
     });
 
     it('restores parent state even when overlay did not change viewedSessionId', async () => {
@@ -3868,10 +3868,10 @@ describe('SessionDetailView', () => {
       sessionsStore.fetchMessages.mockClear();
 
       // Open and close overlay without changing viewedSessionId
-      wrapper.vm.treeOverlayOpen = true;
+      wrapper.vm.chatOverlayOpen = true;
       await nextTick();
 
-      const overlay = wrapper.findComponent({ name: 'SessionTreeOverlay' });
+      const overlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
       overlay.vm.$emit('close');
       await nextTick();
       await flushPromises();
@@ -3915,7 +3915,7 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       // Overlay should be open
-      expect(wrapper.vm.treeOverlayOpen).toBe(true);
+      expect(wrapper.vm.chatOverlayOpen).toBe(true);
 
       // Query param should be cleared (router.replace removes it)
       expect(router.currentRoute.value.query.overlay).toBeUndefined();
@@ -3952,7 +3952,7 @@ describe('SessionDetailView', () => {
       await nextTick();
 
       // Overlay should remain closed
-      expect(wrapper.vm.treeOverlayOpen).toBe(false);
+      expect(wrapper.vm.chatOverlayOpen).toBe(false);
     });
   });
 });

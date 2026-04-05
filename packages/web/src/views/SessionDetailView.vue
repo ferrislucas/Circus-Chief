@@ -53,17 +53,17 @@
         <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
 
-      <!-- Session Tree Handle -->
-      <SessionTreeHandle
-        v-show="!treeOverlayOpen"
+      <!-- Session Chat Handle -->
+      <SessionChatHandle
+        v-show="!chatOverlayOpen"
         :is-session-active="isSessionActive"
         :session-status="activeSessionStatus"
         @open="handleOverlayOpen"
       />
 
-      <!-- Session Tree Overlay -->
-      <SessionTreeOverlay
-        v-if="treeOverlayOpen"
+      <!-- Session Chat Overlay -->
+      <SessionChatOverlay
+        v-if="chatOverlayOpen"
         :session-id="overlaySessionId"
         :session-chain="sessionChain"
         :summaries-map="summariesMap"
@@ -91,8 +91,8 @@ import CommandsTab from '../components/CommandsTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
-import SessionTreeHandle from '../components/SessionTreeHandle.vue';
-import SessionTreeOverlay from '../components/SessionTreeOverlay.vue';
+import SessionChatHandle from '../components/SessionChatHandle.vue';
+import SessionChatOverlay from '../components/SessionChatOverlay.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { api } from '../composables/useApi.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
@@ -136,12 +136,12 @@ const {
 
 const summary = ref(null);
 const isDeleting = ref(false);
-const treeOverlayOpen = ref(false);
+const chatOverlayOpen = ref(false);
 
 // Session ID to pass to the overlay - resolves to running child if present
 const overlaySessionId = ref(route.params.id);
 
-// Session chain state (lifted from SessionTreeOverlay)
+// Session chain state (lifted from SessionChatOverlay)
 const sessionChain = ref([]);
 const summariesMap = ref({});
 const hasDescendants = computed(() => sessionChain.value.length > 1);
@@ -316,7 +316,7 @@ function handleSessionCreated(msg) {
   if (!newSession?.parentSessionId) return;
 
   // Only act when overlay is closed
-  if (treeOverlayOpen.value) return;
+  if (chatOverlayOpen.value) return;
 
   // Check if the new session's parent is in our session tree
   const isChildOfTree = sessionChain.value.some(
@@ -340,11 +340,11 @@ function handleSessionCreated(msg) {
 
 function handleOverlayOpen() {
   resolveOverlayTarget();
-  treeOverlayOpen.value = true;
+  chatOverlayOpen.value = true;
 }
 
 async function handleOverlayClose() {
-  treeOverlayOpen.value = false;
+  chatOverlayOpen.value = false;
   const parentId = currentSessionId.value;
   sessionsStore.viewedSessionId = parentId;
 
@@ -461,7 +461,7 @@ onMounted(async () => {
 
   // Auto-open tree overlay if requested via query param (e.g., after new session creation)
   if (route.query.overlay === 'open') {
-    treeOverlayOpen.value = true;
+    chatOverlayOpen.value = true;
     // Clear the query param so refresh doesn't re-open.
     // Use path only — do NOT spread the route object (it's a read-only proxy).
     router.replace({ path: route.path, query: {} });
@@ -644,7 +644,7 @@ async function handleCopySessionId() {
 // Expose for testing
 defineExpose({
   overlaySessionId,
-  treeOverlayOpen,
+  chatOverlayOpen,
   sessionChain,
   summariesMap,
   handleOverlayOpen,

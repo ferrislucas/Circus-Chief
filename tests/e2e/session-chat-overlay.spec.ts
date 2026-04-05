@@ -11,7 +11,7 @@ import {
   getProjectSessions,
 } from './helpers';
 
-test.describe('Session Tree Overlay', () => {
+test.describe('Session Chat Overlay', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
@@ -48,10 +48,10 @@ test.describe('Session Tree Overlay', () => {
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
-    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
     // Wait for slide-in animation to complete (300ms + buffer)
     await page.waitForTimeout(400);
@@ -68,7 +68,7 @@ test.describe('Session Tree Overlay', () => {
       timeout: 15000,
     });
 
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
   });
 
@@ -78,7 +78,7 @@ test.describe('Session Tree Overlay', () => {
       timeout: 15000,
     });
 
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
   });
 
@@ -95,7 +95,7 @@ test.describe('Session Tree Overlay', () => {
     });
 
     // Handle is always visible on any session detail page
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
   });
 
@@ -109,18 +109,18 @@ test.describe('Session Tree Overlay', () => {
       timeout: 15000,
     });
 
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
 
     await handle.click();
-    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
   });
 
   test('clicking close button closes overlay', async ({ page }) => {
     const overlay = await openOverlay(page, parentSession.id);
 
-    const closeBtn = page.locator('[data-testid="session-tree-overlay-close-handle"]');
+    const closeBtn = page.locator('[data-testid="session-chat-overlay-close-handle"]');
     await expect(closeBtn).toBeVisible();
     await closeBtn.click();
 
@@ -249,7 +249,7 @@ test.describe('Session Tree Overlay', () => {
       const trigger = dropdown.locator('.dropdown-trigger');
       await trigger.click();
 
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
     });
 
@@ -261,7 +261,7 @@ test.describe('Session Tree Overlay', () => {
 
       // Open picker
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Should show at least parent + one child
@@ -280,7 +280,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // No items should contain ROOT or CHILD text anywhere in picker
@@ -303,7 +303,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Get all picker items
@@ -331,7 +331,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Get all picker items
@@ -364,7 +364,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // The active (currently viewed) session should have the active class
@@ -380,7 +380,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Click the second item (first child)
@@ -408,7 +408,7 @@ test.describe('Session Tree Overlay', () => {
 
       // Open picker
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Press Escape - should close picker only
@@ -428,7 +428,7 @@ test.describe('Session Tree Overlay', () => {
 
       // Open picker
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Click first item
@@ -465,7 +465,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
     });
 
@@ -477,7 +477,7 @@ test.describe('Session Tree Overlay', () => {
 
       // Open
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Close
@@ -514,10 +514,10 @@ test.describe('Session Tree Overlay', () => {
     });
 
     // Open overlay and verify it shows parent session
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
-    const overlay = page.locator('[data-testid="session-tree-overlay"]');
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(400);
 
@@ -525,12 +525,12 @@ test.describe('Session Tree Overlay', () => {
     await expect(rootName).toContainText('Parent Session');
 
     // Close overlay
-    await page.locator('[data-testid="session-tree-overlay-close-handle"]').click();
+    await page.locator('[data-testid="session-chat-overlay-close-handle"]').click();
     await expect(overlay).not.toBeVisible({ timeout: 5000 });
 
     // Verify we can reopen overlay and it still shows parent session
     await handle.click();
-    const overlayAgain = page.locator('[data-testid="session-tree-overlay"]');
+    const overlayAgain = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlayAgain).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(400);
 
@@ -552,7 +552,7 @@ test.describe('Session Tree Overlay', () => {
     await expect(dropdown).toBeVisible({ timeout: 10000 });
 
     await dropdown.locator('.dropdown-trigger').click();
-    const picker = page.locator('[data-testid="session-tree-picker"]');
+    const picker = page.locator('[data-testid="session-chat-picker"]');
     await expect(picker).toBeVisible({ timeout: 5000 });
 
     // Just verify the picker has items - status badges are rendered conditionally
@@ -602,7 +602,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(dropdown).toBeVisible({ timeout: 10000 });
 
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Click the second item (first child session) - the chain is built as [root, child1, ...]
@@ -759,8 +759,8 @@ test.describe('Session Tree Overlay', () => {
         timeout: 15000,
       });
 
-      const handle = page.locator('[data-testid="session-tree-handle"]');
-      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      const handle = page.locator('[data-testid="session-chat-handle"]');
+      const overlay = page.locator('[data-testid="session-chat-overlay"]');
 
       // Get initial bounding box
       await handle.click();
@@ -786,7 +786,7 @@ test.describe('Session Tree Overlay', () => {
     test('overlay slides out to right when closed', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
-      const closeBtn = page.locator('[data-testid="session-tree-overlay-close-handle"]');
+      const closeBtn = page.locator('[data-testid="session-chat-overlay-close-handle"]');
       await closeBtn.click();
 
       // Wait for slide-out animation to complete (250ms + buffer)
@@ -803,8 +803,8 @@ test.describe('Session Tree Overlay', () => {
         timeout: 15000,
       });
 
-      const handle = page.locator('[data-testid="session-tree-handle"]');
-      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      const handle = page.locator('[data-testid="session-chat-handle"]');
+      const overlay = page.locator('[data-testid="session-chat-overlay"]');
 
       // Rapid open/close cycles
       for (let i = 0; i < 3; i++) {
@@ -884,10 +884,10 @@ test.describe('Session Tree Overlay', () => {
       });
 
       // Open the overlay
-      const handle = page.locator('[data-testid="session-tree-handle"]');
+      const handle = page.locator('[data-testid="session-chat-handle"]');
       await expect(handle).toBeVisible({ timeout: 10000 });
       await handle.click();
-      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      const overlay = page.locator('[data-testid="session-chat-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
@@ -914,10 +914,10 @@ test.describe('Session Tree Overlay', () => {
       });
 
       // Open the overlay
-      const handle = page.locator('[data-testid="session-tree-handle"]');
+      const handle = page.locator('[data-testid="session-chat-handle"]');
       await expect(handle).toBeVisible({ timeout: 10000 });
       await handle.click();
-      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      const overlay = page.locator('[data-testid="session-chat-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
@@ -943,10 +943,10 @@ test.describe('Session Tree Overlay', () => {
       });
 
       // Open the overlay
-      const handle = page.locator('[data-testid="session-tree-handle"]');
+      const handle = page.locator('[data-testid="session-chat-handle"]');
       await expect(handle).toBeVisible({ timeout: 10000 });
       await handle.click();
-      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      const overlay = page.locator('[data-testid="session-chat-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
@@ -974,10 +974,10 @@ test.describe('Session Tree Overlay', () => {
       });
 
       // Open the overlay
-      const handle = page.locator('[data-testid="session-tree-handle"]');
+      const handle = page.locator('[data-testid="session-chat-handle"]');
       await expect(handle).toBeVisible({ timeout: 10000 });
       await handle.click();
-      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      const overlay = page.locator('[data-testid="session-chat-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
@@ -995,10 +995,10 @@ test.describe('Session Tree Overlay', () => {
         waitFor: '.session-detail',
         timeout: 15000,
       });
-      const handle = page.locator('[data-testid="session-tree-handle"]');
+      const handle = page.locator('[data-testid="session-chat-handle"]');
       await expect(handle).toBeVisible({ timeout: 10000 });
       await handle.click();
-      const overlay = page.locator('[data-testid="session-tree-overlay"]');
+      const overlay = page.locator('[data-testid="session-chat-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
@@ -1011,7 +1011,7 @@ test.describe('Session Tree Overlay', () => {
       await expect(dropdownName).toContainText('Child Session', { timeout: 5000 });
 
       // Close the overlay
-      await page.locator('[data-testid="session-tree-overlay-close-handle"]').click();
+      await page.locator('[data-testid="session-chat-overlay-close-handle"]').click();
       await expect(overlay).not.toBeVisible({ timeout: 5000 });
 
       // Seed a different session with no running children
@@ -1028,10 +1028,10 @@ test.describe('Session Tree Overlay', () => {
       });
 
       // Open overlay on the other session
-      const handle2 = page.locator('[data-testid="session-tree-handle"]');
+      const handle2 = page.locator('[data-testid="session-chat-handle"]');
       await expect(handle2).toBeVisible({ timeout: 10000 });
       await handle2.click();
-      const overlayAgain = page.locator('[data-testid="session-tree-overlay"]');
+      const overlayAgain = page.locator('[data-testid="session-chat-overlay"]');
       await expect(overlayAgain).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
@@ -1120,7 +1120,7 @@ test.describe('Session Tree Overlay', () => {
       // Open picker and verify both parent and new session are listed
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
       await expect(picker).toContainText('Parent Session');
       await expect(picker).toContainText('New Session');
@@ -1139,7 +1139,7 @@ test.describe('Session Tree Overlay', () => {
       // Navigate back to parent via session picker
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
       await dropdown.locator('.dropdown-trigger').click();
-      const picker = page.locator('[data-testid="session-tree-picker"]');
+      const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Click the parent session item (first item in picker)
