@@ -362,9 +362,6 @@ export async function runSession(sessionId, prompt, workingDirectory, options = 
  */
 export async function continueSession(sessionId, content, workingDirectory, options = {}) {
   const { systemPrompt = null, fileAttachments = [], model = null } = options;
-  // [MODEL AUDIT] Log model received in continueSession
-  console.log(`[MODEL AUDIT - SessionManager] continueSession called with model: "${model}"`);
-
   // Check if session is already running
   if (activeSessions.has(sessionId)) {
     throw new Error('Session is already processing');
@@ -428,23 +425,8 @@ export async function continueSession(sessionId, content, workingDirectory, opti
     session = sessions.getById(sessionId); // refresh
   }
 
-  // [MODEL AUDIT] Log model change detection
-  console.log(`[MODEL AUDIT - SessionManager] Model change check:`, {
-    requestedModel: model,
-    sessionModel: session.model,
-    modelChanged,
-    conversationClaudeSessionId: activeConversation.claudeSessionId,
-  });
-
-  if (modelChanged) {
-    console.log(`[SESSION] Model changed to "${model}" - including conversation context`);
-  }
-
   // Only resume if we have a session ID AND model hasn't changed
   const canResume = activeConversation.claudeSessionId && !modelChanged;
-
-  // [MODEL AUDIT] Log resume decision
-  console.log(`[MODEL AUDIT - SessionManager] Resume decision: canResume=${canResume}`);
 
   // When model changes, include conversation history as context so the new model
   // can continue naturally without needing to resume the incompatible session
@@ -452,13 +434,6 @@ export async function continueSession(sessionId, content, workingDirectory, opti
     ? buildConversationContextForModelSwitch(activeConversation.id)
     : '';
   const promptWithContext = conversationContext + promptWithAttachments;
-
-  // [MODEL AUDIT] Log SDK query options
-  console.log(`[MODEL AUDIT - SessionManager] SDK query options:`, {
-    model: model,
-    resume: canResume ? activeConversation.claudeSessionId : null,
-    hasConversationContext: conversationContext.length > 0,
-  });
 
   const queryParams = buildQueryParams({
     prompt: promptWithContext,

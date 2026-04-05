@@ -74,10 +74,6 @@ export function configureSchedule(session, scheduleData) {
 
   const { scheduledAt } = scheduleData;
 
-  // DEBUG: Log incoming scheduledAt value
-  console.log('[DEBUG] Schedule API - scheduledAt from request:', scheduledAt, 'type:', typeof scheduledAt);
-  console.log('[DEBUG] Schedule API - Date.now():', Date.now());
-
   // Validate scheduledAt is provided and in the future
   if (!scheduledAt || scheduledAt <= Date.now()) {
     throw new ScheduleError('scheduledAt must be a future timestamp', 400);

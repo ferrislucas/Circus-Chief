@@ -647,66 +647,12 @@ defineExpose({
 </script>
 
 <style scoped>
-.loading-state {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  justify-content: center;
-  padding: 3rem;
-}
-
-.tab-content {
-  min-height: 400px;
-}
-
-/* Delete overlay styles */
-.delete-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(2px);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.delete-overlay-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  color: var(--color-text, #e0e0e0);
-  font-size: 1.125rem;
-}
-
-.delete-spinner {
-  display: inline-block;
-  width: 3rem;
-  height: 3rem;
-  border: 3px solid rgba(0, 188, 212, 0.2);
-  border-top-color: var(--color-primary, #00bcd4);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Fade transition for overlay */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
+.loading-state { display: flex; align-items: center; gap: 0.5rem; justify-content: center; padding: 3rem; }
+.tab-content { min-height: 400px; }
+.delete-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(2px); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.delete-overlay-content { display: flex; flex-direction: column; align-items: center; gap: 1rem; color: var(--color-text, #e0e0e0); font-size: 1.125rem; }
+.delete-spinner { display: inline-block; width: 3rem; height: 3rem; border: 3px solid rgba(0, 188, 212, 0.2); border-top-color: var(--color-primary, #00bcd4); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

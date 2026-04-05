@@ -98,16 +98,6 @@ const toggleFilter = (status) => {
   }
 };
 
-const toggleStarredFilter = (filter) => {
-  // If the clicked filter is already active, clear the filter (show all)
-  if (sessionsStore.starredFilter === filter) {
-    sessionsStore.setStarredFilter(null);
-  } else {
-    // Otherwise, set this filter as the only active one
-    sessionsStore.setStarredFilter(filter);
-  }
-};
-
 const toggleStarFilterIcon = () => {
   // Cycle through three states: null -> starred -> unstarred -> null
   if (sessionsStore.starredFilter === null) {

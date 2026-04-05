@@ -321,17 +321,9 @@ watch(
 );
 
 // Track when fields are overridden by user
-watch(mode, () => {
-  usingDefaults.value.mode = false;
-});
-
-watch(model, () => {
-  usingDefaults.value.model = false;
-});
-
-watch(thinkingEnabled, () => {
-  usingDefaults.value.thinkingEnabled = false;
-});
+watch(mode, () => { usingDefaults.value.mode = false; });
+watch(model, () => { usingDefaults.value.model = false; });
+watch(thinkingEnabled, () => { usingDefaults.value.thinkingEnabled = false; });
 
 // Rec 3: Reset scheduling data when startImmediately is toggled on
 // Also auto-scroll to the advanced options section when toggled off
@@ -357,13 +349,8 @@ watch(startImmediately, (newVal) => {
   }
 });
 
-watch(quickGitMode, () => {
-  usingDefaults.value.quickGitMode = false;
-});
-
-watch(quickWorktreeBranch, () => {
-  usingDefaults.value.quickWorktreeBranch = false;
-});
+watch(quickGitMode, () => { usingDefaults.value.quickGitMode = false; });
+watch(quickWorktreeBranch, () => { usingDefaults.value.quickWorktreeBranch = false; });
 
 // Watch prompt for localStorage persistence with debouncing
 watch(prompt, (newValue) => {
@@ -523,9 +510,7 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
 }
 
 function handleStartFromTemplateChange() {
-  if (!startFromTemplateId.value) return;
-
-  const template = templatesStore.getTemplateById(startFromTemplateId.value);
+  const template = startFromTemplateId.value && templatesStore.getTemplateById(startFromTemplateId.value);
   if (!template) return;
 
   // Populate prompt
@@ -535,31 +520,14 @@ function handleStartFromTemplateChange() {
     textareaRef.value.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // Populate other fields from template
-  if (template.thinkingEnabled !== null && template.thinkingEnabled !== undefined) {
-    thinkingEnabled.value = template.thinkingEnabled;
-  }
-  if (template.model) {
-    model.value = template.model;
-  }
-  if (template.mode) {
-    mode.value = template.mode;
-  }
-  if (template.gitBranch) {
-    quickWorktreeBranch.value = template.gitBranch;
-    editingBranch.value = true; // Mark as edited so it doesn't auto-regenerate
-  }
-  if (template.gitMode) {
-    quickGitMode.value = template.gitMode;
-  }
-  if (template.effortLevel !== null && template.effortLevel !== undefined) {
-    effortLevel.value = template.effortLevel;
-  }
-
-  // IMPORTANT: Also set the "Next Template" dropdown to the template's nextTemplateId
-  if (template.nextTemplateId) {
-    selectedTemplateId.value = template.nextTemplateId;
-  }
+  // Populate fields from template (only override when template has a value)
+  if (template.thinkingEnabled != null) thinkingEnabled.value = template.thinkingEnabled;
+  if (template.model) model.value = template.model;
+  if (template.mode) mode.value = template.mode;
+  if (template.gitBranch) { quickWorktreeBranch.value = template.gitBranch; editingBranch.value = true; }
+  if (template.gitMode) quickGitMode.value = template.gitMode;
+  if (template.effortLevel != null) effortLevel.value = template.effortLevel;
+  if (template.nextTemplateId) selectedTemplateId.value = template.nextTemplateId;
 }
 
 async function handleSubmit() {
@@ -611,100 +579,22 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.back-link {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  display: inline-block;
-  margin-bottom: 0.25rem;
-  margin-top: 0;
-}
-
-h1 {
-  margin-bottom: 0.5rem;
-  margin-top: 0;
-}
-
-/* Rec 8: Constrain form width */
+.back-link { font-size: 0.875rem; color: var(--color-text-soft); display: inline-block; margin-bottom: 0.25rem; margin-top: 0; }
+h1 { margin-bottom: 0.5rem; margin-top: 0; }
 .form { width: 100%; max-width: 640px; margin: 0 auto; }
-
-.form-help {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
-}
-
-.attachment-row {
-  margin-top: 0.5rem;
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-/* Rec 1: Form actions as flex row with Cancel + Submit */
-.form-actions {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  margin-top: 1rem;
-}
-
-.btn-submit {
-  flex: 1;
-  padding-top: 0.75rem;
-  padding-bottom: 0.75rem;
-  font-size: 1.05rem;
-}
-
-.btn-secondary {
-  padding: 0.75rem 1.25rem;
-  font-size: 1.05rem;
-  background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text-soft);
-  border-radius: var(--border-radius, 4px);
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.btn-secondary:hover {
-  border-color: var(--color-border-hover);
-  color: var(--color-text);
-}
-
-.error-message {
-  color: var(--color-error);
-  margin-bottom: 1rem;
-}
-
-/* Advanced Options section */
-.advanced-options {
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
+.form-help { margin: 0.5rem 0 0; font-size: 0.75rem; color: var(--color-text-soft); }
+.attachment-row { margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center; }
+.form-actions { display: flex; gap: 0.75rem; align-items: center; margin-top: 1rem; }
+.btn-submit { flex: 1; padding-top: 0.75rem; padding-bottom: 0.75rem; font-size: 1.05rem; }
+.btn-secondary { padding: 0.75rem 1.25rem; font-size: 1.05rem; background: transparent; border: 1px solid var(--color-border); color: var(--color-text-soft); border-radius: var(--border-radius, 4px); cursor: pointer; transition: border-color 0.15s, color 0.15s; }
+.btn-secondary:hover { border-color: var(--color-border-hover); color: var(--color-text); }
+.error-message { color: var(--color-error); margin-bottom: 1rem; }
+.advanced-options { margin-top: 0.5rem; margin-bottom: 0.5rem; }
 @media (max-width: 480px) {
-  h1 {
-    margin-bottom: 0.5rem;
-    font-size: 1.5rem;
-  }
-
-  /* Rec 10: Tighten card padding on mobile */
-  .form.card {
-    padding: 0.75rem;
-  }
+  h1 { margin-bottom: 0.5rem; font-size: 1.5rem; }
+  .form.card { padding: 0.75rem; }
 }
-
-/* Rec 1: Sticky form actions on mobile */
 @media (max-width: 640px) {
-  .form-actions {
-    position: sticky;
-    bottom: 0;
-    background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e));
-    border-top: 1px solid var(--color-border);
-    padding: 0.75rem 1rem;
-    margin: 0 -1rem -1rem;
-    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
-    z-index: 10;
-  }
+  .form-actions { position: sticky; bottom: 0; background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e)); border-top: 1px solid var(--color-border); padding: 0.75rem 1rem; margin: 0 -1rem -1rem; padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); z-index: 10; }
 }
 </style>
