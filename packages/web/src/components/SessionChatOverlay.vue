@@ -50,7 +50,7 @@
           <!-- Existing overlay-content -->
           <div class="overlay-content session-chat-overlay">
           <!-- Header (no padding constraints) -->
-          <div class="overlay-header">
+          <div class="overlay-header" @touchmove="handleHeaderTouchmove">
             <!-- Row 1: Session Name -->
             <div class="overlay-header-row">
               <!-- Editing mode -->
@@ -591,16 +591,45 @@ function handleEscape(event) {
   }
 }
 
-// Body scroll lock to prevent horizontal layout shift when overlay is open
-let savedBodyOverflow = '';
+/**
+ * Prevent touch-drag on the overlay header from scrolling the overlay,
+ * while allowing touch-move inside interactive children that need it:
+ * - SessionChatPicker dropdown (scrollable list)
+ * - Name-edit input (text selection via touch)
+ */
+function handleHeaderTouchmove(event) {
+  if (event.target.closest('[data-testid="session-chat-picker"]')) return;
+  if (event.target.closest('.name-edit-input')) return;
+  event.preventDefault();
+}
+
+// Body scroll lock — iOS-compatible "fixed body" pattern.
+// On iOS Safari, `overflow: hidden` alone is insufficient: it doesn't reset
+// the existing scroll offset and touch gestures can still move the body.
+// Setting `position: fixed` truly freezes the page.
+let savedScrollY = 0;
+let savedBodyStyles = {};
 
 function lockBodyScroll() {
-  savedBodyOverflow = document.body.style.overflow;
+  savedScrollY = window.scrollY;
+  savedBodyStyles = {
+    overflow: document.body.style.overflow,
+    position: document.body.style.position,
+    top: document.body.style.top,
+    width: document.body.style.width,
+  };
   document.body.style.overflow = 'hidden';
+  document.body.style.position = 'fixed';
+  document.body.style.top = `-${savedScrollY}px`;
+  document.body.style.width = '100%';
 }
 
 function unlockBodyScroll() {
-  document.body.style.overflow = savedBodyOverflow;
+  document.body.style.overflow = savedBodyStyles.overflow || '';
+  document.body.style.position = savedBodyStyles.position || '';
+  document.body.style.top = savedBodyStyles.top || '';
+  document.body.style.width = savedBodyStyles.width || '';
+  window.scrollTo(0, savedScrollY);
 }
 
 // Lifecycle
@@ -720,6 +749,7 @@ defineExpose({
   align-items: flex-start;
   overflow: hidden;
   overflow-y: hidden;
+  overscroll-behavior: none;
 }
 
 .overlay-panel-wrapper {
@@ -730,6 +760,7 @@ defineExpose({
   max-width: 900px;
   width: 100%;
   overflow: visible;
+  overscroll-behavior: none;
 }
 
 .overlay-close-handle {
@@ -803,6 +834,7 @@ defineExpose({
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .overlay-header {
@@ -877,7 +909,7 @@ defineExpose({
    streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-chat-overlay :deep(.messages) {
   max-height: none !important;
-  overflow-y: visible;
+  overflow-y: visible !important;
   flex: 1;
 }
 
