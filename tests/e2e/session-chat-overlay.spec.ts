@@ -11,7 +11,7 @@ import {
   getProjectSessions,
 } from './helpers';
 
-test.describe('Session Tree Overlay', () => {
+test.describe('Session Chat Overlay', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
