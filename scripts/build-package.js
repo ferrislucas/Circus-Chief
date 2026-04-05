@@ -19,6 +19,15 @@ const ROOT = dirname(dirname(__filename));
 const DIST = join(ROOT, 'dist-package');
 const version = process.argv.find(a => a.startsWith('--version='))?.split('=')[1] || '0.1.0';
 
+// --- PostHog configuration ---
+// Resolution order (first non-empty wins): CLI flag → env var → default
+const posthogKey = process.argv.find(a => a.startsWith('--posthog-key='))?.split('=')[1]
+  || process.env.POSTHOG_KEY
+  || '';
+const posthogHost = process.argv.find(a => a.startsWith('--posthog-host='))?.split('=')[1]
+  || process.env.POSTHOG_HOST
+  || 'https://us.i.posthog.com';
+
 /** cpSync filter: exclude test files but always keep directories */
 const excludeTests = (src) => {
   if (statSync(src).isDirectory()) return true;
@@ -31,8 +40,35 @@ rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 
 // --- 2. Build frontend ---
+if (!posthogKey) {
+  console.log('⚠ No PostHog key provided (--posthog-key or POSTHOG_KEY); analytics will be disabled in this build');
+}
 console.log('Building frontend...');
-execSync('yarn workspace @claudetools/web build', { cwd: ROOT, stdio: 'inherit' });
+// Always explicitly set VITE_POSTHOG_KEY (even when empty) to prevent Vite
+// from picking up stale values from any local .env files.
+execSync('yarn workspace @claudetools/web build', {
+  cwd: ROOT,
+  stdio: 'inherit',
+  env: {
+    ...process.env,
+    VITE_POSTHOG_KEY: posthogKey,
+    VITE_POSTHOG_HOST: posthogHost,
+  },
+});
+
+// --- 2b. Verify PostHog key in bundle ---
+if (posthogKey) {
+  const assetsDir = join(ROOT, 'packages/web/dist/assets');
+  const jsFiles = readdirSync(assetsDir).filter(f => f.endsWith('.js'));
+  const found = jsFiles.some(f =>
+    readFileSync(join(assetsDir, f), 'utf-8').includes(posthogKey)
+  );
+  if (!found) {
+    console.error('ERROR: PostHog key was not found in the built frontend bundle');
+    process.exit(1);
+  }
+  console.log('✓ PostHog key verified in frontend bundle');
+}
 
 // --- 3. Copy files preserving tree shape ---
 console.log('Copying packages/web/dist...');
