@@ -35,7 +35,7 @@
     <SchedulingInfo v-if="isScheduled" :session="session" />
 
     <!-- Session Overview Section -->
-    <div v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading" class="session-overview card">
+    <div v-if="hasPrInfo || (summary && (summary.shortSummary || hasMetrics)) || loading" class="session-overview card">
       <div class="overview-header">
         <h3>Session Overview</h3>
       </div>
@@ -318,6 +318,7 @@ const runningSessionIds = computed(() => {
   }
   return ids;
 });
+
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 const hasWarnings = computed(() => summary.value?.hasMergeConflicts || summary.value?.ciStatus === 'failure');
@@ -345,12 +346,31 @@ const workTimeMs = computed(() => {
   if (!start) return null;
   const end = s.lastActivityAt || s.updatedAt;
   if (!end) {
-    // Only use Date.now() for sessions that are still active
+    // Only use Date.now() for sessions that are actively running
     const status = s.status;
-    if (status === 'completed' || status === 'error') return null;
-    return Date.now() - start;
+    if (status === 'running' || status === 'starting') return Date.now() - start;
+    return null;
   }
-  return end - start;
+  const duration = end - start;
+
+  // For sessions that are actively running, always show work time
+  const isSessionActive = s.status === 'running' || s.status === 'starting';
+  if (isSessionActive) {
+    return duration;
+  }
+
+  // For non-active sessions, only show work time if:
+  // 1. The session has meaningful duration (> 5 seconds), OR
+  // 2. The session has token usage (indicating it was actually used)
+  const hasTokenUsage = sessionsStore.getSessionBillableTokens(s.id) > 0;
+  const hasMeaningfulDuration = duration >= 5000; // 5 seconds threshold
+
+  if (hasTokenUsage || hasMeaningfulDuration) {
+    return duration;
+  }
+
+  // Otherwise, don't show minimal work time for inactive sessions without usage
+  return null;
 });
 
 const formattedDuration = computed(() => formatDuration(workTimeMs.value));
@@ -361,6 +381,8 @@ const hasMetrics = computed(() =>
 
 function formatDuration(ms) {
   if (!ms || ms < 0) return null;
+  // Treat 0 duration as null (no meaningful time duration)
+  if (ms === 0) return null;
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
