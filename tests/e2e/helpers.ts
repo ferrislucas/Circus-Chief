@@ -2101,8 +2101,8 @@ export async function getSlashCommands(directory: string): Promise<any[]> {
  * Returns null if not found.
  */
 export async function getSlashCommand(
-  name: string,
-  directory: string
+  directory: string,
+  name: string
 ): Promise<any> {
   const res = await fetch(
     `${API_URL}/api/commands/${encodeURIComponent(name)}?directory=${encodeURIComponent(directory)}`
