@@ -18,6 +18,39 @@ export class ScheduleError extends Error {
 }
 
 /**
+ * Extract and transform scheduling options from request data.
+ * @param {object} scheduleData - Raw schedule data from request
+ * @returns {object} Transformed scheduling options
+ */
+function extractSchedulingOptions(scheduleData) {
+  const options = {};
+  const boolFields = ['autoRescheduleEnabled', 'rescheduleOnTokenLimit', 'rescheduleOnServiceError'];
+  const intFields = ['rescheduleDelayMinutes'];
+  const nullableIntFields = ['maxRescheduleCount', 'maxTotalTokens', 'rescheduleAtTokenCount'];
+
+  for (const field of boolFields) {
+    if (scheduleData[field] !== undefined) {
+      options[field] = Boolean(scheduleData[field]);
+    }
+  }
+  for (const field of intFields) {
+    if (scheduleData[field] !== undefined) {
+      options[field] = parseInt(scheduleData[field], 10);
+    }
+  }
+  for (const field of nullableIntFields) {
+    if (scheduleData[field] !== undefined) {
+      options[field] = scheduleData[field] ? parseInt(scheduleData[field], 10) : null;
+    }
+  }
+  if (scheduleData.pendingModel !== undefined) {
+    options.pendingModel = scheduleData.pendingModel;
+  }
+
+  return options;
+}
+
+/**
  * Configures a schedule for a follow-up message on an existing session.
  *
  * @param {object} session - The session object (from req.session_)
@@ -55,37 +88,12 @@ export function configureSchedule(session, scheduleData) {
     throw new ScheduleError('pendingPrompt must be set before scheduling', 400);
   }
 
-  // Build update data
+  // Build update data with scheduling options
   const updateData = {
     status: 'scheduled',
     scheduledAt,
+    ...extractSchedulingOptions(scheduleData),
   };
-
-  // Apply scheduling options if provided
-  if (scheduleData.autoRescheduleEnabled !== undefined) {
-    updateData.autoRescheduleEnabled = Boolean(scheduleData.autoRescheduleEnabled);
-  }
-  if (scheduleData.rescheduleDelayMinutes !== undefined) {
-    updateData.rescheduleDelayMinutes = parseInt(scheduleData.rescheduleDelayMinutes, 10);
-  }
-  if (scheduleData.rescheduleOnTokenLimit !== undefined) {
-    updateData.rescheduleOnTokenLimit = Boolean(scheduleData.rescheduleOnTokenLimit);
-  }
-  if (scheduleData.rescheduleOnServiceError !== undefined) {
-    updateData.rescheduleOnServiceError = Boolean(scheduleData.rescheduleOnServiceError);
-  }
-  if (scheduleData.maxRescheduleCount !== undefined) {
-    updateData.maxRescheduleCount = scheduleData.maxRescheduleCount ? parseInt(scheduleData.maxRescheduleCount, 10) : null;
-  }
-  if (scheduleData.maxTotalTokens !== undefined) {
-    updateData.maxTotalTokens = scheduleData.maxTotalTokens ? parseInt(scheduleData.maxTotalTokens, 10) : null;
-  }
-  if (scheduleData.rescheduleAtTokenCount !== undefined) {
-    updateData.rescheduleAtTokenCount = scheduleData.rescheduleAtTokenCount ? parseInt(scheduleData.rescheduleAtTokenCount, 10) : null;
-  }
-  if (scheduleData.pendingModel !== undefined) {
-    updateData.pendingModel = scheduleData.pendingModel;
-  }
 
   const updated = sessions.update(session.id, updateData);
 

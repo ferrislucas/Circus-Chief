@@ -14,12 +14,13 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {
     "zod": "^4.2.1"
   },
   "devDependencies": {
-    "vitest": "^1.2.2"
+    "vitest": "^4.0.16"
   }
 }

@@ -3,6 +3,77 @@ import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
 
 /**
+ * Map token usage fields from a database row.
+ * @param {Object} row - Database row
+ * @returns {Object} Token usage fields
+ */
+function mapTokenUsage(row) {
+  return {
+    inputTokens: row.input_tokens || 0,
+    outputTokens: row.output_tokens || 0,
+    cacheReadInputTokens: row.cache_read_input_tokens || 0,
+    cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
+    webSearchRequests: row.web_search_requests || 0,
+    contextWindow: row.context_window || 200000,
+  };
+}
+
+/**
+ * Map scheduling fields from a database row.
+ * @param {Object} row - Database row
+ * @returns {Object} Scheduling fields
+ */
+function mapScheduling(row) {
+  return {
+    scheduledAt: row.scheduled_at || null,
+    rescheduleDelayMinutes: row.reschedule_delay_minutes || 15,
+    autoRescheduleEnabled: Boolean(row.auto_reschedule_enabled),
+    rescheduleOnTokenLimit: Boolean(row.reschedule_on_token_limit),
+    rescheduleOnServiceError: Boolean(row.reschedule_on_service_error),
+    maxRescheduleCount: row.max_reschedule_count,
+    maxTotalTokens: row.max_total_tokens,
+    rescheduleCount: row.reschedule_count || 0,
+    rescheduleAtTokenCount: row.reschedule_at_token_count,
+  };
+}
+
+/**
+ * Parse legacy positional arguments to config object.
+ * @param {Array} args - Arguments array starting from options position
+ * @returns {Object} Config object
+ */
+function parseLegacyArgs(args) {
+  const [mode, thinkingEnabled, gitBranch, parentSessionId, status, model] = args.slice(0, 6);
+  const legacyOpts = args[6] || {};
+  return {
+    mode: mode || 'standard',
+    thinkingEnabled: thinkingEnabled || false,
+    gitBranch: gitBranch || null,
+    parentSessionId: parentSessionId || null,
+    status: status || 'starting',
+    model: model || null,
+    effortLevel: legacyOpts.effortLevel || null,
+  };
+}
+
+/**
+ * Parse options object to normalized config.
+ * @param {Object} options - Options object
+ * @returns {Object} Config object
+ */
+function parseOptionsToConfig(options) {
+  return {
+    mode: options.mode || 'standard',
+    thinkingEnabled: options.thinkingEnabled || false,
+    gitBranch: options.gitBranch || null,
+    parentSessionId: options.parentSessionId || null,
+    status: options.status || 'starting',
+    model: options.model || null,
+    effortLevel: options.effortLevel || null,
+  };
+}
+
+/**
  * Session repository class
  */
 export class SessionRepository extends BaseRepository {
@@ -39,23 +110,8 @@ export class SessionRepository extends BaseRepository {
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       slashCommands: row.slash_commands || null,
-      // Token usage fields
-      inputTokens: row.input_tokens || 0,
-      outputTokens: row.output_tokens || 0,
-      cacheReadInputTokens: row.cache_read_input_tokens || 0,
-      cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
-      webSearchRequests: row.web_search_requests || 0,
-      contextWindow: row.context_window || 200000,
-      // Scheduling fields
-      scheduledAt: row.scheduled_at || null,
-      rescheduleDelayMinutes: row.reschedule_delay_minutes || 15,
-      autoRescheduleEnabled: Boolean(row.auto_reschedule_enabled),
-      rescheduleOnTokenLimit: Boolean(row.reschedule_on_token_limit),
-      rescheduleOnServiceError: Boolean(row.reschedule_on_service_error),
-      maxRescheduleCount: row.max_reschedule_count,
-      maxTotalTokens: row.max_total_tokens,
-      rescheduleCount: row.reschedule_count || 0,
-      rescheduleAtTokenCount: row.reschedule_at_token_count,
+      ...mapTokenUsage(row),
+      ...mapScheduling(row),
       // Kanban fields
       targetLaneId: row.target_lane_id || null,
       laneTriggerDepth: row.lane_trigger_depth || 0,
@@ -99,34 +155,9 @@ export class SessionRepository extends BaseRepository {
    */
   create(projectId, name, prompt, options = {}) {
     // Support legacy positional arguments for backward compatibility
-    // If options is a string, it's the old 'mode' parameter
-    let config;
-    if (typeof options === 'string') {
-      // Legacy call: create(projectId, name, prompt, mode, thinkingEnabled, gitBranch, parentSessionId, status, model, { effortLevel })
-      const [mode, thinkingEnabled, gitBranch, parentSessionId, status, model] = [
-        options, arguments[4], arguments[5], arguments[6], arguments[7], arguments[8]
-      ];
-      const legacyOpts = arguments[9] || {};
-      config = {
-        mode: mode || 'standard',
-        thinkingEnabled: thinkingEnabled || false,
-        gitBranch: gitBranch || null,
-        parentSessionId: parentSessionId || null,
-        status: status || 'starting',
-        model: model || null,
-        effortLevel: legacyOpts.effortLevel || null,
-      };
-    } else {
-      config = {
-        mode: options.mode || 'standard',
-        thinkingEnabled: options.thinkingEnabled || false,
-        gitBranch: options.gitBranch || null,
-        parentSessionId: options.parentSessionId || null,
-        status: options.status || 'starting',
-        model: options.model || null,
-        effortLevel: options.effortLevel || null,
-      };
-    }
+    const config = typeof options === 'string'
+      ? parseLegacyArgs([options, arguments[4], arguments[5], arguments[6], arguments[7], arguments[8], arguments[9]])
+      : parseOptionsToConfig(options);
 
     const id = databaseManager.generateId();
     const now = Date.now();

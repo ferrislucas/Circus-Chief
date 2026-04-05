@@ -64,67 +64,60 @@ export class WebSocketManager {
    * @param {Object} message
    */
   #handleMessage(ws, message) {
-    switch (message.type) {
-      case WS_MESSAGE_TYPES.SUBSCRIBE_SESSION: {
-        const { sessionId } = message;
-        if (!sessionId) return;
+    const handlers = {
+      [WS_MESSAGE_TYPES.SUBSCRIBE_SESSION]: () => this.#handleSubscribeSession(ws, message),
+      [WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION]: () => this.#handleUnsubscribeSession(ws, message),
+      [WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT]: () => this.#handleSubscribeProject(ws, message),
+      [WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT]: () => this.#handleUnsubscribeProject(ws, message),
+    };
+    handlers[message.type]?.();
+  }
 
-        if (!this.#sessionSubscriptions.has(sessionId)) {
-          this.#sessionSubscriptions.set(sessionId, new Set());
-        }
-        this.#sessionSubscriptions.get(sessionId).add(ws);
+  #handleSubscribeSession(ws, message) {
+    const { sessionId } = message;
+    if (!sessionId) return;
 
-        // Replay buffered usage updates for this session
-        const buffered = this.#usageUpdateBuffer.get(sessionId);
-        if (buffered && buffered.length > 0) {
-          for (const bufferedMsg of buffered) {
-            const message = createMessage(bufferedMsg.type, bufferedMsg);
-            if (ws.readyState === 1) {
-              // WebSocket.OPEN
-              ws.send(message);
-            }
-          }
-          this.#usageUpdateBuffer.delete(sessionId);
-        }
-        break;
-      }
+    if (!this.#sessionSubscriptions.has(sessionId)) {
+      this.#sessionSubscriptions.set(sessionId, new Set());
+    }
+    this.#sessionSubscriptions.get(sessionId).add(ws);
+    this.#replayBufferedUsageUpdates(ws, sessionId);
+  }
 
-      case WS_MESSAGE_TYPES.UNSUBSCRIBE_SESSION: {
-        const { sessionId } = message;
-        if (!sessionId) return;
+  #replayBufferedUsageUpdates(ws, sessionId) {
+    const buffered = this.#usageUpdateBuffer.get(sessionId);
+    if (!buffered || buffered.length === 0) return;
 
-        const subscribers = this.#sessionSubscriptions.get(sessionId);
-        if (subscribers) {
-          subscribers.delete(ws);
-        }
-        break;
-      }
-
-      case WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT: {
-        const { projectId } = message;
-        if (!projectId) return;
-
-        if (!this.#projectSubscriptions.has(projectId)) {
-          this.#projectSubscriptions.set(projectId, new Set());
-        }
-        this.#projectSubscriptions.get(projectId).add(ws);
-        // ========== DIAGNOSTIC LOGGING ==========
-        console.log(`🔷 [WS Manager] Client subscribed to project ${projectId}, total subscribers: ${this.#projectSubscriptions.get(projectId).size}`);
-        // ========================================
-        break;
-      }
-
-      case WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT: {
-        const { projectId } = message;
-        if (!projectId) return;
-
-        const subscribers = this.#projectSubscriptions.get(projectId);
-        if (subscribers) {
-          subscribers.delete(ws);
-        }
-        break;
+    for (const bufferedMsg of buffered) {
+      const msg = createMessage(bufferedMsg.type, bufferedMsg);
+      if (ws.readyState === 1) {
+        ws.send(msg);
       }
     }
+    this.#usageUpdateBuffer.delete(sessionId);
+  }
+
+  #handleUnsubscribeSession(ws, message) {
+    const { sessionId } = message;
+    if (!sessionId) return;
+    this.#sessionSubscriptions.get(sessionId)?.delete(ws);
+  }
+
+  #handleSubscribeProject(ws, message) {
+    const { projectId } = message;
+    if (!projectId) return;
+
+    if (!this.#projectSubscriptions.has(projectId)) {
+      this.#projectSubscriptions.set(projectId, new Set());
+    }
+    this.#projectSubscriptions.get(projectId).add(ws);
+    console.log(`🔷 [WS Manager] Client subscribed to project ${projectId}, total subscribers: ${this.#projectSubscriptions.get(projectId).size}`);
+  }
+
+  #handleUnsubscribeProject(ws, message) {
+    const { projectId } = message;
+    if (!projectId) return;
+    this.#projectSubscriptions.get(projectId)?.delete(ws);
   }
 
   /**

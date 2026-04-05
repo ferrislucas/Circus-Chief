@@ -150,6 +150,25 @@ function finalizeFile(file, hunk, files) {
 }
 
 /**
+ * Add a parsed content line to the current hunk and update line numbers/counts.
+ * @param {{ type: 'addition'|'deletion'|'context', content: string }} change
+ * @param {DiffHunk} hunk
+ * @param {DiffFile} file
+ * @param {{ oldLineNum: number, newLineNum: number }} lineNums - Mutated in place
+ */
+function addLineToHunk(change, hunk, file, lineNums) {
+  if (change.type === 'addition') {
+    hunk.lines.push({ ...change, oldLineNumber: null, newLineNumber: lineNums.newLineNum++ });
+    file.additions++;
+  } else if (change.type === 'deletion') {
+    hunk.lines.push({ ...change, oldLineNumber: lineNums.oldLineNum++, newLineNumber: null });
+    file.deletions++;
+  } else {
+    hunk.lines.push({ ...change, oldLineNumber: lineNums.oldLineNum++, newLineNumber: lineNums.newLineNum++ });
+  }
+}
+
+/**
  * Parse a unified diff string into structured file objects
  * @param {string} diffText - Raw git diff output
  * @returns {DiffFile[]}
@@ -163,75 +182,40 @@ export function parseDiff(diffText) {
   const lines = diffText.split('\n');
   let currentFile = null;
   let currentHunk = null;
-  let oldLineNum = 0;
-  let newLineNum = 0;
+  const lineNums = { oldLineNum: 0, newLineNum: 0 };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     // File header: diff --git a/path b/path
     if (line.startsWith('diff --git')) {
-      if (currentFile) {
-        finalizeFile(currentFile, currentHunk, files);
-      }
+      if (currentFile) finalizeFile(currentFile, currentHunk, files);
       currentFile = createFileEntry(line);
       currentHunk = null;
       continue;
     }
 
     if (!currentFile) continue;
-
-    // File-level metadata lines
     if (parseFileHeader(line, currentFile)) continue;
 
     // Hunk header: @@ -oldStart,oldCount +newStart,newCount @@ optional context
     if (line.startsWith('@@')) {
-      if (currentHunk) {
-        currentFile.hunks.push(currentHunk);
-      }
+      if (currentHunk) currentFile.hunks.push(currentHunk);
       const parsed = parseHunkHeader(line);
       if (parsed) {
         currentHunk = parsed.hunk;
-        oldLineNum = parsed.oldLineNum;
-        newLineNum = parsed.newLineNum;
+        lineNums.oldLineNum = parsed.oldLineNum;
+        lineNums.newLineNum = parsed.newLineNum;
       }
       continue;
     }
 
-    // Diff content lines
     if (!currentHunk) continue;
-
     const change = parseLineChange(line);
-    if (!change) continue;
-
-    if (change.type === 'addition') {
-      currentHunk.lines.push({
-        ...change,
-        oldLineNumber: null,
-        newLineNumber: newLineNum++,
-      });
-      currentFile.additions++;
-    } else if (change.type === 'deletion') {
-      currentHunk.lines.push({
-        ...change,
-        oldLineNumber: oldLineNum++,
-        newLineNumber: null,
-      });
-      currentFile.deletions++;
-    } else {
-      currentHunk.lines.push({
-        ...change,
-        oldLineNumber: oldLineNum++,
-        newLineNumber: newLineNum++,
-      });
-    }
+    if (change) addLineToHunk(change, currentHunk, currentFile, lineNums);
   }
 
-  // Don't forget the last file/hunk
-  if (currentFile) {
-    finalizeFile(currentFile, currentHunk, files);
-  }
-
+  if (currentFile) finalizeFile(currentFile, currentHunk, files);
   return files;
 }
 
