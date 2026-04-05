@@ -39,6 +39,9 @@ else
     USE_DOCKER=false
 fi
 
+# Default: test against dev server, not the built package
+USE_PACKAGE_SERVER=false
+
 # Wait for server to be ready
 # Polls the server on the given port until it responds or timeout
 # Args: $1 = port number, $2 = timeout in seconds (default: 30)
@@ -87,13 +90,13 @@ detect_or_start_server() {
                 print_warning "  server cwd:  $server_cwd"
                 print_warning "  our root:    $PROJECT_ROOT"
                 print_info "Removing stale .server-port and starting a new server..."
-                rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
+                rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
             else
                 # Server belongs to us - always restart it
                 if [ "$detected_port" = "5000" ]; then
                     # Never kill port 5000 - just start a new server on a different port
                     print_warning "Server on port 5000 is protected. Starting on a new port..."
-                    rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
+                    rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
                 else
                     print_info "Restarting server on port $detected_port..."
                     local server_pid
@@ -107,27 +110,37 @@ detect_or_start_server() {
                             ((wait_count++))
                         done
                     fi
-                    rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
+                    rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
                 fi
             fi
         else
             print_warning "Server not running on port $detected_port (stale .server-port file)"
-            rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode"
+            rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
         fi
     fi
 
     # No valid server found, start one
-    print_info "Starting server..."
+    local start_script="$SCRIPT_DIR/start-server.sh"
+    if [ "$USE_PACKAGE_SERVER" = true ]; then
+        start_script="$SCRIPT_DIR/start-package-server.sh"
+        print_info "Starting server from built npm package..."
+    else
+        print_info "Starting server..."
+    fi
 
-    # Run start-server.sh in background
-    "$SCRIPT_DIR/start-server.sh" > /tmp/server-startup.log 2>&1 &
+    # Run start script in background
+    "$start_script" > /tmp/server-startup.log 2>&1 &
     local server_pid=$!
 
     # Wait for .server-port file to be created
     # Timeout must cover the full build step (yarn build) which runs before
     # .server-port is written. Builds typically take 15-30s, so 120s gives margin.
+    # Package server needs even longer (build + npm install).
     local elapsed=0
     local timeout=120
+    if [ "$USE_PACKAGE_SERVER" = true ]; then
+        timeout=180
+    fi
     while [ $elapsed -lt $timeout ]; do
         if [ -f "$port_file" ]; then
             detected_port=$(cat "$port_file")
@@ -249,6 +262,19 @@ cmd_test() {
 
     export API_URL="http://localhost:$TEST_SERVER_PORT"
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
+
+    # When testing the built package, export DB_PATH so seed scripts access
+    # the same database the package server uses (not the default cwd-relative one).
+    if [ "$USE_PACKAGE_SERVER" = true ]; then
+        local db_path_file="$PROJECT_ROOT/.db-path"
+        if [ -f "$db_path_file" ]; then
+            export DB_PATH="$(cat "$db_path_file")"
+            print_info "DB_PATH set to: $DB_PATH"
+        else
+            print_warning "No .db-path file found — seed scripts may use wrong database"
+        fi
+    fi
+
     print_info "Running Playwright tests on port: $TEST_SERVER_PORT"
 
     local exit_code
@@ -473,6 +499,11 @@ EOF
 
 # Main command router
 case "${1:-help}" in
+    test-package)
+        shift
+        USE_PACKAGE_SERVER=true
+        cmd_test "$@"
+        ;;
     test)
         shift
         cmd_test "$@"

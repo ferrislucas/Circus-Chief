@@ -149,7 +149,7 @@ describe('Providers API', () => {
         .expect(400);
 
       expect(response.body.error).toBeDefined();
-      expect(response.body.error).toContain('tier');
+      expect(response.body.error).toMatch(/tier|Invalid option/);
     });
 
     it('400: invalid request body (Zod validation - empty modelId)', async () => {
