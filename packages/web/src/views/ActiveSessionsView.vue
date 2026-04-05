@@ -193,6 +193,45 @@ async function ensureButtonsLoadedForSessions() {
   }
 }
 
+/**
+ * Ensure a command run entry exists in the store.
+ */
+function ensureRunExists(runId, buttonId, sessionId) {
+  if (!commandButtonsStore.runs[runId]) {
+    commandButtonsStore.runs[runId] = {
+      runId, buttonId, sessionId,
+      status: 'running', output: '', exitCode: null,
+      startedAt: Date.now(), outputTruncated: false,
+    };
+  }
+}
+
+/**
+ * Set up WebSocket handlers for command run events.
+ */
+function setupCommandRunHandlers(on, off, cleanups) {
+  const outputHandler = (msg) => {
+    ensureRunExists(msg.runId, msg.buttonId, msg.sessionId);
+    commandButtonsStore.appendOutput(msg.runId, msg.output);
+  };
+  on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, outputHandler);
+  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, outputHandler));
+
+  const completeHandler = (msg) => {
+    ensureRunExists(msg.runId, msg.buttonId, msg.sessionId);
+    commandButtonsStore.completeRun(msg.runId, msg.exitCode, msg.output);
+  };
+  on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, completeHandler);
+  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, completeHandler));
+
+  const errorHandler = (msg) => {
+    ensureRunExists(msg.runId, msg.buttonId, msg.sessionId);
+    commandButtonsStore.errorRun(msg.runId, msg.error);
+  };
+  on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, errorHandler);
+  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, errorHandler));
+}
+
 onMounted(async () => {
   sessionsStore.restoreStatusFilter();
   sessionsStore.restoreStarredFilter();
@@ -271,68 +310,7 @@ onMounted(async () => {
 
   // Set up global WebSocket handlers for command run events (for all projects)
   const { on, off } = useWebSocket();
-
-  // Handle command run output (for real-time status icon updates)
-  const commandOutputHandler = (msg) => {
-    const { runId, sessionId, buttonId, output } = msg;
-    if (!commandButtonsStore.runs[runId]) {
-      commandButtonsStore.runs[runId] = {
-        runId,
-        buttonId,
-        sessionId,
-        status: 'running',
-        output: '',
-        exitCode: null,
-        startedAt: Date.now(),
-        outputTruncated: false,
-      };
-    }
-    commandButtonsStore.appendOutput(runId, output);
-  };
-  on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, commandOutputHandler);
-  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, commandOutputHandler));
-
-  // Handle command run complete
-  const commandCompleteHandler = (msg) => {
-    const { runId, sessionId, buttonId, exitCode, output } = msg;
-    // Create run if it doesn't exist (handles edge case of no output before completion)
-    if (!commandButtonsStore.runs[runId]) {
-      commandButtonsStore.runs[runId] = {
-        runId,
-        buttonId,
-        sessionId,
-        status: 'running',
-        output: '',
-        exitCode: null,
-        startedAt: Date.now(),
-        outputTruncated: false,
-      };
-    }
-    commandButtonsStore.completeRun(runId, exitCode, output);
-  };
-  on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, commandCompleteHandler);
-  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, commandCompleteHandler));
-
-  // Handle command run error
-  const commandErrorHandler = (msg) => {
-    const { runId, sessionId, buttonId, error } = msg;
-    // Create run if it doesn't exist (handles edge case of no output before error)
-    if (!commandButtonsStore.runs[runId]) {
-      commandButtonsStore.runs[runId] = {
-        runId,
-        buttonId,
-        sessionId,
-        status: 'running',
-        output: '',
-        exitCode: null,
-        startedAt: Date.now(),
-        outputTruncated: false,
-      };
-    }
-    commandButtonsStore.errorRun(runId, error);
-  };
-  on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, commandErrorHandler);
-  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, commandErrorHandler));
+  setupCommandRunHandlers(on, off, cleanups);
 
   // Keep polling as a fallback (increased to 30s since we have real-time updates)
   refreshInterval = setInterval(() => {

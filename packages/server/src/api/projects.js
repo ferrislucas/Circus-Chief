@@ -55,6 +55,42 @@ function resolveDefault(explicit, projectDefault, systemDefault) {
 }
 
 /**
+ * Resolve thinkingEnabled with special boolean handling.
+ * @param {object} body - Request body
+ * @param {object|null} projectDefs - Project defaults
+ * @param {object} systemDefaults - System defaults
+ * @returns {boolean}
+ */
+function resolveThinkingEnabled(body, projectDefs, systemDefaults) {
+  const thinkingParsed = parseBooleanField(body.thinkingEnabled);
+  if (thinkingParsed.provided) {
+    return thinkingParsed.explicit;
+  }
+  if (projectDefs?.thinkingEnabled !== undefined && projectDefs?.thinkingEnabled !== null) {
+    return projectDefs.thinkingEnabled;
+  }
+  return systemDefaults.thinkingEnabled;
+}
+
+/**
+ * Parse scheduling fields from request body.
+ * @param {object} body - Request body
+ * @returns {object} Scheduling configuration
+ */
+function parseSchedulingConfig(body) {
+  return {
+    scheduledAt: body.scheduledAt ? parseInt(body.scheduledAt, 10) : undefined,
+    autoRescheduleEnabled: body.autoRescheduleEnabled === true || body.autoRescheduleEnabled === 'true',
+    rescheduleDelayMinutes: body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : 15,
+    rescheduleOnTokenLimit: body.rescheduleOnTokenLimit !== false && body.rescheduleOnTokenLimit !== 'false',
+    rescheduleOnServiceError: body.rescheduleOnServiceError !== false && body.rescheduleOnServiceError !== 'false',
+    maxRescheduleCount: body.maxRescheduleCount ? parseInt(body.maxRescheduleCount, 10) : null,
+    maxTotalTokens: body.maxTotalTokens ? parseInt(body.maxTotalTokens, 10) : null,
+    rescheduleAtTokenCount: body.rescheduleAtTokenCount ? parseInt(body.rescheduleAtTokenCount, 10) : null,
+  };
+}
+
+/**
  * Build session configuration from request body, project defaults, and system defaults.
  * @param {object} body - The request body
  * @param {object|null} projectDefs - Project-level defaults
@@ -62,47 +98,27 @@ function resolveDefault(explicit, projectDefault, systemDefault) {
  * @returns {object} Session configuration
  */
 function prepareSessionConfig(body, projectDefs, systemDefaults) {
-  const config = {};
-
-  config.prompt = body.prompt;
-  config.name = body.name;
-  config.mode = resolveDefault(body.mode, projectDefs?.mode, systemDefaults.mode);
-  config.model = resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null);
-  config.effortLevel = resolveDefault(body.effortLevel || null, projectDefs?.effortLevel, systemDefaults.effortLevel);
+  let effortLevel = resolveDefault(body.effortLevel || null, projectDefs?.effortLevel, systemDefaults.effortLevel);
   // Normalize 'auto' to null
-  if (config.effortLevel === 'auto') {
-    config.effortLevel = null;
-  }
-  config.gitBranch = resolveDefault(body.gitBranch, projectDefs?.gitBranch, null);
-  config.gitMode = resolveDefault(body.gitMode, projectDefs?.gitMode, null);
-  config.templateId = body.templateId;
-  config.parentSessionId = body.parentSessionId || null;
-  config.files = [];
-
-  // thinkingEnabled requires special boolean handling
-  const thinkingParsed = parseBooleanField(body.thinkingEnabled);
-  if (thinkingParsed.provided) {
-    config.thinkingEnabled = thinkingParsed.explicit;
-  } else if (projectDefs?.thinkingEnabled !== undefined && projectDefs?.thinkingEnabled !== null) {
-    config.thinkingEnabled = projectDefs.thinkingEnabled;
-  } else {
-    config.thinkingEnabled = systemDefaults.thinkingEnabled;
+  if (effortLevel === 'auto') {
+    effortLevel = null;
   }
 
-  // startImmediately requires special boolean handling (defaults to true)
-  config.startImmediately = resolveStartImmediately(body, projectDefs, systemDefaults);
-
-  // Scheduling fields
-  config.scheduledAt = body.scheduledAt ? parseInt(body.scheduledAt, 10) : undefined;
-  config.autoRescheduleEnabled = body.autoRescheduleEnabled === true || body.autoRescheduleEnabled === 'true';
-  config.rescheduleDelayMinutes = body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : 15;
-  config.rescheduleOnTokenLimit = body.rescheduleOnTokenLimit !== false && body.rescheduleOnTokenLimit !== 'false';
-  config.rescheduleOnServiceError = body.rescheduleOnServiceError !== false && body.rescheduleOnServiceError !== 'false';
-  config.maxRescheduleCount = body.maxRescheduleCount ? parseInt(body.maxRescheduleCount, 10) : null;
-  config.maxTotalTokens = body.maxTotalTokens ? parseInt(body.maxTotalTokens, 10) : null;
-  config.rescheduleAtTokenCount = body.rescheduleAtTokenCount ? parseInt(body.rescheduleAtTokenCount, 10) : null;
-
-  return config;
+  return {
+    prompt: body.prompt,
+    name: body.name,
+    mode: resolveDefault(body.mode, projectDefs?.mode, systemDefaults.mode),
+    model: resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null),
+    effortLevel,
+    gitBranch: resolveDefault(body.gitBranch, projectDefs?.gitBranch, null),
+    gitMode: resolveDefault(body.gitMode, projectDefs?.gitMode, null),
+    templateId: body.templateId,
+    parentSessionId: body.parentSessionId || null,
+    files: [],
+    thinkingEnabled: resolveThinkingEnabled(body, projectDefs, systemDefaults),
+    startImmediately: resolveStartImmediately(body, projectDefs, systemDefaults),
+    ...parseSchedulingConfig(body),
+  };
 }
 
 /**

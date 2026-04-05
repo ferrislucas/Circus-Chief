@@ -2,6 +2,41 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 
 /**
+ * Convert a boolean value to SQLite integer (1/0) or null.
+ * @param {boolean|null|undefined} value
+ * @param {number|null} [defaultValue] - Default value if undefined
+ * @returns {number|null}
+ */
+function boolToSqlite(value, defaultValue = null) {
+  if (value === undefined) return defaultValue;
+  if (value === null) return null;
+  return value ? 1 : 0;
+}
+
+/**
+ * Prepare lane insert values from data object.
+ * @param {Object} data - Lane data
+ * @returns {Array} Array of values for INSERT
+ */
+function prepareLaneValues(data) {
+  return [
+    data.onEnterTemplateId || null,
+    data.onEnterPrompt || null,
+    data.onEnterMode || null,
+    data.onEnterModel || null,
+    data.onEnterEffortLevel || null,
+    boolToSqlite(data.onEnterThinkingEnabled),
+    data.onEnterAutoRescheduleEnabled ? 1 : 0,
+    data.onEnterRescheduleDelayMinutes ?? 15,
+    boolToSqlite(data.onEnterRescheduleOnTokenLimit, 1),
+    boolToSqlite(data.onEnterRescheduleOnServiceError, 1),
+    data.onEnterMaxRescheduleCount ?? null,
+    data.onEnterMaxTotalTokens ?? null,
+    data.onEnterRescheduleAtTokenCount ?? null,
+  ];
+}
+
+/**
  * Kanban lane repository class
  */
 export class KanbanLaneRepository extends BaseRepository {
@@ -58,15 +93,8 @@ export class KanbanLaneRepository extends BaseRepository {
   create(boardId, data) {
     const id = databaseManager.generateId();
     const now = Date.now();
-
-    // If no sortOrder provided, put it at the end
-    let sortOrder = data.sortOrder;
-    if (sortOrder === undefined || sortOrder === null) {
-      const maxRow = this.db
-        .prepare('SELECT MAX(sort_order) as max_order FROM kanban_lanes WHERE board_id = ?')
-        .get(boardId);
-      sortOrder = (maxRow?.max_order ?? -1) + 1;
-    }
+    const sortOrder = this.#resolveSortOrder(boardId, data.sortOrder);
+    const laneValues = prepareLaneValues(data);
 
     this.db
       .prepare(
@@ -80,25 +108,25 @@ export class KanbanLaneRepository extends BaseRepository {
           created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(
-        id, boardId, data.name, sortOrder,
-        data.onEnterTemplateId || null,
-        data.onEnterPrompt || null,
-        data.onEnterMode || null,
-        data.onEnterModel || null,
-        data.onEnterEffortLevel || null,
-        data.onEnterThinkingEnabled === undefined ? null : (data.onEnterThinkingEnabled ? 1 : 0),
-        data.onEnterAutoRescheduleEnabled ? 1 : 0,
-        data.onEnterRescheduleDelayMinutes ?? 15,
-        data.onEnterRescheduleOnTokenLimit === undefined ? 1 : (data.onEnterRescheduleOnTokenLimit ? 1 : 0),
-        data.onEnterRescheduleOnServiceError === undefined ? 1 : (data.onEnterRescheduleOnServiceError ? 1 : 0),
-        data.onEnterMaxRescheduleCount ?? null,
-        data.onEnterMaxTotalTokens ?? null,
-        data.onEnterRescheduleAtTokenCount ?? null,
-        now, now
-      );
+      .run(id, boardId, data.name, sortOrder, ...laneValues, now, now);
 
     return this.getById(id);
+  }
+
+  /**
+   * Resolve sort order, defaulting to end of list if not provided.
+   * @param {string} boardId
+   * @param {number|undefined|null} sortOrder
+   * @returns {number}
+   */
+  #resolveSortOrder(boardId, sortOrder) {
+    if (sortOrder !== undefined && sortOrder !== null) {
+      return sortOrder;
+    }
+    const maxRow = this.db
+      .prepare('SELECT MAX(sort_order) as max_order FROM kanban_lanes WHERE board_id = ?')
+      .get(boardId);
+    return (maxRow?.max_order ?? -1) + 1;
   }
 
   /**

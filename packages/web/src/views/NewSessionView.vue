@@ -384,70 +384,72 @@ onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
 });
 
+/**
+ * Apply project defaults to form fields.
+ * @param {object} defaults - The project defaults object
+ */
+function applyProjectDefaults(defaults) {
+  if (defaults.mode) {
+    mode.value = defaults.mode;
+    usingDefaults.value.mode = true;
+  }
+  if (defaults.model) {
+    model.value = defaults.model;
+    usingDefaults.value.model = true;
+  } else {
+    model.value = 'sonnet';
+    usingDefaults.value.model = true;
+  }
+  if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
+    thinkingEnabled.value = defaults.thinkingEnabled;
+    usingDefaults.value.thinkingEnabled = true;
+  }
+  if (defaults.effortLevel) effortLevel.value = defaults.effortLevel;
+  if (defaults.startImmediately !== null && defaults.startImmediately !== undefined) {
+    startImmediately.value = defaults.startImmediately;
+    usingDefaults.value.startImmediately = true;
+  }
+  if (defaults.gitMode) {
+    quickGitMode.value = defaults.gitMode;
+    usingDefaults.value.quickGitMode = true;
+  }
+  if (defaults.gitBranch) {
+    quickWorktreeBranch.value = defaults.gitBranch;
+    usingDefaults.value.quickWorktreeBranch = true;
+  }
+}
+
+/**
+ * Restore draft from localStorage and sync to textarea.
+ */
+function restoreDraftFromStorage() {
+  const saved = localStorage.getItem(storageKey.value);
+  if (!saved) return;
+  prompt.value = saved;
+  nextTick(() => {
+    if (textareaRef.value) {
+      textareaRef.value.value = saved;
+      promptHasContent.value = saved.trim().length > 0;
+    }
+  });
+}
+
 onMounted(async () => {
   const projectId = route.params.id;
-
-  // Restore draft from localStorage if it exists
-  const saved = localStorage.getItem(storageKey.value);
-  if (saved) {
-    prompt.value = saved;
-    // Sync to textarea DOM element after Vue has rendered
-    nextTick(() => {
-      if (textareaRef.value) {
-        textareaRef.value.value = saved;
-        // Also update the promptHasContent flag
-        promptHasContent.value = saved.trim().length > 0;
-      }
-    });
-  }
+  restoreDraftFromStorage();
 
   // Fetch project defaults FIRST to ensure model is set before ModelSelector renders
   try {
     await defaultsStore.fetchDefaults(projectId);
     const defaults = defaultsStore.getDefaultsForProject(projectId);
-
     if (defaults) {
-      // Pre-fill form with project defaults
-      if (defaults.mode) {
-        mode.value = defaults.mode;
-        usingDefaults.value.mode = true;
-      }
-      if (defaults.model) {
-        model.value = defaults.model;
-        usingDefaults.value.model = true;
-      } else {
-        // No project default set, use system default
-        model.value = 'sonnet';
-        usingDefaults.value.model = true;
-      }
-      if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
-        thinkingEnabled.value = defaults.thinkingEnabled;
-        usingDefaults.value.thinkingEnabled = true;
-      }
-      if (defaults.effortLevel) {
-        effortLevel.value = defaults.effortLevel;
-      }
-      if (defaults.startImmediately !== null && defaults.startImmediately !== undefined) {
-        startImmediately.value = defaults.startImmediately;
-        usingDefaults.value.startImmediately = true;
-      }
-      if (defaults.gitMode) {
-        quickGitMode.value = defaults.gitMode;
-        usingDefaults.value.quickGitMode = true;
-      }
-      if (defaults.gitBranch) {
-        quickWorktreeBranch.value = defaults.gitBranch;
-        usingDefaults.value.quickWorktreeBranch = true;
-      }
+      applyProjectDefaults(defaults);
     } else {
-      // No defaults at all, use system default for model
       model.value = 'sonnet';
       usingDefaults.value.model = true;
     }
   } catch (err) {
-    // Defaults fetching is optional, don't block on error
     console.warn('Failed to fetch project defaults:', err);
-    // Ensure we still have a system default
     if (!model.value) {
       model.value = 'sonnet';
       usingDefaults.value.model = true;
@@ -463,17 +465,10 @@ onMounted(async () => {
     loadingGit.value = false;
   }
 
-  // Fetch templates for this project
   templatesStore.fetchProjectTemplates(projectId);
-
-  // Fetch quick responses for this project
   const quickResponsesStore = useQuickResponsesStore();
   quickResponsesStore.fetchForProject(projectId);
-
-  // Pre-populate parent session ID if provided in route query
-  if (route.query.parentSessionId) {
-    parentSessionId.value = route.query.parentSessionId;
-  }
+  if (route.query.parentSessionId) parentSessionId.value = route.query.parentSessionId;
 });
 
 // Rec 1: Navigate back to sessions list
