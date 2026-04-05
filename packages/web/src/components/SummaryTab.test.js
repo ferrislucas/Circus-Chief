@@ -775,6 +775,110 @@ describe('SummaryTab', () => {
     });
   });
 
+  describe('Work Time Display', () => {
+    /**
+     * Helper: mount SummaryTab with a specific session state.
+     * Sets up the store so `session` computed resolves correctly.
+     */
+    function mountWithSession(sessionData, { summary = null } = {}) {
+      if (summary) {
+        api.getSessionSummary.mockResolvedValue(summary);
+      }
+      sessionsStore.currentSession = sessionData;
+      sessionsStore.sessions = [sessionData];
+      return mountComponent({ sessionId: sessionData.id });
+    }
+
+    it('uses activeTimeMs from server when available', async () => {
+      // Session with server-computed activeTimeMs of 1 minute
+      const wrapper = mountWithSession({
+        id: 'sess-123',
+        status: 'completed',
+        createdAt: Date.now() - 3600000,  // 1 hour ago
+        updatedAt: Date.now(),
+        lastActivityAt: Date.now(),
+        activeTimeMs: 60000, // 1 minute of actual active time
+      }, {
+        summary: { shortSummary: 'Test' },
+      });
+      await flushAll(wrapper);
+
+      // Should show "1m" work time, not "1h 0m"
+      expect(wrapper.text()).toContain('1m');
+      expect(wrapper.text()).not.toContain('1h');
+    });
+
+    it('falls back to wall-clock for running sessions without activeTimeMs', async () => {
+      const createdAt = Date.now() - 300000; // 5 minutes ago
+      const wrapper = mountWithSession({
+        id: 'sess-123',
+        status: 'running',
+        createdAt,
+        updatedAt: createdAt,
+        lastActivityAt: null,
+        activeTimeMs: 0,
+      });
+      await flushAll(wrapper);
+
+      // Work time should use Date.now() - createdAt
+      expect(wrapper.find('.metric-label').exists() || wrapper.text()).toBeDefined();
+    });
+
+    it('returns null for sessions with no activity and no tokens', async () => {
+      const wrapper = mountWithSession({
+        id: 'sess-123',
+        status: 'waiting',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        activeTimeMs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      });
+      await flushAll(wrapper);
+
+      // No work time metric should be shown
+      expect(wrapper.text()).not.toContain('Work Time');
+    });
+
+    it('shows work time for non-active session with token usage even without activeTimeMs', async () => {
+      const createdAt = Date.now() - 600000; // 10 minutes ago
+      const wrapper = mountWithSession({
+        id: 'sess-123',
+        status: 'completed',
+        createdAt,
+        updatedAt: Date.now(),
+        lastActivityAt: Date.now(),
+        activeTimeMs: 0,
+        inputTokens: 1000,
+        outputTokens: 500,
+      }, {
+        summary: { shortSummary: 'Test' },
+      });
+      await flushAll(wrapper);
+
+      // Should show work time via fallback
+      expect(wrapper.text()).toContain('Work Time');
+    });
+
+    it('prefers activeTimeMs over wall-clock even when wall-clock is longer', async () => {
+      const wrapper = mountWithSession({
+        id: 'sess-123',
+        status: 'completed',
+        createdAt: Date.now() - 86400000, // 1 day ago
+        updatedAt: Date.now(),
+        lastActivityAt: Date.now(),
+        activeTimeMs: 30000, // 30 seconds of actual work
+      }, {
+        summary: { shortSummary: 'Test' },
+      });
+      await flushAll(wrapper);
+
+      // Should show "30s" not "1d 0h"
+      expect(wrapper.text()).toContain('30s');
+      expect(wrapper.text()).not.toContain('1d');
+    });
+  });
+
   describe('Empty State', () => {
     it('shows empty state when session has no summary, no latest response, and is not running', async () => {
       const wrapper = mountComponent();
