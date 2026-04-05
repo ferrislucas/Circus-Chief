@@ -62,6 +62,7 @@ export class SessionRepository extends BaseRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lastActivityAt: row.last_activity_at || row.updated_at || row.created_at,
+      activeTimeMs: row.active_time_ms || 0,
     };
   }
 
@@ -75,7 +76,15 @@ export class SessionRepository extends BaseRepository {
     const row = this.db
       .prepare(
         `SELECT s.*,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
+          (CAST(
+            CASE
+              WHEN (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) IS NOT NULL
+              THEN (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id)
+                 - (SELECT MIN(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id)
+              ELSE 0
+            END AS INTEGER)
+          ) AS active_time_ms
          FROM sessions s WHERE s.id = ?`
       )
       .get(id);
@@ -151,7 +160,15 @@ export class SessionRepository extends BaseRepository {
 
   getByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
     let sql = `SELECT s.*,
-      (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+      (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
+      (CAST(
+        CASE
+          WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
+          THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+             - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+          ELSE 0
+        END AS INTEGER)
+      ) AS active_time_ms
       FROM sessions s WHERE project_id = ?`;
     const params = [projectId];
 
@@ -210,7 +227,15 @@ export class SessionRepository extends BaseRepository {
     const rows = this.db
       .prepare(
         `SELECT s.*, p.name as project_name, p.working_directory as project_working_directory,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
+          (CAST(
+            CASE
+              WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
+              THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+                 - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+              ELSE 0
+            END AS INTEGER)
+          ) AS active_time_ms
          FROM sessions s
          JOIN projects p ON s.project_id = p.id
          WHERE s.status IN ('starting', 'running', 'waiting')
@@ -234,7 +259,15 @@ export class SessionRepository extends BaseRepository {
     const rows = this.db
       .prepare(
         `SELECT s.*,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
+          (CAST(
+            CASE
+              WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
+              THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+                 - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+              ELSE 0
+            END AS INTEGER)
+          ) AS active_time_ms
          FROM sessions s
          WHERE parent_session_id = ?
          ORDER BY updated_at DESC, created_at DESC, rowid DESC`
@@ -434,7 +467,15 @@ export class SessionRepository extends BaseRepository {
     const rows = this.db
       .prepare(
         `SELECT s.*,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
+          (CAST(
+            CASE
+              WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
+              THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+                 - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+              ELSE 0
+            END AS INTEGER)
+          ) AS active_time_ms
          FROM sessions s
          WHERE pr_url IS NOT NULL ORDER BY updated_at DESC, created_at DESC, rowid DESC`
       )
@@ -490,7 +531,15 @@ export class SessionRepository extends BaseRepository {
     const rows = this.db
       .prepare(
         `SELECT s.*,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
+          (CAST(
+            CASE
+              WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
+              THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+                 - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+              ELSE 0
+            END AS INTEGER)
+          ) AS active_time_ms
          FROM sessions s
          WHERE status = 'scheduled'
            AND scheduled_at IS NOT NULL
@@ -510,7 +559,15 @@ export class SessionRepository extends BaseRepository {
   getScheduledSessions(projectId = null) {
     let sql = `
       SELECT s.*, p.name as project_name,
-        (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at
+        (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
+        (CAST(
+          CASE
+            WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
+            THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+               - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+            ELSE 0
+          END AS INTEGER)
+        ) AS active_time_ms
       FROM sessions s
       JOIN projects p ON s.project_id = p.id
       WHERE s.status = 'scheduled'
