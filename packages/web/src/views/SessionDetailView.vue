@@ -53,8 +53,8 @@
         <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
       </div>
 
-      <!-- Session Tree Handle -->
-      <SessionTreeHandle
+      <!-- Session Chat Handle -->
+      <SessionChatHandle
         v-show="!chatOverlayOpen"
         :is-session-active="isSessionActive"
         :session-status="activeSessionStatus"
@@ -91,7 +91,7 @@ import CommandsTab from '../components/CommandsTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
-import SessionTreeHandle from '../components/SessionTreeHandle.vue';
+import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { api } from '../composables/useApi.js';

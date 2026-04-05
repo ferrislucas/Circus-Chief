@@ -110,7 +110,7 @@
                 <span class="dropdown-name">{{ activeSessionDisplayName }}</span>
                 <span class="dropdown-chevron">{{ pickerOpen ? '&#9650;' : '&#9660;' }}</span>
               </button>
-              <SessionTreePicker
+              <SessionChatPicker
                 v-if="pickerOpen"
                 :sessions="sessionChain"
                 :active-session-id="activeSessionId"
@@ -188,7 +188,7 @@ import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
 
 import ConversationTab from './ConversationTab.vue';
-import SessionTreePicker from './SessionTreePicker.vue';
+import SessionChatPicker from './SessionChatPicker.vue';
 
 const props = defineProps({
   sessionId: {
@@ -257,7 +257,7 @@ function handlePickerEscape(event) {
 
 function handleClickOutsidePicker(event) {
   if (pickerOpen.value) {
-    const picker = document.querySelector('[data-testid="session-tree-picker"]');
+    const picker = document.querySelector('[data-testid="session-chat-picker"]');
     const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
     if (picker && !picker.contains(event.target) &&
         (!trigger || !trigger.contains(event.target))) {

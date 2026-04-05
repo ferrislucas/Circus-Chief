@@ -37,7 +37,7 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
     const overlay = page.locator('[data-testid="session-chat-overlay"]');
@@ -147,7 +147,7 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
     await expect(dropdown).toBeVisible({ timeout: 10000 });
     await dropdown.locator('.dropdown-trigger').click();
-    const picker = page.locator('[data-testid="session-tree-picker"]');
+    const picker = page.locator('[data-testid="session-chat-picker"]');
     await expect(picker).toBeVisible({ timeout: 5000 });
     const items = picker.locator('[role="option"]');
     await items.nth(1).click();

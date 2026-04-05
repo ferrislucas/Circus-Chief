@@ -66,7 +66,7 @@ test.describe('Debug: New Session Button', () => {
     });
 
     // Click tree handle to open overlay
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     console.log('Tree handle found and visible');
     await handle.click();

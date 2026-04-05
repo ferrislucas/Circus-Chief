@@ -93,7 +93,7 @@ test.describe('Session selector switches conversation content', () => {
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
     const overlay = page.locator('[data-testid="session-chat-overlay"]');
@@ -108,7 +108,7 @@ test.describe('Session selector switches conversation content', () => {
     await expect(dropdown).toBeVisible({ timeout: 10000 });
     await dropdown.locator('.dropdown-trigger').click();
 
-    const picker = page.locator('[data-testid="session-tree-picker"]');
+    const picker = page.locator('[data-testid="session-chat-picker"]');
     await expect(picker).toBeVisible({ timeout: 5000 });
 
     const targetItem = picker.locator('[role="option"]').filter({ hasText: sessionName });

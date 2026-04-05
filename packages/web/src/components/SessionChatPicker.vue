@@ -1,9 +1,9 @@
 <template>
   <div
-    class="session-tree-picker"
+    class="session-chat-picker"
     role="listbox"
     aria-label="Session hierarchy"
-    data-testid="session-tree-picker"
+    data-testid="session-chat-picker"
     @keydown="handleKeydown"
   >
     <div
@@ -127,7 +127,7 @@ function handleKeydown(event) {
 </script>
 
 <style scoped>
-.session-tree-picker {
+.session-chat-picker {
   position: absolute;
   top: 100%;
   left: 0;

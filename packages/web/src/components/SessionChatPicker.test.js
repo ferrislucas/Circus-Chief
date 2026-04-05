@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
-import SessionTreePicker from './SessionTreePicker.vue';
+import SessionChatPicker from './SessionChatPicker.vue';
 
-describe('SessionTreePicker', () => {
+describe('SessionChatPicker', () => {
   let sessions;
   let summaries;
 
@@ -49,7 +49,7 @@ describe('SessionTreePicker', () => {
   });
 
   function mountComponent(propsOverrides = {}) {
-    return mount(SessionTreePicker, {
+    return mount(SessionChatPicker, {
       props: {
         sessions,
         activeSessionId: 'root-1',
@@ -106,7 +106,7 @@ describe('SessionTreePicker', () => {
         },
         depth: 0,
       }];
-      const wrapper = mount(SessionTreePicker, {
+      const wrapper = mount(SessionChatPicker, {
         props: {
           sessions: singleSession,
           activeSessionId: 'single-1',
@@ -127,7 +127,7 @@ describe('SessionTreePicker', () => {
         { session: { id: 's2', name: 'Session 2', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
         { session: { id: 's3', name: 'Session 3', status: 'error', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
       ];
-      const wrapper = mount(SessionTreePicker, {
+      const wrapper = mount(SessionChatPicker, {
         props: {
           sessions: sessionsWithStatuses,
           activeSessionId: 's1',
@@ -155,7 +155,7 @@ describe('SessionTreePicker', () => {
         },
         depth: 1,
       }));
-      const wrapper = mount(SessionTreePicker, {
+      const wrapper = mount(SessionChatPicker, {
         props: {
           sessions: manySessions,
           activeSessionId: 's-0',
@@ -196,7 +196,7 @@ describe('SessionTreePicker', () => {
         { session: { id: 'd1', name: 'Child', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
         { session: { id: 'd2', name: 'Grandchild', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 2 },
       ];
-      const wrapper = mount(SessionTreePicker, {
+      const wrapper = mount(SessionChatPicker, {
         props: {
           sessions: deepSessions,
           activeSessionId: 'd0',
@@ -230,7 +230,7 @@ describe('SessionTreePicker', () => {
   describe('selection', () => {
     it('emits select with correct session ID on click', async () => {
       const onSelect = vi.fn();
-      const wrapper = mount(SessionTreePicker, {
+      const wrapper = mount(SessionChatPicker, {
         props: { sessions, activeSessionId: 'root-1', summaries },
         attrs: { onSelect },
       });
@@ -241,7 +241,7 @@ describe('SessionTreePicker', () => {
 
     it('emits select on Enter key', async () => {
       const onSelect = vi.fn();
-      const wrapper = mount(SessionTreePicker, {
+      const wrapper = mount(SessionChatPicker, {
         props: { sessions, activeSessionId: 'root-1', summaries },
         attrs: { onSelect },
       });
@@ -329,7 +329,7 @@ describe('SessionTreePicker', () => {
   describe('keyboard navigation', () => {
     it('arrow down moves focus to next item', async () => {
       const wrapper = mountComponent({ activeSessionId: 'root-1' });
-      const container = wrapper.find('.session-tree-picker');
+      const container = wrapper.find('.session-chat-picker');
       await container.trigger('keydown', { key: 'ArrowDown' });
       // focusedIndex should have incremented
       const items = wrapper.findAll('.picker-item');
@@ -339,7 +339,7 @@ describe('SessionTreePicker', () => {
     it('arrow up moves focus to previous item', async () => {
       const wrapper = mountComponent({ activeSessionId: 'child-1' });
       // First move focus down, then up
-      const container = wrapper.find('.session-tree-picker');
+      const container = wrapper.find('.session-chat-picker');
       await container.trigger('keydown', { key: 'ArrowDown' });
       await container.trigger('keydown', { key: 'ArrowUp' });
       const items = wrapper.findAll('.picker-item');
@@ -349,7 +349,7 @@ describe('SessionTreePicker', () => {
 
     it('arrow up on first item stays on first item', async () => {
       const wrapper = mountComponent({ activeSessionId: 'root-1' });
-      const container = wrapper.find('.session-tree-picker');
+      const container = wrapper.find('.session-chat-picker');
       // Focus is at index 0 (root), pressing up should stay at 0
       await container.trigger('keydown', { key: 'ArrowUp' });
       const items = wrapper.findAll('.picker-item');
@@ -358,7 +358,7 @@ describe('SessionTreePicker', () => {
 
     it('arrow down on last item stays on last item', async () => {
       const wrapper = mountComponent({ activeSessionId: 'child-2' });
-      const container = wrapper.find('.session-tree-picker');
+      const container = wrapper.find('.session-chat-picker');
       // Move to end
       await container.trigger('keydown', { key: 'ArrowDown' });
       await container.trigger('keydown', { key: 'ArrowDown' });
@@ -372,7 +372,7 @@ describe('SessionTreePicker', () => {
   describe('accessibility', () => {
     it('has role="listbox" on container', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.session-tree-picker').attributes('role')).toBe('listbox');
+      expect(wrapper.find('.session-chat-picker').attributes('role')).toBe('listbox');
     });
 
     it('has role="option" on each item', () => {
