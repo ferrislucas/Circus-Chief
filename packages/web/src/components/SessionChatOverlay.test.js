@@ -132,16 +132,16 @@ vi.mock('./ConversationTab.vue', () => ({
   }),
 }));
 
-// Mock SessionTreePicker
-vi.mock('./SessionTreePicker.vue', () => ({
+// Mock SessionChatPicker
+vi.mock('./SessionChatPicker.vue', () => ({
   default: defineComponent({
-    name: 'SessionTreePicker',
+    name: 'SessionChatPicker',
     props: ['sessions', 'activeSessionId', 'summaries'],
     emits: ['select'],
     render() {
       return h('div', {
-        class: 'session-tree-picker-stub',
-        'data-testid': 'session-tree-picker',
+        class: 'session-chat-picker-stub',
+        'data-testid': 'session-chat-picker',
       }, this.sessions?.map(s =>
         h('div', {
           key: s.session.id,
@@ -604,22 +604,22 @@ describe('SessionChatOverlay', () => {
       const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
 
       // Initially picker should not be shown
-      expect(document.querySelector('[data-testid="session-tree-picker"]')).toBeFalsy();
+      expect(document.querySelector('[data-testid="session-chat-picker"]')).toBeFalsy();
 
       // Click to open
       trigger.click();
       await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-picker"]')).toBeTruthy();
+      expect(document.querySelector('[data-testid="session-chat-picker"]')).toBeTruthy();
 
       // Click to close
       trigger.click();
       await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-picker"]')).toBeFalsy();
+      expect(document.querySelector('[data-testid="session-chat-picker"]')).toBeFalsy();
 
       wrapper.unmount();
     });
 
-    it('SessionTreePicker receives correct props', async () => {
+    it('SessionChatPicker receives correct props', async () => {
       const wrapper = mountWithPicker();
       await nextTick();
 
@@ -627,7 +627,7 @@ describe('SessionChatOverlay', () => {
       wrapper.vm.pickerOpen = true;
       await nextTick();
 
-      const picker = document.querySelector('[data-testid="session-tree-picker"]');
+      const picker = document.querySelector('[data-testid="session-chat-picker"]');
       expect(picker).toBeTruthy();
       // The mock renders session names as text content
       expect(picker.textContent).toContain('Root Session');
@@ -681,7 +681,7 @@ describe('SessionChatOverlay', () => {
       // Open picker
       wrapper.vm.pickerOpen = true;
       await nextTick();
-      expect(document.querySelector('[data-testid="session-tree-picker"]')).toBeTruthy();
+      expect(document.querySelector('[data-testid="session-chat-picker"]')).toBeTruthy();
 
       // Press Escape
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));

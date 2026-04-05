@@ -128,7 +128,7 @@ export async function navigateAndWait(
  * Returns a Locator scoped to the overlay container.
  */
 export async function openSessionOverlay(page: Page, timeout = 10000) {
-  const handle = page.locator('[data-testid="session-tree-handle"]');
+  const handle = page.locator('[data-testid="session-chat-handle"]');
   await handle.waitFor({ state: 'visible', timeout });
   await handle.click();
   const overlay = page.locator('.session-chat-overlay');

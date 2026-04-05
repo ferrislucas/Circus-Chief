@@ -55,7 +55,7 @@ test.describe('Debug: 404 Network Errors', () => {
     });
 
     // Click tree handle to open overlay
-    const handle = page.locator('[data-testid="session-tree-handle"]');
+    const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
 
