@@ -1576,18 +1576,6 @@ export async function getConversationMessages(sessionId: string, conversationId:
   return response.json();
 }
 
-/**
- * Generate summary for a conversation
- */
-export async function generateConversationSummary(sessionId: string, conversationId: string) {
-  const response = await fetch(
-    `${API_URL}/api/sessions/${sessionId}/conversations/${conversationId}/summary`,
-    { method: 'POST' }
-  );
-  // Don't throw on error - summary generation may fail if service is disabled
-  return response;
-}
-
 // ============================================================
 // Message Seeding Helpers (for messaging-chat tests)
 // Writes directly to the SQLite database via scripts/seed-message.mjs
@@ -2289,11 +2277,10 @@ export async function resetTokenWeights(): Promise<any> {
 
 /**
  * Get summary settings from the API.
- * Returns { disableSessionSummaries, disableConversationSummaries, sessionTitlePrompt, defaultSessionTitlePrompt }.
+ * Returns { disableSessionSummaries, sessionTitlePrompt, defaultSessionTitlePrompt }.
  */
 export async function getSummarySettings(): Promise<{
   disableSessionSummaries: boolean;
-  disableConversationSummaries: boolean;
   sessionTitlePrompt: string;
   defaultSessionTitlePrompt: string;
 }> {
@@ -2308,7 +2295,6 @@ export async function getSummarySettings(): Promise<{
  */
 export async function updateSummarySettings(settings: {
   disableSessionSummaries: boolean;
-  disableConversationSummaries: boolean;
   sessionTitlePrompt: string;
 }): Promise<any> {
   const response = await fetch(`${API_URL}/api/settings/summary`, {

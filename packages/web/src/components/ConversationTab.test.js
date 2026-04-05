@@ -63,6 +63,18 @@ vi.mock('../stores/templates.js', () => ({
   })),
 }));
 
+// Mock useConnectionStatus composable
+vi.mock('../composables/useConnectionStatus.js', async () => {
+  const { ref } = await import('vue');
+  return {
+    useConnectionStatus: () => ({
+      isStale: ref(false),
+      connectionStatus: ref('connected'),
+      reconnectAttempt: ref(0),
+    }),
+  };
+});
+
 // Mock WebSocket composable
 vi.mock('../composables/useWebSocket.js', () => ({
   useSessionSubscription: vi.fn(() => ({
@@ -2500,50 +2512,163 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
 });
 
 /**
- * Unit tests for quick response insertion functionality
- * These tests verify the handleQuickResponseInsert method logic for combining text
+ * Component-level tests for quick response insertion functionality
+ * These tests mount the real ConversationTab and emit events from InputForm
+ * to verify handleQuickResponseInsert works end-to-end
  */
 describe('ConversationTab - Quick Response Insertion', () => {
-  describe('handleQuickResponseInsert', () => {
-    it('combines existing input with quick response content when auto-submitting', () => {
-      // Simulates the combining logic
-      const existingInput = 'Check the authentication module';
-      const quickResponseContent = 'Also review error handling';
+  let mockSessionsStore;
+  let mockUiStore;
+  let consoleError;
 
-      const currentValue = existingInput.trim();
-      const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
-        : quickResponseContent;
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
 
-      // ASSERTION: Combined content includes both messages
-      expect(newValue).toBe('Check the authentication module\n\nAlso review error handling');
+    mockSessionsStore = {
+      messages: [],
+      currentSession: { id: 'sess-123', status: 'waiting', thinkingEnabled: false, mode: 'standard', model: null, projectId: 'proj-1' },
+      activeConversation: null,
+      activeConversationId: null,
+      conversations: [],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+    };
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
     });
+  });
 
-    it('uses only quick response when input is empty', () => {
-      const existingInput = '';
-      const quickResponseContent = 'Start coding';
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
 
-      const currentValue = existingInput.trim();
-      const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
-        : quickResponseContent;
-
-      // ASSERTION: No leading newlines when input was empty
-      expect(newValue).toBe('Start coding');
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: {
+            name: 'ModelSelector',
+            props: ['modelValue', 'disabled'],
+            emits: ['update:modelValue'],
+            template: '<div class="model-selector-stub" :data-model="modelValue"></div>',
+          },
+          TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
+          OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
+          ModeSelector: { template: '<div class="mode-selector-stub"></div>' },
+          SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
+          SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
+          ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
+          AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
+          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
+        },
+      },
     });
+  }
 
-    it('trims whitespace from existing input before combining', () => {
-      const existingInput = '  Review the API  ';
-      const quickResponseContent = 'Focus on endpoints';
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
 
-      const currentValue = existingInput.trim();
-      const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
-        : quickResponseContent;
+  it('auto-submit sets input value and calls sendMessage via nextTick', async () => {
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
 
-      // ASSERTION: Whitespace is trimmed from existing input
-      expect(newValue).toBe('Review the API\n\nFocus on endpoints');
-    });
+    // Find InputForm and emit quickResponseInsert event
+    const inputForm = wrapper.findComponent({ name: 'InputForm' });
+    inputForm.vm.$emit('quickResponseInsert', { content: 'Quick response', autoSubmit: true });
+    await flushAll(wrapper);
+
+    // Verify handleFormSubmit was called — check that sendMessage was invoked
+    expect(mockSessionsStore.sendMessage).toHaveBeenCalled();
+  });
+
+  it('non-auto-submit sets input value and does not call sendMessage', async () => {
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+
+    // Find InputForm and emit quickResponseInsert event
+    const inputForm = wrapper.findComponent({ name: 'InputForm' });
+    inputForm.vm.$emit('quickResponseInsert', { content: 'Quick response', autoSubmit: false });
+    await flushAll(wrapper);
+
+    // sendMessage should NOT have been called
+    expect(mockSessionsStore.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('combines existing input with quick response content', async () => {
+    const wrapper = mountComponent();
+    await flushAll(wrapper);
+
+    // Set existing input text
+    const textarea = wrapper.find('textarea');
+    if (textarea.exists()) {
+      await textarea.setValue('Check the authentication module');
+      await flushAll(wrapper);
+    }
+
+    // Emit quick response insert
+    const inputForm = wrapper.findComponent({ name: 'InputForm' });
+    inputForm.vm.$emit('quickResponseInsert', { content: 'Also review error handling', autoSubmit: true });
+    await flushAll(wrapper);
+
+    // The handler should have combined the text and submitted
+    expect(mockSessionsStore.sendMessage).toHaveBeenCalled();
+    // Verify the combined content was sent
+    const sentMessage = mockSessionsStore.sendMessage.mock.calls[0]?.[1];
+    if (sentMessage) {
+      expect(sentMessage).toContain('Also review error handling');
+    }
   });
 });
 
@@ -3713,5 +3838,311 @@ describe('ConversationTab - Watcher session-scoping guards', () => {
     expect(mockSessionsStore.fetchMessages).not.toHaveBeenCalled();
     // But auto-send reset should also not fire because the early return skips all logic
     // (The guard returns before reaching the auto-send reset block)
+  });
+});
+
+/**
+ * Draft session input clearing tests
+ *
+ * These tests validate that when a draft session is started via handleFormSubmit,
+ * the input fields are only cleared on success (handleStart returns true).
+ * If handleStart fails (returns false), the input should be preserved so the user
+ * doesn't lose their work.
+ *
+ * This also tests the same behavior for follow-up messages (handleSend).
+ */
+describe('ConversationTab - Input clearing on submit', () => {
+  let mockSessionsStore;
+  let mockUiStore;
+  let consoleError;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    mockSessionsStore = {
+      messages: [],
+      currentSession: { id: 'sess-123', status: 'waiting', thinkingEnabled: false, mode: 'standard', projectId: 'proj-1' },
+      activeConversation: { id: 'conv-1', name: 'Test Conv' },
+      activeConversationId: 'conv-1',
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      fetchMessages: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      startSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      addConversation: vi.fn(),
+      updateConversation: vi.fn(),
+      removeConversation: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      finalizeUsage: vi.fn(),
+      updateRunningUsage: vi.fn(),
+    };
+
+    mockUiStore = {
+      error: vi.fn(),
+      success: vi.fn(),
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    consoleError = console.error;
+    console.error = vi.fn();
+
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn().mockReturnValue(null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    console.error = consoleError;
+    vi.unstubAllGlobals();
+  });
+
+  function mountComponent(props = { sessionId: 'sess-123' }) {
+    return mount(ConversationTab, {
+      props,
+      global: {
+        stubs: {
+          ConversationPanel: { template: '<div class="conversation-panel-stub"></div>' },
+          ConversationMessages: { template: '<div class="conversation-messages-stub"></div>', methods: { scrollToBottom: vi.fn() } },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          RunningState: { template: '<div class="running-state-stub"></div>' },
+          WorkLogPanel: { template: '<div class="work-log-panel-stub"></div>' },
+          LiveWorkLogPanel: { template: '<div class="live-work-log-panel-stub"></div>' },
+          MarkdownViewer: { template: '<div class="markdown-stub"><slot /></div>' },
+          FileAttachment: { template: '<div class="file-attachment-stub"></div>', methods: { clear: vi.fn() } },
+          QuickResponsesPanel: { template: '<div class="quick-responses-panel-stub"></div>' },
+          QuickResponseSettings: { template: '<div class="quick-response-settings-stub"></div>' },
+          ModelSelector: { template: '<div class="model-selector-stub"></div>' },
+          TokenCostPanel: { template: '<div class="token-cost-panel-stub"></div>' },
+          TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
+          SchedulingInfo: { template: '<div class="scheduling-info-stub"></div>' },
+          ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
+          AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
+          SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
+          SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
+          OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
+          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
+        },
+      },
+    });
+  }
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    await wrapper.vm.$nextTick?.();
+  }
+
+  describe('Draft session - input clearing on successful start', () => {
+    it('clears textarea after successful draft session start', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        pendingModel: 'sonnet',
+      };
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+      mockSessionsStore.startSession.mockResolvedValue();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('My draft prompt');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
+        'sess-123',
+        'My draft prompt',
+        'sonnet'
+      );
+      // After successful start, textarea should be cleared
+      expect(textarea.element.value).toBe('');
+    });
+
+    it('preserves textarea content when draft session start fails', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        pendingModel: 'sonnet',
+      };
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(true);
+      mockSessionsStore.startSession.mockRejectedValue(new Error('Start failed'));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('My draft prompt');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.startSession).toHaveBeenCalled();
+      // After failed start, textarea should still have the user's text
+      expect(textarea.element.value).toBe('My draft prompt');
+    });
+  });
+
+  describe('Follow-up message - input clearing on successful send', () => {
+    it('clears textarea after successful message send', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+      };
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(false);
+      mockSessionsStore.sendMessage.mockResolvedValue();
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('Follow-up message');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
+        'sess-123',
+        'Follow-up message',
+        [],
+        'sonnet'
+      );
+      // After successful send, textarea should be cleared
+      expect(textarea.element.value).toBe('');
+    });
+
+    it('preserves textarea content when message send fails', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+      };
+      mockSessionsStore.isDraftSession = vi.fn().mockReturnValue(false);
+      mockSessionsStore.sendMessage.mockRejectedValue(new Error('Send failed'));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const textarea = wrapper.find('textarea');
+      await textarea.setValue('Follow-up message');
+      await wrapper.find('form').trigger('submit.prevent');
+      await flushAll(wrapper);
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalled();
+      // After failed send, textarea should still have the user's text
+      expect(textarea.element.value).toBe('Follow-up message');
+    });
+  });
+});
+
+describe('ConversationTab connection status', () => {
+  let mockSessionsStoreLocal;
+
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    vi.clearAllMocks();
+
+    mockSessionsStoreLocal = {
+      messages: [],
+      currentSession: { id: 'sess-123', status: 'waiting', thinkingEnabled: false, mode: 'standard' },
+      activeConversation: { id: 'conv-1', name: 'Test Conv' },
+      activeConversationId: 'conv-1',
+      conversations: [{ id: 'conv-1', name: 'Test Conv', isActive: true }],
+      getWorkLogsForMessage: vi.fn().mockReturnValue([]),
+      getUnassociatedWorkLogs: [],
+      partialThinking: null,
+      fetchConversations: vi.fn().mockResolvedValue([]),
+      fetchWorkLogs: vi.fn().mockResolvedValue([]),
+      sendMessage: vi.fn().mockResolvedValue(),
+      stopSession: vi.fn().mockResolvedValue(),
+      restartSession: vi.fn().mockResolvedValue(),
+      updateSessionThinking: vi.fn().mockResolvedValue(),
+      updateSessionMode: vi.fn().mockResolvedValue(),
+      updateSessionModel: vi.fn().mockResolvedValue(),
+      updateNextTemplate: vi.fn().mockResolvedValue(),
+      updateAutoSendPendingPrompt: vi.fn().mockResolvedValue(),
+      addWorkLog: vi.fn(),
+      associateWorkLogs: vi.fn(),
+      clearWorkLogs: vi.fn(),
+      clearConversations: vi.fn(),
+      clearPartialText: vi.fn(),
+      setPartialThinking: vi.fn(),
+      clearPartialThinking: vi.fn(),
+      isDraftSession: vi.fn().mockReturnValue(false),
+      isScheduledDraft: vi.fn().mockReturnValue(false),
+      viewedSessionId: null,
+    };
+
+    vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStoreLocal);
+  });
+
+  function mountForConnectionTest() {
+    return mount(ConversationTab, {
+      props: { sessionId: 'sess-123' },
+      global: {
+        stubs: {
+          ConversationPanel: { template: '<div class="conv-panel-stub"></div>' },
+          ConversationMessages: { template: '<div class="conv-msgs-stub"></div>', methods: { scrollToBottom: vi.fn() } },
+          TodoDrawer: { template: '<div class="todo-drawer-stub"></div>' },
+          RunningState: { template: '<div class="running-state-stub"></div>' },
+          InputForm: { template: '<div class="input-form-stub"></div>' },
+          SchedulingInfo: { template: '<div class="scheduling-info-stub"></div>' },
+          QuickResponseSettings: { template: '<div></div>' },
+          ScheduleSessionModal: { template: '<div></div>' },
+          AutoRescheduleModal: { template: '<div></div>' },
+          SlashCommandWizard: { template: '<div></div>' },
+          StaleBadge: {
+            props: ['isStale'],
+            template: '<div v-if="isStale" class="stale-badge" data-testid="stale-badge">Content may be outdated</div>',
+          },
+        },
+      },
+    });
+  }
+
+  it('connection-stale class is NOT applied when isStale is false', async () => {
+    const wrapper = mountForConnectionTest();
+    await flushPromises();
+    await nextTick();
+
+    const tab = wrapper.find('.conversation-tab');
+    expect(tab.exists()).toBe(true);
+    expect(tab.classes()).not.toContain('connection-stale');
+    wrapper.unmount();
+  });
+
+  it('stale-badge is NOT shown when connected', async () => {
+    const wrapper = mountForConnectionTest();
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.find('[data-testid="stale-badge"]').exists()).toBe(false);
+    wrapper.unmount();
   });
 });

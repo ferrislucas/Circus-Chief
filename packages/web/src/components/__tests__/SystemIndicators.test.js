@@ -1,17 +1,21 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 // Mock useWebSocket composable
 const mockOn = vi.fn();
 const mockOff = vi.fn();
+const mockConnectionStatus = ref('connected');
+const mockReconnectAttempt = ref(0);
 
 vi.mock('../../composables/useWebSocket.js', () => ({
   useWebSocket: () => ({
     on: mockOn,
     off: mockOff,
     isConnected: { value: false },
+    connectionStatus: mockConnectionStatus,
+    reconnectAttempt: mockReconnectAttempt,
     send: vi.fn(),
     disconnect: vi.fn(),
     clearSessionBuffer: vi.fn(),
@@ -343,6 +347,78 @@ describe('SystemIndicators', () => {
       expect(cpuIndicator.classes()).toContain('indicator');
       expect(memIndicator.classes()).toContain('indicator');
 
+      wrapper.unmount();
+    });
+  });
+
+  describe('connection status dot', () => {
+    beforeEach(() => {
+      mockConnectionStatus.value = 'connected';
+      mockReconnectAttempt.value = 0;
+    });
+
+    it('does not show dot when connected', () => {
+      mockConnectionStatus.value = 'connected';
+      const wrapper = mount(SystemIndicators);
+      expect(wrapper.find('[data-testid="connection-status-dot"]').exists()).toBe(false);
+      wrapper.unmount();
+    });
+
+    it('shows amber pulsing dot when reconnecting', async () => {
+      mockConnectionStatus.value = 'reconnecting';
+      const wrapper = mount(SystemIndicators);
+      await nextTick();
+
+      const dot = wrapper.find('[data-testid="connection-status-dot"]');
+      expect(dot.exists()).toBe(true);
+      expect(dot.classes()).toContain('dot-amber');
+      expect(dot.classes()).toContain('dot-pulse');
+      wrapper.unmount();
+    });
+
+    it('shows red static dot when disconnected', async () => {
+      mockConnectionStatus.value = 'disconnected';
+      const wrapper = mount(SystemIndicators);
+      await nextTick();
+
+      const dot = wrapper.find('[data-testid="connection-status-dot"]');
+      expect(dot.exists()).toBe(true);
+      expect(dot.classes()).toContain('dot-red');
+      expect(dot.classes()).not.toContain('dot-pulse');
+      wrapper.unmount();
+    });
+
+    it('renders dot even when hasData is false (no system metrics)', async () => {
+      mockConnectionStatus.value = 'reconnecting';
+      const wrapper = mount(SystemIndicators);
+      await nextTick();
+
+      // No metrics handler called, so hasData is false
+      expect(wrapper.find('[data-testid="system-indicators"]').exists()).toBe(false);
+      // But the dot should still render
+      expect(wrapper.find('[data-testid="connection-status-dot"]').exists()).toBe(true);
+      wrapper.unmount();
+    });
+
+    it('shows correct tooltip text for reconnecting state', async () => {
+      mockConnectionStatus.value = 'reconnecting';
+      mockReconnectAttempt.value = 2;
+      const wrapper = mount(SystemIndicators);
+      await nextTick();
+
+      const dot = wrapper.find('[data-testid="connection-status-dot"]');
+      expect(dot.attributes('title')).toContain('Reconnecting');
+      expect(dot.attributes('title')).toContain('attempt 2');
+      wrapper.unmount();
+    });
+
+    it('shows correct tooltip text for disconnected state', async () => {
+      mockConnectionStatus.value = 'disconnected';
+      const wrapper = mount(SystemIndicators);
+      await nextTick();
+
+      const dot = wrapper.find('[data-testid="connection-status-dot"]');
+      expect(dot.attributes('title')).toBe('Disconnected');
       wrapper.unmount();
     });
   });

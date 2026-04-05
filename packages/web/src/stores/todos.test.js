@@ -110,7 +110,7 @@ describe('useTodosStore', () => {
         expect(store.error).toBe(null);
       });
 
-      it('preserves expanded state when clearing todos', () => {
+      it('resets expanded state when clearing todos', () => {
         store.expanded = true;
         store.items = [{ id: '1' }];
         store.loading = true;
@@ -118,7 +118,7 @@ describe('useTodosStore', () => {
 
         store.clearTodos();
 
-        expect(store.expanded).toBe(true);
+        expect(store.expanded).toBe(false);
         expect(store.items).toEqual([]);
         expect(store.loading).toBe(false);
         expect(store.error).toBe(null);

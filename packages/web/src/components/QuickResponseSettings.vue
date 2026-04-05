@@ -240,7 +240,7 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 999;
+  z-index: 1010;
 }
 
 .settings-panel {
@@ -448,7 +448,7 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1001;
+  z-index: 1020;
 }
 
 .confirm-dialog {

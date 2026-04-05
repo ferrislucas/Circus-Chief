@@ -143,8 +143,9 @@
               class="btn btn-secondary"
               data-testid="cancel-remove-button"
               :disabled="deleting"
-              @click="showConfirmation = false"
+              @click="cancelConfirmation"
             >Cancel</button>
+            <span v-if="deleteError" class="delete-error" data-testid="delete-error">{{ deleteError }}</span>
           </template>
         </div>
         <button class="btn btn-primary" @click="close">Close</button>
@@ -165,6 +166,7 @@ const props = defineProps({
   button: {
     type: Object,
     required: true,
+    validator: (val) => typeof val.id === 'string' && val.id.length > 0,
   },
   latestRun: {
     type: Object,
@@ -185,6 +187,7 @@ const emit = defineEmits(['close']);
 const elapsedTime = ref('0:00');
 const showConfirmation = ref(false);
 const deleting = ref(false);
+const deleteError = ref('');
 let timerInterval = null;
 
 // Output section state
@@ -308,19 +311,27 @@ const stopTimer = () => {
 };
 
 const close = () => {
+  deleteError.value = '';
+  showConfirmation.value = false;
   emit('close');
+};
+
+const cancelConfirmation = () => {
+  showConfirmation.value = false;
+  deleteError.value = '';
 };
 
 const handleRemoveRun = async () => {
   deleting.value = true;
+  deleteError.value = '';
   try {
-    await commandButtonsStore.deleteRun(props.sessionId, props.latestRun.runId);
+    await commandButtonsStore.deleteAllRunsForButton(props.sessionId, props.button.id);
     emit('close');
   } catch (err) {
-    console.error('Failed to remove run:', err);
+    console.error('Failed to remove runs:', err);
+    deleteError.value = 'Failed to remove runs. Please try again.';
   } finally {
     deleting.value = false;
-    showConfirmation.value = false;
   }
 };
 
@@ -610,6 +621,12 @@ onBeforeUnmount(() => {
 .confirm-text {
   font-size: 0.85rem;
   color: var(--color-text-soft);
+}
+
+.delete-error {
+  font-size: 0.85rem;
+  color: #f85149;
+  margin-left: 0.25rem;
 }
 
 .btn {

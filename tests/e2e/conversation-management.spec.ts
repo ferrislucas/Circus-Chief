@@ -14,7 +14,6 @@ import {
   deleteConversationRaw,
   branchConversation,
   getConversationMessages,
-  generateConversationSummary,
   getAPIURL,
   openSessionOverlay,
 } from './helpers';
@@ -128,31 +127,14 @@ test.describe('Multiple Conversations', () => {
     expect(activeConvs[0].name).toBe('Second Conversation');
   });
 
-  test('new conversation button visible in UI', async ({ page }) => {
+  test('new conversation button hidden in overlay', async ({ page }) => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
 
-    // The "New Conversation" button should be visible
+    // The "New Conversation" button should be hidden in the overlay
+    // (the overlay uses hideNewConversation prop to avoid cluttering the UI)
     const newBtn = page.locator('.btn-new');
-    await expect(newBtn).toBeVisible({ timeout: 10000 });
-    await expect(newBtn).toContainText('New Conversation');
-  });
-
-  test('clicking new conversation creates conversation and updates UI', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/summary`);
-    await openSessionOverlay(page);
-
-    // Click "New Conversation" button
-    const newBtn = page.locator('.btn-new');
-    await expect(newBtn).toBeVisible({ timeout: 10000 });
-    await newBtn.click();
-
-    // Wait for the new conversation to be created
-    await page.waitForTimeout(1000);
-
-    // Verify conversations count increased
-    const convs = await getConversations(session.id);
-    expect(convs).toHaveLength(2);
+    await expect(newBtn).not.toBeVisible({ timeout: 10000 });
   });
 
   test('cannot create conversation while session is running', async () => {
@@ -193,9 +175,9 @@ test.describe('Active Conversation Tracking and Switching', () => {
     const dropdownContainer = page.locator('.dropdown-container');
     await expect(dropdownContainer).not.toBeVisible({ timeout: 5000 });
 
-    // But the "New Conversation" button should be visible
+    // The "New Conversation" button is intentionally hidden in the overlay
     const newBtn = page.locator('.btn-new');
-    await expect(newBtn).toBeVisible({ timeout: 10000 });
+    await expect(newBtn).not.toBeVisible({ timeout: 10000 });
   });
 
   test('conversation selector appears when multiple conversations exist', async ({ page }) => {
@@ -732,42 +714,6 @@ test.describe('Per-Conversation Summaries', () => {
     expect(created.summaryGeneratedAt).toBeNull();
   });
 
-  test('summary endpoint returns response for conversation', async () => {
-    const convs = await getConversations(session.id);
-    const conv = convs[0];
-
-    // Call the summary generation endpoint
-    const response = await generateConversationSummary(session.id, conv.id);
-
-    // The endpoint should return a response
-    expect(response.status).toBeDefined();
-    // Either 200 (success) or 500 (service unavailable) are valid outcomes
-    expect([200, 500]).toContain(response.status);
-  });
-
-  test('switching conversations triggers background summary generation', async () => {
-    // Create a second conversation
-    const conv2 = await seedConversation(session.id, 'Summary Check Conv');
-
-    // Get initial state of first conversation
-    const convsBefore = await getConversations(session.id);
-    const initialConv = convsBefore.find((c: any) => c.id !== conv2.id);
-
-    // Switch back to the first conversation
-    await switchConversation(session.id, initialConv.id);
-
-    // Wait a bit for background summary generation
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // Fetch conversations again
-    const convsAfter = await getConversations(session.id);
-    const conv2After = convsAfter.find((c: any) => c.id === conv2.id);
-
-    // The conversation should still exist with summary fields
-    expect(conv2After).toBeTruthy();
-    expect(conv2After).toHaveProperty('summary');
-    expect(conv2After).toHaveProperty('summaryGeneratedAt');
-  });
 });
 
 test.describe('Conversation Deletion', () => {

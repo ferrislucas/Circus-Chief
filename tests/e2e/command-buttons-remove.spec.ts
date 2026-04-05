@@ -385,8 +385,8 @@ test.describe('Command Buttons - Remove Run Feature', () => {
     });
   });
 
-  test.describe('Remove Run When Button Has Multiple Historical Runs', () => {
-    test('removing latest run updates correctly when button has history', async ({ page }) => {
+  test.describe('Remove All Runs When Button Has Multiple Historical Runs', () => {
+    test('removing runs deletes all runs for the button at once', async ({ page }) => {
       // Step 1: Create a command button
       const button = await seedCommandButton(project.id, {
         label: 'Multi Run',
@@ -415,46 +415,30 @@ test.describe('Command Buttons - Remove Run Feature', () => {
       expect(sessionData.latestCommandRuns).toHaveLength(1);
       expect(sessionData.latestCommandRuns[0].runId).toBe(run3.runId);
 
-      // Step 4: Remove the latest (third) run
+      // Step 4: Remove runs - this should delete ALL runs for the button
       await removeCommandRunViaUI(page, 'Multi Run');
 
-      // Reload page to force fresh state from server
-      await page.reload();
-      // Wait for WebSocket to reconnect
-      await page.waitForTimeout(1000);
+      // Step 5: Verify status indicator is completely gone (all runs deleted)
+      await expect(
+        page.locator(`.command-status-bar .button-status-indicator[title*="Multi Run"]`)
+      ).not.toBeVisible({ timeout: 5000 });
 
-      // Debug: Check session data immediately after deletion
-      sessionData = await getSession(session.id);
-      console.log('After deletion, latestCommandRuns:', sessionData.latestCommandRuns);
-      console.log('Expected run2.runId:', run2.runId);
+      // Step 6: Verify database: ALL runs deleted
+      const deletedRun1 = await getCommandRun(session.id, run1.runId);
+      expect(deletedRun1).toBeNull();
 
-      // Step 5: Verify status indicator now shows the SECOND run's status
-      // The indicator should reappear with run2's details
-      const indicator = page.locator(
-        `.command-status-bar .button-status-indicator[title*="Multi Run"]`
-      );
+      const deletedRun2 = await getCommandRun(session.id, run2.runId);
+      expect(deletedRun2).toBeNull();
 
-      // Wait for status indicator to reappear (WebSocket update + session refetch)
-      await expect(indicator).toBeVisible({ timeout: 5000 });
-
-      // Re-open modal to check which run is shown
-      await openButtonStatusModal(page, 'Multi Run');
-      await expect(page.getByText(run2.runId)).toBeVisible();
-
-      // Step 6: Verify database: third run deleted, first two runs still exist
       const deletedRun3 = await getCommandRun(session.id, run3.runId);
       expect(deletedRun3).toBeNull();
 
-      const existingRun1 = await getCommandRun(session.id, run1.runId);
-      expect(existingRun1).not.toBeNull();
-
-      const existingRun2 = await getCommandRun(session.id, run2.runId);
-      expect(existingRun2).not.toBeNull();
-
-      // Verify session's latestCommandRuns now shows run2
+      // Verify session's latestCommandRuns is empty for this button
       sessionData = await getSession(session.id);
-      expect(sessionData.latestCommandRuns).toHaveLength(1);
-      expect(sessionData.latestCommandRuns[0].runId).toBe(run2.runId);
+      const runsForButton = (sessionData.latestCommandRuns || []).filter(
+        (r: any) => r.buttonId === button.id
+      );
+      expect(runsForButton).toHaveLength(0);
     });
   });
 

@@ -23,8 +23,6 @@ vi.mock('../services/sessionManager.js', () => ({
 vi.mock('../services/summaryService.js', () => ({
   getSummary: vi.fn().mockResolvedValue(null),
   regenerateSummary: vi.fn().mockResolvedValue(null),
-  generateConversationSummary: vi.fn().mockResolvedValue('mock summary'),
-  isConversationSummaryEnabled: vi.fn().mockReturnValue(true),
   cleanupSession: vi.fn(),
 }));
 
@@ -186,15 +184,6 @@ describe('Sessions API - Conversation Routes (sessions-conversations.js)', () =>
     it('returns 404 for non-existent conversation', async () => {
       const res = await request(app)
         .delete(`/api/sessions/${session.id}/conversations/non-existent`);
-
-      expect(res.status).toBe(404);
-    });
-  });
-
-  describe('POST /api/sessions/:id/conversations/:convId/summary', () => {
-    it('returns 404 for non-existent conversation', async () => {
-      const res = await request(app)
-        .post(`/api/sessions/${session.id}/conversations/non-existent/summary`);
 
       expect(res.status).toBe(404);
     });

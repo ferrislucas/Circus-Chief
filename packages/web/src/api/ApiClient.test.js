@@ -1464,20 +1464,6 @@ describe('ApiClient', () => {
       });
     });
 
-    describe('generateConversationSummary', () => {
-      it('generates summary for conversation', async () => {
-        const mockData = { summary: 'This is a test summary' };
-        mockFetch.mockReturnValue(mockResponse(mockData));
-
-        const result = await client.generateConversationSummary('sess-123', 'conv-1');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/conversations/conv-1/summary', expect.objectContaining({
-          method: 'POST',
-        }));
-        expect(result).toEqual(mockData);
-      });
-    });
-
     describe('getConversationMessages', () => {
       it('fetches messages for conversation', async () => {
         const mockData = [

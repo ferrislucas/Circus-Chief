@@ -21,20 +21,48 @@ vi.mock('vue-router', () => ({
   })),
 }));
 
-// Mock commandButtons store
+// Mock commandButtons store - use mutable mock data so tests can override
+const mockCommandButtonsData = {
+  buttons: [],
+  getButtonsByProjectId: vi.fn(() => mockCommandButtonsData.buttons),
+  getLatestRunForButton: vi.fn(() => null),
+};
 vi.mock('../stores/commandButtons.js', () => ({
-  useCommandButtonsStore: vi.fn(() => ({
-    buttons: [],
-    getButtonsByProjectId: vi.fn(() => []),
-    getLatestRunForButton: vi.fn(() => null),
-  })),
+  useCommandButtonsStore: vi.fn(() => mockCommandButtonsData),
 }));
 
 // Mock sessions store
 const mockSessionsStoreData = {
   sessions: [],
+  activeSessions: [],
   commandRunVersion: 0,
   toggleSessionStar: vi.fn(),
+  getWorkflowSessions: vi.fn((sessionId) => {
+    // Default implementation: search both sessions and activeSessions
+    const root = mockSessionsStoreData.sessions.find(s => s.id === sessionId)
+      || mockSessionsStoreData.activeSessions.find(s => s.id === sessionId)
+      || mockSessionsStoreData._currentSession;
+    if (!root) return [{ id: sessionId }];
+    const all = [root];
+    const stack = [sessionId];
+    const visited = new Set();
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      const children = [
+        ...mockSessionsStoreData.sessions.filter(s => s.parentSessionId === currentId),
+        ...mockSessionsStoreData.activeSessions.filter(s => s.parentSessionId === currentId),
+      ];
+      const seen = new Set(all.map(s => s.id));
+      for (const child of children) {
+        if (!seen.has(child.id)) { all.push(child); seen.add(child.id); }
+        stack.push(child.id);
+      }
+    }
+    return all;
+  }),
+  _currentSession: null,
 };
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: vi.fn(() => mockSessionsStoreData),
@@ -108,7 +136,14 @@ describe('SessionCard', () => {
 
     // Reset sessions store mock data
     mockSessionsStoreData.sessions = [];
+    mockSessionsStoreData.activeSessions = [];
     mockSessionsStoreData.commandRunVersion = 0;
+    mockSessionsStoreData._currentSession = null;
+
+    // Reset commandButtons store mock data
+    mockCommandButtonsData.buttons = [];
+    mockCommandButtonsData.getButtonsByProjectId.mockImplementation(() => mockCommandButtonsData.buttons);
+    mockCommandButtonsData.getLatestRunForButton.mockReturnValue(null);
   });
   const baseSession = {
     id: 'session-123',
@@ -122,6 +157,10 @@ describe('SessionCard', () => {
   function mountComponent(props = {}) {
     const pinia = createPinia();
     setActivePinia(pinia);
+    const sessionToMount = { ...baseSession, ...props.session };
+    // Set _currentSession so the mock getWorkflowSessions can find the root
+    // when the session is only passed as a prop (not in sessions/activeSessions arrays)
+    mockSessionsStoreData._currentSession = sessionToMount;
     return mount(SessionCard, {
       props: {
         session: baseSession,
@@ -450,6 +489,43 @@ describe('SessionCard', () => {
       });
       expect(wrapper.find('.status-running').exists()).toBe(false);
     });
+
+    it('shows running badge when child is in activeSessions but not sessions', () => {
+      mockSessionsStoreData.sessions = [];
+      mockSessionsStoreData.activeSessions = [
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('shows running badge when both parent and child are in activeSessions', () => {
+      mockSessionsStoreData.sessions = [];
+      mockSessionsStoreData.activeSessions = [
+        { id: baseSession.id, status: 'waiting', parentSessionId: null },
+        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
+
+    it('does not double-count when child is in both sessions and activeSessions', () => {
+      const childSession = { id: 'child-1', parentSessionId: baseSession.id, status: 'running' };
+      mockSessionsStoreData.sessions = [childSession];
+      mockSessionsStoreData.activeSessions = [childSession];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'waiting' },
+      });
+      // Badge should still show (running), but should not double-count the child
+      expect(wrapper.find('.status-running').exists()).toBe(true);
+    });
   });
 
 
@@ -599,6 +675,40 @@ describe('SessionCard', () => {
       // Verify component exists and is not broken by icon addition
       expect(wrapper.vm).toBeDefined();
       expect(wrapper.exists()).toBe(true);
+    });
+
+    it('passes button id to ButtonStatusModal when indicator is clicked', async () => {
+      // Set up buttons in mock store
+      mockCommandButtonsData.buttons = [
+        { id: 'btn-42', label: 'Deploy', command: 'npm run deploy', showOnList: true },
+      ];
+      mockCommandButtonsData.getButtonsByProjectId.mockImplementation(() => mockCommandButtonsData.buttons);
+
+      const session = {
+        ...baseSession,
+        projectId: 'proj-1',
+        latestCommandRuns: [
+          { buttonId: 'btn-42', runId: 'run-1', status: 'success', exitCode: 0 },
+        ],
+      };
+
+      const wrapper = mountComponent({ session });
+
+      // Verify indicator renders
+      const indicators = wrapper.findAll('.button-status-indicator');
+      expect(indicators.length).toBe(1);
+
+      // Click the indicator to open the modal
+      await indicators[0].trigger('click');
+
+      // Verify modal receives button.id
+      const modal = wrapper.findComponent({ name: 'ButtonStatusModal' });
+      expect(modal.exists()).toBe(true);
+      expect(modal.props('button')).toEqual({
+        id: 'btn-42',
+        label: 'Deploy',
+        command: 'npm run deploy',
+      });
     });
   });
 
