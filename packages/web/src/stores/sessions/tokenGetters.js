@@ -187,4 +187,45 @@ export const tokenGetters = {
     }
     return formatTokenCount(calculateBillableTokens(usage, weights));
   },
+  /**
+   * Calculate session-level BTE for a given session (not conversation-scoped).
+   * Aggregates across the session and all its descendants.
+   * Returns a number (raw BTE count).
+   */
+  getSessionBillableTokens: (state) => (sessionId) => {
+    const settingsStore = useSettingsStore();
+    const weights = settingsStore.tokenCostWeights;
+
+    const calcForSession = (session) => {
+      if (!session) return 0;
+      return calculateBillableTokens({
+        inputTokens: session.inputTokens || 0,
+        outputTokens: session.outputTokens || 0,
+        cacheReadInputTokens: session.cacheReadInputTokens || 0,
+        cacheCreationInputTokens: session.cacheCreationInputTokens || 0,
+      }, weights);
+    };
+
+    const session = state.sessions.find(s => s.id === sessionId)
+      || (state.currentSession?.id === sessionId ? state.currentSession : null);
+    if (!session) return 0;
+
+    let total = calcForSession(session);
+
+    // Aggregate descendants
+    const stack = [sessionId];
+    const visited = new Set();
+    while (stack.length > 0) {
+      const currentId = stack.pop();
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      const children = state.sessions.filter(s => s.parentSessionId === currentId);
+      for (const child of children) {
+        total += calcForSession(child);
+        stack.push(child.id);
+      }
+    }
+
+    return total;
+  },
 };

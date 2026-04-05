@@ -35,7 +35,7 @@
     <SchedulingInfo v-if="isScheduled" :session="session" />
 
     <!-- Session Overview Section -->
-    <div v-if="hasPrInfo || summary?.shortSummary || loading" class="session-overview card">
+    <div v-if="hasPrInfo || (summary && (summary.shortSummary || hasMetrics)) || loading" class="session-overview card">
       <div class="overview-header">
         <h3>Session Overview</h3>
       </div>
@@ -43,10 +43,25 @@
       <!-- Summary in Overview -->
       <div v-if="summary?.shortSummary" class="overview-summary">
         <p class="summary-text">{{ summary.shortSummary }}</p>
-        <div v-if="filesCount > 0" class="summary-meta">
-          <span class="summary-files">
-            {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
-          </span>
+      </div>
+
+      <!-- Overview Metrics -->
+      <div v-if="hasMetrics" class="overview-metrics">
+        <div class="metric" v-if="sessionCount > 1">
+          <span class="metric-value">{{ sessionCount }}</span>
+          <span class="metric-label">Sessions</span>
+        </div>
+        <div class="metric" v-if="hasTokenUsage">
+          <span class="metric-value">{{ formattedTokens }}</span>
+          <span class="metric-label">Tokens</span>
+        </div>
+        <div class="metric" v-if="formattedDuration">
+          <span class="metric-value">{{ formattedDuration }}</span>
+          <span class="metric-label">Work Time</span>
+        </div>
+        <div class="metric" v-if="filesCount > 0">
+          <span class="metric-value">{{ filesCount }}</span>
+          <span class="metric-label">{{ filesCount === 1 ? 'File' : 'Files' }}</span>
         </div>
       </div>
       <div v-else-if="loading" class="overview-summary overview-summary-loading">
@@ -121,6 +136,7 @@ import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
+import { formatTokenCount } from '@claudetools/shared';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
@@ -302,9 +318,81 @@ const runningSessionIds = computed(() => {
   }
   return ids;
 });
+
 const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 const hasWarnings = computed(() => summary.value?.hasMergeConflicts || summary.value?.ciStatus === 'failure');
+
+// Overview metrics computed properties
+const sessionCount = computed(() => {
+  const descendants = sessionsStore.getAllDescendants(props.sessionId);
+  return descendants.length + 1; // +1 for the session itself
+});
+
+const hasTokenUsage = computed(() => {
+  const bte = sessionsStore.getSessionBillableTokens(props.sessionId);
+  return bte > 0;
+});
+
+const formattedTokens = computed(() => {
+  const bte = sessionsStore.getSessionBillableTokens(props.sessionId);
+  return formatTokenCount(bte);
+});
+
+const workTimeMs = computed(() => {
+  const s = session.value;
+  if (!s) return null;
+  const start = s.createdAt;
+  if (!start) return null;
+  const end = s.lastActivityAt || s.updatedAt;
+  if (!end) {
+    // Only use Date.now() for sessions that are actively running
+    const status = s.status;
+    if (status === 'running' || status === 'starting') return Date.now() - start;
+    return null;
+  }
+  const duration = end - start;
+
+  // For sessions that are actively running, always show work time
+  const isSessionActive = s.status === 'running' || s.status === 'starting';
+  if (isSessionActive) {
+    return duration;
+  }
+
+  // For non-active sessions, only show work time if:
+  // 1. The session has meaningful duration (> 5 seconds), OR
+  // 2. The session has token usage (indicating it was actually used)
+  const hasTokenUsage = sessionsStore.getSessionBillableTokens(s.id) > 0;
+  const hasMeaningfulDuration = duration >= 5000; // 5 seconds threshold
+
+  if (hasTokenUsage || hasMeaningfulDuration) {
+    return duration;
+  }
+
+  // Otherwise, don't show minimal work time for inactive sessions without usage
+  return null;
+});
+
+const formattedDuration = computed(() => formatDuration(workTimeMs.value));
+
+const hasMetrics = computed(() =>
+  sessionCount.value > 1 || hasTokenUsage.value || formattedDuration.value || filesCount.value > 0
+);
+
+function formatDuration(ms) {
+  if (!ms || ms < 0) return null;
+  // Treat 0 duration as null (no meaningful time duration)
+  if (ms === 0) return null;
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days}d ${hours % 24}h`;
+  if (hours > 0) return `${hours}h ${minutes % 60}m`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+}
 
 function formatPrState(state) {
   const labels = {
@@ -367,6 +455,10 @@ onMounted(async () => {
     try {
       const result = await api.getSessionFilesCount(props.sessionId);
       filesCount.value = result.count || 0;
+      // Fall back to summary's filesModified if API returns 0
+      if (!filesCount.value && summary.value?.filesModified?.length) {
+        filesCount.value = summary.value.filesModified.length;
+      }
     } catch (error) {
       console.warn('Failed to fetch files count:', error);
       if (summary.value?.filesModified?.length) {
@@ -535,6 +627,32 @@ async function handleRegenerate() {
 .pr-section {
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
+}
+
+.overview-metrics {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.metric-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.metric-label {
+  font-size: 0.6875rem;
+  color: var(--color-text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .overview-pr {
