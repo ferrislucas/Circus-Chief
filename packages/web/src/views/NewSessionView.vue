@@ -579,22 +579,99 @@ async function handleSubmit() {
 </script>
 
 <style scoped>
-.back-link { font-size: 0.875rem; color: var(--color-text-soft); display: inline-block; margin-bottom: 0.25rem; margin-top: 0; }
-h1 { margin-bottom: 0.5rem; margin-top: 0; }
-.form { width: 100%; max-width: 640px; margin: 0 auto; }
-.form-help { margin: 0.5rem 0 0; font-size: 0.75rem; color: var(--color-text-soft); }
-.attachment-row { margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center; }
-.form-actions { display: flex; gap: 0.75rem; align-items: center; margin-top: 1rem; }
-.btn-submit { flex: 1; padding-top: 0.75rem; padding-bottom: 0.75rem; font-size: 1.05rem; }
-.btn-secondary { padding: 0.75rem 1.25rem; font-size: 1.05rem; background: transparent; border: 1px solid var(--color-border); color: var(--color-text-soft); border-radius: var(--border-radius, 4px); cursor: pointer; transition: border-color 0.15s, color 0.15s; }
-.btn-secondary:hover { border-color: var(--color-border-hover); color: var(--color-text); }
-.error-message { color: var(--color-error); margin-bottom: 1rem; }
-.advanced-options { margin-top: 0.5rem; margin-bottom: 0.5rem; }
-@media (max-width: 480px) {
-  h1 { margin-bottom: 0.5rem; font-size: 1.5rem; }
-  .form.card { padding: 0.75rem; }
+.back-link {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  display: inline-block;
+  margin-bottom: 0.25rem;
+  margin-top: 0;
 }
+
+h1 {
+  margin-bottom: 0.5rem;
+  margin-top: 0;
+}
+
+.form {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.form-help {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.attachment-row {
+  margin-top: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.btn-submit {
+  flex: 1;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  font-size: 1.05rem;
+}
+
+.btn-secondary {
+  padding: 0.75rem 1.25rem;
+  font-size: 1.05rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  border-radius: var(--border-radius, 4px);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-border-hover);
+  color: var(--color-text);
+}
+
+.error-message {
+  color: var(--color-error);
+  margin-bottom: 1rem;
+}
+
+.advanced-options {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+@media (max-width: 480px) {
+  h1 {
+    margin-bottom: 0.5rem;
+    font-size: 1.5rem;
+  }
+
+  .form.card {
+    padding: 0.75rem;
+  }
+}
+
 @media (max-width: 640px) {
-  .form-actions { position: sticky; bottom: 0; background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e)); border-top: 1px solid var(--color-border); padding: 0.75rem 1rem; margin: 0 -1rem -1rem; padding-bottom: calc(0.75rem + env(safe-area-inset-bottom)); z-index: 10; }
+  .form-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e));
+    border-top: 1px solid var(--color-border);
+    padding: 0.75rem 1rem;
+    margin: 0 -1rem -1rem;
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    z-index: 10;
+  }
 }
 </style>
