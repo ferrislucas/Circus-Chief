@@ -291,6 +291,7 @@ describe('useSessionInitializer', () => {
       // Pre-populate store state
       sessionsStore.messages = [{ id: 'msg-1' }];
       sessionsStore.conversations = [{ id: 'conv-1' }];
+      sessionsStore.activeConversationId = 'conv-1';
       sessionsStore.workLogs = { 'log-1': {} };
 
       await initializeSession('session-1');
@@ -298,6 +299,7 @@ describe('useSessionInitializer', () => {
 
       expect(sessionsStore.messages).toEqual([]);
       expect(sessionsStore.conversations).toEqual([]);
+      expect(sessionsStore.activeConversationId).toBeNull();
       expect(sessionsStore.workLogs).toEqual({});
     });
 
