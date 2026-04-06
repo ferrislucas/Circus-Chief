@@ -518,7 +518,7 @@ test.describe('Session Status Badges', () => {
     await cleanupCreatedResources();
   });
 
-  test('displays correct status badge for stopped sessions', async ({ page }) => {
+  test('displays session card for stopped sessions without status badge', async ({ page }) => {
     // Clear any persisted status filter that would hide stopped sessions
     await page.addInitScript(() => {
       localStorage.removeItem('sessionStatusFilter');
@@ -541,5 +541,8 @@ test.describe('Session Status Badges', () => {
     await expect(page.locator('.session-name').filter({ hasText: session.name })).toBeVisible();
     const sessionCard = page.locator('.session-card').filter({ hasText: session.name });
     await expect(sessionCard).toBeVisible();
+
+    // Verify no status badge is shown for stopped sessions
+    await expect(sessionCard.locator('.status-badge')).not.toBeVisible();
   });
 });
