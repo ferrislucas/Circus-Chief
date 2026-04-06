@@ -2,75 +2,52 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations } from './index.js';
 
-/**
- * Map token usage fields from a database row.
- * @param {Object} row - Database row
- * @returns {Object} Token usage fields
- */
+/** Reusable SQL fragment for computed activity fields on sessions */
+const ACTIVITY_FIELDS_SQL = `
+  (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
+  (CAST(
+    CASE
+      WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
+      THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+         - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
+      ELSE 0
+    END AS INTEGER)
+  ) AS active_time_ms`;
+
 function mapTokenUsage(row) {
   return {
-    inputTokens: row.input_tokens || 0,
-    outputTokens: row.output_tokens || 0,
+    inputTokens: row.input_tokens || 0, outputTokens: row.output_tokens || 0,
     cacheReadInputTokens: row.cache_read_input_tokens || 0,
     cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
-    webSearchRequests: row.web_search_requests || 0,
-    contextWindow: row.context_window || 200000,
+    webSearchRequests: row.web_search_requests || 0, contextWindow: row.context_window || 200000,
   };
 }
 
-/**
- * Map scheduling fields from a database row.
- * @param {Object} row - Database row
- * @returns {Object} Scheduling fields
- */
 function mapScheduling(row) {
   return {
-    scheduledAt: row.scheduled_at || null,
-    rescheduleDelayMinutes: row.reschedule_delay_minutes || 15,
+    scheduledAt: row.scheduled_at || null, rescheduleDelayMinutes: row.reschedule_delay_minutes || 15,
     autoRescheduleEnabled: Boolean(row.auto_reschedule_enabled),
     rescheduleOnTokenLimit: Boolean(row.reschedule_on_token_limit),
     rescheduleOnServiceError: Boolean(row.reschedule_on_service_error),
-    maxRescheduleCount: row.max_reschedule_count,
-    maxTotalTokens: row.max_total_tokens,
-    rescheduleCount: row.reschedule_count || 0,
-    rescheduleAtTokenCount: row.reschedule_at_token_count,
+    maxRescheduleCount: row.max_reschedule_count, maxTotalTokens: row.max_total_tokens,
+    rescheduleCount: row.reschedule_count || 0, rescheduleAtTokenCount: row.reschedule_at_token_count,
   };
 }
 
-/**
- * Parse legacy positional arguments to config object.
- * @param {Array} args - Arguments array starting from options position
- * @returns {Object} Config object
- */
-function parseLegacyArgs(args) {
-  const [mode, thinkingEnabled, gitBranch, parentSessionId, status, model] = args.slice(0, 6);
-  const legacyOpts = args[6] || {};
-  return {
-    mode: mode || 'standard',
-    thinkingEnabled: thinkingEnabled || false,
-    gitBranch: gitBranch || null,
-    parentSessionId: parentSessionId || null,
-    status: status || 'starting',
-    model: model || null,
-    effortLevel: legacyOpts.effortLevel || null,
-  };
+const CONFIG_DEFAULTS = { mode: 'standard', thinkingEnabled: false, gitBranch: null,
+  parentSessionId: null, status: 'starting', model: null, effortLevel: null };
+
+function buildConfig(src) {
+  return Object.fromEntries(Object.entries(CONFIG_DEFAULTS).map(([k, d]) => [k, src[k] ?? d]));
 }
 
-/**
- * Parse options object to normalized config.
- * @param {Object} options - Options object
- * @returns {Object} Config object
- */
-function parseOptionsToConfig(options) {
-  return {
-    mode: options.mode || 'standard',
-    thinkingEnabled: options.thinkingEnabled || false,
-    gitBranch: options.gitBranch || null,
-    parentSessionId: options.parentSessionId || null,
-    status: options.status || 'starting',
-    model: options.model || null,
-    effortLevel: options.effortLevel || null,
-  };
+function parseCreateConfig(options, extraArgs) {
+  if (typeof options !== 'string') return buildConfig(options);
+  const keys = ['mode', 'thinkingEnabled', 'gitBranch', 'parentSessionId', 'status', 'model'];
+  const vals = { mode: options };
+  keys.slice(1).forEach((k, i) => { vals[k] = extraArgs[i]; });
+  vals.effortLevel = (extraArgs[5] || {}).effortLevel;
+  return buildConfig(vals);
 }
 
 /**
@@ -118,51 +95,17 @@ export class SessionRepository extends BaseRepository {
     };
   }
 
-  /**
-   * Override getById to include computed last_activity_at field
-   * This is critical because getById is called after every create(), update(), and updateUsage() call
-   * @param {string} id - Session ID
-   * @returns {Object|null} Session with lastActivityAt
-   */
+  /** Override getById to include computed last_activity_at and active_time_ms fields */
   getById(id) {
     const row = this.db
-      .prepare(
-        `SELECT s.*,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
-          (CAST(
-            CASE
-              WHEN (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) IS NOT NULL
-              THEN (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id)
-                 - (SELECT MIN(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id)
-              ELSE 0
-            END AS INTEGER)
-          ) AS active_time_ms
-         FROM sessions s WHERE s.id = ?`
-      )
+      .prepare(`SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE s.id = ?`)
       .get(id);
     return this.map(row);
   }
 
-  /**
-   * Create a new session
-   * @param {string} projectId - Project ID
-   * @param {string} name - Session name
-   * @param {string} prompt - Initial prompt
-   * @param {Object} options - Optional session configuration
-   * @param {string} [options.mode='standard'] - Session mode
-   * @param {boolean} [options.thinkingEnabled=false] - Enable thinking mode
-   * @param {string|null} [options.gitBranch=null] - Git branch
-   * @param {string|null} [options.parentSessionId=null] - Parent session ID
-   * @param {string} [options.status='starting'] - Initial status
-   * @param {string|null} [options.model=null] - Model to use
-   * @param {string|null} [options.effortLevel=null] - Effort level
-   * @returns {Object} Created session
-   */
+  /** Create a new session with optional config (mode, thinkingEnabled, gitBranch, parentSessionId, status, model, effortLevel) */
   create(projectId, name, prompt, options = {}) {
-    // Support legacy positional arguments for backward compatibility
-    const config = typeof options === 'string'
-      ? parseLegacyArgs([options, arguments[4], arguments[5], arguments[6], arguments[7], arguments[8], arguments[9]])
-      : parseOptionsToConfig(options);
+    const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));
 
     const id = databaseManager.generateId();
     const now = Date.now();
@@ -186,17 +129,7 @@ export class SessionRepository extends BaseRepository {
   }
 
   getByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
-    let sql = `SELECT s.*,
-      (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
-      (CAST(
-        CASE
-          WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
-          THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-             - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-          ELSE 0
-        END AS INTEGER)
-      ) AS active_time_ms
-      FROM sessions s WHERE project_id = ?`;
+    let sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE project_id = ?`;
     const params = [projectId];
 
     if (archived !== null) {
@@ -225,14 +158,7 @@ export class SessionRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
-  /**
-   * Get count of sessions for a project with optional filters
-   * @param {string} projectId - Project ID
-   * @param {Object} options - Filter options
-   * @param {boolean|null} options.archived - Filter by archived status
-   * @param {boolean|null} options.starred - Filter by starred status
-   * @returns {number} Count of matching sessions
-   */
+  /** Get count of sessions for a project with optional archived/starred filters */
   getCountByProjectId(projectId, { archived = null, starred = null } = {}) {
     let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ?`;
     const params = [projectId];
@@ -253,20 +179,9 @@ export class SessionRepository extends BaseRepository {
   getActiveAndWaiting() {
     const rows = this.db
       .prepare(
-        `SELECT s.*, p.name as project_name, p.working_directory as project_working_directory,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
-          (CAST(
-            CASE
-              WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
-              THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-                 - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-              ELSE 0
-            END AS INTEGER)
-          ) AS active_time_ms
-         FROM sessions s
-         JOIN projects p ON s.project_id = p.id
-         WHERE s.status IN ('starting', 'running', 'waiting')
-           AND s.archived = 0
+        `SELECT s.*, p.name as project_name, p.working_directory as project_working_directory, ${ACTIVITY_FIELDS_SQL}
+         FROM sessions s JOIN projects p ON s.project_id = p.id
+         WHERE s.status IN ('starting', 'running', 'waiting') AND s.archived = 0
          ORDER BY s.starred DESC, s.updated_at DESC, s.created_at DESC, s.rowid DESC`
       )
       .all();
@@ -277,25 +192,11 @@ export class SessionRepository extends BaseRepository {
     }));
   }
 
-  /**
-   * Get all child sessions of a parent session
-   * @param {string} parentSessionId - The parent session ID
-   * @returns {Array<Object>} Child sessions
-   */
+  /** Get all child sessions of a parent session */
   getChildSessions(parentSessionId) {
     const rows = this.db
       .prepare(
-        `SELECT s.*,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
-          (CAST(
-            CASE
-              WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
-              THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-                 - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-              ELSE 0
-            END AS INTEGER)
-          ) AS active_time_ms
-         FROM sessions s
+        `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
          WHERE parent_session_id = ?
          ORDER BY updated_at DESC, created_at DESC, rowid DESC`
       )
@@ -303,11 +204,7 @@ export class SessionRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
-  /**
-   * Walk the parentSessionId chain upward to find the root session.
-   * @param {string} sessionId - Starting session ID
-   * @returns {string|null} - Root session ID, or null if session not found
-   */
+  /** Walk the parentSessionId chain upward to find the root session */
   getRootSessionId(sessionId) {
     let current = this.getById(sessionId);
     const visited = new Set();
@@ -321,12 +218,7 @@ export class SessionRepository extends BaseRepository {
     return current?.id ?? null;
   }
 
-  /**
-   * Collect all descendant session IDs (children, grandchildren, etc.) recursively.
-   * Uses a lightweight ID-only query to avoid expensive joins.
-   * @param {string} sessionId - The starting session ID
-   * @returns {string[]} Array of all descendant session IDs (does NOT include the starting session)
-   */
+  /** Collect all descendant session IDs recursively (does NOT include the starting session) */
   getAllDescendantIds(sessionId) {
     const stmt = this.db.prepare('SELECT id FROM sessions WHERE parent_session_id = ?');
     const descendantIds = [];
@@ -348,10 +240,7 @@ export class SessionRepository extends BaseRepository {
     return descendantIds;
   }
 
-  /**
-   * Mapping of camelCase field names to their snake_case column names.
-   * Values are passed through to SQLite as-is.
-   */
+  /** camelCase → snake_case column mapping for direct (non-boolean) fields */
   static #DIRECT_FIELD_MAP = {
     name: 'name',
     status: 'status',
@@ -378,10 +267,7 @@ export class SessionRepository extends BaseRepository {
     laneTriggerDepth: 'lane_trigger_depth',
   };
 
-  /**
-   * Mapping of camelCase boolean field names to their snake_case column names.
-   * Values are converted to 1/0 for SQLite storage.
-   */
+  /** camelCase → snake_case column mapping for boolean fields (converted to 1/0) */
   static #BOOLEAN_FIELD_MAP = {
     thinkingEnabled: 'thinking_enabled',
     archived: 'archived',
@@ -393,11 +279,7 @@ export class SessionRepository extends BaseRepository {
     autoSendPendingPrompt: 'auto_send_pending_prompt',
   };
 
-  /**
-   * Build the SET clause entries and parameter values from the provided data object.
-   * @param {Object} data - The update data with camelCase keys
-   * @returns {{ updates: string[], values: any[] }}
-   */
+  /** Build SET clause entries and parameter values from update data */
   static #buildUpdateClauses(data) {
     const updates = [];
     const values = [];
@@ -433,16 +315,7 @@ export class SessionRepository extends BaseRepository {
     return this.getById(id);
   }
 
-  /**
-   * Duplicates a session with a new ID and reset state.
-   * Does NOT handle git setup - that's done by the service layer.
-   * Does NOT create initial conversation/message - those are handled by conversation duplication.
-   *
-   * @param {string} sourceSessionId - ID of session to duplicate
-   * @param {object} options - Override options
-   * @param {string} [options.name] - New name (defaults to "Original Name (Copy)")
-   * @returns {object} The new session record
-   */
+  /** Duplicate a session with a new ID and reset state (does NOT handle git or conversation setup) */
   duplicate(sourceSessionId, { name } = {}) {
     const source = this.getById(sourceSessionId);
     if (!source) {
@@ -485,121 +358,46 @@ export class SessionRepository extends BaseRepository {
     return this.getById(id);
   }
 
-  /**
-   * Get all sessions that have a PR URL set
-   * Used by prStatusService for polling CI status
-   * @returns {Array<Object>} Sessions with PR URLs
-   */
+  /** Get all sessions that have a PR URL set (used by prStatusService) */
   getSessionsWithPrUrls() {
     const rows = this.db
       .prepare(
-        `SELECT s.*,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
-          (CAST(
-            CASE
-              WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
-              THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-                 - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-              ELSE 0
-            END AS INTEGER)
-          ) AS active_time_ms
-         FROM sessions s
+        `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
          WHERE pr_url IS NOT NULL ORDER BY updated_at DESC, created_at DESC, rowid DESC`
       )
       .all();
     return this.mapAll(rows);
   }
 
-  /**
-   * Update token usage statistics for a session
-   * @param {string} id - Session ID
-   * @param {Object} usage - Usage data
-   * @param {number} usage.inputTokens
-   * @param {number} usage.outputTokens
-   * @param {number} usage.cacheReadInputTokens
-   * @param {number} usage.cacheCreationInputTokens
-   * @param {number} usage.webSearchRequests
-   * @param {number} usage.contextWindow
-   * @returns {Object} Updated session
-   */
   updateUsage(id, usage) {
-    const now = Date.now();
     this.db
       .prepare(
-        `UPDATE sessions SET
-          input_tokens = ?,
-          output_tokens = ?,
-          cache_read_input_tokens = ?,
-          cache_creation_input_tokens = ?,
-          web_search_requests = ?,
-          context_window = ?,
-          updated_at = ?
+        `UPDATE sessions SET input_tokens = ?, output_tokens = ?, cache_read_input_tokens = ?,
+          cache_creation_input_tokens = ?, web_search_requests = ?, context_window = ?, updated_at = ?
         WHERE id = ?`
       )
-      .run(
-        usage.inputTokens,
-        usage.outputTokens,
-        usage.cacheReadInputTokens,
-        usage.cacheCreationInputTokens,
-        usage.webSearchRequests,
-        usage.contextWindow,
-        now,
-        id
-      );
+      .run(usage.inputTokens, usage.outputTokens, usage.cacheReadInputTokens,
+        usage.cacheCreationInputTokens, usage.webSearchRequests, usage.contextWindow, Date.now(), id);
     return this.getById(id);
   }
 
-  /**
-   * Get all scheduled sessions that are due to start (scheduled_at <= now)
-   * @param {number} now - Current timestamp in milliseconds
-   * @returns {Array<Object>} Scheduled sessions that should start
-   */
+  /** Get scheduled sessions that are due to start (scheduled_at <= now) */
   getScheduledSessionsDue(now) {
     const rows = this.db
       .prepare(
-        `SELECT s.*,
-          (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
-          (CAST(
-            CASE
-              WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
-              THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-                 - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-              ELSE 0
-            END AS INTEGER)
-          ) AS active_time_ms
-         FROM sessions s
-         WHERE status = 'scheduled'
-           AND scheduled_at IS NOT NULL
-           AND scheduled_at <= ?
-           AND archived = 0
+        `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
+         WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <= ? AND archived = 0
          ORDER BY scheduled_at ASC`
       )
       .all(now);
     return this.mapAll(rows);
   }
 
-  /**
-   * Get all scheduled sessions (optionally filtered by project)
-   * @param {string|null} projectId - Optional project ID to filter by
-   * @returns {Array<Object>} Scheduled sessions with project info
-   */
+  /** Get all scheduled sessions, optionally filtered by project */
   getScheduledSessions(projectId = null) {
-    let sql = `
-      SELECT s.*, p.name as project_name,
-        (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
-        (CAST(
-          CASE
-            WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
-            THEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-               - (SELECT MIN(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id)
-            ELSE 0
-          END AS INTEGER)
-        ) AS active_time_ms
-      FROM sessions s
-      JOIN projects p ON s.project_id = p.id
-      WHERE s.status = 'scheduled'
-        AND s.archived = 0
-    `;
+    let sql = `SELECT s.*, p.name as project_name, ${ACTIVITY_FIELDS_SQL}
+      FROM sessions s JOIN projects p ON s.project_id = p.id
+      WHERE s.status = 'scheduled' AND s.archived = 0`;
     const params = [];
 
     if (projectId) {
