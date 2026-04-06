@@ -124,7 +124,8 @@ export async function navigateAndWait(
 
 /**
  * Open the session tree overlay on the session detail page.
- * Clicks the tree handle and waits for the overlay to appear.
+ * Clicks the tree handle and waits for the overlay to be fully rendered
+ * (including the transition animation and overlay header).
  * Returns a Locator scoped to the overlay container.
  */
 export async function openSessionOverlay(page: Page, timeout = 10000) {
@@ -133,6 +134,10 @@ export async function openSessionOverlay(page: Page, timeout = 10000) {
   await handle.click();
   const overlay = page.locator('.session-chat-overlay');
   await overlay.waitFor({ state: 'visible', timeout });
+  // Wait for the overlay header to be visible — this ensures the transition
+  // animation has completed and the overlay content is fully rendered,
+  // eliminating the need for callers to add waitForTimeout() after this call.
+  await overlay.locator('.overlay-header').waitFor({ state: 'visible', timeout });
   return overlay;
 }
 

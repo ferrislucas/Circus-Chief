@@ -109,9 +109,11 @@ test.describe('Project Management', () => {
     // Click "Reset to Default" button next to system prompt
     await page.click('button.btn-link:has-text("Reset to Default")');
 
-    // Verify the textarea is reset (should contain default prompt)
+    // Verify the textarea is reset to the default system prompt
     const textareaValue = await page.inputValue('textarea[id="systemPrompt"]');
     expect(textareaValue).not.toBe('Custom system prompt for testing');
+    // The default prompt should contain the standard Claude Code introduction
+    expect(textareaValue).toContain('You are Claude Code');
 
     await page.click('button.btn-primary:has-text("Save")');
 

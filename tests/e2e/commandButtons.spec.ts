@@ -43,9 +43,12 @@ test.describe('Command Buttons', () => {
     // Expand output section
     await page.click('.output-header');
 
-    // Verify output is displayed
+    // Verify output is displayed with the expected content
     const outputText = await page.textContent('.output-text');
     expect(outputText).toBeTruthy();
+    expect(outputText).toContain('Line 1');
+    expect(outputText).toContain('Line 2');
+    expect(outputText).toContain('Line 3');
   });
 
   test('navigate between tabs with output persisting', async ({ page }) => {
