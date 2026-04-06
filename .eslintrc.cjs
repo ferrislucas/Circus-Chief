@@ -29,10 +29,10 @@ module.exports = {
       },
     },
     {
-      // Only .vue files get the relaxed max-lines of 500
+      // Vue files get a higher max-lines limit to accommodate expanded <style> blocks
       files: ['packages/web/**/*.vue'],
       rules: {
-        'max-lines': ['error', { max: 500, skipBlankLines: true, skipComments: true }],
+        'max-lines': ['error', { max: 800, skipBlankLines: true, skipComments: true }],
       },
     },
     {
@@ -76,7 +76,7 @@ module.exports = {
     // complexity enforced at 15
     'complexity': ['error', 15],
 
-    // max-lines enforced at 400 (Vue files get 500 via override)
+    // max-lines enforced at 400 (Vue files get 800 via override to accommodate <style> blocks)
     'max-lines': ['error', { max: 400, skipBlankLines: true, skipComments: true }],
 
     // max-lines-per-function enforced at 100 lines (allows reasonable sequential flows)

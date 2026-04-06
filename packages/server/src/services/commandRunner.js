@@ -250,6 +250,10 @@ export class CommandRunner {
 
     this.processes.delete(runId);
     if (onComplete) onComplete(exitCode, entry.output);
+    // Use ?? 1 (not signal-specific codes like 143 for SIGTERM) because:
+    // - Exit codes >128 indicate signal termination (convention: 128 + signal number)
+    // - Normalizing to 1 simplifies error handling for consumers
+    // - The signal information is already logged above for debugging
     return exitCode ?? 1;
   }
 
@@ -315,7 +319,7 @@ export class CommandRunner {
           console.error(`[commandRunner.run] Error for runId: ${runId}`, err);
           if (onError) onError(msg);
           if (commandRuns && typeof commandRuns.complete === 'function') {
-            try { commandRuns.complete(runId, 1, entry.output); } catch { /* ignore */ }
+            try { commandRuns.complete(runId, 1, entry.output); } catch (dbErr) { console.warn('[commandRunner.run] Warning: Error completing run in database for runId:', runId, dbErr.message); }
           }
           this.processes.delete(runId);
           resolve(1);
