@@ -24,8 +24,8 @@ function updateSessionInList(list, sessionData, addIfMissing = false) {
 function moveSessionBetweenLists(sourceList, targetList, sessionData) {
   const existingSession = sourceList.find((s) => s.id === sessionData.id);
   const merged = existingSession ? { ...existingSession, ...sessionData } : sessionData;
-  sourceList.splice(0, sourceList.length, ...sourceList.filter((s) => s.id !== sessionData.id));
   updateSessionInList(targetList, merged, true);
+  return sourceList.filter((s) => s.id !== sessionData.id);
 }
 
 /**
@@ -279,10 +279,10 @@ export const sessionActions = {
 
     // Handle archive state changes
     if (sessionData.archived === true) {
-      moveSessionBetweenLists(this.sessions, this.archivedSessions, sessionData);
+      this.sessions = moveSessionBetweenLists(this.sessions, this.archivedSessions, sessionData);
       this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
     } else if (sessionData.archived === false) {
-      moveSessionBetweenLists(this.archivedSessions, this.sessions, sessionData);
+      this.archivedSessions = moveSessionBetweenLists(this.archivedSessions, this.sessions, sessionData);
     } else {
       // Regular update - update in both lists
       updateSessionInList(this.sessions, sessionData);

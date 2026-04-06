@@ -292,7 +292,7 @@ describe('workLogActions', () => {
       store.partialThinkingBySession = { 'sess-1': 'thinking...' };
       store.clearRunningUsage();
       expect(store.runningUsage).toBeNull();
-      expect(store.partialThinkingBySession).toEqual({});
+      expect(store.partialThinkingBySession).toEqual({ 'sess-1': null });
     });
   });
 });
