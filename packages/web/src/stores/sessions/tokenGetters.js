@@ -220,13 +220,14 @@ export const tokenGetters = {
       }, weights);
     };
 
+    // Look up the session — check both the sessions array and currentSession
     const session = state.sessions.find(s => s.id === sessionId)
       || (state.currentSession?.id === sessionId ? state.currentSession : null);
     if (!session) return 0;
 
     let total = calcForSession(session);
 
-    // Aggregate descendants
+    // Aggregate descendants (reuse same traversal pattern as getAllDescendants)
     const stack = [sessionId];
     const visited = new Set();
     while (stack.length > 0) {
