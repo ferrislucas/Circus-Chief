@@ -1555,6 +1555,72 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('activeTimeMs', () => {
+    it('returns 0 for a session with no messages', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'waiting');
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.activeTimeMs).toBe(0);
+    });
+
+    it('returns 0 for a session with a single message', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.activeTimeMs).toBe(0);
+    });
+
+    it('computes time span between first and last message', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      // First message already created by create()
+      const conversations = conversationRepo.getBySessionId(session.id);
+      // Create a second message
+      messageRepo.create(session.id, 'assistant', 'Response', null, conversations[0].id);
+
+      // Manually set the timestamp of the new message to 60s later
+      const later = session.createdAt + 60000;
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ? AND role = ? ORDER BY timestamp DESC LIMIT 1')
+        .run(later, session.id, 'assistant');
+
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.activeTimeMs).toBeGreaterThanOrEqual(59000);
+    });
+
+    it('returns activeTimeMs in getByProjectId results', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const results = repo.getByProjectId(projectId);
+      const found = results.find(s => s.id === session.id);
+      expect(found).toBeDefined();
+      expect(found.activeTimeMs).toBeTypeOf('number');
+    });
+
+    it('returns activeTimeMs in getActiveAndWaiting results', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { status: 'running' });
+
+      const sessions = repo.getActiveAndWaiting();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].activeTimeMs).toBeTypeOf('number');
+    });
+
+    it('returns activeTimeMs in getChildSessions results', () => {
+      const parent = repo.create(projectId, 'Parent', 'Prompt');
+      repo.create(projectId, 'Child', 'Prompt', 'standard', false, null, parent.id);
+
+      const children = repo.getChildSessions(parent.id);
+      expect(children).toHaveLength(1);
+      expect(children[0].activeTimeMs).toBeTypeOf('number');
+    });
+
+    it('returns activeTimeMs in getSessionsWithPrUrls results', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      repo.update(session.id, { prUrl: 'https://github.com/org/repo/pull/123' });
+
+      const sessions = repo.getSessionsWithPrUrls();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].activeTimeMs).toBeTypeOf('number');
+    });
+  });
+
   describe('getRootSessionId', () => {
     it('returns the session itself when it has no parent', () => {
       const root = repo.create(projectId, 'Root Session', 'Prompt');

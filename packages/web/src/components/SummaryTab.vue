@@ -342,34 +342,31 @@ const formattedCost = computed(() => {
 const workTimeMs = computed(() => {
   const s = session.value;
   if (!s) return null;
+
+  // Prefer server-computed active time (first message to last message)
+  if (s.activeTimeMs && s.activeTimeMs > 0) return s.activeTimeMs;
+
+  // Fallback: for actively running sessions, use live timer
+  const status = s.status;
+  if (status === 'running' || status === 'starting') {
+    const start = s.createdAt;
+    if (!start) return null;
+    const end = s.lastActivityAt || s.updatedAt;
+    if (end) return end - start;
+    return Date.now() - start;
+  }
+
+  // For non-active sessions with no activeTimeMs, use old wall-clock method
+  // but only if there's token usage or meaningful duration
   const start = s.createdAt;
   if (!start) return null;
   const end = s.lastActivityAt || s.updatedAt;
-  if (!end) {
-    // Only use Date.now() for sessions that are actively running
-    const status = s.status;
-    if (status === 'running' || status === 'starting') return Date.now() - start;
-    return null;
-  }
+  if (!end) return null;
   const duration = end - start;
-
-  // For sessions that are actively running, always show work time
-  const isSessionActive = s.status === 'running' || s.status === 'starting';
-  if (isSessionActive) {
-    return duration;
-  }
-
-  // For non-active sessions, only show work time if:
-  // 1. The session has meaningful duration (> 5 seconds), OR
-  // 2. The session has token usage (indicating it was actually used)
   const hasTokenUsage = sessionsStore.getSessionBillableTokens(s.id) > 0;
-  const hasMeaningfulDuration = duration >= 5000; // 5 seconds threshold
+  const hasMeaningfulDuration = duration >= 5000;
+  if (hasTokenUsage || hasMeaningfulDuration) return duration;
 
-  if (hasTokenUsage || hasMeaningfulDuration) {
-    return duration;
-  }
-
-  // Otherwise, don't show minimal work time for inactive sessions without usage
   return null;
 });
 

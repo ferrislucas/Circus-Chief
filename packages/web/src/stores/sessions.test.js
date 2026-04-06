@@ -475,6 +475,17 @@ describe('Sessions Store', () => {
         expect(store.workLogs['msg-1']).toEqual([{ id: 'log-1', content: 'test' }]);
       });
 
+      it('does not set error when viewedSessionId is null on failed fetch', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = null;
+
+        api.getSessionWorkLogs.mockRejectedValue(new Error('API Error'));
+
+        await store.fetchWorkLogs('any-session');
+
+        expect(store.error).toBeNull();
+      });
+
       it('proceeds normally when viewedSessionId matches sessionId', async () => {
         const store = useSessionsStore();
         store.viewedSessionId = 'session-A';
@@ -758,6 +769,7 @@ describe('Sessions Store', () => {
 
       it('handles fetch error gracefully', async () => {
         const store = useSessionsStore();
+        store.viewedSessionId = 'session-1';
 
         api.getConversations.mockRejectedValue(new Error('Network error'));
 
@@ -813,6 +825,21 @@ describe('Sessions Store', () => {
         expect(api.getConversations).toHaveBeenCalledWith('any-session');
         expect(store.conversations).toEqual(mockConversations);
         expect(store.activeConversationId).toBe('conv-1');
+      });
+
+      it('does not set error when viewedSessionId is null on failed fetch', async () => {
+        const store = useSessionsStore();
+        store.viewedSessionId = null;
+        store.conversations = [{ id: 'existing', name: 'Existing', isActive: true }];
+        store.activeConversationId = 'existing';
+
+        api.getConversations.mockRejectedValue(new Error('API Error'));
+
+        await store.fetchConversations('any-session');
+
+        expect(store.error).toBeNull();
+        expect(store.conversations).toEqual([{ id: 'existing', name: 'Existing', isActive: true }]);
+        expect(store.activeConversationId).toBe('existing');
       });
 
       it('proceeds normally when viewedSessionId matches sessionId', async () => {
@@ -3895,6 +3922,7 @@ describe('Sessions Store', () => {
 
     it('handles errors and sets error state', async () => {
       const store = useSessionsStore();
+      store.viewedSessionId = 'session-123';
       const errorMessage = 'Failed to fetch messages';
 
       api.getSessionMessages.mockRejectedValue(new Error(errorMessage));
@@ -4067,7 +4095,7 @@ describe('Sessions Store', () => {
       expect(store.error).toBe('API Error');
     });
 
-    it('sets error when viewedSessionId is null on failed fetch', async () => {
+    it('does not set error when viewedSessionId is null on failed fetch', async () => {
       const store = useSessionsStore();
       store.viewedSessionId = null;
 
@@ -4075,7 +4103,7 @@ describe('Sessions Store', () => {
 
       await store.fetchMessages('any-session', false);
 
-      expect(store.error).toBe('API Error');
+      expect(store.error).toBeNull();
     });
 
     it('skips API call when viewedSessionId does not match sessionId', async () => {
