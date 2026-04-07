@@ -2093,33 +2093,6 @@ export async function getSlashCommand(
 }
 
 /**
- * Seed token usage directly into the DB for a session ( Uses scripts/seed-session-tokens.mjs.
- */
-export function seedSessionTokens(
-  sessionId: string,
-  tokens: {
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadInputTokens?: number;
-    cacheCreationInputTokens?: number;
-  }
-): any {
-  const seedScript = join(process.cwd(), 'scripts', 'seed-session-tokens.mjs');
-  const payload = {
-    dbPath: getDBPath(),
-    sessionId,
-    ...tokens,
-  };
-  const input = JSON.stringify(payload);
-  const result = execSync(`node "${seedScript}"`, {
-    input,
-    encoding: 'utf-8',
-    timeout: 10000,
-  });
-  return JSON.parse(result);
-}
-
-/**
  * Execute a slash command via the API (raw response for testing error cases).
  */
 export async function executeSlashCommandRaw(
