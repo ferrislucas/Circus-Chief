@@ -60,6 +60,7 @@ export function useSessionInitializer({
     // Clear all session-specific store state to prevent stale data during transitions
     sessionsStore.messages = [];
     sessionsStore.conversations = [];
+    sessionsStore.activeConversationId = null;
     sessionsStore.workLogs = {};
     sessionsStore.clearPartialText();
     todosStore.clearTodos();
