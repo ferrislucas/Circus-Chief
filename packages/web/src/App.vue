@@ -3,8 +3,8 @@
     <header class="app-header" ref="headerRef">
       <div class="container">
         <router-link to="/" class="logo">
-          <img src="/logo.png" alt="Vibernacle Logo" class="logo-image" />
-          <span class="logo-text">Vibernacle</span>
+          <img src="/logo.png" alt="Vibedriver Logo" class="logo-image" />
+          <span class="logo-text">Vibedriver</span>
         </router-link>
         <nav class="nav">
           <SystemIndicators />
@@ -151,7 +151,7 @@ onUnmounted(() => {
 
 .logo-text {
   font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--color-text);
   letter-spacing: 0.02em;
