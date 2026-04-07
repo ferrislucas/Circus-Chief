@@ -179,6 +179,18 @@
 
 <script setup>
 /* eslint-disable max-lines */
+/**
+ * OVERLAY STORE ISOLATION
+ *
+ * This component creates isolated Pinia store instances for the overlay via
+ * createOverlaySessionsStore() and createOverlayTodosStore(), and provides them
+ * to all descendant components through Vue's provide/inject.
+ *
+ * Descendant components MUST use useInjectedSessionsStore() / useInjectedTodosStore()
+ * (from composables/useOverlayStore.js) instead of importing useSessionsStore or
+ * useTodosStore directly. Direct imports bypass the overlay's provide/inject layer
+ * and would read/write to the global singleton, breaking store isolation.
+ */
 import { ref, computed, provide, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
@@ -675,9 +687,10 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
   cleanupSubscription();
-  // Dispose overlay stores to free memory and prevent stale reactive subscriptions
-  overlaySessionsStore.$dispose();
-  overlayTodosStore.$dispose();
+  // Clean up overlay stores: dispose subscriptions AND remove from Pinia registry
+  // to prevent state leaks on every overlay open/close cycle.
+  overlaySessionsStore.$cleanup();
+  overlayTodosStore.$cleanup();
 });
 
 // Expose for testing

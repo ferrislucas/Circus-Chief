@@ -350,7 +350,7 @@ async function handleOverlayClose() {
   // With overlay store isolation the main store is never touched by the overlay.
   // A lightweight re-fetch picks up any server-side changes made while the overlay
   // was open (e.g. status changes, new messages from other clients).
-  sessionsStore.fetchSession(currentSessionId.value, false);
+  await sessionsStore.fetchSession(currentSessionId.value, false);
 }
 
 // Use composable for session initialization and WebSocket management

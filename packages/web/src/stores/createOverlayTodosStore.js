@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia';
+import { defineStore, getActivePinia } from 'pinia';
 import { api } from '../composables/useApi.js';
 
 /**
@@ -14,7 +14,7 @@ let overlayTodosCounter = 0;
 export function createOverlayTodosStore() {
   const storeId = `overlay-todos-${++overlayTodosCounter}`;
 
-  return defineStore(storeId, {
+  const store = defineStore(storeId, {
     state: () => ({
       items: [],
       loading: false,
@@ -67,4 +67,16 @@ export function createOverlayTodosStore() {
       },
     },
   })();
+
+  // Attach $cleanup() to properly dispose and remove from Pinia registry.
+  // $dispose() alone only removes subscriptions — it does NOT remove the
+  // store's state entry from pinia.state.value, leaking memory on every
+  // overlay open/close cycle.
+  store.$cleanup = () => {
+    store.$dispose();
+    const pinia = getActivePinia();
+    if (pinia) delete pinia.state.value[storeId];
+  };
+
+  return store;
 }
