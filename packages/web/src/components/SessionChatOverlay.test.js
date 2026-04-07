@@ -63,6 +63,27 @@ vi.mock('../stores/todos.js', () => ({
   useTodosStore: () => mockTodosStore,
 }));
 
+// Mock overlay store factories — return the same mock stores so existing
+// assertions against mockSessionsStore / mockTodosStore continue to work.
+// Add $dispose as a no-op since the overlay disposes on unmount.
+mockSessionsStore.$dispose = vi.fn();
+mockTodosStore.$dispose = vi.fn();
+
+vi.mock('../stores/createOverlaySessionsStore.js', () => ({
+  createOverlaySessionsStore: () => mockSessionsStore,
+}));
+
+vi.mock('../stores/createOverlayTodosStore.js', () => ({
+  createOverlayTodosStore: () => mockTodosStore,
+}));
+
+vi.mock('../composables/useOverlayStore.js', () => ({
+  SESSIONS_STORE_KEY: Symbol('test-sessions-store'),
+  TODOS_STORE_KEY: Symbol('test-todos-store'),
+  useInjectedSessionsStore: () => mockSessionsStore,
+  useInjectedTodosStore: () => mockTodosStore,
+}));
+
 // Mock useSessionSubscription
 const mockSubscribe = vi.fn();
 const mockUnsubscribe = vi.fn();

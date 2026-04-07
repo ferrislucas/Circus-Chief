@@ -46,7 +46,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 import SchedulingEditModal from './SchedulingEditModal.vue';
 
@@ -57,7 +57,7 @@ const props = defineProps({
   },
 });
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 const loading = ref(false);
 const showEditModal = ref(false);

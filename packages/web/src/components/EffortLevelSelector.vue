@@ -18,7 +18,7 @@
 <script setup>
 import { ref, computed, watch, toRef } from 'vue';
 import { EFFORT_LEVELS } from '@claudetools/shared';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 
 const props = defineProps({
@@ -38,7 +38,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 const toggling = ref(false);
 

@@ -36,7 +36,7 @@
 import { ref, reactive, computed, watch, nextTick } from 'vue';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 
 const props = defineProps({
   isOpen: Boolean,
@@ -46,7 +46,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'update:isOpen']);
 
 const uiStore = useUiStore();
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const loading = ref(false);
 
 const form = reactive({
