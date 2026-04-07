@@ -3,7 +3,8 @@
     <header class="app-header" ref="headerRef">
       <div class="container">
         <router-link to="/" class="logo">
-          <img src="/logo.png" alt="ClaudeTools.io Logo" class="logo-image" />
+          <img src="/logo.png" alt="Vibernacle Logo" class="logo-image" />
+          <span class="logo-text">Vibernacle</span>
         </router-link>
         <nav class="nav">
           <SystemIndicators />
@@ -129,10 +130,13 @@ onUnmounted(() => {
 }
 
 .logo {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0 !important;
   margin: 0 !important;
   line-height: 0;
+  text-decoration: none;
 }
 
 .logo-image {
@@ -142,11 +146,22 @@ onUnmounted(() => {
   display: block;
   margin: 0 !important;
   padding: 0 !important;
+  transition: opacity 0.2s ease;
 }
 
-.logo:hover .logo-image {
-  opacity: 0.8;
+.logo-text {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Source Code Pro', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: 0.02em;
+  line-height: 1;
   transition: opacity 0.2s ease;
+}
+
+.logo:hover .logo-image,
+.logo:hover .logo-text {
+  opacity: 0.8;
 }
 
 .nav {
