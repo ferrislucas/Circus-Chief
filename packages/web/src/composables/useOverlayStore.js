@@ -18,6 +18,18 @@ export const TODOS_STORE_KEY = Symbol('overlay-todos-store');
 /**
  * Returns the sessions store from the nearest provider, or falls back to the
  * global Pinia singleton. Must be called during component setup().
+ *
+ * @example
+ * // In a component rendered inside SessionChatOverlay's tree:
+ * import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
+ *
+ * const sessionsStore = useInjectedSessionsStore();
+ * // `sessionsStore` is the overlay's isolated instance when inside the overlay,
+ * // or the global Pinia singleton everywhere else.
+ *
+ * // DO NOT do this inside overlay-rendered components:
+ * // import { useSessionsStore } from '../stores/sessions.js';
+ * // const store = useSessionsStore();  // <-- bypasses overlay isolation!
  */
 export function useInjectedSessionsStore() {
   return inject(SESSIONS_STORE_KEY, useSessionsStore());
@@ -26,6 +38,18 @@ export function useInjectedSessionsStore() {
 /**
  * Returns the todos store from the nearest provider, or falls back to the
  * global Pinia singleton. Must be called during component setup().
+ *
+ * @example
+ * // In a component rendered inside SessionChatOverlay's tree:
+ * import { useInjectedTodosStore } from '../composables/useOverlayStore.js';
+ *
+ * const todosStore = useInjectedTodosStore();
+ * // `todosStore` is the overlay's isolated instance when inside the overlay,
+ * // or the global Pinia singleton everywhere else.
+ *
+ * // DO NOT do this inside overlay-rendered components:
+ * // import { useTodosStore } from '../stores/todos.js';
+ * // const store = useTodosStore();  // <-- bypasses overlay isolation!
  */
 export function useInjectedTodosStore() {
   return inject(TODOS_STORE_KEY, useTodosStore());
