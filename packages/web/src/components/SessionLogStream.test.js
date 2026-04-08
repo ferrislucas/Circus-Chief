@@ -16,6 +16,23 @@ vi.mock('../stores/sessionStreaming.js', () => ({
   useSessionStreamingStore: vi.fn(() => mockStreamingStore),
 }));
 
+// Mock sessions store
+const mockSessionsStore = {
+  sessions: [],
+  activeSessions: [],
+  currentSession: null,
+  getSessionById: vi.fn((id) => mockSessionsStore.sessions.find(s => s.id === id)),
+  _findSessionById: vi.fn((id) =>
+    mockSessionsStore.sessions.find(s => s.id === id)
+    || mockSessionsStore.activeSessions.find(s => s.id === id)
+    || null,
+  ),
+};
+
+vi.mock('../stores/sessions.js', () => ({
+  useSessionsStore: vi.fn(() => mockSessionsStore),
+}));
+
 describe('SessionLogStream', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -27,6 +44,11 @@ describe('SessionLogStream', () => {
     mockStreamingStore.getPartialThinking.mockReturnValue(null);
     mockStreamingStore.isSessionLogCollapsed.mockReturnValue(false);
     mockStreamingStore.toggleSessionLogCollapsed.mockReset();
+
+    // Reset sessions store mock
+    mockSessionsStore.sessions = [];
+    mockSessionsStore.activeSessions = [];
+    mockSessionsStore.currentSession = null;
   });
 
   function mountComponent(props = {}) {
@@ -219,6 +241,89 @@ describe('SessionLogStream', () => {
       const wrapper = mountComponent({ sessionIds: ['root-session', 'child-session'] });
       expect(wrapper.find('.session-log-stream').exists()).toBe(false);
       expect(wrapper.find('.log-collapsed').exists()).toBe(true);
+    });
+  });
+
+  describe('model badge', () => {
+    function seedWorkLog() {
+      mockStreamingStore.getSessionWorkLogs.mockReturnValue([
+        { id: '1', type: 'tool_use', tool: 'Read', summary: 'test' },
+      ]);
+    }
+
+    it('renders model badge in expanded header when session is in state.sessions', () => {
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: 'claude-sonnet-4-20250514' }];
+      seedWorkLog();
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('renders model badge when session is only in state.activeSessions', () => {
+      mockSessionsStore.activeSessions = [{ id: 'session-1', status: 'running', model: 'claude-opus-4-20250514' }];
+      seedWorkLog();
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-opus-4-20250514');
+    });
+
+    it('renders model badge when session is state.currentSession', () => {
+      mockSessionsStore.currentSession = { id: 'session-1', status: 'running', model: 'claude-haiku-4-5-20251001' };
+      seedWorkLog();
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-haiku-4-5-20251001');
+    });
+
+    it('renders model badge in the collapsed pill', () => {
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: 'claude-sonnet-4-20250514' }];
+      seedWorkLog();
+      mockStreamingStore.isSessionLogCollapsed.mockReturnValue(true);
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('[data-testid="live-output-model-collapsed"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="live-output-model-collapsed"]').text()).toContain('claude-sonnet-4-20250514');
+    });
+
+    it('hides badge when session has no model field', () => {
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: null }];
+      seedWorkLog();
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(false);
+    });
+
+    it('hides badge when session is not found in any store array', () => {
+      // All store arrays are empty (reset in beforeEach)
+      seedWorkLog();
+
+      const wrapper = mountComponent();
+      expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(false);
+    });
+
+    it('picks the first session in sessionIds that has a model', () => {
+      mockSessionsStore.sessions = [{ id: 'parent', model: null }];
+      mockSessionsStore.activeSessions = [{ id: 'child', model: 'claude-sonnet-4-20250514' }];
+      seedWorkLog();
+
+      const wrapper = mountComponent({ sessionIds: ['parent', 'child'] });
+      expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('reflects updated model on re-mount', () => {
+      mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: 'claude-sonnet-4-20250514' }];
+      seedWorkLog();
+
+      const wrapper1 = mountComponent();
+      expect(wrapper1.find('[data-testid="live-output-model"]').text()).toBe('claude-sonnet-4-20250514');
+
+      // Update the model
+      mockSessionsStore.sessions[0].model = 'claude-opus-4-20250514';
+      const wrapper2 = mountComponent();
+      expect(wrapper2.find('[data-testid="live-output-model"]').text()).toBe('claude-opus-4-20250514');
     });
   });
 });
