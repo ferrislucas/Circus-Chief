@@ -3,8 +3,8 @@
     <header class="app-header" ref="headerRef">
       <div class="container">
         <router-link to="/" class="logo">
-          <img src="/logo.png" alt="Vibedriver Logo" class="logo-image" />
-          <span class="logo-text">Vibedriver</span>
+          <img src="/logo.png" alt="Vibehive Logo" class="logo-image" />
+          <span class="logo-text">Vibehive</span>
         </router-link>
         <nav class="nav">
           <SystemIndicators />
