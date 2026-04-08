@@ -132,6 +132,36 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
     }
   }
 
+  // ── Model reconciliation helpers ─────────────────────────────
+  function hasModelChanged(model, original) {
+    return (
+      model.modelId.trim() !== original.modelId ||
+      model.displayName.trim() !== original.displayName ||
+      model.tier !== original.tier
+    );
+  }
+
+  function buildModelData(model) {
+    return {
+      modelId: model.modelId.trim(),
+      displayName: model.displayName.trim() || model.modelId.trim(),
+      tier: model.tier || 'custom',
+    };
+  }
+
+  async function processLocalModel(model, providerId, originalModelMap) {
+    // New model (no server ID) - add it
+    if (!model._serverId && model.modelId.trim()) {
+      await providersStore.addModel(providerId, buildModelData(model));
+      return;
+    }
+    // Existing model - check if changed and update
+    const original = originalModelMap.get(model._serverId);
+    if (original && hasModelChanged(model, original)) {
+      await providersStore.updateModel(providerId, model._serverId, buildModelData(model));
+    }
+  }
+
   // ── Reconcile models ─────────────────────────────────────────
   async function reconcileModels(providerId) {
     const serverModelIds = new Set(
@@ -141,34 +171,16 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
     const originalModels = providerRef.value?.models || [];
     const originalModelMap = new Map(originalModels.map((m) => [m.id, m]));
 
+    // Remove deleted models
     for (const serverModel of originalModels) {
       if (!serverModelIds.has(serverModel.id)) {
         await providersStore.removeModel(providerId, serverModel.id);
       }
     }
 
+    // Add or update models
     for (const model of localModels.value) {
-      if (!model._serverId && model.modelId.trim()) {
-        await providersStore.addModel(providerId, {
-          modelId: model.modelId.trim(),
-          displayName: model.displayName.trim() || model.modelId.trim(),
-          tier: model.tier || 'custom',
-        });
-      } else if (model._serverId && originalModelMap.has(model._serverId)) {
-        const original = originalModelMap.get(model._serverId);
-        const changed =
-          model.modelId.trim() !== original.modelId ||
-          model.displayName.trim() !== original.displayName ||
-          model.tier !== original.tier;
-
-        if (changed) {
-          await providersStore.updateModel(providerId, model._serverId, {
-            modelId: model.modelId.trim(),
-            displayName: model.displayName.trim() || model.modelId.trim(),
-            tier: model.tier || 'custom',
-          });
-        }
-      }
+      await processLocalModel(model, providerId, originalModelMap);
     }
 
     await providersStore.fetchProviders();

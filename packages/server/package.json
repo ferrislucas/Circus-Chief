@@ -12,6 +12,7 @@
     "start": "node src/index.js",
     "build": "echo 'No build step required'",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {

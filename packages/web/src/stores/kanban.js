@@ -75,6 +75,55 @@ export const useKanbanStore = defineStore('kanban', {
 
   actions: {
     /**
+     * Find a card by ID and return its lane and index
+     * @private
+     */
+    _findCardLocation(cardId) {
+      if (!this.board) return null;
+      for (const lane of this.board.lanes) {
+        const cardIndex = lane.cards?.findIndex((c) => c.id === cardId);
+        if (cardIndex !== -1) {
+          return { lane, cardIndex, card: lane.cards[cardIndex] };
+        }
+      }
+      return null;
+    },
+
+    /**
+     * Move a card optimistically (for UI responsiveness)
+     * @private
+     */
+    _moveCardOptimistic(cardId, targetLaneId) {
+      const location = this._findCardLocation(cardId);
+      if (!location) return null;
+
+      const { lane: sourceLane, cardIndex, card } = location;
+      sourceLane.cards.splice(cardIndex, 1);
+
+      const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
+      if (targetLane) {
+        targetLane.cards = targetLane.cards || [];
+        targetLane.cards.push({ ...card, laneId: targetLaneId });
+      }
+
+      return { sourceLane, card };
+    },
+
+    /**
+     * Revert an optimistic card move
+     * @private
+     */
+    _revertCardMove(sourceLane, card, targetLaneId) {
+      if (!this.board) return;
+      const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
+      if (targetLane) {
+        targetLane.cards = targetLane.cards?.filter((c) => c.id !== card.id) || [];
+      }
+      sourceLane.cards = sourceLane.cards || [];
+      sourceLane.cards.push(card);
+    },
+
+    /**
      * Fetch the kanban board for a project
      * @param {string} projectId
      */
@@ -225,55 +274,22 @@ export const useKanbanStore = defineStore('kanban', {
       this.error = null;
 
       // Optimistic update
-      let oldSourceLane = null;
-      let oldCard = null;
-
-      if (this.board) {
-        for (const lane of this.board.lanes) {
-          const cardIndex = lane.cards?.findIndex((c) => c.id === cardId);
-          if (cardIndex !== -1 && cardIndex !== undefined) {
-            oldSourceLane = lane;
-            oldCard = lane.cards[cardIndex];
-            // Remove from source lane
-            lane.cards.splice(cardIndex, 1);
-            // Add to target lane
-            const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
-            if (targetLane) {
-              targetLane.cards = targetLane.cards || [];
-              targetLane.cards.push({ ...oldCard, laneId: targetLaneId });
-            }
-            break;
-          }
-        }
-      }
+      const optimisticResult = this._moveCardOptimistic(cardId, targetLaneId);
 
       try {
-        const movedCard = await api.moveKanbanCard(projectId, cardId, {
-          targetLaneId,
-          ...options,
-        });
+        const movedCard = await api.moveKanbanCard(projectId, cardId, { targetLaneId, ...options });
+
         // Update card in state with server response
-        if (this.board) {
-          const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
-          if (targetLane) {
-            const cardIndex = targetLane.cards?.findIndex((c) => c.id === cardId);
-            if (cardIndex !== -1 && cardIndex !== undefined) {
-              targetLane.cards[cardIndex] = movedCard;
-            }
-          }
+        const location = this._findCardLocation(cardId);
+        if (location) {
+          location.lane.cards[location.cardIndex] = movedCard;
         }
+
         return movedCard;
       } catch (err) {
         // Revert on error
-        if (oldSourceLane && oldCard && this.board) {
-          // Remove from target
-          const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
-          if (targetLane) {
-            targetLane.cards = targetLane.cards?.filter((c) => c.id !== cardId) || [];
-          }
-          // Add back to source
-          oldSourceLane.cards = oldSourceLane.cards || [];
-          oldSourceLane.cards.push(oldCard);
+        if (optimisticResult) {
+          this._revertCardMove(optimisticResult.sourceLane, optimisticResult.card, targetLaneId);
         }
         this.error = err.message;
         throw err;
@@ -293,7 +309,7 @@ export const useKanbanStore = defineStore('kanban', {
         if (this.board) {
           for (const lane of this.board.lanes) {
             const cardIndex = lane.cards?.findIndex((c) => c.id === cardId);
-            if (cardIndex !== -1 && cardIndex !== undefined) {
+            if (cardIndex !== -1) {
               lane.cards.splice(cardIndex, 1);
               break;
             }
