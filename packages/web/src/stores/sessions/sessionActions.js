@@ -1,6 +1,34 @@
 import { api } from '../../composables/useApi.js';
 
 /**
+ * Update a session in a list, or add it if not found.
+ * @param {Array} list - The list to update
+ * @param {Object} sessionData - The session data
+ * @param {boolean} addIfMissing - Whether to add the session if not found
+ */
+function updateSessionInList(list, sessionData, addIfMissing = false) {
+  const index = list.findIndex((s) => s.id === sessionData.id);
+  if (index !== -1) {
+    list[index] = { ...list[index], ...sessionData };
+  } else if (addIfMissing) {
+    list.unshift(sessionData);
+  }
+}
+
+/**
+ * Move a session between lists (e.g., archive/unarchive).
+ * @param {Array} sourceList - The list to remove from
+ * @param {Array} targetList - The list to add to
+ * @param {Object} sessionData - The session data
+ */
+function moveSessionBetweenLists(sourceList, targetList, sessionData) {
+  const existingSession = sourceList.find((s) => s.id === sessionData.id);
+  const merged = existingSession ? { ...existingSession, ...sessionData } : sessionData;
+  updateSessionInList(targetList, merged, true);
+  return sourceList.filter((s) => s.id !== sessionData.id);
+}
+
+/**
  * Session CRUD and lifecycle actions for the sessions store.
  * These are spread directly into the Pinia store actions, so `this` refers to the store instance.
  */
@@ -248,40 +276,28 @@ export const sessionActions = {
 
   updateSession(sessionData) {
     if (!sessionData?.id) return;
+
+    // Handle archive state changes
     if (sessionData.archived === true) {
-      const existingSession = this.sessions.find(s => s.id === sessionData.id);
-      const existingSessionCopy = existingSession ? { ...existingSession } : null;
-      this.sessions = this.sessions.filter((s) => s.id !== sessionData.id);
+      this.sessions = moveSessionBetweenLists(this.sessions, this.archivedSessions, sessionData);
       this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
-      const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
-      if (archivedIndex !== -1) {
-        this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
-      } else {
-        this.archivedSessions.unshift(existingSessionCopy ? { ...existingSessionCopy, ...sessionData } : sessionData);
-      }
     } else if (sessionData.archived === false) {
-      const existingSession = this.archivedSessions.find(s => s.id === sessionData.id);
-      const existingSessionCopy = existingSession ? { ...existingSession } : null;
-      this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionData.id);
-      const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
-      if (sessionIndex !== -1) {
-        this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
-      } else {
-        this.sessions.unshift(existingSessionCopy ? { ...existingSessionCopy, ...sessionData } : sessionData);
-      }
+      this.archivedSessions = moveSessionBetweenLists(this.archivedSessions, this.sessions, sessionData);
     } else {
-      const sessionIndex = this.sessions.findIndex((s) => s.id === sessionData.id);
-      if (sessionIndex !== -1) this.sessions[sessionIndex] = { ...this.sessions[sessionIndex], ...sessionData };
-      const archivedIndex = this.archivedSessions.findIndex((s) => s.id === sessionData.id);
-      if (archivedIndex !== -1) this.archivedSessions[archivedIndex] = { ...this.archivedSessions[archivedIndex], ...sessionData };
+      // Regular update - update in both lists
+      updateSessionInList(this.sessions, sessionData);
+      updateSessionInList(this.archivedSessions, sessionData);
     }
-    if (this.currentSession?.id === sessionData.id) this.currentSession = { ...this.currentSession, ...sessionData };
-    const activeIndex = this.activeSessions.findIndex((s) => s.id === sessionData.id);
-    if (activeIndex !== -1) this.activeSessions[activeIndex] = { ...this.activeSessions[activeIndex], ...sessionData };
+
+    // Update current session and active sessions
+    if (this.currentSession?.id === sessionData.id) {
+      this.currentSession = { ...this.currentSession, ...sessionData };
+    }
+    updateSessionInList(this.activeSessions, sessionData);
+
+    // Handle scheduled sessions
     if (sessionData.status === 'scheduled') {
-      const scheduledIndex = this.scheduledSessions.findIndex((s) => s.id === sessionData.id);
-      if (scheduledIndex === -1) this.scheduledSessions.push(sessionData);
-      else this.scheduledSessions[scheduledIndex] = { ...this.scheduledSessions[scheduledIndex], ...sessionData };
+      updateSessionInList(this.scheduledSessions, sessionData, true);
       this.scheduledSessions.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
     } else {
       this.scheduledSessions = this.scheduledSessions.filter((s) => s.id !== sessionData.id);

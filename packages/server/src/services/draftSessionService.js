@@ -23,6 +23,87 @@ export function validateDraftSession(session) {
 }
 
 /**
+ * Validate that a prompt is non-empty.
+ * @param {*} prompt
+ * @returns {boolean}
+ */
+function isValidPrompt(prompt) {
+  return prompt && typeof prompt === 'string' && prompt.trim() !== '';
+}
+
+/**
+ * Create the initial user message for a draft session.
+ * @param {object} session
+ * @param {string} promptToUse
+ * @returns {object} The created message
+ */
+function createInitialMessage(session, promptToUse) {
+  const activeConv = conversations.getActiveBySessionId(session.id);
+  if (!activeConv) {
+    throw new DraftSessionError('No active conversation found', 500);
+  }
+
+  const initialMessage = messages.create(session.id, 'user', promptToUse, { toolUse: null, conversationId: activeConv.id });
+  sessions.update(session.id, { pendingPrompt: null });
+
+  broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
+    sessionId: session.id,
+    message: initialMessage,
+  });
+
+  return initialMessage;
+}
+
+/**
+ * Update an existing initial message with a new prompt.
+ * @param {object} session
+ * @param {object} initialMessage
+ * @param {string} newPrompt
+ * @returns {object} The updated message
+ */
+function updateInitialMessage(session, initialMessage, newPrompt) {
+  const updatedMessage = messages.updateContent(initialMessage.id, newPrompt);
+
+  broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
+    sessionId: session.id,
+    message: updatedMessage,
+  });
+
+  return updatedMessage;
+}
+
+/**
+ * Get or create the initial user message for a draft session.
+ * @param {object} session
+ * @param {object} options
+ * @returns {object} The initial message
+ */
+function getOrCreateInitialMessage(session, options) {
+  const allMessages = messages.getBySessionId(session.id);
+  const userMessages = allMessages.filter(msg => msg.role === 'user');
+
+  // No existing user messages - create one
+  if (userMessages.length === 0) {
+    const promptToUse = options.prompt || session.pendingPrompt;
+    if (!isValidPrompt(promptToUse)) {
+      throw new DraftSessionError('No initial prompt found', 400);
+    }
+    return createInitialMessage(session, promptToUse);
+  }
+
+  // Existing user message - optionally update it
+  let initialMessage = userMessages[0];
+  if (options.prompt !== undefined) {
+    if (!isValidPrompt(options.prompt)) {
+      throw new DraftSessionError('Prompt must be a non-empty string', 400);
+    }
+    initialMessage = updateInitialMessage(session, initialMessage, options.prompt);
+  }
+
+  return initialMessage;
+}
+
+/**
  * Starts a draft session by resolving the prompt, creating messages if needed,
  * and kicking off the session manager.
  *
@@ -42,62 +123,10 @@ export async function startDraft(session, options = {}) {
   const workingDirectory = session.gitWorktree || project.workingDirectory;
 
   // Model to use for this session (optional - SDK will use default if not provided)
-  // Fallback chain: explicit request body > pendingModel (set at draft creation) > session.model > null (SDK default)
   const model = options.model || session.pendingModel || session.model || null;
 
-  // Get all messages to find user messages
-  const allMessages = messages.getBySessionId(session.id);
-
-  // Get or create the initial user message (prompt)
-  let userMessages = allMessages.filter(msg => msg.role === 'user');
-  let initialMessage;
-
-  if (userMessages.length === 0) {
-    // For draft/scheduled sessions, there may not be an initial message yet
-    // Create it from the provided prompt or pendingPrompt
-    const promptToUse = options.prompt || session.pendingPrompt;
-    if (!promptToUse || typeof promptToUse !== 'string' || promptToUse.trim() === '') {
-      throw new DraftSessionError('No initial prompt found', 400);
-    }
-
-    // Get the active conversation
-    const activeConv = conversations.getActiveBySessionId(session.id);
-    if (!activeConv) {
-      throw new DraftSessionError('No active conversation found', 500);
-    }
-
-    // Create the initial message
-    initialMessage = messages.create(session.id, 'user', promptToUse, { toolUse: null, conversationId: activeConv.id });
-
-    // Clear pendingPrompt since we've created the message
-    sessions.update(session.id, { pendingPrompt: null });
-
-    // Broadcast the new message
-    broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
-      sessionId: session.id,
-      message: initialMessage,
-    });
-  } else {
-    initialMessage = userMessages[0];
-
-    // If a new prompt is provided, update the message
-    if (options.prompt !== undefined) {
-      // Validate provided prompt
-      if (!options.prompt || typeof options.prompt !== 'string' || options.prompt.trim() === '') {
-        throw new DraftSessionError('Prompt must be a non-empty string', 400);
-      }
-      // Update the message with the new prompt
-      const updatedMessage = messages.updateContent(initialMessage.id, options.prompt);
-      initialMessage = updatedMessage;
-
-      // Broadcast the update to session subscribers
-      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
-        sessionId: session.id,
-        message: updatedMessage,
-      });
-    }
-  }
-
+  // Get or create the initial user message
+  const initialMessage = getOrCreateInitialMessage(session, options);
   const finalPrompt = initialMessage.content;
 
   // Get session attachments for context
