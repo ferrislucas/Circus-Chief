@@ -11,6 +11,9 @@
       <div class="latest-response-header">
         <h3>Latest Response</h3>
         <div class="latest-response-meta">
+          <span v-if="latestResponseModel" class="response-model">
+            {{ latestResponseModel }}
+          </span>
           <span v-if="latestResponse.sessionName" class="response-session-name">
             from {{ latestResponse.sessionName }}
           </span>
@@ -141,6 +144,7 @@ import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
 import SchedulingInfo from './SchedulingInfo.vue';
+import { useModelInfo } from '../composables/useModelInfo.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -149,6 +153,7 @@ const props = defineProps({
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
 const streamingStore = useSessionStreamingStore();
+const { getModelDisplayName } = useModelInfo();
 const { onSummaryUpdate, onSummaryGenerating, onWorkLog, onPartial, onThinkingPartial, onMessage } = useSessionSubscription(props.sessionId);
 
 // Restore collapsed log state for this session
@@ -400,6 +405,11 @@ function formatPrState(state) {
   };
   return labels[state] || state;
 }
+
+const latestResponseModel = computed(() => {
+  const model = latestResponse.value?.message?.model;
+  return model ? getModelDisplayName(model) : null;
+});
 
 const isContentLong = computed(() =>
   latestResponse.value?.message?.content?.length > 500
@@ -728,6 +738,15 @@ async function handleRegenerate() {
   gap: 0.75rem;
   font-size: 0.75rem;
   color: var(--color-text-soft);
+}
+
+.response-model {
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  background: rgba(99, 179, 237, 0.1);
+  color: var(--color-primary, #63b3ed);
+  font-weight: 500;
+  font-size: 0.6875rem;
 }
 
 .response-session-name {
