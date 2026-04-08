@@ -75,9 +75,9 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 
 const props = defineProps({
   conversation: { type: Object, required: true },
