@@ -35,7 +35,7 @@
     <SchedulingInfo v-if="isScheduled" :session="session" />
 
     <!-- Session Overview Section -->
-    <div v-if="hasPrInfo || (summary && (summary.shortSummary || hasMetrics)) || loading" class="session-overview card">
+    <div v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading" class="session-overview card">
       <div class="overview-header">
         <h3>Session Overview</h3>
       </div>
@@ -44,6 +44,10 @@
       <div v-if="summary?.shortSummary" class="overview-summary">
         <p class="summary-text">{{ summary.shortSummary }}</p>
       </div>
+      <div v-else-if="loading" class="overview-summary overview-summary-loading">
+        <span class="loading-spinner-small"></span>
+        <span>Loading summary...</span>
+      </div>
 
       <!-- Overview Metrics -->
       <div v-if="hasMetrics" class="overview-metrics">
@@ -51,9 +55,9 @@
           <span class="metric-value">{{ sessionCount }}</span>
           <span class="metric-label">Sessions</span>
         </div>
-        <div class="metric" v-if="hasTokenUsage">
-          <span class="metric-value">{{ formattedTokens }}</span>
-          <span class="metric-label">Tokens</span>
+        <div class="metric" v-if="hasNonZeroCost">
+          <span class="metric-value">{{ formattedCost }}</span>
+          <span class="metric-label">Cost</span>
         </div>
         <div class="metric" v-if="formattedDuration">
           <span class="metric-value">{{ formattedDuration }}</span>
@@ -63,10 +67,6 @@
           <span class="metric-value">{{ filesCount }}</span>
           <span class="metric-label">{{ filesCount === 1 ? 'File' : 'Files' }}</span>
         </div>
-      </div>
-      <div v-else-if="loading" class="overview-summary overview-summary-loading">
-        <span class="loading-spinner-small"></span>
-        <span>Loading summary...</span>
       </div>
 
       <!-- PR Info in Overview -->
@@ -131,12 +131,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { formatTokenCount } from '@claudetools/shared';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
-import { formatTokenCount } from '@claudetools/shared';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
@@ -323,18 +323,18 @@ const prUrl = computed(() => session.value?.prUrl || null);
 const hasPrInfo = computed(() => prUrl.value && summary.value?.prState);
 const hasWarnings = computed(() => summary.value?.hasMergeConflicts || summary.value?.ciStatus === 'failure');
 
-// Overview metrics computed properties
+// Overview metrics
 const sessionCount = computed(() => {
   const descendants = sessionsStore.getAllDescendants(props.sessionId);
   return descendants.length + 1; // +1 for the session itself
 });
 
-const hasTokenUsage = computed(() => {
+const hasNonZeroCost = computed(() => {
   const bte = sessionsStore.getSessionBillableTokens(props.sessionId);
   return bte > 0;
 });
 
-const formattedTokens = computed(() => {
+const formattedCost = computed(() => {
   const bte = sessionsStore.getSessionBillableTokens(props.sessionId);
   return formatTokenCount(bte);
 });
@@ -370,12 +370,6 @@ const workTimeMs = computed(() => {
   return null;
 });
 
-const formattedDuration = computed(() => formatDuration(workTimeMs.value));
-
-const hasMetrics = computed(() =>
-  sessionCount.value > 1 || hasTokenUsage.value || formattedDuration.value || filesCount.value > 0
-);
-
 function formatDuration(ms) {
   if (!ms || ms < 0) return null;
   // Treat 0 duration as null (no meaningful time duration)
@@ -390,6 +384,12 @@ function formatDuration(ms) {
   if (minutes > 0) return `${minutes}m`;
   return `${seconds}s`;
 }
+
+const formattedDuration = computed(() => formatDuration(workTimeMs.value));
+
+const hasMetrics = computed(() =>
+  sessionCount.value > 1 || hasNonZeroCost.value || formattedDuration.value || filesCount.value > 0
+);
 
 function formatPrState(state) {
   const labels = {
@@ -522,7 +522,6 @@ async function handleRegenerate() {
   padding: 2rem;
 }
 
-/* Session Overview Styles */
 .session-overview {
   margin-bottom: 1.5rem;
 }
@@ -557,15 +556,31 @@ async function handleRegenerate() {
   line-height: 1.4;
 }
 
-.overview-summary .summary-meta {
+/* Overview Metrics */
+.overview-metrics {
   display: flex;
-  gap: 1rem;
-  font-size: 0.75rem;
-  color: var(--color-text-soft);
+  gap: 1.5rem;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--color-border);
 }
 
-.overview-summary .summary-files {
-  opacity: 0.8;
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.metric-value {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.metric-label {
+  font-size: 0.6875rem;
+  color: var(--color-text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .loading-spinner-small {
@@ -578,9 +593,7 @@ async function handleRegenerate() {
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
 .status-badge {
@@ -692,7 +705,6 @@ async function handleRegenerate() {
   text-decoration: underline;
 }
 
-/* Latest Response Styles */
 .latest-response {
   margin-bottom: 1.5rem;
 }
@@ -760,7 +772,6 @@ async function handleRegenerate() {
   text-decoration: underline;
 }
 
-/* Empty State Styles */
 .summary-empty-state {
   display: flex;
   align-items: center;
@@ -786,5 +797,4 @@ async function handleRegenerate() {
   margin: 0;
   line-height: 1.4;
 }
-
 </style>
