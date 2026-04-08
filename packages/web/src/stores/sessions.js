@@ -4,6 +4,8 @@ import { useSessionFiltersStore } from './sessionFilters.js';
 import { tokenGetters } from './sessions/tokenGetters.js';
 import { sessionActions } from './sessions/sessionActions.js';
 import { conversationActions } from './sessions/conversationActions.js';
+import { perSessionActions } from './sessions/perSessionActions.js';
+import { perSessionGetters } from './sessions/perSessionGetters.js';
 
 export const useSessionsStore = defineStore('sessions', {
   state: () => ({
@@ -217,55 +219,8 @@ export const useSessionsStore = defineStore('sessions', {
       return grouped;
     },
 
-    isDraftSession: (state) => (session) => {
-      if (!session || session.status !== 'waiting') return false;
-      if (session.hasResponses !== undefined) return !session.hasResponses;
-      return !state.messages.some((msg) => msg.role === 'assistant');
-    },
-
-    isScheduledDraft: (state) => (session) => {
-      if (!session || session.status !== 'scheduled') return false;
-      if (session.hasResponses !== undefined) return !session.hasResponses;
-      return !state.messages.some((msg) => msg.role === 'assistant');
-    },
-
-    // ==================== DELEGATED CONVERSATION GETTERS ====================
-
-    getWorkLogsForMessage: (state) => (messageId) => {
-      return state.workLogs[messageId] || [];
-    },
-    getUnassociatedWorkLogs: (state) => {
-      return state.workLogs['_unassociated'] || [];
-    },
-    partialThinking: (state) => {
-      if (!state.currentSession?.id) return null;
-      return state.partialThinkingBySession[state.currentSession.id] || null;
-    },
-    activeConversation: (state) => {
-      return state.conversations.find((c) => c.id === state.activeConversationId) || null;
-    },
-    getConversationById: (state) => (id) => {
-      return state.conversations.find((c) => c.id === id);
-    },
-    rootConversations: (state) => {
-      return state.conversations.filter((c) => !c.parentConversationId);
-    },
-    conversationTree: (state) => {
-      const buildTree = (parentId = null) => {
-        return state.conversations
-          .filter((c) => c.parentConversationId === parentId)
-          .map((conv) => ({ ...conv, children: buildTree(conv.id) }));
-      };
-      return buildTree(null);
-    },
-    getConversationChildren: (state) => (conversationId) => {
-      return state.conversations.filter((c) => c.parentConversationId === conversationId);
-    },
-    getConversationParent: (state) => (conversationId) => {
-      const conv = state.conversations.find((c) => c.id === conversationId);
-      if (!conv?.parentConversationId) return null;
-      return state.conversations.find((c) => c.id === conv.parentConversationId);
-    },
+    // ==================== PER-SESSION GETTERS (shared with overlay store) ====================
+    ...perSessionGetters,
 
     // ==================== TOKEN USAGE GETTERS ====================
     ...tokenGetters,
@@ -371,190 +326,8 @@ export const useSessionsStore = defineStore('sessions', {
       this.commandRunVersion++;
     },
 
-    // ==================== MESSAGE ACTIONS ====================
-
-    async fetchMessages(sessionId, showLoading = true, conversationId = null) {
-      // Early guard: skip the API call if the user has navigated away from this session
-      if (this.viewedSessionId && this.viewedSessionId !== sessionId) {
-        console.log(`[STORE] fetchMessages: skipping for ${sessionId} (viewed: ${this.viewedSessionId})`);
-        return;
-      }
-
-      if (showLoading) this.loading = true;
-      this.error = null;
-      try {
-        const cid = conversationId || this.activeConversationId;
-        const fetchedMessages = cid
-          ? await api.getConversationMessages(sessionId, cid)
-          : await api.getSessionMessages(sessionId);
-
-        // Post-fetch guard: don't overwrite if the user navigated away while awaiting
-        if (this.viewedSessionId && this.viewedSessionId !== sessionId) {
-          console.log(`[STORE] fetchMessages: discarding stale results for ${sessionId} (viewed: ${this.viewedSessionId})`);
-          return;
-        }
-
-        console.log(`[STORE] fetchMessages: session ${sessionId}, conversationId: ${cid || 'none'}, received ${fetchedMessages.length} messages, activeConversationId: ${this.activeConversationId}`);
-        const fetchedIds = new Set(fetchedMessages.map(m => m.id));
-        const newMessages = this.messages.filter(m => m.sessionId === sessionId && !fetchedIds.has(m.id));
-        if (newMessages.length > 0) {
-          console.log(`[STORE] fetchMessages: merging ${fetchedMessages.length} fetched + ${newMessages.length} WebSocket-delivered messages`);
-          this.messages = [...fetchedMessages, ...newMessages];
-        } else {
-          this.messages = fetchedMessages;
-        }
-        console.log(`[STORE] fetchMessages: updated store with ${this.messages.length} messages`);
-      } catch (err) {
-        if (this.viewedSessionId && this.viewedSessionId === sessionId) {
-          this.error = err.message;
-        }
-        console.error(`[STORE] fetchMessages: error fetching messages for session ${sessionId}:`, err.message);
-      } finally { if (showLoading) this.loading = false; }
-    },
-
-    addMessage(message) {
-      if (this.currentSession && message.sessionId && message.sessionId !== this.currentSession.id) return;
-      if (!this.messages.some(m => m.id === message.id)) this.messages.push(message);
-    },
-
-    // ==================== WORK LOG ACTIONS ====================
-
-    async fetchWorkLogs(sessionId) {
-      // Pre-fetch guard: skip if user navigated away
-      if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
-
-      this.error = null;
-      try {
-        const grouped = await api.getSessionWorkLogs(sessionId);
-
-        // Post-fetch guard: discard if user navigated away during await
-        if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
-
-        const fetchedLogIds = new Set();
-        for (const messageId of Object.keys(grouped)) {
-          for (const log of grouped[messageId] || []) fetchedLogIds.add(log.id);
-        }
-        const existingUnassociated = this.workLogs['_unassociated'] || [];
-        const newUnassociatedLogs = existingUnassociated.filter(log => !fetchedLogIds.has(log.id));
-        const fetchedUnassociated = grouped['_unassociated'] || [];
-        this.workLogs = { ...grouped, '_unassociated': [...fetchedUnassociated, ...newUnassociatedLogs] };
-      } catch (err) {
-        if (this.viewedSessionId && this.viewedSessionId === sessionId) {
-          this.error = err.message;
-        }
-      }
-    },
-
-    addWorkLog(log) {
-      if (this.currentSession && log.sessionId && log.sessionId !== this.currentSession.id) return;
-      const messageId = log.messageId || '_unassociated';
-      const currentLogs = this.workLogs[messageId] || [];
-      if (currentLogs.some(l => l.id === log.id)) return;
-      this.workLogs = { ...this.workLogs, [messageId]: [...currentLogs, log] };
-    },
-
-    setWorkLogs(workLogs) { this.workLogs = workLogs; },
-
-    clearWorkLogs() {
-      this.workLogs = {};
-      this.clearAllPartialThinking();
-    },
-
-    associateWorkLogs(messageId) {
-      const unassociated = this.workLogs['_unassociated'] || [];
-      if (unassociated.length > 0) {
-        const currentLogs = this.workLogs[messageId] || [];
-        const currentIds = new Set(currentLogs.map(l => l.id));
-        const newLogs = unassociated.filter(l => !currentIds.has(l.id));
-        this.workLogs = { ...this.workLogs, [messageId]: [...currentLogs, ...newLogs], '_unassociated': [] };
-      }
-    },
-
-    // ==================== STREAMING ACTIONS ====================
-
-    setPartialThinking(thinking, sessionId = null) {
-      const id = sessionId || this.currentSession?.id;
-      if (!id) return;
-      this.partialThinkingBySession = { ...this.partialThinkingBySession, [id]: thinking };
-    },
-
-    clearPartialThinking(sessionId = null) {
-      const id = sessionId || this.currentSession?.id;
-      if (!id) return;
-      this.partialThinkingBySession = { ...this.partialThinkingBySession, [id]: null };
-    },
-
-    clearAllPartialThinking() { this.partialThinkingBySession = {}; },
-
-    setPartialText(text) {
-      const PARTIAL_THROTTLE_MS = 150;
-      this._pendingPartialText = text;
-      if (!this._partialThrottleTimer) {
-        this.partialText = text;
-        this._partialThrottleTimer = setTimeout(() => {
-          if (this._pendingPartialText !== null && this._pendingPartialText !== this.partialText) {
-            this.partialText = this._pendingPartialText;
-          }
-          this._partialThrottleTimer = null;
-          this._pendingPartialText = null;
-        }, PARTIAL_THROTTLE_MS);
-      }
-    },
-
-    clearPartialText() {
-      this.partialText = '';
-      this._pendingPartialText = null;
-      if (this._partialThrottleTimer) { clearTimeout(this._partialThrottleTimer); this._partialThrottleTimer = null; }
-    },
-
-    // ==================== USAGE ACTIONS ====================
-
-    updateRunningUsage(usage, conversationId = null) {
-      this.runningUsage = { ...usage, conversationId };
-    },
-
-    finalizeUsage(usage, conversationId = null) {
-      if (conversationId) {
-        const index = this.conversations.findIndex((c) => c.id === conversationId);
-        if (index !== -1) {
-          this.conversations.splice(index, 1, {
-            ...this.conversations[index],
-            inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
-            cacheReadInputTokens: usage.cacheReadInputTokens,
-            cacheCreationInputTokens: usage.cacheCreationInputTokens,
-            webSearchRequests: usage.webSearchRequests, contextWindow: usage.contextWindow, model: usage.model,
-          });
-        }
-      }
-      if (this.currentSession) {
-        this.currentSession = {
-          ...this.currentSession,
-          inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
-          cacheReadInputTokens: usage.cacheReadInputTokens,
-          cacheCreationInputTokens: usage.cacheCreationInputTokens,
-          webSearchRequests: usage.webSearchRequests, contextWindow: usage.contextWindow,
-        };
-      }
-      this.runningUsage = null;
-    },
-
-    updateConversationUsage(conversationId, usage) {
-      const index = this.conversations.findIndex((c) => c.id === conversationId);
-      if (index !== -1) {
-        this.conversations.splice(index, 1, {
-          ...this.conversations[index],
-          inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
-          cacheReadInputTokens: usage.cacheReadInputTokens,
-          cacheCreationInputTokens: usage.cacheCreationInputTokens,
-          webSearchRequests: usage.webSearchRequests, contextWindow: usage.contextWindow, model: usage.model,
-        });
-      }
-    },
-
-    clearRunningUsage() {
-      this.runningUsage = null;
-      this.clearPartialThinking();
-    },
+    // ==================== PER-SESSION ACTIONS (shared with overlay store) ====================
+    ...perSessionActions,
 
     // ==================== CONVERSATION ACTIONS ====================
     ...conversationActions,
