@@ -19,6 +19,13 @@ vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: () => mockSessionsStore,
 }));
 
+vi.mock('./useOverlayStore.js', () => ({
+  useInjectedSessionsStore: () => mockSessionsStore,
+  useInjectedTodosStore: () => ({}),
+  SESSIONS_STORE_KEY: Symbol('test-sessions-store'),
+  TODOS_STORE_KEY: Symbol('test-todos-store'),
+}));
+
 vi.mock('../stores/ui.js', () => ({
   useUiStore: () => mockUiStore,
 }));

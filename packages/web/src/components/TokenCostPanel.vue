@@ -57,12 +57,12 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useSettingsStore } from '../stores/settings.js';
 import { formatTokenCount } from '@claudetools/shared';
 import TokenWeightsModal from './TokenWeightsModal.vue';
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const settingsStore = useSettingsStore();
 
 const isExpanded = ref(false);
