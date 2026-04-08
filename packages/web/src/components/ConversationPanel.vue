@@ -51,7 +51,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 import ConversationTreeItem from './ConversationTreeItem.vue';
 
@@ -60,7 +60,7 @@ const props = defineProps({
   hideNewConversation: { type: Boolean, default: false },
 });
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 
 const isOpen = ref(false);
