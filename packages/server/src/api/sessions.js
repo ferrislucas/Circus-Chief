@@ -2,20 +2,16 @@ import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
 import { sessions, messages, projects, todos, workLogs, conversations, attachments, commandRuns, sessionSummaries } from '../database.js';
-import { continueSession, stopSession, restartSession, cleanupActiveSession } from '../services/sessionManager.js';
+import { continueSession, stopSession, restartSession } from '../services/sessionManager.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
-import { broadcastToSession, broadcastToProject } from '../websocket.js';
+import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
-import * as summaryService from '../services/summaryService.js';
-import { executeHookAsync } from '../services/hookService.js';
 import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
-import { duplicateSession } from '../services/sessionDuplicator.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { validateDraftSession, startDraft, DraftSessionError } from '../services/draftSessionService.js';
-import { configureSchedule, ScheduleError } from '../services/scheduleService.js';
 import { textAccumulators, thinkingAccumulators } from '../services/streamEventHandler.js';
 
 // Import sub-routers
@@ -24,6 +20,7 @@ import conversationsRouter from './sessions-conversations.js';
 import commandsRouter from './sessions-commands.js';
 import patchRouter from './sessions-patch.js';
 import archiveRouter from './sessions-archive.js';
+import lifecycleRouter from './sessions-lifecycle.js';
 
 const router = Router();
 
@@ -33,6 +30,7 @@ router.use('/', conversationsRouter);
 router.use('/', commandsRouter);
 router.use('/', patchRouter);
 router.use('/', archiveRouter);
+router.use('/', lifecycleRouter);
 
 // TTL cache for files-count endpoint (60 second TTL)
 const filesCountCache = new Map();
@@ -389,9 +387,6 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
   const model = req.body.model || null; // Model to use for this message
   const files = req.files || [];
 
-  // [MODEL AUDIT] Log model received from request
-  console.log(`[MODEL AUDIT - API] POST /sessions/${req.params.id}/message - model from request: "${model}"`);
-
   if (!content) {
     return res.status(400).json({ error: 'Content is required' });
   }
@@ -403,9 +398,6 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
   try {
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const messageAttachments = attachments.createBatch(req.session_.id, null, files, req.workingDirectory);
-
-    // [MODEL AUDIT] Log model being passed to continueSession
-    console.log(`[MODEL AUDIT - API] Calling continueSession with model: "${model}"`);
 
     // Check if the message is a slash command/skill invocation (starts with "/")
     const resolved = await slashCommandService.resolvePromptSkillOrCommand(
@@ -572,151 +564,6 @@ router.get('/:id/workflow-latest-response', requireSession, (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
-
-// GET /api/sessions/:id/summary - Get session summary
-router.get('/:id/summary', requireSession, async (req, res) => {
-  // Check if generateIfMissing query param is set
-  const generateIfMissing = req.query.generate === 'true';
-
-  try {
-    const summary = await summaryService.getSummary(req.params.id, generateIfMissing);
-    if (!summary) {
-      return res.status(404).json({ error: 'Summary not found' });
-    }
-    res.json(summary);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/sessions/:id/summary - Generate/regenerate session summary
-router.post('/:id/summary', requireSession, async (req, res) => {
-  try {
-    const summary = await summaryService.regenerateSummary(req.params.id);
-    if (!summary) {
-      return res.status(500).json({ error: 'Failed to generate summary' });
-    }
-    res.status(201).json(summary);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// PUT /api/sessions/:id/summary - Directly set summary data (for testing/seeding)
-router.put('/:id/summary', requireSession, async (req, res) => {
-  try {
-    const summary = sessionSummaries.upsert(req.params.id, req.body);
-    res.json(summary);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/sessions/:id/schedule - Schedule a follow-up message for an existing session
-router.post('/:id/schedule', requireSessionAndProject, async (req, res) => {
-  try {
-    const updated = configureSchedule(req.session_, req.body);
-    res.json(updated);
-  } catch (error) {
-    if (error instanceof ScheduleError) {
-      return res.status(error.statusCode).json({ error: error.message });
-    }
-    console.error('Schedule session error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/sessions/:id/duplicate - Duplicate a session
-router.post('/:id/duplicate', requireSession, async (req, res) => {
-  try {
-    const { name } = req.body;
-    const newSession = await duplicateSession(req.params.id, { name });
-
-    // Broadcast new session creation to project subscribers
-    broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
-      projectId: req.session_.projectId,
-      session: newSession,
-    });
-
-    res.status(201).json(newSession);
-  } catch (error) {
-    console.error('Error duplicating session:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// DELETE /api/sessions/:id - Delete session
-router.delete('/:id', requireSessionAndProject, async (req, res) => {
-  // Collect all descendant session IDs before any deletions
-  // (database ON DELETE SET NULL would orphan them otherwise)
-  const descendantIds = sessions.getAllDescendantIds(req.params.id);
-
-  // Helper: clean up and delete a single session by ID
-  const cleanupAndDeleteSession = async (sessionId) => {
-    // Clean up active session if running
-    cleanupActiveSession(sessionId);
-
-    // Clean up summary service debounce timers
-    summaryService.cleanupSession(sessionId);
-
-    // Clean up attachment files from disk
-    try {
-      attachments.deleteSessionAttachmentsFromDisk(req.workingDirectory, sessionId);
-    } catch (error) {
-      console.warn(`Failed to remove attachment files for session ${sessionId}:`, error.message);
-    }
-
-    // Broadcast deletion to close any open WebSocket subscriptions
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_DELETED, { sessionId });
-
-    // Delete session (cascade will handle messages, canvas items, notes)
-    sessions.delete(sessionId);
-  };
-
-  // Delete all descendants first (leaves before branches to avoid orphaning)
-  for (const descendantId of descendantIds.reverse()) {
-    await cleanupAndDeleteSession(descendantId);
-  }
-
-  // Remove git worktree if parent session has one (skip for child sessions - they may share parent's worktree)
-  if (req.session_.gitWorktree && !req.session_.parentSessionId) {
-    try {
-      await gitService.removeWorktree(req.project.workingDirectory, req.session_.gitWorktree, true);
-    } catch (error) {
-      // Log but don't fail - worktree may already be removed or have issues
-      console.warn(`Failed to remove worktree for session ${req.session_.id}:`, error.message);
-    }
-  }
-
-  // Clean up and delete the parent session itself
-  await cleanupAndDeleteSession(req.params.id);
-
-  // Broadcast deletion to project subscribers for real-time list updates
-  // (sends one event per deleted session so the frontend can remove them all)
-  broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_DELETED, {
-    projectId: req.session_.projectId,
-    sessionId: req.params.id,
-  });
-
-  for (const descendantId of descendantIds) {
-    broadcastToProject(req.session_.projectId, WS_MESSAGE_TYPES.SESSION_DELETED, {
-      projectId: req.session_.projectId,
-      sessionId: descendantId,
-    });
-  }
-
-  // Execute on_session_deleted hook if configured (non-blocking)
-  // Skip for child sessions - they share parent's resources and shouldn't trigger teardown
-  if (req.project?.onSessionDeleted && !req.session_.parentSessionId) {
-    executeHookAsync(req.project.onSessionDeleted, req.workingDirectory, {
-      sessionId: req.session_.id,
-      projectId: req.project.id,
-      sessionName: req.session_.name,
-    });
-  }
-
-  res.status(204).send();
 });
 
 export default router;

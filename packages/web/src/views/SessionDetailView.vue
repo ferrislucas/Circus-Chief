@@ -147,88 +147,83 @@ const summariesMap = ref({});
 const hasDescendants = computed(() => sessionChain.value.length > 1);
 
 /**
+ * Merge project sessions into the store without triggering loading state.
+ */
+async function mergeProjectSessionsToStore(projectId) {
+  try {
+    const projectSessions = await api.getProjectSessions(projectId, false, null);
+    for (const s of projectSessions) {
+      const idx = sessionsStore.sessions.findIndex(existing => existing.id === s.id);
+      if (idx >= 0) {
+        sessionsStore.sessions[idx] = s;
+      } else {
+        sessionsStore.sessions.push(s);
+      }
+    }
+  } catch {
+    // Not critical if project sessions fail to load
+  }
+}
+
+/**
+ * Find the root session, handling fallback cases.
+ * @returns {{ root: object|null, earlyReturn: object[]|null }}
+ */
+function findRootSession(sessionId) {
+  let root = sessionsStore.getRootSession(sessionId);
+  if (root) return { root, earlyReturn: null };
+
+  const current = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
+  if (current && !current.parentSessionId) return { root: current, earlyReturn: null };
+  if (current) return { root: null, earlyReturn: [{ session: current, depth: 0 }] };
+  return { root: null, earlyReturn: null };
+}
+
+/**
+ * Walk the tree depth-first from root, collecting {session, depth} entries.
+ */
+function collectTreeDepthFirst(root) {
+  const tree = [];
+  function walk(session, depth) {
+    tree.push({ session, depth });
+    const children = sessionsStore.getChildSessions(session.id);
+    for (const child of children) walk(child, depth + 1);
+  }
+  walk(root, 0);
+  return tree;
+}
+
+/**
  * Build the full session tree from root, flattened depth-first with depth info.
  * Fetches project sessions and summaries for each session in the tree.
  */
 async function buildSessionChain() {
   const sessionId = currentSessionId.value;
-  // Ensure the current session is fetched first to populate the hierarchy
-  const currentSession = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
-  if (!currentSession) {
-    try {
-      await sessionsStore.fetchSession(sessionId, false);
-    } catch {
-      return;
-    }
+  const existingSession = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
+  if (!existingSession) {
+    try { await sessionsStore.fetchSession(sessionId, false); } catch { return; }
   }
 
-  // Fetch the project's sessions directly via API to avoid setting store.loading = true
-  // which would interfere with the main SessionDetailView rendering
   const session = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
-  if (session?.projectId) {
-    try {
-      const projectSessions = await api.getProjectSessions(session.projectId, false, null);
-      // Merge into store without triggering loading state.
-      // Always update existing sessions so that computed fields like lastActivityAt stay fresh.
-      for (const s of projectSessions) {
-        const idx = sessionsStore.sessions.findIndex(existing => existing.id === s.id);
-        if (idx >= 0) {
-          sessionsStore.sessions[idx] = s;
-        } else {
-          sessionsStore.sessions.push(s);
-        }
-      }
-    } catch {
-      // Not critical if project sessions fail to load
-    }
-  }
+  if (session?.projectId) await mergeProjectSessionsToStore(session.projectId);
 
-  // Find root
-  let root = sessionsStore.getRootSession(sessionId);
-  if (!root) {
-    // getRootSession only searches state.sessions, not currentSession.
-    // If the current page session IS the root (no parentSessionId), it won't
-    // be found there. Fall back to currentSession / getSessionById.
-    const current = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
-    if (current && !current.parentSessionId) {
-      root = current;
-    } else if (current) {
-      sessionChain.value = [{ session: current, depth: 0 }];
-      return;
-    } else {
-      return;
-    }
-  }
+  const { root, earlyReturn } = findRootSession(sessionId);
+  if (earlyReturn) { sessionChain.value = earlyReturn; return; }
+  if (!root) return;
 
-  // Walk the full tree depth-first from root, collecting {session, depth} entries
-  const tree = [];
-  function walkTree(session, depth) {
-    tree.push({ session, depth });
-    const children = sessionsStore.getChildSessions(session.id);
-    for (const child of children) {
-      walkTree(child, depth + 1);
-    }
-  }
-  walkTree(root, 0);
-
-  // Sort by latest message timestamp descending (reverse chronological)
+  const tree = collectTreeDepthFirst(root);
   tree.sort((a, b) => {
     const aTime = a.session.lastActivityAt || a.session.updatedAt || a.session.createdAt || 0;
     const bTime = b.session.lastActivityAt || b.session.updatedAt || b.session.createdAt || 0;
     return bTime - aTime;
   });
-
   sessionChain.value = tree;
 
   // Fetch summaries for all sessions in the tree (non-blocking)
   for (const entry of tree) {
     if (!summariesMap.value[entry.session.id]) {
       api.getSessionSummary(entry.session.id)
-        .then(summary => {
-          if (summary) {
-            summariesMap.value = { ...summariesMap.value, [entry.session.id]: summary };
-          }
-        })
+        .then(summary => { if (summary) summariesMap.value = { ...summariesMap.value, [entry.session.id]: summary }; })
         .catch(() => { /* Summaries are not critical */ });
     }
   }
@@ -650,66 +645,12 @@ defineExpose({
 </script>
 
 <style scoped>
-.loading-state {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  justify-content: center;
-  padding: 3rem;
-}
-
-.tab-content {
-  min-height: 400px;
-}
-
-/* Delete overlay styles */
-.delete-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(2px);
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.delete-overlay-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  color: var(--color-text, #e0e0e0);
-  font-size: 1.125rem;
-}
-
-.delete-spinner {
-  display: inline-block;
-  width: 3rem;
-  height: 3rem;
-  border: 3px solid rgba(0, 188, 212, 0.2);
-  border-top-color: var(--color-primary, #00bcd4);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-/* Fade transition for overlay */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
+.loading-state { display: flex; align-items: center; gap: 0.5rem; justify-content: center; padding: 3rem; }
+.tab-content { min-height: 400px; }
+.delete-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(2px); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.delete-overlay-content { display: flex; flex-direction: column; align-items: center; gap: 1rem; color: var(--color-text, #e0e0e0); font-size: 1.125rem; }
+.delete-spinner { display: inline-block; width: 3rem; height: 3rem; border: 3px solid rgba(0, 188, 212, 0.2); border-top-color: var(--color-primary, #00bcd4); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
