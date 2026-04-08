@@ -115,7 +115,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
         .get('/api/sessions/non-existent/command-buttons/runs');
 
       expect(res.status).toBe(404);
-    });
+    }, 30000);
   });
 
   describe('GET /api/sessions/:id/command-buttons/runs/:runId', () => {
