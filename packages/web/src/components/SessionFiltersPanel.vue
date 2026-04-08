@@ -6,10 +6,18 @@
         <button
           v-for="status in ['running', 'idle']"
           :key="status"
-          :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
+          :class="[
+            'filter-btn',
+            {
+              active: sessionsStore.statusFilter === status,
+              'filter-btn-empty': statusFilterCounts[status] === 0,
+            },
+          ]"
+          :aria-label="`${status} (${statusFilterCounts[status]})`"
           @click="toggleFilter(status)"
         >
-          {{ status }}
+          <span class="filter-label">{{ status }}</span>
+          <span class="filter-count">{{ statusFilterCounts[status] }}</span>
         </button>
       </template>
 
@@ -78,6 +86,7 @@ const {
   starFilterTooltip,
   toggleScheduledFilterIcon,
   scheduledFilterTooltip,
+  statusFilterCounts,
 } = useSessionFiltering();
 </script>
 
@@ -90,6 +99,9 @@ const {
 }
 
 .filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   background: none;
   border: 1px solid var(--color-border);
   padding: 0.375rem 0.75rem;
@@ -99,6 +111,34 @@ const {
   border-radius: var(--border-radius);
   transition: all 0.15s;
   text-transform: capitalize;
+}
+
+/* The existing text-transform: capitalize on .filter-btn cascades to
+   .filter-label, which is what we want. The .filter-count override
+   below restores numeric rendering. */
+
+.filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 999px;
+  background: var(--color-background-mute);
+  color: var(--color-text-soft);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-transform: none;
+}
+
+.filter-btn.active .filter-count {
+  background: var(--color-background);
+  color: var(--color-primary);
+}
+
+.filter-btn-empty {
+  opacity: 0.55;
 }
 
 .filter-btn:hover {

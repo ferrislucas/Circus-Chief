@@ -321,17 +321,9 @@ watch(
 );
 
 // Track when fields are overridden by user
-watch(mode, () => {
-  usingDefaults.value.mode = false;
-});
-
-watch(model, () => {
-  usingDefaults.value.model = false;
-});
-
-watch(thinkingEnabled, () => {
-  usingDefaults.value.thinkingEnabled = false;
-});
+watch(mode, () => { usingDefaults.value.mode = false; });
+watch(model, () => { usingDefaults.value.model = false; });
+watch(thinkingEnabled, () => { usingDefaults.value.thinkingEnabled = false; });
 
 // Rec 3: Reset scheduling data when startImmediately is toggled on
 // Also auto-scroll to the advanced options section when toggled off
@@ -357,13 +349,8 @@ watch(startImmediately, (newVal) => {
   }
 });
 
-watch(quickGitMode, () => {
-  usingDefaults.value.quickGitMode = false;
-});
-
-watch(quickWorktreeBranch, () => {
-  usingDefaults.value.quickWorktreeBranch = false;
-});
+watch(quickGitMode, () => { usingDefaults.value.quickGitMode = false; });
+watch(quickWorktreeBranch, () => { usingDefaults.value.quickWorktreeBranch = false; });
 
 // Watch prompt for localStorage persistence with debouncing
 watch(prompt, (newValue) => {
@@ -384,70 +371,72 @@ onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
 });
 
+/**
+ * Apply project defaults to form fields.
+ * @param {object} defaults - The project defaults object
+ */
+function applyProjectDefaults(defaults) {
+  if (defaults.mode) {
+    mode.value = defaults.mode;
+    usingDefaults.value.mode = true;
+  }
+  if (defaults.model) {
+    model.value = defaults.model;
+    usingDefaults.value.model = true;
+  } else {
+    model.value = 'sonnet';
+    usingDefaults.value.model = true;
+  }
+  if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
+    thinkingEnabled.value = defaults.thinkingEnabled;
+    usingDefaults.value.thinkingEnabled = true;
+  }
+  if (defaults.effortLevel) effortLevel.value = defaults.effortLevel;
+  if (defaults.startImmediately !== null && defaults.startImmediately !== undefined) {
+    startImmediately.value = defaults.startImmediately;
+    usingDefaults.value.startImmediately = true;
+  }
+  if (defaults.gitMode) {
+    quickGitMode.value = defaults.gitMode;
+    usingDefaults.value.quickGitMode = true;
+  }
+  if (defaults.gitBranch) {
+    quickWorktreeBranch.value = defaults.gitBranch;
+    usingDefaults.value.quickWorktreeBranch = true;
+  }
+}
+
+/**
+ * Restore draft from localStorage and sync to textarea.
+ */
+function restoreDraftFromStorage() {
+  const saved = localStorage.getItem(storageKey.value);
+  if (!saved) return;
+  prompt.value = saved;
+  nextTick(() => {
+    if (textareaRef.value) {
+      textareaRef.value.value = saved;
+      promptHasContent.value = saved.trim().length > 0;
+    }
+  });
+}
+
 onMounted(async () => {
   const projectId = route.params.id;
-
-  // Restore draft from localStorage if it exists
-  const saved = localStorage.getItem(storageKey.value);
-  if (saved) {
-    prompt.value = saved;
-    // Sync to textarea DOM element after Vue has rendered
-    nextTick(() => {
-      if (textareaRef.value) {
-        textareaRef.value.value = saved;
-        // Also update the promptHasContent flag
-        promptHasContent.value = saved.trim().length > 0;
-      }
-    });
-  }
+  restoreDraftFromStorage();
 
   // Fetch project defaults FIRST to ensure model is set before ModelSelector renders
   try {
     await defaultsStore.fetchDefaults(projectId);
     const defaults = defaultsStore.getDefaultsForProject(projectId);
-
     if (defaults) {
-      // Pre-fill form with project defaults
-      if (defaults.mode) {
-        mode.value = defaults.mode;
-        usingDefaults.value.mode = true;
-      }
-      if (defaults.model) {
-        model.value = defaults.model;
-        usingDefaults.value.model = true;
-      } else {
-        // No project default set, use system default
-        model.value = 'sonnet';
-        usingDefaults.value.model = true;
-      }
-      if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
-        thinkingEnabled.value = defaults.thinkingEnabled;
-        usingDefaults.value.thinkingEnabled = true;
-      }
-      if (defaults.effortLevel) {
-        effortLevel.value = defaults.effortLevel;
-      }
-      if (defaults.startImmediately !== null && defaults.startImmediately !== undefined) {
-        startImmediately.value = defaults.startImmediately;
-        usingDefaults.value.startImmediately = true;
-      }
-      if (defaults.gitMode) {
-        quickGitMode.value = defaults.gitMode;
-        usingDefaults.value.quickGitMode = true;
-      }
-      if (defaults.gitBranch) {
-        quickWorktreeBranch.value = defaults.gitBranch;
-        usingDefaults.value.quickWorktreeBranch = true;
-      }
+      applyProjectDefaults(defaults);
     } else {
-      // No defaults at all, use system default for model
       model.value = 'sonnet';
       usingDefaults.value.model = true;
     }
   } catch (err) {
-    // Defaults fetching is optional, don't block on error
     console.warn('Failed to fetch project defaults:', err);
-    // Ensure we still have a system default
     if (!model.value) {
       model.value = 'sonnet';
       usingDefaults.value.model = true;
@@ -463,17 +452,10 @@ onMounted(async () => {
     loadingGit.value = false;
   }
 
-  // Fetch templates for this project
   templatesStore.fetchProjectTemplates(projectId);
-
-  // Fetch quick responses for this project
   const quickResponsesStore = useQuickResponsesStore();
   quickResponsesStore.fetchForProject(projectId);
-
-  // Pre-populate parent session ID if provided in route query
-  if (route.query.parentSessionId) {
-    parentSessionId.value = route.query.parentSessionId;
-  }
+  if (route.query.parentSessionId) parentSessionId.value = route.query.parentSessionId;
 });
 
 // Rec 1: Navigate back to sessions list
@@ -528,9 +510,7 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
 }
 
 function handleStartFromTemplateChange() {
-  if (!startFromTemplateId.value) return;
-
-  const template = templatesStore.getTemplateById(startFromTemplateId.value);
+  const template = startFromTemplateId.value && templatesStore.getTemplateById(startFromTemplateId.value);
   if (!template) return;
 
   // Populate prompt
@@ -540,31 +520,14 @@ function handleStartFromTemplateChange() {
     textareaRef.value.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // Populate other fields from template
-  if (template.thinkingEnabled !== null && template.thinkingEnabled !== undefined) {
-    thinkingEnabled.value = template.thinkingEnabled;
-  }
-  if (template.model) {
-    model.value = template.model;
-  }
-  if (template.mode) {
-    mode.value = template.mode;
-  }
-  if (template.gitBranch) {
-    quickWorktreeBranch.value = template.gitBranch;
-    editingBranch.value = true; // Mark as edited so it doesn't auto-regenerate
-  }
-  if (template.gitMode) {
-    quickGitMode.value = template.gitMode;
-  }
-  if (template.effortLevel !== null && template.effortLevel !== undefined) {
-    effortLevel.value = template.effortLevel;
-  }
-
-  // IMPORTANT: Also set the "Next Template" dropdown to the template's nextTemplateId
-  if (template.nextTemplateId) {
-    selectedTemplateId.value = template.nextTemplateId;
-  }
+  // Populate fields from template (only override when template has a value)
+  if (template.thinkingEnabled != null) thinkingEnabled.value = template.thinkingEnabled;
+  if (template.model) model.value = template.model;
+  if (template.mode) mode.value = template.mode;
+  if (template.gitBranch) { quickWorktreeBranch.value = template.gitBranch; editingBranch.value = true; }
+  if (template.gitMode) quickGitMode.value = template.gitMode;
+  if (template.effortLevel != null) effortLevel.value = template.effortLevel;
+  if (template.nextTemplateId) selectedTemplateId.value = template.nextTemplateId;
 }
 
 async function handleSubmit() {
@@ -629,8 +592,11 @@ h1 {
   margin-top: 0;
 }
 
-/* Rec 8: Constrain form width */
-.form { width: 100%; max-width: 640px; margin: 0 auto; }
+.form {
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
 
 .form-help {
   margin: 0.5rem 0 0;
@@ -645,7 +611,6 @@ h1 {
   align-items: center;
 }
 
-/* Rec 1: Form actions as flex row with Cancel + Submit */
 .form-actions {
   display: flex;
   gap: 0.75rem;
@@ -681,7 +646,6 @@ h1 {
   margin-bottom: 1rem;
 }
 
-/* Advanced Options section */
 .advanced-options {
   margin-top: 0.5rem;
   margin-bottom: 0.5rem;
@@ -693,13 +657,11 @@ h1 {
     font-size: 1.5rem;
   }
 
-  /* Rec 10: Tighten card padding on mobile */
   .form.card {
     padding: 0.75rem;
   }
 }
 
-/* Rec 1: Sticky form actions on mobile */
 @media (max-width: 640px) {
   .form-actions {
     position: sticky;

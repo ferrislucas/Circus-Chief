@@ -59,6 +59,29 @@ export async function renderTemplatePrompt(templatePrompt, sessionContext) {
 }
 
 /**
+ * Derive session settings from template and root session.
+ * Template values take precedence if set, otherwise inherit from root.
+ */
+function deriveSessionSettings(template, rootSession) {
+  return {
+    thinkingEnabled: template.thinkingEnabled !== null ? template.thinkingEnabled : rootSession.thinkingEnabled,
+    gitBranch: template.gitBranch || rootSession.gitBranch,
+    gitMode: template.gitMode || null,
+    model: template.model !== null ? template.model : rootSession.model,
+    mode: template.mode !== null ? template.mode : rootSession.mode,
+    effortLevel: template.effortLevel !== null ? template.effortLevel : rootSession.effortLevel,
+    // Inherit rescheduling settings from root session
+    autoRescheduleEnabled: rootSession.autoRescheduleEnabled,
+    rescheduleOnTokenLimit: rootSession.rescheduleOnTokenLimit,
+    rescheduleOnServiceError: rootSession.rescheduleOnServiceError,
+    rescheduleDelayMinutes: rootSession.rescheduleDelayMinutes,
+    rescheduleAtTokenCount: rootSession.rescheduleAtTokenCount,
+    maxRescheduleCount: rootSession.maxRescheduleCount,
+    maxTotalTokens: rootSession.maxTotalTokens,
+  };
+}
+
+/**
  * Check if a session should trigger its next template and do so
  * Called when a session completes (status changes to completed, error, or stopped)
  * @param {string} sessionId - The session that just completed
@@ -99,23 +122,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
 
     // Render the template prompt with parent and root session context
     const renderedPrompt = await renderTemplatePrompt(template.prompt, { parentSession: session, parentSummary, rootSession, rootSummary });
-
-    // Determine settings: use template overrides if set, otherwise inherit from root session
-    const thinkingEnabled = template.thinkingEnabled !== null ? template.thinkingEnabled : rootSession.thinkingEnabled;
-    const gitBranch = template.gitBranch || rootSession.gitBranch;
-    const gitMode = template.gitMode || null;
-    const model = template.model !== null ? template.model : rootSession.model;
-    const mode = template.mode !== null ? template.mode : rootSession.mode;
-    const effortLevel = template.effortLevel !== null ? template.effortLevel : rootSession.effortLevel;
-
-    // Inherit rescheduling settings from root session (templates have no rescheduling fields)
-    const autoRescheduleEnabled = rootSession.autoRescheduleEnabled;
-    const rescheduleOnTokenLimit = rootSession.rescheduleOnTokenLimit;
-    const rescheduleOnServiceError = rootSession.rescheduleOnServiceError;
-    const rescheduleDelayMinutes = rootSession.rescheduleDelayMinutes;
-    const rescheduleAtTokenCount = rootSession.rescheduleAtTokenCount;
-    const maxRescheduleCount = rootSession.maxRescheduleCount;
-    const maxTotalTokens = rootSession.maxTotalTokens;
+    const settings = deriveSessionSettings(template, rootSession);
 
     // Generate a name for the new session
     const newSessionName = `${template.name} (from: ${session.name})`;
@@ -126,13 +133,13 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       newSessionName,
       renderedPrompt,
       {
-        mode, // Use mode from template or parent
-        thinkingEnabled,
-        gitBranch,
+        mode: settings.mode,
+        thinkingEnabled: settings.thinkingEnabled,
+        gitBranch: settings.gitBranch,
         parentSessionId: null, // Will be set below
         status: 'starting',
-        model, // Use model from template or parent
-        effortLevel, // Use effortLevel from template or parent
+        model: settings.model,
+        effortLevel: settings.effortLevel,
       }
     );
 
@@ -140,13 +147,13 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     sessions.update(newSession.id, {
       parentSessionId: session.id,
       nextTemplateId: template.nextTemplateId || null,
-      autoRescheduleEnabled,
-      rescheduleOnTokenLimit,
-      rescheduleOnServiceError,
-      rescheduleDelayMinutes,
-      rescheduleAtTokenCount,
-      maxRescheduleCount,
-      maxTotalTokens,
+      autoRescheduleEnabled: settings.autoRescheduleEnabled,
+      rescheduleOnTokenLimit: settings.rescheduleOnTokenLimit,
+      rescheduleOnServiceError: settings.rescheduleOnServiceError,
+      rescheduleDelayMinutes: settings.rescheduleDelayMinutes,
+      rescheduleAtTokenCount: settings.rescheduleAtTokenCount,
+      maxRescheduleCount: settings.maxRescheduleCount,
+      maxTotalTokens: settings.maxTotalTokens,
     });
 
     // Determine working directory: inherit from parent if it has a worktree
@@ -162,8 +169,8 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       // Parent is not in a worktree - set up git environment normally
       const gitSetup = await setupGitForSession({
         projectDir: project.workingDirectory,
-        gitMode: gitMode,
-        gitBranch: gitBranch,
+        gitMode: settings.gitMode,
+        gitBranch: settings.gitBranch,
         sessionId: newSession.id,
       });
       workingDirectory = gitSetup.workingDirectory;
@@ -183,7 +190,7 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     });
 
     // Start the new session (non-blocking)
-    runSession(newSession.id, renderedPrompt, workingDirectory, { systemPrompt: project.systemPrompt, model }).catch((error) => {
+    runSession(newSession.id, renderedPrompt, workingDirectory, { systemPrompt: project.systemPrompt, model: settings.model }).catch((error) => {
       console.error(`Template trigger: Error running session ${newSession.id}:`, error);
       const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
       // Broadcast error status to project subscribers for session list updates

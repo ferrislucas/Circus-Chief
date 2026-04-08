@@ -2,6 +2,25 @@ import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 
 /**
+ * Field definitions for session summary updates.
+ * Each entry defines how to transform the value for SQL.
+ */
+const SUMMARY_FIELDS = {
+  shortSummary: { column: 'short_summary', transform: (v) => v },
+  fullSummary: { column: 'full_summary', transform: (v) => v },
+  keyActions: { column: 'key_actions', transform: (v) => JSON.stringify(v) },
+  filesModified: { column: 'files_modified', transform: (v) => JSON.stringify(v) },
+  outcome: { column: 'outcome', transform: (v) => v },
+  messageCount: { column: 'message_count', transform: (v) => v },
+  lastSummarizedMessageId: { column: 'last_summarized_message_id', transform: (v) => v },
+  prMerged: { column: 'pr_merged', transform: (v) => (v ? 1 : 0) },
+  prState: { column: 'pr_state', transform: (v) => v },
+  hasMergeConflicts: { column: 'has_merge_conflicts', transform: (v) => (v ? 1 : 0) },
+  ciStatus: { column: 'ci_status', transform: (v) => v },
+  ciFailures: { column: 'ci_failures', transform: (v) => JSON.stringify(v) },
+};
+
+/**
  * Session summary repository class
  */
 export class SessionSummaryRepository extends BaseRepository {
@@ -90,63 +109,20 @@ export class SessionSummaryRepository extends BaseRepository {
     const updates = [];
     const values = [];
 
-    if (data.shortSummary !== undefined) {
-      updates.push('short_summary = ?');
-      values.push(data.shortSummary);
-    }
-    if (data.fullSummary !== undefined) {
-      updates.push('full_summary = ?');
-      values.push(data.fullSummary);
-    }
-    if (data.keyActions !== undefined) {
-      updates.push('key_actions = ?');
-      values.push(JSON.stringify(data.keyActions));
-    }
-    if (data.filesModified !== undefined) {
-      updates.push('files_modified = ?');
-      values.push(JSON.stringify(data.filesModified));
-    }
-    if (data.outcome !== undefined) {
-      updates.push('outcome = ?');
-      values.push(data.outcome);
-    }
-    if (data.messageCount !== undefined) {
-      updates.push('message_count = ?');
-      values.push(data.messageCount);
-    }
-    if (data.lastSummarizedMessageId !== undefined) {
-      updates.push('last_summarized_message_id = ?');
-      values.push(data.lastSummarizedMessageId);
-    }
-    if (data.prMerged !== undefined) {
-      updates.push('pr_merged = ?');
-      values.push(data.prMerged ? 1 : 0);
-    }
-    if (data.prState !== undefined) {
-      updates.push('pr_state = ?');
-      values.push(data.prState);
-    }
-    if (data.hasMergeConflicts !== undefined) {
-      updates.push('has_merge_conflicts = ?');
-      values.push(data.hasMergeConflicts ? 1 : 0);
-    }
-    if (data.ciStatus !== undefined) {
-      updates.push('ci_status = ?');
-      values.push(data.ciStatus);
-    }
-    if (data.ciFailures !== undefined) {
-      updates.push('ci_failures = ?');
-      values.push(JSON.stringify(data.ciFailures));
+    // Build update clauses from field definitions
+    for (const [key, def] of Object.entries(SUMMARY_FIELDS)) {
+      if (data[key] !== undefined) {
+        updates.push(`${def.column} = ?`);
+        values.push(def.transform(data[key]));
+      }
     }
 
     if (updates.length === 0) return this.getById(id);
 
     // Always update generated_at and updated_at when updating
-    updates.push('generated_at = ?');
-    values.push(Date.now());
-    updates.push('updated_at = ?');
-    values.push(Date.now());
-    values.push(id);
+    const now = Date.now();
+    updates.push('generated_at = ?', 'updated_at = ?');
+    values.push(now, now, id);
 
     this.db.prepare(`UPDATE session_summaries SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
