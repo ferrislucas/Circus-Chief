@@ -860,6 +860,10 @@ defineExpose({
   overflow: hidden;
   padding: 0;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+  /* Required so the absolutely-positioned scroll-to-claude button
+     (see :deep(.scroll-to-claude-btn) below) anchors to this element
+     instead of the viewport. */
+  position: relative;
 }
 
 .overlay-body {
@@ -947,16 +951,35 @@ defineExpose({
   flex: 1;
 }
 
-/* In the overlay the scroll-to-claude button sits inside the overlay-body scroll
-   container's normal flow, between messages and InputForm/TodoDrawer/RunningState.
-   When the user scrolls, the button can scroll out of view. Making it
-   position:sticky anchors it to the bottom-right of the overlay-body viewport
-   so it stays visible whenever it appears, regardless of scroll position. */
-.session-chat-overlay :deep(.scroll-to-claude-btn) {
-  position: sticky;
-  bottom: 0.5rem;
-  float: right;
+/* In the overlay the scroll-to-claude button must remain visible at the
+   bottom-right of the overlay panel, above the InputForm, regardless of how
+   the user has scrolled .overlay-body.
+
+   Previously this used `position: sticky` inside the .conversation-controls-row
+   wrapper, but a sticky element is bounded by its containing block. The row is
+   only ~32 px tall, so the button could only "stick" within those 32 px and
+   would scroll out of view as the user scrolled .overlay-body. On small
+   viewports the button became unreachable.
+
+   Anchoring the button with `position: absolute` to .overlay-content (which is
+   `position: relative`) lets the button escape the .overlay-body scroll
+   container entirely. The fixed bottom offset reserves space for the InputForm
+   so they never overlap, even when the user scrolls the messages list.
+
+   The high specificity selector below also ensures this rule wins against the
+   base `.scroll-to-claude-btn` rule and the `@media (max-width: 600px)`
+   override in ConversationMessages.vue. */
+.session-chat-overlay :deep(.conversation-controls-row .scroll-to-claude-btn) {
+  position: absolute;
+  bottom: 11rem;
+  right: 1rem;
   z-index: 10;
+}
+
+@media (max-width: 768px) {
+  .session-chat-overlay :deep(.conversation-controls-row .scroll-to-claude-btn) {
+    right: 0.75rem;
+  }
 }
 
 @media (max-width: 768px) {
