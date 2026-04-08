@@ -388,6 +388,7 @@ export async function seedSession(
   return session;
 }
 
+
 export async function seedCanvasItem(
   sessionId: string,
   data: { type: string; content?: string; data?: string; mimeType?: string; label?: string; filePath?: string; filename?: string }
@@ -1300,22 +1301,13 @@ export async function setSessionSummary(sessionId: string, summaryData: {
 export async function seedChildSession(
   projectId: string,
   parentSessionId: string,
-  data: { prompt: string; name?: string; mode?: string }
+  data: { prompt: string; name?: string; mode?: string; model?: string }
 ) {
-  const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...data,
-      parentSessionId,
-      startImmediately: false,
-    }),
+  return seedSession(projectId, {
+    ...data,
+    parentSessionId,
+    startImmediately: false,
   });
-  if (!response.ok) throw new Error('Failed to seed child session');
-  const session = await response.json();
-  // Track for scoped cleanup
-  createdResources.sessions.add(session.id);
-  return session;
 }
 
 /**
@@ -2106,33 +2098,6 @@ export async function getSlashCommand(
 }
 
 /**
- * Seed token usage directly into the DB for a session ( Uses scripts/seed-session-tokens.mjs.
- */
-export function seedSessionTokens(
-  sessionId: string,
-  tokens: {
-    inputTokens?: number;
-    outputTokens?: number;
-    cacheReadInputTokens?: number;
-    cacheCreationInputTokens?: number;
-  }
-): any {
-  const seedScript = join(process.cwd(), 'scripts', 'seed-session-tokens.mjs');
-  const payload = {
-    dbPath: getDBPath(),
-    sessionId,
-    ...tokens,
-  };
-  const input = JSON.stringify(payload);
-  const result = execSync(`node "${seedScript}"`, {
-    input,
-    encoding: 'utf-8',
-    timeout: 10000,
-  });
-  return JSON.parse(result);
-}
-
-/**
  * Execute a slash command via the API (raw response for testing error cases).
  */
 export async function executeSlashCommandRaw(
@@ -2201,6 +2166,36 @@ export async function getTodos(
 // ============================================================
 // Token Usage & Cost Helpers (for token-usage-cost tests)
 // ============================================================
+
+/**
+ * Seed token usage directly into the DB for a session row.
+ * Uses scripts/seed-session-tokens.mjs for direct DB write.
+ * Updates the session-level token fields (inputTokens, outputTokens, etc.)
+ * used by the overview metrics cost display.
+ */
+export function seedSessionTokens(
+  sessionId: string,
+  tokens: {
+    inputTokens?: number;
+    outputTokens?: number;
+    cacheReadInputTokens?: number;
+    cacheCreationInputTokens?: number;
+  }
+): any {
+  const seedScript = join(process.cwd(), 'scripts', 'seed-session-tokens.mjs');
+  const payload = {
+    dbPath: getDBPath(),
+    sessionId,
+    ...tokens,
+  };
+  const input = JSON.stringify(payload);
+  const result = execSync(`node "${seedScript}"`, {
+    input,
+    encoding: 'utf-8',
+    timeout: 10000,
+  });
+  return JSON.parse(result);
+}
 
 /**
  * Seed token usage directly into the DB for a conversation.
