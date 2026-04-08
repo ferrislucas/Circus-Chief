@@ -38,6 +38,7 @@ test.describe('Summary Tab Live Output', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test summary live output',
       name: 'Summary Live Output Test',
+      model: 'claude-sonnet-4-20250514',
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
@@ -61,6 +62,11 @@ test.describe('Summary Tab Live Output', () => {
     // Verify the "Live Output" header is shown
     const headerLabel = page.locator('.log-header-label');
     await expect(headerLabel).toHaveText('Live Output');
+
+    // Verify the model badge is visible and shows the model name
+    const modelBadge = logStream.locator('[data-testid="live-output-model"]');
+    await expect(modelBadge).toBeVisible();
+    await expect(modelBadge).toHaveText(session.model);
   });
 
   test('does not display live output when session is completed', async ({ page }) => {
