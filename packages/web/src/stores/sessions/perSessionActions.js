@@ -1,21 +1,58 @@
 import { api } from '../../composables/useApi.js';
 
 /**
- * Work log and streaming-related actions for the sessions store.
- * Extracted to keep the main sessions.js under the max-lines limit.
+ * Per-session actions shared between the main sessions store and overlay stores.
+ * These operate on the store's own local state (messages, workLogs, partialText, etc.)
+ * and are spread directly into the Pinia store actions, so `this` refers to the store instance.
+ *
+ * NOTE: fetchSession is intentionally NOT included here — the main store and overlay
+ * store have fundamentally different implementations (the main store walks the parent
+ * chain and fetches child sessions from the project).
  */
-export const workLogActions = {
+export const perSessionActions = {
+  // ==================== MESSAGE ACTIONS ====================
+
+  async fetchMessages(sessionId, showLoading = true, conversationId = null) {
+    if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+
+    if (showLoading) this.loading = true;
+    this.error = null;
+    try {
+      const cid = conversationId || this.activeConversationId;
+      const fetchedMessages = cid
+        ? await api.getConversationMessages(sessionId, cid)
+        : await api.getSessionMessages(sessionId);
+
+      if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+
+      const fetchedIds = new Set(fetchedMessages.map(m => m.id));
+      const newMessages = this.messages.filter(m => m.sessionId === sessionId && !fetchedIds.has(m.id));
+      if (newMessages.length > 0) {
+        this.messages = [...fetchedMessages, ...newMessages];
+      } else {
+        this.messages = fetchedMessages;
+      }
+    } catch (err) {
+      if (this.viewedSessionId && this.viewedSessionId === sessionId) {
+        this.error = err.message;
+      }
+    } finally {
+      if (showLoading) this.loading = false;
+    }
+  },
+
+  addMessage(message) {
+    if (this.currentSession && message.sessionId && message.sessionId !== this.currentSession.id) return;
+    if (!this.messages.some(m => m.id === message.id)) this.messages.push(message);
+  },
+
   // ==================== WORK LOG ACTIONS ====================
 
   async fetchWorkLogs(sessionId) {
-    // Pre-fetch guard: skip if user navigated away
     if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
-
     this.error = null;
     try {
       const grouped = await api.getSessionWorkLogs(sessionId);
-
-      // Post-fetch guard: discard if user navigated away during await
       if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
 
       const fetchedLogIds = new Set();
@@ -27,7 +64,7 @@ export const workLogActions = {
       const fetchedUnassociated = grouped['_unassociated'] || [];
       this.workLogs = { ...grouped, '_unassociated': [...fetchedUnassociated, ...newUnassociatedLogs] };
     } catch (err) {
-      if (!this.viewedSessionId || this.viewedSessionId === sessionId) {
+      if (this.viewedSessionId && this.viewedSessionId === sessionId) {
         this.error = err.message;
       }
     }
@@ -92,7 +129,10 @@ export const workLogActions = {
   clearPartialText() {
     this.partialText = '';
     this._pendingPartialText = null;
-    if (this._partialThrottleTimer) { clearTimeout(this._partialThrottleTimer); this._partialThrottleTimer = null; }
+    if (this._partialThrottleTimer) {
+      clearTimeout(this._partialThrottleTimer);
+      this._partialThrottleTimer = null;
+    }
   },
 
   // ==================== USAGE ACTIONS ====================

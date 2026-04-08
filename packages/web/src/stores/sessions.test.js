@@ -3933,7 +3933,7 @@ describe('Sessions Store', () => {
       expect(store.loading).toBe(false);
     });
 
-    it('logs fetch details including message count and activeConversationId', async () => {
+    it('fetches messages using getConversationMessages when activeConversationId is set', async () => {
       const store = useSessionsStore();
       store.activeConversationId = 'conv-123';
 
@@ -3943,25 +3943,11 @@ describe('Sessions Store', () => {
 
       api.getConversationMessages.mockResolvedValue(mockMessages);
 
-      const consoleLogSpy = vi.spyOn(console, 'log');
-
       await store.fetchMessages('session-456', false);
 
       // Should use getConversationMessages since activeConversationId is set
       expect(api.getConversationMessages).toHaveBeenCalledWith('session-456', 'conv-123');
-
-      // Verify logging includes session ID, message count, and conversation ID
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[STORE] fetchMessages: session session-456')
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('received 1 messages')
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('activeConversationId: conv-123')
-      );
-
-      consoleLogSpy.mockRestore();
+      expect(store.messages).toEqual(mockMessages);
     });
 
     it('uses getConversationMessages when conversationId parameter is provided', async () => {
@@ -4049,22 +4035,17 @@ describe('Sessions Store', () => {
       expect(store.messages).toHaveLength(2);
     });
 
-    it('logs error when fetch fails', async () => {
+    it('sets error state when fetch fails', async () => {
       const store = useSessionsStore();
       const errorMessage = 'Network error';
+      // viewedSessionId must match the fetched session for the error guard to set store.error
+      store.viewedSessionId = 'session-789';
 
       api.getSessionMessages.mockRejectedValue(new Error(errorMessage));
 
-      const consoleErrorSpy = vi.spyOn(console, 'error');
-
       await store.fetchMessages('session-789', false);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[STORE] fetchMessages: error fetching messages for session session-789'),
-        errorMessage
-      );
-
-      consoleErrorSpy.mockRestore();
+      expect(store.error).toBe(errorMessage);
     });
 
     it('does not set error when viewedSessionId changes during a failed fetch', async () => {

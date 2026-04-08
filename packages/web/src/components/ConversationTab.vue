@@ -111,7 +111,7 @@
 import { ref, computed, nextTick, watch, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { formatDistanceToNow } from 'date-fns';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
@@ -139,7 +139,7 @@ const props = defineProps({
   hideNewConversation: { type: Boolean, default: false },
 });
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();

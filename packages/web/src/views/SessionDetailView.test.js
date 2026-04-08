@@ -3785,10 +3785,8 @@ describe('SessionDetailView', () => {
       // viewedSessionId should be restored to the parent
       expect(sessionsStore.viewedSessionId).toBe('parent-1');
 
-      // Parent session data should be refetched
+      // With overlay store isolation, only a lightweight re-fetch of the session is needed
       expect(sessionsStore.fetchSession).toHaveBeenCalledWith('parent-1', false);
-      expect(sessionsStore.fetchConversations).toHaveBeenCalledWith('parent-1');
-      expect(sessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false);
     });
 
     it('closes the overlay panel on close event', async () => {
@@ -3876,10 +3874,8 @@ describe('SessionDetailView', () => {
       await nextTick();
       await flushPromises();
 
-      // Should still refetch to ensure consistency
+      // With overlay store isolation, only a lightweight re-fetch of the session is needed
       expect(sessionsStore.fetchSession).toHaveBeenCalledWith('parent-1', false);
-      expect(sessionsStore.fetchConversations).toHaveBeenCalledWith('parent-1');
-      expect(sessionsStore.fetchMessages).toHaveBeenCalledWith('parent-1', false);
     });
   });
 
