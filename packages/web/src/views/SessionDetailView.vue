@@ -340,14 +340,12 @@ function handleOverlayOpen() {
 
 async function handleOverlayClose() {
   chatOverlayOpen.value = false;
-  const parentId = currentSessionId.value;
-  sessionsStore.viewedSessionId = parentId;
+  sessionsStore.viewedSessionId = currentSessionId.value;
 
-  // Restore parent session's data since the overlay may have overwritten
-  // currentSession, activeConversationId, conversations, and messages
-  await sessionsStore.fetchSession(parentId, false);
-  await sessionsStore.fetchConversations(parentId);
-  await sessionsStore.fetchMessages(parentId, false);
+  // With overlay store isolation the main store is never touched by the overlay.
+  // A lightweight re-fetch picks up any server-side changes made while the overlay
+  // was open (e.g. status changes, new messages from other clients).
+  await sessionsStore.fetchSession(currentSessionId.value, false);
 }
 
 // Use composable for session initialization and WebSocket management

@@ -47,9 +47,9 @@
 
 <script setup>
 import { computed } from 'vue';
-import { useTodosStore } from '../stores/todos.js';
+import { useInjectedTodosStore } from '../composables/useOverlayStore.js';
 
-const todosStore = useTodosStore();
+const todosStore = useInjectedTodosStore();
 
 const previewTodos = computed(() => todosStore.items.slice(0, 4));
 
