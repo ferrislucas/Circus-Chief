@@ -947,6 +947,18 @@ defineExpose({
   flex: 1;
 }
 
+/* In the overlay the scroll-to-claude button sits inside the overlay-body scroll
+   container's normal flow, between messages and InputForm/TodoDrawer/RunningState.
+   When the user scrolls, the button can scroll out of view. Making it
+   position:sticky anchors it to the bottom-right of the overlay-body viewport
+   so it stays visible whenever it appears, regardless of scroll position. */
+.session-chat-overlay :deep(.scroll-to-claude-btn) {
+  position: sticky;
+  bottom: 0.5rem;
+  float: right;
+  z-index: 10;
+}
+
 @media (max-width: 768px) {
   .overlay-body {
     padding: 0 0.5rem;
