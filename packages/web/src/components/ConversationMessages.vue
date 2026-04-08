@@ -26,7 +26,7 @@
 
     <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
     <button
-      v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
+      v-if="hasAssistantMessages && isUsersTurn"
       class="scroll-to-claude-btn"
       @click="scrollToClaudesTurn"
       title="Jump to Claude's response"
