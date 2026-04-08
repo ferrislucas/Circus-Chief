@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from './useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from './useApi.js';
 
@@ -13,7 +13,7 @@ import { api } from './useApi.js';
  * @returns {Object} Session control utilities
  */
 export function useSessionControl({ getSessionId }) {
-  const sessionsStore = useSessionsStore();
+  const sessionsStore = useInjectedSessionsStore();
   const uiStore = useUiStore();
 
   const sending = ref(false);

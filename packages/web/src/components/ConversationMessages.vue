@@ -40,7 +40,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 import { useMessageScroll } from '../composables/useMessageScroll.js';
 import MessageItem from './MessageItem.vue';
@@ -55,7 +55,7 @@ const props = defineProps({
   scrollContainerRef: { type: Object, default: null },
 });
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 const router = useRouter();
 
