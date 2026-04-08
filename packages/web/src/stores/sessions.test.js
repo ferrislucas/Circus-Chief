@@ -1116,110 +1116,110 @@ describe('Sessions Store', () => {
         expect(store.conversations[0].id).toBe('conv-2');
       });
     });
+  });
 
-    describe('parent-child relationships', () => {
-      describe('getChildSessions getter', () => {
-        it('returns children of a parent session', () => {
-          const store = useSessionsStore();
-          store.sessions = [
-            { id: 'parent-1', name: 'Parent', parentSessionId: null },
-            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
-            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
-            { id: 'other', name: 'Other', parentSessionId: null },
-          ];
+  describe('parent-child relationships', () => {
+    describe('getChildSessions getter', () => {
+      it('returns children of a parent session', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'parent-1', name: 'Parent', parentSessionId: null },
+          { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+          { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+          { id: 'other', name: 'Other', parentSessionId: null },
+        ];
 
-          const children = store.getChildSessions('parent-1');
+        const children = store.getChildSessions('parent-1');
 
-          expect(children).toHaveLength(2);
-          expect(children.map((c) => c.id)).toEqual(['child-1', 'child-2']);
-        });
-
-        it('returns empty array for parent with no children', () => {
-          const store = useSessionsStore();
-          store.sessions = [
-            { id: 'parent-1', name: 'Parent', parentSessionId: null },
-          ];
-
-          const children = store.getChildSessions('parent-1');
-
-          expect(children).toEqual([]);
-        });
+        expect(children).toHaveLength(2);
+        expect(children.map((c) => c.id)).toEqual(['child-1', 'child-2']);
       });
 
-      describe('hasChildren getter', () => {
-        it('returns true if session has children', () => {
-          const store = useSessionsStore();
-          store.sessions = [
-            { id: 'parent-1', name: 'Parent', parentSessionId: null },
-            { id: 'child-1', name: 'Child', parentSessionId: 'parent-1' },
-          ];
+      it('returns empty array for parent with no children', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'parent-1', name: 'Parent', parentSessionId: null },
+        ];
 
-          expect(store.hasChildren('parent-1')).toBe(true);
-        });
+        const children = store.getChildSessions('parent-1');
 
-        it('returns false if session has no children', () => {
-          const store = useSessionsStore();
-          store.sessions = [
-            { id: 'session-1', name: 'Session', parentSessionId: null },
-          ];
+        expect(children).toEqual([]);
+      });
+    });
 
-          expect(store.hasChildren('session-1')).toBe(false);
-        });
+    describe('hasChildren getter', () => {
+      it('returns true if session has children', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'parent-1', name: 'Parent', parentSessionId: null },
+          { id: 'child-1', name: 'Child', parentSessionId: 'parent-1' },
+        ];
+
+        expect(store.hasChildren('parent-1')).toBe(true);
       });
 
-      describe('getChildCount getter', () => {
-        it('returns count of children', () => {
-          const store = useSessionsStore();
-          store.sessions = [
-            { id: 'parent-1', name: 'Parent', parentSessionId: null },
-            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
-            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
-          ];
+      it('returns false if session has no children', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'session-1', name: 'Session', parentSessionId: null },
+        ];
 
-          expect(store.getChildCount('parent-1')).toBe(2);
-        });
+        expect(store.hasChildren('session-1')).toBe(false);
+      });
+    });
 
-        it('returns 0 for parent with no children', () => {
-          const store = useSessionsStore();
-          store.sessions = [
-            { id: 'parent-1', name: 'Parent', parentSessionId: null },
-          ];
+    describe('getChildCount getter', () => {
+      it('returns count of children', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'parent-1', name: 'Parent', parentSessionId: null },
+          { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+          { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+        ];
 
-          expect(store.getChildCount('parent-1')).toBe(0);
-        });
+        expect(store.getChildCount('parent-1')).toBe(2);
       });
 
-      describe('groupedSessions getter', () => {
-        it('groups sessions by parent', () => {
-          const store = useSessionsStore();
-          store.sessions = [
-            { id: 'parent-1', name: 'Parent 1', parentSessionId: null },
-            { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
-            { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
-            { id: 'parent-2', name: 'Parent 2', parentSessionId: null },
-          ];
+      it('returns 0 for parent with no children', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'parent-1', name: 'Parent', parentSessionId: null },
+        ];
 
-          const grouped = store.groupedSessions;
+        expect(store.getChildCount('parent-1')).toBe(0);
+      });
+    });
 
-          expect(grouped).toHaveLength(2);
-          expect(grouped[0].parent.id).toBe('parent-1');
-          expect(grouped[0].children).toHaveLength(2);
-          expect(grouped[1].parent.id).toBe('parent-2');
-          expect(grouped[1].children).toHaveLength(0);
-        });
+    describe('groupedSessions getter', () => {
+      it('groups sessions by parent', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'parent-1', name: 'Parent 1', parentSessionId: null },
+          { id: 'child-1', name: 'Child 1', parentSessionId: 'parent-1' },
+          { id: 'child-2', name: 'Child 2', parentSessionId: 'parent-1' },
+          { id: 'parent-2', name: 'Parent 2', parentSessionId: null },
+        ];
 
-        it('handles standalone sessions', () => {
-          const store = useSessionsStore();
-          store.sessions = [
-            { id: 'session-1', name: 'Standalone', parentSessionId: null },
-          ];
+        const grouped = store.groupedSessions;
 
-          const grouped = store.groupedSessions;
+        expect(grouped).toHaveLength(2);
+        expect(grouped[0].parent.id).toBe('parent-1');
+        expect(grouped[0].children).toHaveLength(2);
+        expect(grouped[1].parent.id).toBe('parent-2');
+        expect(grouped[1].children).toHaveLength(0);
+      });
 
-          expect(grouped).toHaveLength(1);
-          expect(grouped[0].parent.id).toBe('session-1');
-          expect(grouped[0].children).toEqual([]);
-        });
+      it('handles standalone sessions', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'session-1', name: 'Standalone', parentSessionId: null },
+        ];
+
+        const grouped = store.groupedSessions;
+
+        expect(grouped).toHaveLength(1);
+        expect(grouped[0].parent.id).toBe('session-1');
+        expect(grouped[0].children).toEqual([]);
       });
     });
   });

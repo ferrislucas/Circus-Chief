@@ -18,5 +18,11 @@ export default defineConfig({
     // and concurrent initDatabase() calls cause race conditions
     fileParallelism: false,
     testTimeout: 10000, // Increase default timeout from 5s to 10s
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.js'],
+      exclude: ['src/**/*.test.js'],
+    },
   },
 });
