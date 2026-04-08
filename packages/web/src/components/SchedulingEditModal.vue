@@ -156,7 +156,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch } from 'vue';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
@@ -169,7 +169,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'saved']);
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 const loading = ref(false);
 const error = ref(null);
