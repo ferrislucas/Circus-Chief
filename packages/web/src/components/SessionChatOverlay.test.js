@@ -65,9 +65,11 @@ vi.mock('../stores/todos.js', () => ({
 
 // Mock overlay store factories — return the same mock stores so existing
 // assertions against mockSessionsStore / mockTodosStore continue to work.
-// Add $dispose as a no-op since the overlay disposes on unmount.
+// Add $dispose and $cleanup as no-ops since the overlay disposes on unmount.
 mockSessionsStore.$dispose = vi.fn();
 mockTodosStore.$dispose = vi.fn();
+mockSessionsStore.$cleanup = vi.fn();
+mockTodosStore.$cleanup = vi.fn();
 
 vi.mock('../stores/createOverlaySessionsStore.js', () => ({
   createOverlaySessionsStore: () => mockSessionsStore,
