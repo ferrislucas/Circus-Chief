@@ -26,6 +26,7 @@ vi.mock('../composables/useSessionFiltering.js', () => ({
     starFilterTooltip: 'Test star tooltip',
     toggleScheduledFilterIcon: mockToggleScheduledFilterIcon,
     scheduledFilterTooltip: 'Test scheduled tooltip',
+    statusFilterCounts: { running: 0, idle: 0 },
   })),
 }));
 
@@ -90,7 +91,10 @@ describe('SessionFiltersPanel', () => {
       });
 
       const buttons = wrapper.findAll('.filter-btn');
-      const statusButtons = buttons.filter(btn => btn.text() === 'running' || btn.text() === 'idle');
+      const statusButtons = buttons.filter(btn => {
+        const label = btn.find('.filter-label');
+        return label.exists() && (label.text() === 'running' || label.text() === 'idle');
+      });
 
       expect(statusButtons).toHaveLength(2);
     });
@@ -101,7 +105,10 @@ describe('SessionFiltersPanel', () => {
       });
 
       const buttons = wrapper.findAll('.filter-btn');
-      const statusButtons = buttons.filter(btn => btn.text() === 'running' || btn.text() === 'idle');
+      const statusButtons = buttons.filter(btn => {
+        const label = btn.find('.filter-label');
+        return label.exists() && (label.text() === 'running' || label.text() === 'idle');
+      });
 
       expect(statusButtons).toHaveLength(0);
     });
@@ -111,14 +118,20 @@ describe('SessionFiltersPanel', () => {
 
       const wrapper = mountComponent();
 
-      const runningButton = wrapper.findAll('.filter-btn').find(btn => btn.text() === 'running');
+      const runningButton = wrapper.findAll('.filter-btn').find(btn => {
+        const label = btn.find('.filter-label');
+        return label.exists() && label.text() === 'running';
+      });
       expect(runningButton.classes()).toContain('active');
     });
 
     it('calls toggleFilter when status button clicked', async () => {
       const wrapper = mountComponent();
 
-      const runningButton = wrapper.findAll('.filter-btn').find(btn => btn.text() === 'running');
+      const runningButton = wrapper.findAll('.filter-btn').find(btn => {
+        const label = btn.find('.filter-label');
+        return label.exists() && label.text() === 'running';
+      });
       await runningButton.trigger('click');
 
       expect(mockToggleFilter).toHaveBeenCalledWith('running');
@@ -311,8 +324,85 @@ describe('SessionFiltersPanel', () => {
       });
 
       expect(wrapper.find('.star-btn').exists()).toBe(true);
-      expect(wrapper.findAll('.filter-btn').filter(btn => btn.text() === 'running')).toHaveLength(0);
+      expect(wrapper.findAll('.filter-btn').filter(btn => {
+        const label = btn.find('.filter-label');
+        return label.exists() && label.text() === 'running';
+      })).toHaveLength(0);
       expect(wrapper.find('.schedule-btn').exists()).toBe(false);
+    });
+  });
+
+  describe('status filter counts', () => {
+    it('renders the running and idle counts inside .filter-count spans', () => {
+      vi.mocked(useSessionFiltering).mockReturnValueOnce({
+        toggleFilter: mockToggleFilter,
+        toggleStarFilterIcon: mockToggleStarFilterIcon,
+        starFilterTooltip: 'x',
+        toggleScheduledFilterIcon: mockToggleScheduledFilterIcon,
+        scheduledFilterTooltip: 'x',
+        statusFilterCounts: { running: 3, idle: 7 },
+      });
+      const wrapper = mountComponent();
+      const buttons = wrapper.findAll('.filter-btn');
+      const running = buttons.find(b => b.find('.filter-label').exists() && b.find('.filter-label').text() === 'running');
+      const idle = buttons.find(b => b.find('.filter-label').exists() && b.find('.filter-label').text() === 'idle');
+      expect(running.find('.filter-count').text()).toBe('3');
+      expect(idle.find('.filter-count').text()).toBe('7');
+    });
+
+    it('applies filter-btn-empty class when a count is 0', () => {
+      vi.mocked(useSessionFiltering).mockReturnValueOnce({
+        toggleFilter: mockToggleFilter,
+        toggleStarFilterIcon: mockToggleStarFilterIcon,
+        starFilterTooltip: 'x',
+        toggleScheduledFilterIcon: mockToggleScheduledFilterIcon,
+        scheduledFilterTooltip: 'x',
+        statusFilterCounts: { running: 0, idle: 4 },
+      });
+      const wrapper = mountComponent();
+      const buttons = wrapper.findAll('.filter-btn');
+      const running = buttons.find(b => b.find('.filter-label').exists() && b.find('.filter-label').text() === 'running');
+      const idle = buttons.find(b => b.find('.filter-label').exists() && b.find('.filter-label').text() === 'idle');
+      expect(running.classes()).toContain('filter-btn-empty');
+      expect(idle.classes()).not.toContain('filter-btn-empty');
+    });
+
+    it('still calls toggleFilter when a zero-count button is clicked (not disabled)', async () => {
+      vi.mocked(useSessionFiltering).mockReturnValueOnce({
+        toggleFilter: mockToggleFilter,
+        toggleStarFilterIcon: mockToggleStarFilterIcon,
+        starFilterTooltip: 'x',
+        toggleScheduledFilterIcon: mockToggleScheduledFilterIcon,
+        scheduledFilterTooltip: 'x',
+        statusFilterCounts: { running: 0, idle: 0 },
+      });
+      const wrapper = mountComponent();
+      const running = wrapper.findAll('.filter-btn').find(
+        b => b.find('.filter-label').exists() && b.find('.filter-label').text() === 'running'
+      );
+      await running.trigger('click');
+      expect(mockToggleFilter).toHaveBeenCalledWith('running');
+    });
+
+    it('sets an aria-label that includes the count in any-count grammatical format', () => {
+      vi.mocked(useSessionFiltering).mockReturnValueOnce({
+        toggleFilter: mockToggleFilter,
+        toggleStarFilterIcon: mockToggleStarFilterIcon,
+        starFilterTooltip: 'x',
+        toggleScheduledFilterIcon: mockToggleScheduledFilterIcon,
+        scheduledFilterTooltip: 'x',
+        statusFilterCounts: { running: 1, idle: 5 },
+      });
+      const wrapper = mountComponent();
+      const buttons = wrapper.findAll('.filter-btn');
+      const running = buttons.find(
+        b => b.find('.filter-label').exists() && b.find('.filter-label').text() === 'running'
+      );
+      const idle = buttons.find(
+        b => b.find('.filter-label').exists() && b.find('.filter-label').text() === 'idle'
+      );
+      expect(running.attributes('aria-label')).toBe('running (1)');
+      expect(idle.attributes('aria-label')).toBe('idle (5)');
     });
   });
 });

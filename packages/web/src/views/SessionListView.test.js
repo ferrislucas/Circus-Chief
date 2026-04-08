@@ -282,6 +282,33 @@ vi.mock('../composables/useSessionFiltering.js', () => ({
       return groups;
     });
 
+    const statusFilterCounts = computed(() => {
+      let groups = sessionsStore.groupedSessions;
+      if (sessionsStore.starredFilter === 'starred') {
+        groups = groups.filter(g => g.parent.starred);
+      } else if (sessionsStore.starredFilter === 'unstarred') {
+        groups = groups.filter(g => !g.parent.starred);
+      }
+      const decorated = groups.map(g => ({
+        group: g,
+        status: sessionsStore.getWorkflowAggregatedStatus(g.parent.id),
+      }));
+      let filtered = decorated;
+      if (sessionsStore.scheduledFilter) {
+        filtered = decorated.filter(({ status }) => {
+          const has = status.scheduledCount > 0;
+          return sessionsStore.scheduledFilter === 'scheduled' ? has : !has;
+        });
+      }
+      let running = 0;
+      let idle = 0;
+      for (const { status } of filtered) {
+        if (status.effectiveStatus === 'running') running++;
+        else idle++;
+      }
+      return { running, idle };
+    });
+
     return {
       toggleFilter,
       toggleStarredFilter,
@@ -290,6 +317,7 @@ vi.mock('../composables/useSessionFiltering.js', () => ({
       toggleScheduledFilterIcon,
       scheduledFilterTooltip,
       filteredGroupedSessions,
+      statusFilterCounts,
     };
   }),
 }));
@@ -359,8 +387,9 @@ vi.mock('../components/SessionFiltersPanel.vue', () => ({
         starFilterTooltip,
         toggleScheduledFilterIcon,
         scheduledFilterTooltip,
+        statusFilterCounts,
       } = useSessionFiltering();
-      return { sessionsStore, toggleFilter, toggleStarFilterIcon, starFilterTooltip, toggleScheduledFilterIcon, scheduledFilterTooltip };
+      return { sessionsStore, toggleFilter, toggleStarFilterIcon, starFilterTooltip, toggleScheduledFilterIcon, scheduledFilterTooltip, statusFilterCounts };
     },
     template: `
       <div class="filters-container">
@@ -369,9 +398,10 @@ vi.mock('../components/SessionFiltersPanel.vue', () => ({
             <button
               v-for="status in ['running', 'idle']"
               :key="status"
-              :class="['filter-btn', { active: sessionsStore.statusFilter === status }]"
+              :class="['filter-btn', { active: sessionsStore.statusFilter === status, 'filter-btn-empty': statusFilterCounts[status] === 0 }]"
+              :aria-label="status + ' (' + statusFilterCounts[status] + ')'"
               @click="toggleFilter(status)"
-            >{{ status }}</button>
+            ><span class="filter-label">{{ status }}</span><span class="filter-count">{{ statusFilterCounts[status] }}</span></button>
           </template>
           <button
             :class="['filter-btn star-btn', { 'star-filter-active': sessionsStore.starredFilter === 'starred', 'star-filter-unstarred': sessionsStore.starredFilter === 'unstarred', 'star-filter-all': sessionsStore.starredFilter === null }]"
@@ -921,8 +951,9 @@ describe('Status filtering', () => {
 
       const filterButtons = wrapper.findAll('.filter-btn');
       expect(filterButtons).toHaveLength(4);
-      expect(filterButtons[0].text()).toBe('running');
-      expect(filterButtons[1].text()).toBe('idle');
+      const labels = wrapper.findAll('.filter-btn .filter-label');
+      expect(labels[0].text()).toBe('running');
+      expect(labels[1].text()).toBe('idle');
       expect(filterButtons[2].classes()).toContain('star-btn');
       expect(filterButtons[3].classes()).toContain('schedule-btn');
     });
@@ -967,6 +998,23 @@ describe('Status filtering', () => {
       await flushAll(wrapper);
       idleButton = wrapper.findAll('.filter-btn')[1];
       expect(idleButton.classes()).toContain('active');
+    });
+
+    it('renders the running and idle counts inside .filter-count spans', async () => {
+      // The Status filtering beforeEach seeds 5 sessions:
+      //   running, waiting, stopped, error, starting
+      // effectiveStatus -> 'running' for { running, starting } (count: 2)
+      //                 -> 'idle'    for { waiting, stopped, error } (count: 3)
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const buttons = wrapper.findAll('.filter-btn');
+      const running = buttons[0];
+      const idle = buttons[1];
+      expect(running.find('.filter-label').text()).toBe('running');
+      expect(idle.find('.filter-label').text()).toBe('idle');
+      expect(running.find('.filter-count').text()).toBe('2');
+      expect(idle.find('.filter-count').text()).toBe('3');
     });
   });
 
