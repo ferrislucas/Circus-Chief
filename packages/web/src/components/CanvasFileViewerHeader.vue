@@ -245,36 +245,20 @@ onUnmounted(() => {
   document.removeEventListener('click', handleDocumentClick);
 });
 
-function formatRelativeTime(timestamp) {
-  const now = Date.now();
-  const diff = now - timestamp;
-
+function formatRelativeTimeParts(timestamp) {
+  const diff = Date.now() - timestamp;
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
-
   if (days > 0) return `${days}d ago`;
   if (hours > 0) return `${hours}h ago`;
   if (minutes > 0) return `${minutes}m ago`;
   return 'just now';
 }
 
-function formatLastModified(timestamp) {
-  if (!timestamp) return '';
-  const now = Date.now();
-  const diff = now - timestamp;
-
-  const seconds = Math.floor(diff / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
-  if (days > 0) return `Modified ${days}d ago`;
-  if (hours > 0) return `Modified ${hours}h ago`;
-  if (minutes > 0) return `Modified ${minutes}m ago`;
-  return 'Modified just now';
-}
+function formatRelativeTime(timestamp) { return formatRelativeTimeParts(timestamp); }
+function formatLastModified(timestamp) { return timestamp ? `Modified ${formatRelativeTimeParts(timestamp)}` : ''; }
 </script>
 
 <style scoped>
@@ -290,7 +274,8 @@ function formatLastModified(timestamp) {
   margin-bottom: 1rem;
 }
 
-.viewer-header-top {
+.viewer-header-top,
+.viewer-header-bottom {
   width: 100%;
   display: flex;
   align-items: center;
@@ -304,23 +289,15 @@ function formatLastModified(timestamp) {
   gap: 0.75rem;
 }
 
-.viewer-header-bottom {
-  width: 100%;
-  display: flex;
-  align-items: center;
-}
-
-.breadcrumb-container {
+.breadcrumb-container,
+.header-actions {
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
 
 .header-actions {
-  display: flex;
-  align-items: center;
   gap: 0.5rem;
-  flex-shrink: 0;
 }
 
 .breadcrumb-back {
@@ -427,10 +404,7 @@ function formatLastModified(timestamp) {
   font-size: 0.875rem;
 }
 
-.version-list li:hover {
-  background: var(--color-background-mute);
-}
-
+.version-list li:hover,
 .version-list li.active {
   background: var(--color-background-mute);
 }
@@ -523,10 +497,7 @@ function formatLastModified(timestamp) {
   transition: all 0.15s ease;
 }
 
-.menu-item:hover {
-  background: var(--color-bg-hover, #333);
-}
-
+.menu-item:hover,
 .menu-item.is-highlighted {
   background: var(--color-bg-hover, #333);
 }
@@ -572,11 +543,7 @@ function formatLastModified(timestamp) {
   transition: all 0.15s ease;
 }
 
-.slide-enter-from {
-  opacity: 0;
-  transform: translateY(-4px);
-}
-
+.slide-enter-from,
 .slide-leave-to {
   opacity: 0;
   transform: translateY(-4px);

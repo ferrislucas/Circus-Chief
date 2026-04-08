@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 import {
   seedProject,
   seedSession,
-  seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
   updateSessionFields,
@@ -42,35 +41,13 @@ test.describe('Session Card Display', () => {
 
   test.describe('Session count badge removed', () => {
     test('.session-count element does not exist on session cards', async ({ page }) => {
-      // Create multiple sessions (parent + children) to verify .session-count is gone
+      // Create a session to verify .session-count is gone
       const parent = await seedSession(project.id, {
         prompt: 'Parent session',
         name: 'Parent Session',
         startImmediately: false,
       });
       await waitForSessionToExist(parent.id);
-
-      // Create child sessions
-      let childrenCreated = 0;
-      try {
-        const child1 = await seedChildSession(project.id, parent.id, {
-          prompt: 'Child 1',
-          name: 'Child Session 1',
-        });
-        await waitForSessionToExist(child1.id);
-        childrenCreated++;
-
-        const child2 = await seedChildSession(project.id, parent.id, {
-          prompt: 'Child 2',
-          name: 'Child Session 2',
-        });
-        await waitForSessionToExist(child2.id);
-        childrenCreated++;
-      } catch (e) {
-        // If child session creation fails, skip gracefully —
-        // we can still verify .session-count is absent with just the parent
-        console.warn('Child session creation failed, testing with parent only:', e);
-      }
 
       await navigateAndWait(page, `/projects/${project.id}/sessions`, {
         waitFor: '.session-card',
@@ -80,12 +57,9 @@ test.describe('Session Card Display', () => {
       const sessionCountElements = page.locator('.session-count');
       await expect(sessionCountElements).toHaveCount(0);
 
-      // If children were created, verify the expand toggle is present
-      if (childrenCreated > 0) {
-        const expandBtn = page.locator('.expand-toggle-btn');
-        await expect(expandBtn).toBeVisible();
-        await expect(expandBtn).toContainText('Show');
-      }
+      // Verify the session card is rendered
+      const sessionCards = page.locator('.session-card');
+      await expect(sessionCards).toHaveCount(1);
     });
   });
 

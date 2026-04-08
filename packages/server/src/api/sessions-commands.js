@@ -8,6 +8,44 @@ import { databaseManager } from '../db/DatabaseManager.js';
 
 const router = Router();
 
+/**
+ * Broadcast command output to session and project subscribers.
+ * @param {{ sessionId: string, projectId: string, runId: string, buttonId: string }} ctx - Context
+ * @param {string} output - Output text
+ */
+function broadcastCommandOutput(ctx, output) {
+  const { sessionId, projectId, runId, buttonId } = ctx;
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { sessionId, runId, buttonId, output });
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, { projectId, sessionId, runId, buttonId, output });
+}
+
+/**
+ * Broadcast command completion to session and project subscribers.
+ * @param {{ sessionId: string, projectId: string, runId: string, buttonId: string }} ctx - Context
+ * @param {{ exitCode: number, output: string }} result - Completion result
+ */
+function broadcastCommandComplete(ctx, result) {
+  const { sessionId, projectId, runId, buttonId } = ctx;
+  const { exitCode, output } = result;
+  const status = exitCode === 0 ? 'success' : 'error';
+  console.log(`[RUN] Command completed for runId: ${runId}, exitCode: ${exitCode}, status: ${status}`);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { sessionId, runId, buttonId, status, exitCode, output });
+  console.log(`[RUN] Broadcasting COMMAND_RUN_COMPLETE to project ${projectId}`);
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, { projectId, sessionId, runId, buttonId, status, exitCode, output });
+}
+
+/**
+ * Broadcast command error to session and project subscribers.
+ * @param {{ sessionId: string, projectId: string, runId: string, buttonId: string }} ctx - Context
+ * @param {string} errorMessage - Error message
+ */
+function broadcastCommandError(ctx, errorMessage) {
+  const { sessionId, projectId, runId, buttonId } = ctx;
+  console.log(`[RUN] Error for runId: ${runId}: ${errorMessage}`);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, { sessionId, runId, buttonId, error: errorMessage });
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, { projectId, sessionId, runId, buttonId, error: errorMessage });
+}
+
 // POST /api/sessions/:id/command-buttons/:buttonId/run - Execute button command
 router.post('/:id/command-buttons/:buttonId/run', requireSessionAndProject, (req, res) => {
   const sessionId = req.params.id;
@@ -31,21 +69,10 @@ router.post('/:id/command-buttons/:buttonId/run', requireSessionAndProject, (req
   // Capture middleware values for use in async callbacks
   const projectId = req.session_.projectId;
   const workingDirectory = req.workingDirectory;
+  const ctx = { sessionId, projectId, runId, buttonId };
 
   // Broadcast initial "running" status immediately so session list can show the running indicator
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-    sessionId,
-    runId,
-    buttonId,
-    output: '',
-  });
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-    projectId,
-    sessionId,
-    runId,
-    buttonId,
-    output: '',
-  });
+  broadcastCommandOutput(ctx, '');
 
   // Execute command asynchronously
   (async () => {
@@ -55,84 +82,17 @@ router.post('/:id/command-buttons/:buttonId/run', requireSessionAndProject, (req
         { runId, command: button.command, workingDirectory },
         {
           onOutput: (text) => {
-            // Broadcast output via WebSocket to session subscribers
             console.log(`[RUN] Output received for runId: ${runId}`);
-            broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-              sessionId,
-              runId,
-              buttonId,
-              output: text,
-            });
-            // Also broadcast to project subscribers for session list updates
-            broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-              projectId,
-              sessionId,
-              runId,
-              buttonId,
-              output: text,
-            });
+            broadcastCommandOutput(ctx, text);
           },
-          onComplete: (exitCode, output) => {
-            // Broadcast completion via WebSocket to session subscribers
-            const status = exitCode === 0 ? 'success' : 'error';
-            console.log(`[RUN] Command completed for runId: ${runId}, exitCode: ${exitCode}, status: ${status}`);
-            broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
-              sessionId,
-              runId,
-              buttonId,
-              status,
-              exitCode,
-              output,
-            });
-            // Also broadcast to project subscribers for session list updates
-            console.log(`[RUN] Broadcasting COMMAND_RUN_COMPLETE to project ${projectId}`);
-            broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
-              projectId,
-              sessionId,
-              runId,
-              buttonId,
-              status,
-              exitCode,
-              output,
-            });
-          },
-          onError: (message) => {
-            // Broadcast error via WebSocket to session subscribers
-            console.log(`[RUN] Error for runId: ${runId}: ${message}`);
-            broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-              sessionId,
-              runId,
-              buttonId,
-              error: message,
-            });
-            // Also broadcast to project subscribers for session list updates
-            broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-              projectId,
-              sessionId,
-              runId,
-              buttonId,
-              error: message,
-            });
-          },
+          onComplete: (exitCode, output) => broadcastCommandComplete(ctx, { exitCode, output }),
+          onError: (message) => broadcastCommandError(ctx, message),
         },
         { sessionId, buttonId }
       );
     } catch (error) {
       console.error(`Error running command button ${buttonId}:`, error);
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-        sessionId,
-        runId,
-        buttonId,
-        error: error.message,
-      });
-      // Also broadcast to project subscribers for session list updates
-      broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-        projectId,
-        sessionId,
-        runId,
-        buttonId,
-        error: error.message,
-      });
+      broadcastCommandError(ctx, error.message);
     }
   })();
 });

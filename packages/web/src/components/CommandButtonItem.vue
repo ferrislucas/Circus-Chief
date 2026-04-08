@@ -82,6 +82,7 @@
 <script setup>
 import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { ansiToHtml, stripAnsi } from '../utils/ansi.js';
+import { copyToClipboard } from '../utils/clipboard.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
 import ActionMenu from './ActionMenu.vue';
@@ -437,38 +438,7 @@ const handleCopyOutput = async () => {
   const output = runData?.output;
   if (!output) return;
 
-  const textToCopy = stripAnsi(output);
-  let copySucceeded = false;
-
-  // Try modern Clipboard API first
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      copySucceeded = true;
-    } catch (err) {
-      console.error('Clipboard API failed:', err);
-    }
-  }
-
-  // Fallback for older browsers
-  if (!copySucceeded) {
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = textToCopy;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      copySucceeded = true;
-    } catch (fallbackErr) {
-      console.error('Fallback copy failed:', fallbackErr);
-    }
-  }
-
-  // Show toast if copy succeeded
-  if (copySucceeded) {
+  if (await copyToClipboard(stripAnsi(output))) {
     uiStore.success('Output copied to clipboard');
   }
 };
@@ -494,42 +464,8 @@ const handleSendToCanvas = async () => {
  * Shows toast notification on success
  */
 const handleCopyCommand = async () => {
-  if (!props.button?.command) {
-    return;
-  }
-
-  const textToCopy = props.button.command;
-  let copySucceeded = false;
-
-  // Try modern Clipboard API first
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      copySucceeded = true;
-    } catch (err) {
-      console.error('Clipboard API failed:', err);
-    }
-  }
-
-  // Fallback for older browsers
-  if (!copySucceeded) {
-    try {
-      const textarea = document.createElement('textarea');
-      textarea.value = textToCopy;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      copySucceeded = true;
-    } catch (fallbackErr) {
-      console.error('Fallback copy failed:', fallbackErr);
-    }
-  }
-
-  // Show toast if copy succeeded
-  if (copySucceeded) {
+  if (!props.button?.command) return;
+  if (await copyToClipboard(props.button.command)) {
     uiStore.success('Command copied to clipboard');
   }
 };
@@ -580,7 +516,6 @@ defineExpose({
   gap: 1rem;
 }
 
-/* Header Section */
 .button-header {
   display: flex;
   justify-content: space-between;
@@ -613,8 +548,6 @@ defineExpose({
   gap: 0.75rem;
 }
 
-
-/* Status Indicator */
 .status-indicator {
   width: 1.5rem;
   height: 1.5rem;
@@ -640,7 +573,6 @@ defineExpose({
   animation: pulse 1.5s ease-in-out infinite;
 }
 
-/* Output Section */
 .output-section {
   border-top: 1px solid var(--color-border);
   padding-top: 0.75rem;
@@ -709,7 +641,6 @@ defineExpose({
   line-height: 1.4;
 }
 
-/* Running Indicator */
 .running-indicator {
   display: flex;
   align-items: center;
@@ -754,23 +685,15 @@ defineExpose({
   position: relative;
 }
 
-/* Animations */
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
 @keyframes pulse {
-  0%, 100% {
-    opacity: 0.7;
-  }
-  50% {
-    opacity: 1;
-  }
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
-/* Responsive Design */
 @media (max-width: 640px) {
   .button-header {
     flex-direction: column;

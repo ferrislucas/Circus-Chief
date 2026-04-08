@@ -179,13 +179,27 @@
 
 <script setup>
 /* eslint-disable max-lines */
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+/**
+ * OVERLAY STORE ISOLATION
+ *
+ * This component creates isolated Pinia store instances for the overlay via
+ * createOverlaySessionsStore() and createOverlayTodosStore(), and provides them
+ * to all descendant components through Vue's provide/inject.
+ *
+ * Descendant components MUST use useInjectedSessionsStore() / useInjectedTodosStore()
+ * (from composables/useOverlayStore.js) instead of importing useSessionsStore or
+ * useTodosStore directly. Direct imports bypass the overlay's provide/inject layer
+ * and would read/write to the global singleton, breaking store isolation.
+ */
+import { ref, computed, provide, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
-import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
+import { createOverlaySessionsStore } from '../stores/createOverlaySessionsStore.js';
+import { createOverlayTodosStore } from '../stores/createOverlayTodosStore.js';
+import { SESSIONS_STORE_KEY, TODOS_STORE_KEY } from '../composables/useOverlayStore.js';
 
 import ConversationTab from './ConversationTab.vue';
 import SessionChatPicker from './SessionChatPicker.vue';
@@ -209,9 +223,24 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'session-created']);
 
-const sessionsStore = useSessionsStore();
-const todosStore = useTodosStore();
+// Main store — used only for global reads (session lists, picker names, etc.)
+const mainSessionsStore = useSessionsStore();
 const uiStore = useUiStore();
+
+// Create isolated overlay stores so that per-session state (messages,
+// partialText, workLogs, etc.) does not cross-contaminate the main view.
+const overlaySessionsStore = createOverlaySessionsStore();
+const overlayTodosStore = createOverlayTodosStore();
+
+// Provide the overlay stores to all descendant components.
+// Child components using useInjectedSessionsStore() / useInjectedTodosStore()
+// will receive these isolated instances instead of the global Pinia singletons.
+provide(SESSIONS_STORE_KEY, overlaySessionsStore);
+provide(TODOS_STORE_KEY, overlayTodosStore);
+
+// Alias for the overlay store — this is what the overlay uses for all per-session operations.
+const sessionsStore = overlaySessionsStore;
+const todosStore = overlayTodosStore;
 
 // Internal state
 const visible = ref(true);
@@ -235,7 +264,7 @@ const pickerOpen = ref(false);
 const pickerAreaRef = ref(null);
 
 const activeSessionDisplayName = computed(() => {
-  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
   return session?.name || 'Session';
 });
 
@@ -283,15 +312,15 @@ const {
 } = useSessionPolling({
   getSessionId: () => activeSessionId.value,
   getSessionStatus: () => {
-    const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+    const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
     return session?.status;
   },
-  sessionsStore,
+  sessionsStore: overlaySessionsStore,
 });
 
 // Computed
 const rootSession = computed(() => {
-  const root = sessionsStore.getRootSession(props.sessionId);
+  const root = mainSessionsStore.getRootSession(props.sessionId);
   if (root) return root;
   // Fallback: check currentSession if not found in sessions array
   const current = sessionsStore.currentSession;
@@ -308,8 +337,8 @@ const rootSessionName = computed(() => {
   if (chainRoot?.session?.name) return chainRoot.session.name;
   // Priority 2: use getRootSession from the store
   if (rootSession.value?.name) return rootSession.value.name;
-  // Priority 3: fallback to currentSession
-  return sessionsStore.currentSession?.name || 'Session';
+  // Priority 3: fallback to the main store's currentSession (parent view session)
+  return mainSessionsStore.currentSession?.name || sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => {
@@ -317,12 +346,12 @@ const hasDescendants = computed(() => {
 });
 
 const activeSessionName = computed(() => {
-  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
   return session?.name || 'Session';
 });
 
 const overlaySessionStatus = computed(() => {
-  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
   return session?.status || '';
 });
 
@@ -331,7 +360,7 @@ const isOverlaySessionActive = computed(() => {
 });
 
 const backToSessionsUrl = computed(() => {
-  const session = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
   if (session?.projectId) {
     return `/projects/${session.projectId}/sessions`;
   }
@@ -367,7 +396,7 @@ async function selectSession(sessionId) {
 async function addChildSession() {
   if (isCreatingSession.value) return;
 
-  const currentSession = sessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
+  const currentSession = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
   if (!currentSession?.projectId) {
     uiStore.error('Cannot create session: no project context');
     return;
@@ -394,8 +423,8 @@ async function addChildSession() {
       ...(gitMode && gitBranch ? { gitMode, gitBranch } : {}),
     });
 
-    // Add to store manually (mirrors what sessionsStore.createSession does)
-    sessionsStore.sessions.unshift(newSession);
+    // Add to main store's session list (not the overlay's isolated state)
+    mainSessionsStore.sessions.unshift(newSession);
 
     // Notify parent to rebuild session chain so it includes the new child
     emit('session-created', newSession.id);
@@ -444,7 +473,8 @@ async function saveSessionName() {
       name: newName,
       manuallyNamed: true
     });
-    sessionsStore.updateSession({ ...updated, id: sessionId });
+    // Update both overlay and main store
+    overlaySessionsStore.updateSession({ ...updated, id: sessionId });
     uiStore.success('Session name updated');
     isEditingName.value = false;
     editNameValue.value = '';
@@ -559,7 +589,7 @@ function setupSubscription(sessionId) {
   );
 
   // Start polling if session is active
-  const session = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
+  const session = mainSessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
   if (session?.status === 'running' || session?.status === 'starting') {
     startPolling();
   }
@@ -657,6 +687,10 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
   cleanupSubscription();
+  // Clean up overlay stores: dispose subscriptions AND remove from Pinia registry
+  // to prevent state leaks on every overlay open/close cycle.
+  overlaySessionsStore.$cleanup();
+  overlayTodosStore.$cleanup();
 });
 
 // Expose for testing
@@ -911,6 +945,18 @@ defineExpose({
   max-height: none !important;
   overflow-y: visible !important;
   flex: 1;
+}
+
+/* In the overlay the scroll-to-claude button sits inside the overlay-body scroll
+   container's normal flow, between messages and InputForm/TodoDrawer/RunningState.
+   When the user scrolls, the button can scroll out of view. Making it
+   position:sticky anchors it to the bottom-right of the overlay-body viewport
+   so it stays visible whenever it appears, regardless of scroll position. */
+.session-chat-overlay :deep(.scroll-to-claude-btn) {
+  position: sticky;
+  bottom: 0.5rem;
+  float: right;
+  z-index: 10;
 }
 
 @media (max-width: 768px) {

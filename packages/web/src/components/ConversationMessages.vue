@@ -26,7 +26,7 @@
 
     <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
     <button
-      v-if="hasAssistantMessages && isNearBottom && isUsersTurn"
+      v-if="hasAssistantMessages && isUsersTurn"
       class="scroll-to-claude-btn"
       @click="scrollToClaudesTurn"
       title="Jump to Claude's response"
@@ -40,7 +40,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { useSessionsStore } from '../stores/sessions.js';
+import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 import { useMessageScroll } from '../composables/useMessageScroll.js';
 import MessageItem from './MessageItem.vue';
@@ -55,7 +55,7 @@ const props = defineProps({
   scrollContainerRef: { type: Object, default: null },
 });
 
-const sessionsStore = useSessionsStore();
+const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 const router = useRouter();
 
