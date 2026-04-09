@@ -199,9 +199,6 @@ test.describe('Model Provider UI - Settings Page', () => {
       timeout: 15000,
     });
 
-    // Count existing providers
-    const initialCount = await page.locator('.provider-card').count();
-
     // Click "Add Provider" button
     await page.locator('button:has-text("Add Provider")').click();
 
@@ -214,18 +211,16 @@ test.describe('Model Provider UI - Settings Page', () => {
     await page.locator('#base-url').fill('https://ui-test.example.com');
     await page.locator('#auth-token').fill('ui-test-token');
 
-    // Submit the form
-    await page.locator('.modal button[type="submit"]').click();
+    // Submit the form (Save button is type="button" in .modal-footer)
+    await page.locator('.modal .btn-primary').click();
 
     // Wait for the modal to close
     await expect(modal).toBeHidden({ timeout: 10000 });
 
-    // Wait for the provider list to update
-    await page.waitForTimeout(1000);
-
     // Verify the new provider appears in the list
-    const providerCards = page.locator('.provider-card');
-    await expect(providerCards).toHaveCount(initialCount + 1, { timeout: 10000 });
+    await expect(
+      page.locator('.provider-card', { hasText: `${TEST_PREFIX}UI Created Provider` })
+    ).toBeVisible({ timeout: 10000 });
 
     // Verify via API that it was created
     const providers = await getProviders();
@@ -263,8 +258,8 @@ test.describe('Model Provider UI - Settings Page', () => {
     await baseUrlInput.clear();
     await baseUrlInput.fill('https://after-edit.example.com');
 
-    // Submit
-    await page.locator('.modal button[type="submit"]').click();
+    // Submit (Save button is type="button" in .modal-footer)
+    await page.locator('.modal .btn-primary').click();
     await expect(modal).toBeHidden({ timeout: 10000 });
 
     // Wait for update
@@ -294,10 +289,13 @@ test.describe('Model Provider UI - Settings Page', () => {
     });
     await expect(providerCard).toBeVisible({ timeout: 10000 });
 
-    // Set up dialog handler to accept the confirmation
-    page.on('dialog', (dialog) => dialog.accept());
-
+    // Click Delete button on the provider card (opens custom confirmation modal)
     await providerCard.locator('button:has-text("Delete")').click();
+
+    // Wait for the custom confirmation modal to appear and click its Delete button
+    const confirmModal = page.locator('.confirm-modal');
+    await expect(confirmModal).toBeVisible({ timeout: 5000 });
+    await confirmModal.locator('button:has-text("Delete")').click();
 
     // Wait for the provider to be removed
     await expect(
