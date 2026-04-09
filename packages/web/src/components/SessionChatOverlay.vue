@@ -860,9 +860,6 @@ defineExpose({
   overflow: hidden;
   padding: 0;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
-  /* Required so the absolutely-positioned scroll-to-claude button
-     (see :deep(.scroll-to-claude-btn) below) anchors to this element
-     instead of the viewport. */
   position: relative;
 }
 
@@ -951,35 +948,16 @@ defineExpose({
   flex: 1;
 }
 
-/* In the overlay the scroll-to-claude button must remain visible at the
-   bottom-right of the overlay panel, above the InputForm, regardless of how
-   the user has scrolled .overlay-body.
-
-   Previously this used `position: sticky` inside the .conversation-controls-row
-   wrapper, but a sticky element is bounded by its containing block. The row is
-   only ~32 px tall, so the button could only "stick" within those 32 px and
-   would scroll out of view as the user scrolled .overlay-body. On small
-   viewports the button became unreachable.
-
-   Anchoring the button with `position: absolute` to .overlay-content (which is
-   `position: relative`) lets the button escape the .overlay-body scroll
-   container entirely. The fixed bottom offset reserves space for the InputForm
-   so they never overlap, even when the user scrolls the messages list.
-
-   The high specificity selector below also ensures this rule wins against the
-   base `.scroll-to-claude-btn` rule and the `@media (max-width: 600px)`
-   override in ConversationMessages.vue. */
-.session-chat-overlay :deep(.conversation-controls-row .scroll-to-claude-btn) {
-  position: absolute;
-  bottom: 11rem;
-  right: 1rem;
+/* In the overlay the .conversation-controls-row (TokenCostPanel + scroll-to-
+   claude button) uses `position: sticky; bottom: 0` so it always stays at the
+   bottom of the .overlay-body scroll viewport. This keeps the button visible
+   and tappable regardless of scroll position while the button and cost panel
+   remain naturally aligned as siblings in the same flex row. */
+.session-chat-overlay :deep(.conversation-controls-row) {
+  position: sticky;
+  bottom: 0;
   z-index: 10;
-}
-
-@media (max-width: 768px) {
-  .session-chat-overlay :deep(.conversation-controls-row .scroll-to-claude-btn) {
-    right: 0.75rem;
-  }
+  background: rgb(17, 24, 39);
 }
 
 @media (max-width: 768px) {
