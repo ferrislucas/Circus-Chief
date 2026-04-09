@@ -4,6 +4,7 @@ import {
   seedSession,
   seedChildSession,
   seedConversationHistory,
+  seedConversationTokens,
   cleanupCreatedResources,
   navigateAndWait,
   waitForSessionToExist,
@@ -169,5 +170,145 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
 
     expect(scrollInfo).not.toBeNull();
     expect(scrollInfo!.scrollTop).toBeGreaterThan(100);
+  });
+
+  test('scroll-to-claude button is visible, tappable, and functional at mobile viewport (no cost panel)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 }); // iPhone SE
+    await updateSessionStatus(parentSession.id, 'waiting');
+
+    const overlay = await openOverlay(page, parentSession.id);
+
+    const scrollBtn = overlay.locator('.scroll-to-claude-btn');
+    await expect(scrollBtn).toBeVisible({ timeout: 5000 });
+
+    // Wait for layout to settle by polling boundingBox until stable.
+    await expect.poll(async () => (await scrollBtn.boundingBox())?.width || 0).toBeGreaterThanOrEqual(44);
+
+    const btnBox = await scrollBtn.boundingBox();
+    expect(btnBox).not.toBeNull();
+    if (!btnBox) throw new Error('btnBox is null');
+
+    // 1. Tap target ≥ 44×44 (Apple/WCAG mobile guideline).
+    expect(btnBox.width).toBeGreaterThanOrEqual(44);
+    expect(btnBox.height).toBeGreaterThanOrEqual(44);
+
+    // 2. The button must lie inside the viewport.
+    expect(btnBox.x).toBeGreaterThanOrEqual(0);
+    expect(btnBox.y).toBeGreaterThanOrEqual(0);
+    expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(375);
+    expect(btnBox.y + btnBox.height).toBeLessThanOrEqual(667);
+
+    // 3. The button must lie inside .overlay-body bounds (not horizontally clipped).
+    const bodyBox = await overlay.locator('.overlay-body').boundingBox();
+    expect(bodyBox).not.toBeNull();
+    if (!bodyBox) throw new Error('bodyBox is null');
+    expect(btnBox.x).toBeGreaterThanOrEqual(bodyBox.x);
+    expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(bodyBox.x + bodyBox.width);
+
+    // 4. The button must NOT overlap .input-form.
+    const inputBox = await overlay.locator('.input-form').boundingBox();
+    if (inputBox) {
+      const overlapsHoriz = btnBox.x < inputBox.x + inputBox.width && btnBox.x + btnBox.width > inputBox.x;
+      const overlapsVert  = btnBox.y < inputBox.y + inputBox.height && btnBox.y + btnBox.height > inputBox.y;
+      expect(overlapsHoriz && overlapsVert).toBe(false);
+    }
+
+    // 5. The button must be the topmost element at its centerpoint (z-index correctness).
+    const topElementMatchesButton = await page.evaluate(({ x, y }) => {
+      const el = document.elementFromPoint(x, y);
+      return !!(el && (el.classList.contains('scroll-to-claude-btn') || el.closest('.scroll-to-claude-btn')));
+    }, { x: btnBox.x + btnBox.width / 2, y: btnBox.y + btnBox.height / 2 });
+    expect(topElementMatchesButton).toBe(true);
+
+    // 6. The button must remain visible after the user scrolls .overlay-body to the top.
+    await overlay.locator('.overlay-body').evaluate((el) => { (el as HTMLElement).scrollTop = 0; });
+    await expect(scrollBtn).toBeVisible();
+    const btnBoxAfterScroll = await scrollBtn.boundingBox();
+    expect(btnBoxAfterScroll).not.toBeNull();
+    if (!btnBoxAfterScroll) throw new Error('btnBoxAfterScroll is null');
+    expect(btnBoxAfterScroll.y + btnBoxAfterScroll.height).toBeLessThanOrEqual(667);
+
+    // 7. Clicking the button actually scrolls .overlay-body (functional check).
+    const beforeScroll = await overlay.locator('.overlay-body').evaluate((el) => (el as HTMLElement).scrollTop);
+    await scrollBtn.click();
+    await expect.poll(
+      async () => overlay.locator('.overlay-body').evaluate((el) => (el as HTMLElement).scrollTop)
+    ).not.toBe(beforeScroll);
+  });
+
+  test('scroll-to-claude button is visible and tappable at 320×568', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await updateSessionStatus(parentSession.id, 'waiting');
+    const overlay = await openOverlay(page, parentSession.id);
+    const scrollBtn = overlay.locator('.scroll-to-claude-btn');
+    await expect(scrollBtn).toBeVisible({ timeout: 5000 });
+    await expect.poll(async () => (await scrollBtn.boundingBox())?.width || 0).toBeGreaterThanOrEqual(44);
+    const btnBox = await scrollBtn.boundingBox();
+    expect(btnBox).not.toBeNull();
+    if (!btnBox) throw new Error('btnBox is null');
+    expect(btnBox.width).toBeGreaterThanOrEqual(44);
+    expect(btnBox.height).toBeGreaterThanOrEqual(44);
+    expect(btnBox.x).toBeGreaterThanOrEqual(0);
+    expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(320);
+    expect(btnBox.y + btnBox.height).toBeLessThanOrEqual(568);
+  });
+
+  test('scroll-to-claude button is visible and tappable at iPad viewport (768×1024)', async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await updateSessionStatus(parentSession.id, 'waiting');
+    const overlay = await openOverlay(page, parentSession.id);
+    const scrollBtn = overlay.locator('.scroll-to-claude-btn');
+    await expect(scrollBtn).toBeVisible({ timeout: 5000 });
+    await expect.poll(async () => (await scrollBtn.boundingBox())?.width || 0).toBeGreaterThanOrEqual(44);
+    const btnBox = await scrollBtn.boundingBox();
+    expect(btnBox).not.toBeNull();
+    if (!btnBox) throw new Error('btnBox is null');
+    expect(btnBox.width).toBeGreaterThanOrEqual(44);
+    expect(btnBox.height).toBeGreaterThanOrEqual(44);
+    expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(768);
+    expect(btnBox.y + btnBox.height).toBeLessThanOrEqual(1024);
+  });
+
+  test('scroll-to-claude button is visible, tappable, and functional at mobile viewport (cost panel rendered)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await updateSessionStatus(parentSession.id, 'waiting');
+    // Seed token usage on the active conversation so TokenCostPanel renders
+    seedConversationTokens(parentSession.id, null, { inputTokens: 1000, outputTokens: 500 });
+
+    const overlay = await openOverlay(page, parentSession.id);
+    const tokenPanel = overlay.locator('.token-cost-panel');
+    await expect(tokenPanel).toBeVisible({ timeout: 5000 });
+
+    const scrollBtn = overlay.locator('.scroll-to-claude-btn');
+    await expect(scrollBtn).toBeVisible({ timeout: 5000 });
+    await expect.poll(async () => (await scrollBtn.boundingBox())?.width || 0).toBeGreaterThanOrEqual(44);
+
+    const btnBox = await scrollBtn.boundingBox();
+    expect(btnBox).not.toBeNull();
+    if (!btnBox) throw new Error('btnBox is null');
+
+    // Same assertions as the no-cost case: 44×44, in viewport, in .overlay-body, no .input-form overlap, topmost.
+    expect(btnBox.width).toBeGreaterThanOrEqual(44);
+    expect(btnBox.height).toBeGreaterThanOrEqual(44);
+    expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(375);
+    expect(btnBox.y + btnBox.height).toBeLessThanOrEqual(667);
+    const bodyBox = await overlay.locator('.overlay-body').boundingBox();
+    expect(bodyBox).not.toBeNull();
+    if (!bodyBox) throw new Error('bodyBox is null');
+    expect(btnBox.x).toBeGreaterThanOrEqual(bodyBox.x);
+    expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(bodyBox.x + bodyBox.width);
+    const inputBox = await overlay.locator('.input-form').boundingBox();
+    if (inputBox) {
+      const overlapsHoriz = btnBox.x < inputBox.x + inputBox.width && btnBox.x + btnBox.width > inputBox.x;
+      const overlapsVert  = btnBox.y < inputBox.y + inputBox.height && btnBox.y + btnBox.height > inputBox.y;
+      expect(overlapsHoriz && overlapsVert).toBe(false);
+    }
+
+    // Functional click.
+    const beforeScroll = await overlay.locator('.overlay-body').evaluate((el) => (el as HTMLElement).scrollTop);
+    await scrollBtn.click();
+    await expect.poll(
+      async () => overlay.locator('.overlay-body').evaluate((el) => (el as HTMLElement).scrollTop)
+    ).not.toBe(beforeScroll);
   });
 });
