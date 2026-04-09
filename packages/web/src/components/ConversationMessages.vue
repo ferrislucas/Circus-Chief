@@ -159,7 +159,7 @@ defineExpose({ scrollToBottom });
 }
 
 .scroll-to-claude-btn {
-  padding: 0.375rem 0.75rem;
+  padding: 0.5rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
   border: 1px solid rgba(75, 85, 99, 0.5);
   border-radius: 6px;
@@ -171,11 +171,12 @@ defineExpose({ scrollToBottom });
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.875rem;
+  font-size: 1rem;
   white-space: nowrap;
   line-height: 1;
   font-weight: 500;
-  min-width: 2rem;
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .scroll-to-claude-btn:hover {
@@ -206,12 +207,14 @@ defineExpose({ scrollToBottom });
   }
 }
 
-/* Mobile adjustments */
+/* Mobile adjustments — preserve the 44×44 tap target so the button
+   remains tappable on small/phone-sized viewports. */
 @media (max-width: 600px) {
   .scroll-to-claude-btn {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.75rem;
-    margin-right: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    min-width: 44px;
+    min-height: 44px;
   }
 }
 </style>
