@@ -633,32 +633,53 @@ function handleHeaderTouchmove(event) {
   event.preventDefault();
 }
 
-// Body scroll lock — iOS-compatible "fixed body" pattern.
+// Body scroll lock — iOS-compatible "fixed wrapper" pattern.
 // On iOS Safari, `overflow: hidden` alone is insufficient: it doesn't reset
 // the existing scroll offset and touch gestures can still move the body.
 // Setting `position: fixed` truly freezes the page.
+//
+// CRITICAL: We apply the `position: fixed` + negative `top` offset to the
+// Vue root (`#app`) rather than `document.body`. When the offset lives on
+// `document.body`, Safari/WebKit treats a `position: fixed` body as a new
+// containing block for its `position: fixed` descendants — so the overlay's
+// `.overlay-backdrop` (which is itself `position: fixed`) inherits the
+// negative top offset and its sticky header ends up scrolled above the
+// viewport. Pinning the offset to `#app` keeps the overlay (which is
+// Teleported to `document.body`) outside the fixed wrapper, so the backdrop
+// remains anchored to the real viewport.
 let savedScrollY = 0;
-let savedBodyStyles = {};
+let savedAppStyles = {};
 
 function lockBodyScroll() {
   savedScrollY = window.scrollY;
-  savedBodyStyles = {
-    overflow: document.body.style.overflow,
-    position: document.body.style.position,
-    top: document.body.style.top,
-    width: document.body.style.width,
-  };
+  const app = document.getElementById('app');
+  // Always hide body overflow so background cannot scroll.
   document.body.style.overflow = 'hidden';
-  document.body.style.position = 'fixed';
-  document.body.style.top = `-${savedScrollY}px`;
-  document.body.style.width = '100%';
+  if (!app) return;
+  savedAppStyles = {
+    position: app.style.position,
+    top: app.style.top,
+    left: app.style.left,
+    right: app.style.right,
+    width: app.style.width,
+  };
+  app.style.position = 'fixed';
+  app.style.top = `-${savedScrollY}px`;
+  app.style.left = '0';
+  app.style.right = '0';
+  app.style.width = '100%';
 }
 
 function unlockBodyScroll() {
-  document.body.style.overflow = savedBodyStyles.overflow || '';
-  document.body.style.position = savedBodyStyles.position || '';
-  document.body.style.top = savedBodyStyles.top || '';
-  document.body.style.width = savedBodyStyles.width || '';
+  document.body.style.overflow = '';
+  const app = document.getElementById('app');
+  if (app) {
+    app.style.position = savedAppStyles.position || '';
+    app.style.top = savedAppStyles.top || '';
+    app.style.left = savedAppStyles.left || '';
+    app.style.right = savedAppStyles.right || '';
+    app.style.width = savedAppStyles.width || '';
+  }
   window.scrollTo(0, savedScrollY);
 }
 
