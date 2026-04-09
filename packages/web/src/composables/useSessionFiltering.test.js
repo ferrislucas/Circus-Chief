@@ -246,4 +246,185 @@ describe('useSessionFiltering', () => {
       expect(filteredGroupedSessions.value[0].parent.id).toBe('1');
     });
   });
+
+  describe('statusFilterCounts', () => {
+    it('returns { running: 0, idle: 0 } when there are no grouped sessions', () => {
+      mockSessionsStore.groupedSessions = [];
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation(() => ({
+        effectiveStatus: 'idle', scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 0, idle: 0 });
+    });
+
+    it('counts running and idle groups by effectiveStatus', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: false }, children: [] },
+        { parent: { id: '2', starred: false }, children: [] },
+        { parent: { id: '3', starred: false }, children: [] },
+      ];
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: id === '1' ? 'running' : 'idle',
+        scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 1, idle: 2 });
+    });
+
+    it('handles multiple running and multiple idle groups simultaneously', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: 'r1', starred: false }, children: [] },
+        { parent: { id: 'r2', starred: false }, children: [] },
+        { parent: { id: 'i1', starred: false }, children: [] },
+        { parent: { id: 'i2', starred: false }, children: [] },
+        { parent: { id: 'i3', starred: false }, children: [] },
+      ];
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: id.startsWith('r') ? 'running' : 'idle',
+        scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 2, idle: 3 });
+    });
+
+    it('forwards effectiveStatus from the store without re-interpreting it', () => {
+      // The store is responsible for the runningStatuses = ['running','starting']
+      // mapping. The composable simply trusts effectiveStatus. This test pins
+      // that contract: whatever the store says is 'running' is counted as running.
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: 's1', starred: false }, children: [] },
+      ];
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation(() => ({
+        effectiveStatus: 'running',
+        scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 1, idle: 0 });
+    });
+
+    it('is independent of the current statusFilter', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: false }, children: [] },
+        { parent: { id: '2', starred: false }, children: [] },
+      ];
+      mockSessionsStore.statusFilter = 'running'; // user currently filtering running
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: id === '1' ? 'running' : 'idle',
+        scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 1, idle: 1 });
+    });
+
+    it('respects the starred filter', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: true }, children: [] },
+        { parent: { id: '2', starred: false }, children: [] },
+      ];
+      mockSessionsStore.starredFilter = 'starred';
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation(() => ({
+        effectiveStatus: 'idle',
+        scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 0, idle: 1 });
+    });
+
+    it('respects the unstarred filter', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: true }, children: [] },
+        { parent: { id: '2', starred: false }, children: [] },
+        { parent: { id: '3', starred: false }, children: [] },
+      ];
+      mockSessionsStore.starredFilter = 'unstarred';
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: id === '2' ? 'running' : 'idle',
+        scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      // id 1: starred → excluded; id 2: unstarred running; id 3: unstarred idle
+      expect(statusFilterCounts.value).toEqual({ running: 1, idle: 1 });
+    });
+
+    it('respects the scheduled filter', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: false }, children: [] },
+        { parent: { id: '2', starred: false }, children: [] },
+      ];
+      mockSessionsStore.scheduledFilter = 'scheduled';
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: id === '1' ? 'running' : 'idle',
+        scheduledCount: id === '1' ? 1 : 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 1, idle: 0 });
+    });
+
+    it('respects the not-scheduled filter', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: false }, children: [] },
+        { parent: { id: '2', starred: false }, children: [] },
+      ];
+      mockSessionsStore.scheduledFilter = 'not-scheduled';
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: id === '1' ? 'running' : 'idle',
+        scheduledCount: id === '1' ? 1 : 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      // id 1 has a scheduled session → excluded; id 2 has none → idle
+      expect(statusFilterCounts.value).toEqual({ running: 0, idle: 1 });
+    });
+
+    it('respects star AND scheduled filters applied together', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: true }, children: [] },
+        { parent: { id: '2', starred: true }, children: [] },
+        { parent: { id: '3', starred: false }, children: [] },
+      ];
+      mockSessionsStore.starredFilter = 'starred';
+      mockSessionsStore.scheduledFilter = 'not-scheduled';
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: id === '1' ? 'running' : 'idle',
+        scheduledCount: id === '2' ? 1 : 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      // id 1: starred, not scheduled, running → running+1
+      // id 2: starred but scheduled → excluded
+      // id 3: not starred → excluded
+      expect(statusFilterCounts.value).toEqual({ running: 1, idle: 0 });
+    });
+
+    it('does not count archived sessions (relies on groupedSessions excluding them)', () => {
+      // groupedSessions in the real store is derived only from state.sessions,
+      // never from state.archivedSessions. We pin that contract here: counts
+      // are exactly what groupedSessions exposes, regardless of any other store
+      // state we might add later.
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: 'live', starred: false }, children: [] },
+      ];
+      // Even if some imaginary 'archived' field existed, it would not appear
+      // in groupedSessions and so should not contribute to the count.
+      mockSessionsStore.archivedSessions = [
+        { id: 'archived-1', parentSessionId: null, starred: false, status: 'completed' },
+      ];
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation(() => ({
+        effectiveStatus: 'idle', scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 0, idle: 1 });
+    });
+
+    it('is reactive to store mutations', () => {
+      mockSessionsStore.groupedSessions = [];
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation(() => ({
+        effectiveStatus: 'running', scheduledCount: 0,
+      }));
+      const { statusFilterCounts } = useSessionFiltering();
+      expect(statusFilterCounts.value).toEqual({ running: 0, idle: 0 });
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: false }, children: [] },
+      ];
+      expect(statusFilterCounts.value).toEqual({ running: 1, idle: 0 });
+    });
+  });
 });
