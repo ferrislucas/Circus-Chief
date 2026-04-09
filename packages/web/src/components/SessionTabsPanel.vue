@@ -1,5 +1,5 @@
 <template>
-  <div class="tabs">
+  <div class="tabs tabs-session-detail">
     <router-link
       :to="`/projects/${projectId}/sessions`"
       class="tab tab-back"
@@ -134,5 +134,19 @@ function navigateToTab(tabId) {
 .back-icon svg {
   display: inline-block;
   vertical-align: middle;
+}
+
+.tabs-session-detail .tabs-desktop {
+  flex: 1;
+  min-width: 0;
+}
+
+.tabs-session-detail .tabs-desktop .tab {
+  flex: 1 1 0;
+  text-align: center;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
