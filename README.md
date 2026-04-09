@@ -180,7 +180,3 @@ npm publish
     └── pw.sh            # Playwright CLI wrapper
 ```
 
-## Documentation
-
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture and design
-- [DATA_MODEL.md](./DATA_MODEL.md) - Database schema and data model
