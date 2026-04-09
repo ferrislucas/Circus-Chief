@@ -34,9 +34,18 @@
         :title="starFilterTooltip"
         @click="toggleStarFilterIcon"
       >
-        <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
-        <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
-        <span class="star-icon" v-else>☆</span>
+        <span
+          v-if="sessionsStore.starredFilter === 'starred'"
+          class="star-icon"
+        >⭐</span>
+        <span
+          v-else-if="sessionsStore.starredFilter === 'unstarred'"
+          class="star-icon star-crossed"
+        >⭐</span>
+        <span
+          v-else
+          class="star-icon"
+        >☆</span>
       </button>
 
       <!-- Scheduled filter button (sessions tab only) -->
@@ -53,9 +62,18 @@
         :title="scheduledFilterTooltip"
         @click="toggleScheduledFilterIcon"
       >
-        <span class="schedule-icon" v-if="sessionsStore.scheduledFilter === 'scheduled'">⏰</span>
-        <span class="schedule-icon schedule-crossed" v-else-if="sessionsStore.scheduledFilter === 'not-scheduled'">⏰</span>
-        <span class="schedule-icon" v-else>⏰</span>
+        <span
+          v-if="sessionsStore.scheduledFilter === 'scheduled'"
+          class="schedule-icon"
+        >⏰</span>
+        <span
+          v-else-if="sessionsStore.scheduledFilter === 'not-scheduled'"
+          class="schedule-icon schedule-crossed"
+        >⏰</span>
+        <span
+          v-else
+          class="schedule-icon"
+        >⏰</span>
       </button>
     </div>
   </div>

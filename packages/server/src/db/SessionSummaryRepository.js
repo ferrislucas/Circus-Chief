@@ -21,6 +21,14 @@ const SUMMARY_FIELDS = {
 };
 
 /**
+ * Convert an optional boolean to a DB-compatible value (null, 0, or 1).
+ */
+function optionalBoolToDb(value) {
+  if (value === undefined) return null;
+  return value ? 1 : 0;
+}
+
+/**
  * Session summary repository class
  */
 export class SessionSummaryRepository extends BaseRepository {
@@ -87,9 +95,9 @@ export class SessionSummaryRepository extends BaseRepository {
         data.outcome || 'ongoing',
         data.messageCount || 0,
         data.lastSummarizedMessageId || null,
-        data.prMerged !== undefined ? (data.prMerged ? 1 : 0) : null,
+        optionalBoolToDb(data.prMerged),
         data.prState || null,
-        data.hasMergeConflicts !== undefined ? (data.hasMergeConflicts ? 1 : 0) : null,
+        optionalBoolToDb(data.hasMergeConflicts),
         data.ciStatus || null,
         data.ciFailures ? JSON.stringify(data.ciFailures) : null,
         now,

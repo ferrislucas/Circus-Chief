@@ -10,9 +10,7 @@ export const useProjectsStore = defineStore('projects', {
   }),
 
   getters: {
-    getProjectById: (state) => (id) => {
-      return state.projects.find((p) => p.id === id);
-    },
+    getProjectById: (state) => (id) => state.projects.find((p) => p.id === id),
   },
 
   actions: {

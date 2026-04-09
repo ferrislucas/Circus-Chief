@@ -108,13 +108,14 @@ export function useSessionControl({ getSessionId }) {
   async function handleThinkingToggle(event) {
     if (togglingThinking.value) return;
 
-    const newValue = event.target.checked;
+    const target = event.target;
+    const newValue = target.checked;
     togglingThinking.value = true;
     try {
       await sessionsStore.updateSessionThinking(getSessionId(), newValue);
     } catch (err) {
       // Revert the checkbox on error
-      event.target.checked = !newValue;
+      target.checked = !newValue;
       uiStore.error(err.message);
     } finally {
       togglingThinking.value = false;

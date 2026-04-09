@@ -6,9 +6,17 @@
         <span class="running-title">Claude is working...</span>
       </div>
       <div class="running-actions">
-        <span v-if="activeModelDisplayName" class="running-model-label">{{ activeModelDisplayName }}</span>
-        <button type="button" class="btn btn-danger btn-stop" @click="onStopClick" :disabled="stopping">
-          <span class="loading-spinner"></span>
+        <span
+          v-if="activeModelDisplayName"
+          class="running-model-label"
+        >{{ activeModelDisplayName }}</span>
+        <button
+          type="button"
+          class="btn btn-danger btn-stop"
+          :disabled="stopping"
+          @click="onStopClick"
+        >
+          <span class="loading-spinner" />
           Stop
         </button>
       </div>
@@ -22,7 +30,10 @@
     />
 
     <!-- Show template indicator while running -->
-    <div v-if="nextTemplate" class="template-pending">
+    <div
+      v-if="nextTemplate"
+      class="template-pending"
+    >
       <span class="template-pending-label">Next:</span>
       <a
         :href="templateLink"
@@ -55,9 +66,7 @@ function onStopClick() {
   emit('stop');
 }
 
-const templateLink = computed(() => {
-  return `/projects/${props.projectId}/templates`;
-});
+const templateLink = computed(() => `/projects/${props.projectId}/templates`);
 </script>
 
 <style scoped>

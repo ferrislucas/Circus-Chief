@@ -7,7 +7,10 @@
     <div class="message-header">
       <span class="message-role">{{ message.role }}</span>
       <!-- Show model for assistant messages -->
-      <span v-if="message.role === 'assistant' && message.model" class="message-model">
+      <span
+        v-if="message.role === 'assistant' && message.model"
+        class="message-model"
+      >
         {{ formatModelName(message.model) }}
       </span>
       <span class="message-time">{{ formatTime(message.timestamp) }}</span>
@@ -17,29 +20,59 @@
         type="button"
         class="branch-btn"
         data-testid="branch-button"
-        @click="emit('openBranch', message.id)"
         title="Create a branch from this message"
+        @click="emit('openBranch', message.id)"
       >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 16 16"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
         <span class="branch-btn-text">Branch</span>
       </button>
     </div>
     <div class="message-content">
-      <MarkdownViewer v-if="message.role === 'assistant'" :content="message.content" />
-      <template v-else>{{ message.content }}</template>
+      <MarkdownViewer
+        v-if="message.role === 'assistant'"
+        :content="message.content"
+      />
+      <template v-else>
+        {{ message.content }}
+      </template>
     </div>
     <!-- Attachments display for user messages -->
-    <div v-if="message.attachments?.length" class="message-attachments">
-      <div v-for="att in message.attachments" :key="att.id" class="attachment-chip">
+    <div
+      v-if="message.attachments?.length"
+      class="message-attachments"
+    >
+      <div
+        v-for="att in message.attachments"
+        :key="att.id"
+        class="attachment-chip"
+      >
         <span class="attachment-icon">{{ getAttachmentIcon(att.mimeType) }}</span>
         <span class="attachment-name">{{ att.filename }}</span>
         <span class="attachment-size">({{ formatFileSize(att.size) }})</span>
       </div>
     </div>
-    <div v-if="message.toolUse?.length" class="message-tools">
-      <details v-for="(tool, idx) in message.toolUse" :key="idx">
+    <div
+      v-if="message.toolUse?.length"
+      class="message-tools"
+    >
+      <details
+        v-for="(tool, idx) in message.toolUse"
+        :key="idx"
+      >
         <summary>Tool: {{ tool.name }}</summary>
         <pre>{{ JSON.stringify(tool.input, null, 2) }}</pre>
       </details>

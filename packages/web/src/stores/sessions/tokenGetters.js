@@ -33,6 +33,37 @@ function isRunningUsageRelevant(state) {
 }
 
 /**
+ * Find the active conversation from state.
+ */
+function findActiveConversation(state) {
+  return state.conversations.find(c => c.id === state.activeConversationId);
+}
+
+/**
+ * Merge conversation tokens with running usage into a single usage object.
+ */
+function mergeConvAndRunningUsage(conv, runningUsage) {
+  return {
+    inputTokens: (conv?.inputTokens || 0) + (runningUsage.inputTokens || 0),
+    outputTokens: (conv?.outputTokens || 0) + (runningUsage.outputTokens || 0),
+    cacheReadInputTokens: (conv?.cacheReadInputTokens || 0) + (runningUsage.cacheReadInputTokens || 0),
+    cacheCreationInputTokens: (conv?.cacheCreationInputTokens || 0) + (runningUsage.cacheCreationInputTokens || 0),
+  };
+}
+
+/**
+ * Get usage from a conversation record (no running usage merge).
+ */
+function convUsage(conv) {
+  return {
+    inputTokens: conv.inputTokens,
+    outputTokens: conv.outputTokens,
+    cacheReadInputTokens: conv.cacheReadInputTokens,
+    cacheCreationInputTokens: conv.cacheCreationInputTokens,
+  };
+}
+
+/**
  * Token usage getters for the sessions store.
  * Each getter is a function that receives the Pinia state.
  */
@@ -56,15 +87,11 @@ export const tokenGetters = {
   },
   formattedTokens: (state) => {
     if (isRunningUsageRelevant(state)) {
-      const conv = state.conversations.find(c => c.id === state.activeConversationId);
-      const totalInput = (conv?.inputTokens || 0) + (state.runningUsage.inputTokens || 0);
-      const totalOutput = (conv?.outputTokens || 0) + (state.runningUsage.outputTokens || 0);
-      const totalCacheRead = (conv?.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0);
-      const totalCacheCreation = (conv?.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0);
-      return buildFormattedTokens(totalInput, totalOutput, totalCacheRead, totalCacheCreation);
+      const merged = mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage);
+      return buildFormattedTokens(merged.inputTokens, merged.outputTokens, merged.cacheReadInputTokens, merged.cacheCreationInputTokens);
     }
     if (state.activeConversationId && state.conversations.length > 0) {
-      const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+      const conv = findActiveConversation(state);
       if (conv) {
         return buildFormattedTokens(conv.inputTokens, conv.outputTokens, conv.cacheReadInputTokens, conv.cacheCreationInputTokens);
       }
@@ -72,19 +99,14 @@ export const tokenGetters = {
     return { input: '-', output: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
   },
   contextPercentage: (state) => {
-    if (state.runningUsage) {
-      const isRelevant = !state.activeConversationId ||
-                        state.runningUsage.conversationId === state.activeConversationId;
-      if (isRelevant) {
-        const conv = state.conversations.find(c => c.id === state.activeConversationId);
-        const totalInput = (conv?.inputTokens || 0) + (state.runningUsage.inputTokens || 0);
-        const totalOutput = (conv?.outputTokens || 0) + (state.runningUsage.outputTokens || 0);
-        const total = totalInput + totalOutput;
-        const contextWindow = state.runningUsage.contextWindow || conv?.contextWindow || 200000;
-        return Math.min(100, Math.round((total / contextWindow) * 100));
-      }
+    if (isRunningUsageRelevant(state)) {
+      const conv = findActiveConversation(state);
+      const merged = mergeConvAndRunningUsage(conv, state.runningUsage);
+      const total = merged.inputTokens + merged.outputTokens;
+      const contextWindow = state.runningUsage.contextWindow || conv?.contextWindow || 200000;
+      return Math.min(100, Math.round((total / contextWindow) * 100));
     }
-    const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+    const conv = findActiveConversation(state);
     const source = conv || state.currentSession;
     if (!source) return 0;
     const totalTokens = (source.inputTokens || 0) + (source.outputTokens || 0);
@@ -111,54 +133,24 @@ export const tokenGetters = {
   billableTokens: (state) => {
     const settingsStore = useSettingsStore();
     const weights = settingsStore.tokenCostWeights;
-    if (state.runningUsage) {
-      const isRelevant = !state.activeConversationId ||
-                        state.runningUsage.conversationId === state.activeConversationId;
-      if (isRelevant) {
-        const conv = state.conversations.find(c => c.id === state.activeConversationId);
-        return calculateBillableTokens({
-          inputTokens: (conv?.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
-          outputTokens: (conv?.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
-          cacheReadInputTokens: (conv?.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
-          cacheCreationInputTokens: (conv?.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
-        }, weights);
-      }
+    if (isRunningUsageRelevant(state)) {
+      return calculateBillableTokens(mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage), weights);
     }
     if (state.activeConversationId && state.conversations.length > 0) {
-      const conv = state.conversations.find(c => c.id === state.activeConversationId);
-      if (conv) {
-        return calculateBillableTokens({
-          inputTokens: conv.inputTokens, outputTokens: conv.outputTokens,
-          cacheReadInputTokens: conv.cacheReadInputTokens, cacheCreationInputTokens: conv.cacheCreationInputTokens,
-        }, weights);
-      }
+      const conv = findActiveConversation(state);
+      if (conv) return calculateBillableTokens(convUsage(conv), weights);
     }
     return 0;
   },
   formattedBillableTokens: (state) => {
     const settingsStore = useSettingsStore();
     const weights = settingsStore.tokenCostWeights;
-    if (state.runningUsage) {
-      const isRelevant = !state.activeConversationId ||
-                        state.runningUsage.conversationId === state.activeConversationId;
-      if (isRelevant) {
-        const conv = state.conversations.find(c => c.id === state.activeConversationId);
-        return formatTokenCount(calculateBillableTokens({
-          inputTokens: (conv?.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
-          outputTokens: (conv?.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
-          cacheReadInputTokens: (conv?.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
-          cacheCreationInputTokens: (conv?.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
-        }, weights));
-      }
+    if (isRunningUsageRelevant(state)) {
+      return formatTokenCount(calculateBillableTokens(mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage), weights));
     }
     if (state.activeConversationId && state.conversations.length > 0) {
-      const conv = state.conversations.find(c => c.id === state.activeConversationId);
-      if (conv) {
-        return formatTokenCount(calculateBillableTokens({
-          inputTokens: conv.inputTokens, outputTokens: conv.outputTokens,
-          cacheReadInputTokens: conv.cacheReadInputTokens, cacheCreationInputTokens: conv.cacheCreationInputTokens,
-        }, weights));
-      }
+      const conv = findActiveConversation(state);
+      if (conv) return formatTokenCount(calculateBillableTokens(convUsage(conv), weights));
     }
     return '-';
   },

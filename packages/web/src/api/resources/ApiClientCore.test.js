@@ -15,13 +15,11 @@ describe('ApiClient Core', () => {
     vi.unstubAllGlobals();
   });
 
-  const mockResponse = (data, options = {}) => {
-    return Promise.resolve({
+  const mockResponse = (data, options = {}) => Promise.resolve({
       ok: options.ok !== undefined ? options.ok : true,
       status: options.status || 200,
       json: () => Promise.resolve(data),
     });
-  };
 
   describe('_buildQueryPath', () => {
     it('returns base path with no params when all values undefined', () => {

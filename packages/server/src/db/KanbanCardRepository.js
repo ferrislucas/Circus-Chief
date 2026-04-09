@@ -178,16 +178,17 @@ export class KanbanCardRepository extends BaseRepository {
     const now = Date.now();
 
     // If no sortOrder provided, put it at the end of the target lane
-    if (sortOrder === undefined || sortOrder === null) {
+    let order = sortOrder;
+    if (order === undefined || order === null) {
       const maxRow = this.db
         .prepare('SELECT MAX(sort_order) as max_order FROM kanban_cards WHERE lane_id = ?')
         .get(targetLaneId);
-      sortOrder = (maxRow?.max_order ?? -1) + 1;
+      order = (maxRow?.max_order ?? -1) + 1;
     }
 
     this.db
       .prepare('UPDATE kanban_cards SET lane_id = ?, sort_order = ?, updated_at = ? WHERE id = ?')
-      .run(targetLaneId, sortOrder, now, cardId);
+      .run(targetLaneId, order, now, cardId);
 
     return this.getById(cardId);
   }

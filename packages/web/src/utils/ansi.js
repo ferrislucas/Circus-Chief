@@ -46,10 +46,10 @@ function stripCursorControlSequences(text) {
   // This regex matches: \x1b [ <params> <final-byte>
   // where final-byte is NOT 'm' (which is used for colors/styles)
   // eslint-disable-next-line no-control-regex
-  return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, (match) => {
+  return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, (match) => 
     // Keep SGR sequences (ending in 'm'), remove all others
-    return match.endsWith('m') ? match : '';
-  });
+     match.endsWith('m') ? match : ''
+  );
 }
 
 /**

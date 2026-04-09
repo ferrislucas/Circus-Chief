@@ -1,114 +1,157 @@
 <template>
   <div class="scheduling-options">
     <!-- Schedule Start Time -->
-    <div v-if="!hideScheduledAt" class="form-group">
-        <label for="scheduled-at" class="form-label">Schedule Start Time (optional)</label>
-        <input
-          id="scheduled-at"
-          type="datetime-local"
-          v-model="localScheduling.scheduledAtLocal"
-          class="form-input"
-          @change="updateScheduledAt"
-        />
-        <p class="form-help">Leave empty to start immediately</p>
-      </div>
+    <div
+      v-if="!hideScheduledAt"
+      class="form-group"
+    >
+      <label
+        for="scheduled-at"
+        class="form-label"
+      >Schedule Start Time (optional)</label>
+      <input
+        id="scheduled-at"
+        v-model="localScheduling.scheduledAtLocal"
+        type="datetime-local"
+        class="form-input"
+        @change="updateScheduledAt"
+      >
+      <p class="form-help">
+        Leave empty to start immediately
+      </p>
+    </div>
 
-      <!-- Auto-Reschedule Toggle -->
+    <!-- Auto-Reschedule Toggle -->
+    <div class="form-group">
+      <label class="toggle-switch">
+        <input
+          v-model="localScheduling.autoRescheduleEnabled"
+          type="checkbox"
+        >
+        <span class="toggle-slider" />
+        <span class="toggle-label">Auto-reschedule on errors</span>
+      </label>
+    </div>
+
+    <!-- Reschedule Settings (shown when auto-reschedule enabled) -->
+    <div
+      v-if="localScheduling.autoRescheduleEnabled"
+      class="reschedule-settings"
+    >
+      <!-- Reschedule Triggers -->
       <div class="form-group">
-        <label class="toggle-switch">
+        <p class="settings-label">
+          Reschedule Triggers
+        </p>
+        <label class="checkbox-option">
           <input
+            v-model="localScheduling.rescheduleOnTokenLimit"
             type="checkbox"
-            v-model="localScheduling.autoRescheduleEnabled"
-          />
-          <span class="toggle-slider"></span>
-          <span class="toggle-label">Auto-reschedule on errors</span>
+          >
+          <span class="checkbox-label">Token limit errors</span>
+        </label>
+        <label class="checkbox-option">
+          <input
+            v-model="localScheduling.rescheduleOnServiceError"
+            type="checkbox"
+          >
+          <span class="checkbox-label">Service unavailability</span>
         </label>
       </div>
 
-      <!-- Reschedule Settings (shown when auto-reschedule enabled) -->
-      <div v-if="localScheduling.autoRescheduleEnabled" class="reschedule-settings">
-        <!-- Reschedule Triggers -->
-        <div class="form-group">
-          <p class="settings-label">Reschedule Triggers</p>
-          <label class="checkbox-option">
-            <input
-              type="checkbox"
-              v-model="localScheduling.rescheduleOnTokenLimit"
-            />
-            <span class="checkbox-label">Token limit errors</span>
-          </label>
-          <label class="checkbox-option">
-            <input
-              type="checkbox"
-              v-model="localScheduling.rescheduleOnServiceError"
-            />
-            <span class="checkbox-label">Service unavailability</span>
-          </label>
-        </div>
+      <!-- Reschedule Delay -->
+      <div class="form-group">
+        <label
+          for="reschedule-delay"
+          class="form-label"
+        >Reschedule Delay</label>
+        <select
+          id="reschedule-delay"
+          v-model.number="localScheduling.rescheduleDelayMinutes"
+          class="form-input"
+        >
+          <option :value="5">
+            5 minutes
+          </option>
+          <option :value="15">
+            15 minutes
+          </option>
+          <option :value="30">
+            30 minutes
+          </option>
+          <option :value="60">
+            1 hour
+          </option>
+          <option :value="120">
+            2 hours
+          </option>
+        </select>
+      </div>
 
-        <!-- Reschedule Delay -->
+      <!-- Limits Section -->
+      <div class="limits-section">
+        <p class="settings-label">
+          Limits (optional)
+        </p>
+
         <div class="form-group">
-          <label for="reschedule-delay" class="form-label">Reschedule Delay</label>
-          <select
-            id="reschedule-delay"
-            v-model.number="localScheduling.rescheduleDelayMinutes"
+          <label
+            for="max-reschedule-count"
+            class="form-label"
+          >Max Reschedule Count</label>
+          <input
+            id="max-reschedule-count"
+            v-model.number="localScheduling.maxRescheduleCount"
+            type="number"
+            min="1"
+            max="100"
             class="form-input"
+            placeholder="Unlimited"
           >
-            <option :value="5">5 minutes</option>
-            <option :value="15">15 minutes</option>
-            <option :value="30">30 minutes</option>
-            <option :value="60">1 hour</option>
-            <option :value="120">2 hours</option>
-          </select>
+          <p class="form-help">
+            Stop after N reschedule attempts
+          </p>
         </div>
 
-        <!-- Limits Section -->
-        <div class="limits-section">
-          <p class="settings-label">Limits (optional)</p>
+        <div class="form-group">
+          <label
+            for="max-total-tokens"
+            class="form-label"
+          >Max Total Tokens (Hard Limit)</label>
+          <input
+            id="max-total-tokens"
+            v-model.number="localScheduling.maxTotalTokens"
+            type="number"
+            min="1000"
+            step="1000"
+            class="form-input"
+            placeholder="Unlimited"
+          >
+          <p class="form-help">
+            Stop rescheduling after consuming this many tokens
+          </p>
+        </div>
 
-          <div class="form-group">
-            <label for="max-reschedule-count" class="form-label">Max Reschedule Count</label>
-            <input
-              id="max-reschedule-count"
-              type="number"
-              v-model.number="localScheduling.maxRescheduleCount"
-              min="1"
-              max="100"
-              class="form-input"
-              placeholder="Unlimited"
-            />
-            <p class="form-help">Stop after N reschedule attempts</p>
-          </div>
-
-          <div class="form-group">
-            <label for="max-total-tokens" class="form-label">Max Total Tokens (Hard Limit)</label>
-            <input
-              id="max-total-tokens"
-              type="number"
-              v-model.number="localScheduling.maxTotalTokens"
-              min="1000"
-              step="1000"
-              class="form-input"
-              placeholder="Unlimited"
-            />
-            <p class="form-help">Stop rescheduling after consuming this many tokens</p>
-          </div>
-
-          <div class="form-group">
-            <label for="reschedule-at-token-count" class="form-label">Reschedule At Token Count</label>
-            <input
-              id="reschedule-at-token-count"
-              type="number"
-              v-model.number="localScheduling.rescheduleAtTokenCount"
-              min="10000"
-              step="10000"
-              class="form-input"
-              placeholder="None"
-            />
-            <p class="form-help">Proactively reschedule when session reaches this token count</p>
-          </div>
+        <div class="form-group">
+          <label
+            for="reschedule-at-token-count"
+            class="form-label"
+          >Reschedule At Token Count</label>
+          <input
+            id="reschedule-at-token-count"
+            v-model.number="localScheduling.rescheduleAtTokenCount"
+            type="number"
+            min="10000"
+            step="10000"
+            class="form-input"
+            placeholder="None"
+          >
+          <p class="form-help">
+            Proactively reschedule when session reaches this token count
+          </p>
         </div>
       </div>
+    </div>
   </div>
 </template>
 

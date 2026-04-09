@@ -74,13 +74,13 @@ export const conversationActions = {
     try {
       await api.deleteConversation(sessionId, conversationId);
       this.conversations = this.conversations.filter((c) => c.id !== conversationId);
-      if (this.activeConversationId === conversationId) {
-        if (this.conversations.length > 0) {
-          await this.fetchConversations(sessionId);
-          if (this.activeConversationId) {
-            this.messages = await api.getConversationMessages(sessionId, this.activeConversationId);
-          }
-        } else { this.activeConversationId = null; this.messages = []; }
+      if (this.activeConversationId === conversationId && this.conversations.length > 0) {
+        await this.fetchConversations(sessionId);
+        if (this.activeConversationId) {
+          this.messages = await api.getConversationMessages(sessionId, this.activeConversationId);
+        }
+      } else if (this.activeConversationId === conversationId) {
+        this.activeConversationId = null; this.messages = [];
       }
     } catch (err) { this.error = err.message; throw err; }
   },

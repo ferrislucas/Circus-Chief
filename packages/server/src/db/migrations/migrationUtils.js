@@ -36,9 +36,9 @@ export function addColumnIfMissing(db, table, column, definition) {
  * @returns {boolean}
  */
 export function tableExists(db, table) {
-  return !!db
+  return Boolean(db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
-    .get(table);
+    .get(table));
 }
 
 /**

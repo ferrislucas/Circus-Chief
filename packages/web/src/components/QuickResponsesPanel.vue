@@ -1,18 +1,31 @@
 <template>
-  <div v-if="hasResponses || showEmpty" class="quick-responses-panel cursor-pointer" @click="toggle">
+  <div
+    v-if="hasResponses || showEmpty"
+    class="quick-responses-panel cursor-pointer"
+    @click="toggle"
+  >
     <!-- Header with toggle and settings button -->
     <div class="panel-header">
       <div class="header-left">
         <button
           type="button"
           class="toggle-button"
-          @click.stop="toggle"
           :aria-expanded="isExpanded"
           title="Toggle quick responses panel"
           aria-label="Toggle quick responses panel"
+          @click.stop="toggle"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="chevron-icon">
-            <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 1 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            class="chevron-icon"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 1 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
+              clip-rule="evenodd"
+            />
           </svg>
         </button>
         <span class="panel-title">Quick Responses</span>
@@ -21,62 +34,94 @@
         v-if="isExpanded"
         type="button"
         class="settings-button"
-        @click.stop="$emit('openSettings')"
         title="Manage quick responses"
         aria-label="Manage quick responses"
+        @click.stop="$emit('openSettings')"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="settings-icon">
-          <path fill-rule="evenodd" d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.993 6.993 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clip-rule="evenodd" />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 20 20"
+          fill="currentColor"
+          class="settings-icon"
+        >
+          <path
+            fill-rule="evenodd"
+            d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.993 6.993 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+            clip-rule="evenodd"
+          />
         </svg>
       </button>
     </div>
 
     <!-- Loading state (shown when expanded) -->
-    <div v-if="loading && isExpanded" class="loading-state">
+    <div
+      v-if="loading && isExpanded"
+      class="loading-state"
+    >
       <span class="loading-text">Loading...</span>
     </div>
 
     <!-- Empty state (shown when expanded) -->
-    <div v-else-if="!hasResponses && isExpanded" class="empty-state">
+    <div
+      v-else-if="!hasResponses && isExpanded"
+      class="empty-state"
+    >
       <span class="empty-text">No quick responses yet</span>
     </div>
 
     <!-- Responses content (collapsible) -->
-    <div v-if="isExpanded && hasResponses && !loading" class="responses-content">
+    <div
+      v-if="isExpanded && hasResponses && !loading"
+      class="responses-content"
+    >
       <!-- Project responses -->
-      <div v-if="projectResponses.length > 0" class="response-section">
+      <div
+        v-if="projectResponses.length > 0"
+        class="response-section"
+      >
         <span class="section-label">Project</span>
         <div class="responses-row">
           <button
-            type="button"
             v-for="response in projectResponses"
             :key="response.id"
-            @click.stop="handleClick(response)"
+            type="button"
             class="response-button project-response"
             :class="{ 'auto-submit': response.autoSubmit }"
             :title="response.content"
+            @click.stop="handleClick(response)"
           >
             <span class="button-label">{{ response.label }}</span>
-            <span v-if="response.autoSubmit" class="auto-icon" title="Auto-submit">&#9889;</span>
+            <span
+              v-if="response.autoSubmit"
+              class="auto-icon"
+              title="Auto-submit"
+            >&#9889;</span>
           </button>
         </div>
       </div>
 
       <!-- Global responses -->
-      <div v-if="globalResponses.length > 0" class="response-section">
+      <div
+        v-if="globalResponses.length > 0"
+        class="response-section"
+      >
         <span class="section-label">Global</span>
         <div class="responses-row">
           <button
-            type="button"
             v-for="response in globalResponses"
             :key="response.id"
-            @click.stop="handleClick(response)"
+            type="button"
             class="response-button global-response"
             :class="{ 'auto-submit': response.autoSubmit }"
             :title="response.content"
+            @click.stop="handleClick(response)"
           >
             <span class="button-label">{{ response.label }}</span>
-            <span v-if="response.autoSubmit" class="auto-icon" title="Auto-submit">&#9889;</span>
+            <span
+              v-if="response.autoSubmit"
+              class="auto-icon"
+              title="Auto-submit"
+            >&#9889;</span>
           </button>
         </div>
       </div>
@@ -85,8 +130,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
-import { defineOptions } from 'vue';
+import { ref, computed, defineOptions } from 'vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 defineOptions({

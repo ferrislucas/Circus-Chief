@@ -1,21 +1,33 @@
 <template>
   <div class="container template-detail">
-    <div v-if="isLoading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="isLoading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading...
     </div>
 
-    <div v-else class="form-container">
+    <div
+      v-else
+      class="form-container"
+    >
       <!-- Header -->
       <div class="form-header">
-        <router-link :to="`/projects/${projectId}/templates`" class="btn btn-outline-secondary">
+        <router-link
+          :to="`/projects/${projectId}/templates`"
+          class="btn btn-outline-secondary"
+        >
           ← Back
         </router-link>
         <h2>Edit Template</h2>
       </div>
 
       <!-- Form -->
-      <form @submit.prevent="onSubmit" class="template-form">
+      <form
+        class="template-form"
+        @submit.prevent="onSubmit"
+      >
         <!-- Name Field -->
         <div class="form-group">
           <label for="name">Name</label>
@@ -26,7 +38,7 @@
             class="form-input"
             placeholder="Template name"
             required
-          />
+          >
         </div>
 
         <!-- Prompt Field -->
@@ -39,46 +51,84 @@
             placeholder="Session prompt. Use {{parentSession.summary}} to reference parent session data."
             rows="6"
             required
-          ></textarea>
+          />
           <InterpolationHelp />
         </div>
 
         <!-- Next Template Field -->
         <div class="form-group">
           <label for="nextTemplate">Next Template (Optional)</label>
-          <select id="nextTemplate" v-model="formData.nextTemplateId" class="form-input">
-            <option :value="null">None</option>
-            <option v-for="t in availableNextTemplates" :key="t.id" :value="t.id">
+          <select
+            id="nextTemplate"
+            v-model="formData.nextTemplateId"
+            class="form-input"
+          >
+            <option :value="null">
+              None
+            </option>
+            <option
+              v-for="t in availableNextTemplates"
+              :key="t.id"
+              :value="t.id"
+            >
               {{ t.name }} {{ t.projectId ? '' : '(Global)' }}
             </option>
           </select>
-          <p class="form-help">Chain another template to run after this one completes.</p>
+          <p class="form-help">
+            Chain another template to run after this one completes.
+          </p>
         </div>
 
         <!-- Thinking Enabled Select -->
         <div class="form-group">
           <label for="thinkingEnabled">Extended Thinking</label>
-          <select id="thinkingEnabled" v-model="formData.thinkingEnabled" class="form-input">
-            <option :value="null">Inherit from root session</option>
-            <option :value="true">Enabled</option>
-            <option :value="false">Disabled</option>
+          <select
+            id="thinkingEnabled"
+            v-model="formData.thinkingEnabled"
+            class="form-input"
+          >
+            <option :value="null">
+              Inherit from root session
+            </option>
+            <option :value="true">
+              Enabled
+            </option>
+            <option :value="false">
+              Disabled
+            </option>
           </select>
         </div>
 
         <!-- Model Field -->
         <div class="form-group">
           <label for="model">Model</label>
-          <ModelSelector v-model="formData.model" :allowEmpty="true" emptyLabel="Inherit from root session" />
+          <ModelSelector
+            v-model="formData.model"
+            :allow-empty="true"
+            empty-label="Inherit from root session"
+          />
         </div>
 
         <!-- Mode Field -->
         <div class="form-group">
           <label for="mode">Mode</label>
-          <select id="mode" v-model="formData.mode" class="form-input">
-            <option :value="null">Inherit from root session</option>
-            <option value="plan">Plan</option>
-            <option value="standard">Standard</option>
-            <option value="yolo">YOLO</option>
+          <select
+            id="mode"
+            v-model="formData.mode"
+            class="form-input"
+          >
+            <option :value="null">
+              Inherit from root session
+            </option>
+            <option value="plan">
+              Plan
+            </option>
+            <option value="standard">
+              Standard
+            </option>
+            <option value="yolo">
+              YOLO
+            </option>
           </select>
         </div>
 
@@ -97,32 +147,54 @@
             type="text"
             class="form-input"
             placeholder="Leave empty to inherit from root session"
-          />
+          >
         </div>
 
         <!-- Form Actions -->
         <div class="form-actions">
-          <button type="button" class="btn btn-outline-secondary" @click="onCancel">
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            @click="onCancel"
+          >
             Cancel
           </button>
-          <button type="button" class="btn btn-outline-danger" @click="onDelete">
+          <button
+            type="button"
+            class="btn btn-outline-danger"
+            @click="onDelete"
+          >
             Delete
           </button>
-          <button type="submit" class="btn btn-primary" :disabled="isSaving">
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="isSaving"
+          >
             {{ isSaving ? 'Saving...' : 'Save' }}
           </button>
         </div>
 
         <!-- Error Message -->
-        <div v-if="error" class="form-error-message">
+        <div
+          v-if="error"
+          class="form-error-message"
+        >
           {{ error }}
         </div>
       </form>
     </div>
 
     <!-- Delete Confirmation Dialog -->
-    <div v-if="showDeleteConfirm" class="modal-overlay" @click="showDeleteConfirm = false">
-      <div class="modal-dialog" @click.stop>
+    <div
+      v-if="showDeleteConfirm"
+      class="modal-overlay"
+      @click="showDeleteConfirm = false"
+    >
+      <div
+        class="modal-dialog"
+        @click.stop
+      >
         <div class="modal-header">
           <h4>Delete Template</h4>
         </div>
@@ -131,10 +203,17 @@
           <p>This action cannot be undone.</p>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-outline-secondary" @click="showDeleteConfirm = false">
+          <button
+            class="btn btn-outline-secondary"
+            @click="showDeleteConfirm = false"
+          >
             Cancel
           </button>
-          <button class="btn btn-danger" @click="confirmDelete" :disabled="isDeleting">
+          <button
+            class="btn btn-danger"
+            :disabled="isDeleting"
+            @click="confirmDelete"
+          >
             {{ isDeleting ? 'Deleting...' : 'Delete' }}
           </button>
         </div>

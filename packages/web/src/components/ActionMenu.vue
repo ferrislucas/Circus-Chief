@@ -1,5 +1,8 @@
 <template>
-  <div class="action-menu-container" ref="containerRef">
+  <div
+    ref="containerRef"
+    class="action-menu-container"
+  >
     <button
       class="btn-kebab"
       :aria-label="ariaLabel"
@@ -15,7 +18,7 @@
         v-if="isOpen"
         class="menu-overlay"
         @click="handleOutsideClick"
-      ></div>
+      />
     </Transition>
 
     <Transition name="slide">
@@ -40,7 +43,10 @@
             @mouseenter="highlightedIndex = index"
             @mouseleave="highlightedIndex = null"
           >
-            <span v-if="item.icon" class="menu-item-icon">{{ item.icon }}</span>
+            <span
+              v-if="item.icon"
+              class="menu-item-icon"
+            >{{ item.icon }}</span>
             <span class="menu-item-text">{{ item.label }}</span>
           </button>
         </li>
@@ -58,13 +64,11 @@ const props = defineProps({
   items: {
     type: Array,
     required: true,
-    validator: (items) => {
-      return items.every(item =>
+    validator: (items) => items.every(item =>
         Object.prototype.hasOwnProperty.call(item, 'icon') &&
         Object.prototype.hasOwnProperty.call(item, 'label') &&
         Object.prototype.hasOwnProperty.call(item, 'action')
-      );
-    }
+      )
   },
   ariaLabel: {
     type: String,

@@ -9,9 +9,7 @@ export const useProjectDefaultsStore = defineStore('projectDefaults', {
   }),
 
   getters: {
-    getDefaultsForProject: (state) => (projectId) => {
-      return state.defaultsByProjectId[projectId] || null;
-    },
+    getDefaultsForProject: (state) => (projectId) => state.defaultsByProjectId[projectId] || null,
   },
 
   actions: {

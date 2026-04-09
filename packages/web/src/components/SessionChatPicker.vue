@@ -9,6 +9,7 @@
     <div
       v-for="(entry, index) in sessions"
       :key="entry.session.id"
+      :ref="el => { if (el) itemRefs[index] = el }"
       class="picker-item"
       :class="{
         'picker-item--active': entry.session.id === activeSessionId,
@@ -16,7 +17,6 @@
       role="option"
       :aria-selected="entry.session.id === activeSessionId ? 'true' : 'false'"
       :tabindex="index === focusedIndex ? 0 : -1"
-      :ref="el => { if (el) itemRefs[index] = el }"
       :data-index="index"
       @click="emit('select', entry.session.id)"
       @keydown.enter.prevent="emit('select', entry.session.id)"
@@ -32,7 +32,10 @@
           {{ statusLabel(entry.session) }}
         </span>
       </div>
-      <div class="picker-item-name" :title="entry.session.name">
+      <div
+        class="picker-item-name"
+        :title="entry.session.name"
+      >
         {{ entry.session.name }}
       </div>
       <div class="picker-item-meta">

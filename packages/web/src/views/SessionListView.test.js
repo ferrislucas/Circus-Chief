@@ -98,8 +98,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
 
 // Mock useProjectSessionSubscription - replicates the composable behavior
 // using the same mocked stores and WebSocket subscription
-vi.mock('../composables/useProjectSessionSubscription.js', () => {
-  return {
+vi.mock('../composables/useProjectSessionSubscription.js', () => ({
     useProjectSessionSubscription: vi.fn((projectIdRef, summaryCallbacks) => {
       capturedSummaryCallbacks = summaryCallbacks;
       const archivedLoaded = ref(false);
@@ -186,8 +185,7 @@ vi.mock('../composables/useProjectSessionSubscription.js', () => {
 
       return { archivedLoaded };
     }),
-  };
-});
+  }));
 
 // Mock useSessionFiltering composable - replicates filter logic using the sessions store
 vi.mock('../composables/useSessionFiltering.js', () => ({
@@ -1431,7 +1429,7 @@ describe('Status filtering', () => {
       await runningButton.trigger('click');
       await flushAll(wrapper);
 
-      let sessionCards = wrapper.findAll('.session-card');
+      const sessionCards = wrapper.findAll('.session-card');
       expect(sessionCards).toHaveLength(1);
       expect(sessionCards[0].attributes('data-session-id')).toBe('session-1');
 
@@ -2271,7 +2269,7 @@ describe('SessionListView Archived Tab', () => {
       const pinia = createPinia();
       setActivePinia(pinia);
 
-      const mockSessionsStore = createSessionsStoreMock([
+      const localMockSessionsStore = createSessionsStoreMock([
         {
           id: 'parent-1',
           name: 'Parent Session',
@@ -2286,7 +2284,7 @@ describe('SessionListView Archived Tab', () => {
         },
       ]);
 
-      vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+      vi.mocked(useSessionsStore).mockReturnValue(localMockSessionsStore);
       vi.mocked(useProjectsStore).mockReturnValue({
         currentProject: { id: 'test-project-id' },
         projects: [{ id: 'test-project-id' }],
@@ -2335,7 +2333,7 @@ describe('SessionListView Archived Tab', () => {
       const pinia = createPinia();
       setActivePinia(pinia);
 
-      const mockSessionsStore = createSessionsStoreMock([
+      const localMockSessionsStore = createSessionsStoreMock([
         {
           id: 'session-1',
           name: 'Session 1',
@@ -2344,7 +2342,7 @@ describe('SessionListView Archived Tab', () => {
         },
       ]);
 
-      vi.mocked(useSessionsStore).mockReturnValue(mockSessionsStore);
+      vi.mocked(useSessionsStore).mockReturnValue(localMockSessionsStore);
       vi.mocked(useProjectsStore).mockReturnValue({
         currentProject: { id: 'test-project-id' },
         projects: [{ id: 'test-project-id' }],

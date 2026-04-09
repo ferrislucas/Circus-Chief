@@ -1,37 +1,66 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="modal-backdrop" @click.self="close">
+    <div
+      v-if="isOpen"
+      class="modal-backdrop"
+      @click.self="close"
+    >
       <div class="modal-content">
         <div class="modal-header">
-          <h2 class="modal-title">Auto-Reschedule Settings</h2>
-          <button @click="close" class="close-btn" aria-label="Close">&times;</button>
+          <h2 class="modal-title">
+            Auto-Reschedule Settings
+          </h2>
+          <button
+            class="close-btn"
+            aria-label="Close"
+            @click="close"
+          >
+            &times;
+          </button>
         </div>
 
         <div class="modal-body">
           <!-- Error message -->
-          <div v-if="error" class="error-message">
+          <div
+            v-if="error"
+            class="error-message"
+          >
             {{ error }}
           </div>
 
           <!-- Auto-Reschedule Settings -->
           <div class="form-group">
-              <label class="toggle-switch">
-                <input type="checkbox" v-model="form.autoRescheduleEnabled" />
-                <span class="toggle-slider"></span>
-                <span class="toggle-label">Auto-reschedule on errors</span>
-              </label>
-            </div>
+            <label class="toggle-switch">
+              <input
+                v-model="form.autoRescheduleEnabled"
+                type="checkbox"
+              >
+              <span class="toggle-slider" />
+              <span class="toggle-label">Auto-reschedule on errors</span>
+            </label>
+          </div>
 
-            <div v-if="form.autoRescheduleEnabled" class="reschedule-settings">
+          <div
+            v-if="form.autoRescheduleEnabled"
+            class="reschedule-settings"
+          >
             <!-- Reschedule Triggers -->
             <div class="form-group">
-              <p class="settings-label">Reschedule Triggers</p>
+              <p class="settings-label">
+                Reschedule Triggers
+              </p>
               <label class="checkbox-option">
-                <input type="checkbox" v-model="form.rescheduleOnTokenLimit" />
+                <input
+                  v-model="form.rescheduleOnTokenLimit"
+                  type="checkbox"
+                >
                 <span>Token limit errors</span>
               </label>
               <label class="checkbox-option">
-                <input type="checkbox" v-model="form.rescheduleOnServiceError" />
+                <input
+                  v-model="form.rescheduleOnServiceError"
+                  type="checkbox"
+                >
                 <span>Service unavailability</span>
               </label>
             </div>
@@ -39,12 +68,25 @@
             <!-- Delay -->
             <div class="form-group">
               <label class="form-label">Reschedule Delay</label>
-              <select v-model.number="form.rescheduleDelayMinutes" class="form-input">
-                <option :value="5">5 minutes</option>
-                <option :value="15">15 minutes</option>
-                <option :value="30">30 minutes</option>
-                <option :value="60">1 hour</option>
-                <option :value="120">2 hours</option>
+              <select
+                v-model.number="form.rescheduleDelayMinutes"
+                class="form-input"
+              >
+                <option :value="5">
+                  5 minutes
+                </option>
+                <option :value="15">
+                  15 minutes
+                </option>
+                <option :value="30">
+                  30 minutes
+                </option>
+                <option :value="60">
+                  1 hour
+                </option>
+                <option :value="120">
+                  2 hours
+                </option>
               </select>
             </div>
 
@@ -52,53 +94,70 @@
             <div class="form-group">
               <label class="form-label">Max Reschedule Count</label>
               <input
-                type="number"
                 v-model.number="form.maxRescheduleCount"
+                type="number"
                 min="1"
                 max="100"
                 class="form-input"
                 placeholder="Unlimited"
-              />
+              >
             </div>
 
             <div class="form-group">
               <label class="form-label">Max Total Tokens</label>
               <input
-                type="number"
                 v-model.number="form.maxTotalTokens"
+                type="number"
                 min="1000"
                 step="1000"
                 class="form-input"
                 placeholder="Unlimited"
-              />
+              >
             </div>
 
             <div class="form-group">
               <label class="form-label">Reschedule At Token Count</label>
               <input
-                type="number"
                 v-model.number="form.rescheduleAtTokenCount"
+                type="number"
                 min="10000"
                 step="10000"
                 class="form-input"
                 placeholder="None"
-              />
+              >
             </div>
 
             <!-- Reset reschedule count -->
-            <div v-if="session?.rescheduleCount > 0" class="form-group">
+            <div
+              v-if="session?.rescheduleCount > 0"
+              class="form-group"
+            >
               <label class="checkbox-option">
-                <input type="checkbox" v-model="form.resetRescheduleCount" />
+                <input
+                  v-model="form.resetRescheduleCount"
+                  type="checkbox"
+                >
                 <span>Reset reschedule count to 0</span>
               </label>
-              <p class="form-help">Current count: {{ session.rescheduleCount }}</p>
+              <p class="form-help">
+                Current count: {{ session.rescheduleCount }}
+              </p>
             </div>
           </div>
         </div>
 
         <div class="modal-footer">
-          <button @click="close" class="btn btn-secondary">Cancel</button>
-          <button @click="handleSave" class="btn btn-primary" :disabled="loading">
+          <button
+            class="btn btn-secondary"
+            @click="close"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn btn-primary"
+            :disabled="loading"
+            @click="handleSave"
+          >
             {{ loading ? 'Saving...' : 'Save' }}
           </button>
         </div>
@@ -166,7 +225,7 @@ async function handleSave() {
     close(); // Close modal on success
   } catch (err) {
     error.value = err.message || 'Failed to save settings';
-    uiStore.error('Failed to save settings: ' + error.value);
+    uiStore.error(`Failed to save settings: ${  error.value}`);
     // Modal stays open on error
   } finally {
     loading.value = false;

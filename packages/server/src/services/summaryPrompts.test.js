@@ -342,7 +342,7 @@ describe('summaryPrompts', () => {
 
     it('strips markdown code blocks before parsing', () => {
       const jsonContent = { short_summary: 'Test', full_summary: 'Full', key_actions: [], files_modified: [], outcome: 'partial' };
-      const responseText = '```json\n' + JSON.stringify(jsonContent) + '\n```';
+      const responseText = `\`\`\`json\n${  JSON.stringify(jsonContent)  }\n\`\`\``;
       const result = parseSummaryResponse(responseText);
       expect(result.shortSummary).toBe('Test');
       expect(result._parseFailed).toBe(false);

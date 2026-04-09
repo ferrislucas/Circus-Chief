@@ -45,7 +45,7 @@ export function formatMessages(messageList) {
 
       // Truncate very long messages (optimized for token efficiency)
       if (content.length > 500) {
-        content = content.substring(0, 500) + '... [truncated]';
+        content = `${content.substring(0, 500)  }... [truncated]`;
       }
 
       // Add tool use info if present
@@ -115,10 +115,11 @@ export function stripMarkdownCodeBlock(text) {
 
 /**
  * Add message count and last message ID to summary data for staleness tracking
- * @param {Object} summaryData - Summary data to augment
+ * @param {Object} summaryDataInput - Summary data to augment
  * @param {Array} allMessages - All messages in session
  */
-export function trackMessageMetadata(summaryData, allMessages) {
+export function trackMessageMetadata(summaryDataInput, allMessages) {
+  const summaryData = summaryDataInput;
   summaryData.messageCount = allMessages.length;
   const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
   summaryData.lastSummarizedMessageId = lastMessage ? lastMessage.id : null;

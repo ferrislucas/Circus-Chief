@@ -15,13 +15,11 @@ describe('ProjectsApi', () => {
     vi.unstubAllGlobals();
   });
 
-  const mockResponse = (data, options = {}) => {
-    return Promise.resolve({
+  const mockResponse = (data, options = {}) => Promise.resolve({
       ok: options.ok !== undefined ? options.ok : true,
       status: options.status || 200,
       json: () => Promise.resolve(data),
     });
-  };
 
   describe('getProjects', () => {
     it('sends GET to /projects', async () => {

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { readFileSync, existsSync, statSync } from 'fs';
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir } from 'fs/promises';
 import { extname, join, basename } from 'path';
 import { sessions, canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
@@ -14,12 +14,70 @@ import {
   validateInlineType,
   buildInlineItemData,
   broadcastCanvasUpdate,
+  writeCanvasItemToFile,
 } from './canvas-helpers.js';
+import trashRoutes from './canvas-trash-routes.js';
+
+// Error message constants
+const ERR_SESSION_NOT_FOUND = 'Session not found';
+
+/**
+ * Process multipart file upload (Mode 1)
+ * @param {Express.Multer.File} file - The uploaded file from multer
+ * @returns {{ itemData: Object } | { error: string }}
+ */
+function handleMultipartUpload(file) {
+  const result = processFileBuffer(file.buffer, file.originalname);
+  if (result.error) {
+    return { error: result.error };
+  }
+  return { itemData: result.itemData };
+}
+
+/**
+ * Process file path upload (Mode 2) - reads file from disk
+ * @param {string} filePath - Path to the file on disk
+ * @returns {{ itemData: Object } | { error: string }}
+ */
+function handleFilePathUpload(filePath) {
+  if (!existsSync(filePath)) {
+    return { error: `File not found: ${filePath}` };
+  }
+
+  try {
+    const fileBuffer = readFileSync(filePath);
+    const result = processFileBuffer(fileBuffer, basename(filePath));
+    if (result.error) {
+      return { error: result.error };
+    }
+    return { itemData: result.itemData };
+  } catch (err) {
+    return { error: `Failed to read file: ${err.message}` };
+  }
+}
+
+/**
+ * Process inline content upload (Mode 3)
+ * @param {string} type - The content type
+ * @param {string} content - The content data
+ * @param {string} filename - The filename
+ * @returns {{ itemData: Object } | { error: string }}
+ */
+function handleInlineUpload(type, content, filename) {
+  const validationError = validateInlineType(type);
+  if (validationError) {
+    return { error: validationError };
+  }
+  return { itemData: buildInlineItemData(type, content, filename) };
+}
 
 // Re-export for tests
 export { isBinaryContent, getTypeFromExtension };
 
 const router = Router();
+
+// Mount trash and bulk operation routes
+router.use('/', trashRoutes);
 
 // POST /api/sessions/:id/canvas - Add canvas item
 // Supports three modes:
@@ -29,53 +87,30 @@ const router = Router();
 router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   const { filePath, type, content, filename } = req.body;
-  let itemData;
+  let result;
 
-  // Mode 1: Multipart file upload from FormData
+  // Determine upload mode and process accordingly
   if (req.file) {
-    const result = processFileBuffer(req.file.buffer, req.file.originalname);
-    if (result.error) {
-      return res.status(400).json({ error: result.error });
-    }
-    itemData = result.itemData;
-  }
-  // Mode 2: File path provided - read from disk
-  else if (filePath) {
-    if (!existsSync(filePath)) {
-      return res.status(400).json({ error: `File not found: ${filePath}` });
-    }
-
-    try {
-      const fileBuffer = readFileSync(filePath);
-      const result = processFileBuffer(fileBuffer, basename(filePath));
-      if (result.error) {
-        return res.status(400).json({ error: result.error });
-      }
-      itemData = result.itemData;
-    } catch (err) {
-      return res.status(400).json({ error: `Failed to read file: ${err.message}` });
-    }
-  }
-  // Mode 3: Inline content provided - use directly
-  else if (content !== undefined && type && filename) {
-    const validationError = validateInlineType(type);
-    if (validationError) {
-      return res.status(400).json({ error: validationError });
-    }
-    itemData = buildInlineItemData(type, content, filename);
-  }
-  // No valid mode provided
-  else {
+    result = handleMultipartUpload(req.file);
+  } else if (filePath) {
+    result = handleFilePathUpload(filePath);
+  } else if (content !== undefined && type && filename) {
+    result = handleInlineUpload(type, content, filename);
+  } else {
     return res.status(400).json({
       error: 'Either file upload, filePath, or (type + content + filename) is required'
     });
   }
 
-  const item = canvasItems.create(req.params.id, itemData);
+  if (result.error) {
+    return res.status(400).json({ error: result.error });
+  }
+
+  const item = canvasItems.create(req.params.id, result.itemData);
 
   // Broadcast to session subscribers
   broadcastCanvasUpdate(req.params.id, item);
@@ -87,7 +122,7 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
 router.put('/:id/canvas/:itemId', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   const parsed = UpdateCanvasItemRequest.safeParse(req.body);
@@ -118,7 +153,7 @@ router.put('/:id/canvas/:itemId', (req, res) => {
 router.get('/:id/canvas', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   // Get only latest versions (one per filename)
@@ -134,7 +169,7 @@ router.get('/:id/canvas', (req, res) => {
 router.get('/:id/canvas/all', (req, res) => {
   const session = sessions.getById(req.params.id);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   // Get ALL versions (not just latest)
@@ -153,7 +188,7 @@ router.get('/:id/canvas/file/:filename/history/:version', async (req, res) => {
 
   const session = sessions.getById(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   // Get all versions of this file (newest first)
@@ -189,17 +224,7 @@ router.get('/:id/canvas/file/:filename/history/:version', async (req, res) => {
     const filePath = join(tempDir, tempFilename);
 
     // Write content based on type
-    if (item.type === 'image' || item.type === 'pdf') {
-      // Binary: decode base64 and write
-      const buffer = Buffer.from(item.data, 'base64');
-      await writeFile(filePath, buffer);
-    } else if (item.type === 'json') {
-      // JSON: write the data field, fallback to content if data is not available
-      await writeFile(filePath, item.data || item.content || '{}');
-    } else {
-      // text/markdown/code: write content field
-      await writeFile(filePath, item.content || '');
-    }
+    await writeCanvasItemToFile(item, filePath);
 
     // Get file size
     const stats = statSync(filePath);
@@ -224,7 +249,7 @@ router.get('/:id/canvas/file/:filename/history/:version', async (req, res) => {
 // Supports ?version=N query param (1-based, 1 = oldest)
 router.get('/:id/canvas/file/:filename/content', (req, res) => {
   const session = sessions.getById(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
+  if (!session) return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
 
   const allVersions = canvasItems.getAllVersionsByFilename(req.params.id, req.params.filename);
   if (allVersions.length === 0) return res.status(404).json({ error: 'File not found' });
@@ -262,7 +287,7 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
 
   const session = sessions.getById(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   // Get all versions of this file (newest first)
@@ -283,17 +308,7 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
     const filePath = join(tempDir, filename);
 
     // Write content based on type
-    if (item.type === 'image' || item.type === 'pdf') {
-      // Binary: decode base64 and write
-      const buffer = Buffer.from(item.data, 'base64');
-      await writeFile(filePath, buffer);
-    } else if (item.type === 'json') {
-      // JSON: write the data field, fallback to content if data is not available
-      await writeFile(filePath, item.data || item.content || '{}');
-    } else {
-      // text/markdown/code: write content field
-      await writeFile(filePath, item.content || '');
-    }
+    await writeCanvasItemToFile(item, filePath);
 
     // Get file size
     const stats = statSync(filePath);
@@ -311,200 +326,6 @@ router.get('/:id/canvas/file/:filename', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: `Failed to write file: ${err.message}` });
   }
-});
-
-// DELETE /api/sessions/:id/canvas/bulk-delete-permanent - Permanently delete multiple items from trash
-// NOTE: This must be defined BEFORE /:id/canvas/:itemId to avoid Express matching it as :itemId = "bulk-delete-permanent"
-router.delete('/:id/canvas/bulk-delete-permanent', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-
-  const { itemIds } = req.body;
-  if (!Array.isArray(itemIds)) {
-    return res.status(400).json({ error: 'itemIds must be an array' });
-  }
-
-  if (itemIds.length === 0) {
-    return res.json({ deletedCount: 0 });
-  }
-
-  // Verify all items are in trash and belong to this session
-  for (const itemId of itemIds) {
-    const item = canvasItems.getById(itemId);
-    if (!item || item.sessionId !== req.params.id) {
-      return res.status(404).json({ error: `Item ${itemId} not found in session` });
-    }
-    if (!item.deletedAt) {
-      return res.status(400).json({ error: `Item ${itemId} is not in trash (cannot permanently delete active items)` });
-    }
-  }
-
-  // Expand to include all versions of each file
-  const expandedIds = canvasItems.expandToAllVersions(itemIds, { deletedOnly: true });
-  const deletedCount = canvasItems.permanentDeleteBatch(expandedIds);
-
-  // Broadcast each deleted item to session subscribers
-  expandedIds.forEach(itemId => {
-    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: req.params.id, itemId });
-  });
-
-  res.json({ deletedCount, deletedIds: expandedIds });
-});
-
-// DELETE /api/sessions/:id/canvas/:itemId - Soft delete canvas item (move to trash)
-router.delete('/:id/canvas/:itemId', (req, res) => {
-  const item = canvasItems.getById(req.params.itemId);
-  if (!item || item.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Canvas item not found' });
-  }
-
-  // Soft delete instead of hard delete
-  const deletedItem = canvasItems.softDelete(req.params.itemId);
-
-  // Broadcast to session subscribers
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: req.params.id, itemId: req.params.itemId });
-
-  res.json(deletedItem);
-});
-
-// GET /api/sessions/:id/canvas-trash - List deleted items in trash
-router.get('/:id/canvas-trash', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-
-  const items = canvasItems.getDeletedBySessionId(req.params.id);
-  // Strip content/data from list responses to reduce payload size.
-  res.json(items.map(({ content: _content, data: _data, ...meta }) => meta));
-});
-
-// POST /api/sessions/:id/canvas/:itemId/recover - Recover a single item from trash
-router.post('/:id/canvas/:itemId/recover', (req, res) => {
-  const item = canvasItems.getById(req.params.itemId);
-  if (!item || item.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Canvas item not found' });
-  }
-  if (!item.deletedAt) {
-    return res.status(400).json({ error: 'Item is not deleted' });
-  }
-
-  const recoveredItem = canvasItems.recover(req.params.itemId);
-
-  // Broadcast recovery - same as add
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_ADD, { item: recoveredItem });
-
-  res.json(recoveredItem);
-});
-
-// POST /api/sessions/:id/canvas-trash/recover-file/:filename - Recover all versions of a file
-router.post('/:id/canvas-trash/recover-file/:filename', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-
-  const { filename } = req.params;
-  canvasItems.recoverByFilename(req.params.id, filename);
-  const items = canvasItems.getAllVersionsByFilename(req.params.id, filename);
-
-  // Broadcast each recovered item
-  items.forEach(item => {
-    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
-  });
-
-  res.json({ recovered: items.length });
-});
-
-// DELETE /api/sessions/:id/canvas/:itemId/permanent - Permanently delete from trash
-router.delete('/:id/canvas/:itemId/permanent', (req, res) => {
-  const item = canvasItems.getById(req.params.itemId);
-  if (!item || item.sessionId !== req.params.id) {
-    return res.status(404).json({ error: 'Canvas item not found' });
-  }
-  if (!item.deletedAt) {
-    return res.status(400).json({ error: 'Item must be in trash before permanent deletion' });
-  }
-
-  canvasItems.permanentDelete(req.params.itemId);
-  res.status(204).send();
-});
-
-// POST /api/sessions/:id/canvas/bulk-delete - Soft delete multiple items
-router.post('/:id/canvas/bulk-delete', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-
-  const { itemIds } = req.body;
-  if (!Array.isArray(itemIds)) {
-    return res.status(400).json({ error: 'itemIds must be an array' });
-  }
-
-  if (itemIds.length === 0) {
-    return res.json({ deletedCount: 0 });
-  }
-
-  // Verify all items belong to this session
-  for (const itemId of itemIds) {
-    const item = canvasItems.getById(itemId);
-    if (!item || item.sessionId !== req.params.id) {
-      return res.status(404).json({ error: `Item ${itemId} not found in session` });
-    }
-  }
-
-  // Expand to include all versions of each file
-  const expandedIds = canvasItems.expandToAllVersions(itemIds, { activeOnly: true });
-  const deletedCount = canvasItems.softDeleteBatch(expandedIds);
-
-  // Broadcast each deleted item to session subscribers
-  expandedIds.forEach(itemId => {
-    broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_REMOVE, { sessionId: req.params.id, itemId });
-  });
-
-  res.json({ deletedCount, deletedIds: expandedIds });
-});
-
-// POST /api/sessions/:id/canvas/bulk-recover - Recover multiple items from trash
-router.post('/:id/canvas/bulk-recover', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-
-  const { itemIds } = req.body;
-  if (!Array.isArray(itemIds)) {
-    return res.status(400).json({ error: 'itemIds must be an array' });
-  }
-
-  if (itemIds.length === 0) {
-    return res.json({ recoveredCount: 0 });
-  }
-
-  // Validate all items belong to this session
-  for (const itemId of itemIds) {
-    const item = canvasItems.getById(itemId);
-    if (!item || item.sessionId !== req.params.id) {
-      return res.status(404).json({ error: `Item ${itemId} not found in session` });
-    }
-  }
-
-  // Expand to include all versions of each file
-  const expandedIds = canvasItems.expandToAllVersions(itemIds, { deletedOnly: true });
-  const recoveredCount = canvasItems.recoverBatch(expandedIds);
-
-  // Broadcast each recovered item to session subscribers
-  expandedIds.forEach(itemId => {
-    const item = canvasItems.getById(itemId);
-    if (item) {
-      broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
-    }
-  });
-
-  res.json({ recoveredCount, recoveredIds: expandedIds });
 });
 
 export default router;

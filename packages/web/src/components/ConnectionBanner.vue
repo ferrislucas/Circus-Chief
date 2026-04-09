@@ -7,7 +7,10 @@
       data-testid="connection-banner"
       role="alert"
     >
-      <span class="banner-dot" :class="dotClass"></span>
+      <span
+        class="banner-dot"
+        :class="dotClass"
+      />
       <span class="banner-text">{{ bannerText }}</span>
     </div>
   </Transition>

@@ -14,29 +14,74 @@
           :title="session.starred ? 'Unstar session' : 'Star session'"
           @click.stop.prevent="onStarClick"
         >
-          <svg v-if="session.starred" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+          <svg
+            v-if="session.starred"
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2" />
           </svg>
-          <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2"></polygon>
+          <svg
+            v-else
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polygon points="12 2 15.09 10.26 24 10.5 17.18 16.34 19.34 24.5 12 18.92 4.66 24.5 6.82 16.34 0 10.5 8.91 10.26 12 2" />
           </svg>
         </button>
 
         <div class="session-info">
-          <h3 class="session-name">{{ session.name }}</h3>
+          <h3 class="session-name">
+            {{ session.name }}
+          </h3>
 
           <!-- Session status badges -->
           <p class="session-meta">
             <!-- Running status badge -->
-            <span v-if="workflowStatus.runningCount > 0" class="status-badge status-running">
+            <span
+              v-if="workflowStatus.runningCount > 0"
+              class="status-badge status-running"
+            >
               &#x25CF; running
             </span>
 
             <!-- Scheduled status badge -->
-            <span v-if="workflowStatus.scheduledCount > 0" class="status-badge status-scheduled">
-              <svg class="schedule-icon-inline" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="10"></circle>
-                <polyline points="12 6 12 12 16 14"></polyline>
+            <span
+              v-if="workflowStatus.scheduledCount > 0"
+              class="status-badge status-scheduled"
+            >
+              <svg
+                class="schedule-icon-inline"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                />
+                <polyline points="12 6 12 12 16 14" />
               </svg>
               scheduled
             </span>
@@ -51,7 +96,12 @@
             </span>
 
             <!-- PR Indicators -->
-            <PrIndicators v-if="prUrl && !isChild" :pr-url="prUrl" :summary="prSummary" data-testid="session-card-pr-indicators" />
+            <PrIndicators
+              v-if="prUrl && !isChild"
+              :pr-url="prUrl"
+              :summary="prSummary"
+              data-testid="session-card-pr-indicators"
+            />
 
             <!-- Command button status indicators -->
             <span
@@ -63,7 +113,10 @@
             >{{ getStatusIcon(indicator.status) }}</span>
           </p>
 
-          <p v-if="showProject && session.projectName" class="session-project">
+          <p
+            v-if="showProject && session.projectName"
+            class="session-project"
+          >
             <span class="project-name">{{ session.projectName }}</span>
           </p>
         </div>
@@ -185,17 +238,13 @@ const props = defineProps({
 const emit = defineEmits(['retrySummary', 'archive', 'unarchive', 'addToBoard']);
 
 // Check if session is already on the kanban board
-const isOnBoard = computed(() => {
-  return kanbanStore.isSessionOnBoard(props.session.id);
-});
+const isOnBoard = computed(() => kanbanStore.isSessionOnBoard(props.session.id));
 
 const onAddToBoardClick = () => {
   emit('addToBoard', props.session);
 };
 
-const dateToShow = computed(() => {
-  return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
-});
+const dateToShow = computed(() => props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt);
 
 /**
  * Get all sessions in the workflow tree (root + all descendants at any depth).

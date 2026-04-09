@@ -114,9 +114,9 @@ export function matchesPattern(value, pattern) {
  * @param {number} minLength - The minimum required length
  * @returns {boolean} True if value length is >= minLength
  */
-export function minLength(value, minLength) {
-  if (!isNonEmptyString(value) || !isNonNegativeNumber(minLength)) return false;
-  return value.length >= minLength;
+export function minLength(value, min) {
+  if (!isNonEmptyString(value) || !isNonNegativeNumber(min)) return false;
+  return value.length >= min;
 }
 
 /**
@@ -125,7 +125,7 @@ export function minLength(value, minLength) {
  * @param {number} maxLength - The maximum allowed length
  * @returns {boolean} True if value length is <= maxLength
  */
-export function maxLength(value, maxLength) {
-  if (typeof value !== 'string' || !isNonNegativeNumber(maxLength)) return false;
-  return value.length <= maxLength;
+export function maxLength(value, max) {
+  if (typeof value !== 'string' || !isNonNegativeNumber(max)) return false;
+  return value.length <= max;
 }

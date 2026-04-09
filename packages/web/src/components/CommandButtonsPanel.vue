@@ -3,37 +3,63 @@
     <!-- Header with New Button -->
     <div class="panel-header">
       <h3>Command Buttons</h3>
-      <router-link :to="`/projects/${projectId}/command-buttons/new`" class="btn btn-primary btn-sm">
+      <router-link
+        :to="`/projects/${projectId}/command-buttons/new`"
+        class="btn btn-primary btn-sm"
+      >
         + New Command Button
       </router-link>
     </div>
 
     <!-- Loading State -->
-    <div v-if="commandButtonsStore.loading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="commandButtonsStore.loading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading command buttons...
     </div>
 
     <!-- Error State -->
-    <div v-else-if="commandButtonsStore.error" class="error-message">
+    <div
+      v-else-if="commandButtonsStore.error"
+      class="error-message"
+    >
       {{ commandButtonsStore.error }}
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="commandButtonsStore.buttons.length === 0" class="empty-state">
+    <div
+      v-else-if="commandButtonsStore.buttons.length === 0"
+      class="empty-state"
+    >
       <p>No command buttons configured yet.</p>
-      <router-link :to="`/projects/${projectId}/command-buttons/new`" class="btn btn-primary">
+      <router-link
+        :to="`/projects/${projectId}/command-buttons/new`"
+        class="btn btn-primary"
+      >
         Create First Button
       </router-link>
     </div>
 
     <!-- Buttons Table -->
-    <div v-else class="buttons-table">
+    <div
+      v-else
+      class="buttons-table"
+    >
       <div class="table-header">
-        <div class="col-label">Label</div>
-        <div class="col-command">Command</div>
-        <div class="col-order">Sort Order</div>
-        <div class="col-actions">Actions</div>
+        <div class="col-label">
+          Label
+        </div>
+        <div class="col-command">
+          Command
+        </div>
+        <div class="col-order">
+          Sort Order
+        </div>
+        <div class="col-actions">
+          Actions
+        </div>
       </div>
 
       <div
@@ -42,13 +68,23 @@
         class="table-row"
         @click="onRowClick(button)"
       >
-        <div class="col-label">{{ button.label }}</div>
+        <div class="col-label">
+          {{ button.label }}
+        </div>
         <div class="col-command">
           <code>{{ truncateCommand(button.command) }}</code>
         </div>
-        <div class="col-order">{{ button.sortOrder }}</div>
-        <div class="col-actions" @click.stop>
-          <button class="btn btn-sm btn-outline-danger" @click="onDeleteClick(button)">
+        <div class="col-order">
+          {{ button.sortOrder }}
+        </div>
+        <div
+          class="col-actions"
+          @click.stop
+        >
+          <button
+            class="btn btn-sm btn-outline-danger"
+            @click="onDeleteClick(button)"
+          >
             Delete
           </button>
         </div>
@@ -56,8 +92,15 @@
     </div>
 
     <!-- Delete Confirmation Dialog -->
-    <div v-if="selectedButton" class="modal-overlay" @click="selectedButton = null">
-      <div class="modal-dialog" @click.stop>
+    <div
+      v-if="selectedButton"
+      class="modal-overlay"
+      @click="selectedButton = null"
+    >
+      <div
+        class="modal-dialog"
+        @click.stop
+      >
         <div class="modal-header">
           <h4>Delete Command Button</h4>
         </div>
@@ -65,10 +108,16 @@
           <p>Are you sure you want to delete the command button "<strong>{{ selectedButton.label }}</strong>"?</p>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-outline-secondary" @click="selectedButton = null">
+          <button
+            class="btn btn-outline-secondary"
+            @click="selectedButton = null"
+          >
             Cancel
           </button>
-          <button class="btn btn-danger" @click="confirmDelete">
+          <button
+            class="btn btn-danger"
+            @click="confirmDelete"
+          >
             Delete
           </button>
         </div>
@@ -96,7 +145,7 @@ const selectedButton = ref(null);
 const truncateCommand = (command) => {
   const maxLength = 50;
   if (command.length > maxLength) {
-    return command.substring(0, maxLength) + '...';
+    return `${command.substring(0, maxLength)  }...`;
   }
   return command;
 };

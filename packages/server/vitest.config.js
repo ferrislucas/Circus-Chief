@@ -22,7 +22,18 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       include: ['src/**/*.js'],
-      exclude: ['src/**/*.test.js'],
+      exclude: [
+        'src/**/*.test.js',
+        'src/**/*.spec.js',
+        'src/index.js',
+        'src/db/migrations/**',
+      ],
+      thresholds: {
+        statements: 81,
+        branches: 78,
+        functions: 85,
+        lines: 81,
+      },
     },
   },
 });

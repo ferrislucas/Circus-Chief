@@ -97,6 +97,13 @@ export function handleTextDelta(sessionId, delta, textAccumulators) {
 }
 
 /**
+ * Resolve a token field from modelUsageEntry (camelCase) or event.usage (snake_case).
+ */
+function resolveTokenField(modelUsageEntry, eventUsage, keys) {
+  return modelUsageEntry?.[keys.camel] || eventUsage?.[keys.snake] || 0;
+}
+
+/**
  * Extract turn usage from result event's modelUsage or usage fields
  * @param {string} sessionId
  * @param {Object} event
@@ -114,10 +121,10 @@ export function extractTurnUsage(sessionId, event) {
   const primaryModel = currentModels.get(sessionId) || Object.keys(event.modelUsage || {})[0] || null;
 
   return {
-    inputTokens: modelUsageEntry?.inputTokens || event.usage?.input_tokens || 0,
-    outputTokens: modelUsageEntry?.outputTokens || event.usage?.output_tokens || 0,
-    cacheReadInputTokens: modelUsageEntry?.cacheReadInputTokens || event.usage?.cache_read_input_tokens || 0,
-    cacheCreationInputTokens: modelUsageEntry?.cacheCreationInputTokens || event.usage?.cache_creation_input_tokens || 0,
+    inputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'inputTokens', snake: 'input_tokens' }),
+    outputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'outputTokens', snake: 'output_tokens' }),
+    cacheReadInputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'cacheReadInputTokens', snake: 'cache_read_input_tokens' }),
+    cacheCreationInputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'cacheCreationInputTokens', snake: 'cache_creation_input_tokens' }),
     webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
     contextWindow: modelUsageEntry?.contextWindow || 200000,
     model: primaryModel,

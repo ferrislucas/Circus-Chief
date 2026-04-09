@@ -1,26 +1,44 @@
 <template>
-  <div v-if="isOpen" class="modal-backdrop" @click.self="close">
+  <div
+    v-if="isOpen"
+    class="modal-backdrop"
+    @click.self="close"
+  >
     <div class="modal-content">
       <div class="modal-header">
-        <h2 class="modal-title">Lane Settings</h2>
-        <button @click="close" class="close-btn" aria-label="Close">&times;</button>
+        <h2 class="modal-title">
+          Lane Settings
+        </h2>
+        <button
+          class="close-btn"
+          aria-label="Close"
+          @click="close"
+        >
+          &times;
+        </button>
       </div>
 
       <div class="modal-body">
         <!-- Lane Name -->
         <div class="form-group">
-          <label for="lane-name" class="form-label">Lane Name</label>
+          <label
+            for="lane-name"
+            class="form-label"
+          >Lane Name</label>
           <input
             id="lane-name"
-            type="text"
             v-model="form.name"
+            type="text"
             class="form-input"
             placeholder="Enter lane name"
-          />
+          >
         </div>
 
         <!-- Lane Position -->
-        <div v-if="totalLanes > 1" class="form-group">
+        <div
+          v-if="totalLanes > 1"
+          class="form-group"
+        >
           <label class="form-label">Position</label>
           <div class="lane-position-controls">
             <button
@@ -29,8 +47,18 @@
               title="Move left"
               @click="handleMoveLane(laneIndex - 1)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="15 18 9 12 15 6"></polyline>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="15 18 9 12 15 6" />
               </svg>
             </button>
             <span class="lane-position-label">{{ laneIndex + 1 }} of {{ totalLanes }}</span>
@@ -40,8 +68,18 @@
               title="Move right"
               @click="handleMoveLane(laneIndex + 1)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="9 18 15 12 9 6"></polyline>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="9 18 15 12 9 6" />
               </svg>
             </button>
           </div>
@@ -53,50 +91,72 @@
           <div class="automation-options">
             <label class="radio-option">
               <input
-                type="radio"
                 v-model="automationType"
+                type="radio"
                 value="none"
                 name="automation"
-              />
+              >
               <span>None</span>
             </label>
             <label class="radio-option">
               <input
-                type="radio"
                 v-model="automationType"
+                type="radio"
                 value="template"
                 name="automation"
-              />
+              >
               <span>Run a template</span>
             </label>
             <label class="radio-option">
               <input
-                type="radio"
                 v-model="automationType"
+                type="radio"
                 value="prompt"
                 name="automation"
-              />
+              >
               <span>Run a custom prompt</span>
             </label>
           </div>
         </div>
 
         <!-- Template Selector -->
-        <div v-if="automationType === 'template'" class="form-group">
-          <label for="template-select" class="form-label">Select Template</label>
+        <div
+          v-if="automationType === 'template'"
+          class="form-group"
+        >
+          <label
+            for="template-select"
+            class="form-label"
+          >Select Template</label>
           <select
             id="template-select"
             v-model="form.onEnterTemplateId"
             class="form-input"
           >
-            <option :value="null">Select a template...</option>
-            <optgroup v-if="projectTemplates.length" label="Project Templates">
-              <option v-for="t in projectTemplates" :key="t.id" :value="t.id">
+            <option :value="null">
+              Select a template...
+            </option>
+            <optgroup
+              v-if="projectTemplates.length"
+              label="Project Templates"
+            >
+              <option
+                v-for="t in projectTemplates"
+                :key="t.id"
+                :value="t.id"
+              >
                 {{ t.name }}
               </option>
             </optgroup>
-            <optgroup v-if="globalTemplates.length" label="Global Templates">
-              <option v-for="t in globalTemplates" :key="t.id" :value="t.id">
+            <optgroup
+              v-if="globalTemplates.length"
+              label="Global Templates"
+            >
+              <option
+                v-for="t in globalTemplates"
+                :key="t.id"
+                :value="t.id"
+              >
                 {{ t.name }}
               </option>
             </optgroup>
@@ -107,8 +167,14 @@
         </div>
 
         <!-- Custom Prompt -->
-        <div v-if="automationType === 'prompt'" class="form-group">
-          <label for="custom-prompt" class="form-label">Custom Prompt</label>
+        <div
+          v-if="automationType === 'prompt'"
+          class="form-group"
+        >
+          <label
+            for="custom-prompt"
+            class="form-label"
+          >Custom Prompt</label>
           <ResizableTextarea
             id="custom-prompt"
             ref="promptTextareaRef"
@@ -130,54 +196,81 @@
         <!-- Slash Command Wizard Modal -->
         <SlashCommandWizard
           v-if="automationType === 'prompt'"
-          v-model:isOpen="showSlashCommandWizard"
-          :workingDirectory="workingDirectory || ''"
+          v-model:is-open="showSlashCommandWizard"
+          :working-directory="workingDirectory || ''"
           mode="insert"
           :hide-builtin="true"
           @insert="handleSlashCommandInsert"
         />
 
         <!-- Agent Settings (only for custom prompt) -->
-        <div v-if="automationType === 'prompt'" class="agent-settings-section">
-          <button type="button" @click="showAgentSettings = !showAgentSettings" class="section-toggle">
-            <span class="toggle-chevron" :class="{ open: showAgentSettings }">&#9654;</span>
+        <div
+          v-if="automationType === 'prompt'"
+          class="agent-settings-section"
+        >
+          <button
+            type="button"
+            class="section-toggle"
+            @click="showAgentSettings = !showAgentSettings"
+          >
+            <span
+              class="toggle-chevron"
+              :class="{ open: showAgentSettings }"
+            >&#9654;</span>
             Session Settings
           </button>
 
-          <div v-if="showAgentSettings" class="agent-settings-body">
+          <div
+            v-if="showAgentSettings"
+            class="agent-settings-body"
+          >
             <SessionFormOptions
               :mode="form.onEnterMode || 'standard'"
               :model="form.onEnterModel"
-              :effortLevel="form.onEnterEffortLevel"
-              :thinkingEnabled="form.onEnterThinkingEnabled ?? false"
-              :hideStartImmediately="true"
+              :effort-level="form.onEnterEffortLevel"
+              :thinking-enabled="form.onEnterThinkingEnabled ?? false"
+              :hide-start-immediately="true"
               @update:mode="form.onEnterMode = $event"
               @update:model="form.onEnterModel = $event"
-              @update:effortLevel="form.onEnterEffortLevel = $event"
-              @update:thinkingEnabled="form.onEnterThinkingEnabled = $event"
+              @update:effort-level="form.onEnterEffortLevel = $event"
+              @update:thinking-enabled="form.onEnterThinkingEnabled = $event"
             />
 
             <!-- Auto-Reschedule Settings -->
             <div class="form-group">
               <label class="toggle-switch-row">
                 <label class="toggle-switch">
-                  <input type="checkbox" v-model="form.onEnterAutoRescheduleEnabled" />
-                  <span class="toggle-slider"></span>
+                  <input
+                    v-model="form.onEnterAutoRescheduleEnabled"
+                    type="checkbox"
+                  >
+                  <span class="toggle-slider" />
                 </label>
                 <span class="toggle-label">Auto-reschedule on errors</span>
               </label>
             </div>
 
-            <div v-if="form.onEnterAutoRescheduleEnabled" class="reschedule-settings">
+            <div
+              v-if="form.onEnterAutoRescheduleEnabled"
+              class="reschedule-settings"
+            >
               <!-- Reschedule Triggers -->
               <div class="form-group">
-                <p class="settings-label">Reschedule Triggers</p>
+                <p class="settings-label">
+                  Reschedule Triggers
+                </p>
                 <label class="checkbox-option">
-                  <input type="checkbox" v-model="form.onEnterRescheduleOnTokenLimit" />
+                  <input
+                    v-model="form.onEnterRescheduleOnTokenLimit"
+                    type="checkbox"
+                  >
                   <span>Token limit errors</span>
                 </label>
                 <label class="checkbox-option">
-                  <input type="checkbox" v-model="form.onEnterRescheduleOnServiceError" />
+                  <input
+                    v-model="form.onEnterRescheduleOnServiceError"
+                    type="checkbox"
+                  >
                   <span>Service unavailability</span>
                 </label>
               </div>
@@ -185,12 +278,25 @@
               <!-- Delay -->
               <div class="form-group">
                 <label class="form-label">Reschedule Delay</label>
-                <select v-model.number="form.onEnterRescheduleDelayMinutes" class="form-input">
-                  <option :value="5">5 minutes</option>
-                  <option :value="15">15 minutes</option>
-                  <option :value="30">30 minutes</option>
-                  <option :value="60">1 hour</option>
-                  <option :value="120">2 hours</option>
+                <select
+                  v-model.number="form.onEnterRescheduleDelayMinutes"
+                  class="form-input"
+                >
+                  <option :value="5">
+                    5 minutes
+                  </option>
+                  <option :value="15">
+                    15 minutes
+                  </option>
+                  <option :value="30">
+                    30 minutes
+                  </option>
+                  <option :value="60">
+                    1 hour
+                  </option>
+                  <option :value="120">
+                    2 hours
+                  </option>
                 </select>
               </div>
 
@@ -198,37 +304,37 @@
               <div class="form-group">
                 <label class="form-label">Max Reschedule Count</label>
                 <input
-                  type="number"
                   v-model.number="form.onEnterMaxRescheduleCount"
+                  type="number"
                   min="1"
                   max="100"
                   class="form-input"
                   placeholder="Unlimited"
-                />
+                >
               </div>
 
               <div class="form-group">
                 <label class="form-label">Max Total Tokens</label>
                 <input
-                  type="number"
                   v-model.number="form.onEnterMaxTotalTokens"
+                  type="number"
                   min="1000"
                   step="1000"
                   class="form-input"
                   placeholder="Unlimited"
-                />
+                >
               </div>
 
               <div class="form-group">
                 <label class="form-label">Reschedule At Token Count</label>
                 <input
-                  type="number"
                   v-model.number="form.onEnterRescheduleAtTokenCount"
+                  type="number"
                   min="10000"
                   step="10000"
                   class="form-input"
                   placeholder="None"
-                />
+                >
               </div>
             </div>
           </div>
@@ -236,14 +342,16 @@
 
         <!-- Delete Lane Section -->
         <div class="danger-zone">
-          <h4 class="danger-title">Danger Zone</h4>
+          <h4 class="danger-title">
+            Danger Zone
+          </h4>
           <p class="danger-description">
             Deleting this lane will remove all cards from it. Sessions will remain in the project.
           </p>
           <button
-            @click="confirmDelete"
             class="btn btn-danger"
             :disabled="deleting"
+            @click="confirmDelete"
           >
             {{ deleting ? 'Deleting...' : 'Delete Lane' }}
           </button>
@@ -251,11 +359,16 @@
       </div>
 
       <div class="modal-footer">
-        <button @click="close" class="btn btn-secondary">Cancel</button>
         <button
-          @click="handleSave"
+          class="btn btn-secondary"
+          @click="close"
+        >
+          Cancel
+        </button>
+        <button
           class="btn btn-primary"
           :disabled="saving || !isValid"
+          @click="handleSave"
         >
           {{ saving ? 'Saving...' : 'Save Changes' }}
         </button>
@@ -328,13 +441,9 @@ const workingDirectory = computed(() => {
   return project?.workingDirectory || null;
 });
 
-const laneIndex = computed(() => {
-  return currentLaneIndex.value;
-});
+const laneIndex = computed(() => currentLaneIndex.value);
 
-const totalLanes = computed(() => {
-  return kanbanStore.board?.lanes?.length || 0;
-});
+const totalLanes = computed(() => kanbanStore.board?.lanes?.length || 0);
 
 const isValid = computed(() => {
   if (!form.name.trim()) return false;
@@ -373,13 +482,11 @@ function resetForm() {
     }
 
     // Auto-expand settings section if any agent settings are already configured
-    showAgentSettings.value = !!(
-      form.onEnterMode ||
+    showAgentSettings.value = Boolean(form.onEnterMode ||
       form.onEnterModel ||
       form.onEnterEffortLevel ||
       form.onEnterThinkingEnabled !== null ||
-      form.onEnterAutoRescheduleEnabled
-    );
+      form.onEnterAutoRescheduleEnabled);
 
     // Initialize position tracking
     const index = kanbanStore.board?.lanes?.findIndex((l) => l.id === props.lane.id) ?? -1;

@@ -26,19 +26,15 @@ describe('WebSocketManager', () => {
     await new Promise((resolve) => server.close(resolve));
   });
 
-  const connectClient = () => {
-    return new Promise((resolve, reject) => {
+  const connectClient = () => new Promise((resolve, reject) => {
       const ws = new WebSocket(`ws://localhost:${port}/ws`);
       ws.on('open', () => resolve(ws));
       ws.on('error', reject);
     });
-  };
 
-  const waitForMessage = (ws) => {
-    return new Promise((resolve) => {
+  const waitForMessage = (ws) => new Promise((resolve) => {
       ws.once('message', (data) => resolve(JSON.parse(data.toString())));
     });
-  };
 
   describe('constructor', () => {
     it('creates a new instance', () => {

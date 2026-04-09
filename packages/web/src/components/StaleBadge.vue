@@ -1,5 +1,9 @@
 <template>
-  <div v-if="isStale" class="stale-badge" data-testid="stale-badge">
+  <div
+    v-if="isStale"
+    class="stale-badge"
+    data-testid="stale-badge"
+  >
     Content may be outdated
   </div>
 </template>

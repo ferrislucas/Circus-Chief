@@ -43,6 +43,14 @@ export class SessionTemplateRepository extends BaseRepository {
    * @param {string|null} data.effortLevel
    * @returns {Object}
    */
+  /**
+   * Normalize thinkingEnabled to a DB-compatible value (null, 0, or 1).
+   */
+  static #normalizeThinkingEnabled(value) {
+    if (value === null || value === undefined) return null;
+    return value ? 1 : 0;
+  }
+
   create(data) {
     const id = databaseManager.generateId();
     const now = Date.now();
@@ -57,7 +65,7 @@ export class SessionTemplateRepository extends BaseRepository {
         data.name,
         data.prompt,
         data.nextTemplateId || null,
-        data.thinkingEnabled === null || data.thinkingEnabled === undefined ? null : (data.thinkingEnabled ? 1 : 0),
+        SessionTemplateRepository.#normalizeThinkingEnabled(data.thinkingEnabled),
         data.gitBranch || null,
         data.gitMode || null,
         data.model || null,
@@ -71,6 +79,23 @@ export class SessionTemplateRepository extends BaseRepository {
   }
 
   /**
+   * Field mapping for update: property name -> { column, transform }
+   * Transform converts the JS value to the DB value.
+   */
+  static #updateFields = {
+    name: { column: 'name', transform: (v) => v },
+    prompt: { column: 'prompt', transform: (v) => v },
+    nextTemplateId: { column: 'next_template_id', transform: (v) => v },
+    thinkingEnabled: { column: 'thinking_enabled', transform: (v) => (v === null ? null : (v ? 1 : 0)) },
+    gitBranch: { column: 'git_branch', transform: (v) => v || null },  // Match create() behavior: empty string -> null
+    gitMode: { column: 'git_mode', transform: (v) => v },
+    model: { column: 'model', transform: (v) => v },
+    mode: { column: 'mode', transform: (v) => v },
+    effortLevel: { column: 'effort_level', transform: (v) => v },
+    targetLaneId: { column: 'target_lane_id', transform: (v) => v },
+  };
+
+  /**
    * Update a session template
    * @param {string} id
    * @param {Object} data
@@ -80,45 +105,11 @@ export class SessionTemplateRepository extends BaseRepository {
     const updates = [];
     const values = [];
 
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
-    }
-    if (data.prompt !== undefined) {
-      updates.push('prompt = ?');
-      values.push(data.prompt);
-    }
-    if (data.nextTemplateId !== undefined) {
-      updates.push('next_template_id = ?');
-      values.push(data.nextTemplateId);
-    }
-    if (data.thinkingEnabled !== undefined) {
-      updates.push('thinking_enabled = ?');
-      values.push(data.thinkingEnabled === null ? null : (data.thinkingEnabled ? 1 : 0));
-    }
-    if (data.gitBranch !== undefined) {
-      updates.push('git_branch = ?');
-      values.push(data.gitBranch || null);  // Match create() behavior: empty string -> null
-    }
-    if (data.gitMode !== undefined) {
-      updates.push('git_mode = ?');
-      values.push(data.gitMode);
-    }
-    if (data.model !== undefined) {
-      updates.push('model = ?');
-      values.push(data.model);
-    }
-    if (data.mode !== undefined) {
-      updates.push('mode = ?');
-      values.push(data.mode);
-    }
-    if (data.effortLevel !== undefined) {
-      updates.push('effort_level = ?');
-      values.push(data.effortLevel);
-    }
-    if (data.targetLaneId !== undefined) {
-      updates.push('target_lane_id = ?');
-      values.push(data.targetLaneId);
+    for (const [key, def] of Object.entries(SessionTemplateRepository.#updateFields)) {
+      if (data[key] !== undefined) {
+        updates.push(`${def.column} = ?`);
+        values.push(def.transform(data[key]));
+      }
     }
 
     if (updates.length === 0) return this.getById(id);

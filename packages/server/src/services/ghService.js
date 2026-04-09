@@ -156,7 +156,7 @@ export async function getPrInfo(prUrl) {
 
     return {
       state,
-      merged: !!data.mergedAt,
+      merged: Boolean(data.mergedAt),
       hasMergeConflicts,
       ciStatus,
       ciFailures,

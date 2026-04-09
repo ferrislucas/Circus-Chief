@@ -1,23 +1,57 @@
 <template>
   <div class="container">
-    <router-link :to="`/projects/${route.params.id}/sessions`" class="back-link">
+    <router-link
+      :to="`/projects/${route.params.id}/sessions`"
+      class="back-link"
+    >
       &larr; Sessions
     </router-link>
     <h1>New Session</h1>
 
-    <form @submit.prevent="handleSubmit" class="form card">
+    <form
+      class="form card"
+      @submit.prevent="handleSubmit"
+    >
       <!-- Start From Template selector (Rec 7: slimmed down) -->
-      <div v-if="allTemplates.length > 0" class="form-group">
-        <label class="form-label" for="start-from-template">Start From Template</label>
-        <select id="start-from-template" v-model="startFromTemplateId" class="form-input" @change="handleStartFromTemplateChange" title="Selecting a template will populate all form fields below. You can still edit before starting.">
-          <option :value="null">Select a template to pre-fill...</option>
-          <optgroup v-if="projectTemplates.length" label="Project Templates">
-            <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
+      <div
+        v-if="allTemplates.length > 0"
+        class="form-group"
+      >
+        <label
+          class="form-label"
+          for="start-from-template"
+        >Start From Template</label>
+        <select
+          id="start-from-template"
+          v-model="startFromTemplateId"
+          class="form-input"
+          title="Selecting a template will populate all form fields below. You can still edit before starting."
+          @change="handleStartFromTemplateChange"
+        >
+          <option :value="null">
+            Select a template to pre-fill...
+          </option>
+          <optgroup
+            v-if="projectTemplates.length"
+            label="Project Templates"
+          >
+            <option
+              v-for="template in projectTemplates"
+              :key="template.id"
+              :value="template.id"
+            >
               {{ template.name }}
             </option>
           </optgroup>
-          <optgroup v-if="globalTemplates.length" label="Global Templates">
-            <option v-for="template in globalTemplates" :key="template.id" :value="template.id">
+          <optgroup
+            v-if="globalTemplates.length"
+            label="Global Templates"
+          >
+            <option
+              v-for="template in globalTemplates"
+              :key="template.id"
+              :value="template.id"
+            >
               {{ template.name }}
             </option>
           </optgroup>
@@ -36,7 +70,10 @@
           @keydown="handleKeydown"
         />
         <div class="attachment-row">
-          <FileAttachment ref="fileAttachment" @update:files="attachedFiles = $event" />
+          <FileAttachment
+            ref="fileAttachment"
+            @update:files="attachedFiles = $event"
+          />
           <SlashCommandButton
             v-if="workingDirectory"
             @open="showSlashCommandWizard = true"
@@ -48,56 +85,94 @@
       <QuickResponsesPanel
         :show-empty="true"
         @insert="handleQuickResponseInsert"
-        @openSettings="quickResponseSettingsOpen = true"
+        @open-settings="quickResponseSettingsOpen = true"
       />
 
       <SessionFormOptions
         :mode="mode"
         :model="model"
-        :effortLevel="effortLevel"
-        :thinkingEnabled="thinkingEnabled"
-        :startImmediately="startImmediately"
+        :effort-level="effortLevel"
+        :thinking-enabled="thinkingEnabled"
+        :start-immediately="startImmediately"
         @update:mode="mode = $event"
         @update:model="model = $event"
-        @update:providerId="providerId = $event"
-        @update:effortLevel="effortLevel = $event"
-        @update:thinkingEnabled="thinkingEnabled = $event"
-        @update:startImmediately="startImmediately = $event"
+        @update:provider-id="providerId = $event"
+        @update:effort-level="effortLevel = $event"
+        @update:thinking-enabled="thinkingEnabled = $event"
+        @update:start-immediately="startImmediately = $event"
       />
 
-      <div v-if="error" class="error-message">{{ error }}</div>
+      <div
+        v-if="error"
+        class="error-message"
+      >
+        {{ error }}
+      </div>
 
       <!-- Git Options -->
       <GitOptionsPanel
-        :gitStatus="gitStatus"
-        :modelValue="quickGitMode"
-        :branchName="quickWorktreeBranch"
-        :autoBranchName="autoBranchName"
-        :editingBranch="editingBranch"
-        :loadingGit="loadingGit"
-        @update:modelValue="quickGitMode = $event"
-        @update:branchName="quickWorktreeBranch = $event"
-        @branchEdit="handleBranchEdit"
-        @resetBranch="resetBranchName"
+        :git-status="gitStatus"
+        :model-value="quickGitMode"
+        :branch-name="quickWorktreeBranch"
+        :auto-branch-name="autoBranchName"
+        :editing-branch="editingBranch"
+        :loading-git="loadingGit"
+        @update:model-value="quickGitMode = $event"
+        @update:branch-name="quickWorktreeBranch = $event"
+        @branch-edit="handleBranchEdit"
+        @reset-branch="resetBranchName"
       />
 
       <!-- Advanced Options — shown inline (no collapsible) when relevant -->
-      <div v-if="showAdvancedOptions" ref="advancedOptionsRef" class="advanced-options">
+      <div
+        v-if="showAdvancedOptions"
+        ref="advancedOptionsRef"
+        class="advanced-options"
+      >
         <!-- Scheduling Options (hidden when starting immediately) -->
-        <SchedulingOptions v-if="!startImmediately" v-model="schedulingData" />
+        <SchedulingOptions
+          v-if="!startImmediately"
+          v-model="schedulingData"
+        />
 
         <!-- Next Template (optional) -->
-        <div v-if="allTemplates.length > 0" class="form-group">
-          <label class="form-label" for="template">Next Template (optional)</label>
-          <select id="template" v-model="selectedTemplateId" class="form-input">
-            <option :value="null">None - single session</option>
-            <optgroup v-if="projectTemplates.length" label="Project Templates">
-              <option v-for="template in projectTemplates" :key="template.id" :value="template.id">
+        <div
+          v-if="allTemplates.length > 0"
+          class="form-group"
+        >
+          <label
+            class="form-label"
+            for="template"
+          >Next Template (optional)</label>
+          <select
+            id="template"
+            v-model="selectedTemplateId"
+            class="form-input"
+          >
+            <option :value="null">
+              None - single session
+            </option>
+            <optgroup
+              v-if="projectTemplates.length"
+              label="Project Templates"
+            >
+              <option
+                v-for="template in projectTemplates"
+                :key="template.id"
+                :value="template.id"
+              >
                 {{ template.name }}
               </option>
             </optgroup>
-            <optgroup v-if="globalTemplates.length" label="Global Templates">
-              <option v-for="template in globalTemplates" :key="template.id" :value="template.id">
+            <optgroup
+              v-if="globalTemplates.length"
+              label="Global Templates"
+            >
+              <option
+                v-for="template in globalTemplates"
+                :key="template.id"
+                :value="template.id"
+              >
                 {{ template.name }}
               </option>
             </optgroup>
@@ -108,11 +183,27 @@
         </div>
 
         <!-- Parent Session (optional) -->
-        <div v-if="availableSessions.length > 0" class="form-group">
-          <label class="form-label" for="parent-session">Parent Session (optional)</label>
-          <select id="parent-session" v-model="parentSessionId" class="form-input">
-            <option :value="null">None - create standalone session</option>
-            <option v-for="session in availableSessions" :key="session.id" :value="session.id">
+        <div
+          v-if="availableSessions.length > 0"
+          class="form-group"
+        >
+          <label
+            class="form-label"
+            for="parent-session"
+          >Parent Session (optional)</label>
+          <select
+            id="parent-session"
+            v-model="parentSessionId"
+            class="form-input"
+          >
+            <option :value="null">
+              None - create standalone session
+            </option>
+            <option
+              v-for="session in availableSessions"
+              :key="session.id"
+              :value="session.id"
+            >
               {{ session.name }}
             </option>
           </select>
@@ -124,9 +215,22 @@
 
       <!-- Submit + Cancel (Rec 1: moved to bottom, sticky on mobile) -->
       <div class="form-actions">
-        <button type="button" class="btn btn-secondary" @click="goBack">Cancel</button>
-        <button type="submit" class="btn btn-primary btn-submit" :disabled="loading">
-          <span v-if="loading" class="loading-spinner"></span>
+        <button
+          type="button"
+          class="btn btn-secondary"
+          @click="goBack"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          class="btn btn-primary btn-submit"
+          :disabled="loading"
+        >
+          <span
+            v-if="loading"
+            class="loading-spinner"
+          />
           {{ startImmediately ? 'Start Session' : 'Create Draft' }}
         </button>
       </div>
@@ -134,8 +238,8 @@
 
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
-      v-model:isOpen="showSlashCommandWizard"
-      :workingDirectory="workingDirectory || ''"
+      v-model:is-open="showSlashCommandWizard"
+      :working-directory="workingDirectory || ''"
       mode="insert"
       :hide-builtin="true"
       @insert="handleSlashCommandInsert"
@@ -143,8 +247,8 @@
 
     <!-- Quick Response Settings Modal -->
     <QuickResponseSettings
-      :isOpen="quickResponseSettingsOpen"
-      :projectId="route.params.id"
+      :is-open="quickResponseSettingsOpen"
+      :project-id="route.params.id"
       @close="quickResponseSettingsOpen = false"
     />
   </div>
@@ -159,7 +263,13 @@ import { useTemplatesStore } from '../stores/templates.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { api } from '../composables/useApi.js';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
-import { generateWorktreeBranch } from '@claudetools/shared';
+import {
+  useNewSessionForm,
+  insertTextAtCursor,
+  insertQuickResponse,
+  applyTemplateToForm,
+  buildSessionPayload,
+} from '../composables/useNewSessionForm.js';
 import FileAttachment from '../components/FileAttachment.vue';
 import SessionFormOptions from '../components/SessionFormOptions.vue';
 import GitOptionsPanel from '../components/GitOptionsPanel.vue';
@@ -180,14 +290,20 @@ const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const projectsStore = useProjectsStore();
 
-const prompt = ref('');
-const promptHasContent = ref(false); // Tracks if textarea has content (for button disabled state)
+const storageKey = computed(() => `new-session-draft-${route.params.id}`);
+const formState = useNewSessionForm(storageKey);
+const {
+  prompt, promptHasContent, mode, model, providerId, thinkingEnabled, effortLevel,
+  startImmediately, quickGitMode, quickWorktreeBranch, editingBranch, autoBranchName,
+  selectedTemplateId, startFromTemplateId, parentSessionId, schedulingData, usingDefaults,
+  applyProjectDefaults, restoreDraftFromStorage, resetSchedulingData,
+  handleBranchEdit, resetBranchName, updateAutoBranchName,
+} = formState;
+
 const textareaRef = ref(null);
 let inputSyncTimer = null;
 let debounceTimer = null;
-const mode = ref('yolo');
-const model = ref(null);
-const providerId = ref(null);
+let branchDebounceTimer = null;
 const loading = ref(false);
 const showSlashCommandWizard = ref(false);
 const quickResponseSettingsOpen = ref(false);
@@ -195,20 +311,8 @@ const quickResponseSettingsOpen = ref(false);
 // Rec 9: Responsive textarea min height
 const textareaMinHeight = computed(() => window.innerWidth <= 480 ? 80 : 120);
 
-
-// Track which fields are using project defaults
-const usingDefaults = ref({
-  mode: false,
-  model: false,
-  thinkingEnabled: false,
-  startImmediately: false,
-  quickGitMode: false,
-  quickWorktreeBranch: false,
-});
-
 // Create keyboard shortcut handler for form submission
 const handleKeydown = useSubmitShortcut(() => {
-  // Read directly from textarea to avoid reactivity lag
   const currentValue = textareaRef.value?.value || prompt.value;
   if (!loading.value && currentValue.trim()) {
     handleSubmit();
@@ -218,26 +322,10 @@ const gitStatus = ref(null);
 const attachedFiles = ref([]);
 const fileAttachment = ref(null);
 const advancedOptionsRef = ref(null);
-const selectedTemplateId = ref(null);
-const startFromTemplateId = ref(null);
-const parentSessionId = ref(null);
-const startImmediately = ref(true);
-const schedulingData = ref({
-  scheduledAt: null,
-  autoRescheduleEnabled: false,
-  rescheduleDelayMinutes: 15,
-  rescheduleOnTokenLimit: true,
-  rescheduleOnServiceError: true,
-  maxRescheduleCount: null,
-  maxTotalTokens: null,
-  rescheduleAtTokenCount: null,
-});
 
 const projectTemplates = computed(() => templatesStore.projectTemplates);
 const globalTemplates = computed(() => templatesStore.globalTemplates);
 const allTemplates = computed(() => [...projectTemplates.value, ...globalTemplates.value]);
-
-const storageKey = computed(() => `new-session-draft-${route.params.id}`);
 
 // Get working directory for slash commands
 const workingDirectory = computed(() => {
@@ -246,79 +334,35 @@ const workingDirectory = computed(() => {
 });
 
 // Get available sessions that can be parents (completed sessions only)
-const availableSessions = computed(() => {
-  return sessionsStore.sessions
+const availableSessions = computed(() => sessionsStore.sessions
     .filter((s) => s.status === 'completed')
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-});
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
 
 // Rec 4: Show advanced options only when there's content to show
-const showAdvancedOptions = computed(() => {
-  return !startImmediately.value || allTemplates.value.length > 0 || availableSessions.value.length > 0;
-});
+const showAdvancedOptions = computed(() => !startImmediately.value || allTemplates.value.length > 0 || availableSessions.value.length > 0);
 
 const loadingGit = ref(false);
 const error = ref(null);
-const thinkingEnabled = ref(true);
-const effortLevel = ref(null);
-
-// Quick git feature
-const quickGitMode = ref('worktree'); // '', 'branch', or 'worktree'
-const quickWorktreeBranch = ref('');
-const editingBranch = ref(false);
-let branchDebounceTimer = null;
-
-// Store the branch name (debounced to avoid regenerating random ID on every keystroke)
-const autoBranchName = ref('');
-
-// Debounced function to update branch name from prompt
-function updateBranchNameFromPrompt(promptValue) {
-  if (branchDebounceTimer) clearTimeout(branchDebounceTimer);
-  branchDebounceTimer = setTimeout(() => {
-    autoBranchName.value = generateWorktreeBranch('', promptValue);
-    // Also update the input field if user hasn't manually edited it
-    if (!editingBranch.value) {
-      quickWorktreeBranch.value = autoBranchName.value;
-    }
-  }, 300);
-}
 
 // Handle textarea input with debounced sync to reactive state
-// This prevents Vue reactivity from firing on every keystroke
 function handleInput(event) {
   const value = event.target.value;
   const hasContent = value.trim().length > 0;
-
-  // Only update the reactive flag if it changed (minimizes re-renders)
-  if (promptHasContent.value !== hasContent) {
-    promptHasContent.value = hasContent;
-  }
-
-  // Debounce the sync to reactive state
+  if (promptHasContent.value !== hasContent) promptHasContent.value = hasContent;
   if (inputSyncTimer) clearTimeout(inputSyncTimer);
-  inputSyncTimer = setTimeout(() => {
-    // Sync to reactive state (for handleSubmit to access as fallback)
-    prompt.value = value;
-  }, 150);
-
-  // Update branch name (already has its own debounce)
+  inputSyncTimer = setTimeout(() => { prompt.value = value; }, 150);
   if (gitStatus.value?.isGitRepo) {
-    updateBranchNameFromPrompt(value);
+    if (branchDebounceTimer) clearTimeout(branchDebounceTimer);
+    branchDebounceTimer = setTimeout(() => updateAutoBranchName(value), 300);
   }
 }
 
 // Initialize quick worktree branch when git status loads
-watch(
-  () => gitStatus.value,
-  (status) => {
-    if (status?.isGitRepo && !autoBranchName.value) {
-      // Generate initial branch name
-      autoBranchName.value = generateWorktreeBranch('', prompt.value);
-      quickWorktreeBranch.value = autoBranchName.value;
-    }
-  },
-  { immediate: true }
-);
+watch(() => gitStatus.value, (status) => {
+  if (status?.isGitRepo && !autoBranchName.value) {
+    updateAutoBranchName(prompt.value);
+  }
+}, { immediate: true });
 
 // Track when fields are overridden by user
 watch(mode, () => { usingDefaults.value.mode = false; });
@@ -326,23 +370,11 @@ watch(model, () => { usingDefaults.value.model = false; });
 watch(thinkingEnabled, () => { usingDefaults.value.thinkingEnabled = false; });
 
 // Rec 3: Reset scheduling data when startImmediately is toggled on
-// Also auto-scroll to the advanced options section when toggled off
 watch(startImmediately, (newVal) => {
   usingDefaults.value.startImmediately = false;
   if (newVal) {
-    // Clear any scheduling data when switching to start immediately
-    schedulingData.value = {
-      scheduledAt: null,
-      autoRescheduleEnabled: false,
-      rescheduleDelayMinutes: 15,
-      rescheduleOnTokenLimit: true,
-      rescheduleOnServiceError: true,
-      maxRescheduleCount: null,
-      maxTotalTokens: null,
-      rescheduleAtTokenCount: null,
-    };
+    resetSchedulingData();
   } else {
-    // Scroll the advanced options into view after Vue renders the section
     nextTick(() => {
       advancedOptionsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
@@ -371,59 +403,9 @@ onUnmounted(() => {
   if (debounceTimer) clearTimeout(debounceTimer);
 });
 
-/**
- * Apply project defaults to form fields.
- * @param {object} defaults - The project defaults object
- */
-function applyProjectDefaults(defaults) {
-  if (defaults.mode) {
-    mode.value = defaults.mode;
-    usingDefaults.value.mode = true;
-  }
-  if (defaults.model) {
-    model.value = defaults.model;
-    usingDefaults.value.model = true;
-  } else {
-    model.value = 'sonnet';
-    usingDefaults.value.model = true;
-  }
-  if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {
-    thinkingEnabled.value = defaults.thinkingEnabled;
-    usingDefaults.value.thinkingEnabled = true;
-  }
-  if (defaults.effortLevel) effortLevel.value = defaults.effortLevel;
-  if (defaults.startImmediately !== null && defaults.startImmediately !== undefined) {
-    startImmediately.value = defaults.startImmediately;
-    usingDefaults.value.startImmediately = true;
-  }
-  if (defaults.gitMode) {
-    quickGitMode.value = defaults.gitMode;
-    usingDefaults.value.quickGitMode = true;
-  }
-  if (defaults.gitBranch) {
-    quickWorktreeBranch.value = defaults.gitBranch;
-    usingDefaults.value.quickWorktreeBranch = true;
-  }
-}
-
-/**
- * Restore draft from localStorage and sync to textarea.
- */
-function restoreDraftFromStorage() {
-  const saved = localStorage.getItem(storageKey.value);
-  if (!saved) return;
-  prompt.value = saved;
-  nextTick(() => {
-    if (textareaRef.value) {
-      textareaRef.value.value = saved;
-      promptHasContent.value = saved.trim().length > 0;
-    }
-  });
-}
-
 onMounted(async () => {
   const projectId = route.params.id;
-  restoreDraftFromStorage();
+  restoreDraftFromStorage(textareaRef);
 
   // Fetch project defaults FIRST to ensure model is set before ModelSelector renders
   try {
@@ -463,75 +445,25 @@ function goBack() {
   router.push(`/projects/${route.params.id}/sessions`);
 }
 
-function handleBranchEdit() {
-  editingBranch.value = true;
-}
-
-function resetBranchName() {
-  editingBranch.value = false;
-  quickWorktreeBranch.value = autoBranchName.value;
-}
-
 function handleSlashCommandInsert({ text }) {
-  // Insert the slash command text at the cursor position in the prompt field
-  const textarea = textareaRef.value;
-  if (textarea) {
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const before = textarea.value.substring(0, start);
-    const after = textarea.value.substring(end);
-    textarea.value = before + text + after;
-    textarea.selectionStart = textarea.selectionEnd = start + text.length;
-
-    // Trigger input event to update prompt ref and UI
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    textarea.focus();
-  }
+  insertTextAtCursor(textareaRef.value, text);
 }
 
 function handleQuickResponseInsert({ content, autoSubmit }) {
-  const textarea = textareaRef.value;
-  if (!textarea) return;
-
-  const existingText = textarea.value.trim();
-  const newContent = existingText
-    ? `${existingText}\n\n${content}`
-    : content;
-
-  textarea.value = newContent;
-  textarea.dispatchEvent(new Event('input', { bubbles: true }));
-
+  insertQuickResponse(textareaRef.value, content);
   if (autoSubmit) {
     setTimeout(() => handleSubmit(), 0);
   } else {
-    // Non-auto-submit: blur textarea to allow content review
-    textarea.blur();
+    textareaRef.value?.blur();
   }
 }
 
 function handleStartFromTemplateChange() {
   const template = startFromTemplateId.value && templatesStore.getTemplateById(startFromTemplateId.value);
-  if (!template) return;
-
-  // Populate prompt
-  prompt.value = template.prompt;
-  if (textareaRef.value) {
-    textareaRef.value.value = template.prompt;
-    textareaRef.value.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
-  // Populate fields from template (only override when template has a value)
-  if (template.thinkingEnabled != null) thinkingEnabled.value = template.thinkingEnabled;
-  if (template.model) model.value = template.model;
-  if (template.mode) mode.value = template.mode;
-  if (template.gitBranch) { quickWorktreeBranch.value = template.gitBranch; editingBranch.value = true; }
-  if (template.gitMode) quickGitMode.value = template.gitMode;
-  if (template.effortLevel != null) effortLevel.value = template.effortLevel;
-  if (template.nextTemplateId) selectedTemplateId.value = template.nextTemplateId;
+  applyTemplateToForm(template, formState, textareaRef);
 }
 
 async function handleSubmit() {
-  // Read directly from textarea in case debounce timer hasn't fired
   const currentPrompt = textareaRef.value?.value || prompt.value;
   if (!currentPrompt.trim()) return;
 
@@ -539,35 +471,13 @@ async function handleSubmit() {
   error.value = null;
 
   try {
-    // Determine git settings
-    const submitGitMode = quickGitMode.value && gitStatus.value?.isGitRepo ? quickGitMode.value : undefined;
-    const submitGitBranch = submitGitMode ? quickWorktreeBranch.value : undefined;
-
-    const session = await sessionsStore.createSession(route.params.id, {
-      prompt: currentPrompt,
-      mode: mode.value,
-      model: model.value,
-      providerId: providerId.value,
-      thinkingEnabled: thinkingEnabled.value,
-      effortLevel: effortLevel.value,
-      startImmediately: startImmediately.value,
-      gitMode: submitGitMode,
-      gitBranch: submitGitBranch,
+    const payload = buildSessionPayload(formState, {
+      currentPrompt,
+      gitStatus: gitStatus.value,
       files: attachedFiles.value,
-      templateId: selectedTemplateId.value,
-      parentSessionId: parentSessionId.value || null,
-      // Scheduling fields
-      scheduledAt: schedulingData.value.scheduledAt,
-      autoRescheduleEnabled: schedulingData.value.autoRescheduleEnabled,
-      rescheduleDelayMinutes: schedulingData.value.rescheduleDelayMinutes,
-      rescheduleOnTokenLimit: schedulingData.value.rescheduleOnTokenLimit,
-      rescheduleOnServiceError: schedulingData.value.rescheduleOnServiceError,
-      maxRescheduleCount: schedulingData.value.maxRescheduleCount,
-      maxTotalTokens: schedulingData.value.maxTotalTokens,
-      rescheduleAtTokenCount: schedulingData.value.rescheduleAtTokenCount,
     });
+    const session = await sessionsStore.createSession(route.params.id, payload);
     fileAttachment.value?.clear();
-    // Clear the draft from localStorage after successful submission
     localStorage.removeItem(storageKey.value);
     router.push(`/sessions/${session.id}?overlay=open`);
   } catch (err) {
