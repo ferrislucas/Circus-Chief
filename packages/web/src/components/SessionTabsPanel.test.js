@@ -78,6 +78,16 @@ describe('SessionTabsPanel', () => {
       const options = wrapper.findAll('.tab-select option');
       expect(options.length).toBe(5);
     });
+
+    it('applies the session-detail layout marker class', () => {
+      const wrapper = mountPanel();
+      expect(wrapper.find('.tabs.tabs-session-detail').exists()).toBe(true);
+    });
+
+    it('nests tabs-desktop inside the session-detail container', () => {
+      const wrapper = mountPanel();
+      expect(wrapper.find('.tabs-session-detail .tabs-desktop').exists()).toBe(true);
+    });
   });
 
   describe('changes indicator', () => {
