@@ -1,35 +1,61 @@
 <template>
-    <div v-if="isOpen" class="modal-backdrop" @click.self="close">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 class="modal-title">Schedule Session</h2>
-          <button @click="close" class="close-btn" aria-label="Close">&times;</button>
-        </div>
+  <div
+    v-if="isOpen"
+    class="modal-backdrop"
+    @click.self="close"
+  >
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title">
+          Schedule Session
+        </h2>
+        <button
+          class="close-btn"
+          aria-label="Close"
+          @click="close"
+        >
+          &times;
+        </button>
+      </div>
 
-        <div class="modal-body">
-          <!-- Scheduled Time -->
-          <div class="form-group">
-            <label for="scheduled-at" class="form-label">Schedule Start Time *</label>
-            <input
-              id="scheduled-at"
-              type="datetime-local"
-              v-model="form.scheduledAtLocal"
-              :min="minDateTime"
-              class="form-input"
-              required
-            />
-            <p class="form-help">The message you've typed will be sent at this time</p>
-          </div>
-        </div>
-
-        <div class="modal-footer">
-          <button @click="close" class="btn btn-secondary">Cancel</button>
-          <button @click="handleSchedule" class="btn btn-primary" :disabled="loading || !isValid">
-            {{ loading ? 'Scheduling...' : 'Schedule' }}
-          </button>
+      <div class="modal-body">
+        <!-- Scheduled Time -->
+        <div class="form-group">
+          <label
+            for="scheduled-at"
+            class="form-label"
+          >Schedule Start Time *</label>
+          <input
+            id="scheduled-at"
+            v-model="form.scheduledAtLocal"
+            type="datetime-local"
+            :min="minDateTime"
+            class="form-input"
+            required
+          >
+          <p class="form-help">
+            The message you've typed will be sent at this time
+          </p>
         </div>
       </div>
+
+      <div class="modal-footer">
+        <button
+          class="btn btn-secondary"
+          @click="close"
+        >
+          Cancel
+        </button>
+        <button
+          class="btn btn-primary"
+          :disabled="loading || !isValid"
+          @click="handleSchedule"
+        >
+          {{ loading ? 'Scheduling...' : 'Schedule' }}
+        </button>
+      </div>
     </div>
+  </div>
 </template>
 
 <script setup>
@@ -90,7 +116,7 @@ async function handleSchedule() {
     uiStore.showToast('Session scheduled successfully', 'success');
   } catch (error) {
     console.error('Failed to schedule session:', error);
-    uiStore.showToast('Failed to schedule session: ' + error.message, 'error');
+    uiStore.showToast(`Failed to schedule session: ${  error.message}`, 'error');
   }
 }
 

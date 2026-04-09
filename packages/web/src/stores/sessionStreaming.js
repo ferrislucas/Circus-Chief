@@ -32,36 +32,28 @@ export const useSessionStreamingStore = defineStore('sessionStreaming', {
      * @param {string} sessionId
      * @returns {Array}
      */
-    getSessionWorkLogs: (state) => (sessionId) => {
-      return state.sessionWorkLogs[sessionId] || [];
-    },
+    getSessionWorkLogs: (state) => (sessionId) => state.sessionWorkLogs[sessionId] || [],
 
     /**
      * Get partial text for a session (list view)
      * @param {string} sessionId
      * @returns {string}
      */
-    getSessionPartialText: (state) => (sessionId) => {
-      return state.sessionPartialText[sessionId] || '';
-    },
+    getSessionPartialText: (state) => (sessionId) => state.sessionPartialText[sessionId] || '',
 
     /**
      * Get the file change count for a session
      * @param {string} sessionId
      * @returns {number}
      */
-    getSessionFileCount: (state) => (sessionId) => {
-      return state.sessionFileCounts[sessionId] || 0;
-    },
+    getSessionFileCount: (state) => (sessionId) => state.sessionFileCounts[sessionId] || 0,
 
     /**
      * Check if a session's log panel is collapsed
      * @param {string} sessionId
      * @returns {boolean}
      */
-    isSessionLogCollapsed: (state) => (sessionId) => {
-      return state.collapsedSessionLogs.has(sessionId);
-    },
+    isSessionLogCollapsed: (state) => (sessionId) => state.collapsedSessionLogs.has(sessionId),
   },
 
   actions: {

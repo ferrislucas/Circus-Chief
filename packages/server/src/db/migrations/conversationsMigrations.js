@@ -5,6 +5,12 @@
 import crypto from 'crypto';
 import { addColumnIfMissing, getColumns } from './migrationUtils.js';
 
+// Table name constants for migrations
+const TABLE_CONVERSATIONS = 'conversations';
+
+// Column type constants
+const COL_INTEGER_DEFAULT_0 = 'INTEGER DEFAULT 0';
+
 /**
  * Create default conversations for existing sessions that don't have any
  * and associate orphaned messages with the default conversation.
@@ -95,44 +101,44 @@ export const conversationsMigrations = [
   // --- Conversations: claude_session_id ---
   {
     name: 'conversations-add-claude_session_id',
-    up(db) { addColumnIfMissing(db, 'conversations', 'claude_session_id', 'TEXT'); },
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'claude_session_id', 'TEXT'); },
   },
 
   // --- Conversations token usage ---
   {
     name: 'conversations-add-input_tokens',
-    up(db) { addColumnIfMissing(db, 'conversations', 'input_tokens', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'input_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'conversations-add-output_tokens',
-    up(db) { addColumnIfMissing(db, 'conversations', 'output_tokens', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'output_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'conversations-add-cache_read_input_tokens',
-    up(db) { addColumnIfMissing(db, 'conversations', 'cache_read_input_tokens', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'cache_read_input_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'conversations-add-cache_creation_input_tokens',
-    up(db) { addColumnIfMissing(db, 'conversations', 'cache_creation_input_tokens', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'cache_creation_input_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'conversations-add-web_search_requests',
-    up(db) { addColumnIfMissing(db, 'conversations', 'web_search_requests', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'web_search_requests', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'conversations-add-context_window',
-    up(db) { addColumnIfMissing(db, 'conversations', 'context_window', 'INTEGER DEFAULT 200000'); },
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'context_window', 'INTEGER DEFAULT 200000'); },
   },
   {
     name: 'conversations-add-model',
-    up(db) { addColumnIfMissing(db, 'conversations', 'model', 'TEXT'); },
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'model', 'TEXT'); },
   },
 
   // --- Conversation branching ---
   {
     name: 'conversations-add-parent_conversation_id',
     up(db) {
-      const columns = getColumns(db, 'conversations');
+      const columns = getColumns(db, TABLE_CONVERSATIONS);
       if (!columns.includes('parent_conversation_id')) {
         db.exec(
           'ALTER TABLE conversations ADD COLUMN parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL'
@@ -147,7 +153,7 @@ export const conversationsMigrations = [
     name: 'conversations-add-branch_from_message_id',
     up(db) {
       addColumnIfMissing(
-        db, 'conversations', 'branch_from_message_id',
+        db, TABLE_CONVERSATIONS, 'branch_from_message_id',
         'TEXT REFERENCES conversation_messages(id) ON DELETE SET NULL'
       );
     },

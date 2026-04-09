@@ -125,7 +125,7 @@ export class ProjectDefaultsRepository extends BaseRepository {
    * @returns {Object|null} Updated defaults object with all fields set to null, or null if project has no defaults
    */
   resetToDefaults(projectId) {
-    let existing = this.getByProjectId(projectId);
+    const existing = this.getByProjectId(projectId);
 
     if (!existing) {
       // Return null for non-existent projects/defaults

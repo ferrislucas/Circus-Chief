@@ -70,13 +70,11 @@ vi.mock('./OrchestrationPanel.vue', () => ({
 
 // Mock composable
 vi.mock('../composables/useSubmitShortcut.js', () => ({
-  useSubmitShortcut: (fn) => {
-    return (event) => {
+  useSubmitShortcut: (fn) => (event) => {
       if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
         fn();
       }
-    };
-  },
+    },
 }));
 
 function mountComponent(props = {}) {

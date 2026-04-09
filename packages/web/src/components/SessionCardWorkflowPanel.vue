@@ -3,11 +3,16 @@
     <div class="workflow-sessions-list">
       <!-- Root session entry -->
       <div class="workflow-session-item root-session">
-        <router-link :to="`/sessions/${session.id}`" class="workflow-session-link">
+        <router-link
+          :to="`/sessions/${session.id}`"
+          class="workflow-session-link"
+        >
           <div class="workflow-session-label">
             <span class="workflow-session-role">&#x25C9; ROOT</span>
           </div>
-          <div class="workflow-session-name">{{ session.name }}</div>
+          <div class="workflow-session-name">
+            {{ session.name }}
+          </div>
           <div class="workflow-session-meta">
             <span class="workflow-session-summary">{{ rootSummaryText }}</span>
             <span class="workflow-session-date">{{ formatDate(session.lastActivityAt || session.updatedAt || session.createdAt) }}</span>
@@ -62,13 +67,9 @@ const props = defineProps({
   },
 });
 
-const rootSummaryText = computed(() => {
-  return props.summary?.shortSummary || 'No summary yet';
-});
+const rootSummaryText = computed(() => props.summary?.shortSummary || 'No summary yet');
 
-const allDescendants = computed(() => {
-  return sessionsStore.getAllDescendants(props.session.id);
-});
+const allDescendants = computed(() => sessionsStore.getAllDescendants(props.session.id));
 
 const getSessionDepth = (sessionId) => {
   const path = sessionsStore.getSessionPath(sessionId);

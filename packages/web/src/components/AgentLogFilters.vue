@@ -8,7 +8,7 @@
           class="filter-input"
           :value="startDateValue"
           @change="$emit('date-change', 'startDate', $event)"
-        />
+        >
       </div>
       <div class="filter-group">
         <label class="filter-label">To</label>
@@ -17,7 +17,7 @@
           class="filter-input"
           :value="endDateValue"
           @change="$emit('date-change', 'endDate', $event)"
-        />
+        >
       </div>
       <div class="filter-group">
         <label class="filter-label">Agent Type</label>
@@ -26,8 +26,16 @@
           :value="filters.agentType || ''"
           @change="$emit('filter-change', 'agentType', $event.target.value)"
         >
-          <option value="">All</option>
-          <option v-for="t in filterOptions.agentTypes" :key="t" :value="t">{{ t }}</option>
+          <option value="">
+            All
+          </option>
+          <option
+            v-for="t in filterOptions.agentTypes"
+            :key="t"
+            :value="t"
+          >
+            {{ t }}
+          </option>
         </select>
       </div>
       <div class="filter-group">
@@ -37,8 +45,16 @@
           :value="filters.callType || ''"
           @change="$emit('filter-change', 'callType', $event.target.value)"
         >
-          <option value="">All</option>
-          <option v-for="t in filterOptions.callTypes" :key="t" :value="t">{{ t }}</option>
+          <option value="">
+            All
+          </option>
+          <option
+            v-for="t in filterOptions.callTypes"
+            :key="t"
+            :value="t"
+          >
+            {{ t }}
+          </option>
         </select>
       </div>
       <div class="filter-group">
@@ -48,8 +64,16 @@
           :value="filters.status || ''"
           @change="$emit('filter-change', 'status', $event.target.value)"
         >
-          <option value="">All</option>
-          <option v-for="s in filterOptions.statuses" :key="s" :value="s">{{ s }}</option>
+          <option value="">
+            All
+          </option>
+          <option
+            v-for="s in filterOptions.statuses"
+            :key="s"
+            :value="s"
+          >
+            {{ s }}
+          </option>
         </select>
       </div>
       <div class="filter-group">
@@ -59,8 +83,16 @@
           :value="filters.model || ''"
           @change="$emit('filter-change', 'model', $event.target.value)"
         >
-          <option value="">All</option>
-          <option v-for="m in filterOptions.models" :key="m" :value="m">{{ m }}</option>
+          <option value="">
+            All
+          </option>
+          <option
+            v-for="m in filterOptions.models"
+            :key="m"
+            :value="m"
+          >
+            {{ m }}
+          </option>
         </select>
       </div>
       <button

@@ -24,9 +24,7 @@ describe('withConcurrencyGuard', () => {
       let wasActive = false;
       let resolvePromise;
 
-      const runPromise = guard.run('key-1', () => {
-        return new Promise((resolve) => { resolvePromise = resolve; });
-      });
+      const runPromise = guard.run('key-1', () => new Promise((resolve) => { resolvePromise = resolve; }));
 
       // After fn() is called and promise is stored, check if key is tracked
       // Need to yield to let the microtask run
@@ -197,9 +195,7 @@ describe('withConcurrencyGuard', () => {
       let resolvePromise;
 
       // Start a run to create active state
-      const runPromise = guard.run('key-1', () => {
-        return new Promise((resolve) => { resolvePromise = resolve; });
-      });
+      const runPromise = guard.run('key-1', () => new Promise((resolve) => { resolvePromise = resolve; }));
 
       // Add pending state
       await new Promise((r) => setTimeout(r, 0));
@@ -236,9 +232,7 @@ describe('withConcurrencyGuard', () => {
       const guard = createConcurrencyGuard();
       let resolvePromise;
 
-      const runPromise = guard.run('key-1', () => {
-        return new Promise((resolve) => { resolvePromise = resolve; });
-      });
+      const runPromise = guard.run('key-1', () => new Promise((resolve) => { resolvePromise = resolve; }));
 
       await new Promise((r) => setTimeout(r, 0));
       expect(guard.isActive('key-1')).toBe(true);
@@ -261,9 +255,7 @@ describe('withConcurrencyGuard', () => {
       let resolveFirst;
 
       // Start first run
-      const firstPromise = guard.run('key-1', () => {
-        return new Promise((resolve) => { resolveFirst = resolve; });
-      });
+      const firstPromise = guard.run('key-1', () => new Promise((resolve) => { resolveFirst = resolve; }));
 
       // Second call while first is in-flight triggers pending
       guard.run('key-1', () => Promise.resolve('second'));

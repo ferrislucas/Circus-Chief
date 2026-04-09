@@ -46,9 +46,7 @@ export const useSessionsStore = defineStore('sessions', {
     // ==================== SESSION GETTERS ====================
 
     // Helper: find a session by ID across both arrays (sessions first, then activeSessions)
-    _findSessionById: (state) => (id) => {
-      return state.sessions.find((s) => s.id === id) || state.activeSessions.find((s) => s.id === id);
-    },
+    _findSessionById: (state) => (id) => state.sessions.find((s) => s.id === id) || state.activeSessions.find((s) => s.id === id),
 
     // Helper: find children across both store arrays (deduplicated)
     _findChildren: (state) => (parentId) => {
@@ -62,9 +60,7 @@ export const useSessionsStore = defineStore('sessions', {
       return merged;
     },
 
-    getSessionById: (state) => (id) => {
-      return state.sessions.find((s) => s.id === id);
-    },
+    getSessionById: (state) => (id) => state.sessions.find((s) => s.id === id),
 
     getChildSessions() { return (parentId) => this._findChildren(parentId); },
 
@@ -230,7 +226,8 @@ export const useSessionsStore = defineStore('sessions', {
     // ==================== SESSION LIST HELPERS ====================
 
     _updateSessionInAllLists(sessionId, updates) {
-      const updateInArray = (arr, index) => {
+      const updateInArray = (arrInput, index) => {
+        const arr = arrInput;
         if (index !== -1) arr[index] = { ...arr[index], ...updates };
       };
       updateInArray(this.sessions, this.sessions.findIndex(s => s.id === sessionId));

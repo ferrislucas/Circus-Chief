@@ -119,12 +119,13 @@ function fetchConversationContext(sessionId, { existingSummary, recentMessages, 
  * Handles: metadata tracking, file aggregation, PR enrichment, upsert,
  * project repo auto-population, session name/prUrl update, and broadcasts.
  * @param {string} sessionId
- * @param {Object} summaryData - parsed summary data (mutated in place)
+ * @param {Object} summaryDataInput - parsed summary data (mutated in place)
  * @param {Object} session
  * @param {Array} allMessages
  * @returns {Promise<Object>} the persisted summary record
  */
-async function saveSummaryResult(sessionId, summaryData, session, allMessages) {
+async function saveSummaryResult(sessionId, summaryDataInput, session, allMessages) {
+  const summaryData = summaryDataInput;
   // Clean up internal flag before saving
   delete summaryData._parseFailed;
 
@@ -340,7 +341,7 @@ export async function generateSummaryNow(sessionId) {
     return null;
   }
   // Generate summary immediately and wait for completion
-  return await generateSummary(sessionId);
+  return generateSummary(sessionId);
 }
 
 /**
@@ -360,70 +361,87 @@ export function onSessionActivity(sessionId) {
 }
 
 /**
+ * Schedule CI status checks for a session with a PR.
+ * Uses dynamic import to avoid circular dependency.
+ * @param {string} sessionId
+ */
+function scheduleCiChecks(sessionId) {
+  const scheduleCiCheck = async () => {
+    const prStatusService = await import('./prStatusService.js');
+    prStatusService.checkSessionCiStatusNow(sessionId);
+  };
+  // Check after 2 minutes (CI often takes a few minutes)
+  setTimeout(scheduleCiCheck, 2 * 60 * 1000);
+  // Check again after 5 minutes
+  setTimeout(scheduleCiCheck, 5 * 60 * 1000);
+}
+
+/**
+ * Map session status to summary outcome.
+ * @param {string} status - Session status
+ * @returns {'failed'|'partial'|'completed'}
+ */
+function statusToOutcome(status) {
+  if (status === 'error') return 'failed';
+  if (status === 'stopped') return 'partial';
+  return 'completed';
+}
+
+/**
+ * Perform lightweight outcome-only update for a current summary.
+ * Returns true if handled (outcome unchanged or updated), false if summary generation needed.
+ * @param {string} sessionId
+ * @param {Object} existingSummary
+ * @param {Object} session
+ * @returns {boolean}
+ */
+function tryLightweightOutcomeUpdate(sessionId, existingSummary, session) {
+  if (!existingSummary || isSummaryStale(sessionId) || !session) {
+    return false;
+  }
+
+  const newOutcome = statusToOutcome(session.status);
+  if (existingSummary.outcome === newOutcome) {
+    console.log(`[SummaryService] Summary for session ${sessionId} is current and outcome unchanged, skipping generation`);
+    return true;
+  }
+
+  sessionSummaries.upsert(sessionId, { ...existingSummary, outcome: newOutcome });
+  console.log(`[SummaryService] Lightweight outcome update for session ${sessionId}: ${existingSummary.outcome} -> ${newOutcome}`);
+
+  const updatedSummary = sessionSummaries.getBySessionId(sessionId);
+  broadcastSummaryUpdate(sessionId, session.projectId, updatedSummary);
+  return true;
+}
+
+/**
  * Called when session completes - generate immediately if summary is stale,
  * otherwise do a lightweight outcome-only DB update (no LLM call).
  * Also schedules follow-up CI checks for sessions with PRs.
  * @param {string} sessionId
  */
 export function onSessionComplete(sessionId) {
-  // Early exit if session summaries are disabled globally
   const globalSettings = settings.getSummarySettings();
+  const session = sessions.getById(sessionId);
+
+  // Schedule CI checks if session has a PR (always, regardless of summary settings)
+  if (session?.prUrl) {
+    scheduleCiChecks(sessionId);
+  }
+
+  // Early exit if session summaries are disabled globally
   if (globalSettings?.disableSessionSummaries) {
-    // Still schedule CI checks below, but skip all summary work
-    const session = sessions.getById(sessionId);
-    if (session?.prUrl) {
-      const scheduleCiCheck = async () => {
-        const prStatusService = await import('./prStatusService.js');
-        prStatusService.checkSessionCiStatusNow(sessionId);
-      };
-      setTimeout(scheduleCiCheck, 2 * 60 * 1000);
-      setTimeout(scheduleCiCheck, 5 * 60 * 1000);
-    }
     return;
   }
 
-  // Lightweight outcome update: if summary exists and is current,
-  // just update the outcome field without calling the LLM
+  // Try lightweight outcome update first
   const existingSummary = sessionSummaries.getBySessionId(sessionId);
-  const session = sessions.getById(sessionId);
-  if (existingSummary && !isSummaryStale(sessionId) && session) {
-    const newOutcome = session.status === 'error' ? 'failed'
-      : session.status === 'stopped' ? 'partial'
-      : 'completed';
-    if (existingSummary.outcome !== newOutcome) {
-      sessionSummaries.upsert(sessionId, { ...existingSummary, outcome: newOutcome });
-      console.log(`[SummaryService] Lightweight outcome update for session ${sessionId}: ${existingSummary.outcome} -> ${newOutcome}`);
-
-      // Broadcast the updated summary
-      const updatedSummary = sessionSummaries.getBySessionId(sessionId);
-      broadcastSummaryUpdate(sessionId, session.projectId, updatedSummary);
-    } else {
-      console.log(`[SummaryService] Summary for session ${sessionId} is current and outcome unchanged, skipping generation`);
-    }
-    // Still schedule CI checks below
-  } else {
-    // Summary is stale or doesn't exist -- generate via LLM
-    const globalSettings = settings.getSummarySettings();
-    if (!globalSettings?.disableSessionSummaries) {
-      generateSummary(sessionId);
-    }
+  if (tryLightweightOutcomeUpdate(sessionId, existingSummary, session)) {
+    return;
   }
 
-  // Schedule follow-up CI checks for sessions with PRs
-  const sessionForCi = session || sessions.getById(sessionId);
-  if (sessionForCi?.prUrl) {
-    // Use dynamic import to avoid circular dependency with prStatusService
-    const scheduleCiCheck = async () => {
-      const prStatusService = await import('./prStatusService.js');
-      prStatusService.checkSessionCiStatusNow(sessionId);
-    };
-
-    // Check after 2 minutes (CI often takes a few minutes)
-    setTimeout(scheduleCiCheck, 2 * 60 * 1000);
-
-    // Check again after 5 minutes
-    setTimeout(scheduleCiCheck, 5 * 60 * 1000);
-  }
+  // Summary is stale or doesn't exist -- generate via LLM
+  generateSummary(sessionId);
 }
 
 /**

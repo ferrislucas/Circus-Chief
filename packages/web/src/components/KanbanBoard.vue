@@ -1,21 +1,38 @@
 <template>
   <div class="kanban-board">
-    <div v-if="loading" class="kanban-loading">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="loading"
+      class="kanban-loading"
+    >
+      <span class="loading-spinner" />
       Loading board...
     </div>
 
-    <div v-else-if="error" class="kanban-error">
+    <div
+      v-else-if="error"
+      class="kanban-error"
+    >
       <span class="error-icon">!</span>
       {{ error }}
-      <button class="retry-btn" @click="fetchBoard">Retry</button>
+      <button
+        class="retry-btn"
+        @click="fetchBoard"
+      >
+        Retry
+      </button>
     </div>
 
-    <div v-else-if="!board" class="kanban-empty">
+    <div
+      v-else-if="!board"
+      class="kanban-empty"
+    >
       <p>Kanban board is not available for this project.</p>
     </div>
 
-    <div v-else class="kanban-lanes-container">
+    <div
+      v-else
+      class="kanban-lanes-container"
+    >
       <div
         v-for="lane in board.lanes"
         :key="lane.id"
@@ -25,10 +42,22 @@
       >
         <div class="lane-header">
           <div class="lane-title-row">
-            <h3 class="lane-title">{{ lane.name }}</h3>
-            <span v-if="lane.onEnterTemplateId || lane.onEnterPrompt" class="lane-automation-indicator" title="Automation enabled">
-              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+            <h3 class="lane-title">
+              {{ lane.name }}
+            </h3>
+            <span
+              v-if="lane.onEnterTemplateId || lane.onEnterPrompt"
+              class="lane-automation-indicator"
+              title="Automation enabled"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </span>
           </div>
@@ -39,21 +68,38 @@
               title="Lane settings"
               @click="openLaneSettings(lane)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="3"
+                />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
               </svg>
             </button>
           </div>
         </div>
 
         <div class="lane-cards">
-          <template v-for="(card, cardIndex) in lane.cards" :key="card.id">
+          <template
+            v-for="(card, cardIndex) in lane.cards"
+            :key="card.id"
+          >
             <!-- Card drop indicator -->
             <div
               v-if="dragType === 'card' && dropCardLaneId === lane.id && dropCardIndex === cardIndex"
               class="card-drop-indicator"
-            ></div>
+            />
 
             <div
               class="kanban-card"
@@ -69,13 +115,21 @@
                 class="card-link"
               >
                 <div class="card-header">
-                  <span class="card-status" :class="`status-${card.sessions[0].status}`">
+                  <span
+                    class="card-status"
+                    :class="`status-${card.sessions[0].status}`"
+                  >
                     {{ getStatusIndicator(card.sessions[0].status) }}
                   </span>
-                  <h4 class="card-title">{{ card.sessions[0].name }}</h4>
+                  <h4 class="card-title">
+                    {{ card.sessions[0].name }}
+                  </h4>
                 </div>
                 <div class="card-meta">
-                  <span v-if="card.sessions[0].mode" class="card-mode">
+                  <span
+                    v-if="card.sessions[0].mode"
+                    class="card-mode"
+                  >
                     {{ card.sessions[0].mode }}
                   </span>
                 </div>
@@ -88,8 +142,18 @@
                   title="Move card up"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex - 1)"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="18 15 12 9 6 15"></polyline>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="18 15 12 9 6 15" />
                   </svg>
                 </button>
                 <button
@@ -98,8 +162,18 @@
                   title="Move card down"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex + 1)"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="6 9 12 15 18 9"></polyline>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
                   </svg>
                 </button>
               </div>
@@ -108,12 +182,31 @@
                 title="Move to lane"
                 @click.prevent="openMoveCardModal(card, lane.id)"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <polyline points="15 4 19 4 19 8"></polyline>
-                  <line x1="14" y1="10" x2="19" y2="4"></line>
-                  <polyline points="9 20 5 20 5 16"></polyline>
-                  <line x1="10" y1="14" x2="5" y2="20"></line>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="15 4 19 4 19 8" />
+                  <line
+                    x1="14"
+                    y1="10"
+                    x2="19"
+                    y2="4"
+                  />
+                  <polyline points="9 20 5 20 5 16" />
+                  <line
+                    x1="10"
+                    y1="14"
+                    x2="5"
+                    y2="20"
+                  />
                 </svg>
               </button>
               <button
@@ -130,20 +223,29 @@
           <div
             v-if="dragType === 'card' && dropCardLaneId === lane.id && dropCardIndex === (lane.cards?.length || 0)"
             class="card-drop-indicator"
-          ></div>
+          />
 
           <!-- Empty lane placeholder -->
-          <div v-if="!lane.cards?.length" class="lane-empty">
+          <div
+            v-if="!lane.cards?.length"
+            class="lane-empty"
+          >
             <span>Drop sessions here</span>
           </div>
         </div>
 
         <!-- Lane footer with automation info and add session button -->
         <div class="lane-footer">
-          <span v-if="lane.onEnterTemplateId" class="lane-automation">
+          <span
+            v-if="lane.onEnterTemplateId"
+            class="lane-automation"
+          >
             Auto: triggers template on entry
           </span>
-          <span v-else-if="lane.onEnterPrompt" class="lane-automation">
+          <span
+            v-else-if="lane.onEnterPrompt"
+            class="lane-automation"
+          >
             Auto: runs custom prompt on entry
           </span>
           <button
@@ -157,10 +259,17 @@
 
       <!-- Add lane button -->
       <div class="add-lane-container">
-        <button v-if="!showAddLane" class="add-lane-btn" @click="showAddLane = true">
+        <button
+          v-if="!showAddLane"
+          class="add-lane-btn"
+          @click="showAddLane = true"
+        >
           + Add Lane
         </button>
-        <div v-else class="add-lane-form">
+        <div
+          v-else
+          class="add-lane-form"
+        >
           <input
             v-model="newLaneName"
             type="text"
@@ -168,10 +277,20 @@
             class="add-lane-input"
             @keyup.enter="handleAddLane"
             @keyup.escape="cancelAddLane"
-          />
+          >
           <div class="add-lane-actions">
-            <button class="add-lane-confirm" @click="handleAddLane">Add</button>
-            <button class="add-lane-cancel" @click="cancelAddLane">Cancel</button>
+            <button
+              class="add-lane-confirm"
+              @click="handleAddLane"
+            >
+              Add
+            </button>
+            <button
+              class="add-lane-cancel"
+              @click="cancelAddLane"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       </div>
@@ -291,8 +410,9 @@ const handleCardDragStart = (event, card, laneId, cardIndex) => {
   draggedCard.value = card;
   draggedCardLaneId.value = laneId;
   draggedCardIndex.value = cardIndex;
-  event.dataTransfer.effectAllowed = 'move';
-  event.dataTransfer.setData('text/plain', card.id);
+  const dt = event.dataTransfer;
+  dt.effectAllowed = 'move';
+  dt.setData('text/plain', card.id);
 };
 
 const handleCardDragOver = (event, laneId, cardIndex) => {
@@ -323,51 +443,68 @@ const handleDragEnd = () => {
   dropCardIndex.value = -1;
 };
 
+/**
+ * Reorder cards within the same lane.
+ * @param {string} laneId - The lane ID
+ * @param {number} sourceIndex - Original card index
+ * @param {number} dropIndex - Where the card was dropped
+ */
+const reorderCardsInLane = async (laneId, sourceIndex, dropIndex) => {
+  const lane = board.value?.lanes?.find((l) => l.id === laneId);
+  if (!lane?.cards) return;
+
+  let targetIndex = dropIndex >= 0 ? dropIndex : lane.cards.length;
+  // Adjust for removal of source card
+  if (targetIndex > sourceIndex) targetIndex--;
+  if (targetIndex === sourceIndex) return;
+
+  const newOrder = lane.cards.map((c) => c.id);
+  const [movedId] = newOrder.splice(sourceIndex, 1);
+  newOrder.splice(targetIndex, 0, movedId);
+
+  try {
+    await kanbanStore.reorderCards(props.projectId, laneId, newOrder);
+  } catch (err) {
+    console.error('Failed to reorder cards:', err);
+  }
+};
+
+/**
+ * Move a card to a different lane.
+ * @param {string} cardId - The card ID
+ * @param {string} targetLaneId - The target lane ID
+ */
+const moveCardToLane = async (cardId, targetLaneId) => {
+  try {
+    await kanbanStore.moveCard(props.projectId, cardId, targetLaneId, {
+      runOnEnterTemplate: true,
+    });
+  } catch (err) {
+    console.error('Failed to move card:', err);
+  }
+};
+
 // --- Drop handler (card drops only) ---
 const handleDrop = async (event, targetLaneId) => {
   event.preventDefault();
 
-  if (dragType.value !== 'card') {
+  if (dragType.value !== 'card' || !draggedCard.value) {
     handleDragEnd();
     return;
   }
 
   const cardId = event.dataTransfer.getData('text/plain');
-  if (!cardId || !draggedCard.value) {
+  if (!cardId) {
     handleDragEnd();
     return;
   }
 
   const sourceLaneId = draggedCardLaneId.value;
-  const sourceIndex = draggedCardIndex.value;
 
   if (sourceLaneId === targetLaneId) {
-    // Same lane — reorder
-    const lane = board.value?.lanes?.find((l) => l.id === targetLaneId);
-    if (lane?.cards) {
-      let targetIndex = dropCardIndex.value >= 0 ? dropCardIndex.value : lane.cards.length;
-      // Adjust for removal of source card
-      if (targetIndex > sourceIndex) targetIndex--;
-      if (targetIndex !== sourceIndex) {
-        const newOrder = lane.cards.map((c) => c.id);
-        const [movedId] = newOrder.splice(sourceIndex, 1);
-        newOrder.splice(targetIndex, 0, movedId);
-        try {
-          await kanbanStore.reorderCards(props.projectId, targetLaneId, newOrder);
-        } catch (err) {
-          console.error('Failed to reorder cards:', err);
-        }
-      }
-    }
+    await reorderCardsInLane(targetLaneId, draggedCardIndex.value, dropCardIndex.value);
   } else {
-    // Different lane — move card
-    try {
-      await kanbanStore.moveCard(props.projectId, cardId, targetLaneId, {
-        runOnEnterTemplate: true,
-      });
-    } catch (err) {
-      console.error('Failed to move card:', err);
-    }
+    await moveCardToLane(cardId, targetLaneId);
   }
 
   handleDragEnd();

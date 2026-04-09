@@ -37,6 +37,35 @@ function prepareLaneValues(data) {
 }
 
 /**
+ * Boolean field configurations for update operations.
+ * - nullable: true means null values are preserved (converts to null in DB)
+ * - nullable: false means values are coerced to 0/1
+ */
+const BOOLEAN_FIELDS = {
+  onEnterThinkingEnabled: { nullable: true },
+  onEnterAutoRescheduleEnabled: { nullable: false },
+  onEnterRescheduleOnTokenLimit: { nullable: false },
+  onEnterRescheduleOnServiceError: { nullable: false },
+};
+
+/**
+ * Convert a field value for SQL update, handling booleans specially.
+ * @param {string} fieldName - The camelCase field name
+ * @param {*} value - The value to convert
+ * @returns {*} The converted value
+ */
+function convertFieldValue(fieldName, value) {
+  const boolConfig = BOOLEAN_FIELDS[fieldName];
+  if (!boolConfig) {
+    return value;
+  }
+  if (boolConfig.nullable && value === null) {
+    return null;
+  }
+  return value ? 1 : 0;
+}
+
+/**
  * Kanban lane repository class
  */
 export class KanbanLaneRepository extends BaseRepository {
@@ -55,11 +84,11 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMode: row.on_enter_mode,
       onEnterModel: row.on_enter_model,
       onEnterEffortLevel: row.on_enter_effort_level,
-      onEnterThinkingEnabled: row.on_enter_thinking_enabled === null ? null : !!row.on_enter_thinking_enabled,
-      onEnterAutoRescheduleEnabled: !!row.on_enter_auto_reschedule_enabled,
+      onEnterThinkingEnabled: row.on_enter_thinking_enabled === null ? null : Boolean(row.on_enter_thinking_enabled),
+      onEnterAutoRescheduleEnabled: Boolean(row.on_enter_auto_reschedule_enabled),
       onEnterRescheduleDelayMinutes: row.on_enter_reschedule_delay_minutes,
-      onEnterRescheduleOnTokenLimit: row.on_enter_reschedule_on_token_limit === null ? null : !!row.on_enter_reschedule_on_token_limit,
-      onEnterRescheduleOnServiceError: row.on_enter_reschedule_on_service_error === null ? null : !!row.on_enter_reschedule_on_service_error,
+      onEnterRescheduleOnTokenLimit: row.on_enter_reschedule_on_token_limit === null ? null : Boolean(row.on_enter_reschedule_on_token_limit),
+      onEnterRescheduleOnServiceError: row.on_enter_reschedule_on_service_error === null ? null : Boolean(row.on_enter_reschedule_on_service_error),
       onEnterMaxRescheduleCount: row.on_enter_max_reschedule_count,
       onEnterMaxTotalTokens: row.on_enter_max_total_tokens,
       onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
@@ -166,17 +195,7 @@ export class KanbanLaneRepository extends BaseRepository {
     for (const [camelKey, snakeKey] of Object.entries(fieldMap)) {
       if (data[camelKey] !== undefined) {
         updates.push(`${snakeKey} = ?`);
-
-        // Handle boolean conversions for specific fields
-        if (camelKey === 'onEnterThinkingEnabled') {
-          values.push(data[camelKey] === null ? null : (data[camelKey] ? 1 : 0));
-        } else if (camelKey === 'onEnterAutoRescheduleEnabled' ||
-                   camelKey === 'onEnterRescheduleOnTokenLimit' ||
-                   camelKey === 'onEnterRescheduleOnServiceError') {
-          values.push(data[camelKey] ? 1 : 0);
-        } else {
-          values.push(data[camelKey]);
-        }
+        values.push(convertFieldValue(camelKey, data[camelKey]));
       }
     }
 

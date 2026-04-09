@@ -17,7 +17,7 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   const hasNewMessages = ref(false);
   const userScrolledAway = ref(false);
   let programmaticScroll = false;
-  let debounceTimer = null;
+  const debounceTimer = null;
   const SCROLL_THRESHOLD = 100; // pixels from bottom
 
   /**

@@ -7,9 +7,7 @@ vi.mock('vue', async () => {
   const actual = await vi.importActual('vue');
   return {
     ...actual,
-    Teleport: (props, { slots }) => {
-      return slots.default ? slots.default() : null;
-    },
+    Teleport: (props, { slots }) => slots.default ? slots.default() : null,
   };
 });
 

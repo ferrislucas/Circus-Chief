@@ -1,10 +1,17 @@
 <template>
-  <div class="conversation-tab" :class="{ 'connection-stale': isStale }">
+  <div
+    class="conversation-tab"
+    :class="{ 'connection-stale': isStale }"
+  >
     <!-- Stale content badge -->
-    <StaleBadge :isStale="isStale" />
+    <StaleBadge :is-stale="isStale" />
 
     <!-- Unified Conversation Panel - selector + BTE cost display -->
-    <ConversationPanel v-if="!isScheduledForFuture" :session-id="sessionId" :hide-new-conversation="hideNewConversation" />
+    <ConversationPanel
+      v-if="!isScheduledForFuture"
+      :session-id="sessionId"
+      :hide-new-conversation="hideNewConversation"
+    />
 
     <ConversationMessages
       ref="conversationMessagesRef"
@@ -35,7 +42,6 @@
       :session-id="sessionId"
       :model-value="input"
       :selected-model="selectedModel"
-      @update:selectedModel="selectedModel = $event"
       :can-send-message="canSendMessage"
       :is-draft="isDraft"
       :is-scheduled-draft="isScheduledDraft"
@@ -46,6 +52,7 @@
       :save-status="saveStatus"
       :input-has-content="inputHasContent"
       :thinking-enabled="sessionsStore.currentSession?.thinkingEnabled"
+      @update:selectedModel="selectedModel = $event"
       :working-directory="workingDirectory"
       :project-id="sessionsStore.currentSession?.projectId"
       :current-template-id="sessionsStore.currentSession?.nextTemplateId"
@@ -56,16 +63,16 @@
       :is-send-disabled="isSendDisabled"
       :auto-send-pending-prompt="sessionsStore.currentSession?.autoSendPendingPrompt ?? false"
       @submit="handleFormSubmit"
-      @autoSendToggle="handleAutoSendToggle"
+      @auto-send-toggle="handleAutoSendToggle"
       @input="handleInput"
-      @quickResponseInsert="handleQuickResponseInsert"
-      @openQuickResponseSettings="quickResponseSettingsOpen = true"
-      @update:attachedFiles="attachedFiles = $event"
-      @openSlashCommand="showSlashCommandWizard = true"
-      @thinkingToggle="handleThinkingToggle"
-      @openSchedule="showScheduleModal = true"
-      @openAutoReschedule="showAutoRescheduleModal = true"
-      @templateChange="handleTemplateChange"
+      @quick-response-insert="handleQuickResponseInsert"
+      @open-quick-response-settings="quickResponseSettingsOpen = true"
+      @update:attached-files="attachedFiles = $event"
+      @open-slash-command="showSlashCommandWizard = true"
+      @thinking-toggle="handleThinkingToggle"
+      @open-schedule="showScheduleModal = true"
+      @open-auto-reschedule="showAutoRescheduleModal = true"
+      @template-change="handleTemplateChange"
     />
 
     <!-- Scheduling Info Panel (scheduled countdown + auto-reschedule status) -->
@@ -76,15 +83,15 @@
 
     <!-- Quick Response Settings Modal -->
     <QuickResponseSettings
-      :isOpen="quickResponseSettingsOpen"
-      :projectId="sessionsStore.currentSession?.projectId"
+      :is-open="quickResponseSettingsOpen"
+      :project-id="sessionsStore.currentSession?.projectId"
       @close="quickResponseSettingsOpen = false"
     />
 
     <!-- Schedule Session Modal -->
     <ScheduleSessionModal
-      v-model:isOpen="showScheduleModal"
-      :sessionId="sessionId"
+      v-model:is-open="showScheduleModal"
+      :session-id="sessionId"
       @close="closeScheduleModal"
     />
 
@@ -98,12 +105,11 @@
 
     <!-- Slash Command Wizard Modal -->
     <SlashCommandWizard
-      v-model:isOpen="showSlashCommandWizard"
-      :workingDirectory="workingDirectory"
+      v-model:is-open="showSlashCommandWizard"
+      :working-directory="workingDirectory"
       mode="insert"
       @insert="handleSlashCommandInsert"
     />
-
   </div>
 </template>
 
@@ -181,9 +187,7 @@ const canSendMessage = computed(() => {
   return status === 'waiting' || status === 'scheduled' || status === 'stopped' || status === 'error';
 });
 
-const isRunning = computed(() => {
-  return sessionsStore.currentSession?.status === 'running';
-});
+const isRunning = computed(() => sessionsStore.currentSession?.status === 'running');
 
 const isDraft = computed(() => {
   if (!sessionsStore.currentSession) return false;
@@ -201,13 +205,9 @@ const activeModelDisplayName = computed(() => {
   return getModelDisplayName(model);
 });
 
-const unassociatedWorkLogs = computed(() => {
-  return sessionsStore.getUnassociatedWorkLogs;
-});
+const unassociatedWorkLogs = computed(() => sessionsStore.getUnassociatedWorkLogs);
 
-const inputHasContent = computed(() => {
-  return input.value.trim().length > 0;
-});
+const inputHasContent = computed(() => input.value.trim().length > 0);
 
 const isSendDisabled = computed(() => {
   if (isStale.value) return true;
@@ -241,9 +241,7 @@ const sendButtonDisabledReason = computed(() => {
   return null;
 });
 
-const isScheduledForFuture = computed(() => {
-  return sessionsStore.isScheduledDraft(sessionsStore.currentSession);
-});
+const isScheduledForFuture = computed(() => sessionsStore.isScheduledDraft(sessionsStore.currentSession));
 
 const nextTemplate = computed(() => {
   const templateId = sessionsStore.currentSession?.nextTemplateId;
@@ -331,6 +329,14 @@ onUnmounted(() => {
   sessionsStore.clearWorkLogs();
 });
 
+// Statuses that indicate a session has terminated
+const terminalStatuses = new Set(['stopped', 'error', 'completed']);
+
+// Check whether the server consumed the pending prompt and the local input should be cleared
+function shouldClearInputAfterRun(session, inputVal) {
+  return session && !session.pendingPrompt && !session.autoSendPendingPrompt && inputVal;
+}
+
 // Re-fetch messages and work logs when session status changes from running to waiting/completed
 watch(
   () => sessionsStore.currentSession?.status,
@@ -348,17 +354,14 @@ watch(
     }
 
     // Reset auto-send flag on stop/error/completed transitions
-    if (newStatus === 'stopped' || newStatus === 'error' || newStatus === 'completed') {
-      if (sessionsStore.currentSession?.autoSendPendingPrompt) {
-        sessionsStore.updateAutoSendPendingPrompt(props.sessionId, false);
-      }
+    if (terminalStatuses.has(newStatus) && sessionsStore.currentSession?.autoSendPendingPrompt) {
+      sessionsStore.updateAutoSendPendingPrompt(props.sessionId, false);
     }
 
     // If server consumed the pending prompt (auto-send), clear local input.
     if (oldStatus === 'running' && newStatus !== 'running') {
       await nextTick();
-      const session = sessionsStore.currentSession;
-      if (session && !session.pendingPrompt && !session.autoSendPendingPrompt && input.value) {
+      if (shouldClearInputAfterRun(sessionsStore.currentSession, input.value)) {
         input.value = '';
       }
     }
@@ -377,9 +380,9 @@ watch(
         if (userMessage && userMessage.content) {
           input.value = userMessage.content;
           nextTick(() => {
-            const ref = inputFormRef.value?.textareaRef;
-            if (ref) {
-              ref.value = userMessage.content;
+            const textareaEl = inputFormRef.value?.textareaRef;
+            if (textareaEl) {
+              textareaEl.value = userMessage.content;
             }
           });
         }
@@ -480,7 +483,7 @@ async function handleFormSubmit() {
 
 function handleQuickResponseInsert({ content, autoSubmit }) {
   const currentValue = input.value.trim();
-  const newValue = currentValue ? currentValue + '\n\n' + content : content;
+  const newValue = currentValue ? `${currentValue  }\n\n${  content}` : content;
   input.value = newValue;
 
   if (autoSubmit) {
@@ -529,9 +532,9 @@ function closeScheduleModal() {
 function handleSlashCommandInsert({ text }) {
   const existing = input.value.trim();
   if (existing) {
-    input.value = text + ' ' + existing;
+    input.value = `${text  } ${  existing}`;
   } else {
-    input.value = text + ' ';
+    input.value = `${text  } `;
   }
 
   nextTick(() => {

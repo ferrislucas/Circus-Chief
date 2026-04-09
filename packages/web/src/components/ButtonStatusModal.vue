@@ -1,16 +1,32 @@
 <template>
-  <div v-if="isOpen" class="modal-overlay" @click="close" data-testid="button-status-modal">
-    <div class="modal-dialog" @click.stop>
+  <div
+    v-if="isOpen"
+    class="modal-overlay"
+    data-testid="button-status-modal"
+    @click="close"
+  >
+    <div
+      class="modal-dialog"
+      @click.stop
+    >
       <div class="modal-header">
         <h3>{{ button.label }}</h3>
-        <button type="button" class="modal-close" @click="close" aria-label="Close">
+        <button
+          type="button"
+          class="modal-close"
+          aria-label="Close"
+          @click="close"
+        >
           ×
         </button>
       </div>
 
       <div class="modal-body">
         <!-- Command Section -->
-        <div v-if="button.command" class="command-section">
+        <div
+          v-if="button.command"
+          class="command-section"
+        >
           <span class="section-label">Command:</span>
           <code class="command-text">{{ button.command }}</code>
         </div>
@@ -19,18 +35,27 @@
         <div class="status-section">
           <div class="status-row">
             <span class="status-label">Status:</span>
-            <span :class="['status-badge', `status-${statusDisplay.color}`]" data-testid="button-status-badge">
+            <span
+              :class="['status-badge', `status-${statusDisplay.color}`]"
+              data-testid="button-status-badge"
+            >
               {{ statusDisplay.text }}
             </span>
           </div>
 
           <!-- Never run message -->
-          <div v-if="!latestRun" class="info-message">
+          <div
+            v-if="!latestRun"
+            class="info-message"
+          >
             This button has not been run yet.
           </div>
 
           <!-- Running status details -->
-          <div v-else-if="latestRun.status === 'running'" class="status-details">
+          <div
+            v-else-if="latestRun.status === 'running'"
+            class="status-details"
+          >
             <div class="detail-row">
               <span class="detail-label">Elapsed Time:</span>
               <span class="detail-value">{{ elapsedTime }}</span>
@@ -46,8 +71,14 @@
           </div>
 
           <!-- Success status details -->
-          <div v-else-if="latestRun.status === 'success'" class="status-details">
-            <div v-if="duration" class="detail-row">
+          <div
+            v-else-if="latestRun.status === 'success'"
+            class="status-details"
+          >
+            <div
+              v-if="duration"
+              class="detail-row"
+            >
               <span class="detail-label">Duration:</span>
               <span class="detail-value">{{ duration }}</span>
             </div>
@@ -70,8 +101,14 @@
           </div>
 
           <!-- Error status details -->
-          <div v-else-if="latestRun.status === 'error'" class="status-details">
-            <div v-if="duration" class="detail-row">
+          <div
+            v-else-if="latestRun.status === 'error'"
+            class="status-details"
+          >
+            <div
+              v-if="duration"
+              class="detail-row"
+            >
               <span class="detail-label">Duration:</span>
               <span class="detail-value">{{ duration }}</span>
             </div>
@@ -95,41 +132,72 @@
         </div>
 
         <!-- Output Section (collapsible) -->
-        <div v-if="latestRun && hasOutput" class="output-section">
-          <div class="output-header" @click="showOutput = !showOutput" data-testid="output-header">
+        <div
+          v-if="latestRun && hasOutput"
+          class="output-section"
+        >
+          <div
+            class="output-header"
+            data-testid="output-header"
+            @click="showOutput = !showOutput"
+          >
             <span class="expand-icon">{{ showOutput ? '▼' : '▶' }}</span>
             <span class="output-label">Process Output</span>
-            <span v-if="loadingOutput" class="output-loading" data-testid="output-loading">Loading...</span>
+            <span
+              v-if="loadingOutput"
+              class="output-loading"
+              data-testid="output-loading"
+            >Loading...</span>
           </div>
 
-          <div v-if="showOutput" class="output-content" data-testid="output-content">
-            <div v-if="loadingOutput" class="output-loading-indicator" data-testid="output-loading-content">
-              <span class="loading-spinner"></span>
+          <div
+            v-if="showOutput"
+            class="output-content"
+            data-testid="output-content"
+          >
+            <div
+              v-if="loadingOutput"
+              class="output-loading-indicator"
+              data-testid="output-loading-content"
+            >
+              <span class="loading-spinner" />
               Loading output...
             </div>
             <template v-else>
-              <div v-if="outputIsTruncatedForDisplay" class="output-truncated" data-testid="output-truncated">
+              <div
+                v-if="outputIsTruncatedForDisplay"
+                class="output-truncated"
+                data-testid="output-truncated"
+              >
                 ↑ Showing last 200 lines of output
               </div>
               <div
                 ref="outputContainerRef"
                 class="output-text"
-                v-html="formattedOutput || '(no output)'"
                 data-testid="output-text"
-              ></div>
+                v-html="formattedOutput || '(no output)'"
+              />
             </template>
           </div>
         </div>
       </div>
 
-      <div class="modal-footer" :class="{ 'modal-footer-spaced': canRemoveRun }">
-        <div v-if="canRemoveRun" class="remove-run-area">
+      <div
+        class="modal-footer"
+        :class="{ 'modal-footer-spaced': canRemoveRun }"
+      >
+        <div
+          v-if="canRemoveRun"
+          class="remove-run-area"
+        >
           <template v-if="!showConfirmation">
             <button
               class="btn btn-danger"
               data-testid="remove-run-button"
               @click="showConfirmation = true"
-            >Remove Run</button>
+            >
+              Remove Run
+            </button>
           </template>
           <template v-else>
             <span class="confirm-text">Are you sure?</span>
@@ -138,17 +206,30 @@
               data-testid="confirm-remove-button"
               :disabled="deleting"
               @click="handleRemoveRun"
-            >{{ deleting ? 'Removing...' : 'Confirm' }}</button>
+            >
+              {{ deleting ? 'Removing...' : 'Confirm' }}
+            </button>
             <button
               class="btn btn-secondary"
               data-testid="cancel-remove-button"
               :disabled="deleting"
               @click="cancelConfirmation"
-            >Cancel</button>
-            <span v-if="deleteError" class="delete-error" data-testid="delete-error">{{ deleteError }}</span>
+            >
+              Cancel
+            </button>
+            <span
+              v-if="deleteError"
+              class="delete-error"
+              data-testid="delete-error"
+            >{{ deleteError }}</span>
           </template>
         </div>
-        <button class="btn btn-primary" @click="close">Close</button>
+        <button
+          class="btn btn-primary"
+          @click="close"
+        >
+          Close
+        </button>
       </div>
     </div>
   </div>
@@ -205,9 +286,7 @@ const resolvedOutput = computed(() => {
 });
 
 // Check if we have any output (either from store or props)
-const hasOutput = computed(() => {
-  return !!resolvedOutput.value || loadingOutput.value;
-});
+const hasOutput = computed(() => Boolean(resolvedOutput.value) || loadingOutput.value);
 
 const updateFormattedOutput = () => {
   const output = resolvedOutput.value;
@@ -239,9 +318,7 @@ const debounce = (fn, delay) => {
 
 const debouncedUpdateOutput = debounce(updateFormattedOutput, 250);
 
-const canRemoveRun = computed(() => {
-  return props.latestRun && props.latestRun.status !== 'running';
-});
+const canRemoveRun = computed(() => props.latestRun && props.latestRun.status !== 'running');
 
 const statusDisplay = computed(() => {
   if (!props.latestRun) {
@@ -335,43 +412,45 @@ const handleRemoveRun = async () => {
   }
 };
 
+async function ensureRunOutputLoaded() {
+  if (!props.latestRun?.runId || !props.sessionId) return;
+  const runId = props.latestRun.runId;
+
+  // Ensure the run is in the store (it may only exist in session.latestCommandRuns)
+  if (!commandButtonsStore.getRun(runId)) {
+    // Seed the store with the run metadata we already have
+    commandButtonsStore.runs[runId] = {
+      runId,
+      buttonId: props.latestRun.buttonId,
+      sessionId: props.sessionId,
+      status: props.latestRun.status,
+      output: props.latestRun.output || '',
+      exitCode: props.latestRun.exitCode,
+      startedAt: props.latestRun.startedAt,
+      completedAt: props.latestRun.completedAt,
+      outputTruncated: false,
+    };
+  }
+
+  // Fetch full output if not already loaded (skip for running commands)
+  const storeRun = commandButtonsStore.getRun(runId);
+  if (storeRun && storeRun.status !== 'running' && !storeRun.output) {
+    loadingOutput.value = true;
+    try {
+      await commandButtonsStore.fetchRunOutput(props.sessionId, runId);
+    } finally {
+      loadingOutput.value = false;
+    }
+  }
+}
+
 watch(
   () => props.isOpen,
   async (newValue) => {
     if (newValue) {
       startTimer();
-
       // On-demand output fetching: when the modal opens, fetch the output if not already loaded
-      if (props.latestRun?.runId && props.sessionId) {
-        const runId = props.latestRun.runId;
-
-        // Ensure the run is in the store (it may only exist in session.latestCommandRuns)
-        if (!commandButtonsStore.getRun(runId)) {
-          // Seed the store with the run metadata we already have
-          commandButtonsStore.runs[runId] = {
-            runId,
-            buttonId: props.latestRun.buttonId,
-            sessionId: props.sessionId,
-            status: props.latestRun.status,
-            output: props.latestRun.output || '',
-            exitCode: props.latestRun.exitCode,
-            startedAt: props.latestRun.startedAt,
-            completedAt: props.latestRun.completedAt,
-            outputTruncated: false,
-          };
-        }
-
-        // Fetch full output if not already loaded (skip for running commands)
-        const storeRun = commandButtonsStore.getRun(runId);
-        if (storeRun && storeRun.status !== 'running' && !storeRun.output) {
-          loadingOutput.value = true;
-          try {
-            await commandButtonsStore.fetchRunOutput(props.sessionId, runId);
-          } finally {
-            loadingOutput.value = false;
-          }
-        }
-      }
+      await ensureRunOutputLoaded();
     } else {
       stopTimer();
     }
