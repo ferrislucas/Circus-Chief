@@ -93,6 +93,54 @@ export function useSessionFiltering() {
   });
 
   /**
+   * Count of workflow groups that would match each status filter,
+   * given the CURRENT starred + scheduled filters, but IGNORING the
+   * current statusFilter. This keeps both counts visible even when
+   * one is selected.
+   *
+   * Implementation note: getWorkflowAggregatedStatus is computed
+   * exactly once per surviving group to avoid duplicate work when
+   * the scheduled filter is active.
+   */
+  const statusFilterCounts = computed(() => {
+    // Apply star filter (same semantics as filteredGroupedSessions).
+    let groups = sessionsStore.groupedSessions;
+    if (sessionsStore.starredFilter === 'starred') {
+      groups = groups.filter((g) => g.parent.starred);
+    } else if (sessionsStore.starredFilter === 'unstarred') {
+      groups = groups.filter((g) => !g.parent.starred);
+    }
+
+    // Compute aggregated status once per group.
+    const decorated = groups.map((g) => ({
+      group: g,
+      status: sessionsStore.getWorkflowAggregatedStatus(g.parent.id),
+    }));
+
+    // Apply scheduled filter using the cached status.
+    let filtered = decorated;
+    if (sessionsStore.scheduledFilter) {
+      filtered = decorated.filter(({ status }) => {
+        const hasScheduled = status.scheduledCount > 0;
+        return sessionsStore.scheduledFilter === 'scheduled'
+          ? hasScheduled
+          : !hasScheduled;
+      });
+    }
+
+    // Bucket by effectiveStatus. effectiveStatus === 'running' already
+    // includes the 'starting' nuance from the store (runningStatuses
+    // = ['running', 'starting']).
+    let running = 0;
+    let idle = 0;
+    for (const { status } of filtered) {
+      if (status.effectiveStatus === 'running') running++;
+      else idle++;
+    }
+    return { running, idle };
+  });
+
+  /**
    * Computed filtered grouped sessions, applying status, starred, and scheduled filters.
    */
   const filteredGroupedSessions = computed(() => {
@@ -148,5 +196,6 @@ export function useSessionFiltering() {
     toggleScheduledFilterIcon,
     scheduledFilterTooltip,
     filteredGroupedSessions,
+    statusFilterCounts,
   };
 }

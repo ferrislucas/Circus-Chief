@@ -8,6 +8,11 @@
       <div class="log-header-left">
         <span class="pulse-dot" />
         <span class="log-header-label">Live Output</span>
+        <span
+          v-if="activeModel"
+          class="log-header-model"
+          data-testid="live-output-model"
+        >{{ activeModel }}</span>
       </div>
       <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="18 15 12 9 6 15"></polyline>
@@ -46,7 +51,11 @@
     @click.stop.prevent="toggleCollapse"
   >
     <span class="pulse-dot" />
-    <span class="log-collapsed-label">Show live output</span>
+    <span class="log-collapsed-label">Show live output<span
+      v-if="activeModel"
+      class="log-collapsed-model"
+      data-testid="live-output-model-collapsed"
+    > · {{ activeModel }}</span></span>
     <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <polyline points="6 9 12 15 18 9"></polyline>
     </svg>
@@ -56,12 +65,28 @@
 <script setup>
 import { computed } from 'vue';
 import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
+import { useSessionsStore } from '../stores/sessions.js';
 
 const props = defineProps({
   sessionIds: { type: Array, required: true },
 });
 
 const streamingStore = useSessionStreamingStore();
+const sessionsStore = useSessionsStore();
+
+function resolveSession(id) {
+  if (!id) return null;
+  if (sessionsStore.currentSession?.id === id) return sessionsStore.currentSession;
+  return sessionsStore._findSessionById(id) || null;
+}
+
+const activeModel = computed(() => {
+  for (const id of props.sessionIds) {
+    const session = resolveSession(id);
+    if (session?.model) return session.model;
+  }
+  return '';
+});
 
 // Merge work logs from all running sessions
 const recentLogs = computed(() => {
@@ -227,6 +252,22 @@ function toggleCollapse() {
 
 .log-collapsed .chevron-icon {
   margin-left: auto;
+}
+
+.log-header-model {
+  font-size: 0.65rem;
+  color: var(--color-primary, #22d3ee);
+  opacity: 0.85;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  padding: 0 0.35rem;
+  border-radius: 4px;
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.log-collapsed-model {
+  color: var(--color-primary, #22d3ee);
+  opacity: 0.7;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 }
 
 @keyframes pulse-glow {

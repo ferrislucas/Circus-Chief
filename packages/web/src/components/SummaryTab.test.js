@@ -773,6 +773,78 @@ describe('SummaryTab', () => {
 
       expect(wrapper.find('.expand-toggle').exists()).toBe(false);
     });
+
+    it('shows model badge when latest response has a model field', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Response from Opus',
+          timestamp: Date.now(),
+          role: 'assistant',
+          model: 'claude-opus-4-6',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelBadge = wrapper.find('.response-model');
+      expect(modelBadge.exists()).toBe(true);
+      expect(modelBadge.text()).toBe('Opus 4.6');
+    });
+
+    it('does not show model badge when latest response has no model field', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Response without model',
+          timestamp: Date.now(),
+          role: 'assistant',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.response-model').exists()).toBe(false);
+    });
+
+    it('does not show model badge when model field is null', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Response with null model',
+          timestamp: Date.now(),
+          role: 'assistant',
+          model: null,
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.response-model').exists()).toBe(false);
+    });
+
+    it('formats unknown model IDs into readable names', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: {
+          content: 'Response from unknown model',
+          timestamp: Date.now(),
+          role: 'assistant',
+          model: 'some-custom-model-20250101',
+        },
+        sessionName: 'Test Session',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const modelBadge = wrapper.find('.response-model');
+      expect(modelBadge.exists()).toBe(true);
+      // formatModelId strips date suffix and title-cases
+      expect(modelBadge.text()).toBe('Some Custom Model');
+    });
   });
 
   describe('Work Time Display', () => {
@@ -1034,6 +1106,44 @@ describe('SummaryTab', () => {
 
       // Should still show the original response
       expect(wrapper.text()).toContain('Initial API response');
+    });
+
+    it('shows model badge from real-time assistant message', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(false);
+
+      // Fire onMessage with an assistant message that includes a model
+      const onMessageCb = getOnMessageCallback();
+      onMessageCb({
+        role: 'assistant',
+        content: 'Real-time response with model',
+        timestamp: Date.now(),
+        model: 'claude-sonnet-4-6',
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      const modelBadge = wrapper.find('.response-model');
+      expect(modelBadge.exists()).toBe(true);
+      expect(modelBadge.text()).toBe('Sonnet 4.6');
+    });
+
+    it('does not show model badge when real-time message has no model', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const onMessageCb = getOnMessageCallback();
+      onMessageCb({
+        role: 'assistant',
+        content: 'Real-time response without model',
+        timestamp: Date.now(),
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.find('.response-model').exists()).toBe(false);
     });
 
     it('shows session name from current session in real-time update', async () => {
