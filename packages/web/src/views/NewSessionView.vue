@@ -594,8 +594,6 @@ h1 {
 
 .form {
   width: 100%;
-  max-width: 640px;
-  margin: 0 auto;
 }
 
 .form-help {
@@ -620,6 +618,8 @@ h1 {
 
 .btn-submit {
   flex: 1;
+  justify-content: center;
+  text-align: center;
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
   font-size: 1.05rem;
