@@ -4,12 +4,18 @@
  */
 import { addColumnIfMissing, getColumns, getTableSql } from './migrationUtils.js';
 
+// Table name constants for migrations
+const TABLE_SESSIONS = 'sessions';
+
+// Column type constants
+const COL_INTEGER_DEFAULT_0 = 'INTEGER DEFAULT 0';
+
 /**
  * Migrate sessions table to include 'stopped' and 'scheduled' in status CHECK constraint.
  * SQLite doesn't support ALTER TABLE to modify constraints, so we recreate the table.
  */
 function migrateSessionsStatusConstraint(db) {
-  const tableSql = getTableSql(db, 'sessions');
+  const tableSql = getTableSql(db, TABLE_SESSIONS);
 
   // If schema already includes 'scheduled', no migration needed
   if (tableSql?.includes("'scheduled'")) {
@@ -17,7 +23,7 @@ function migrateSessionsStatusConstraint(db) {
   }
 
   // Get all columns from the current table to preserve data
-  const columnNames = getColumns(db, 'sessions');
+  const columnNames = getColumns(db, TABLE_SESSIONS);
 
   const baseColumns = `
       id TEXT PRIMARY KEY,
@@ -101,25 +107,25 @@ export const sessionsMigrations = [
   // --- Initial sessions columns ---
   {
     name: 'sessions-add-cost_usd',
-    up(db) { addColumnIfMissing(db, 'sessions', 'cost_usd', 'REAL DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'cost_usd', 'REAL DEFAULT 0'); },
   },
   {
     name: 'sessions-add-claude_session_id',
-    up(db) { addColumnIfMissing(db, 'sessions', 'claude_session_id', 'TEXT'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'claude_session_id', 'TEXT'); },
   },
   {
     name: 'sessions-add-model',
-    up(db) { addColumnIfMissing(db, 'sessions', 'model', 'TEXT'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'model', 'TEXT'); },
   },
   {
     name: 'sessions-add-provider_id-early',
-    up(db) { addColumnIfMissing(db, 'sessions', 'provider_id', 'TEXT'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'provider_id', 'TEXT'); },
   },
   {
     name: 'sessions-add-effort_level',
     up(db) {
       addColumnIfMissing(
-        db, 'sessions', 'effort_level',
+        db, TABLE_SESSIONS, 'effort_level',
         "TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto'))"
       );
     },
@@ -128,39 +134,39 @@ export const sessionsMigrations = [
   // --- Scheduling columns ---
   {
     name: 'sessions-add-scheduled_at',
-    up(db) { addColumnIfMissing(db, 'sessions', 'scheduled_at', 'INTEGER DEFAULT NULL'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'scheduled_at', 'INTEGER DEFAULT NULL'); },
   },
   {
     name: 'sessions-add-reschedule_delay_minutes',
-    up(db) { addColumnIfMissing(db, 'sessions', 'reschedule_delay_minutes', 'INTEGER DEFAULT 15'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'reschedule_delay_minutes', 'INTEGER DEFAULT 15'); },
   },
   {
     name: 'sessions-add-auto_reschedule_enabled',
-    up(db) { addColumnIfMissing(db, 'sessions', 'auto_reschedule_enabled', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'auto_reschedule_enabled', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'sessions-add-reschedule_on_token_limit',
-    up(db) { addColumnIfMissing(db, 'sessions', 'reschedule_on_token_limit', 'INTEGER DEFAULT 1'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'reschedule_on_token_limit', 'INTEGER DEFAULT 1'); },
   },
   {
     name: 'sessions-add-reschedule_on_service_error',
-    up(db) { addColumnIfMissing(db, 'sessions', 'reschedule_on_service_error', 'INTEGER DEFAULT 1'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'reschedule_on_service_error', 'INTEGER DEFAULT 1'); },
   },
   {
     name: 'sessions-add-max_reschedule_count',
-    up(db) { addColumnIfMissing(db, 'sessions', 'max_reschedule_count', 'INTEGER DEFAULT NULL'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'max_reschedule_count', 'INTEGER DEFAULT NULL'); },
   },
   {
     name: 'sessions-add-max_total_tokens',
-    up(db) { addColumnIfMissing(db, 'sessions', 'max_total_tokens', 'INTEGER DEFAULT NULL'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'max_total_tokens', 'INTEGER DEFAULT NULL'); },
   },
   {
     name: 'sessions-add-reschedule_count',
-    up(db) { addColumnIfMissing(db, 'sessions', 'reschedule_count', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'reschedule_count', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'sessions-add-reschedule_at_token_count',
-    up(db) { addColumnIfMissing(db, 'sessions', 'reschedule_at_token_count', 'INTEGER DEFAULT NULL'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'reschedule_at_token_count', 'INTEGER DEFAULT NULL'); },
   },
 
   // --- Status constraint migration (table recreation) ---
@@ -174,7 +180,7 @@ export const sessionsMigrations = [
     name: 'sessions-add-next_template_id',
     up(db) {
       addColumnIfMissing(
-        db, 'sessions', 'next_template_id',
+        db, TABLE_SESSIONS, 'next_template_id',
         'TEXT REFERENCES session_templates(id) ON DELETE SET NULL'
       );
     },
@@ -183,7 +189,7 @@ export const sessionsMigrations = [
     name: 'sessions-add-parent_session_id',
     up(db) {
       addColumnIfMissing(
-        db, 'sessions', 'parent_session_id',
+        db, TABLE_SESSIONS, 'parent_session_id',
         'TEXT REFERENCES sessions(id) ON DELETE SET NULL'
       );
     },
@@ -199,78 +205,78 @@ export const sessionsMigrations = [
   // --- Token usage columns ---
   {
     name: 'sessions-add-input_tokens',
-    up(db) { addColumnIfMissing(db, 'sessions', 'input_tokens', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'input_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'sessions-add-output_tokens',
-    up(db) { addColumnIfMissing(db, 'sessions', 'output_tokens', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'output_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'sessions-add-cache_read_input_tokens',
-    up(db) { addColumnIfMissing(db, 'sessions', 'cache_read_input_tokens', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'cache_read_input_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'sessions-add-cache_creation_input_tokens',
-    up(db) { addColumnIfMissing(db, 'sessions', 'cache_creation_input_tokens', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'cache_creation_input_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'sessions-add-web_search_requests',
-    up(db) { addColumnIfMissing(db, 'sessions', 'web_search_requests', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'web_search_requests', COL_INTEGER_DEFAULT_0); },
   },
   {
     name: 'sessions-add-context_window',
-    up(db) { addColumnIfMissing(db, 'sessions', 'context_window', 'INTEGER DEFAULT 200000'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'context_window', 'INTEGER DEFAULT 200000'); },
   },
 
   // --- Archived / starred / manually_named ---
   {
     name: 'sessions-add-archived',
     up(db) {
-      addColumnIfMissing(db, 'sessions', 'archived', 'INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, TABLE_SESSIONS, 'archived', 'INTEGER NOT NULL DEFAULT 0');
       db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived)');
     },
   },
   {
     name: 'sessions-add-starred',
     up(db) {
-      addColumnIfMissing(db, 'sessions', 'starred', 'INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, TABLE_SESSIONS, 'starred', 'INTEGER NOT NULL DEFAULT 0');
       db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred)');
     },
   },
   {
     name: 'sessions-add-manually_named',
-    up(db) { addColumnIfMissing(db, 'sessions', 'manually_named', 'INTEGER NOT NULL DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'manually_named', 'INTEGER NOT NULL DEFAULT 0'); },
   },
 
   // --- Pending prompt / slash commands / pending model / auto send ---
   {
     name: 'sessions-add-pending_prompt',
-    up(db) { addColumnIfMissing(db, 'sessions', 'pending_prompt', 'TEXT'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pending_prompt', 'TEXT'); },
   },
   {
     name: 'sessions-add-slash_commands',
-    up(db) { addColumnIfMissing(db, 'sessions', 'slash_commands', 'TEXT'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'slash_commands', 'TEXT'); },
   },
   {
     name: 'sessions-add-pending_model',
-    up(db) { addColumnIfMissing(db, 'sessions', 'pending_model', 'TEXT'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pending_model', 'TEXT'); },
   },
   {
     name: 'sessions-add-auto_send_pending_prompt',
-    up(db) { addColumnIfMissing(db, 'sessions', 'auto_send_pending_prompt', 'INTEGER DEFAULT 0'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'auto_send_pending_prompt', COL_INTEGER_DEFAULT_0); },
   },
 
   // --- Provider ID (from providers table, added later in sequence) ---
   {
     name: 'sessions-add-provider_id-from-providers',
     up(db) {
-      addColumnIfMissing(db, 'sessions', 'provider_id', 'TEXT REFERENCES providers(id)');
+      addColumnIfMissing(db, TABLE_SESSIONS, 'provider_id', 'TEXT REFERENCES providers(id)');
     },
   },
 
   // --- Agent type ---
   {
     name: 'sessions-add-agent_type',
-    up(db) { addColumnIfMissing(db, 'sessions', 'agent_type', "TEXT DEFAULT 'claude-code'"); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'agent_type', "TEXT DEFAULT 'claude-code'"); },
   },
 ];

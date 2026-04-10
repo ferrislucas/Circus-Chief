@@ -8,27 +8,22 @@ import { useWebSocket } from './useWebSocket.js';
 export function useGlobalSessionSubscription() {
   const { on, off } = useWebSocket();
 
-  // Listen for session created across ALL projects
-  const onSessionCreated = (callback) => {
+  // Helper to create session event handlers
+  const createSessionHandler = (messageType) => (callback) => {
     const handler = (msg) => {
       if (msg.session) {
         callback(msg.session, msg.projectId);
       }
     };
-    on(WS_MESSAGE_TYPES.SESSION_CREATED, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_CREATED, handler);
+    on(messageType, handler);
+    return () => off(messageType, handler);
   };
 
+  // Listen for session created across ALL projects
+  const onSessionCreated = createSessionHandler(WS_MESSAGE_TYPES.SESSION_CREATED);
+
   // Listen for session updated across ALL projects
-  const onSessionUpdated = (callback) => {
-    const handler = (msg) => {
-      if (msg.session) {
-        callback(msg.session, msg.projectId);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
-  };
+  const onSessionUpdated = createSessionHandler(WS_MESSAGE_TYPES.SESSION_UPDATED);
 
   // Listen for session deleted across ALL projects
   const onSessionDeleted = (callback) => {

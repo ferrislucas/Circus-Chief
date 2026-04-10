@@ -3,12 +3,16 @@
     <select
       id="effort-select"
       :value="selectedLevel"
-      @change="handleChange($event.target.value)"
       :disabled="disabled || toggling"
       class="effort-select"
       aria-label="Effort level"
+      @change="handleChange($event.target.value)"
     >
-      <option v-for="l in levels" :key="l.value" :value="l.value">
+      <option
+        v-for="l in levels"
+        :key="l.value"
+        :value="l.value"
+      >
         {{ l.label }}
       </option>
     </select>
@@ -46,7 +50,7 @@ const toggling = ref(false);
 const sortedLevels = ['auto', ...EFFORT_LEVELS.filter(l => l !== 'auto')];
 const levels = sortedLevels.map(level => ({
   value: level,
-  label: level.charAt(0).toUpperCase() + level.slice(1) + ' Effort',
+  label: `${level.charAt(0).toUpperCase() + level.slice(1)  } Effort`,
 }));
 
 // Use store state when sessionId provided, otherwise use modelValue prop

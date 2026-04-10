@@ -11,12 +11,10 @@ export const useTemplatesStore = defineStore('templates', {
 
   getters: {
     allTemplates: (state) => [...state.projectTemplates, ...state.globalTemplates],
-    getTemplateById: (state) => (id) => {
-      return (
+    getTemplateById: (state) => (id) => (
         state.projectTemplates.find((t) => t.id === id) ||
         state.globalTemplates.find((t) => t.id === id)
-      );
-    },
+      ),
   },
 
   actions: {

@@ -25,9 +25,7 @@ export const useCanvasStore = defineStore('canvas', {
       return state.selectedItemIds.size > 0 && state.selectedItemIds.size < uniqueFiles.size;
     },
 
-    selectedItems: (state) => {
-      return state.items.filter(item => state.selectedItemIds.has(item.id));
-    },
+    selectedItems: (state) => state.items.filter(item => state.selectedItemIds.has(item.id)),
 
     // Group items by filename, return latest of each with version info
     groupedItems: (state) => {

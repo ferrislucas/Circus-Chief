@@ -9,18 +9,35 @@
     >
       <div class="modal-content">
         <div class="modal-header">
-          <h2 class="modal-title" data-testid="stat-detail-title">{{ title }}</h2>
-          <button @click="close" class="close-btn" aria-label="Close">&times;</button>
+          <h2
+            class="modal-title"
+            data-testid="stat-detail-title"
+          >
+            {{ title }}
+          </h2>
+          <button
+            class="close-btn"
+            aria-label="Close"
+            @click="close"
+          >
+            &times;
+          </button>
         </div>
 
         <div class="modal-body">
           <!-- Disk data unavailable fallback -->
-          <div v-if="statType === 'disk' && !metrics.disk" class="stat-unavailable">
+          <div
+            v-if="statType === 'disk' && !metrics.disk"
+            class="stat-unavailable"
+          >
             Disk data unavailable
           </div>
 
           <!-- Stat details -->
-          <div v-else class="stat-details">
+          <div
+            v-else
+            class="stat-details"
+          >
             <!-- Large percentage display -->
             <div
               class="stat-percentage"
@@ -39,7 +56,7 @@
                   width: `${displayPercentage}%`,
                   backgroundColor: colorForPercent,
                 }"
-              ></div>
+              />
             </div>
 
             <!-- Status badge -->
@@ -57,11 +74,17 @@
             <div class="stat-detail-rows">
               <!-- CPU-specific details -->
               <template v-if="statType === 'cpu'">
-                <div class="stat-detail-row" data-testid="stat-detail-row-cores">
+                <div
+                  class="stat-detail-row"
+                  data-testid="stat-detail-row-cores"
+                >
                   <span class="detail-label">Cores</span>
                   <span class="detail-value">{{ metrics.cpu.coreCount }}</span>
                 </div>
-                <div class="stat-detail-row" data-testid="stat-detail-row-model">
+                <div
+                  class="stat-detail-row"
+                  data-testid="stat-detail-row-model"
+                >
                   <span class="detail-label">Model</span>
                   <span class="detail-value">{{ metrics.cpu.model }}</span>
                 </div>
@@ -69,15 +92,24 @@
 
               <!-- Memory-specific details -->
               <template v-if="statType === 'memory'">
-                <div class="stat-detail-row" data-testid="stat-detail-row-used">
+                <div
+                  class="stat-detail-row"
+                  data-testid="stat-detail-row-used"
+                >
                   <span class="detail-label">Used</span>
                   <span class="detail-value">{{ metrics.memory.usedGB.toFixed(1) }} GB</span>
                 </div>
-                <div class="stat-detail-row" data-testid="stat-detail-row-total">
+                <div
+                  class="stat-detail-row"
+                  data-testid="stat-detail-row-total"
+                >
                   <span class="detail-label">Total</span>
                   <span class="detail-value">{{ metrics.memory.totalGB.toFixed(1) }} GB</span>
                 </div>
-                <div class="stat-detail-row" data-testid="stat-detail-row-free">
+                <div
+                  class="stat-detail-row"
+                  data-testid="stat-detail-row-free"
+                >
                   <span class="detail-label">Free</span>
                   <span class="detail-value">{{ freeMemoryGB.toFixed(1) }} GB</span>
                 </div>
@@ -85,15 +117,24 @@
 
               <!-- Disk-specific details -->
               <template v-if="statType === 'disk' && metrics.disk">
-                <div class="stat-detail-row" data-testid="stat-detail-row-free">
+                <div
+                  class="stat-detail-row"
+                  data-testid="stat-detail-row-free"
+                >
                   <span class="detail-label">Free</span>
                   <span class="detail-value">{{ metrics.disk.freeGB.toFixed(1) }} GB</span>
                 </div>
-                <div class="stat-detail-row" data-testid="stat-detail-row-total">
+                <div
+                  class="stat-detail-row"
+                  data-testid="stat-detail-row-total"
+                >
                   <span class="detail-label">Total</span>
                   <span class="detail-value">{{ metrics.disk.totalGB.toFixed(1) }} GB</span>
                 </div>
-                <div class="stat-detail-row" data-testid="stat-detail-row-used">
+                <div
+                  class="stat-detail-row"
+                  data-testid="stat-detail-row-used"
+                >
                   <span class="detail-label">Used</span>
                   <span class="detail-value">{{ usedDiskGB.toFixed(1) }} GB</span>
                 </div>
@@ -103,7 +144,12 @@
         </div>
 
         <div class="modal-footer">
-          <button @click="close" class="btn btn-secondary">Close</button>
+          <button
+            class="btn btn-secondary"
+            @click="close"
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -169,9 +215,7 @@ const statusLabel = computed(() => {
 });
 
 // Computed values for memory and disk
-const freeMemoryGB = computed(() => {
-  return props.metrics.memory.totalGB - props.metrics.memory.usedGB;
-});
+const freeMemoryGB = computed(() => props.metrics.memory.totalGB - props.metrics.memory.usedGB);
 
 const usedDiskGB = computed(() => {
   if (!props.metrics.disk) return 0;
@@ -188,19 +232,12 @@ function handleEscape(event) {
   }
 }
 
-// Handle Escape key when modal is open
-function handleKeyDown(event) {
-  if (event.key === 'Escape' && props.isOpen) {
-    close();
-  }
-}
-
 onMounted(() => {
-  window.addEventListener('keydown', handleKeyDown);
+  window.addEventListener('keydown', handleEscape);
 });
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeyDown);
+  window.removeEventListener('keydown', handleEscape);
 });
 </script>
 

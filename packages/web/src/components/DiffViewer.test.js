@@ -310,14 +310,14 @@ index 1234567..abcdefg 100644
       const files = parseDiff(twoFileDiff);
       const externalState = { 'file1.js': true };
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           externalExpandedState: externalState,
         },
       });
 
-      expect(wrapper.props('externalExpandedState')).toEqual(externalState);
+      expect(localWrapper.props('externalExpandedState')).toEqual(externalState);
     });
 
     it('uses external state when provided', async () => {
@@ -327,18 +327,18 @@ index 1234567..abcdefg 100644
         'file2.js': false, // collapsed
       };
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           externalExpandedState: externalState,
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // Check that expansion matches external state
-      expect(wrapper.vm.isFileExpanded(0)).toBe(true);
-      expect(wrapper.vm.isFileExpanded(1)).toBe(false);
+      expect(localWrapper.vm.isFileExpanded(0)).toBe(true);
+      expect(localWrapper.vm.isFileExpanded(1)).toBe(false);
     });
 
     it('emits update:expandedState when file is toggled', async () => {
@@ -347,7 +347,7 @@ index 1234567..abcdefg 100644
 
       // Track emitted events via a spy
       const emitSpy = vi.fn();
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           externalExpandedState: externalState,
@@ -355,12 +355,12 @@ index 1234567..abcdefg 100644
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // Click to toggle first file
-      const header = wrapper.find('.diff-file-header');
+      const header = localWrapper.find('.diff-file-header');
       await header.trigger('click');
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // Should emit state change
       expect(emitSpy).toHaveBeenCalled();
@@ -371,7 +371,7 @@ index 1234567..abcdefg 100644
     it('falls back to internal state when externalExpandedState is null', async () => {
       const files = parseDiff(twoFileDiff);
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           externalExpandedState: null,
@@ -379,10 +379,10 @@ index 1234567..abcdefg 100644
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // Should use internal state with expandAll default
-      expect(wrapper.vm.isFileExpanded(0)).toBe(true);
+      expect(localWrapper.vm.isFileExpanded(0)).toBe(true);
     });
   });
 
@@ -405,14 +405,14 @@ index 1234567..abcdefg 100644
     it('accepts defaultExpanded prop', () => {
       const files = parseDiff(twoFileDiff);
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           defaultExpanded: false,
         },
       });
 
-      expect(wrapper.props('defaultExpanded')).toBe(false);
+      expect(localWrapper.props('defaultExpanded')).toBe(false);
     });
 
     it('uses defaultExpanded for files not in external state', async () => {
@@ -420,7 +420,7 @@ index 1234567..abcdefg 100644
       // Only file1.js is in state, file2.js should use defaultExpanded
       const externalState = { 'file1.js': true };
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           externalExpandedState: externalState,
@@ -428,27 +428,27 @@ index 1234567..abcdefg 100644
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
-      expect(wrapper.vm.isFileExpanded(0)).toBe(true); // from externalState
-      expect(wrapper.vm.isFileExpanded(1)).toBe(false); // from defaultExpanded
+      expect(localWrapper.vm.isFileExpanded(0)).toBe(true); // from externalState
+      expect(localWrapper.vm.isFileExpanded(1)).toBe(false); // from defaultExpanded
     });
 
     it('initializes files as collapsed when defaultExpanded is false (no external state)', async () => {
       const files = parseDiff(twoFileDiff);
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           defaultExpanded: false,
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // With no external state and defaultExpanded: false, files should be collapsed
-      expect(wrapper.vm.isFileExpanded(0)).toBe(false);
-      expect(wrapper.vm.isFileExpanded(1)).toBe(false);
+      expect(localWrapper.vm.isFileExpanded(0)).toBe(false);
+      expect(localWrapper.vm.isFileExpanded(1)).toBe(false);
     });
   });
 
@@ -474,7 +474,7 @@ index 1234567..abcdefg 100644
 
       // Track emitted events via a spy
       const emitSpy = vi.fn();
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           externalExpandedState: externalState,
@@ -482,11 +482,11 @@ index 1234567..abcdefg 100644
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // Call expandAll exposed method
-      wrapper.vm.expandAll();
-      await flushAll(wrapper);
+      localWrapper.vm.expandAll();
+      await flushAll(localWrapper);
 
       expect(emitSpy).toHaveBeenCalled();
       const emittedState = emitSpy.mock.calls[0][0];
@@ -500,7 +500,7 @@ index 1234567..abcdefg 100644
 
       // Track emitted events via a spy
       const emitSpy = vi.fn();
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           externalExpandedState: externalState,
@@ -508,11 +508,11 @@ index 1234567..abcdefg 100644
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // Call collapseAll exposed method
-      wrapper.vm.collapseAll();
-      await flushAll(wrapper);
+      localWrapper.vm.collapseAll();
+      await flushAll(localWrapper);
 
       expect(emitSpy).toHaveBeenCalled();
       const emittedState = emitSpy.mock.calls[0][0];
@@ -526,7 +526,7 @@ index 1234567..abcdefg 100644
       const imageDiff = `diff --git a/image.png b/image.png
 Binary files a/image.png and b/image.png differ`;
       const files = parseDiff(imageDiff);
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: 'sess-123',
@@ -534,16 +534,16 @@ Binary files a/image.png and b/image.png differ`;
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
       // Check that image preview container is rendered
-      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+      expect(localWrapper.find('.image-preview-container').exists()).toBe(true);
     });
 
     it('renders image preview container for JPEG files when expanded', async () => {
       const jpegDiff = `diff --git a/photo.jpg b/photo.jpg
 Binary files a/photo.jpg and b/photo.jpg differ`;
       const files = parseDiff(jpegDiff);
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: 'sess-123',
@@ -551,15 +551,15 @@ Binary files a/photo.jpg and b/photo.jpg differ`;
         },
       });
 
-      await flushAll(wrapper);
-      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+      await flushAll(localWrapper);
+      expect(localWrapper.find('.image-preview-container').exists()).toBe(true);
     });
 
     it('renders image preview container for GIF files when expanded', async () => {
       const gifDiff = `diff --git a/animation.gif b/animation.gif
 Binary files a/animation.gif and b/animation.gif differ`;
       const files = parseDiff(gifDiff);
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: 'sess-123',
@@ -567,15 +567,15 @@ Binary files a/animation.gif and b/animation.gif differ`;
         },
       });
 
-      await flushAll(wrapper);
-      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+      await flushAll(localWrapper);
+      expect(localWrapper.find('.image-preview-container').exists()).toBe(true);
     });
 
     it('renders image preview container for SVG files when expanded', async () => {
       const svgDiff = `diff --git a/icon.svg b/icon.svg
 Binary files a/icon.svg and b/icon.svg differ`;
       const files = parseDiff(svgDiff);
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: 'sess-123',
@@ -583,15 +583,15 @@ Binary files a/icon.svg and b/icon.svg differ`;
         },
       });
 
-      await flushAll(wrapper);
-      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+      await flushAll(localWrapper);
+      expect(localWrapper.find('.image-preview-container').exists()).toBe(true);
     });
 
     it('renders image preview container for WebP files when expanded', async () => {
       const webpDiff = `diff --git a/modern.webp b/modern.webp
 Binary files a/modern.webp and b/modern.webp differ`;
       const files = parseDiff(webpDiff);
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: 'sess-123',
@@ -599,8 +599,8 @@ Binary files a/modern.webp and b/modern.webp differ`;
         },
       });
 
-      await flushAll(wrapper);
-      expect(wrapper.find('.image-preview-container').exists()).toBe(true);
+      await flushAll(localWrapper);
+      expect(localWrapper.find('.image-preview-container').exists()).toBe(true);
     });
 
     it('accepts sessionId prop for image loading', () => {
@@ -609,15 +609,15 @@ Binary files a/image.png and b/image.png differ`;
       const files = parseDiff(imageDiff);
 
       // Mount with sessionId
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: 'sess-123',
         },
       });
 
-      expect(wrapper.exists()).toBe(true);
-      expect(wrapper.props('sessionId')).toBe('sess-123');
+      expect(localWrapper.exists()).toBe(true);
+      expect(localWrapper.props('sessionId')).toBe('sess-123');
     });
 
     it('mounts without sessionId prop', () => {
@@ -625,15 +625,15 @@ Binary files a/image.png and b/image.png differ`;
 Binary files a/image.png and b/image.png differ`;
       const files = parseDiff(imageDiff);
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: null,
         },
       });
 
-      expect(wrapper.exists()).toBe(true);
-      expect(wrapper.props('sessionId')).toBeNull();
+      expect(localWrapper.exists()).toBe(true);
+      expect(localWrapper.props('sessionId')).toBeNull();
     });
 
     it('displays binary file notice for non-image binary files', async () => {
@@ -641,7 +641,7 @@ Binary files a/image.png and b/image.png differ`;
 Binary files a/archive.zip and b/archive.zip differ`;
       const files = parseDiff(binaryDiff);
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: 'sess-123',
@@ -649,10 +649,10 @@ Binary files a/archive.zip and b/archive.zip differ`;
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // The component should render a binary file notice
-      const binaryNotice = wrapper.find('.binary-file-notice');
+      const binaryNotice = localWrapper.find('.binary-file-notice');
       expect(binaryNotice.exists()).toBe(true);
     });
 
@@ -662,7 +662,7 @@ new file mode 100644
 Binary files /dev/null and b/screenshot.png differ`;
       const files = parseDiff(imageDiff);
 
-      const wrapper = mount(DiffViewer, {
+      const localWrapper = mount(DiffViewer, {
         props: {
           files,
           sessionId: 'sess-123',
@@ -670,10 +670,10 @@ Binary files /dev/null and b/screenshot.png differ`;
         },
       });
 
-      await flushAll(wrapper);
+      await flushAll(localWrapper);
 
       // Check that image preview container exists for PNG files
-      const imagePreview = wrapper.find('.image-preview-container');
+      const imagePreview = localWrapper.find('.image-preview-container');
       expect(imagePreview.exists()).toBe(true);
     });
   });

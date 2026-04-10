@@ -1,23 +1,28 @@
 <template>
-  <div class="messages" ref="messagesContainer">
+  <div
+    ref="messagesContainer"
+    class="messages"
+  >
     <!-- Hide messages for draft and scheduled sessions (only show in input field) -->
     <template v-if="!isDraft && !isScheduledDraft">
-    <MessageItem
-      v-for="message in messages"
-      :key="message.id"
-      :message="message"
-      :can-branch="canBranch"
-      :is-branching="branchingMessageId === message.id"
-      :work-logs="getWorkLogsForMessage(message.id)"
-      @openBranch="openBranchEditor"
-      @branchCreate="handleBranchCreate"
-      @closeBranch="closeBranchEditor"
-    />
+      <MessageItem
+        v-for="message in messages"
+        :key="message.id"
+        :message="message"
+        :can-branch="canBranch"
+        :is-branching="branchingMessageId === message.id"
+        :work-logs="getWorkLogsForMessage(message.id)"
+        @open-branch="openBranchEditor"
+        @branch-create="handleBranchCreate"
+        @close-branch="closeBranchEditor"
+      />
     </template>
 
     <!-- Streaming partial message -->
-    <StreamingMessage v-if="!isDraft && partialText" :content="partialText" />
-
+    <StreamingMessage
+      v-if="!isDraft && partialText"
+      :content="partialText"
+    />
   </div>
 
   <!-- Token cost panel - aligned with scroll-to-claude-btn -->
@@ -28,11 +33,11 @@
     <button
       v-if="hasAssistantMessages && isUsersTurn"
       class="scroll-to-claude-btn"
-      @click="scrollToClaudesTurn"
       title="Jump to Claude's response"
       aria-label="Scroll to Claude's latest response"
+      @click="scrollToClaudesTurn"
     >
-      ↑
+      💬
     </button>
   </div>
 </template>
@@ -74,17 +79,11 @@ const { messagesContainer, isNearBottom, scrollToBottom, scrollToClaudesTurn } =
   scrollContainer: computed(() => props.scrollContainerRef),
 });
 
-const canBranch = computed(() => {
-  return props.sessionStatus !== 'running' && props.sessionStatus !== 'starting';
-});
+const canBranch = computed(() => props.sessionStatus !== 'running' && props.sessionStatus !== 'starting');
 
-const isUsersTurn = computed(() => {
-  return props.sessionStatus === 'waiting' || props.sessionStatus === 'stopped' || props.sessionStatus === 'error';
-});
+const isUsersTurn = computed(() => props.sessionStatus === 'waiting' || props.sessionStatus === 'stopped' || props.sessionStatus === 'error');
 
-const hasAssistantMessages = computed(() => {
-  return sessionsStore.messages.some(msg => msg.role === 'assistant');
-});
+const hasAssistantMessages = computed(() => sessionsStore.messages.some(msg => msg.role === 'assistant'));
 
 function getWorkLogsForMessage(messageId) {
   return sessionsStore.getWorkLogsForMessage(messageId);

@@ -1,5 +1,8 @@
 <template>
-  <div class="markdown-viewer" v-html="renderedContent"></div>
+  <div
+    class="markdown-viewer"
+    v-html="renderedContent"
+  />
 </template>
 
 <script setup>
@@ -13,9 +16,7 @@ const props = defineProps({
   },
 });
 
-const renderedContent = computed(() => {
-  return renderMarkdown(props.content);
-});
+const renderedContent = computed(() => renderMarkdown(props.content));
 </script>
 
 <style scoped>

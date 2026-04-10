@@ -144,15 +144,13 @@ export async function extractPrUrlIfNeeded(sessionId) {
     // Propagate PR URL to root session
     if (session.parentSessionId) {
       const rootId = sessions.getRootSessionId(sessionId);
-      if (rootId && rootId !== sessionId) {
-        const root = sessions.getById(rootId);
-        if (root && !root.prUrl) {
-          sessions.update(root.id, { prUrl });
-          console.log(`[PrUrlService] Propagated PR URL from session ${sessionId} to root ${root.id}: ${prUrl}`);
+      const root = rootId && rootId !== sessionId ? sessions.getById(rootId) : null;
+      if (root && !root.prUrl) {
+        sessions.update(root.id, { prUrl });
+        console.log(`[PrUrlService] Propagated PR URL from session ${sessionId} to root ${root.id}: ${prUrl}`);
 
-          // Broadcast root session update
-          broadcastSessionUpdate(root.id, root.projectId, sessions.getById(root.id));
-        }
+        // Broadcast root session update
+        broadcastSessionUpdate(root.id, root.projectId, sessions.getById(root.id));
       }
     }
   }
@@ -160,12 +158,13 @@ export async function extractPrUrlIfNeeded(sessionId) {
 
 /**
  * Validate and enrich PR URL data with GitHub PR status information
- * @param {Object} summaryData - Summary data to enrich (modified in place)
+ * @param {Object} summaryDataInput - Summary data to enrich (modified in place)
  * @param {string} prUrl - PR URL to validate and enrich
  * @param {string} projectRepoUrl - Expected repository URL for validation
  * @param {string} sessionId - Session ID for logging
  */
-export async function enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId) {
+export async function enrichPrData(summaryDataInput, prUrl, projectRepoUrl, sessionId) {
+  const summaryData = summaryDataInput;
   const validation = validatePrUrl(prUrl, projectRepoUrl);
 
   if (!validation.valid) {

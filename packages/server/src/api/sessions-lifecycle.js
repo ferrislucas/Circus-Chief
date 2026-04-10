@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { sessions, attachments, sessionSummaries } from '../database.js';
-import { cleanupActiveSession } from '../services/sessionManager.js';
+import { cleanupActiveSession, stopSession, restartSession } from '../services/sessionManager.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
@@ -80,6 +80,36 @@ router.post('/:id/duplicate', requireSession, async (req, res) => {
     res.status(201).json(newSession);
   } catch (error) {
     console.error('Error duplicating session:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/stop - Stop running session
+router.post('/:id/stop', requireSession, async (req, res) => {
+  // Allow stopping running, waiting, or stuck sessions (crashed sessions may be stuck in 'running')
+  // Don't allow stopping already errored or stopped sessions
+  if (req.session_.status === 'error' || req.session_.status === 'stopped') {
+    return res.status(400).json({ error: 'Session is not active' });
+  }
+
+  try {
+    await stopSession(req.session_.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/sessions/:id/restart - Restart a completed/error session
+router.post('/:id/restart', requireSession, (req, res) => {
+  if (req.session_.status !== 'stopped' && req.session_.status !== 'error') {
+    return res.status(400).json({ error: 'Session can only be restarted when stopped or in error state' });
+  }
+
+  try {
+    restartSession(req.session_.id);
+    res.json({ success: true });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

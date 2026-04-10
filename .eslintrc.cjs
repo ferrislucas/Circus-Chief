@@ -8,12 +8,13 @@ module.exports = {
     ecmaVersion: 2022,
     sourceType: 'module',
   },
+  plugins: ['sonarjs'],
   extends: ['eslint:recommended'],
   overrides: [
     {
       // Vue and web JS files: parser + no-unused-vars rules
       files: ['packages/web/**/*.vue', 'packages/web/**/*.js'],
-      extends: ['plugin:vue/vue3-essential'],
+      extends: ['plugin:vue/vue3-recommended'],
       parser: 'vue-eslint-parser',
       parserOptions: {
         ecmaVersion: 2022,
@@ -29,26 +30,26 @@ module.exports = {
       },
     },
     {
-      // Vue files get a higher max-lines limit to accommodate expanded <style> blocks
+      // Vue files get a higher max-lines limit to accommodate expanded <style> blocks (ratcheted 800 → 600)
       files: ['packages/web/**/*.vue'],
       rules: {
-        'max-lines': ['error', { max: 800, skipBlankLines: true, skipComments: true }],
+        'max-lines': ['error', { max: 600, skipBlankLines: true, skipComments: true }],
       },
     },
     {
-      // Vue composables are intentionally cohesive modules - allow larger functions
+      // Vue composables are intentionally cohesive modules - allow larger functions (ratcheted 300 → 250)
       // Complex subscription/initialization composables benefit from cohesion
       files: ['packages/web/src/composables/use*.js'],
       excludedFiles: ['**/*.test.js'],
       rules: {
-        'max-lines-per-function': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
+        'max-lines-per-function': ['error', { max: 250, skipBlankLines: true, skipComments: true }],
       },
     },
     {
-      // API resource classes are wrapper collections - allow larger functions
+      // API resource classes are wrapper collections - allow larger functions (ratcheted 200 → 150)
       files: ['packages/web/src/api/resources/*Api.js'],
       rules: {
-        'max-lines-per-function': ['error', { max: 200, skipBlankLines: true, skipComments: true }],
+        'max-lines-per-function': ['error', { max: 150, skipBlankLines: true, skipComments: true }],
       },
     },
     {
@@ -59,6 +60,10 @@ module.exports = {
         'max-params': 'off',
         'max-lines-per-function': 'off',
         'max-nested-callbacks': ['warn', 5],
+        // SonarJS rules are too noisy for test files (repeated strings, similar test helpers)
+        'sonarjs/no-duplicate-string': 'off',
+        'sonarjs/no-identical-functions': 'off',
+        'sonarjs/cognitive-complexity': 'off',
       },
     },
   ],
@@ -67,22 +72,51 @@ module.exports = {
     'no-console': 'off',
 
     // Complexity and size management rules
-    // Phase 1: max-depth enforced (all violations fixed)
-    'max-depth': ['error', 4],
+    // Phase 1: max-depth enforced, ratcheted from 4 → 3 in PR 4
+    'max-depth': ['error', 3],
 
     // max-params enforced (all production violations fixed)
     'max-params': ['error', 4],
 
-    // complexity enforced at 15
-    'complexity': ['error', 15],
+    // complexity enforced, ratcheted from 15 → 12 in PR 4
+    'complexity': ['error', 12],
 
-    // max-lines enforced at 400 (Vue files get 800 via override to accommodate <style> blocks)
-    'max-lines': ['error', { max: 400, skipBlankLines: true, skipComments: true }],
+    // max-lines ratcheted from 400 → 300 in PR 4 (Vue files get 600 via override)
+    'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
 
-    // max-lines-per-function enforced at 100 lines (allows reasonable sequential flows)
-    'max-lines-per-function': ['error', { max: 100, skipBlankLines: true, skipComments: true }],
+    // max-lines-per-function ratcheted from 100 → 80 in PR 4
+    'max-lines-per-function': ['error', { max: 80, skipBlankLines: true, skipComments: true }],
 
     // max-nested-callbacks enforced at 3
     'max-nested-callbacks': ['error', 3],
+
+    // Phase 1 (PR 1): Hygiene rules
+    // Correctness — partially or not auto-fixable, manual review expected
+    // Allow `== null` / `!= null` as it's a deliberate idiom to match both null and undefined.
+    'eqeqeq': ['error', 'always', { null: 'ignore' }],
+    // Allow mutating Express req/res as it's a standard middleware pattern.
+    // Also allow modifying Pinia stores, Vue refs, and DOM elements passed as parameters.
+    'no-param-reassign': [
+      'error',
+      { props: true, ignorePropertyModificationsFor: ['req', 'res', 'store', 'textarea', 'textareaRef', 'formState'] },
+    ],
+    'no-shadow': 'error',
+    'no-return-await': 'error',
+    'no-implicit-coercion': 'error',
+    'no-duplicate-imports': 'error',
+
+    // Style / clarity (auto-fixable)
+    'prefer-const': 'error',
+    'prefer-template': 'error',
+    'no-unneeded-ternary': 'error',
+    'arrow-body-style': ['error', 'as-needed'],
+    'object-shorthand': ['error', 'always'],
+
+    // Phase 2 (PR 2): SonarJS metrics — now enforced as errors
+    // Note: We add just the 3 target rules rather than extending the full sonarjs/recommended
+    // preset, which in v4 has 204 rules — too many to adopt at once.
+    'sonarjs/cognitive-complexity': ['error', 15],
+    'sonarjs/no-duplicate-string': ['error', { threshold: 5 }],
+    'sonarjs/no-identical-functions': 'error',
   },
 };

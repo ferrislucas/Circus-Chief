@@ -27,7 +27,7 @@ export function useSessionPolling({ getSessionId, getSessionStatus, sessionsStor
 
     try {
       const changes = await api.getSessionChanges(sessionId);
-      hasChanges.value = !!(changes.staged || changes.unstaged || changes.untracked);
+      hasChanges.value = Boolean(changes.staged || changes.unstaged || changes.untracked);
 
       // Count files from the diff responses
       const stagedFiles = parseDiff(changes.staged || '');

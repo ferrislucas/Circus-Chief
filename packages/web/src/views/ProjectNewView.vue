@@ -2,9 +2,15 @@
   <div class="container">
     <h1>New Project</h1>
 
-    <form @submit.prevent="handleSubmit" class="form card">
+    <form
+      class="form card"
+      @submit.prevent="handleSubmit"
+    >
       <div class="form-group">
-        <label class="form-label" for="name">Project Name</label>
+        <label
+          class="form-label"
+          for="name"
+        >Project Name</label>
         <input
           id="name"
           v-model="name"
@@ -12,24 +18,30 @@
           class="form-input"
           placeholder="My Project"
           required
-        />
+        >
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="workingDirectory">Working Directory</label>
+        <label
+          class="form-label"
+          for="workingDirectory"
+        >Working Directory</label>
         <PathChooser v-model="workingDirectory" />
       </div>
 
       <details class="advanced-settings">
         <summary>Advanced Settings</summary>
         <div class="form-group">
-          <label class="form-label" for="systemPrompt">
+          <label
+            class="form-label"
+            for="systemPrompt"
+          >
             System Prompt
             <button
+              v-if="systemPrompt !== defaultSystemPrompt"
               type="button"
               class="btn-link"
               @click="systemPrompt = defaultSystemPrompt"
-              v-if="systemPrompt !== defaultSystemPrompt"
             >
               Reset to Default
             </button>
@@ -39,47 +51,70 @@
             v-model="systemPrompt"
             class="form-input form-textarea"
             rows="8"
-          ></textarea>
+          />
           <p class="form-help">
             Customize the system prompt for the AI agent. The default prompt is pre-filled above.
           </p>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="onSessionCreated">On Session Created</label>
+          <label
+            class="form-label"
+            for="onSessionCreated"
+          >On Session Created</label>
           <textarea
             id="onSessionCreated"
             v-model="onSessionCreated"
             class="form-input form-textarea-small"
             rows="3"
             placeholder="Shell command to run when a session is created..."
-          ></textarea>
+          />
           <p class="form-help">
             Runs in the background after session creation. Environment variables: CLAUDETOOLS_SESSION_ID, CLAUDETOOLS_PROJECT_ID, CLAUDETOOLS_SESSION_NAME
           </p>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="onSessionDeleted">On Session Deleted</label>
+          <label
+            class="form-label"
+            for="onSessionDeleted"
+          >On Session Deleted</label>
           <textarea
             id="onSessionDeleted"
             v-model="onSessionDeleted"
             class="form-input form-textarea-small"
             rows="3"
             placeholder="Shell command to run when a session is deleted..."
-          ></textarea>
+          />
           <p class="form-help">
             Runs in the background after session deletion. Environment variables: CLAUDETOOLS_SESSION_ID, CLAUDETOOLS_PROJECT_ID, CLAUDETOOLS_SESSION_NAME
           </p>
         </div>
       </details>
 
-      <div v-if="error" class="error-message">{{ error }}</div>
+      <div
+        v-if="error"
+        class="error-message"
+      >
+        {{ error }}
+      </div>
 
       <div class="form-actions">
-        <router-link to="/" class="btn">Cancel</router-link>
-        <button type="submit" class="btn btn-primary" :disabled="loading">
-          <span v-if="loading" class="loading-spinner"></span>
+        <router-link
+          to="/"
+          class="btn"
+        >
+          Cancel
+        </router-link>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          :disabled="loading"
+        >
+          <span
+            v-if="loading"
+            class="loading-spinner"
+          />
           Create Project
         </button>
       </div>

@@ -1,27 +1,63 @@
 <template>
-  <div class="thinking-block" :class="{ 'thinking-streaming': streaming }">
+  <div
+    class="thinking-block"
+    :class="{ 'thinking-streaming': streaming }"
+  >
     <div class="thinking-header">
       <span class="thinking-icon">
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="10"/>
-          <path d="M12 16v-4"/>
-          <path d="M12 8h.01"/>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+          />
+          <path d="M12 16v-4" />
+          <path d="M12 8h.01" />
         </svg>
       </span>
       <span class="thinking-label">{{ streaming ? 'Thinking...' : 'Thinking' }}</span>
-      <span v-if="streaming" class="streaming-dots">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
+      <span
+        v-if="streaming"
+        class="streaming-dots"
+      >
+        <span class="dot" />
+        <span class="dot" />
+        <span class="dot" />
       </span>
-      <span v-else-if="timestamp" class="thinking-time">{{ formatTime(timestamp) }}</span>
+      <span
+        v-else-if="timestamp"
+        class="thinking-time"
+      >{{ formatTime(timestamp) }}</span>
     </div>
-    <div class="thinking-content" :class="{ expanded: isExpanded }">
-      <div class="thinking-text">{{ displayContent }}</div>
-      <button v-if="shouldTruncate && !isExpanded" class="show-more-btn" @click="isExpanded = true">
+    <div
+      class="thinking-content"
+      :class="{ expanded: isExpanded }"
+    >
+      <div class="thinking-text">
+        {{ displayContent }}
+      </div>
+      <button
+        v-if="shouldTruncate && !isExpanded"
+        class="show-more-btn"
+        @click="isExpanded = true"
+      >
         Show more...
       </button>
-      <button v-if="isExpanded && shouldTruncate" class="show-more-btn" @click="isExpanded = false">
+      <button
+        v-if="isExpanded && shouldTruncate"
+        class="show-more-btn"
+        @click="isExpanded = false"
+      >
         Show less
       </button>
     </div>
@@ -46,7 +82,7 @@ const displayContent = computed(() => {
   if (isExpanded.value || !shouldTruncate.value) {
     return props.content;
   }
-  return props.content.slice(0, MAX_LENGTH) + '...';
+  return `${props.content.slice(0, MAX_LENGTH)  }...`;
 });
 
 function formatTime(ts) {

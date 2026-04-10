@@ -1,7 +1,10 @@
 <template>
   <div class="container">
     <div class="page-header">
-      <button class="btn btn-primary" @click="openCreateModal">
+      <button
+        class="btn btn-primary"
+        @click="openCreateModal"
+      >
         <span>+ Add Provider</span>
       </button>
     </div>
@@ -11,15 +14,29 @@
       Google Vertex AI, or self-hosted proxies.
     </p>
 
-    <div v-if="providersStore.loading" class="skeleton-list">
-      <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+    <div
+      v-if="providersStore.loading"
+      class="skeleton-list"
+    >
+      <div
+        v-for="i in 3"
+        :key="i"
+        class="skeleton card"
+        style="height: 120px"
+      />
     </div>
 
-    <div v-else-if="providersStore.error" class="error-message">
+    <div
+      v-else-if="providersStore.error"
+      class="error-message"
+    >
       {{ providersStore.error }}
     </div>
 
-    <div v-else class="provider-list">
+    <div
+      v-else
+      class="provider-list"
+    >
       <div
         v-for="provider in providersStore.providers"
         :key="provider.id"
@@ -29,16 +46,19 @@
           <div class="provider-title">
             <h3>
               {{ provider.name }}
-              <span v-if="provider.isBuiltIn" class="built-in-badge">Built-in</span>
+              <span
+                v-if="provider.isBuiltIn"
+                class="built-in-badge"
+              >Built-in</span>
             </h3>
           </div>
           <div class="provider-actions">
             <button
               v-if="!provider.isBuiltIn"
               class="btn btn-sm"
-              @click="testProvider(provider.id)"
               :disabled="testingProviderId === provider.id"
               title="Test Connection"
+              @click="testProvider(provider.id)"
             >
               {{ testingProviderId === provider.id ? 'Testing...' : 'Test' }}
             </button>
@@ -60,15 +80,24 @@
         </div>
 
         <div class="provider-details">
-          <div v-if="provider.baseUrl" class="provider-detail">
+          <div
+            v-if="provider.baseUrl"
+            class="provider-detail"
+          >
             <span class="detail-label">Base URL:</span>
             <code class="detail-value">{{ provider.baseUrl }}</code>
           </div>
-          <div v-if="provider.defaultSonnetModel" class="provider-detail">
+          <div
+            v-if="provider.defaultSonnetModel"
+            class="provider-detail"
+          >
             <span class="detail-label">Default Sonnet Model:</span>
             <code class="detail-value">{{ provider.defaultSonnetModel }}</code>
           </div>
-          <div v-if="!provider.baseUrl && provider.isBuiltIn" class="provider-detail">
+          <div
+            v-if="!provider.baseUrl && provider.isBuiltIn"
+            class="provider-detail"
+          >
             <span class="detail-value">Uses official Anthropic API</span>
           </div>
         </div>
@@ -84,25 +113,41 @@
     />
 
     <!-- Delete Confirmation Modal -->
-    <div v-if="providerToDelete" class="modal-overlay" @click.self="providerToDelete = null">
+    <div
+      v-if="providerToDelete"
+      class="modal-overlay"
+      @click.self="providerToDelete = null"
+    >
       <div class="modal confirm-modal">
         <div class="modal-header">
           <h2>Delete Provider</h2>
-          <button type="button" class="close-btn" @click="providerToDelete = null">×</button>
+          <button
+            type="button"
+            class="close-btn"
+            @click="providerToDelete = null"
+          >
+            ×
+          </button>
         </div>
         <div class="modal-body">
           <p>Are you sure you want to delete <strong>{{ providerToDelete.name }}</strong>?</p>
-          <p class="warning-text">This action cannot be undone.</p>
+          <p class="warning-text">
+            This action cannot be undone.
+          </p>
         </div>
         <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" @click="providerToDelete = null">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="providerToDelete = null"
+          >
             Cancel
           </button>
           <button
             type="button"
             class="btn btn-danger"
-            @click="deleteProvider"
             :disabled="deleting"
+            @click="deleteProvider"
           >
             {{ deleting ? 'Deleting...' : 'Delete' }}
           </button>

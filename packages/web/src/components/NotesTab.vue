@@ -1,49 +1,96 @@
 <template>
   <div class="notes-tab">
-    <form @submit.prevent="handleAddNote" class="add-note-form">
+    <form
+      class="add-note-form"
+      @submit.prevent="handleAddNote"
+    >
       <textarea
         v-model="newNote"
         class="form-input form-textarea"
         placeholder="Add a note..."
         rows="3"
-      ></textarea>
-      <button type="submit" class="btn btn-primary" :disabled="!newNote.trim() || adding">
-        <span v-if="adding" class="loading-spinner"></span>
+      />
+      <button
+        type="submit"
+        class="btn btn-primary"
+        :disabled="!newNote.trim() || adding"
+      >
+        <span
+          v-if="adding"
+          class="loading-spinner"
+        />
         Add Note
       </button>
     </form>
 
-    <div v-if="loading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="loading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading notes...
     </div>
 
-    <div v-else-if="notes.length === 0" class="empty-state">
+    <div
+      v-else-if="notes.length === 0"
+      class="empty-state"
+    >
       <p>No notes yet. Add notes to keep track of important information.</p>
     </div>
 
-    <div v-else class="notes-list">
-      <div v-for="note in notes" :key="note.id" class="note card">
-        <div v-if="editingId === note.id" class="note-edit">
+    <div
+      v-else
+      class="notes-list"
+    >
+      <div
+        v-for="note in notes"
+        :key="note.id"
+        class="note card"
+      >
+        <div
+          v-if="editingId === note.id"
+          class="note-edit"
+        >
           <textarea
             v-model="editContent"
             class="form-input form-textarea"
             rows="3"
-          ></textarea>
+          />
           <div class="note-edit-actions">
-            <button class="btn" @click="cancelEdit">Cancel</button>
-            <button class="btn btn-primary" @click="saveEdit(note.id)" :disabled="saving">
+            <button
+              class="btn"
+              @click="cancelEdit"
+            >
+              Cancel
+            </button>
+            <button
+              class="btn btn-primary"
+              :disabled="saving"
+              @click="saveEdit(note.id)"
+            >
               Save
             </button>
           </div>
         </div>
         <template v-else>
-          <div class="note-content">{{ note.content }}</div>
+          <div class="note-content">
+            {{ note.content }}
+          </div>
           <div class="note-footer">
             <span class="note-date">{{ formatDate(note.createdAt) }}</span>
             <div class="note-actions">
-              <button class="btn-link" @click="startEdit(note)">Edit</button>
-              <button class="btn-link btn-link-danger" @click="handleDelete(note.id)">Delete</button>
+              <button
+                class="btn-link"
+                @click="startEdit(note)"
+              >
+                Edit
+              </button>
+              <button
+                class="btn-link btn-link-danger"
+                @click="handleDelete(note.id)"
+              >
+                Delete
+              </button>
             </div>
           </div>
         </template>

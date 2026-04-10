@@ -8,6 +8,9 @@ import {
 } from '@claudetools/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
 
+// Error message constants
+const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
+
 const router = Router();
 
 /**
@@ -55,7 +58,7 @@ router.get('/:id', (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
     res.json(redactAuthToken(provider));
   } catch (error) {
@@ -68,7 +71,7 @@ router.patch('/:id', (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
     const result = UpdateProviderRequest.safeParse(req.body);
@@ -91,7 +94,7 @@ router.delete('/:id', (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
     modelProviders.delete(req.params.id);
@@ -130,7 +133,7 @@ router.post('/:id/test', async (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
     // Pick the sonnet-tiered model (if any) as the test model, falling back to any first model
@@ -160,7 +163,7 @@ router.get('/:id/models', (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
     const models = modelProviders.getModels(req.params.id);
@@ -175,7 +178,7 @@ router.post('/:id/models', (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
     const result = CreateProviderModelRequest.safeParse(req.body);
@@ -195,7 +198,7 @@ router.patch('/:id/models/:modelId', (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.id);
     if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
     const model = modelProviders.getModelById(req.params.modelId);
@@ -224,7 +227,7 @@ router.delete('/:providerId/models/:modelId', (req, res) => {
   try {
     const provider = modelProviders.getById(req.params.providerId);
     if (!provider) {
-      return res.status(404).json({ error: 'Provider not found' });
+      return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
     }
 
     const model = modelProviders.getModelById(req.params.modelId);

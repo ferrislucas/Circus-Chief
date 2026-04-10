@@ -1,5 +1,9 @@
 <template>
-  <div v-if="buttonStatuses.length > 0" class="command-status-bar" data-testid="button-status-bar">
+  <div
+    v-if="buttonStatuses.length > 0"
+    class="command-status-bar"
+    data-testid="button-status-bar"
+  >
     <span
       v-for="indicator in buttonStatuses"
       :key="indicator.buttonId"

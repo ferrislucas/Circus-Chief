@@ -1,62 +1,108 @@
 <template>
   <div class="diff-file-content">
     <!-- Image file preview -->
-    <div v-if="isImageFile(file.displayPath)" class="image-preview-container">
-      <div v-if="imageLoading" class="image-loading">
-        <span class="loading-spinner"></span>
+    <div
+      v-if="isImageFile(file.displayPath)"
+      class="image-preview-container"
+    >
+      <div
+        v-if="imageLoading"
+        class="image-loading"
+      >
+        <span class="loading-spinner" />
         Loading image...
       </div>
-      <div v-else-if="imageError" class="image-error">
+      <div
+        v-else-if="imageError"
+        class="image-error"
+      >
         <span class="error-icon">&#x26A0;&#xFE0F;</span>
         {{ imageError }}
       </div>
-      <div v-else-if="imageData" class="image-wrapper">
+      <div
+        v-else-if="imageData"
+        class="image-wrapper"
+      >
         <img
           :src="`data:${imageData.mimeType};base64,${imageData.data}`"
           :alt="file.displayPath"
           class="diff-image"
-        />
+        >
       </div>
-      <div v-else-if="file.isDeleted" class="image-deleted">
+      <div
+        v-else-if="file.isDeleted"
+        class="image-deleted"
+      >
         <span class="deleted-icon">&#x1F5D1;&#xFE0F;</span>
         Image was deleted
       </div>
     </div>
 
     <!-- Non-image binary file notice -->
-    <div v-else-if="isBinaryFile(file.displayPath)" class="binary-file-notice">
-      <div class="binary-icon">&#x1F512;</div>
+    <div
+      v-else-if="isBinaryFile(file.displayPath)"
+      class="binary-file-notice"
+    >
+      <div class="binary-icon">
+        &#x1F512;
+      </div>
       <div class="binary-message">
         <p>Binary file cannot be displayed as a diff</p>
       </div>
     </div>
 
     <!-- Markdown preview mode -->
-    <div v-else-if="showPreview && isMarkdownFile(file.displayPath)" class="markdown-preview-container">
-      <div v-if="!file.isDeleted && !file.isNew" class="markdown-preview-split">
+    <div
+      v-else-if="showPreview && isMarkdownFile(file.displayPath)"
+      class="markdown-preview-container"
+    >
+      <div
+        v-if="!file.isDeleted && !file.isNew"
+        class="markdown-preview-split"
+      >
         <div class="markdown-preview-pane">
-          <div class="markdown-preview-label markdown-preview-label-old">Before</div>
+          <div class="markdown-preview-label markdown-preview-label-old">
+            Before
+          </div>
           <MarkdownViewer :content="extractOldContentFromDiff(file)" />
         </div>
         <div class="markdown-preview-pane">
-          <div class="markdown-preview-label markdown-preview-label-new">After</div>
+          <div class="markdown-preview-label markdown-preview-label-new">
+            After
+          </div>
           <MarkdownViewer :content="extractNewContentFromDiff(file)" />
         </div>
       </div>
-      <div v-else-if="file.isNew" class="markdown-preview-single">
-        <div class="markdown-preview-label markdown-preview-label-new">New file</div>
+      <div
+        v-else-if="file.isNew"
+        class="markdown-preview-single"
+      >
+        <div class="markdown-preview-label markdown-preview-label-new">
+          New file
+        </div>
         <MarkdownViewer :content="extractNewContentFromDiff(file)" />
       </div>
-      <div v-else-if="file.isDeleted" class="markdown-preview-single">
-        <div class="markdown-preview-label markdown-preview-label-old">Deleted file</div>
+      <div
+        v-else-if="file.isDeleted"
+        class="markdown-preview-single"
+      >
+        <div class="markdown-preview-label markdown-preview-label-old">
+          Deleted file
+        </div>
         <MarkdownViewer :content="extractOldContentFromDiff(file)" />
       </div>
     </div>
 
     <!-- Standard diff view -->
     <template v-else>
-      <div v-for="(hunk, hunkIndex) in file.hunks" :key="hunkIndex" class="diff-hunk">
-        <div class="diff-hunk-header">{{ hunk.header }}</div>
+      <div
+        v-for="(hunk, hunkIndex) in file.hunks"
+        :key="hunkIndex"
+        class="diff-hunk"
+      >
+        <div class="diff-hunk-header">
+          {{ hunk.header }}
+        </div>
         <div class="diff-table-wrapper">
           <table class="diff-table">
             <tbody>
@@ -65,10 +111,18 @@
                 :key="lineIndex"
                 :class="['diff-line', `diff-line-${line.type}`]"
               >
-                <td class="diff-line-num diff-line-num-old">{{ line.oldLineNumber ?? '' }}</td>
-                <td class="diff-line-num diff-line-num-new">{{ line.newLineNumber ?? '' }}</td>
-                <td class="diff-line-prefix">{{ getLinePrefix(line.type) }}</td>
-                <td class="diff-line-content">{{ line.content }}</td>
+                <td class="diff-line-num diff-line-num-old">
+                  {{ line.oldLineNumber ?? '' }}
+                </td>
+                <td class="diff-line-num diff-line-num-new">
+                  {{ line.newLineNumber ?? '' }}
+                </td>
+                <td class="diff-line-prefix">
+                  {{ getLinePrefix(line.type) }}
+                </td>
+                <td class="diff-line-content">
+                  {{ line.content }}
+                </td>
               </tr>
             </tbody>
           </table>

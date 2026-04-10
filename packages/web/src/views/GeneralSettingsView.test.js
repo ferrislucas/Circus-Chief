@@ -5,7 +5,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import GeneralSettingsView from './GeneralSettingsView.vue';
 
 // Mock settings store - make it reactive
-let mockSettingsStore = reactive({
+const mockSettingsStore = reactive({
   generalSettings: {
     disableAnalytics: false,
   },
@@ -22,7 +22,7 @@ vi.mock('../stores/settings.js', () => ({
 }));
 
 // Mock UI store
-let mockUiStore = {
+const mockUiStore = {
   success: vi.fn(),
   error: vi.fn(),
 };

@@ -1,24 +1,33 @@
 <template>
   <div class="changes-tab">
-    <div v-if="loading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="loading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading changes...
     </div>
 
-    <div v-else-if="error" class="error-message">
+    <div
+      v-else-if="error"
+      class="error-message"
+    >
       {{ error }}
     </div>
 
     <template v-else>
       <!-- Toolbar: Show when there are changes OR a default branch exists -->
-      <div v-if="hasChanges || defaultBranch" class="changes-toolbar">
+      <div
+        v-if="hasChanges || defaultBranch"
+        class="changes-toolbar"
+      >
         <div class="mode-toggle">
           <button
             class="toggle-button"
             :class="{ active: compareMode === 'local' }"
-            @click="compareMode = 'local'"
             :disabled="loading"
             title="Show local changes (staged, unstaged, untracked)"
+            @click="compareMode = 'local'"
           >
             Local Changes
           </button>
@@ -26,34 +35,49 @@
             v-if="defaultBranch"
             class="toggle-button"
             :class="{ active: compareMode === 'branch' }"
-            @click="compareMode = 'branch'"
             :disabled="loading"
             :title="`Compare against ${defaultBranch}`"
+            @click="compareMode = 'branch'"
           >
             {{ compareMode === 'branch' && loading ? '⟳' : '' }}
             Compare to {{ branchLabel }}
           </button>
         </div>
-        <button v-if="hasChanges" class="btn-link" @click="toggleAllFiles" :disabled="loading">
+        <button
+          v-if="hasChanges"
+          class="btn-link"
+          :disabled="loading"
+          @click="toggleAllFiles"
+        >
           {{ allExpanded ? 'Collapse All' : 'Expand All' }}
         </button>
       </div>
 
       <!-- Empty state: Show when no changes in current mode -->
-      <div v-if="!hasChanges" class="empty-state">
-        <p v-if="compareMode === 'local'">No local git changes to show.</p>
-        <p v-else>No differences from {{ branchLabel }}.</p>
+      <div
+        v-if="!hasChanges"
+        class="empty-state"
+      >
+        <p v-if="compareMode === 'local'">
+          No local git changes to show.
+        </p>
+        <p v-else>
+          No differences from {{ branchLabel }}.
+        </p>
       </div>
 
       <!-- Branch diff section (only in branch compare mode) -->
-      <div v-if="compareMode === 'branch' && branchDiffFiles.length > 0" class="diff-section">
+      <div
+        v-if="compareMode === 'branch' && branchDiffFiles.length > 0"
+        class="diff-section"
+      >
         <h3>Changes vs {{ branchLabel }}</h3>
         <DiffViewer
           ref="branchDiffViewer"
           :files="branchDiffFiles"
           :external-expanded-state="getExpandedStateForSection('branch')"
           :default-expanded="false"
-          :sessionId="sessionId"
+          :session-id="sessionId"
           @update:expanded-state="handleExpandedStateUpdate('branch', $event)"
         />
       </div>
@@ -67,38 +91,47 @@
       </div>
 
       <!-- Diff sections: Only show when there are files -->
-      <div v-if="stagedFiles.length > 0" class="diff-section">
+      <div
+        v-if="stagedFiles.length > 0"
+        class="diff-section"
+      >
         <h3>Staged Changes</h3>
         <DiffViewer
           ref="stagedDiffViewer"
           :files="stagedFiles"
           :external-expanded-state="getExpandedStateForSection('staged')"
           :default-expanded="false"
-          :sessionId="sessionId"
+          :session-id="sessionId"
           @update:expanded-state="handleExpandedStateUpdate('staged', $event)"
         />
       </div>
 
-      <div v-if="unstagedFiles.length > 0" class="diff-section">
+      <div
+        v-if="unstagedFiles.length > 0"
+        class="diff-section"
+      >
         <h3>Unstaged Changes</h3>
         <DiffViewer
           ref="unstagedDiffViewer"
           :files="unstagedFiles"
           :external-expanded-state="getExpandedStateForSection('unstaged')"
           :default-expanded="false"
-          :sessionId="sessionId"
+          :session-id="sessionId"
           @update:expanded-state="handleExpandedStateUpdate('unstaged', $event)"
         />
       </div>
 
-      <div v-if="untrackedFiles.length > 0" class="diff-section">
+      <div
+        v-if="untrackedFiles.length > 0"
+        class="diff-section"
+      >
         <h3>Untracked Files</h3>
         <DiffViewer
           ref="untrackedDiffViewer"
           :files="untrackedFiles"
           :external-expanded-state="getExpandedStateForSection('untracked')"
           :default-expanded="false"
-          :sessionId="sessionId"
+          :session-id="sessionId"
           @update:expanded-state="handleExpandedStateUpdate('untracked', $event)"
         />
       </div>

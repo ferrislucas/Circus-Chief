@@ -2,8 +2,20 @@
   <div class="branch-editor">
     <div class="branch-editor-header">
       <span class="branch-icon">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </span>
       <span class="branch-title">Create branch from this message</span>
@@ -21,7 +33,7 @@
           @keydown.ctrl.enter="handleCreate"
           @keydown.meta.enter="handleCreate"
           @keydown.escape="handleCancel"
-        ></textarea>
+        />
       </div>
     </div>
 
@@ -29,18 +41,21 @@
       <button
         type="button"
         class="btn btn-ghost"
-        @click="handleCancel"
         :disabled="creating"
+        @click="handleCancel"
       >
         Cancel
       </button>
       <button
         type="button"
         class="btn btn-primary"
-        @click="handleCreate"
         :disabled="creating || !initialPrompt.trim()"
+        @click="handleCreate"
       >
-        <span v-if="creating" class="loading-spinner"></span>
+        <span
+          v-if="creating"
+          class="loading-spinner"
+        />
         {{ creating ? 'Creating...' : 'Branch & Submit' }}
       </button>
     </div>

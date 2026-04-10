@@ -462,7 +462,7 @@ describe('summaryService', () => {
           files_modified: ['file.js'],
           outcome: 'partial',
         };
-        const responseText = '```json\n' + JSON.stringify(jsonContent) + '\n```';
+        const responseText = `\`\`\`json\n${  JSON.stringify(jsonContent)  }\n\`\`\``;
 
         const result = parseSummaryResponse(responseText);
 
@@ -480,7 +480,7 @@ describe('summaryService', () => {
           files_modified: [],
           outcome: 'ongoing',
         };
-        const responseText = '```\n' + JSON.stringify(jsonContent) + '\n```';
+        const responseText = `\`\`\`\n${  JSON.stringify(jsonContent)  }\n\`\`\``;
 
         const result = parseSummaryResponse(responseText);
 
@@ -496,7 +496,7 @@ describe('summaryService', () => {
           files_modified: [],
           outcome: 'partial',
         };
-        const responseText = '  ```json\n' + JSON.stringify(jsonContent) + '\n```  ';
+        const responseText = `  \`\`\`json\n${  JSON.stringify(jsonContent)  }\n\`\`\`  `;
 
         const result = parseSummaryResponse(responseText);
 
@@ -539,7 +539,7 @@ describe('summaryService', () => {
           files_modified: [],
           outcome: 'partial',
         };
-        const responseText = '```json\n' + JSON.stringify(jsonContent) + '\n```';
+        const responseText = `\`\`\`json\n${  JSON.stringify(jsonContent)  }\n\`\`\``;
 
         parseSummaryResponse(responseText);
 
@@ -658,7 +658,7 @@ describe('summaryService', () => {
       };
       const prUrl = 'https://github.com/user/repo/pull/123';
       const projectRepoUrl = 'https://github.com/user/repo';
-      const sessionId = 'sess-1';
+      const testSessionId = 'sess-1';
 
       ghService.getPrInfo.mockResolvedValue({
         state: 'OPEN',
@@ -668,7 +668,7 @@ describe('summaryService', () => {
         ciFailures: 0,
       });
 
-      await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
+      await _enrichPrData(summaryData, prUrl, projectRepoUrl, testSessionId);
 
       expect(summaryData.prState).toBe('OPEN');
       expect(summaryData.prMerged).toBe(false);
@@ -684,11 +684,11 @@ describe('summaryService', () => {
       };
       const prUrl = 'https://github.com/wrong-repo/pull/123';
       const projectRepoUrl = 'https://github.com/correct-repo';
-      const sessionId = 'sess-1';
+      const testSessionId = 'sess-1';
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
+      await _enrichPrData(summaryData, prUrl, projectRepoUrl, testSessionId);
 
       expect(summaryData.prUrl).toBeNull();
       expect(consoleWarnSpy).toHaveBeenCalledWith(
@@ -705,13 +705,13 @@ describe('summaryService', () => {
       };
       const prUrl = 'https://github.com/user/repo/pull/123';
       const projectRepoUrl = 'https://github.com/user/repo';
-      const sessionId = 'sess-1';
+      const testSessionId = 'sess-1';
 
       ghService.getPrInfo.mockRejectedValue(new Error('API error'));
 
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
+      await _enrichPrData(summaryData, prUrl, projectRepoUrl, testSessionId);
 
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         '[PrUrlService] Failed to get PR info for https://github.com/user/repo/pull/123:',
@@ -727,11 +727,11 @@ describe('summaryService', () => {
       };
       const prUrl = 'https://github.com/user/repo/pull/123';
       const projectRepoUrl = 'https://github.com/user/repo';
-      const sessionId = 'sess-1';
+      const testSessionId = 'sess-1';
 
       ghService.getPrInfo.mockResolvedValue(null);
 
-      await _enrichPrData(summaryData, prUrl, projectRepoUrl, sessionId);
+      await _enrichPrData(summaryData, prUrl, projectRepoUrl, testSessionId);
 
       expect(summaryData.prUrl).toBe(prUrl);
       expect(summaryData.prState).toBeUndefined();
@@ -1210,7 +1210,7 @@ describe('summaryService', () => {
       const summaryData = sessionSummaries.getBySessionId(sessionId);
       sessionSummaries.upsert(sessionId, {
         ...summaryData,
-        prUrl: prUrl,
+        prUrl,
       });
 
       // Simulate generateSummary with PR data
@@ -1386,7 +1386,7 @@ describe('summaryService', () => {
         keyActions: [],
         filesModified: [],
         outcome: 'ongoing',
-        messageCount: messageCount,
+        messageCount,
       });
 
       // Create matching messages
@@ -2665,7 +2665,7 @@ describe('summaryService', () => {
     });
 
     it('handles very long messages with PR URL', async () => {
-      const longContent = 'A'.repeat(5000) + ' https://github.com/user/repo/pull/777 ' + 'B'.repeat(5000);
+      const longContent = `${'A'.repeat(5000)  } https://github.com/user/repo/pull/777 ${  'B'.repeat(5000)}`;
       messages.create(sessionId, 'user', longContent);
 
       await summaryService.extractPrUrlIfNeeded(sessionId);

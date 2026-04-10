@@ -77,12 +77,12 @@ describe('SessionSummaryRepository', () => {
 
     it('generates unique IDs', () => {
       // Create another session for second summary
-      const project = projectRepo.create('Another Project', '/tmp/another');
+      const anotherProject = projectRepo.create('Another Project', '/tmp/another');
       const now = Date.now();
       const otherId = databaseManager.generateId();
       databaseManager.get().prepare(
         'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(otherId, project.id, 'Other Session', 'running', 'standard', now, now);
+      ).run(otherId, anotherProject.id, 'Other Session', 'running', 'standard', now, now);
 
       const summary1 = repo.create(sessionId, { shortSummary: 'Summary 1', fullSummary: 'Full 1' });
       const summary2 = repo.create(otherId, { shortSummary: 'Summary 2', fullSummary: 'Full 2' });
@@ -362,12 +362,12 @@ describe('SessionSummaryRepository', () => {
 
     it('does not affect other sessions summaries', () => {
       // Create another session
-      const project = projectRepo.create('Another Project', '/tmp/another');
+      const anotherProject = projectRepo.create('Another Project', '/tmp/another');
       const now = Date.now();
       const otherId = databaseManager.generateId();
       databaseManager.get().prepare(
         'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(otherId, project.id, 'Other Session', 'running', 'standard', now, now);
+      ).run(otherId, anotherProject.id, 'Other Session', 'running', 'standard', now, now);
 
       repo.create(sessionId, { shortSummary: 'Summary 1', fullSummary: 'Full 1' });
       repo.create(otherId, { shortSummary: 'Summary 2', fullSummary: 'Full 2' });

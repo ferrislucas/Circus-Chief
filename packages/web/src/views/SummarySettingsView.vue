@@ -1,16 +1,23 @@
 <template>
-  <div v-if="settingsStore.loading" class="loading-state">
-    <span class="loading-spinner"></span>
+  <div
+    v-if="settingsStore.loading"
+    class="loading-state"
+  >
+    <span class="loading-spinner" />
     Loading...
   </div>
 
-  <form v-else @submit.prevent="handleSave" class="form card">
+  <form
+    v-else
+    class="form card"
+    @submit.prevent="handleSave"
+  >
     <div class="form-group">
       <label class="checkbox-label">
         <input
-          type="checkbox"
           v-model="disableSessionSummaries"
-        />
+          type="checkbox"
+        >
         Disable session summaries
       </label>
       <p class="form-help">
@@ -19,7 +26,10 @@
     </div>
 
     <div class="form-group">
-      <label class="form-label" for="sessionTitlePrompt">Custom Session Title Prompt</label>
+      <label
+        class="form-label"
+        for="sessionTitlePrompt"
+      >Custom Session Title Prompt</label>
       <ResizableTextarea
         id="sessionTitlePrompt"
         v-model="sessionTitlePrompt"
@@ -32,14 +42,31 @@
       </p>
     </div>
 
-    <div v-if="error" class="error-message">{{ error }}</div>
+    <div
+      v-if="error"
+      class="error-message"
+    >
+      {{ error }}
+    </div>
 
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary" :disabled="saving">
-        <span v-if="saving" class="loading-spinner"></span>
+      <button
+        type="submit"
+        class="btn btn-primary"
+        :disabled="saving"
+      >
+        <span
+          v-if="saving"
+          class="loading-spinner"
+        />
         {{ saving ? 'Saving...' : 'Save Settings' }}
       </button>
-      <button type="button" class="btn btn-secondary" :disabled="saving" @click="handleReset">
+      <button
+        type="button"
+        class="btn btn-secondary"
+        :disabled="saving"
+        @click="handleReset"
+      >
         Reset to Defaults
       </button>
     </div>
@@ -47,7 +74,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
@@ -65,7 +92,6 @@ onMounted(() => {
 });
 
 // Watch for changes to the store and update local refs
-import { watch } from 'vue';
 watch(() => settingsStore.summarySettings, (settings) => {
   if (settings) {
     disableSessionSummaries.value = settings.disableSessionSummaries;

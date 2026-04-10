@@ -230,7 +230,7 @@ describe('Projects API', () => {
         const template = sessionTemplates.create({
           name: 'Git Template',
           prompt: 'Template prompt',
-          projectId: projectId,
+          projectId,
           gitMode: 'worktree',
           gitBranch: 'template-branch',
         });
@@ -330,7 +330,7 @@ describe('Projects API', () => {
         const template = sessionTemplates.create({
           name: 'Test Template',
           prompt: 'Template prompt',
-          projectId: projectId,
+          projectId,
           thinkingEnabled: true,
           gitBranch: 'feature/from-template',
           gitMode: 'worktree',
@@ -348,7 +348,7 @@ describe('Projects API', () => {
       it('applies template settings when templateId is provided', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
-          templateId: templateId,
+          templateId,
           thinkingEnabled: false, // Should be overridden by template
         });
 
@@ -362,7 +362,7 @@ describe('Projects API', () => {
       it('sets nextTemplateId on session when templateId is provided', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
-          templateId: templateId,
+          templateId,
         });
 
         expect(res.status).toBe(201);
@@ -374,7 +374,7 @@ describe('Projects API', () => {
       it('passes template gitBranch to git setup', async () => {
         await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
-          templateId: templateId,
+          templateId,
         });
 
         expect(setupGitForSession).toHaveBeenCalledWith(
@@ -407,7 +407,7 @@ describe('Projects API', () => {
         const minimalTemplate = sessionTemplates.create({
           name: 'Minimal Template',
           prompt: 'Minimal prompt',
-          projectId: projectId,
+          projectId,
           thinkingEnabled: null,
           gitBranch: null,
           gitMode: null,
@@ -443,7 +443,7 @@ describe('Projects API', () => {
         const effortTemplate = sessionTemplates.create({
           name: 'Effort Level Template',
           prompt: 'Template with effort level',
-          projectId: projectId,
+          projectId,
           effortLevel: 'high',
           gitBranch: 'feature/effort',
           gitMode: 'worktree',
@@ -468,7 +468,7 @@ describe('Projects API', () => {
         const effortTemplate = sessionTemplates.create({
           name: 'Max Effort Template',
           prompt: 'Template with max effort',
-          projectId: projectId,
+          projectId,
           effortLevel: 'max',
           gitBranch: 'feature/max',
           gitMode: 'worktree',
@@ -492,7 +492,7 @@ describe('Projects API', () => {
         const nullEffortTemplate = sessionTemplates.create({
           name: 'Null Effort Template',
           prompt: 'Template with null effort',
-          projectId: projectId,
+          projectId,
           effortLevel: null,
           gitBranch: 'feature/null-effort',
           gitMode: 'worktree',
@@ -521,7 +521,7 @@ describe('Projects API', () => {
         const template = sessionTemplates.create({
           name: 'Chain Template',
           prompt: 'Chain prompt',
-          projectId: projectId,
+          projectId,
           thinkingEnabled: true,
           gitBranch: 'feature/chain',
           gitMode: 'worktree',
@@ -576,7 +576,7 @@ describe('Projects API', () => {
         const templateA = sessionTemplates.create({
           name: 'Template A',
           prompt: 'Prompt A',
-          projectId: projectId,
+          projectId,
           thinkingEnabled: true,
           gitBranch: 'feature/a',
           gitMode: 'worktree',
@@ -584,7 +584,7 @@ describe('Projects API', () => {
         const templateB = sessionTemplates.create({
           name: 'Template B',
           prompt: 'Prompt B',
-          projectId: projectId,
+          projectId,
         });
 
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
@@ -610,7 +610,7 @@ describe('Projects API', () => {
         const template = sessionTemplates.create({
           name: 'Template With Chain',
           prompt: 'Prompt',
-          projectId: projectId,
+          projectId,
           thinkingEnabled: true,
           gitBranch: 'feature/chain',
           gitMode: 'worktree',
@@ -1095,7 +1095,7 @@ describe('Projects API', () => {
       const template = sessionTemplates.create({
         name: 'Override Template',
         prompt: 'Template prompt',
-        projectId: projectId,
+        projectId,
         thinkingEnabled: true,
       });
 

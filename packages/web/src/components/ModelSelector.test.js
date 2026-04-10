@@ -44,15 +44,13 @@ describe('ModelSelector', () => {
     vi.spyOn(providersStore, 'fetchProviders').mockResolvedValue();
   });
 
-  const mountComponent = (props = {}, attrs = {}) => {
-    return mount(ModelSelector, {
+  const mountComponent = (props = {}, attrs = {}) => mount(ModelSelector, {
       props: {
         modelValue: sonnet.id,
         ...props,
       },
       attrs,
     });
-  };
 
   describe('rendering', () => {
     it('renders a select dropdown', () => {
@@ -383,10 +381,10 @@ describe('ModelSelector', () => {
 
   describe('provider-based model display', () => {
     it('displays displayName for built-in provider models', async () => {
-      const providersStore = useProvidersStore();
+      const localProvidersStore = useProvidersStore();
 
       // Mock built-in Anthropic provider with models
-      providersStore.providers = [
+      localProvidersStore.providers = [
         {
           id: 'anthropic-default',
           name: 'Anthropic (Official)',
@@ -411,10 +409,10 @@ describe('ModelSelector', () => {
     });
 
     it('displays modelId for custom provider models', async () => {
-      const providersStore = useProvidersStore();
+      const localProvidersStore = useProvidersStore();
 
       // Mock custom AWS Bedrock provider with models
-      providersStore.providers = [
+      localProvidersStore.providers = [
         {
           id: 'aws-bedrock',
           name: 'AWS Bedrock',
@@ -439,10 +437,10 @@ describe('ModelSelector', () => {
     });
 
     it('displays different formats for built-in vs custom providers in same dropdown', async () => {
-      const providersStore = useProvidersStore();
+      const localProvidersStore = useProvidersStore();
 
       // Mock both built-in and custom providers
-      providersStore.providers = [
+      localProvidersStore.providers = [
         {
           id: 'anthropic-default',
           name: 'Anthropic (Official)',

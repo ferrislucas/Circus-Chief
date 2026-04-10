@@ -10,36 +10,96 @@
       :title="getPrTooltip()"
       @click.stop
     >
-      <svg class="pr-icon" viewBox="0 0 16 16" fill="currentColor">
-        <path fill-rule="evenodd" d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"/>
+      <svg
+        class="pr-icon"
+        viewBox="0 0 16 16"
+        fill="currentColor"
+      >
+        <path
+          fill-rule="evenodd"
+          d="M7.177 3.073L9.573.677A.25.25 0 0110 .854v4.792a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zM11 2.5h-1V4h1a1 1 0 011 1v5.628a2.251 2.251 0 101.5 0V5A2.5 2.5 0 0011 2.5zm1 10.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0zM3.75 12a.75.75 0 100 1.5.75.75 0 000-1.5z"
+        />
       </svg>
       {{ displayPrText() }}
     </a>
-    <span v-if="summary?.prState" :class="['pr-state-badge', `pr-state-${summary.prState}`]" data-testid="pr-state-badge">
+    <span
+      v-if="summary?.prState"
+      :class="['pr-state-badge', `pr-state-${summary.prState}`]"
+      data-testid="pr-state-badge"
+    >
       {{ formatPrState(summary.prState) }}
     </span>
-    <span v-if="summary?.hasMergeConflicts" class="conflict-indicator" data-testid="pr-conflict-indicator" title="Merge conflicts detected">
+    <span
+      v-if="summary?.hasMergeConflicts"
+      class="conflict-indicator"
+      data-testid="pr-conflict-indicator"
+      title="Merge conflicts detected"
+    >
       <!-- Git merge conflict icon - two branches with alert -->
-      <svg viewBox="0 0 16 16" fill="currentColor" class="conflict-icon">
-        <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z"/>
-        <path d="M10.5 1.5l2 2-2 2" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M12.5 3.5H10" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <svg
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        class="conflict-icon"
+      >
+        <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" />
+        <path
+          d="M10.5 1.5l2 2-2 2"
+          stroke="currentColor"
+          stroke-width="1.5"
+          fill="none"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d="M12.5 3.5H10"
+          stroke="currentColor"
+          stroke-width="1.5"
+          fill="none"
+          stroke-linecap="round"
+        />
       </svg>
     </span>
     <!-- CI Status with SVG icons -->
-    <span v-if="summary?.ciStatus === 'success'" class="ci-indicator ci-success" data-testid="pr-ci-status" title="CI passing">
-      <svg viewBox="0 0 16 16" fill="currentColor" class="ci-icon">
-        <path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-.018-1.042.751.751 0 0 0-1.042-.018L6.75 9.19 5.28 7.72a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042l2 2a.75.75 0 0 0 1.06 0l4.5-4.5Z"/>
+    <span
+      v-if="summary?.ciStatus === 'success'"
+      class="ci-indicator ci-success"
+      data-testid="pr-ci-status"
+      title="CI passing"
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        class="ci-icon"
+      >
+        <path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm3.78-9.72a.751.751 0 0 0-.018-1.042.751.751 0 0 0-1.042-.018L6.75 9.19 5.28 7.72a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042l2 2a.75.75 0 0 0 1.06 0l4.5-4.5Z" />
       </svg>
     </span>
-    <span v-else-if="summary?.ciStatus === 'failure'" class="ci-indicator ci-failure" data-testid="pr-ci-status" title="CI failing">
-      <svg viewBox="0 0 16 16" fill="currentColor" class="ci-icon">
-        <path d="M2.343 13.657A8 8 0 1 1 13.658 2.343 8 8 0 0 1 2.343 13.657ZM6.03 4.97a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042L6.94 8 4.97 9.97a.749.749 0 0 0 .326 1.275.749.749 0 0 0 .734-.215L8 9.06l1.97 1.97a.749.749 0 0 0 1.275-.326.749.749 0 0 0-.215-.734L9.06 8l1.97-1.97a.749.749 0 0 0-.326-1.275.749.749 0 0 0-.734.215L8 6.94 6.03 4.97Z"/>
+    <span
+      v-else-if="summary?.ciStatus === 'failure'"
+      class="ci-indicator ci-failure"
+      data-testid="pr-ci-status"
+      title="CI failing"
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        class="ci-icon"
+      >
+        <path d="M2.343 13.657A8 8 0 1 1 13.658 2.343 8 8 0 0 1 2.343 13.657ZM6.03 4.97a.751.751 0 0 0-1.042.018.751.751 0 0 0-.018 1.042L6.94 8 4.97 9.97a.749.749 0 0 0 .326 1.275.749.749 0 0 0 .734-.215L8 9.06l1.97 1.97a.749.749 0 0 0 1.275-.326.749.749 0 0 0-.215-.734L9.06 8l1.97-1.97a.749.749 0 0 0-.326-1.275.749.749 0 0 0-.734.215L8 6.94 6.03 4.97Z" />
       </svg>
     </span>
-    <span v-else-if="summary?.ciStatus === 'pending'" class="ci-indicator ci-pending" data-testid="pr-ci-status" title="CI pending">
-      <svg viewBox="0 0 16 16" fill="currentColor" class="ci-icon">
-        <path d="M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/>
+    <span
+      v-else-if="summary?.ciStatus === 'pending'"
+      class="ci-indicator ci-pending"
+      data-testid="pr-ci-status"
+      title="CI pending"
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="currentColor"
+        class="ci-icon"
+      >
+        <path d="M8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z" />
       </svg>
     </span>
   </span>

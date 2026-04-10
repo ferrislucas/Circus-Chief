@@ -1,21 +1,33 @@
 <template>
   <div class="container command-button-detail">
-    <div v-if="isLoading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="isLoading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading...
     </div>
 
-    <div v-else class="form-container">
+    <div
+      v-else
+      class="form-container"
+    >
       <!-- Header -->
       <div class="form-header">
-        <router-link :to="`/projects/${route.params[ROUTE_PARAMS.PROJECT_ID]}/sessions`" class="btn btn-outline-secondary">
+        <router-link
+          :to="`/projects/${route.params[ROUTE_PARAMS.PROJECT_ID]}/sessions`"
+          class="btn btn-outline-secondary"
+        >
           ← Back
         </router-link>
         <h2>{{ isEditMode ? 'Edit Command Button' : 'New Command Button' }}</h2>
       </div>
 
       <!-- Form -->
-      <form @submit.prevent="onSubmit" class="command-button-form">
+      <form
+        class="command-button-form"
+        @submit.prevent="onSubmit"
+      >
         <!-- Label Field -->
         <div class="form-group">
           <label for="label">Label</label>
@@ -26,8 +38,11 @@
             class="form-input"
             placeholder="e.g., Run Tests"
             required
-          />
-          <span v-if="validationErrors.label" class="form-error">{{ validationErrors.label }}</span>
+          >
+          <span
+            v-if="validationErrors.label"
+            class="form-error"
+          >{{ validationErrors.label }}</span>
         </div>
 
         <!-- Command Field -->
@@ -40,8 +55,11 @@
             placeholder="e.g., npm test"
             rows="4"
             required
-          ></textarea>
-          <span v-if="validationErrors.command" class="form-error">{{ validationErrors.command }}</span>
+          />
+          <span
+            v-if="validationErrors.command"
+            class="form-error"
+          >{{ validationErrors.command }}</span>
         </div>
 
         <!-- Sort Order Field -->
@@ -54,20 +72,26 @@
             class="form-input"
             placeholder="0"
             min="0"
-          />
-          <span v-if="validationErrors.sortOrder" class="form-error">{{ validationErrors.sortOrder }}</span>
+          >
+          <span
+            v-if="validationErrors.sortOrder"
+            class="form-error"
+          >{{ validationErrors.sortOrder }}</span>
           <span class="form-help">Buttons are displayed in ascending order. Leave as 0 for default.</span>
         </div>
 
         <!-- Show on List Checkbox -->
         <div class="form-group form-group-checkbox">
-          <label for="showOnList" class="checkbox-label">
+          <label
+            for="showOnList"
+            class="checkbox-label"
+          >
             <input
               id="showOnList"
               v-model="formData.showOnList"
               type="checkbox"
               class="form-checkbox"
-            />
+            >
             <span>Show status indicator on session lists</span>
           </label>
           <span class="form-help">When enabled, the button status will be displayed on session cards</span>
@@ -75,27 +99,50 @@
 
         <!-- Form Actions -->
         <div class="form-actions">
-          <button type="button" class="btn btn-outline-secondary" @click="onCancel">
+          <button
+            type="button"
+            class="btn btn-outline-secondary"
+            @click="onCancel"
+          >
             Cancel
           </button>
-          <button v-if="isEditMode" type="button" class="btn btn-outline-danger" @click="onDelete">
+          <button
+            v-if="isEditMode"
+            type="button"
+            class="btn btn-outline-danger"
+            @click="onDelete"
+          >
             Delete
           </button>
-          <button type="submit" class="btn btn-primary" :disabled="isSaving">
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="isSaving"
+          >
             {{ isSaving ? 'Saving...' : isEditMode ? 'Update' : 'Create' }}
           </button>
         </div>
 
         <!-- Error Message -->
-        <div v-if="error" class="form-error-message">
+        <div
+          v-if="error"
+          class="form-error-message"
+        >
           {{ error }}
         </div>
       </form>
     </div>
 
     <!-- Delete Confirmation Dialog -->
-    <div v-if="showDeleteConfirm" class="modal-overlay" @click="showDeleteConfirm = false">
-      <div class="modal-dialog" @click.stop>
+    <div
+      v-if="showDeleteConfirm"
+      class="modal-overlay"
+      @click="showDeleteConfirm = false"
+    >
+      <div
+        class="modal-dialog"
+        @click.stop
+      >
         <div class="modal-header">
           <h4>Delete Command Button</h4>
         </div>
@@ -104,10 +151,17 @@
           <p>This action cannot be undone.</p>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-outline-secondary" @click="showDeleteConfirm = false">
+          <button
+            class="btn btn-outline-secondary"
+            @click="showDeleteConfirm = false"
+          >
             Cancel
           </button>
-          <button class="btn btn-danger" @click="confirmDelete" :disabled="isDeleting">
+          <button
+            class="btn btn-danger"
+            :disabled="isDeleting"
+            @click="confirmDelete"
+          >
             {{ isDeleting ? 'Deleting...' : 'Delete' }}
           </button>
         </div>
@@ -143,7 +197,7 @@ const formData = ref({
   showOnList: false,
 });
 
-const isEditMode = computed(() => !!route.params.buttonId);
+const isEditMode = computed(() => Boolean(route.params.buttonId));
 
 const loadButton = async (buttonId) => {
   isLoading.value = true;
