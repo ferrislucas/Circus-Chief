@@ -58,6 +58,39 @@ function getLastAssistantMessage(sessionId) {
 }
 
 /**
+ * Check if error message matches a rescheduling trigger and log the result
+ * @param {object} session - Session object
+ * @param {string} message - Message to check (lowercase)
+ * @param {string} source - Source description for logging (e.g., "error", "assistant message")
+ * @returns {boolean} True if matches a rescheduling trigger
+ */
+function checkRescheduleTrigger(session, message, source) {
+  if (session.rescheduleOnTokenLimit && matchesTokenLimitError(message)) {
+    console.log(`[SessionManager] Token limit detected in ${source}, rescheduling`);
+    console.log(`[SessionManager] ${source}:`, message);
+    console.log('[SessionManager] Session config: rescheduleOnTokenLimit=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
+    return true;
+  }
+
+  if (session.rescheduleOnServiceError && matchesServiceError(message)) {
+    console.log(`[SessionManager] Service error detected in ${source}, rescheduling`);
+    console.log(`[SessionManager] ${source}:`, message);
+    console.log('[SessionManager] Session config: rescheduleOnServiceError=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Log when a rescheduling check is skipped
+ * @param {string} setting - The setting name that was disabled
+ */
+function logSkippedReschedule(setting) {
+  console.log(`[SessionManager] ${setting} is false, skipping ${setting.replace('reschedule', '').toLowerCase()} rescheduling`);
+}
+
+/**
  * Check if an error should trigger automatic rescheduling
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
@@ -65,59 +98,30 @@ function getLastAssistantMessage(sessionId) {
  * @returns {boolean} True if should reschedule
  */
 export function shouldRescheduleOnError(session, error, sessionId = null) {
-  const errorMessage = error.message.toLowerCase();
-
   // Check if auto-reschedule is enabled first (master switch)
   if (!session.autoRescheduleEnabled) {
     console.log('[SessionManager] autoRescheduleEnabled is false, skipping all rescheduling');
     return false;
   }
 
-  // Check exception message first (existing behavior)
-  if (session.rescheduleOnTokenLimit) {
-    if (matchesTokenLimitError(errorMessage)) {
-      console.log('[SessionManager] Token limit error detected, rescheduling will be attempted');
-      console.log('[SessionManager] Error:', error.message);
-      console.log('[SessionManager] Session config: rescheduleOnTokenLimit=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
-      return true;
-    }
-  } else {
-    console.log('[SessionManager] rescheduleOnTokenLimit is false, skipping token limit rescheduling');
+  const errorMessage = error.message.toLowerCase();
+
+  // Log skipped checks for debugging
+  if (!session.rescheduleOnTokenLimit) logSkippedReschedule('rescheduleOnTokenLimit');
+  if (!session.rescheduleOnServiceError) logSkippedReschedule('rescheduleOnServiceError');
+
+  // Check error message for rescheduling triggers
+  if (checkRescheduleTrigger(session, errorMessage, 'error')) {
+    return true;
   }
 
-  if (session.rescheduleOnServiceError) {
-    if (matchesServiceError(errorMessage)) {
-      console.log('[SessionManager] Service error detected, rescheduling will be attempted');
-      console.log('[SessionManager] Error:', error.message);
-      console.log('[SessionManager] Session config: rescheduleOnServiceError=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
-      return true;
-    }
-  } else {
-    console.log('[SessionManager] rescheduleOnServiceError is false, skipping service error rescheduling');
-  }
-
-  // NEW: Also check last assistant message if available
+  // Also check last assistant message if available
   if (sessionId) {
     const lastAssistantMessage = getLastAssistantMessage(sessionId);
     if (lastAssistantMessage) {
       const messageContent = lastAssistantMessage.content.toLowerCase();
-
-      if (session.rescheduleOnTokenLimit) {
-        if (matchesTokenLimitError(messageContent)) {
-          console.log('[SessionManager] Token limit detected in assistant message, rescheduling');
-          console.log('[SessionManager] Assistant message:', lastAssistantMessage.content);
-          console.log('[SessionManager] Session config: rescheduleOnTokenLimit=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
-          return true;
-        }
-      }
-
-      if (session.rescheduleOnServiceError) {
-        if (matchesServiceError(messageContent)) {
-          console.log('[SessionManager] Service error detected in assistant message, rescheduling');
-          console.log('[SessionManager] Assistant message:', lastAssistantMessage.content);
-          console.log('[SessionManager] Session config: rescheduleOnServiceError=true, rescheduleDelayMinutes=', session.rescheduleDelayMinutes);
-          return true;
-        }
+      if (checkRescheduleTrigger(session, messageContent, 'assistant message')) {
+        return true;
       }
     }
   }

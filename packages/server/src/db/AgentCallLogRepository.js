@@ -1,5 +1,17 @@
 import { BaseRepository } from './BaseRepository.js';
 
+/**
+ * Compute total tokens from passed values (preferring provided over DB row values).
+ */
+function computeTotalTokens(provided, row) {
+  const finalInput = provided.inputTokens ?? row?.input_tokens ?? 0;
+  const finalOutput = provided.outputTokens ?? row?.output_tokens ?? 0;
+  const finalThinking = row?.thinking_tokens ?? 0;
+  const finalCacheRead = provided.cacheReadTokens ?? row?.cache_read_tokens ?? 0;
+  const finalCacheWrite = provided.cacheWriteTokens ?? row?.cache_write_tokens ?? 0;
+  return finalInput + finalOutput + finalThinking + finalCacheRead + finalCacheWrite;
+}
+
 function mapRow(row) {
   if (!row) return null;
   return {
@@ -88,12 +100,10 @@ export class AgentCallLogRepository extends BaseRepository {
     // Compute totalTokens using passed values (if provided) or existing DB values.
     // thinkingTokens is only set via updateUsage() during streaming, so we always
     // read it from the existing row rather than expecting it as a parameter here.
-    const finalInput = inputTokens ?? row?.input_tokens ?? 0;
-    const finalOutput = outputTokens ?? row?.output_tokens ?? 0;
-    const finalThinking = row?.thinking_tokens ?? 0;
-    const finalCacheRead = cacheReadTokens ?? row?.cache_read_tokens ?? 0;
-    const finalCacheWrite = cacheWriteTokens ?? row?.cache_write_tokens ?? 0;
-    const totalTokens = finalInput + finalOutput + finalThinking + finalCacheRead + finalCacheWrite;
+    const totalTokens = computeTotalTokens(
+      { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens },
+      row
+    );
 
     this.db
       .prepare(
@@ -184,7 +194,7 @@ export class AgentCallLogRepository extends BaseRepository {
       params.push(endDate);
     }
 
-    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const whereClause = conditions.length > 0 ? `WHERE ${  conditions.join(' AND ')}` : '';
 
     const countRow = this.db
       .prepare(`SELECT COUNT(*) as count FROM agent_call_logs acl ${whereClause}`)

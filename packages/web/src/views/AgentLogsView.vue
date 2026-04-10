@@ -13,9 +13,17 @@
     />
 
     <!-- Error Banner -->
-    <div v-if="error" class="error-banner">
+    <div
+      v-if="error"
+      class="error-banner"
+    >
       <span>{{ error }}</span>
-      <button class="btn-retry" @click="store.fetchLogs()">Retry</button>
+      <button
+        class="btn-retry"
+        @click="store.fetchLogs()"
+      >
+        Retry
+      </button>
     </div>
 
     <!-- Table -->
@@ -28,7 +36,10 @@
     />
 
     <!-- Pagination Bar -->
-    <div v-if="pagination.total > 0" class="pagination-bar">
+    <div
+      v-if="pagination.total > 0"
+      class="pagination-bar"
+    >
       <div class="per-page-control">
         <label class="filter-label">Per page</label>
         <select
@@ -36,7 +47,13 @@
           :value="perPage"
           @change="store.setPerPage(parseInt($event.target.value))"
         >
-          <option v-for="n in [10, 25, 50, 100]" :key="n" :value="n">{{ n }}</option>
+          <option
+            v-for="n in [10, 25, 50, 100]"
+            :key="n"
+            :value="n"
+          >
+            {{ n }}
+          </option>
         </select>
       </div>
 
@@ -45,14 +62,28 @@
       </div>
 
       <div class="page-buttons">
-        <button class="page-btn" :disabled="currentPage === 1" @click="store.setPage(1)">
+        <button
+          class="page-btn"
+          :disabled="currentPage === 1"
+          @click="store.setPage(1)"
+        >
           &laquo;
         </button>
-        <button class="page-btn" :disabled="currentPage === 1" @click="store.setPage(currentPage - 1)">
+        <button
+          class="page-btn"
+          :disabled="currentPage === 1"
+          @click="store.setPage(currentPage - 1)"
+        >
           &lsaquo;
         </button>
-        <template v-for="p in pageNumbers" :key="p">
-          <span v-if="p === '...'" class="page-ellipsis">&hellip;</span>
+        <template
+          v-for="p in pageNumbers"
+          :key="p"
+        >
+          <span
+            v-if="p === '...'"
+            class="page-ellipsis"
+          >&hellip;</span>
           <button
             v-else
             class="page-btn"
@@ -62,10 +93,18 @@
             {{ p }}
           </button>
         </template>
-        <button class="page-btn" :disabled="currentPage === totalPages" @click="store.setPage(currentPage + 1)">
+        <button
+          class="page-btn"
+          :disabled="currentPage === totalPages"
+          @click="store.setPage(currentPage + 1)"
+        >
           &rsaquo;
         </button>
-        <button class="page-btn" :disabled="currentPage === totalPages" @click="store.setPage(totalPages)">
+        <button
+          class="page-btn"
+          :disabled="currentPage === totalPages"
+          @click="store.setPage(totalPages)"
+        >
           &raquo;
         </button>
       </div>
@@ -135,7 +174,7 @@ function onDateChange(key, event) {
     store.setFilter(key, null);
     return;
   }
-  const ts = new Date(val + 'T00:00:00Z').getTime();
+  const ts = new Date(`${val  }T00:00:00Z`).getTime();
   store.filters[key] = ts;
   store.currentPage = 1;
   store.fetchLogs();

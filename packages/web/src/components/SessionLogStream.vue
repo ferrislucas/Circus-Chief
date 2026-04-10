@@ -1,5 +1,8 @@
 <template>
-  <div v-if="hasContent && !isCollapsed" class="session-log-stream">
+  <div
+    v-if="hasContent && !isCollapsed"
+    class="session-log-stream"
+  >
     <!-- Collapse toggle bar -->
     <div
       class="log-header"
@@ -14,8 +17,19 @@
           data-testid="live-output-model"
         >{{ activeModel }}</span>
       </div>
-      <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="18 15 12 9 6 15"></polyline>
+      <svg
+        class="chevron-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <polyline points="18 15 12 9 6 15" />
       </svg>
     </div>
 
@@ -25,18 +39,34 @@
       <div class="log-content-inner">
         <div>
           <!-- Work log entries -->
-          <div v-for="log in recentLogs" :key="log.id" class="log-entry">
-            <span v-if="log.type === 'tool_use'" class="log-tool">&#9656; {{ log.tool }}</span>
-            <span v-if="log.summary" class="log-summary">{{ log.summary }}</span>
+          <div
+            v-for="log in recentLogs"
+            :key="log.id"
+            class="log-entry"
+          >
+            <span
+              v-if="log.type === 'tool_use'"
+              class="log-tool"
+            >&#9656; {{ log.tool }}</span>
+            <span
+              v-if="log.summary"
+              class="log-summary"
+            >{{ log.summary }}</span>
           </div>
 
           <!-- Thinking (if streaming) -->
-          <div v-if="thinking" class="log-thinking">
+          <div
+            v-if="thinking"
+            class="log-thinking"
+          >
             {{ thinkingPreview }}
           </div>
 
           <!-- Partial text (if streaming) -->
-          <div v-if="partialText" class="log-partial">
+          <div
+            v-if="partialText"
+            class="log-partial"
+          >
             {{ partialTextPreview }}
           </div>
         </div>
@@ -56,8 +86,19 @@
       class="log-collapsed-model"
       data-testid="live-output-model-collapsed"
     > · {{ activeModel }}</span></span>
-    <svg class="chevron-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="6 9 12 15 18 9"></polyline>
+    <svg
+      class="chevron-icon"
+      xmlns="http://www.w3.org/2000/svg"
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <polyline points="6 9 12 15 18 9" />
     </svg>
   </div>
 </template>

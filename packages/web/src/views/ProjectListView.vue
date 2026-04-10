@@ -2,23 +2,50 @@
   <div class="container">
     <div class="page-header">
       <h1>Projects</h1>
-      <router-link to="/projects/new" class="btn btn-primary">New Project</router-link>
+      <router-link
+        to="/projects/new"
+        class="btn btn-primary"
+      >
+        New Project
+      </router-link>
     </div>
 
-    <div v-if="projectsStore.loading" class="skeleton-list">
-      <div v-for="i in 3" :key="i" class="skeleton card" style="height: 80px"></div>
+    <div
+      v-if="projectsStore.loading"
+      class="skeleton-list"
+    >
+      <div
+        v-for="i in 3"
+        :key="i"
+        class="skeleton card"
+        style="height: 80px"
+      />
     </div>
 
-    <div v-else-if="projectsStore.error" class="error-message">
+    <div
+      v-else-if="projectsStore.error"
+      class="error-message"
+    >
       {{ projectsStore.error }}
     </div>
 
-    <div v-else-if="projectsStore.projects.length === 0" class="empty-state">
+    <div
+      v-else-if="projectsStore.projects.length === 0"
+      class="empty-state"
+    >
       <p>No projects yet. Create your first project to get started.</p>
-      <router-link to="/projects/new" class="btn btn-primary">Create Project</router-link>
+      <router-link
+        to="/projects/new"
+        class="btn btn-primary"
+      >
+        Create Project
+      </router-link>
     </div>
 
-    <div v-else class="project-list">
+    <div
+      v-else
+      class="project-list"
+    >
       <div
         v-for="project in projectsStore.projects"
         :key="project.id"
@@ -26,11 +53,21 @@
         @click="goToSessions(project.id)"
       >
         <div class="project-info">
-          <h3 class="project-name">{{ project.name }}</h3>
-          <p class="project-path">{{ project.workingDirectory }}</p>
+          <h3 class="project-name">
+            {{ project.name }}
+          </h3>
+          <p class="project-path">
+            {{ project.workingDirectory }}
+          </p>
         </div>
         <div class="project-actions">
-          <router-link :to="`/projects/${project.id}/edit`" class="btn" @click.stop>Edit</router-link>
+          <router-link
+            :to="`/projects/${project.id}/edit`"
+            class="btn"
+            @click.stop
+          >
+            Edit
+          </router-link>
         </div>
       </div>
     </div>

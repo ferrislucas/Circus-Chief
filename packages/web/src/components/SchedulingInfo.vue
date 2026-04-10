@@ -1,9 +1,14 @@
 <template>
   <!-- Scheduled Session Info -->
-  <div v-if="session.status === 'scheduled'" class="scheduling-info scheduled-panel">
+  <div
+    v-if="session.status === 'scheduled'"
+    class="scheduling-info scheduled-panel"
+  >
     <div class="info-header">
       <span class="info-icon">⏰</span>
-      <h3 class="info-title">Scheduled Session</h3>
+      <h3 class="info-title">
+        Scheduled Session
+      </h3>
     </div>
 
     <div class="info-content">
@@ -11,10 +16,15 @@
         <p class="countdown-text">
           Starting <strong>{{ countdownDisplay }}</strong>
         </p>
-        <p class="absolute-time">{{ absoluteTimeDisplay }}</p>
+        <p class="absolute-time">
+          {{ absoluteTimeDisplay }}
+        </p>
       </div>
 
-      <div v-if="session.autoRescheduleEnabled" class="reschedule-info">
+      <div
+        v-if="session.autoRescheduleEnabled"
+        class="reschedule-info"
+      >
         <div class="reschedule-badge">
           <span class="badge-icon">🔄</span>
           <span class="badge-label">Auto-reschedule enabled</span>
@@ -22,10 +32,17 @@
       </div>
 
       <div class="actions">
-        <button @click="showEditModal = true" class="btn btn-secondary">
+        <button
+          class="btn btn-secondary"
+          @click="showEditModal = true"
+        >
           Edit Schedule
         </button>
-        <button @click="handleCancelSchedule" class="btn btn-danger" :disabled="loading">
+        <button
+          class="btn btn-danger"
+          :disabled="loading"
+          @click="handleCancelSchedule"
+        >
           Cancel
         </button>
       </div>
@@ -40,7 +57,6 @@
     @close="showEditModal = false"
     @saved="handleSaved"
   />
-
 </template>
 
 <script setup>
@@ -64,13 +80,9 @@ const showEditModal = ref(false);
 const countdownTime = ref(new Date());
 let countdownInterval = null;
 
-const countdownDisplay = computed(() => {
-  return formatDistanceToNow(new Date(props.session.scheduledAt), { addSuffix: true });
-});
+const countdownDisplay = computed(() => formatDistanceToNow(new Date(props.session.scheduledAt), { addSuffix: true }));
 
-const absoluteTimeDisplay = computed(() => {
-  return format(new Date(props.session.scheduledAt), 'EEEE, MMMM d, yyyy h:mm a');
-});
+const absoluteTimeDisplay = computed(() => format(new Date(props.session.scheduledAt), 'EEEE, MMMM d, yyyy h:mm a'));
 
 async function handleCancelSchedule() {
   if (!confirm('Cancel the scheduled session?')) return;
@@ -83,7 +95,7 @@ async function handleCancelSchedule() {
     });
     uiStore.showToast('Schedule cancelled', 'success');
   } catch (error) {
-    uiStore.showToast('Failed to cancel schedule: ' + error.message, 'error');
+    uiStore.showToast(`Failed to cancel schedule: ${  error.message}`, 'error');
   } finally {
     loading.value = false;
   }

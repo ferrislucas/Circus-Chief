@@ -4,14 +4,31 @@
       <div>
         <div class="project-title">
           <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
-          <a v-if="projectsStore.currentProject?.repoUrl" :href="projectsStore.currentProject.repoUrl" target="_blank" rel="noopener noreferrer" class="repo-link" title="Open repository">
-            <svg class="repo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6m4-3l6 6m0 0l-6 6m6-6H9"></path>
+          <a
+            v-if="projectsStore.currentProject?.repoUrl"
+            :href="projectsStore.currentProject.repoUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="repo-link"
+            title="Open repository"
+          >
+            <svg
+              class="repo-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6m4-3l6 6m0 0l-6 6m6-6H9" />
             </svg>
           </a>
         </div>
       </div>
-      <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary mobile-only">
+      <router-link
+        v-if="activeTab === 'sessions'"
+        :to="`/projects/${route.params.id}/sessions/new`"
+        class="btn btn-primary mobile-only"
+      >
         New Session
       </router-link>
     </div>
@@ -65,20 +82,43 @@
             Kanban
           </button>
         </div>
-        <router-link v-if="activeTab === 'sessions'" :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary desktop-only">
+        <router-link
+          v-if="activeTab === 'sessions'"
+          :to="`/projects/${route.params.id}/sessions/new`"
+          class="btn btn-primary desktop-only"
+        >
           New Session
         </router-link>
       </div>
 
       <!-- Mobile dropdown -->
       <div class="tabs-mobile">
-        <select :value="activeTab" @change="handleTabChange($event.target.value)" class="tab-select">
-          <option value="sessions">Sessions</option>
-          <option value="archived">Archived</option>
-          <option value="templates">Templates</option>
-          <option value="commands">Commands</option>
-          <option value="scheduled">Scheduled</option>
-          <option v-if="projectsStore.currentProject?.kanbanEnabled" value="kanban">Kanban</option>
+        <select
+          :value="activeTab"
+          class="tab-select"
+          @change="handleTabChange($event.target.value)"
+        >
+          <option value="sessions">
+            Sessions
+          </option>
+          <option value="archived">
+            Archived
+          </option>
+          <option value="templates">
+            Templates
+          </option>
+          <option value="commands">
+            Commands
+          </option>
+          <option value="scheduled">
+            Scheduled
+          </option>
+          <option
+            v-if="projectsStore.currentProject?.kanbanEnabled"
+            value="kanban"
+          >
+            Kanban
+          </option>
         </select>
       </div>
     </div>
@@ -98,31 +138,60 @@
     />
 
     <!-- Spacer for other tabs to match structure -->
-    <div v-else class="tab-spacer"></div>
+    <div
+      v-else
+      class="tab-spacer"
+    />
 
     <!-- Sessions Tab -->
     <div v-if="activeTab === 'sessions'">
-      <div v-if="sessionsStore.loading" class="skeleton-list">
-        <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+      <div
+        v-if="sessionsStore.loading"
+        class="skeleton-list"
+      >
+        <div
+          v-for="i in 3"
+          :key="i"
+          class="skeleton card"
+          style="height: 120px"
+        />
       </div>
 
-      <div v-else-if="sessionsStore.error" class="error-message">
+      <div
+        v-else-if="sessionsStore.error"
+        class="error-message"
+      >
         {{ sessionsStore.error }}
       </div>
 
-      <div v-else-if="sessionsStore.sessions.length === 0" class="empty-state">
+      <div
+        v-else-if="sessionsStore.sessions.length === 0"
+        class="empty-state"
+      >
         <p>No sessions yet. Start a new session to interact with Claude.</p>
-        <router-link :to="`/projects/${route.params.id}/sessions/new`" class="btn btn-primary">
+        <router-link
+          :to="`/projects/${route.params.id}/sessions/new`"
+          class="btn btn-primary"
+        >
           New Session
         </router-link>
       </div>
 
-      <div v-else-if="filteredGroupedSessions.length === 0" class="empty-state">
+      <div
+        v-else-if="filteredGroupedSessions.length === 0"
+        class="empty-state"
+      >
         <p>No sessions match the current filter.</p>
       </div>
 
-      <div v-else class="session-list">
-        <template v-for="group in filteredGroupedSessions" :key="group.parent.id">
+      <div
+        v-else
+        class="session-list"
+      >
+        <template
+          v-for="group in filteredGroupedSessions"
+          :key="group.parent.id"
+        >
           <SessionCard
             :session="group.parent"
             :show-summary="true"
@@ -186,14 +255,28 @@
     />
 
     <!-- Lane Selector Modal (to select which lane to add session to) -->
-    <div v-if="showLaneSelectorModal" class="modal-backdrop" @click.self="closeLaneSelectorModal">
+    <div
+      v-if="showLaneSelectorModal"
+      class="modal-backdrop"
+      @click.self="closeLaneSelectorModal"
+    >
       <div class="modal-content lane-selector-modal">
         <div class="modal-header">
-          <h2 class="modal-title">Add to Kanban Board</h2>
-          <button @click="closeLaneSelectorModal" class="close-btn" aria-label="Close">&times;</button>
+          <h2 class="modal-title">
+            Add to Kanban Board
+          </h2>
+          <button
+            class="close-btn"
+            aria-label="Close"
+            @click="closeLaneSelectorModal"
+          >
+            &times;
+          </button>
         </div>
         <div class="modal-body">
-          <p class="modal-description">Select a lane to add "{{ sessionToAdd?.name }}" to:</p>
+          <p class="modal-description">
+            Select a lane to add "{{ sessionToAdd?.name }}" to:
+          </p>
           <div class="lane-options">
             <button
               v-for="lane in kanbanStore.board?.lanes"
@@ -205,12 +288,20 @@
               <span class="lane-option-count">{{ lane.cards?.length || 0 }} cards</span>
             </button>
           </div>
-          <p v-if="!kanbanStore.board?.lanes?.length" class="empty-lanes">
+          <p
+            v-if="!kanbanStore.board?.lanes?.length"
+            class="empty-lanes"
+          >
             No lanes available. Go to the Kanban tab to create lanes first.
           </p>
         </div>
         <div class="modal-footer">
-          <button @click="closeLaneSelectorModal" class="btn btn-secondary">Cancel</button>
+          <button
+            class="btn btn-secondary"
+            @click="closeLaneSelectorModal"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>
@@ -218,7 +309,7 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, watch, computed } from 'vue';
+import { onMounted, onUnmounted, watch, computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -379,7 +470,6 @@ async function handleUnarchive(sessionId) {
 }
 
 // Add to Board modal state
-import { ref } from 'vue';
 import { useUiStore } from '../stores/ui.js';
 const uiStore = useUiStore();
 const showAddToLaneModal = ref(false);
@@ -422,9 +512,9 @@ onMounted(() => {
   sessionsStore.restoreScheduledFilter();
 
   // Fetch kanban board for SessionCard "Add to Board" button and lane indicators
-  const projectId = route.params.id;
-  if (projectId) {
-    kanbanStore.fetchBoard(projectId).catch(err => {
+  const mountProjectId = route.params.id;
+  if (mountProjectId) {
+    kanbanStore.fetchBoard(mountProjectId).catch(err => {
       console.warn('Failed to fetch kanban board:', err);
     });
   }

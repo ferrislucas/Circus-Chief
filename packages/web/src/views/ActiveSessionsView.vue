@@ -2,7 +2,9 @@
   <div class="container">
     <div class="page-header">
       <div>
-        <p class="page-description">All active sessions across your projects</p>
+        <p class="page-description">
+          All active sessions across your projects
+        </p>
       </div>
     </div>
 
@@ -28,31 +30,65 @@
           :title="starFilterTooltip"
           @click="toggleStarFilterIcon"
         >
-          <span class="star-icon" v-if="sessionsStore.starredFilter === 'starred'">⭐</span>
-          <span class="star-icon star-crossed" v-else-if="sessionsStore.starredFilter === 'unstarred'">⭐</span>
-          <span class="star-icon" v-else>☆</span>
+          <span
+            v-if="sessionsStore.starredFilter === 'starred'"
+            class="star-icon"
+          >⭐</span>
+          <span
+            v-else-if="sessionsStore.starredFilter === 'unstarred'"
+            class="star-icon star-crossed"
+          >⭐</span>
+          <span
+            v-else
+            class="star-icon"
+          >☆</span>
         </button>
       </div>
     </div>
 
-    <div v-if="sessionsStore.loading" class="skeleton-list">
-      <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+    <div
+      v-if="sessionsStore.loading"
+      class="skeleton-list"
+    >
+      <div
+        v-for="i in 3"
+        :key="i"
+        class="skeleton card"
+        style="height: 120px"
+      />
     </div>
 
-    <div v-else-if="sessionsStore.error" class="error-message">
+    <div
+      v-else-if="sessionsStore.error"
+      class="error-message"
+    >
       {{ sessionsStore.error }}
     </div>
 
-    <div v-else-if="sessionsStore.activeSessions.length === 0" class="empty-state">
+    <div
+      v-else-if="sessionsStore.activeSessions.length === 0"
+      class="empty-state"
+    >
       <p>No active sessions. All sessions are completed or there are no sessions yet.</p>
-      <router-link to="/" class="btn btn-primary">View Projects</router-link>
+      <router-link
+        to="/"
+        class="btn btn-primary"
+      >
+        View Projects
+      </router-link>
     </div>
 
-    <div v-else-if="filteredSessions.length === 0" class="empty-state">
+    <div
+      v-else-if="filteredSessions.length === 0"
+      class="empty-state"
+    >
       <p>No sessions match the current filter.</p>
     </div>
 
-    <div v-else class="session-list">
+    <div
+      v-else
+      class="session-list"
+    >
       <SessionCard
         v-for="session in filteredSessions"
         :key="session.id"
@@ -199,27 +235,27 @@ function ensureRunExists(runId, buttonId, sessionId) {
 /**
  * Set up WebSocket handlers for command run events.
  */
-function setupCommandRunHandlers(on, off, cleanups) {
+function setupCommandRunHandlers(on, off, handlerCleanups) {
   const outputHandler = (msg) => {
     ensureRunExists(msg.runId, msg.buttonId, msg.sessionId);
     commandButtonsStore.appendOutput(msg.runId, msg.output);
   };
   on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, outputHandler);
-  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, outputHandler));
+  handlerCleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, outputHandler));
 
   const completeHandler = (msg) => {
     ensureRunExists(msg.runId, msg.buttonId, msg.sessionId);
     commandButtonsStore.completeRun(msg.runId, msg.exitCode, msg.output);
   };
   on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, completeHandler);
-  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, completeHandler));
+  handlerCleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, completeHandler));
 
   const errorHandler = (msg) => {
     ensureRunExists(msg.runId, msg.buttonId, msg.sessionId);
     commandButtonsStore.errorRun(msg.runId, msg.error);
   };
   on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, errorHandler);
-  cleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, errorHandler));
+  handlerCleanups.push(() => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, errorHandler));
 }
 
 onMounted(async () => {

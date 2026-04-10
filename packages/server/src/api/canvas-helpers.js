@@ -2,6 +2,10 @@ import { extname } from 'path';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
+// Common MIME type constants
+const MIME_TEXT_PLAIN = 'text/plain';
+const MIME_TEXT_MARKDOWN = 'text/markdown';
+
 // Map file extensions to MIME types for binary files (images/PDF)
 export const MIME_TYPES = {
   '.png': 'image/png',
@@ -57,24 +61,24 @@ export const TEXT_EXTENSIONS = {
   '.yml': 'text/yaml',
   '.toml': 'text/x-toml',
   '.xml': 'text/xml',
-  '.ini': 'text/plain',
-  '.cfg': 'text/plain',
-  '.conf': 'text/plain',
-  '.env': 'text/plain',
-  '.properties': 'text/plain',
+  '.ini': MIME_TEXT_PLAIN,
+  '.cfg': MIME_TEXT_PLAIN,
+  '.conf': MIME_TEXT_PLAIN,
+  '.env': MIME_TEXT_PLAIN,
+  '.properties': MIME_TEXT_PLAIN,
   // Special files
-  '.gitignore': 'text/plain',
-  '.dockerignore': 'text/plain',
-  '.editorconfig': 'text/plain',
-  '.prettierrc': 'text/plain',
-  '.eslintrc': 'text/plain',
+  '.gitignore': MIME_TEXT_PLAIN,
+  '.dockerignore': MIME_TEXT_PLAIN,
+  '.editorconfig': MIME_TEXT_PLAIN,
+  '.prettierrc': MIME_TEXT_PLAIN,
+  '.eslintrc': MIME_TEXT_PLAIN,
   // Markdown
-  '.md': 'text/markdown',
-  '.mdx': 'text/markdown',
-  '.markdown': 'text/markdown',
+  '.md': MIME_TEXT_MARKDOWN,
+  '.mdx': MIME_TEXT_MARKDOWN,
+  '.markdown': MIME_TEXT_MARKDOWN,
   // Plain text
-  '.txt': 'text/plain',
-  '.log': 'text/plain',
+  '.txt': MIME_TEXT_PLAIN,
+  '.log': MIME_TEXT_PLAIN,
   '.csv': 'text/csv',
   // JSON
   '.json': 'application/json',
@@ -125,15 +129,15 @@ export function getTypeFromExtension(ext) {
 function getMimeTypeForType(type) {
   switch (type) {
     case 'text':
-      return 'text/plain';
+      return MIME_TEXT_PLAIN;
     case 'markdown':
-      return 'text/markdown';
+      return MIME_TEXT_MARKDOWN;
     case 'code':
-      return 'text/plain';
+      return MIME_TEXT_PLAIN;
     case 'json':
       return 'application/json';
     default:
-      return 'text/plain';
+      return MIME_TEXT_PLAIN;
   }
 }
 
@@ -158,7 +162,7 @@ export function processFileBuffer(fileBuffer, itemFilename) {
     }
     // It's a text file with unknown extension, treat as code
     detectedType = 'code';
-    detectedMimeType = 'text/plain';
+    detectedMimeType = MIME_TEXT_PLAIN;
   }
 
   // Handle binary types (image, pdf)
@@ -225,4 +229,21 @@ export function buildInlineItemData(type, content, itemFilename) {
  */
 export function broadcastCanvasUpdate(sessionId, item) {
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.CANVAS_ADD, { item });
+}
+
+/**
+ * Write a canvas item to a file based on its type.
+ * @param {Object} item - The canvas item
+ * @param {string} filePath - The file path to write to
+ */
+export async function writeCanvasItemToFile(item, filePath) {
+  const { writeFile } = await import('fs/promises');
+  if (item.type === 'image' || item.type === 'pdf') {
+    const buffer = Buffer.from(item.data, 'base64');
+    await writeFile(filePath, buffer);
+  } else if (item.type === 'json') {
+    await writeFile(filePath, item.data || item.content || '{}');
+  } else {
+    await writeFile(filePath, item.content || '');
+  }
 }

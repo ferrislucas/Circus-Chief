@@ -405,14 +405,12 @@ describe('CommandButtons Store', () => {
       // This test verifies that we wait for the API to get the server's runId
       // so that WebSocket messages can find the run
       let apiResolved = false;
-      api.runCommandButton.mockImplementation(() => {
-        return new Promise((resolve) => {
+      api.runCommandButton.mockImplementation(() => new Promise((resolve) => {
           setTimeout(() => {
             apiResolved = true;
             resolve({ runId: 'server-run-123', buttonId: 'btn-1', status: 'running', output: '' });
           }, 50);
-        });
-      });
+        }));
 
       const store = useCommandButtonsStore();
 
@@ -708,7 +706,7 @@ describe('CommandButtons Store', () => {
           'run-1': {
             runId: 'run-1',
             status: 'running',
-            output: output,
+            output,
             exitCode: null
           },
         };
@@ -1077,7 +1075,7 @@ describe('CommandButtons Store', () => {
           output: 'Complete\n',
           exitCode: 0,
           startedAt: Date.now() - 5000,
-          completedAt: completedAt,
+          completedAt,
         },
       ];
       api.getActiveRuns.mockResolvedValue(runs);

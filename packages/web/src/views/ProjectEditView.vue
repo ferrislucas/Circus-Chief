@@ -2,50 +2,69 @@
   <div class="container">
     <h1>Edit Project</h1>
 
-    <div v-if="projectsStore.loading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="projectsStore.loading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading...
     </div>
 
-    <form v-else-if="projectsStore.currentProject" @submit.prevent="handleSubmit" class="form card">
+    <form
+      v-else-if="projectsStore.currentProject"
+      class="form card"
+      @submit.prevent="handleSubmit"
+    >
       <div class="form-group">
-        <label class="form-label" for="name">Project Name</label>
+        <label
+          class="form-label"
+          for="name"
+        >Project Name</label>
         <input
           id="name"
           v-model="name"
           type="text"
           class="form-input"
           required
-        />
+        >
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="workingDirectory">Working Directory</label>
+        <label
+          class="form-label"
+          for="workingDirectory"
+        >Working Directory</label>
         <PathChooser v-model="workingDirectory" />
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="repoUrl">Repository URL</label>
+        <label
+          class="form-label"
+          for="repoUrl"
+        >Repository URL</label>
         <input
           id="repoUrl"
           v-model="repoUrl"
           type="url"
           class="form-input"
           placeholder="https://github.com/username/repo"
-        />
+        >
         <p class="form-help">
           Link to the project's repository (e.g., GitHub, GitLab). This can be automatically populated from session summaries.
         </p>
       </div>
 
       <div class="form-group">
-        <label class="form-label" for="systemPrompt">
+        <label
+          class="form-label"
+          for="systemPrompt"
+        >
           System Prompt
           <button
+            v-if="systemPrompt !== defaultSystemPrompt"
             type="button"
             class="btn-link"
             @click="systemPrompt = defaultSystemPrompt"
-            v-if="systemPrompt !== defaultSystemPrompt"
           >
             Reset to Default
           </button>
@@ -55,7 +74,7 @@
           v-model="systemPrompt"
           class="form-input form-textarea"
           rows="8"
-        ></textarea>
+        />
         <p class="form-help">
           Customize the system prompt for the AI agent. The default prompt is pre-filled above.
         </p>
@@ -64,28 +83,34 @@
       <details class="advanced-settings">
         <summary>Session Lifecycle Hooks</summary>
         <div class="form-group">
-          <label class="form-label" for="onSessionCreated">On Session Created</label>
+          <label
+            class="form-label"
+            for="onSessionCreated"
+          >On Session Created</label>
           <textarea
             id="onSessionCreated"
             v-model="onSessionCreated"
             class="form-input form-textarea-small"
             rows="3"
             placeholder="Shell command to run when a session is created..."
-          ></textarea>
+          />
           <p class="form-help">
             Runs in the background after session creation. Environment variables: CLAUDETOOLS_SESSION_ID, CLAUDETOOLS_PROJECT_ID, CLAUDETOOLS_SESSION_NAME
           </p>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="onSessionDeleted">On Session Deleted</label>
+          <label
+            class="form-label"
+            for="onSessionDeleted"
+          >On Session Deleted</label>
           <textarea
             id="onSessionDeleted"
             v-model="onSessionDeleted"
             class="form-input form-textarea-small"
             rows="3"
             placeholder="Shell command to run when a session is deleted..."
-          ></textarea>
+          />
           <p class="form-help">
             Runs in the background after session deletion. Environment variables: CLAUDETOOLS_SESSION_ID, CLAUDETOOLS_PROJECT_ID, CLAUDETOOLS_SESSION_NAME
           </p>
@@ -99,25 +124,36 @@
         </p>
 
         <div class="form-group">
-          <label class="form-label" for="defaultMode">Mode</label>
+          <label
+            class="form-label"
+            for="defaultMode"
+          >Mode</label>
           <select
             id="defaultMode"
             v-model="defaultMode"
             class="form-input"
           >
-            <option value="">Use system default (standard)</option>
-            <option value="plan">Plan</option>
-            <option value="standard">Standard</option>
-            <option value="yolo">YOLO</option>
+            <option value="">
+              Use system default (standard)
+            </option>
+            <option value="plan">
+              Plan
+            </option>
+            <option value="standard">
+              Standard
+            </option>
+            <option value="yolo">
+              YOLO
+            </option>
           </select>
         </div>
 
         <div class="form-group">
           <label class="checkbox-label">
             <input
-              type="checkbox"
               v-model="defaultThinkingEnabled"
-            />
+              type="checkbox"
+            >
             Enable thinking (extended thinking) by default
           </label>
           <p class="form-help">
@@ -126,13 +162,30 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="defaultEffortLevel">Default Effort Level</label>
-          <select id="defaultEffortLevel" v-model="defaultEffortLevel" class="form-input">
-            <option value="">Auto (default)</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="max">Max</option>
+          <label
+            class="form-label"
+            for="defaultEffortLevel"
+          >Default Effort Level</label>
+          <select
+            id="defaultEffortLevel"
+            v-model="defaultEffortLevel"
+            class="form-input"
+          >
+            <option value="">
+              Auto (default)
+            </option>
+            <option value="low">
+              Low
+            </option>
+            <option value="medium">
+              Medium
+            </option>
+            <option value="high">
+              High
+            </option>
+            <option value="max">
+              Max
+            </option>
           </select>
           <p class="form-help">
             Set the default effort level for new sessions. Controls how much effort Claude puts into responses.
@@ -142,9 +195,9 @@
         <div class="form-group">
           <label class="checkbox-label">
             <input
-              type="checkbox"
               v-model="defaultStartImmediately"
-            />
+              type="checkbox"
+            >
             Start sessions immediately
           </label>
           <p class="form-help">
@@ -153,15 +206,24 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="defaultGitMode">Git Mode</label>
+          <label
+            class="form-label"
+            for="defaultGitMode"
+          >Git Mode</label>
           <select
             id="defaultGitMode"
             v-model="defaultGitMode"
             class="form-input"
           >
-            <option value="">No git isolation</option>
-            <option value="branch">Create branch for each session</option>
-            <option value="worktree">Create worktree for each session</option>
+            <option value="">
+              No git isolation
+            </option>
+            <option value="branch">
+              Create branch for each session
+            </option>
+            <option value="worktree">
+              Create worktree for each session
+            </option>
           </select>
           <p class="form-help">
             Controls how git changes are isolated for each session.
@@ -169,22 +231,33 @@
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="defaultGitBranch">Default Git Branch</label>
+          <label
+            class="form-label"
+            for="defaultGitBranch"
+          >Default Git Branch</label>
           <input
             id="defaultGitBranch"
             v-model="defaultGitBranch"
             type="text"
             class="form-input"
             placeholder="e.g., feature/ai-implementation"
-          />
+          >
           <p class="form-help">
             When using git branch mode, this is the branch name pattern for new sessions.
           </p>
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="defaultModel">Model</label>
-          <ModelSelector v-model="defaultModel" :allowEmpty="true" emptyLabel="Use system default" selectClass="form-input" />
+          <label
+            class="form-label"
+            for="defaultModel"
+          >Model</label>
+          <ModelSelector
+            v-model="defaultModel"
+            :allow-empty="true"
+            empty-label="Use system default"
+            select-class="form-input"
+          />
           <p class="form-help">
             Choose the default Claude model for new sessions in this project.
           </p>
@@ -193,10 +266,13 @@
         <button
           type="button"
           class="btn btn-secondary"
-          @click="handleResetDefaults"
           :disabled="savingDefaults"
+          @click="handleResetDefaults"
         >
-          <span v-if="savingDefaults" class="loading-spinner"></span>
+          <span
+            v-if="savingDefaults"
+            class="loading-spinner"
+          />
           Reset to System Defaults
         </button>
       </details>
@@ -220,9 +296,9 @@
         <div class="form-group">
           <label class="checkbox-label">
             <input
-              type="checkbox"
               v-model="kanbanEnabled"
-            />
+              type="checkbox"
+            >
             Enable Kanban board
           </label>
           <p class="form-help">
@@ -231,14 +307,37 @@
         </div>
       </details>
 
-      <div v-if="error" class="error-message">{{ error }}</div>
+      <div
+        v-if="error"
+        class="error-message"
+      >
+        {{ error }}
+      </div>
 
       <div class="form-actions">
-        <button type="button" class="btn btn-danger" @click="handleDelete">Delete</button>
+        <button
+          type="button"
+          class="btn btn-danger"
+          @click="handleDelete"
+        >
+          Delete
+        </button>
         <div class="form-actions-right">
-          <router-link :to="`/projects/${route.params.id}/sessions`" class="btn">Cancel</router-link>
-          <button type="submit" class="btn btn-primary" :disabled="saving">
-            <span v-if="saving" class="loading-spinner"></span>
+          <router-link
+            :to="`/projects/${route.params.id}/sessions`"
+            class="btn"
+          >
+            Cancel
+          </router-link>
+          <button
+            type="submit"
+            class="btn btn-primary"
+            :disabled="saving"
+          >
+            <span
+              v-if="saving"
+              class="loading-spinner"
+            />
             Save
           </button>
         </div>
@@ -247,8 +346,8 @@
 
     <!-- Quick Response Settings Modal -->
     <QuickResponseSettings
-      :isOpen="quickResponseSettingsOpen"
-      :projectId="route.params.id"
+      :is-open="quickResponseSettingsOpen"
+      :project-id="route.params.id"
       @close="quickResponseSettingsOpen = false"
     />
   </div>
@@ -328,6 +427,18 @@ watch(() => defaultsStore.getDefaultsForProject(route.params.id), (defaults) => 
   }
 }, { immediate: true });
 
+function collectNonDefaultValues() {
+  const data = {};
+  if (defaultMode.value) data.mode = defaultMode.value;
+  if (defaultThinkingEnabled.value) data.thinkingEnabled = true;
+  if (defaultEffortLevel.value) data.effortLevel = defaultEffortLevel.value;
+  if (!defaultStartImmediately.value) data.startImmediately = false;
+  if (defaultGitMode.value) data.gitMode = defaultGitMode.value;
+  if (defaultGitBranch.value) data.gitBranch = defaultGitBranch.value;
+  if (defaultModel.value) data.model = defaultModel.value;
+  return data;
+}
+
 async function handleSubmit() {
   saving.value = true;
   error.value = null;
@@ -345,15 +456,8 @@ async function handleSubmit() {
       kanbanEnabled: kanbanEnabled.value,
     });
 
-    // Update defaults
-    const defaultsData = {};
-    if (defaultMode.value) defaultsData.mode = defaultMode.value;
-    if (defaultThinkingEnabled.value) defaultsData.thinkingEnabled = true;
-    if (defaultEffortLevel.value) defaultsData.effortLevel = defaultEffortLevel.value;
-    if (!defaultStartImmediately.value) defaultsData.startImmediately = false;
-    if (defaultGitMode.value) defaultsData.gitMode = defaultGitMode.value;
-    if (defaultGitBranch.value) defaultsData.gitBranch = defaultGitBranch.value;
-    if (defaultModel.value) defaultsData.model = defaultModel.value;
+    // Update defaults - collect non-default values
+    const defaultsData = collectNonDefaultValues();
 
     if (Object.keys(defaultsData).length > 0) {
       await defaultsStore.updateDefaults(route.params.id, defaultsData);

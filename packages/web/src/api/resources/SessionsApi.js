@@ -64,21 +64,18 @@ export function SessionsApi(ApiClient) {
       if (files && files.length > 0) {
         const formData = new FormData();
         formData.append('prompt', jsonData.prompt);
-        if (jsonData.name !== undefined) formData.append('name', jsonData.name);
-        if (jsonData.mode !== undefined) formData.append('mode', jsonData.mode);
-        if (jsonData.model !== undefined) formData.append('model', jsonData.model);
-        if (jsonData.thinkingEnabled !== undefined) {
-          formData.append('thinkingEnabled', String(jsonData.thinkingEnabled));
+
+        // Append optional fields — boolean values need String() conversion
+        const optionalFields = [
+          'name', 'mode', 'model', 'effortLevel', 'gitBranch', 'gitMode', 'templateId',
+        ];
+        for (const field of optionalFields) {
+          if (jsonData[field] !== undefined) formData.append(field, jsonData[field]);
         }
-        if (jsonData.effortLevel !== undefined) {
-          formData.append('effortLevel', jsonData.effortLevel);
+        const booleanFields = ['thinkingEnabled', 'startImmediately'];
+        for (const field of booleanFields) {
+          if (jsonData[field] !== undefined) formData.append(field, String(jsonData[field]));
         }
-        if (jsonData.startImmediately !== undefined) {
-          formData.append('startImmediately', String(jsonData.startImmediately));
-        }
-        if (jsonData.gitBranch !== undefined) formData.append('gitBranch', jsonData.gitBranch);
-        if (jsonData.gitMode !== undefined) formData.append('gitMode', jsonData.gitMode);
-        if (jsonData.templateId !== undefined) formData.append('templateId', jsonData.templateId);
 
         for (const file of files) {
           formData.append('files', file);

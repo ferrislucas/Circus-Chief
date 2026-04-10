@@ -1,25 +1,59 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="settings-overlay" @click.self="$emit('close')">
-      <div class="settings-panel" role="dialog" aria-modal="true">
+    <div
+      v-if="isOpen"
+      class="settings-overlay"
+      @click.self="$emit('close')"
+    >
+      <div
+        class="settings-panel"
+        role="dialog"
+        aria-modal="true"
+      >
         <div class="settings-header">
-          <h2 class="settings-title">Quick Responses</h2>
-          <button class="close-button" @click="$emit('close')" aria-label="Close settings">&times;</button>
+          <h2 class="settings-title">
+            Quick Responses
+          </h2>
+          <button
+            class="close-button"
+            aria-label="Close settings"
+            @click="$emit('close')"
+          >
+            &times;
+          </button>
         </div>
 
         <div class="settings-content">
           <!-- Project Responses Section -->
           <div class="section">
             <div class="section-header">
-              <h3 class="section-title">Project Responses</h3>
-              <button class="add-button" @click="openDialog(false)">+ Add</button>
+              <h3 class="section-title">
+                Project Responses
+              </h3>
+              <button
+                class="add-button"
+                @click="openDialog(false)"
+              >
+                + Add
+              </button>
             </div>
 
-            <div v-if="loading" class="loading-state">Loading...</div>
-            <div v-else-if="projectResponses.length === 0" class="empty-state">
+            <div
+              v-if="loading"
+              class="loading-state"
+            >
+              Loading...
+            </div>
+            <div
+              v-else-if="projectResponses.length === 0"
+              class="empty-state"
+            >
               No project-specific quick responses yet.
             </div>
-            <ul v-else class="response-list">
+            <ul
+              v-else
+              class="response-list"
+            >
               <li
                 v-for="(response, index) in projectResponses"
                 :key="response.id"
@@ -28,29 +62,41 @@
                 <div class="response-info">
                   <span class="response-label">{{ response.label }}</span>
                   <span class="response-content">{{ truncateContent(response.content) }}</span>
-                  <span v-if="response.autoSubmit" class="auto-badge">Auto-submit</span>
+                  <span
+                    v-if="response.autoSubmit"
+                    class="auto-badge"
+                  >Auto-submit</span>
                 </div>
                 <div class="response-actions">
                   <button
                     class="action-button"
                     :disabled="index === 0"
-                    @click="moveResponse(projectId, projectResponses, index, -1)"
                     title="Move up"
+                    @click="moveResponse(projectId, projectResponses, index, -1)"
                   >
                     ↑
                   </button>
                   <button
                     class="action-button"
                     :disabled="index === projectResponses.length - 1"
-                    @click="moveResponse(projectId, projectResponses, index, 1)"
                     title="Move down"
+                    @click="moveResponse(projectId, projectResponses, index, 1)"
                   >
                     ↓
                   </button>
-                  <button class="action-button" @click="editResponse(response)" title="Edit" aria-label="Edit">
+                  <button
+                    class="action-button"
+                    title="Edit"
+                    aria-label="Edit"
+                    @click="editResponse(response)"
+                  >
                     ✏️
                   </button>
-                  <button class="action-button action-danger" @click="confirmDelete(response)" title="Delete">
+                  <button
+                    class="action-button action-danger"
+                    title="Delete"
+                    @click="confirmDelete(response)"
+                  >
                     🗑️
                   </button>
                 </div>
@@ -61,15 +107,33 @@
           <!-- Global Responses Section -->
           <div class="section">
             <div class="section-header">
-              <h3 class="section-title">Global Responses</h3>
-              <button class="add-button" @click="openDialog(true)">+ Add</button>
+              <h3 class="section-title">
+                Global Responses
+              </h3>
+              <button
+                class="add-button"
+                @click="openDialog(true)"
+              >
+                + Add
+              </button>
             </div>
 
-            <div v-if="loading" class="loading-state">Loading...</div>
-            <div v-else-if="globalResponses.length === 0" class="empty-state">
+            <div
+              v-if="loading"
+              class="loading-state"
+            >
+              Loading...
+            </div>
+            <div
+              v-else-if="globalResponses.length === 0"
+              class="empty-state"
+            >
               No global quick responses yet. Global responses appear in all projects.
             </div>
-            <ul v-else class="response-list">
+            <ul
+              v-else
+              class="response-list"
+            >
               <li
                 v-for="(response, index) in globalResponses"
                 :key="response.id"
@@ -78,29 +142,41 @@
                 <div class="response-info">
                   <span class="response-label">{{ response.label }}</span>
                   <span class="response-content">{{ truncateContent(response.content) }}</span>
-                  <span v-if="response.autoSubmit" class="auto-badge">Auto-submit</span>
+                  <span
+                    v-if="response.autoSubmit"
+                    class="auto-badge"
+                  >Auto-submit</span>
                 </div>
                 <div class="response-actions">
                   <button
                     class="action-button"
                     :disabled="index === 0"
-                    @click="moveResponse(null, globalResponses, index, -1)"
                     title="Move up"
+                    @click="moveResponse(null, globalResponses, index, -1)"
                   >
                     ↑
                   </button>
                   <button
                     class="action-button"
                     :disabled="index === globalResponses.length - 1"
-                    @click="moveResponse(null, globalResponses, index, 1)"
                     title="Move down"
+                    @click="moveResponse(null, globalResponses, index, 1)"
                   >
                     ↓
                   </button>
-                  <button class="action-button" @click="editResponse(response)" title="Edit" aria-label="Edit">
+                  <button
+                    class="action-button"
+                    title="Edit"
+                    aria-label="Edit"
+                    @click="editResponse(response)"
+                  >
                     ✏️
                   </button>
-                  <button class="action-button action-danger" @click="confirmDelete(response)" title="Delete">
+                  <button
+                    class="action-button action-danger"
+                    title="Delete"
+                    @click="confirmDelete(response)"
+                  >
                     🗑️
                   </button>
                 </div>
@@ -114,22 +190,38 @@
 
   <!-- Quick Response Dialog -->
   <QuickResponseDialog
-    :isOpen="dialogOpen"
-    :projectId="projectId"
-    :editingResponse="editingResponse"
-    :defaultIsGlobal="defaultIsGlobal"
+    :is-open="dialogOpen"
+    :project-id="projectId"
+    :editing-response="editingResponse"
+    :default-is-global="defaultIsGlobal"
     @close="closeDialog"
     @saved="handleSaved"
   />
 
   <!-- Delete Confirmation Dialog -->
   <Teleport to="body">
-    <div v-if="deleteConfirm" class="confirm-overlay" @click.self="deleteConfirm = null">
+    <div
+      v-if="deleteConfirm"
+      class="confirm-overlay"
+      @click.self="deleteConfirm = null"
+    >
       <div class="confirm-dialog">
-        <p class="confirm-message">Are you sure you want to delete "{{ deleteConfirm.label }}"?</p>
+        <p class="confirm-message">
+          Are you sure you want to delete "{{ deleteConfirm.label }}"?
+        </p>
         <div class="confirm-actions">
-          <button class="btn btn-secondary" @click="deleteConfirm = null">Cancel</button>
-          <button class="btn btn-danger" @click="handleDelete">Delete</button>
+          <button
+            class="btn btn-secondary"
+            @click="deleteConfirm = null"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn btn-danger"
+            @click="handleDelete"
+          >
+            Delete
+          </button>
         </div>
       </div>
     </div>
@@ -167,7 +259,7 @@ const globalResponses = computed(() => store.globalResponses);
 
 function truncateContent(content) {
   if (content.length <= 60) return content;
-  return content.substring(0, 60) + '...';
+  return `${content.substring(0, 60)  }...`;
 }
 
 function openDialog(isGlobal) {

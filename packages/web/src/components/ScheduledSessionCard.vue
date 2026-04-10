@@ -3,8 +3,13 @@
     <!-- Header -->
     <div class="card-header">
       <div class="session-info">
-        <router-link :to="`/sessions/${session.id}`" class="session-name-link">
-          <h3 class="session-name">{{ session.name }}</h3>
+        <router-link
+          :to="`/sessions/${session.id}`"
+          class="session-name-link"
+        >
+          <h3 class="session-name">
+            {{ session.name }}
+          </h3>
         </router-link>
       </div>
       <div class="status-badge-container">
@@ -22,7 +27,10 @@
         </div>
       </div>
 
-      <div v-if="session.autoRescheduleEnabled" class="timing-item">
+      <div
+        v-if="session.autoRescheduleEnabled"
+        class="timing-item"
+      >
         <span class="timing-icon">🔄</span>
         <div class="timing-details">
           <span class="timing-text">Auto-reschedule</span>
@@ -35,10 +43,18 @@
 
     <!-- Actions -->
     <div class="card-actions">
-      <button @click="showEditModal = true" class="btn btn-secondary btn-small" :disabled="loading">
+      <button
+        class="btn btn-secondary btn-small"
+        :disabled="loading"
+        @click="showEditModal = true"
+      >
         Edit Schedule
       </button>
-      <button @click="handleCancel" class="btn btn-danger btn-small" :disabled="loading">
+      <button
+        class="btn btn-danger btn-small"
+        :disabled="loading"
+        @click="handleCancel"
+      >
         Cancel
       </button>
     </div>
@@ -96,7 +112,7 @@ async function handleCancel() {
     uiStore.success('Session cancelled');
   } catch (error) {
     console.error('Failed to cancel session:', error);
-    uiStore.error('Failed to cancel session: ' + error.message);
+    uiStore.error(`Failed to cancel session: ${  error.message}`);
   } finally {
     loading.value = false;
   }

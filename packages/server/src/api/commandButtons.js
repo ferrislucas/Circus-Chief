@@ -6,7 +6,63 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { databaseManager } from '../db/DatabaseManager.js';
 
+// Error message constants
+const ERR_SESSION_NOT_FOUND = 'Session not found';
+
 const router = Router({ mergeParams: true });
+
+/**
+ * Create WebSocket broadcast callbacks for a command run
+ * @param {string} sessionId
+ * @param {string} projectId
+ * @param {string} runId
+ * @param {string} buttonId
+ * @returns {Object} Callbacks for onOutput, onComplete, onError
+ */
+function createCommandRunCallbacks(sessionId, projectId, runId, buttonId) {
+  return {
+    onOutput: (text) => {
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
+        sessionId, runId, buttonId, output: text,
+      });
+      broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
+        projectId, sessionId, runId, buttonId, output: text,
+      });
+    },
+    onComplete: (exitCode, output) => {
+      const status = exitCode === 0 ? 'success' : 'error';
+      console.log(`[CommandButtons] Command completed: runId=${runId}, buttonId=${buttonId}, exitCode=${exitCode}, status=${status}`);
+      console.log(`[CommandButtons] Broadcasting to session ${sessionId}`);
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
+        sessionId, runId, buttonId, status, exitCode, output,
+      });
+      console.log(`[CommandButtons] Broadcasting to project ${projectId}`);
+      broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
+        projectId, sessionId, runId, buttonId, status, exitCode, output,
+      });
+    },
+    onError: (message) => {
+      broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+        sessionId, runId, buttonId, error: message,
+      });
+      broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+        projectId, sessionId, runId, buttonId, error: message,
+      });
+    },
+  };
+}
+
+/**
+ * Broadcast a command run error to session and project subscribers
+ */
+function broadcastCommandRunError({ sessionId, projectId, runId, buttonId, errorMessage }) {
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+    sessionId, runId, buttonId, error: errorMessage,
+  });
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
+    projectId, sessionId, runId, buttonId, error: errorMessage,
+  });
+}
 
 // GET /api/projects/:projectId/command-buttons - List all command buttons for project
 router.get('/', (req, res) => {
@@ -92,13 +148,11 @@ router.delete('/:id', (req, res) => {
 
 // POST /api/sessions/:sessionId/command-buttons/:buttonId/run - Execute button command
 router.post('/run/:buttonId', (req, res) => {
-  const { sessionId } = req.params;
-  const { buttonId } = req.params;
+  const { sessionId, buttonId } = req.params;
 
-  // Get session and button
   const session = sessions.getById(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   const button = commandButtons.getById(buttonId);
@@ -106,99 +160,23 @@ router.post('/run/:buttonId', (req, res) => {
     return res.status(404).json({ error: 'Command button not found' });
   }
 
-  // Determine working directory
   const workingDirectory = session.gitWorktree || session.project?.workingDirectory || process.cwd();
-
-  // Generate run ID
   const runId = databaseManager.generateId();
 
-  // Return immediately with runId
   res.json({ runId, buttonId, status: 'running', output: '' });
 
-  // Execute command asynchronously
+  const callbacks = createCommandRunCallbacks(sessionId, session.projectId, runId, buttonId);
+
   (async () => {
     try {
       await commandRunner.run(
         { runId, command: button.command, workingDirectory },
-        {
-          onOutput: (text) => {
-            // Broadcast output via WebSocket to session subscribers
-            broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-              sessionId,
-              runId,
-              buttonId,
-              output: text,
-            });
-            // Also broadcast to project subscribers for session list updates
-            broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, {
-              projectId: session.projectId,
-              sessionId,
-              runId,
-              buttonId,
-              output: text,
-            });
-          },
-          onComplete: (exitCode, output) => {
-            // Broadcast completion via WebSocket to session subscribers
-            const status = exitCode === 0 ? 'success' : 'error';
-            console.log(`[CommandButtons] Command completed: runId=${runId}, buttonId=${buttonId}, exitCode=${exitCode}, status=${status}`);
-            console.log(`[CommandButtons] Broadcasting to session ${sessionId}`);
-            broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
-              sessionId,
-              runId,
-              buttonId,
-              status,
-              exitCode,
-              output,
-            });
-            // Also broadcast to project subscribers for session list updates
-            console.log(`[CommandButtons] Broadcasting to project ${session.projectId}`);
-            broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, {
-              projectId: session.projectId,
-              sessionId,
-              runId,
-              buttonId,
-              status,
-              exitCode,
-              output,
-            });
-          },
-          onError: (message) => {
-            // Broadcast error via WebSocket to session subscribers
-            broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-              sessionId,
-              runId,
-              buttonId,
-              error: message,
-            });
-            // Also broadcast to project subscribers for session list updates
-            broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-              projectId: session.projectId,
-              sessionId,
-              runId,
-              buttonId,
-              error: message,
-            });
-          },
-        },
+        callbacks,
         { sessionId, buttonId }
       );
     } catch (error) {
       console.error(`Error running command button ${buttonId}:`, error);
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-        sessionId,
-        runId,
-        buttonId,
-        error: error.message,
-      });
-      // Also broadcast to project subscribers for session list updates
-      broadcastToProject(session.projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, {
-        projectId: session.projectId,
-        sessionId,
-        runId,
-        buttonId,
-        error: error.message,
-      });
+      broadcastCommandRunError({ sessionId, projectId: session.projectId, runId, buttonId, errorMessage: error.message });
     }
   })();
 });
@@ -209,7 +187,7 @@ router.get('/runs', (req, res) => {
 
   const session = sessions.getById(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   // Get running + recent (last hour) from commandRunner
@@ -249,7 +227,7 @@ router.get('/runs/:runId', (req, res) => {
 
   const session = sessions.getById(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   // Check if run is currently running (in memory)
@@ -284,7 +262,7 @@ router.delete('/runs/:runId', (req, res) => {
 
   const session = sessions.getById(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   const run = commandRuns.getById(runId);
@@ -320,7 +298,7 @@ router.post('/runs/:runId/kill', (req, res) => {
 
   const session = sessions.getById(sessionId);
   if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
+    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
   }
 
   const killed = commandRunner.kill(runId);

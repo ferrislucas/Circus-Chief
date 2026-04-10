@@ -12,8 +12,23 @@ import { api } from '../../composables/useApi.js';
 export const perSessionActions = {
   // ==================== MESSAGE ACTIONS ====================
 
+  /**
+   * Check if this store is viewing a different session (stale guard).
+   */
+  _isStaleSession(sessionId) {
+    return this.viewedSessionId && this.viewedSessionId !== sessionId;
+  },
+
+  /**
+   * Check if this store is actively viewing the given session.
+   * Returns false when viewedSessionId is null (no session viewed).
+   */
+  _isActiveSession(sessionId) {
+    return this.viewedSessionId && this.viewedSessionId === sessionId;
+  },
+
   async fetchMessages(sessionId, showLoading = true, conversationId = null) {
-    if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+    if (this._isStaleSession(sessionId)) return;
 
     if (showLoading) this.loading = true;
     this.error = null;
@@ -23,7 +38,7 @@ export const perSessionActions = {
         ? await api.getConversationMessages(sessionId, cid)
         : await api.getSessionMessages(sessionId);
 
-      if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+      if (this._isStaleSession(sessionId)) return;
 
       const fetchedIds = new Set(fetchedMessages.map(m => m.id));
       const newMessages = this.messages.filter(m => m.sessionId === sessionId && !fetchedIds.has(m.id));
@@ -33,7 +48,7 @@ export const perSessionActions = {
         this.messages = fetchedMessages;
       }
     } catch (err) {
-      if (this.viewedSessionId && this.viewedSessionId === sessionId) {
+      if (this._isActiveSession(sessionId)) {
         this.error = err.message;
       }
     } finally {
@@ -49,11 +64,11 @@ export const perSessionActions = {
   // ==================== WORK LOG ACTIONS ====================
 
   async fetchWorkLogs(sessionId) {
-    if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+    if (this._isStaleSession(sessionId)) return;
     this.error = null;
     try {
       const grouped = await api.getSessionWorkLogs(sessionId);
-      if (this.viewedSessionId && this.viewedSessionId !== sessionId) return;
+      if (this._isStaleSession(sessionId)) return;
 
       const fetchedLogIds = new Set();
       for (const messageId of Object.keys(grouped)) {
@@ -64,7 +79,7 @@ export const perSessionActions = {
       const fetchedUnassociated = grouped['_unassociated'] || [];
       this.workLogs = { ...grouped, '_unassociated': [...fetchedUnassociated, ...newUnassociatedLogs] };
     } catch (err) {
-      if (this.viewedSessionId && this.viewedSessionId === sessionId) {
+      if (this._isActiveSession(sessionId)) {
         this.error = err.message;
       }
     }

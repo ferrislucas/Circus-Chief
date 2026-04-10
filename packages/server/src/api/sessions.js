@@ -1,18 +1,11 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
-import { sessions, messages, projects, todos, workLogs, conversations, attachments, commandRuns, sessionSummaries } from '../database.js';
-import { continueSession, stopSession, restartSession } from '../services/sessionManager.js';
+import { sessions, messages, projects, commandRuns, sessionSummaries } from '../database.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
-import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import * as gitService from '../services/gitService.js';
-import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
-import * as slashCommandService from '../services/slashCommandService.js';
-import { validateDraftSession, startDraft, DraftSessionError } from '../services/draftSessionService.js';
-import { textAccumulators, thinkingAccumulators } from '../services/streamEventHandler.js';
 
 // Import sub-routers
 import notesRouter from './sessions-notes.js';
@@ -21,6 +14,9 @@ import commandsRouter from './sessions-commands.js';
 import patchRouter from './sessions-patch.js';
 import archiveRouter from './sessions-archive.js';
 import lifecycleRouter from './sessions-lifecycle.js';
+import streamingRouter from './sessions-streaming.js';
+import messagesRouter from './sessions-messages.js';
+import draftRouter from './sessions-draft.js';
 
 const router = Router();
 
@@ -31,6 +27,9 @@ router.use('/', commandsRouter);
 router.use('/', patchRouter);
 router.use('/', archiveRouter);
 router.use('/', lifecycleRouter);
+router.use('/', streamingRouter);
+router.use('/', messagesRouter);
+router.use('/', draftRouter);
 
 // TTL cache for files-count endpoint (60 second TTL)
 const filesCountCache = new Map();
@@ -265,305 +264,6 @@ router.get('/:id/files-count', requireSession, async (req, res) => {
   }
 });
 
-// GET /api/sessions/:id/messages - Get session messages
-// Supports ?conversation_id=xxx to filter by conversation
-router.get('/:id/messages', requireSession, (req, res) => {
-  const { conversation_id } = req.query;
-
-  let sessionMessages;
-  let resolvedConvId = null;
-  if (conversation_id) {
-    // Get messages for specific conversation
-    const conv = conversations.getById(conversation_id);
-    if (!conv || conv.sessionId !== req.params.id) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-    sessionMessages = messages.getByConversationId(conversation_id);
-    resolvedConvId = conversation_id;
-  } else {
-    // Get messages for active conversation, or all messages if no active conversation
-    const activeConv = conversations.getActiveBySessionId(req.params.id);
-    if (activeConv) {
-      sessionMessages = messages.getByConversationId(activeConv.id);
-      resolvedConvId = activeConv.id;
-    } else {
-      // Fall back to all messages (for legacy/migration)
-      sessionMessages = messages.getBySessionId(req.params.id);
-      resolvedConvId = 'all (no active conversation)';
-    }
-  }
-
-  console.log(`[API] fetchMessages: session ${req.params.id}, conversation ${resolvedConvId}, returned ${sessionMessages.length} messages`);
-
-  // Attach file attachments to each message (without content for efficiency)
-  const messagesWithAttachments = sessionMessages.map((msg) => ({
-    ...msg,
-    attachments: attachments.getByMessageIdWithoutContent(msg.id),
-  }));
-
-  res.json(messagesWithAttachments);
-});
-
-// GET /api/sessions/:id/work-logs - Get work logs for session
-router.get('/:id/work-logs', requireSession, (req, res) => {
-  // Return work logs grouped by message ID
-  const grouped = workLogs.getBySessionIdGrouped(req.params.id);
-  res.json(grouped);
-});
-
-// GET /api/sessions/:id/streaming-state - Get current streaming snapshot for a running session
-// Returns recent pending work logs, accumulated partial text, and thinking
-router.get('/:id/streaming-state', requireSession, (req, res) => {
-  const sessionId = req.params.id;
-  const pendingWorkLogs = workLogs.getRecentPendingBySessionId(sessionId);
-  const partialText = textAccumulators.get(sessionId) || '';
-  const thinking = thinkingAccumulators.get(sessionId) || null;
-
-  res.json({
-    workLogs: pendingWorkLogs,
-    partialText,
-    thinking,
-  });
-});
-
-// POST /api/sessions/:id/work-logs - Create work log (for testing)
-router.post('/:id/work-logs', requireSession, (req, res) => {
-  const { type, content, toolName, messageId } = req.body;
-  if (!type || !content) {
-    return res.status(400).json({ error: 'Type and content are required' });
-  }
-
-  const log = workLogs.create(req.params.id, type, content, { messageId: messageId || null, toolName: toolName || null });
-
-  // Broadcast to session subscribers
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_WORK_LOG, {
-    sessionId: req.params.id,
-    log,
-  });
-
-  res.status(201).json(log);
-});
-
-// POST /api/sessions/:id/partial-text - Set partial text (for testing)
-router.post('/:id/partial-text', requireSession, (req, res) => {
-  const { text } = req.body;
-  if (typeof text !== 'string') {
-    return res.status(400).json({ error: 'Text must be a string' });
-  }
-
-  textAccumulators.set(req.params.id, text);
-
-  // Broadcast to session subscribers
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_PARTIAL, {
-    sessionId: req.params.id,
-    text,
-  });
-
-  res.status(201).json({ text });
-});
-
-// POST /api/sessions/:id/thinking - Set thinking (for testing)
-router.post('/:id/thinking', requireSession, (req, res) => {
-  const { thinking } = req.body;
-  if (typeof thinking !== 'string') {
-    return res.status(400).json({ error: 'Thinking must be a string' });
-  }
-
-  thinkingAccumulators.set(req.params.id, thinking);
-
-  // Broadcast to session subscribers
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, {
-    sessionId: req.params.id,
-    thinking,
-  });
-
-  res.status(201).json({ thinking });
-});
-
-// POST /api/sessions/:id/message - Send follow-up message
-// Supports both JSON and multipart/form-data (for file attachments)
-router.post('/:id/message', _upload.array('files', 10), handleUploadError, requireSessionAndProject, async (req, res) => {
-  const content = req.body.content;
-  const model = req.body.model || null; // Model to use for this message
-  const files = req.files || [];
-
-  if (!content) {
-    return res.status(400).json({ error: 'Content is required' });
-  }
-
-  if (req.session_.status !== 'waiting' && req.session_.status !== 'stopped' && req.session_.status !== 'error') {
-    return res.status(400).json({ error: 'Session is not waiting for input' });
-  }
-
-  try {
-    // Store file attachments if any - saves to disk in workingDirectory/.attachments
-    const messageAttachments = attachments.createBatch(req.session_.id, null, files, req.workingDirectory);
-
-    // Check if the message is a slash command/skill invocation (starts with "/")
-    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
-      req.workingDirectory, content, req.project.systemPrompt || null
-    );
-
-    if (resolved) {
-      continueSession(req.session_.id, resolved.userMessage, req.workingDirectory, { systemPrompt: resolved.systemPrompt, fileAttachments: messageAttachments, model }).catch((error) => {
-        console.error(`Continue session error (${resolved.type}):`, error);
-      });
-      return res.json({ success: true });
-    }
-
-    // Standard plain text message
-    continueSession(req.session_.id, content, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model }).catch((error) => {
-      console.error('Continue session error:', error);
-    });
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/sessions/:id/stop - Stop running session
-router.post('/:id/stop', requireSession, async (req, res) => {
-  // Allow stopping running, waiting, or stuck sessions (crashed sessions may be stuck in 'running')
-  // Don't allow stopping already errored or stopped sessions
-  if (req.session_.status === 'error' || req.session_.status === 'stopped') {
-    return res.status(400).json({ error: 'Session is not active' });
-  }
-
-  try {
-    await stopSession(req.session_.id);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/sessions/:id/restart - Restart a completed/error session
-router.post('/:id/restart', requireSession, (req, res) => {
-  if (req.session_.status !== 'stopped' && req.session_.status !== 'error') {
-    return res.status(400).json({ error: 'Session can only be restarted when stopped or in error state' });
-  }
-
-  try {
-    restartSession(req.session_.id);
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// PUT /api/sessions/:id/initial-prompt - Update the initial prompt for a draft session
-router.put('/:id/initial-prompt', requireSession, (req, res) => {
-  const validation = validateDraftSession(req.session_);
-  if (!validation.valid) {
-    return res.status(400).json({ error: validation.error });
-  }
-
-  // Get the request body
-  const { prompt } = req.body;
-
-  // Validate prompt is provided and non-empty
-  if (!prompt || typeof prompt !== 'string' || prompt.trim() === '') {
-    return res.status(400).json({ error: 'Prompt must be a non-empty string' });
-  }
-
-  try {
-    const allMessages = messages.getBySessionId(req.session_.id);
-    // Find the first user message and update it
-    const userMessages = allMessages.filter(msg => msg.role === 'user');
-    if (userMessages.length === 0) {
-      return res.status(400).json({ error: 'No initial prompt found' });
-    }
-
-    const initialMessage = userMessages[0];
-    const updatedMessage = messages.updateContent(initialMessage.id, prompt);
-
-    // Broadcast the update to session subscribers
-    broadcastToSession(req.session_.id, WS_MESSAGE_TYPES.MESSAGE_UPDATED, {
-      sessionId: req.session_.id,
-      message: updatedMessage,
-    });
-
-    res.json({ success: true, message: updatedMessage });
-  } catch (error) {
-    console.error('Update initial prompt error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// POST /api/sessions/:id/start - Start a draft session (waiting status with no assistant messages)
-router.post('/:id/start', requireSession, async (req, res) => {
-  const validation = validateDraftSession(req.session_);
-  if (!validation.valid) {
-    return res.status(400).json({ error: validation.error });
-  }
-
-  try {
-    const updatedSession = await startDraft(req.session_, {
-      prompt: req.body.prompt,
-      model: req.body.model,
-    });
-
-    res.json({ success: true, session: updatedSession });
-  } catch (error) {
-    if (error instanceof DraftSessionError) {
-      return res.status(error.statusCode).json({ error: error.message });
-    }
-    console.error('Start session error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// GET /api/sessions/:id/todos - Get session todos
-// Supports ?conversation_id=xxx to fetch todos for a specific conversation
-router.get('/:id/todos', requireSession, (req, res) => {
-  const { conversation_id } = req.query;
-
-  let sessionTodos;
-  if (conversation_id) {
-    // Get todos for specific conversation
-    const conv = conversations.getById(conversation_id);
-    if (!conv || conv.sessionId !== req.params.id) {
-      return res.status(404).json({ error: 'Conversation not found' });
-    }
-    sessionTodos = todos.getByConversationId(conversation_id);
-  } else {
-    // Get todos for active conversation, or empty array if no active conversation
-    const activeConv = conversations.getActiveBySessionId(req.params.id);
-    sessionTodos = activeConv ? todos.getByConversationId(activeConv.id) : [];
-  }
-
-  res.json(sessionTodos);
-});
-
 // PATCH /:id and PATCH /:id/pending-prompt are handled by sessions-patch.js sub-router
-
-// GET /api/sessions/:id/workflow-latest-response - Get the most recent assistant response across the entire workflow
-router.get('/:id/workflow-latest-response', requireSession, (req, res) => {
-  try {
-    // Find the root of the workflow
-    const rootId = sessions.getRootSessionId(req.params.id);
-    if (!rootId) {
-      return res.status(404).json({ error: 'Session not found' });
-    }
-
-    // Collect all session IDs in the workflow
-    const descendantIds = sessions.getAllDescendantIds(rootId);
-    const allSessionIds = [rootId, ...descendantIds];
-
-    // Find the most recent assistant message across all sessions
-    const message = messages.getLatestAssistantMessageForSessions(allSessionIds);
-    if (!message) {
-      return res.status(404).json({ error: 'No assistant response found' });
-    }
-
-    // Look up the session name for context
-    const messageSession = sessions.getById(message.sessionId);
-    const sessionName = messageSession?.name || null;
-
-    res.json({ message, sessionName });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 export default router;

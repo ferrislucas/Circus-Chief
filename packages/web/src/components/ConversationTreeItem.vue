@@ -6,12 +6,31 @@
       @click="$emit('select', conversation.id)"
     >
       <!-- Indent based on depth -->
-      <span v-if="depth > 0" class="tree-indent" :style="{ width: `${depth * 12}px` }"></span>
+      <span
+        v-if="depth > 0"
+        class="tree-indent"
+        :style="{ width: `${depth * 12}px` }"
+      />
 
       <!-- Branch indicator -->
-      <span v-if="isBranch" class="branch-indicator" title="Branch">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
-          <path d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <span
+        v-if="isBranch"
+        class="branch-indicator"
+        title="Branch"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+        >
+          <path
+            d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </span>
 
@@ -20,12 +39,15 @@
         v-if="hasChildren"
         type="button"
         class="expand-toggle"
-        @click.stop="toggleExpanded"
         :title="isExpanded ? 'Collapse' : 'Expand'"
+        @click.stop="toggleExpanded"
       >
         <span :class="['expand-icon', { expanded: isExpanded }]">▶</span>
       </button>
-      <span v-else-if="depth > 0" class="expand-placeholder"></span>
+      <span
+        v-else-if="depth > 0"
+        class="expand-placeholder"
+      />
 
       <!-- Conversation name -->
       <span class="conv-name">{{ displayName }}</span>
@@ -33,13 +55,20 @@
       <!-- Metadata -->
       <span class="conv-meta">
         {{ conversation.messageCount || 0 }} msgs
-        <span v-if="tokenDisplay" class="conv-tokens">
+        <span
+          v-if="tokenDisplay"
+          class="conv-tokens"
+        >
           · {{ tokenDisplay }}
         </span>
       </span>
 
       <!-- Children count badge -->
-      <span v-if="childCount > 0" class="children-badge" :title="`${childCount} branch${childCount > 1 ? 'es' : ''}`">
+      <span
+        v-if="childCount > 0"
+        class="children-badge"
+        :title="`${childCount} branch${childCount > 1 ? 'es' : ''}`"
+      >
         {{ childCount }}
       </span>
 
@@ -48,15 +77,18 @@
         v-if="canDelete"
         type="button"
         class="delete-btn"
-        @click.stop="$emit('delete', conversation.id)"
         title="Delete conversation"
+        @click.stop="$emit('delete', conversation.id)"
       >
         ×
       </button>
     </div>
 
     <!-- Children (recursive) -->
-    <div v-if="isExpanded && hasChildren" class="tree-children">
+    <div
+      v-if="isExpanded && hasChildren"
+      class="tree-children"
+    >
       <ConversationTreeItem
         v-for="child in children"
         :key="child.id"
@@ -92,20 +124,14 @@ defineEmits(['select', 'delete']);
 
 const isExpanded = ref(true);
 
-const isBranch = computed(() => !!props.conversation.parentConversationId);
+const isBranch = computed(() => Boolean(props.conversation.parentConversationId));
 const isActive = computed(() => props.conversation.id === props.activeConversationId);
 
-const hasChildren = computed(() => {
-  return props.allConversations.some(c => c.parentConversationId === props.conversation.id);
-});
+const hasChildren = computed(() => props.allConversations.some(c => c.parentConversationId === props.conversation.id));
 
-const children = computed(() => {
-  return props.allConversations.filter(c => c.parentConversationId === props.conversation.id);
-});
+const children = computed(() => props.allConversations.filter(c => c.parentConversationId === props.conversation.id));
 
-const childCount = computed(() => {
-  return props.conversation.childCount || children.value.length;
-});
+const childCount = computed(() => props.conversation.childCount || children.value.length);
 
 // Convert number to ordinal (1→"1st", 2→"2nd", 3→"3rd", 4→"4th", etc.)
 function toOrdinal(num) {
@@ -117,9 +143,7 @@ function toOrdinal(num) {
   return `${num}th`;
 }
 
-const displayName = computed(() => {
-  return props.conversation.name || `${toOrdinal(props.index + 1)} conversation`;
-});
+const displayName = computed(() => props.conversation.name || `${toOrdinal(props.index + 1)} conversation`);
 
 // Format token count for display
 function formatTokens(n) {
@@ -145,9 +169,7 @@ const tokenDisplay = computed(() => {
 });
 
 // Can delete if not the only conversation and not the active one
-const canDelete = computed(() => {
-  return props.allConversations.length > 1 && !isActive.value;
-});
+const canDelete = computed(() => props.allConversations.length > 1 && !isActive.value);
 
 function toggleExpanded() {
   isExpanded.value = !isExpanded.value;

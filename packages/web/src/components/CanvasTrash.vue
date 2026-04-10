@@ -11,19 +11,30 @@
       </button>
     </div>
 
-    <div v-if="loading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="loading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading trash...
     </div>
 
-    <div v-else-if="groupedItems.length === 0" class="empty-state">
+    <div
+      v-else-if="groupedItems.length === 0"
+      class="empty-state"
+    >
       <p>Trash is empty</p>
-      <p class="empty-state-hint">Deleted files will appear here for recovery.</p>
+      <p class="empty-state-hint">
+        Deleted files will appear here for recovery.
+      </p>
     </div>
 
     <div v-else>
       <!-- Bulk action toolbar for trash -->
-      <div v-if="canvasStore.selectedItemCount > 0" class="bulk-action-toolbar">
+      <div
+        v-if="canvasStore.selectedItemCount > 0"
+        class="bulk-action-toolbar"
+      >
         <div class="toolbar-left">
           <span class="selection-info">
             {{ canvasStore.selectedItemCount }} item{{ canvasStore.selectedItemCount > 1 ? 's' : '' }} selected
@@ -32,29 +43,29 @@
         <div class="toolbar-right">
           <button
             class="btn btn-sm"
-            @click="handleSelectAll"
             :disabled="canvasStore.bulkOperationInProgress"
+            @click="handleSelectAll"
           >
             {{ canvasStore.isAllItemsSelected ? 'Deselect All' : 'Select All' }}
           </button>
           <button
             class="btn btn-sm btn-success"
-            @click="handleBulkRecover"
             :disabled="canvasStore.bulkOperationInProgress"
+            @click="handleBulkRecover"
           >
             {{ canvasStore.bulkOperationInProgress ? 'Recovering...' : 'Recover Selected' }}
           </button>
           <button
             class="btn btn-sm btn-danger"
-            @click="handleBulkPermanentDelete"
             :disabled="canvasStore.bulkOperationInProgress"
+            @click="handleBulkPermanentDelete"
           >
             {{ canvasStore.bulkOperationInProgress ? 'Deleting...' : 'Delete Forever' }}
           </button>
           <button
             class="btn btn-sm btn-secondary"
-            @click="handleCancelSelection"
             :disabled="canvasStore.bulkOperationInProgress"
+            @click="handleCancelSelection"
           >
             Cancel
           </button>
@@ -73,11 +84,11 @@
             type="checkbox"
             class="item-checkbox"
             :checked="isItemSelected(item.id)"
-            @change="toggleItemSelection(item.id)"
-            @click.stop
             :disabled="canvasStore.bulkOperationInProgress"
             :aria-label="`Select ${item.filename || 'item'}`"
-          />
+            @change="toggleItemSelection(item.id)"
+            @click.stop
+          >
 
           <span class="file-icon">{{ getTypeIcon(item.type) }}</span>
           <div class="file-info">
@@ -91,15 +102,15 @@
           <div class="trash-actions">
             <button
               class="btn btn-sm btn-success"
-              @click="handleRecover(item.filename)"
               :disabled="recovering === item.filename || canvasStore.selectedItemCount > 0"
+              @click="handleRecover(item.filename)"
             >
               {{ recovering === item.filename ? 'Recovering...' : 'Recover' }}
             </button>
             <button
               class="btn btn-sm btn-danger"
-              @click="handlePermanentDelete(item)"
               :disabled="deleting === item.id || canvasStore.selectedItemCount > 0"
+              @click="handlePermanentDelete(item)"
             >
               Delete Forever
             </button>

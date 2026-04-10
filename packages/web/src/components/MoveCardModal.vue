@@ -1,9 +1,28 @@
 <template>
-  <div v-if="isOpen" class="modal-backdrop" @click.self="close">
-    <div class="modal-content" role="dialog" aria-labelledby="modal-title">
+  <div
+    v-if="isOpen"
+    class="modal-backdrop"
+    @click.self="close"
+  >
+    <div
+      class="modal-content"
+      role="dialog"
+      aria-labelledby="modal-title"
+    >
       <div class="modal-header">
-        <h2 id="modal-title" class="modal-title">Move to Lane</h2>
-        <button @click="close" class="close-btn" aria-label="Close modal">&times;</button>
+        <h2
+          id="modal-title"
+          class="modal-title"
+        >
+          Move to Lane
+        </h2>
+        <button
+          class="close-btn"
+          aria-label="Close modal"
+          @click="close"
+        >
+          &times;
+        </button>
       </div>
 
       <div class="modal-body">
@@ -12,11 +31,17 @@
           <span class="moving-session-name">{{ displayName }}</span>
         </div>
 
-        <div v-if="lanes.length === 0" class="empty-state">
+        <div
+          v-if="lanes.length === 0"
+          class="empty-state"
+        >
           <p>No lanes available</p>
         </div>
 
-        <div v-else class="lanes-list">
+        <div
+          v-else
+          class="lanes-list"
+        >
           <div
             v-for="lane in lanes"
             :key="lane.id"
@@ -28,20 +53,33 @@
           >
             <label class="lane-label">
               <input
+                v-model="selectedLaneId"
                 type="radio"
                 :name="`lane-${cardId}`"
                 :value="lane.id"
-                v-model="selectedLaneId"
                 :disabled="lane.id === currentLaneId"
                 :aria-disabled="lane.id === currentLaneId"
                 :aria-label="`Move to ${lane.name}`"
-              />
+              >
               <span class="lane-info">
                 <span class="lane-name">{{ lane.name }}</span>
-                <span v-if="lane.id === currentLaneId" class="lane-current-badge">(current)</span>
-                <span v-if="hasAutomation(lane)" class="lane-automation-icon" title="Automation enabled">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                <span
+                  v-if="lane.id === currentLaneId"
+                  class="lane-current-badge"
+                >(current)</span>
+                <span
+                  v-if="hasAutomation(lane)"
+                  class="lane-automation-icon"
+                  title="Automation enabled"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                  >
+                    <path d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                 </span>
               </span>
@@ -49,33 +87,42 @@
           </div>
         </div>
 
-        <div v-if="showAutomationCheckbox" class="automation-option">
+        <div
+          v-if="showAutomationCheckbox"
+          class="automation-option"
+        >
           <label class="checkbox-label">
             <input
-              type="checkbox"
               v-model="runOnEnterTemplate"
+              type="checkbox"
               aria-label="Run automation on entry"
-            />
+            >
             <span>Run automation on entry</span>
           </label>
         </div>
       </div>
 
       <div class="modal-footer">
-        <button @click="close" class="btn btn-secondary" :disabled="removing">Cancel</button>
         <button
-          @click="handleRemove"
+          class="btn btn-secondary"
+          :disabled="removing"
+          @click="close"
+        >
+          Cancel
+        </button>
+        <button
           class="btn btn-danger"
           :disabled="removing"
           :aria-label="`Remove ${displayName} from board`"
+          @click="handleRemove"
         >
           {{ removing ? 'Removing...' : 'Remove from Board' }}
         </button>
         <button
-          @click="handleMove"
           class="btn btn-primary"
           :disabled="!canMove || moving || removing"
           aria-label="Move card to selected lane"
+          @click="handleMove"
         >
           {{ moving ? 'Moving...' : 'Move' }}
         </button>
@@ -139,14 +186,12 @@ const showAutomationCheckbox = computed(() => {
   return hasAutomation(selectedLane.value);
 });
 
-const canMove = computed(() => {
-  return selectedLaneId.value && selectedLaneId.value !== props.currentLaneId;
-});
+const canMove = computed(() => selectedLaneId.value && selectedLaneId.value !== props.currentLaneId);
 
 // Methods
 function hasAutomation(lane) {
   if (!lane) return false;
-  return !!(lane.onEnterTemplateId || lane.onEnterPrompt);
+  return Boolean(lane.onEnterTemplateId || lane.onEnterPrompt);
 }
 
 function close() {
