@@ -32,7 +32,7 @@
       title="Jump to Claude's response"
       aria-label="Scroll to Claude's latest response"
     >
-      ↑
+      💬
     </button>
   </div>
 </template>
