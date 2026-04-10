@@ -37,7 +37,7 @@
       aria-label="Scroll to Claude's latest response"
       @click="scrollToClaudesTurn"
     >
-      ↑
+      💬
     </button>
   </div>
 </template>
