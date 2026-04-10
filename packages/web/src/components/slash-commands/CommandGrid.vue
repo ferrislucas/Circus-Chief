@@ -4,46 +4,63 @@
     <div class="search-box">
       <input
         ref="searchInput"
-        type="text"
         v-model="searchQuery"
+        type="text"
         placeholder="Search commands..."
         class="search-input"
-        @keydown.escape="emit('close')"
         data-testid="command-search"
-      />
+        @keydown.escape="emit('close')"
+      >
     </div>
 
     <!-- Loading state -->
-    <div v-if="loading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="loading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       <span>Loading commands...</span>
     </div>
 
     <!-- Error state -->
-    <div v-else-if="error" class="error-state">
+    <div
+      v-else-if="error"
+      class="error-state"
+    >
       <span class="error-icon">⚠️</span>
       <span>{{ error }}</span>
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="filteredCommands.length === 0" class="empty-state">
+    <div
+      v-else-if="filteredCommands.length === 0"
+      class="empty-state"
+    >
       <span v-if="searchQuery">No commands match "{{ searchQuery }}"</span>
       <span v-else>No slash commands available</span>
     </div>
 
     <!-- Command sections -->
-    <div v-else class="command-sections">
+    <div
+      v-else
+      class="command-sections"
+    >
       <!-- Built-in Commands -->
-      <div v-if="filteredBuiltinCommands.length > 0 && !hideBuiltin" class="command-section">
-        <h3 class="section-title">Built-in Commands</h3>
+      <div
+        v-if="filteredBuiltinCommands.length > 0 && !hideBuiltin"
+        class="command-section"
+      >
+        <h3 class="section-title">
+          Built-in Commands
+        </h3>
         <div class="command-cards">
           <button
             v-for="cmd in filteredBuiltinCommands"
             :key="cmd.name"
             type="button"
             class="command-card"
-            @click="selectCommand(cmd)"
             :data-testid="`command-${cmd.name}`"
+            @click="selectCommand(cmd)"
           >
             <span class="command-name">/{{ cmd.name }}</span>
             <span class="command-description">{{ cmd.description || 'No description' }}</span>
@@ -52,20 +69,28 @@
       </div>
 
       <!-- Project Commands -->
-      <div v-if="filteredProjectCommands.length > 0" class="command-section">
-        <h3 class="section-title">Project Commands</h3>
+      <div
+        v-if="filteredProjectCommands.length > 0"
+        class="command-section"
+      >
+        <h3 class="section-title">
+          Project Commands
+        </h3>
         <div class="command-cards">
           <button
             v-for="cmd in filteredProjectCommands"
             :key="cmd.name"
             type="button"
             class="command-card"
-            @click="selectCommand(cmd)"
             :data-testid="`command-${cmd.name}`"
+            @click="selectCommand(cmd)"
           >
             <span class="command-name">/{{ cmd.name }}</span>
             <span class="command-description">{{ cmd.description || 'No description' }}</span>
-            <span v-if="cmd.arguments.length > 0" class="command-args-badge">
+            <span
+              v-if="cmd.arguments.length > 0"
+              class="command-args-badge"
+            >
               {{ cmd.arguments.length }} arg{{ cmd.arguments.length > 1 ? 's' : '' }}
             </span>
           </button>
@@ -73,20 +98,28 @@
       </div>
 
       <!-- User Commands -->
-      <div v-if="filteredUserCommands.length > 0" class="command-section">
-        <h3 class="section-title">User Commands</h3>
+      <div
+        v-if="filteredUserCommands.length > 0"
+        class="command-section"
+      >
+        <h3 class="section-title">
+          User Commands
+        </h3>
         <div class="command-cards">
           <button
             v-for="cmd in filteredUserCommands"
             :key="cmd.name"
             type="button"
             class="command-card"
-            @click="selectCommand(cmd)"
             :data-testid="`command-${cmd.name}`"
+            @click="selectCommand(cmd)"
           >
             <span class="command-name">/{{ cmd.name }}</span>
             <span class="command-description">{{ cmd.description || 'No description' }}</span>
-            <span v-if="cmd.arguments.length > 0" class="command-args-badge">
+            <span
+              v-if="cmd.arguments.length > 0"
+              class="command-args-badge"
+            >
               {{ cmd.arguments.length }} arg{{ cmd.arguments.length > 1 ? 's' : '' }}
             </span>
           </button>
@@ -94,20 +127,28 @@
       </div>
 
       <!-- Plugin Commands -->
-      <div v-if="filteredPluginCommands.length > 0" class="command-section">
-        <h3 class="section-title">Plugin Commands</h3>
+      <div
+        v-if="filteredPluginCommands.length > 0"
+        class="command-section"
+      >
+        <h3 class="section-title">
+          Plugin Commands
+        </h3>
         <div class="command-cards">
           <button
             v-for="cmd in filteredPluginCommands"
             :key="cmd.name"
             type="button"
             class="command-card"
-            @click="selectCommand(cmd)"
             :data-testid="`command-${cmd.name}`"
+            @click="selectCommand(cmd)"
           >
             <span class="command-name">/{{ cmd.name }}</span>
             <span class="command-description">{{ cmd.description || 'No description' }}</span>
-            <span v-if="cmd.arguments.length > 0" class="command-args-badge">
+            <span
+              v-if="cmd.arguments.length > 0"
+              class="command-args-badge"
+            >
               {{ cmd.arguments.length }} arg{{ cmd.arguments.length > 1 ? 's' : '' }}
             </span>
           </button>
@@ -115,20 +156,28 @@
       </div>
 
       <!-- Project Skills -->
-      <div v-if="filteredProjectSkills.length > 0" class="command-section">
-        <h3 class="section-title">Project Skills</h3>
+      <div
+        v-if="filteredProjectSkills.length > 0"
+        class="command-section"
+      >
+        <h3 class="section-title">
+          Project Skills
+        </h3>
         <div class="command-cards">
           <button
             v-for="skill in filteredProjectSkills"
             :key="skill.name"
             type="button"
             class="command-card"
-            @click="selectCommand(skill)"
             :data-testid="`skill-${skill.name}`"
+            @click="selectCommand(skill)"
           >
             <span class="command-name">/{{ skill.name }}</span>
             <span class="command-description">{{ skill.description || 'No description' }}</span>
-            <span v-if="skill.argumentHint" class="command-args-badge">
+            <span
+              v-if="skill.argumentHint"
+              class="command-args-badge"
+            >
               {{ skill.argumentHint }}
             </span>
           </button>
@@ -136,20 +185,28 @@
       </div>
 
       <!-- User Skills -->
-      <div v-if="filteredUserSkills.length > 0" class="command-section">
-        <h3 class="section-title">User Skills</h3>
+      <div
+        v-if="filteredUserSkills.length > 0"
+        class="command-section"
+      >
+        <h3 class="section-title">
+          User Skills
+        </h3>
         <div class="command-cards">
           <button
             v-for="skill in filteredUserSkills"
             :key="skill.name"
             type="button"
             class="command-card"
-            @click="selectCommand(skill)"
             :data-testid="`skill-${skill.name}`"
+            @click="selectCommand(skill)"
           >
             <span class="command-name">/{{ skill.name }}</span>
             <span class="command-description">{{ skill.description || 'No description' }}</span>
-            <span v-if="skill.argumentHint" class="command-args-badge">
+            <span
+              v-if="skill.argumentHint"
+              class="command-args-badge"
+            >
               {{ skill.argumentHint }}
             </span>
           </button>
@@ -157,20 +214,28 @@
       </div>
 
       <!-- Plugin Skills -->
-      <div v-if="filteredPluginSkills.length > 0" class="command-section">
-        <h3 class="section-title">Plugin Skills</h3>
+      <div
+        v-if="filteredPluginSkills.length > 0"
+        class="command-section"
+      >
+        <h3 class="section-title">
+          Plugin Skills
+        </h3>
         <div class="command-cards">
           <button
             v-for="skill in filteredPluginSkills"
             :key="skill.name"
             type="button"
             class="command-card"
-            @click="selectCommand(skill)"
             :data-testid="`skill-${skill.name}`"
+            @click="selectCommand(skill)"
           >
             <span class="command-name">/{{ skill.name }}</span>
             <span class="command-description">{{ skill.description || 'No description' }}</span>
-            <span v-if="skill.argumentHint" class="command-args-badge">
+            <span
+              v-if="skill.argumentHint"
+              class="command-args-badge"
+            >
               {{ skill.argumentHint }}
             </span>
           </button>

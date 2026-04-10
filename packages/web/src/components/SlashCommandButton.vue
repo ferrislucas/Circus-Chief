@@ -2,9 +2,9 @@
   <button
     type="button"
     class="slash-command-btn"
-    @click="emit('open')"
     title="Slash Commands"
     data-testid="slash-command-button"
+    @click="emit('open')"
   >
     <span class="slash-icon">/</span>
     <span class="slash-text">Commands</span>

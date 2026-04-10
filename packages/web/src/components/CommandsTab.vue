@@ -12,19 +12,34 @@
     </div>
 
     <!-- Loading State -->
-    <div v-if="commandButtonsStore.loading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="commandButtonsStore.loading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading command buttons...
     </div>
 
     <!-- Error Banner (shown alongside list, not instead of it) -->
-    <div v-if="!commandButtonsStore.loading && commandButtonsStore.error" class="error-banner">
+    <div
+      v-if="!commandButtonsStore.loading && commandButtonsStore.error"
+      class="error-banner"
+    >
       <span>{{ commandButtonsStore.error }}</span>
-      <button class="dismiss-btn" @click="commandButtonsStore.error = null">Dismiss</button>
+      <button
+        class="dismiss-btn"
+        @click="commandButtonsStore.error = null"
+      >
+        Dismiss
+      </button>
     </div>
 
     <!-- Empty State (only when no buttons and not loading) -->
-    <div v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length === 0" class="empty-state" data-testid="commands-tab-empty">
+    <div
+      v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length === 0"
+      class="empty-state"
+      data-testid="commands-tab-empty"
+    >
       <p>No command buttons configured for this project.</p>
       <router-link
         :to="`/projects/${projectId}/commands`"
@@ -35,7 +50,11 @@
     </div>
 
     <!-- Commands List (show when buttons exist, regardless of error state) -->
-    <div v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length > 0" class="commands-list" data-testid="commands-tab-list">
+    <div
+      v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length > 0"
+      class="commands-list"
+      data-testid="commands-tab-list"
+    >
       <CommandButtonItem
         v-for="button in commandButtonsStore.buttons"
         :key="button.id"

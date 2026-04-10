@@ -1,10 +1,14 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
-
-// Performance: Limit output to prevent memory bloat and UI slowdown
-const MAX_OUTPUT_LINES = 2000;
-// Increased from 100ms to 300ms to reduce reactive updates while remaining responsive
-const OUTPUT_FLUSH_INTERVAL_MS = 300;
+import {
+  truncateOutput,
+  buildRunEntry,
+  appendOutput as appendOutputHelper,
+  flushPendingOutput as flushPendingOutputHelper,
+  processRunFromApi,
+  buildCompletedRunUpdate,
+  buildErrorRunUpdate,
+} from './commandButtonsOutputBuffer.js';
 
 export const useCommandButtonsStore = defineStore('commandButtons', {
   state: () => ({
@@ -159,27 +163,8 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       this.error = null;
       try {
         const runs = await api.getActiveRuns(sessionId);
-        // Restore runs to state (both running and recently completed)
         for (const run of runs) {
-          const { output, truncated } = this._truncateOutput(run.output || '');
-          const existing = this.runs[run.runId];
-
-          // Preserve existing output if the API returned empty output
-          // (lightweight DB queries exclude the output column for performance)
-          const resolvedOutput = (!output && existing?.output) ? existing.output : output;
-          const resolvedTruncated = (!output && existing?.output) ? existing.outputTruncated : truncated;
-
-          this.runs[run.runId] = {
-            runId: run.runId,
-            buttonId: run.buttonId,
-            sessionId: sessionId,
-            status: run.status || 'running',
-            output: resolvedOutput,
-            exitCode: run.exitCode !== undefined ? run.exitCode : null,
-            startedAt: run.startedAt,
-            completedAt: run.completedAt,
-            outputTruncated: resolvedTruncated,
-          };
+          this.runs[run.runId] = processRunFromApi(run, sessionId, this.runs[run.runId]);
         }
         return runs;
       } catch (err) {
@@ -200,30 +185,12 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
 
           // Skip if we already have a running command with this ID
           // (keep the version with accumulated output)
-          if (this.runs[runId] && this.runs[runId].status === 'running') {
+          if (this.runs[runId]?.status === 'running') {
             continue;
           }
 
           // Add or update the run
-          const { output, truncated } = this._truncateOutput(run.output || '');
-          const existing = this.runs[runId];
-
-          // Preserve existing output if the API returned empty output
-          // (lightweight DB queries exclude the output column for performance)
-          const resolvedOutput = (!output && existing?.output) ? existing.output : output;
-          const resolvedTruncated = (!output && existing?.output) ? existing.outputTruncated : truncated;
-
-          this.runs[runId] = {
-            runId,
-            buttonId: run.buttonId,
-            sessionId: run.sessionId,
-            status: run.status || 'running',
-            output: resolvedOutput,
-            exitCode: run.exitCode !== undefined ? run.exitCode : null,
-            startedAt: run.startedAt,
-            completedAt: run.completedAt,
-            outputTruncated: resolvedTruncated,
-          };
+          this.runs[runId] = buildRunEntry(run, runId, this.runs[runId]);
         }
         return runs;
       } catch (err) {
@@ -233,163 +200,26 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       }
     },
 
-    /**
-     * Truncate output to MAX_OUTPUT_LINES, keeping only the most recent lines.
-     * Returns { output: string, truncated: boolean }
-     */
-    _truncateOutput(text) {
-      const lines = text.split('\n');
-      if (lines.length <= MAX_OUTPUT_LINES) {
-        return { output: text, truncated: false };
-      }
-      // Keep only the last MAX_OUTPUT_LINES
-      const truncatedLines = lines.slice(-MAX_OUTPUT_LINES);
-      return { output: truncatedLines.join('\n'), truncated: true };
-    },
-
-    /**
-     * Flush buffered output to the run state.
-     * Called on a timer to batch updates and reduce reactivity overhead.
-     */
-    _flushOutput(runId) {
-      const buffer = this._outputBuffers[runId];
-      if (!buffer || !this.runs[runId]) {
-        delete this._outputBuffers[runId];
-        delete this._flushTimers[runId];
-        return;
-      }
-
-      // Don't flush output for completed runs — output is already finalized
-      // This prevents duplication if a flush timer fires after completeRun
-      if (this.runs[runId].status !== 'running') {
-        delete this._outputBuffers[runId];
-        delete this._flushTimers[runId];
-        return;
-      }
-
-      // Combine existing output with buffer
-      const combined = this.runs[runId].output + buffer;
-      const { output, truncated } = this._truncateOutput(combined);
-
-      // Update state in one batch
-      this.$patch({
-        runs: {
-          [runId]: {
-            ...this.runs[runId],
-            output,
-            outputTruncated: this.runs[runId].outputTruncated || truncated,
-          },
-        },
-      });
-
-      // Clear the buffer
-      delete this._outputBuffers[runId];
-      delete this._flushTimers[runId];
-    },
-
-    /**
-     * Handle WebSocket output messages with throttling.
-     * Buffers output and flushes every OUTPUT_FLUSH_INTERVAL_MS to prevent
-     * excessive re-renders when output is streaming rapidly.
-     */
     appendOutput(runId, text) {
-      if (!this.runs[runId]) {
-        return;
-      }
-
-      // Ignore output for completed runs to prevent duplication
-      // (WS output events can arrive after the complete event due to race conditions)
-      if (this.runs[runId].status !== 'running') {
-        return;
-      }
-
-      // Deduplicate identical output messages arriving from dual-channel WS broadcasts
-      // (server broadcasts to both session and project channels, client may receive both)
-      const now = Date.now();
-      const lastAppend = this._lastAppendedText[runId];
-      if (lastAppend && lastAppend.text === text && (now - lastAppend.timestamp) < 100) {
-        return; // Skip duplicate
-      }
-      this._lastAppendedText[runId] = { text, timestamp: now };
-
-      // Append to buffer
-      this._outputBuffers[runId] = (this._outputBuffers[runId] || '') + text;
-
-      // Schedule flush if not already scheduled
-      if (!this._flushTimers[runId]) {
-        this._flushTimers[runId] = setTimeout(() => {
-          this._flushOutput(runId);
-        }, OUTPUT_FLUSH_INTERVAL_MS);
-      }
+      appendOutputHelper(this, runId, text);
     },
 
-    /**
-     * Force flush any pending output immediately.
-     * Called before completing a run to ensure all output is displayed.
-     */
     flushPendingOutput(runId) {
-      if (this._flushTimers[runId]) {
-        clearTimeout(this._flushTimers[runId]);
-        delete this._flushTimers[runId];
-      }
-      if (this._outputBuffers[runId]) {
-        this._flushOutput(runId);
-      }
+      flushPendingOutputHelper(this, runId);
     },
 
     completeRun(runId, exitCode, output) {
       if (this.runs[runId]) {
-        // Flush any pending buffered output first
         this.flushPendingOutput(runId);
-        // Clean up dedup tracking
         delete this._lastAppendedText[runId];
-
-        // FIX: Only replace output if server has a more complete version
-        // (longer output), otherwise keep the output we accumulated via
-        // appendOutput calls. This prevents race conditions where the
-        // completion message arrives before all streaming chunks.
-        let newOutput = this.runs[runId].output;
-        let truncated = this.runs[runId].outputTruncated;
-
-        if (output && output.length > this.runs[runId].output.length) {
-          const result = this._truncateOutput(output);
-          newOutput = result.output;
-          truncated = result.truncated;
-        }
-
-        this.$patch({
-          runs: {
-            [runId]: {
-              ...this.runs[runId],
-              exitCode: exitCode,
-              completedAt: Date.now(),
-              output: newOutput,
-              outputTruncated: truncated,
-              status: exitCode === 0 ? 'success' : 'error',
-            },
-          },
-        });
+        this.$patch({ runs: { [runId]: buildCompletedRunUpdate(this.runs[runId], exitCode, output) } });
       }
     },
 
     errorRun(runId, message) {
       if (this.runs[runId]) {
-        // Flush any pending buffered output first
         this.flushPendingOutput(runId);
-
-        const combined = this.runs[runId].output + `\n[Error] ${message}`;
-        const { output, truncated } = this._truncateOutput(combined);
-
-        this.$patch({
-          runs: {
-            [runId]: {
-              ...this.runs[runId],
-              status: 'error',
-              output,
-              outputTruncated: this.runs[runId].outputTruncated || truncated,
-            },
-          },
-        });
+        this.$patch({ runs: { [runId]: buildErrorRunUpdate(this.runs[runId], message) } });
       }
     },
 
@@ -401,7 +231,7 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       try {
         const run = await api.getCommandRun(sessionId, runId);
         if (run.output && this.runs[runId]) {
-          const { output, truncated } = this._truncateOutput(run.output);
+          const { output, truncated } = truncateOutput(run.output);
           this.runs[runId] = {
             ...this.runs[runId],
             output,

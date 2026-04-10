@@ -13,9 +13,7 @@ export const useKanbanStore = defineStore('kanban', {
     /**
      * Get a lane by ID
      */
-    getLaneById: (state) => (laneId) => {
-      return state.board?.lanes?.find((l) => l.id === laneId) || null;
-    },
+    getLaneById: (state) => (laneId) => state.board?.lanes?.find((l) => l.id === laneId) || null,
 
     /**
      * Get a card by ID
@@ -57,9 +55,7 @@ export const useKanbanStore = defineStore('kanban', {
     /**
      * Get lane names in order
      */
-    laneNames: (state) => {
-      return state.board?.lanes?.map((l) => l.name) || [];
-    },
+    laneNames: (state) => state.board?.lanes?.map((l) => l.name) || [],
 
     /**
      * Get total card count
@@ -113,7 +109,8 @@ export const useKanbanStore = defineStore('kanban', {
      * Revert an optimistic card move
      * @private
      */
-    _revertCardMove(sourceLane, card, targetLaneId) {
+    _revertCardMove(sourceLaneInput, card, targetLaneId) {
+      const sourceLane = sourceLaneInput;
       if (!this.board) return;
       const targetLane = this.board.lanes.find((l) => l.id === targetLaneId);
       if (targetLane) {
@@ -249,13 +246,11 @@ export const useKanbanStore = defineStore('kanban', {
       try {
         const card = await api.createKanbanCard(projectId, { sessionId, laneId });
         // Add card to lane in state
-        if (this.board) {
-          const lane = this.board.lanes.find((l) => l.id === laneId);
-          if (lane) {
-            lane.cards = lane.cards || [];
-            if (!lane.cards.some((c) => c.id === card.id)) {
-              lane.cards.push(card);
-            }
+        const lane = this.board?.lanes.find((l) => l.id === laneId);
+        if (lane) {
+          lane.cards = lane.cards || [];
+          if (!lane.cards.some((c) => c.id === card.id)) {
+            lane.cards.push(card);
           }
         }
         return card;
@@ -306,13 +301,12 @@ export const useKanbanStore = defineStore('kanban', {
       try {
         await api.deleteKanbanCard(projectId, cardId);
         // Remove card from state
-        if (this.board) {
-          for (const lane of this.board.lanes) {
-            const cardIndex = lane.cards?.findIndex((c) => c.id === cardId);
-            if (cardIndex !== -1) {
-              lane.cards.splice(cardIndex, 1);
-              break;
-            }
+        const lanes = this.board?.lanes || [];
+        for (const lane of lanes) {
+          const cardIndex = lane.cards?.findIndex((c) => c.id === cardId);
+          if (cardIndex !== -1) {
+            lane.cards.splice(cardIndex, 1);
+            break;
           }
         }
       } catch (err) {

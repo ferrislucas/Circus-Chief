@@ -668,7 +668,7 @@ describe('Command Buttons API', () => {
       const mockRuns = [
         {
           runId: 'run-1',
-          buttonId: buttonId,
+          buttonId,
           status: 'running',
           output: 'Test output\n',
         },

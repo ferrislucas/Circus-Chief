@@ -1,18 +1,35 @@
 <template>
   <div>
-    <div v-if="sessionsStore.archivedPagination.loading && sessionsStore.archivedSessions.length === 0" class="skeleton-list">
-      <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
+    <div
+      v-if="sessionsStore.archivedPagination.loading && sessionsStore.archivedSessions.length === 0"
+      class="skeleton-list"
+    >
+      <div
+        v-for="i in 3"
+        :key="i"
+        class="skeleton card"
+        style="height: 120px"
+      />
     </div>
 
-    <div v-else-if="sessionsStore.error" class="error-message">
+    <div
+      v-else-if="sessionsStore.error"
+      class="error-message"
+    >
       {{ sessionsStore.error }}
     </div>
 
-    <div v-else-if="sessionsStore.archivedSessions.length === 0" class="empty-state">
+    <div
+      v-else-if="sessionsStore.archivedSessions.length === 0"
+      class="empty-state"
+    >
       <p>No archived sessions. Archive completed sessions to keep your session list tidy.</p>
     </div>
 
-    <div v-else class="session-list">
+    <div
+      v-else
+      class="session-list"
+    >
       <SessionCard
         v-for="session in sessionsStore.archivedSessions"
         :key="session.id"
@@ -30,7 +47,10 @@
       />
 
       <!-- Load More Button -->
-      <div v-if="sessionsStore.archivedPagination.hasMore" class="load-more-container">
+      <div
+        v-if="sessionsStore.archivedPagination.hasMore"
+        class="load-more-container"
+      >
         <button
           class="btn btn-secondary"
           :disabled="sessionsStore.archivedPagination.loading"

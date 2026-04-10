@@ -8,13 +8,11 @@ describe('VCRSummaryWrapper', () => {
   const testCassetteDir = path.join('tests', 'cassettes', 'temp-summary-test');
 
   // Mock real query function
-  const createMockQueryFn = (events) => {
-    return async function* mockQuery(_queryParams) {
+  const createMockQueryFn = (events) => async function* mockQuery(_queryParams) {
       for (const event of events) {
         yield event;
       }
     };
-  };
 
   beforeEach(() => {
     // Clean up test directory

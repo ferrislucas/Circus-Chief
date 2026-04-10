@@ -6,7 +6,7 @@
     :class="statusDotClass"
     :title="statusDotTooltip"
     data-testid="connection-status-dot"
-  ></span>
+  />
 
   <div
     v-if="hasData"
@@ -20,17 +20,81 @@
       :title="`CPU: ${Math.round(metrics.cpu.usagePercent)}%`"
       @click="selectedStat = 'cpu'"
     >
-      <svg class="indicator-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect>
-        <rect x="9" y="9" width="6" height="6"></rect>
-        <line x1="9" y1="1" x2="9" y2="4"></line>
-        <line x1="15" y1="1" x2="15" y2="4"></line>
-        <line x1="9" y1="20" x2="9" y2="23"></line>
-        <line x1="15" y1="20" x2="15" y2="23"></line>
-        <line x1="20" y1="9" x2="23" y2="9"></line>
-        <line x1="20" y1="14" x2="23" y2="14"></line>
-        <line x1="1" y1="9" x2="4" y2="9"></line>
-        <line x1="1" y1="14" x2="4" y2="14"></line>
+      <svg
+        class="indicator-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+aria-hidden="true"
+      >
+        <rect
+          x="4"
+          y="4"
+          width="16"
+          height="16"
+          rx="2"
+          ry="2"
+        />
+        <rect
+          x="9"
+          y="9"
+          width="6"
+          height="6"
+        />
+        <line
+          x1="9"
+          y1="1"
+          x2="9"
+          y2="4"
+        />
+        <line
+          x1="15"
+          y1="1"
+          x2="15"
+          y2="4"
+        />
+        <line
+          x1="9"
+          y1="20"
+          x2="9"
+          y2="23"
+        />
+        <line
+          x1="15"
+          y1="20"
+          x2="15"
+          y2="23"
+        />
+        <line
+          x1="20"
+          y1="9"
+          x2="23"
+          y2="9"
+        />
+        <line
+          x1="20"
+          y1="14"
+          x2="23"
+          y2="14"
+        />
+        <line
+          x1="1"
+          y1="9"
+          x2="4"
+          y2="9"
+        />
+        <line
+          x1="1"
+          y1="14"
+          x2="4"
+          y2="14"
+        />
       </svg>
       <div class="indicator-bar-track">
         <div
@@ -40,7 +104,7 @@
             width: `${metrics.cpu.usagePercent}%`,
             backgroundColor: getColorForPercent(metrics.cpu.usagePercent),
           }"
-        ></div>
+        />
       </div>
     </div>
 
@@ -51,16 +115,28 @@
       :title="`RAM: ${metrics.memory.usedGB.toFixed(1)} / ${metrics.memory.totalGB.toFixed(1)} GB`"
       @click="selectedStat = 'memory'"
     >
-      <svg class="indicator-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M6 19v-3"></path>
-        <path d="M10 19v-3"></path>
-        <path d="M14 19v-3"></path>
-        <path d="M18 19v-3"></path>
-        <path d="M8 11V9"></path>
-        <path d="M16 11V9"></path>
-        <path d="M12 11V9"></path>
-        <path d="M2 15h20"></path>
-        <path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z"></path>
+      <svg
+        class="indicator-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+aria-hidden="true"
+      >
+        <path d="M6 19v-3" />
+        <path d="M10 19v-3" />
+        <path d="M14 19v-3" />
+        <path d="M18 19v-3" />
+        <path d="M8 11V9" />
+        <path d="M16 11V9" />
+        <path d="M12 11V9" />
+        <path d="M2 15h20" />
+        <path d="M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v1.1a2 2 0 0 0 0 3.837V17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.1a2 2 0 0 0 0-3.837Z" />
       </svg>
       <div class="indicator-bar-track">
         <div
@@ -70,7 +146,7 @@
             width: `${metrics.memory.usedPercent}%`,
             backgroundColor: getColorForPercent(metrics.memory.usedPercent),
           }"
-        ></div>
+        />
       </div>
     </div>
 
@@ -82,10 +158,27 @@
       :title="`Disk: ${Math.round(metrics.disk.freeGB)} GB free`"
       @click="selectedStat = 'disk'"
     >
-      <svg class="indicator-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
-        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
-        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+      <svg
+        class="indicator-icon"
+        xmlns="http://www.w3.org/2000/svg"
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+aria-hidden="true"
+      >
+        <ellipse
+          cx="12"
+          cy="5"
+          rx="9"
+          ry="3"
+        />
+        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
       </svg>
       <div class="indicator-bar-track">
         <div
@@ -95,15 +188,15 @@
             width: `${metrics.disk.usedPercent}%`,
             backgroundColor: getColorForPercent(metrics.disk.usedPercent),
           }"
-        ></div>
+        />
       </div>
     </div>
   </div>
 
   <!-- System Stat Detail Modal -->
   <SystemStatDetailModal
-    :isOpen="selectedStat !== null"
-    :statType="selectedStat"
+    :is-open="selectedStat !== null"
+    :stat-type="selectedStat"
     :metrics="metrics"
     @close="selectedStat = null"
   />

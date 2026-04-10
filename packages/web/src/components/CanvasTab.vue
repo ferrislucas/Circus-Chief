@@ -7,18 +7,25 @@
     @drop.prevent="handleDrop"
   >
     <!-- Stale content badge -->
-    <StaleBadge :isStale="isStale" />
+    <StaleBadge :is-stale="isStale" />
 
     <!-- Upload header - only show in list view -->
-    <div v-if="!shouldShowViewer || !selectedItem" class="canvas-header">
-      <label v-if="!showTrash" class="btn btn-primary" :class="{ disabled: uploading }">
+    <div
+      v-if="!shouldShowViewer || !selectedItem"
+      class="canvas-header"
+    >
+      <label
+        v-if="!showTrash"
+        class="btn btn-primary"
+        :class="{ disabled: uploading }"
+      >
         {{ uploading ? 'Uploading...' : 'Upload File' }}
         <input
           type="file"
-          @change="handleFileSelect"
           :disabled="uploading"
           style="display: none"
-        />
+          @change="handleFileSelect"
+        >
       </label>
 
       <!-- Trash toggle button -->
@@ -31,20 +38,26 @@
         <span class="trash-count">{{ canvasStore.trashedItems.length }}</span>
       </button>
 
-      <span v-if="isDragOver" class="drag-hint">Drop file to upload</span>
+      <span
+        v-if="isDragOver"
+        class="drag-hint"
+      >Drop file to upload</span>
     </div>
 
     <!-- Bulk action toolbar -->
-    <div v-if="canvasStore.selectedItemCount > 0 && !showTrash" class="bulk-action-toolbar">
+    <div
+      v-if="canvasStore.selectedItemCount > 0 && !showTrash"
+      class="bulk-action-toolbar"
+    >
       <div class="toolbar-left">
         <input
           type="checkbox"
           class="toolbar-checkbox"
           :checked="canvasStore.isAllItemsSelected"
-          @change="handleSelectAll"
           :disabled="canvasStore.bulkOperationInProgress"
           aria-label="Select all items"
-        />
+          @change="handleSelectAll"
+        >
         <span class="selection-info">
           {{ canvasStore.selectedItemCount }} item{{ canvasStore.selectedItemCount > 1 ? 's' : '' }} selected
         </span>
@@ -52,15 +65,15 @@
       <div class="toolbar-right">
         <button
           class="btn btn-sm btn-danger"
-          @click="handleBulkDelete"
           :disabled="canvasStore.bulkOperationInProgress"
+          @click="handleBulkDelete"
         >
           {{ canvasStore.bulkOperationInProgress ? 'Deleting...' : 'Delete Selected' }}
         </button>
         <button
           class="btn btn-sm btn-secondary"
-          @click="handleCancelSelection"
           :disabled="canvasStore.bulkOperationInProgress"
+          @click="handleCancelSelection"
         >
           Cancel
         </button>
@@ -70,41 +83,49 @@
     <!-- Trash view -->
     <CanvasTrash
       v-if="showTrash"
-      :sessionId="sessionId"
+      :session-id="sessionId"
       @close="showTrash = false"
     />
 
     <!-- Canvas view -->
     <template v-else>
-      <div v-if="canvasStore.loading && !uploading" class="loading-state">
-        <span class="loading-spinner"></span>
+      <div
+        v-if="canvasStore.loading && !uploading"
+        class="loading-state"
+      >
+        <span class="loading-spinner" />
         Loading canvas items...
       </div>
 
-      <div v-else-if="canvasStore.items.length === 0" class="empty-state">
+      <div
+        v-else-if="canvasStore.items.length === 0"
+        class="empty-state"
+      >
         <p>No canvas items yet. Upload a file or drag and drop here.</p>
-        <p class="empty-state-hint">Claude can also add images, markdown, and JSON to the canvas.</p>
+        <p class="empty-state-hint">
+          Claude can also add images, markdown, and JSON to the canvas.
+        </p>
       </div>
 
       <!-- Detail view (single file OR selected file) -->
       <CanvasFileViewer
         v-else-if="shouldShowViewer && selectedItem"
         :item="selectedItem"
-        :sessionId="sessionId"
+        :session-id="sessionId"
         :versions="selectedVersions"
-        :showBackButton="showBackButton"
+        :show-back-button="showBackButton"
         @back="handleBack"
-        @selectVersion="handleSelectVersion"
-        @deleteAll="handleDeleteAll"
+        @select-version="handleSelectVersion"
+        @delete-all="handleDeleteAll"
       />
 
       <!-- List view (multiple files, none selected) -->
       <CanvasFileList
         v-else
         :items="groupedItems"
-        :sessionId="sessionId"
+        :session-id="sessionId"
         @select="handleSelect"
-        @deleteItem="handleDeleteItem"
+        @delete-item="handleDeleteItem"
       />
     </template>
   </div>
@@ -164,15 +185,15 @@ const selectedVersions = computed(() => {
     .filter((i) => (i.filename || i.id) === key)
     .sort((a, b) => b.createdAt - a.createdAt);
 });
-const shouldShowViewer = computed(() => {
+const shouldShowViewer = computed(() => 
   // Show viewer only if an item is explicitly selected
-  return selectedItemId.value !== null;
-});
+   selectedItemId.value !== null
+);
 
-const showBackButton = computed(() => {
+const showBackButton = computed(() => 
   // Always show back button in detail view so users can navigate to the list
-  return true;
-});
+   true
+);
 
 // Auto-navigate to the latest version when a new version of the viewed file arrives
 watch(
@@ -196,23 +217,22 @@ watch(
   }
 );
 
-// Navigation handlers
-function handleSelect(itemId) {
+// Navigation helpers
+function navigateToItem(itemId) {
   router.push({
     query: { ...route.query, item: itemId }
   });
 }
+
+// Navigation handlers
+const handleSelect = navigateToItem;
 
 function handleBack() {
   const { item, ...rest } = route.query;
   router.push({ query: rest });
 }
 
-function handleSelectVersion(itemId) {
-  router.push({
-    query: { ...route.query, item: itemId }
-  });
-}
+const handleSelectVersion = navigateToItem;
 
 // Delete handler
 async function handleDeleteAll(filename) {
@@ -261,11 +281,12 @@ async function handleDrop(event) {
 }
 
 async function handleFileSelect(event) {
-  const files = event.target.files;
+  const target = event.target;
+  const files = target.files;
   if (files && files.length > 0) {
     await uploadFile(files[0]);
   }
-  event.target.value = '';
+  target.value = '';
 }
 
 async function uploadFile(file) {

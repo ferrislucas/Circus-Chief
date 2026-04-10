@@ -1,16 +1,23 @@
 <template>
-  <div v-if="settingsStore.loading" class="loading-state">
-    <span class="loading-spinner"></span>
+  <div
+    v-if="settingsStore.loading"
+    class="loading-state"
+  >
+    <span class="loading-spinner" />
     Loading...
   </div>
 
-  <form v-else @submit.prevent="handleSave" class="form card">
+  <form
+    v-else
+    class="form card"
+    @submit.prevent="handleSave"
+  >
     <div class="form-group">
       <label class="checkbox-label">
         <input
-          type="checkbox"
           v-model="disableAnalytics"
-        />
+          type="checkbox"
+        >
         Disable analytics tracking
       </label>
       <p class="form-help">
@@ -18,11 +25,23 @@
       </p>
     </div>
 
-    <div v-if="error" class="error-message">{{ error }}</div>
+    <div
+      v-if="error"
+      class="error-message"
+    >
+      {{ error }}
+    </div>
 
     <div class="form-actions">
-      <button type="submit" class="btn btn-primary" :disabled="saving">
-        <span v-if="saving" class="loading-spinner"></span>
+      <button
+        type="submit"
+        class="btn btn-primary"
+        :disabled="saving"
+      >
+        <span
+          v-if="saving"
+          class="loading-spinner"
+        />
         {{ saving ? 'Saving...' : 'Save Settings' }}
       </button>
     </div>
@@ -30,7 +49,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
 
@@ -46,7 +65,6 @@ onMounted(() => {
 });
 
 // Watch for changes to the store and update local refs
-import { watch } from 'vue';
 watch(() => settingsStore.generalSettings, (settings) => {
   if (settings) {
     disableAnalytics.value = settings.disableAnalytics;

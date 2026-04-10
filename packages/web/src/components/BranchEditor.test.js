@@ -26,39 +26,39 @@ describe('BranchEditor', () => {
 
   describe('rendering', () => {
     it('renders prompt textarea', () => {
-      const wrapper = mountComponent();
+      wrapper = mountComponent();
       expect(wrapper.find('textarea').exists()).toBe(true);
     });
 
     it('does NOT render name input field', () => {
-      const wrapper = mountComponent();
+      wrapper = mountComponent();
       // Name field should be completely removed
       expect(wrapper.findAll('input[type="text"]')).toHaveLength(0);
       expect(wrapper.text()).not.toContain('Branch name');
     });
 
     it('shows correct label for prompt field', () => {
-      const wrapper = mountComponent();
+      wrapper = mountComponent();
       expect(wrapper.text()).toContain('New prompt');
       expect(wrapper.text()).toContain('replaces original');
     });
 
     it('shows "Branch & Submit" button text', () => {
-      const wrapper = mountComponent();
+      wrapper = mountComponent();
       expect(wrapper.text()).toContain('Branch & Submit');
     });
   });
 
   describe('submit button state', () => {
     it('disables submit button when prompt is empty', () => {
-      const wrapper = mountComponent();
+      wrapper = mountComponent();
       const buttons = wrapper.findAll('button');
       const submitBtn = buttons.find(b => b.text().includes('Branch & Submit'));
       expect(submitBtn.attributes('disabled')).toBeDefined();
     });
 
     it('enables submit button when prompt has content', async () => {
-      const wrapper = mountComponent();
+      wrapper = mountComponent();
       const textarea = wrapper.find('textarea');
       await textarea.setValue('My new prompt');
       await nextTick();
@@ -73,7 +73,7 @@ describe('BranchEditor', () => {
     it('handleCreate emits create event with correct payload', async () => {
       // Mount with onXxx handler to capture emits
       const createHandler = vi.fn();
-      const wrapper = mountComponent({}, {
+      wrapper = mountComponent({}, {
         attrs: {
           onCreate: createHandler,
         },
@@ -96,7 +96,7 @@ describe('BranchEditor', () => {
 
     it('payload does NOT include name property', async () => {
       const createHandler = vi.fn();
-      const wrapper = mountComponent({}, {
+      wrapper = mountComponent({}, {
         attrs: {
           onCreate: createHandler,
         },
@@ -115,7 +115,7 @@ describe('BranchEditor', () => {
 
     it('trims whitespace from prompt', async () => {
       const createHandler = vi.fn();
-      const wrapper = mountComponent({}, {
+      wrapper = mountComponent({}, {
         attrs: {
           onCreate: createHandler,
         },
@@ -132,7 +132,7 @@ describe('BranchEditor', () => {
 
     it('does not emit when prompt is empty', async () => {
       const createHandler = vi.fn();
-      const wrapper = mountComponent({}, {
+      wrapper = mountComponent({}, {
         attrs: {
           onCreate: createHandler,
         },
@@ -148,7 +148,7 @@ describe('BranchEditor', () => {
   describe('cancel behavior', () => {
     it('handleCancel emits cancel event', async () => {
       const cancelHandler = vi.fn();
-      const wrapper = mountComponent({}, {
+      wrapper = mountComponent({}, {
         attrs: {
           onCancel: cancelHandler,
         },

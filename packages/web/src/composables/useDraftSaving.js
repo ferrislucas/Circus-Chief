@@ -16,7 +16,8 @@ import { api } from './useApi.js';
  * @param {() => string} options.getSessionId - Function that returns the current session ID
  * @returns {Object} Draft saving utilities
  */
-export function useDraftSaving({ input, canSendMessage, isRunning, getSessionId }) {
+export function useDraftSaving({ input: inputRef, canSendMessage, isRunning, getSessionId }) {
+  const input = inputRef;
   const saveStatus = ref('saved'); // 'saved', 'saving', 'error', 'unsaved'
   const saveError = ref('');
   let inputSyncTimer = null;

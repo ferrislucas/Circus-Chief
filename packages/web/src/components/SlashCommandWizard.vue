@@ -4,20 +4,27 @@
       <div
         v-if="isOpen"
         class="wizard-overlay"
+        data-testid="slash-command-wizard"
         @click.self="close"
         @keydown.escape="close"
-        data-testid="slash-command-wizard"
       >
-        <div class="wizard-modal" role="dialog" aria-labelledby="wizard-title">
+        <div
+          class="wizard-modal"
+          role="dialog"
+          aria-labelledby="wizard-title"
+        >
           <header class="wizard-header">
-            <h2 id="wizard-title" class="wizard-title">
+            <h2
+              id="wizard-title"
+              class="wizard-title"
+            >
               {{ step === 1 ? 'Slash Commands' : `Configure /${selectedCommand?.name}` }}
             </h2>
             <button
               type="button"
               class="close-btn"
-              @click="close"
               aria-label="Close wizard"
+              @click="close"
             >
               ×
             </button>

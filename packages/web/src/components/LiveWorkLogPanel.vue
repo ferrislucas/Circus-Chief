@@ -1,18 +1,45 @@
 <template>
   <div class="live-work-log-panel">
-    <div v-if="showHeader" class="live-header">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="showHeader"
+      class="live-header"
+    >
+      <span class="loading-spinner" />
       <span class="live-title">Claude is working...</span>
-      <span v-if="totalCount" class="live-count">({{ totalCount }} {{ totalCount === 1 ? 'item' : 'items' }})</span>
+      <span
+        v-if="totalCount"
+        class="live-count"
+      >({{ totalCount }} {{ totalCount === 1 ? 'item' : 'items' }})</span>
     </div>
-    <div v-if="hasContent" class="live-logs" @scroll="handleScroll">
-      <div v-for="log in workLogs" :key="log.id" class="live-log-item">
-        <ThinkingBlock v-if="log.type === 'thinking'" :content="log.content" :timestamp="log.timestamp" />
-        <CommandBlock v-else :log="log" />
+    <div
+      v-if="hasContent"
+      class="live-logs"
+      @scroll="handleScroll"
+    >
+      <div
+        v-for="log in workLogs"
+        :key="log.id"
+        class="live-log-item"
+      >
+        <ThinkingBlock
+          v-if="log.type === 'thinking'"
+          :content="log.content"
+          :timestamp="log.timestamp"
+        />
+        <CommandBlock
+          v-else
+          :log="log"
+        />
       </div>
       <!-- Streaming partial thinking -->
-      <div v-if="partialThinking" class="live-log-item">
-        <ThinkingBlock :content="partialThinking" :streaming="true" />
+      <div
+        v-if="partialThinking"
+        class="live-log-item"
+      >
+        <ThinkingBlock
+          :content="partialThinking"
+          :streaming="true"
+        />
       </div>
     </div>
   </div>
@@ -33,13 +60,9 @@ const props = defineProps({
 const SCROLL_THRESHOLD = 50; // pixels from bottom to consider "near bottom"
 const isNearBottom = ref(true);
 
-const totalCount = computed(() => {
-  return (props.workLogs?.length || 0) + (props.partialThinking ? 1 : 0);
-});
+const totalCount = computed(() => (props.workLogs?.length || 0) + (props.partialThinking ? 1 : 0));
 
-const hasContent = computed(() => {
-  return props.workLogs?.length > 0 || props.partialThinking;
-});
+const hasContent = computed(() => props.workLogs?.length > 0 || props.partialThinking);
 
 // Detect when user manually scrolls away from bottom
 function handleScroll(event) {

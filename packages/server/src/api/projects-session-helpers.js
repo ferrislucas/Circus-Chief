@@ -16,7 +16,7 @@ export function generateInitialName(prompt) {
   if (cleaned.length <= 50) return cleaned;
   const truncated = cleaned.substring(0, 50);
   const lastSpace = truncated.lastIndexOf(' ');
-  return (lastSpace > 20 ? truncated.substring(0, lastSpace) : truncated) + '...';
+  return `${lastSpace > 20 ? truncated.substring(0, lastSpace) : truncated  }...`;
 }
 
 /**
@@ -134,9 +134,10 @@ export function prepareSessionConfig(body, projectDefs, systemDefaults) {
 /**
  * Apply template overrides to session config.
  * Mutates the config object in place.
- * @param {object} config - Session config to modify
+ * @param {object} configInput - Session config to modify
  */
-export function applyTemplateOverrides(config) {
+export function applyTemplateOverrides(configInput) {
+  const config = configInput;
   if (!config.templateId) return;
 
   const template = sessionTemplates.getById(config.templateId);

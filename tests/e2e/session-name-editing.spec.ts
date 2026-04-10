@@ -243,7 +243,8 @@ test.describe('Session Name Editing', () => {
     await expect(nameInput).toHaveValue('Some Long Session Name');
 
     // Click clear
-    await page.click('.name-edit-form button.pr-clear-btn');
+    await expect(page.locator('.name-edit-form button.pr-clear-btn')).toBeVisible({ timeout: 5000 });
+    await page.locator('.name-edit-form button.pr-clear-btn').click();
 
     // Input should be empty
     await expect(nameInput).toHaveValue('');
@@ -270,7 +271,8 @@ test.describe('Session Name Editing', () => {
     await page.click('button.name-edit-trigger');
 
     // Click clear to empty the field
-    await page.click('.name-edit-form button.pr-clear-btn');
+    await expect(page.locator('.name-edit-form button.pr-clear-btn')).toBeVisible({ timeout: 5000 });
+    await page.locator('.name-edit-form button.pr-clear-btn').click();
 
     // Type a new name
     const nameInput = page.locator('input.name-edit-input');
@@ -303,7 +305,8 @@ test.describe('Session Name Editing', () => {
     await page.click('button.name-edit-trigger');
 
     // Click clear
-    await page.click('.name-edit-form button.pr-clear-btn');
+    await expect(page.locator('.name-edit-form button.pr-clear-btn')).toBeVisible({ timeout: 5000 });
+    await page.locator('.name-edit-form button.pr-clear-btn').click();
 
     // Cancel via Escape
     await page.keyboard.press('Escape');
@@ -332,7 +335,8 @@ test.describe('Session Name Editing', () => {
     await page.click('button.name-edit-trigger');
 
     // Click clear
-    await page.click('.name-edit-form button.pr-clear-btn');
+    await expect(page.locator('.name-edit-form button.pr-clear-btn')).toBeVisible({ timeout: 5000 });
+    await page.locator('.name-edit-form button.pr-clear-btn').click();
 
     // Input should be focused — typing should go into the input
     await page.keyboard.type('Typed After Clear');

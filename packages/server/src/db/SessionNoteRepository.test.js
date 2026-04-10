@@ -103,12 +103,12 @@ describe('SessionNoteRepository', () => {
 
     it('does not return notes from other sessions', () => {
       // Create another session
-      const project = projectRepo.create('Another Project', '/tmp/another');
+      const anotherProject = projectRepo.create('Another Project', '/tmp/another');
       const now = Date.now();
       const otherId = databaseManager.generateId();
       databaseManager.get().prepare(
         'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run(otherId, project.id, 'Other Session', 'running', 'standard', now, now);
+      ).run(otherId, anotherProject.id, 'Other Session', 'running', 'standard', now, now);
 
       repo.create(sessionId, 'Session 1 note');
       repo.create(otherId, 'Session 2 note');

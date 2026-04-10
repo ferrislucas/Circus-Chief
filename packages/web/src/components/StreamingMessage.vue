@@ -3,9 +3,9 @@
     <div class="message-header">
       <span class="message-role">assistant</span>
       <span class="streaming-indicator">
-        <span class="dot"></span>
-        <span class="dot"></span>
-        <span class="dot"></span>
+        <span class="dot" />
+        <span class="dot" />
+        <span class="dot" />
       </span>
     </div>
     <div class="message-content">

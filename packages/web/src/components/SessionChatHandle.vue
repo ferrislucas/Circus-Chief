@@ -35,7 +35,7 @@
       v-if="isSessionActive"
       class="active-spinner"
       :title="sessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
-    ></span>
+    />
   </div>
 </template>
 

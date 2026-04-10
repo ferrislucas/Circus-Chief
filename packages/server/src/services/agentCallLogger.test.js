@@ -3,7 +3,7 @@ import { AgentCallLogger } from './agentCallLogger.js';
 
 // Mock nanoid
 vi.mock('nanoid', () => ({
-  nanoid: vi.fn(() => 'mock-call-id-' + Math.random().toString(36).slice(2, 8)),
+  nanoid: vi.fn(() => `mock-call-id-${  Math.random().toString(36).slice(2, 8)}`),
 }));
 
 // Mock the database module

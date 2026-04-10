@@ -47,12 +47,10 @@ export class LoggingAgentWrapper {
     try {
       for await (const event of this.agent.execute(queryParams, meta)) {
         // Capture final usage from 'result' events
-        if (event.type === 'result' && event.subtype !== 'error') {
-          const usage = extractUsageFromEvent(event);
-          if (usage) {
-            agentCallLogger.updateUsage(callId, usage);
-          }
-        }
+        const usage = (event.type === 'result' && event.subtype !== 'error')
+          ? extractUsageFromEvent(event)
+          : null;
+        if (usage) agentCallLogger.updateUsage(callId, usage);
 
         yield event;
       }

@@ -1,8 +1,11 @@
 <template>
-  <form @submit.prevent="handleSubmit" class="input-form">
+  <form
+    class="input-form"
+    @submit.prevent="handleSubmit"
+  >
     <ResizableTextarea
       ref="textareaRef"
-      :modelValue="modelValue"
+      :model-value="modelValue"
       class="form-input form-textarea"
       :placeholder="placeholderText"
       :min-height="80"
@@ -15,27 +18,43 @@
       v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
       :show-empty="true"
       @insert="$emit('quickResponseInsert', $event)"
-      @openSettings="$emit('openQuickResponseSettings')"
+      @open-settings="$emit('openQuickResponseSettings')"
     />
 
     <!-- Auto-send checkbox - only during running with content -->
-    <div v-if="isRunning && inputHasContent" class="auto-send-row">
+    <div
+      v-if="isRunning && inputHasContent"
+      class="auto-send-row"
+    >
       <label class="auto-send-label">
         <input
           type="checkbox"
           :checked="autoSendPendingPrompt"
-          @change="$emit('autoSendToggle', $event.target.checked)"
           class="auto-send-checkbox"
-        />
+          @change="$emit('autoSendToggle', $event.target.checked)"
+        >
         <span class="auto-send-text">Send automatically when Claude finishes</span>
       </label>
     </div>
 
     <!-- Send button row -->
-    <div v-if="!isScheduledForFuture && !isRunning" class="send-button-row">
-      <div v-if="isDraft" class="draft-actions">
-        <button type="submit" class="btn btn-primary btn-send-full" :disabled="restarting || saveStatus === 'saving'">
-          <span v-if="restarting" class="loading-spinner"></span>
+    <div
+      v-if="!isScheduledForFuture && !isRunning"
+      class="send-button-row"
+    >
+      <div
+        v-if="isDraft"
+        class="draft-actions"
+      >
+        <button
+          type="submit"
+          class="btn btn-primary btn-send-full"
+          :disabled="restarting || saveStatus === 'saving'"
+        >
+          <span
+            v-if="restarting"
+            class="loading-spinner"
+          />
           {{ restarting ? 'Sending...' : 'Send' }}
         </button>
       </div>
@@ -46,36 +65,48 @@
           :disabled="isSendDisabled"
           :title="sendButtonDisabledReason"
         >
-          <span v-if="sending" class="loading-spinner"></span>
+          <span
+            v-if="sending"
+            class="loading-spinner"
+          />
           {{ sending ? 'Sending...' : 'Send' }}
         </button>
       </template>
     </div>
 
-    <div v-if="!isScheduledForFuture && !isRunning" class="input-controls">
+    <div
+      v-if="!isScheduledForFuture && !isRunning"
+      class="input-controls"
+    >
       <div class="session-options">
         <div class="mode-switcher">
-          <ModeSelector :sessionId="sessionId" />
+          <ModeSelector :session-id="sessionId" />
         </div>
 
-        <ModelSelector :modelValue="selectedModel" @update:modelValue="$emit('update:selectedModel', $event)" />
+        <ModelSelector
+          :model-value="selectedModel"
+          @update:model-value="$emit('update:selectedModel', $event)"
+        />
 
-        <FileAttachment ref="fileAttachment" @update:files="$emit('update:attachedFiles', $event)" />
+        <FileAttachment
+          ref="fileAttachment"
+          @update:files="$emit('update:attachedFiles', $event)"
+        />
         <SlashCommandButton
           v-if="workingDirectory"
           @open="$emit('openSlashCommand')"
         />
-        <EffortLevelSelector :sessionId="sessionId" />
+        <EffortLevelSelector :session-id="sessionId" />
 
         <div class="thinking-toggle">
           <label class="toggle-switch">
             <input
               type="checkbox"
               :checked="thinkingEnabled"
-              @change="$emit('thinkingToggle', $event)"
               :disabled="togglingThinking"
-            />
-            <span class="toggle-slider"></span>
+              @change="$emit('thinkingToggle', $event)"
+            >
+            <span class="toggle-slider" />
           </label>
           <span class="toggle-label">Thinking</span>
         </div>
@@ -92,9 +123,9 @@
       :is-draft="isDraft"
       :input-has-content="inputHasContent"
       :auto-reschedule-enabled="autoRescheduleEnabled"
-      @openSchedule="$emit('openSchedule')"
-      @openAutoReschedule="$emit('openAutoReschedule')"
-      @update:templateId="$emit('templateChange', $event)"
+      @open-schedule="$emit('openSchedule')"
+      @open-auto-reschedule="$emit('openAutoReschedule')"
+      @update:template-id="$emit('templateChange', $event)"
     />
   </form>
 </template>

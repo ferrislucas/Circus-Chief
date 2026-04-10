@@ -5,6 +5,22 @@ import { databaseManager } from '../db/DatabaseManager.js';
 
 const router = Router();
 
+/**
+ * Resolve metadata to a JSON string. Uses provided metadata or derives from session effortLevel.
+ */
+function resolveMetadataJson(providedMetadata, sessionId) {
+  let metadata = providedMetadata || {};
+  if (!providedMetadata) {
+    const session = agentCallLogs.db
+      .prepare('SELECT effort_level FROM sessions WHERE id = ?')
+      .get(sessionId);
+    if (session && session.effort_level) {
+      metadata = { effortLevel: session.effort_level };
+    }
+  }
+  return Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null;
+}
+
 // GET /api/sessions/:sessionId/agent-stats
 // Returns aggregated stats for a session grouped by call_type
 router.get('/sessions/:sessionId/agent-stats', (req, res) => {
@@ -111,22 +127,7 @@ router.post('/agent-calls', (req, res) => {
       return res.status(400).json({ error: 'sessionId is required' });
     }
 
-    // Build metadata object - use provided metadata or derive from session effortLevel
-    let metadata = providedMetadata || {};
-    if (!providedMetadata) {
-      // Look up session's effortLevel to populate metadata
-      const session = agentCallLogs.db
-        .prepare('SELECT effort_level FROM sessions WHERE id = ?')
-        .get(sessionId);
-      if (session && session.effort_level) {
-        metadata = { effortLevel: session.effort_level };
-      }
-    }
-
-    // Convert metadata to JSON string (null if empty object)
-    const metadataJson = Object.keys(metadata).length > 0
-      ? JSON.stringify(metadata)
-      : null;
+    const metadataJson = resolveMetadataJson(providedMetadata, sessionId);
 
     const id = databaseManager.generateId();
     const now = Date.now();

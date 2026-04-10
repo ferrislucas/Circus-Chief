@@ -1,16 +1,22 @@
 <template>
-  <div v-if="!isSessionRunning" class="conversation-panel">
+  <div
+    v-if="!isSessionRunning"
+    class="conversation-panel"
+  >
     <!-- Compact header: conversation selector + new button -->
     <div class="panel-header">
       <div class="header-row">
         <!-- Conversation dropdown -->
-        <div v-if="conversations.length > 1" class="dropdown-container">
+        <div
+          v-if="conversations.length > 1"
+          class="dropdown-container"
+        >
           <button
             type="button"
             class="dropdown-trigger"
             data-testid="conversation-selector"
-            @click.stop="toggleDropdown"
             title="Switch conversation"
+            @click.stop="toggleDropdown"
           >
             <span class="dropdown-label">
               {{ activeConversationDisplayName }}
@@ -18,7 +24,10 @@
             <span class="dropdown-arrow">▼</span>
           </button>
 
-          <div v-if="isOpen" class="dropdown-menu">
+          <div
+            v-if="isOpen"
+            class="dropdown-menu"
+          >
             <ConversationTreeItem
               v-for="(conv, index) in rootConversations"
               :key="conv.id"
@@ -39,8 +48,8 @@
           v-if="!hideNewConversation"
           type="button"
           class="btn btn-new"
-          @click="handleCreate"
           title="Start a new conversation"
+          @click="handleCreate"
         >
           New Conversation
         </button>
@@ -78,9 +87,7 @@ const conversations = computed(() => sessionsStore.conversations);
 const activeConversationId = computed(() => sessionsStore.activeConversationId);
 const activeConversation = computed(() => sessionsStore.activeConversation);
 
-const rootConversations = computed(() => {
-  return conversations.value.filter(c => !c.parentConversationId);
-});
+const rootConversations = computed(() => conversations.value.filter(c => !c.parentConversationId));
 
 const isSessionRunning = computed(() => {
   const status = sessionsStore.currentSession?.status;

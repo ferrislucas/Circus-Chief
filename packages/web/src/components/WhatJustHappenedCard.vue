@@ -1,14 +1,28 @@
 <template>
-  <div v-if="shouldShowCard" class="what-just-happened-card card" data-testid="what-just-happened-card">
+  <div
+    v-if="shouldShowCard"
+    class="what-just-happened-card card"
+    data-testid="what-just-happened-card"
+  >
     <div class="card-header">
       <h3>Activity Log</h3>
     </div>
 
     <!-- Chain Trail -->
-    <div v-if="recentChain" class="chain-trail" data-testid="chain-trail">
-      <template v-for="(step, index) in displaySteps" :key="step.id">
+    <div
+      v-if="recentChain"
+      class="chain-trail"
+      data-testid="chain-trail"
+    >
+      <template
+        v-for="(step, index) in displaySteps"
+        :key="step.id"
+      >
         <!-- Chain step -->
-        <div class="chain-step" :data-testid="`chain-step-${index}`">
+        <div
+          class="chain-step"
+          :data-testid="`chain-step-${index}`"
+        >
           <div
             class="chain-step-number"
             :data-testid="`chain-step-number-${index}`"
@@ -17,7 +31,10 @@
           </div>
 
           <div class="chain-step-content">
-            <div class="chain-step-name" :data-testid="`chain-step-name-${index}`">
+            <div
+              class="chain-step-name"
+              :data-testid="`chain-step-name-${index}`"
+            >
               {{ step.name }}
             </div>
             <div
@@ -27,7 +44,10 @@
             >
               {{ getStepSummary(step.id) }}
             </div>
-            <div v-else-if="step.status === 'error'" class="chain-step-error">
+            <div
+              v-else-if="step.status === 'error'"
+              class="chain-step-error"
+            >
               Errored: {{ step.errorMessage || 'An error occurred' }}
             </div>
             <div
@@ -41,27 +61,56 @@
         </div>
 
         <!-- Connector line (not after last step) -->
-        <div v-if="index < displaySteps.length - 1" class="chain-connector">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <polyline points="19 12 12 19 5 12"></polyline>
+        <div
+          v-if="index < displaySteps.length - 1"
+          class="chain-connector"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <line
+              x1="12"
+              y1="5"
+              x2="12"
+              y2="19"
+            />
+            <polyline points="19 12 12 19 5 12" />
           </svg>
         </div>
       </template>
 
       <!-- Ellipsis for truncated steps -->
-      <div v-if="isTruncated" class="chain-ellipsis" data-testid="chain-ellipsis">
+      <div
+        v-if="isTruncated"
+        class="chain-ellipsis"
+        data-testid="chain-ellipsis"
+      >
         ...and {{ truncatedCount }} more steps
       </div>
     </div>
 
     <!-- Workflow Tally -->
-    <div v-if="workflowTally" class="workflow-tally" data-testid="workflow-tally">
+    <div
+      v-if="workflowTally"
+      class="workflow-tally"
+      data-testid="workflow-tally"
+    >
       {{ workflowTally }}
     </div>
 
     <!-- Last activity -->
-    <div v-if="lastActivityTime" class="last-activity">
+    <div
+      v-if="lastActivityTime"
+      class="last-activity"
+    >
       Last activity {{ lastActivityTime }}
     </div>
   </div>
@@ -133,9 +182,7 @@ const recentChain = computed(() => {
  * Determine if chain should be truncated
  * Show first 2 and last 3 if more than 6 steps
  */
-const isTruncated = computed(() => {
-  return recentChain.value && recentChain.value.length > 6;
-});
+const isTruncated = computed(() => recentChain.value && recentChain.value.length > 6);
 
 const truncatedCount = computed(() => {
   if (!recentChain.value) return 0;
