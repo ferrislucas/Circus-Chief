@@ -1524,8 +1524,8 @@ describe('SessionDetailView', () => {
 
   describe('command button status indicators', () => {
     it('passes command button statuses to SessionHeaderPanel', async () => {
-      const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
-      const commandButtonsStore = useCommandButtonsStore();
+      const { useCommandButtonsStore: getCommandButtonsStore } = await import('../stores/commandButtons.js');
+      const commandButtonsStore = getCommandButtonsStore();
 
       // Set up command buttons for the project (getButtonsByProjectId is a getter that filters by projectId)
       commandButtonsStore.buttons = [
@@ -1575,8 +1575,8 @@ describe('SessionDetailView', () => {
     });
 
     it('passes empty button statuses when no command runs exist', async () => {
-      const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
-      const commandButtonsStore = useCommandButtonsStore();
+      const { useCommandButtonsStore: getCommandButtonsStore } = await import('../stores/commandButtons.js');
+      const commandButtonsStore = getCommandButtonsStore();
 
       commandButtonsStore.buttons = [];
       vi.spyOn(commandButtonsStore, 'fetchButtons').mockResolvedValue(undefined);
@@ -1612,8 +1612,8 @@ describe('SessionDetailView', () => {
     });
 
     it('updates buttonStatuses prop when command status changes', async () => {
-      const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
-      const commandButtonsStore = useCommandButtonsStore();
+      const { useCommandButtonsStore: getCommandButtonsStore } = await import('../stores/commandButtons.js');
+      const commandButtonsStore = getCommandButtonsStore();
 
       commandButtonsStore.buttons = [
         { id: 'btn-1', label: 'Test Command', showOnList: true, projectId: 'project-1' },

@@ -49,7 +49,7 @@ vi.mock('../composables/useWebSocket.js', () => ({
 
 // Create a module-level mock store that persists across tests
 // Wrap it in reactive() so Vue can detect property changes
-let mockSessionsStore = reactive({
+const mockSessionsStore = reactive({
   loading: false,
   error: null,
   statusFilter: null,
@@ -67,14 +67,12 @@ let mockSessionsStore = reactive({
 });
 
 // Mock sessions store - use factory function to return the store
-vi.mock('../stores/sessions.js', () => {
-  return {
+vi.mock('../stores/sessions.js', () => ({
     useSessionsStore: () => mockSessionsStore,
-  };
-});
+  }));
 
 // Mock command buttons store
-let mockCommandButtonsStore = {
+const mockCommandButtonsStore = {
   buttons: [],
   runs: {},
   loading: false,
@@ -86,11 +84,9 @@ let mockCommandButtonsStore = {
 };
 
 // Mock command buttons store - use factory function to return the store
-vi.mock('../stores/commandButtons.js', () => {
-  return {
+vi.mock('../stores/commandButtons.js', () => ({
     useCommandButtonsStore: () => mockCommandButtonsStore,
-  };
-});
+  }));
 
 // Mock API
 const mockGetSessionSummary = vi.fn();

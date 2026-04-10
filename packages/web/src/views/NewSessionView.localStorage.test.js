@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
-import { nextTick } from 'vue';
+import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue';
 
 /**
  * Tests for localStorage draft persistence in NewSessionView

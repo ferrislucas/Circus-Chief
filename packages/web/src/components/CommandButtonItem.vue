@@ -1,15 +1,26 @@
 <template>
-  <div class="command-button-item" :data-testid="`command-button-item-${button.id}`">
+  <div
+    class="command-button-item"
+    :data-testid="`command-button-item-${button.id}`"
+  >
     <!-- Header: Label and Run Button -->
     <div class="button-header">
       <div class="button-info">
-        <div class="button-label">{{ button.label }}</div>
-        <div class="button-command">{{ truncateCommand(button.command) }}</div>
+        <div class="button-label">
+          {{ button.label }}
+        </div>
+        <div class="button-command">
+          {{ truncateCommand(button.command) }}
+        </div>
       </div>
 
       <div class="button-actions">
         <!-- Status Indicator -->
-        <div v-if="run" :class="['status-indicator', `status-${run.status}`]" data-testid="command-status">
+        <div
+          v-if="run"
+          :class="['status-indicator', `status-${run.status}`]"
+          data-testid="command-status"
+        >
           {{ statusIcon }}
         </div>
 
@@ -25,12 +36,15 @@
         <button
           v-if="!run || run.status !== 'running'"
           class="btn btn-primary btn-sm"
-          @click="handleRun"
           :disabled="run?.status === 'running' || isSubmitting || disabled"
           :class="{ 'is-loading': isSubmitting }"
           data-testid="run-button"
+          @click="handleRun"
         >
-          <span v-if="isSubmitting" class="spinner-inline"></span>
+          <span
+            v-if="isSubmitting"
+            class="spinner-inline"
+          />
           {{ isSubmitting ? 'Starting...' : '▶ Run' }}
         </button>
 
@@ -38,9 +52,9 @@
         <button
           v-if="run?.status === 'running'"
           class="btn btn-outline-danger btn-sm kill-button"
-          @click="handleKill"
           title="Kill running command"
           data-testid="kill-button"
+          @click="handleKill"
         >
           ✕ Kill
         </button>
@@ -48,32 +62,51 @@
     </div>
 
     <!-- Output Section (collapsible) -->
-    <div v-if="run" class="output-section" data-testid="output-section">
-      <div class="output-header" @click="showOutput = !showOutput">
+    <div
+      v-if="run"
+      class="output-section"
+      data-testid="output-section"
+    >
+      <div
+        class="output-header"
+        @click="showOutput = !showOutput"
+      >
         <span class="expand-icon">{{ showOutput ? '▼' : '▶' }}</span>
         <span class="output-label">
           Output
-          <span v-if="run.exitCode !== null" class="exit-code">(exit code: {{ run.exitCode }})</span>
+          <span
+            v-if="run.exitCode !== null"
+            class="exit-code"
+          >(exit code: {{ run.exitCode }})</span>
         </span>
       </div>
 
       <!-- Output Content (when expanded) -->
-      <div v-if="showOutput" class="output-content">
+      <div
+        v-if="showOutput"
+        class="output-content"
+      >
         <!-- Display truncation indicator (200 lines for performance) -->
-        <div v-if="outputIsTruncatedForDisplay" class="output-display-truncated">
+        <div
+          v-if="outputIsTruncatedForDisplay"
+          class="output-display-truncated"
+        >
           ↑ Showing last 200 lines. Use Copy to get full output.
         </div>
         <div
           ref="outputContainerRef"
           class="output-text"
           v-html="formattedOutput || '(no output)'"
-        ></div>
+        />
       </div>
     </div>
 
     <!-- Loading Spinner (running state) -->
-    <div v-if="run?.status === 'running'" class="running-indicator">
-      <span class="spinner"></span>
+    <div
+      v-if="run?.status === 'running'"
+      class="running-indicator"
+    >
+      <span class="spinner" />
       Running <span class="elapsed-time">{{ elapsedTime }}</span>
     </div>
   </div>
@@ -180,7 +213,7 @@ let timerInterval = null;
 const truncateCommand = (command) => {
   const maxLength = 80;
   if (command.length > maxLength) {
-    return command.substring(0, maxLength) + '...';
+    return `${command.substring(0, maxLength)  }...`;
   }
   return command;
 };

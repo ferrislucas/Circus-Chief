@@ -1,17 +1,43 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="dialog-overlay" @click.self="handleCancel">
-      <div class="dialog" role="dialog" aria-modal="true" :aria-labelledby="titleId">
+    <div
+      v-if="isOpen"
+      class="dialog-overlay"
+      @click.self="handleCancel"
+    >
+      <div
+        class="dialog"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="titleId"
+      >
         <div class="dialog-header">
-          <h2 :id="titleId" class="dialog-title">{{ isEditing ? 'Edit Quick Response' : 'Add Quick Response' }}</h2>
-          <button class="close-button" @click="handleCancel" aria-label="Close dialog">&times;</button>
+          <h2
+            :id="titleId"
+            class="dialog-title"
+          >
+            {{ isEditing ? 'Edit Quick Response' : 'Add Quick Response' }}
+          </h2>
+          <button
+            class="close-button"
+            aria-label="Close dialog"
+            @click="handleCancel"
+          >
+            &times;
+          </button>
         </div>
 
-        <form @submit.prevent="handleSubmit" class="dialog-form">
+        <form
+          class="dialog-form"
+          @submit.prevent="handleSubmit"
+        >
           <div class="dialog-content">
             <!-- Label field -->
             <div class="form-group">
-              <label for="qr-label" class="form-label">Label *</label>
+              <label
+                for="qr-label"
+                class="form-label"
+              >Label *</label>
               <input
                 id="qr-label"
                 ref="labelInput"
@@ -22,14 +48,20 @@
                 maxlength="50"
                 required
                 @blur="form.label = form.label.trim()"
-              />
+              >
               <span class="form-help">Short text shown on the button (max 50 characters)</span>
-              <span v-if="labelError" class="form-error">{{ labelError }}</span>
+              <span
+                v-if="labelError"
+                class="form-error"
+              >{{ labelError }}</span>
             </div>
 
             <!-- Content field -->
             <div class="form-group">
-              <label for="qr-content" class="form-label">Content *</label>
+              <label
+                for="qr-content"
+                class="form-label"
+              >Content *</label>
               <textarea
                 id="qr-content"
                 v-model="form.content"
@@ -38,14 +70,20 @@
                 rows="4"
                 maxlength="10000"
                 required
-              ></textarea>
+              />
               <span class="form-help">The full message that will be inserted (max 10,000 characters)</span>
-              <span v-if="contentError" class="form-error">{{ contentError }}</span>
+              <span
+                v-if="contentError"
+                class="form-error"
+              >{{ contentError }}</span>
             </div>
 
             <!-- Category field (optional) -->
             <div class="form-group">
-              <label for="qr-category" class="form-label">Category (optional)</label>
+              <label
+                for="qr-category"
+                class="form-label"
+              >Category (optional)</label>
               <input
                 id="qr-category"
                 v-model="form.category"
@@ -53,7 +91,7 @@
                 class="form-input"
                 placeholder="e.g., feedback, commands"
                 maxlength="50"
-              />
+              >
               <span class="form-help">Optional grouping for organization</span>
             </div>
 
@@ -61,48 +99,66 @@
             <div class="form-group">
               <label class="checkbox-label">
                 <input
-                  type="checkbox"
                   v-model="form.autoSubmit"
+                  type="checkbox"
                   class="checkbox-input"
-                />
+                >
                 <span class="checkbox-text">Auto-submit</span>
               </label>
               <span class="form-help indent">Send immediately when clicked (no confirmation)</span>
             </div>
 
             <!-- Scope selection (only for new responses) -->
-            <div v-if="!isEditing" class="form-group">
+            <div
+              v-if="!isEditing"
+              class="form-group"
+            >
               <span class="form-label">Scope</span>
               <div class="radio-group">
                 <label class="radio-label">
                   <input
-                    type="radio"
                     v-model="form.isGlobal"
+                    type="radio"
                     :value="false"
                     class="radio-input"
-                  />
+                  >
                   <span class="radio-text">Project-specific</span>
                 </label>
                 <label class="radio-label">
                   <input
-                    type="radio"
                     v-model="form.isGlobal"
+                    type="radio"
                     :value="true"
                     class="radio-input"
-                  />
+                  >
                   <span class="radio-text">Global (all projects)</span>
                 </label>
               </div>
             </div>
 
             <!-- Error message -->
-            <div v-if="error" class="error-message">{{ error }}</div>
+            <div
+              v-if="error"
+              class="error-message"
+            >
+              {{ error }}
+            </div>
           </div>
 
           <!-- Actions - fixed at bottom -->
           <div class="dialog-footer">
-            <button type="button" class="btn btn-secondary" @click="handleCancel">Cancel</button>
-            <button type="submit" class="btn btn-primary" :disabled="!isValid || saving">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              @click="handleCancel"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              :disabled="!isValid || saving"
+            >
               {{ saving ? 'Saving...' : (isEditing ? 'Save Changes' : 'Save Quick Response') }}
             </button>
           </div>
@@ -152,7 +208,7 @@ const form = ref({
 const saving = ref(false);
 const error = ref(null);
 
-const isEditing = computed(() => !!props.editingResponse);
+const isEditing = computed(() => Boolean(props.editingResponse));
 
 const labelError = computed(() => {
   if (form.value.label && form.value.label.length > 50) {
@@ -168,14 +224,12 @@ const contentError = computed(() => {
   return null;
 });
 
-const isValid = computed(() => {
-  return (
+const isValid = computed(() => (
     form.value.label.trim().length > 0 &&
     form.value.label.length <= 50 &&
     form.value.content.trim().length > 0 &&
     form.value.content.length <= 10000
-  );
-});
+  ));
 
 // Reset form when dialog opens
 watch(() => props.isOpen, (open) => {

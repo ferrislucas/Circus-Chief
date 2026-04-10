@@ -4,45 +4,73 @@
     <div class="selector-wrapper">
       <select
         v-model="selectedTemplateId"
-        @change="handleChange"
         class="form-input"
         :disabled="disabled || loading"
+        @change="handleChange"
       >
-        <option :value="null">Select a template to run...</option>
-        <optgroup v-if="projectTemplates.length" label="Project Templates">
-          <option v-for="t in projectTemplates" :key="t.id" :value="t.id">
+        <option :value="null">
+          Select a template to run...
+        </option>
+        <optgroup
+          v-if="projectTemplates.length"
+          label="Project Templates"
+        >
+          <option
+            v-for="t in projectTemplates"
+            :key="t.id"
+            :value="t.id"
+          >
             {{ t.name }}
           </option>
         </optgroup>
-        <optgroup v-if="globalTemplates.length" label="Global Templates">
-          <option v-for="t in globalTemplates" :key="t.id" :value="t.id">
+        <optgroup
+          v-if="globalTemplates.length"
+          label="Global Templates"
+        >
+          <option
+            v-for="t in globalTemplates"
+            :key="t.id"
+            :value="t.id"
+          >
             {{ t.name }}
           </option>
         </optgroup>
       </select>
       <button
         v-if="selectedTemplateId"
-        @click="clearSelection"
         class="btn-clear"
         title="Clear selection"
         :disabled="disabled || saving"
+        @click="clearSelection"
       >
         ✕
       </button>
     </div>
-    <div v-if="selectedTemplate" class="template-preview">
+    <div
+      v-if="selectedTemplate"
+      class="template-preview"
+    >
       <p class="template-prompt-preview">
         {{ truncatePrompt(selectedTemplate.prompt) }}
       </p>
-      <span v-if="chainDescription" class="chain-indicator">
+      <span
+        v-if="chainDescription"
+        class="chain-indicator"
+      >
         {{ chainDescription }}
       </span>
     </div>
-    <p v-else class="selector-help">
+    <p
+      v-else
+      class="selector-help"
+    >
       When Claude finishes responding, a new session will automatically start using this template.
     </p>
-    <div v-if="saving" class="saving-indicator">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="saving"
+      class="saving-indicator"
+    >
+      <span class="loading-spinner" />
       Saving...
     </div>
   </div>
@@ -124,7 +152,7 @@ onMounted(() => {
 function truncatePrompt(prompt, maxLength = 100) {
   if (!prompt) return '';
   if (prompt.length <= maxLength) return prompt;
-  return prompt.substring(0, maxLength) + '...';
+  return `${prompt.substring(0, maxLength)  }...`;
 }
 
 function handleChange(event) {

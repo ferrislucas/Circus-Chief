@@ -1,9 +1,20 @@
 <template>
-  <div v-if="isOpen" class="modal-overlay" @click.self="close">
+  <div
+    v-if="isOpen"
+    class="modal-overlay"
+    @click.self="close"
+  >
     <div class="modal">
       <div class="modal-header">
         <h2>Token Cost Weights</h2>
-        <button type="button" class="close-btn" @click="close" title="Close">×</button>
+        <button
+          type="button"
+          class="close-btn"
+          title="Close"
+          @click="close"
+        >
+          ×
+        </button>
       </div>
 
       <div class="modal-body">
@@ -23,7 +34,7 @@
                 step="0.1"
                 min="0"
                 class="weight-input"
-              />
+              >
               <span class="hint">(base rate)</span>
             </div>
           </div>
@@ -38,7 +49,7 @@
                 step="0.1"
                 min="0"
                 class="weight-input"
-              />
+              >
               <span class="hint">({{ outputMultiplier }})</span>
             </div>
           </div>
@@ -53,7 +64,7 @@
                 step="0.01"
                 min="0"
                 class="weight-input"
-              />
+              >
               <span class="hint">({{ cacheReadDiscount }})</span>
             </div>
           </div>
@@ -68,24 +79,44 @@
                 step="0.01"
                 min="0"
                 class="weight-input"
-              />
+              >
               <span class="hint">({{ cacheCreationPremium }})</span>
             </div>
           </div>
         </div>
 
-        <div v-if="error" class="error-message">{{ error }}</div>
+        <div
+          v-if="error"
+          class="error-message"
+        >
+          {{ error }}
+        </div>
       </div>
 
       <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" @click="resetToDefaults" :disabled="saving">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          :disabled="saving"
+          @click="resetToDefaults"
+        >
           Reset to Defaults
         </button>
         <div class="footer-actions">
-          <button type="button" class="btn btn-secondary" @click="close" :disabled="saving">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="saving"
+            @click="close"
+          >
             Cancel
           </button>
-          <button type="button" class="btn btn-primary" @click="save" :disabled="saving || !hasChanges">
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="saving || !hasChanges"
+            @click="save"
+          >
             {{ saving ? 'Saving...' : 'Save' }}
           </button>
         </div>
@@ -129,14 +160,12 @@ const cacheCreationPremium = computed(() => {
   return premium >= 0 ? `${premium.toFixed(0)}% premium` : `${Math.abs(premium).toFixed(0)}% discount`;
 });
 
-const hasChanges = computed(() => {
-  return (
+const hasChanges = computed(() => (
     localWeights.value.input !== settingsStore.tokenCostWeights.input ||
     localWeights.value.output !== settingsStore.tokenCostWeights.output ||
     localWeights.value.cacheRead !== settingsStore.tokenCostWeights.cacheRead ||
     localWeights.value.cacheCreation !== settingsStore.tokenCostWeights.cacheCreation
-  );
-});
+  ));
 
 // Sync local weights when modal opens
 watch(() => props.isOpen, (isOpen) => {

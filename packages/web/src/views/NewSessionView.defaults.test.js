@@ -9,9 +9,9 @@ vi.mock('../stores/projectDefaults.js', () => ({
     loading: false,
     error: null,
     fetchDefaults: vi.fn().mockResolvedValue(undefined),
-    getDefaultsForProject: vi.fn((projectId) => {
+    getDefaultsForProject: vi.fn((projectId) => 
       // Return mock defaults for testing
-      return {
+       ({
         id: 'defaults-123',
         projectId,
         mode: 'plan',
@@ -20,8 +20,8 @@ vi.mock('../stores/projectDefaults.js', () => ({
         startImmediately: false,
         gitMode: 'worktree',
         gitBranch: 'feature/test',
-      };
-    }),
+      })
+    ),
     updateDefaults: vi.fn(),
     resetDefaults: vi.fn(),
   })),
@@ -128,9 +128,9 @@ describe('NewSessionView - Defaults Integration', () => {
 
       // Simulate what happens in onMounted
       const usingDefaults = {
-        mode: defaults.mode ? true : false,
-        model: defaults.model ? true : false,
-        thinkingEnabled: defaults.thinkingEnabled !== undefined ? true : false,
+        mode: Boolean(defaults.mode),
+        model: Boolean(defaults.model),
+        thinkingEnabled: defaults.thinkingEnabled !== undefined,
         startImmediately: false,
         quickGitMode: false,
         quickWorktreeBranch: false,
@@ -245,9 +245,9 @@ describe('NewSessionView - Defaults Integration', () => {
       };
 
       // All should use fallback/system defaults
-      let mode = defaults.mode || 'yolo';
-      let model = defaults.model || 'claude-sonnet-4-6';
-      let thinkingEnabled = false;
+      const mode = defaults.mode || 'yolo';
+      const model = defaults.model || 'claude-sonnet-4-6';
+      const thinkingEnabled = false;
 
       expect(mode).toBe('yolo');
       expect(model).toBe('claude-sonnet-4-6');
@@ -257,7 +257,7 @@ describe('NewSessionView - Defaults Integration', () => {
 
   describe('override detection', () => {
     it('detects when mode is overridden', () => {
-      let usingDefaults = { mode: true };
+      const usingDefaults = { mode: true };
       const originalMode = 'plan';
       let mode = originalMode;
 
@@ -273,7 +273,7 @@ describe('NewSessionView - Defaults Integration', () => {
     });
 
     it('detects when model is overridden', () => {
-      let usingDefaults = { model: true };
+      const usingDefaults = { model: true };
       const originalModel = 'claude-opus-4';
       let model = originalModel;
 
@@ -289,7 +289,7 @@ describe('NewSessionView - Defaults Integration', () => {
     });
 
     it('detects when thinkingEnabled is overridden', () => {
-      let usingDefaults = { thinkingEnabled: true };
+      const usingDefaults = { thinkingEnabled: true };
 
       // User toggles thinking
       usingDefaults.thinkingEnabled = false;
@@ -298,7 +298,7 @@ describe('NewSessionView - Defaults Integration', () => {
     });
 
     it('detects when startImmediately is overridden', () => {
-      let usingDefaults = { startImmediately: true };
+      const usingDefaults = { startImmediately: true };
 
       // User toggles start immediately
       usingDefaults.startImmediately = false;
@@ -307,7 +307,7 @@ describe('NewSessionView - Defaults Integration', () => {
     });
 
     it('detects when gitMode is overridden', () => {
-      let usingDefaults = { quickGitMode: true };
+      const usingDefaults = { quickGitMode: true };
 
       // User changes git mode
       usingDefaults.quickGitMode = false;
@@ -364,7 +364,7 @@ describe('NewSessionView - Defaults Integration', () => {
       const defaults = { mode: 'standard' };
       const systemDefaults = 'yolo';
 
-      let mode = 'plan'; // User override
+      const mode = 'plan'; // User override
       const result = defaults.mode || systemDefaults;
 
       expect(result).toBe('standard');
@@ -374,7 +374,7 @@ describe('NewSessionView - Defaults Integration', () => {
       const defaults = { model: 'claude-opus-4' };
       const systemDefaults = 'claude-sonnet-4-6';
 
-      let model = 'claude-haiku-3-5-20241022'; // User override
+      const model = 'claude-haiku-3-5-20241022'; // User override
       const result = defaults.model || systemDefaults;
 
       expect(result).toBe('claude-opus-4');
@@ -384,7 +384,7 @@ describe('NewSessionView - Defaults Integration', () => {
       const defaults = { thinkingEnabled: false };
       const systemDefault = false;
 
-      let thinkingEnabled = true; // User override
+      const thinkingEnabled = true; // User override
       const result =
         defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined
           ? defaults.thinkingEnabled
@@ -397,7 +397,7 @@ describe('NewSessionView - Defaults Integration', () => {
       const defaults = { startImmediately: true };
       const systemDefault = true;
 
-      let startImmediately = false; // User override
+      const startImmediately = false; // User override
       const result =
         defaults.startImmediately !== null && defaults.startImmediately !== undefined
           ? defaults.startImmediately
@@ -410,7 +410,7 @@ describe('NewSessionView - Defaults Integration', () => {
       const defaults = { gitMode: 'branch' };
       const systemDefault = 'worktree';
 
-      let quickGitMode = 'worktree'; // User override
+      const quickGitMode = 'worktree'; // User override
       const result = defaults.gitMode || systemDefault;
 
       expect(result).toBe('branch');
@@ -419,14 +419,14 @@ describe('NewSessionView - Defaults Integration', () => {
     it('resets gitBranch to default value', () => {
       const defaults = { gitBranch: 'feature/default' };
 
-      let quickWorktreeBranch = 'feature/custom'; // User override
+      const quickWorktreeBranch = 'feature/custom'; // User override
       const result = defaults.gitBranch || quickWorktreeBranch;
 
       expect(result).toBe('feature/default');
     });
 
     it('updates usingDefaults flags after reset', () => {
-      let usingDefaults = {
+      const usingDefaults = {
         mode: false,
         model: false,
         thinkingEnabled: false,

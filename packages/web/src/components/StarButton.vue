@@ -3,8 +3,8 @@
     class="star-button"
     :class="[sizeClass, { 'is-starred': starred, 'is-loading': loading }]"
     :disabled="disabled || loading"
-    @click="handleToggle"
     :title="starred ? 'Unstar session' : 'Star session'"
+    @click="handleToggle"
   >
     <span class="star-icon">{{ starred ? '⭐' : '☆' }}</span>
   </button>

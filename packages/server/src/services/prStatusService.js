@@ -107,7 +107,7 @@ export function getSessionsToCheck() {
 export async function checkSessionCiStatusNow(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session?.prUrl) return false;
-  return await checkPrStatus(sessionId, session.prUrl);
+  return checkPrStatus(sessionId, session.prUrl);
 }
 
 /**

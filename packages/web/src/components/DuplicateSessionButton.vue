@@ -2,22 +2,39 @@
   <button
     :disabled="isLoading"
     :class="['btn', 'btn-outline-secondary', { 'is-loading': isLoading }]"
-    @click="handleDuplicate"
     title="Create a copy of this session with all data"
+    @click="handleDuplicate"
   >
-    <span v-if="!isLoading" class="button-content">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <span
+      v-if="!isLoading"
+      class="button-content"
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
         <g id="group">
-          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"></path>
-          <path d="M21 3v5h-5"></path>
-          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"></path>
-          <path d="M3 21v-5h5"></path>
+          <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+          <path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+          <path d="M3 21v-5h5" />
         </g>
       </svg>
       Duplicate
     </span>
-    <span v-else class="button-content loading">
-      <span class="loading-spinner"></span>
+    <span
+      v-else
+      class="button-content loading"
+    >
+      <span class="loading-spinner" />
       Duplicating...
     </span>
   </button>

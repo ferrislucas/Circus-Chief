@@ -9,6 +9,74 @@ import { useTemplatesStore } from '../stores/templates.js';
 import { api } from './useApi.js';
 
 /**
+ * Register command button WebSocket handlers (output, complete, error, deleted)
+ * @param {Object} subscription - The session subscription object
+ * @param {string} sessionId - Current session ID
+ * @param {Object} stores - Object containing sessionsStore and commandButtonsStore
+ * @returns {Function[]} Array of cleanup functions
+ */
+function registerCommandHandlers(subscription, sessionId, stores) {
+  const { sessionsStore, commandButtonsStore } = stores;
+  const { onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted } = subscription;
+  const handlers = [];
+
+  handlers.push(
+    onCommandOutput((runId, buttonId, output) => {
+      const existingRun = commandButtonsStore.runs[runId];
+      const existingSessionRun = sessionsStore.currentSession?.latestCommandRuns?.find(r => r.runId === runId);
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status: 'running',
+        runId,
+        startedAt: existingRun?.startedAt || existingSessionRun?.startedAt || Date.now(),
+      });
+    })
+  );
+
+  handlers.push(
+    onCommandComplete((runId, buttonId, exitCode, output) => {
+      const status = exitCode === 0 ? 'success' : 'error';
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status,
+        exitCode,
+        runId,
+        completedAt: Date.now(),
+      });
+    })
+  );
+
+  handlers.push(
+    onCommandError((runId, buttonId, error) => {
+      sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+        buttonId,
+        status: 'error',
+        runId,
+        completedAt: Date.now(),
+      });
+    })
+  );
+
+  handlers.push(
+    onCommandRunDeleted(async (runId, buttonId) => {
+      console.log('[onCommandRunDeleted] Run deleted:', runId, 'for button:', buttonId);
+      commandButtonsStore.clearRun(runId);
+      try {
+        await sessionsStore.fetchSession(sessionId, false);
+        console.log('[onCommandRunDeleted] Session refetched, latestCommandRuns:', sessionsStore.currentSession?.latestCommandRuns);
+        sessionsStore.commandRunVersion++;
+        console.log('[onCommandRunDeleted] commandRunVersion incremented to:', sessionsStore.commandRunVersion);
+      } catch (error) {
+        console.error('Failed to fetch session after run deletion:', error);
+        sessionsStore.removeSessionCommandRun(sessionId, buttonId);
+      }
+    })
+  );
+
+  return handlers;
+}
+
+/**
  * Composable for initializing and managing WebSocket subscriptions and data
  * fetching for a session. Encapsulates all 21 WebSocket handler registrations,
  * subscription lifecycle, data fetching, and cleanup.
@@ -24,14 +92,17 @@ import { api } from './useApi.js';
  * @returns {Object} Session initializer utilities
  */
 export function useSessionInitializer({
-  summary,
-  hasChanges,
-  changesFileCount,
+  summary: summaryRef,
+  hasChanges: hasChangesRef,
+  changesFileCount: changesFileCountRef,
   checkForChanges,
   startPolling,
   stopPolling,
   resetPolling,
 }) {
+  const summary = summaryRef;
+  const hasChanges = hasChangesRef;
+  const changesFileCount = changesFileCountRef;
   const sessionsStore = useSessionsStore();
   const canvasStore = useCanvasStore();
   const todosStore = useTodosStore();
@@ -249,61 +320,7 @@ export function useSessionInitializer({
     );
 
     cleanups.push(
-      onCommandOutput((runId, buttonId, output) => {
-        const existingRun = commandButtonsStore.runs[runId];
-        const existingSessionRun = sessionsStore.currentSession?.latestCommandRuns?.find(r => r.runId === runId);
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status: 'running',
-          runId,
-          startedAt: existingRun?.startedAt || existingSessionRun?.startedAt || Date.now(),
-        });
-      })
-    );
-
-    cleanups.push(
-      onCommandComplete((runId, buttonId, exitCode, output) => {
-        const status = exitCode === 0 ? 'success' : 'error';
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status,
-          exitCode,
-          runId,
-          completedAt: Date.now(),
-        });
-      })
-    );
-
-    cleanups.push(
-      onCommandError((runId, buttonId, error) => {
-        sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-          buttonId,
-          status: 'error',
-          runId,
-          completedAt: Date.now(),
-        });
-      })
-    );
-
-    cleanups.push(
-      onCommandRunDeleted(async (runId, buttonId) => {
-        console.log('[onCommandRunDeleted] Run deleted:', runId, 'for button:', buttonId);
-        commandButtonsStore.clearRun(runId);
-
-        // Refetch the session to get the updated latestCommandRuns array
-        // (which will include the previous run for this button if it exists)
-        try {
-          await sessionsStore.fetchSession(sessionId, false);
-          console.log('[onCommandRunDeleted] Session refetched, latestCommandRuns:', sessionsStore.currentSession?.latestCommandRuns);
-          // Increment commandRunVersion to trigger UI reactivity
-          sessionsStore.commandRunVersion++;
-          console.log('[onCommandRunDeleted] commandRunVersion incremented to:', sessionsStore.commandRunVersion);
-        } catch (error) {
-          console.error('Failed to fetch session after run deletion:', error);
-          // Fallback: just remove the deleted run from the array
-          sessionsStore.removeSessionCommandRun(sessionId, buttonId);
-        }
-      })
+      ...registerCommandHandlers(currentSubscription, sessionId, { sessionsStore, commandButtonsStore })
     );
 
     // STEP 5: Fetch remaining data

@@ -924,7 +924,7 @@ describe('sessionManager broadcasts', () => {
       const template = sessionTemplates.create({
         name: 'Test Template',
         prompt: 'Test prompt',
-        projectId: projectId,
+        projectId,
       });
       templateId = template.id;
     });

@@ -1,18 +1,30 @@
 <template>
   <div class="orchestration-panel">
     <!-- Header with toggle button -->
-    <div class="panel-header cursor-pointer" @click="toggle">
+    <div
+      class="panel-header cursor-pointer"
+      @click="toggle"
+    >
       <div class="header-left">
         <button
           type="button"
           class="toggle-button"
-          @click.stop="toggle"
           :aria-expanded="isExpanded"
           title="Toggle orchestration panel"
           aria-label="Toggle orchestration panel"
+          @click.stop="toggle"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="chevron-icon">
-            <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 1 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            class="chevron-icon"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 1 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
+              clip-rule="evenodd"
+            />
           </svg>
         </button>
         <span class="panel-title">Orchestration</span>
@@ -20,19 +32,27 @@
     </div>
 
     <!-- Content (collapsible) -->
-    <div v-if="isExpanded" class="orchestration-content">
+    <div
+      v-if="isExpanded"
+      class="orchestration-content"
+    >
       <!-- Schedule button -->
       <div class="schedule-row">
         <button
           type="button"
           class="btn btn-secondary btn-schedule"
-          @click.stop="$emit('openSchedule')"
           :disabled="!inputHasContent || (!isDraft && sessionStatus === 'scheduled')"
           :title="isDraft ? 'Schedule this session to start later' : 'Schedule this message to be sent later'"
+          @click.stop="$emit('openSchedule')"
         >
           Scheduling
         </button>
-        <p v-if="!inputHasContent" class="schedule-disabled-hint">Prompt is required before scheduling</p>
+        <p
+          v-if="!inputHasContent"
+          class="schedule-disabled-hint"
+        >
+          Prompt is required before scheduling
+        </p>
       </div>
 
       <!-- Template selector for chaining sessions -->
@@ -41,7 +61,7 @@
           :session-id="sessionId"
           :project-id="projectId"
           :current-template-id="currentTemplateId"
-          @update:templateId="handleTemplateChange"
+          @update:template-id="handleTemplateChange"
         />
       </div>
 
@@ -54,8 +74,8 @@
             v-if="autoRescheduleEnabled"
             type="button"
             class="btn btn-tertiary btn-status"
-            @click.stop="$emit('openAutoReschedule')"
             title="Edit auto-reschedule settings"
+            @click.stop="$emit('openAutoReschedule')"
           >
             <span class="status-badge">✓ Enabled</span>
             <span class="edit-link">Edit</span>
@@ -64,8 +84,8 @@
             v-else
             type="button"
             class="btn btn-secondary btn-configure"
-            @click.stop="$emit('openAutoReschedule')"
             title="Configure auto-reschedule settings"
+            @click.stop="$emit('openAutoReschedule')"
           >
             Configure
           </button>
@@ -76,8 +96,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import { defineOptions } from 'vue';
+import { ref, defineOptions } from 'vue';
 import TemplateSelector from './TemplateSelector.vue';
 
 defineOptions({
@@ -96,7 +115,7 @@ const props = defineProps({
 
 const emit = defineEmits(['openSchedule', 'update:templateId', 'openAutoReschedule']);
 
-const isExpanded = ref(props.autoRescheduleEnabled || !!props.currentTemplateId);
+const isExpanded = ref(props.autoRescheduleEnabled || Boolean(props.currentTemplateId));
 
 function toggle() {
   isExpanded.value = !isExpanded.value;

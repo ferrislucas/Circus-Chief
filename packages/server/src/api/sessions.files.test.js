@@ -15,7 +15,7 @@ describe('Sessions API - File Endpoint', () => {
 
   beforeEach(() => {
     // Create test directory for file operations
-    testDir = '/tmp/claudetools-test-' + Date.now();
+    testDir = `/tmp/claudetools-test-${  Date.now()}`;
     mkdirSync(testDir, { recursive: true });
 
     // Create Express app with sessions router

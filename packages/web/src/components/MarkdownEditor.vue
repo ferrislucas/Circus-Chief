@@ -7,13 +7,13 @@
           theme="dark"
           :preview="false"
           language="en-US"
-          :noUploadImg="true"
-          :showCodeRowNumber="true"
+          :no-upload-img="true"
+          :show-code-row-number="true"
         />
       </template>
       <template #fallback>
         <div class="editor-loading">
-          <span class="loading-spinner"></span>
+          <span class="loading-spinner" />
           Loading editor...
         </div>
       </template>
@@ -26,10 +26,10 @@ import { ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
 import { useCanvasStore } from '../stores/canvas.js';
 
 const MdEditorAsync = defineAsyncComponent(() =>
-  import('md-editor-v3').then((mod) => {
+  import('md-editor-v3').then((mod) => 
     // Import styles when the module loads
-    return import('md-editor-v3/lib/style.css').then(() => mod.MdEditor);
-  })
+     import('md-editor-v3/lib/style.css').then(() => mod.MdEditor)
+  )
 );
 
 const props = defineProps({

@@ -1,52 +1,85 @@
 <template>
-  <div v-if="isOpen" class="modal-backdrop" @click.self="close">
+  <div
+    v-if="isOpen"
+    class="modal-backdrop"
+    @click.self="close"
+  >
     <div class="modal-content">
       <div class="modal-header">
-        <h2 class="modal-title">Add Session to {{ laneName }}</h2>
-        <button @click="close" class="close-btn" aria-label="Close">&times;</button>
+        <h2 class="modal-title">
+          Add Session to {{ laneName }}
+        </h2>
+        <button
+          class="close-btn"
+          aria-label="Close"
+          @click="close"
+        >
+          &times;
+        </button>
       </div>
 
       <div class="modal-body">
         <!-- Search input -->
         <div class="form-group">
-          <label for="session-search" class="form-label">Search Sessions</label>
+          <label
+            for="session-search"
+            class="form-label"
+          >Search Sessions</label>
           <input
             id="session-search"
-            type="text"
             v-model="searchQuery"
+            type="text"
             class="form-input"
             placeholder="Search by name..."
             @input="handleSearch"
-          />
+          >
         </div>
 
         <!-- Sessions list -->
         <div class="sessions-list">
-          <div v-if="loading" class="loading-state">
-            <span class="loading-spinner"></span>
+          <div
+            v-if="loading"
+            class="loading-state"
+          >
+            <span class="loading-spinner" />
             Loading sessions...
           </div>
 
-          <div v-else-if="filteredSessions.length === 0" class="empty-state">
-            <p v-if="searchQuery">No sessions matching "{{ searchQuery }}"</p>
-            <p v-else>No available sessions to add.</p>
+          <div
+            v-else-if="filteredSessions.length === 0"
+            class="empty-state"
+          >
+            <p v-if="searchQuery">
+              No sessions matching "{{ searchQuery }}"
+            </p>
+            <p v-else>
+              No available sessions to add.
+            </p>
           </div>
 
           <div
-            v-else
             v-for="session in filteredSessions"
+            v-else
             :key="session.id"
             class="session-item"
             :class="{ selected: selectedSessionId === session.id }"
             @click="selectSession(session.id)"
           >
-            <div class="session-status" :class="`status-${session.status}`">
+            <div
+              class="session-status"
+              :class="`status-${session.status}`"
+            >
               {{ getStatusIndicator(session.status) }}
             </div>
             <div class="session-info">
-              <div class="session-name">{{ session.name }}</div>
+              <div class="session-name">
+                {{ session.name }}
+              </div>
               <div class="session-meta">
-                <span v-if="session.mode" class="session-mode">{{ session.mode }}</span>
+                <span
+                  v-if="session.mode"
+                  class="session-mode"
+                >{{ session.mode }}</span>
                 <span class="session-date">{{ formatDate(session.updatedAt || session.createdAt) }}</span>
               </div>
             </div>
@@ -55,11 +88,16 @@
       </div>
 
       <div class="modal-footer">
-        <button @click="close" class="btn btn-secondary">Cancel</button>
         <button
-          @click="handleAdd"
+          class="btn btn-secondary"
+          @click="close"
+        >
+          Cancel
+        </button>
+        <button
           class="btn btn-primary"
           :disabled="!selectedSessionId || adding"
+          @click="handleAdd"
         >
           {{ adding ? 'Adding...' : 'Add to Lane' }}
         </button>
@@ -96,10 +134,10 @@ const availableSessions = ref([]);
 
 // Filter out sessions that are already on the board
 const filteredSessions = computed(() => {
-  let sessions = availableSessions.value.filter((s) => {
+  let sessions = availableSessions.value.filter((s) => 
     // Check if session is already on the board
-    return !kanbanStore.isSessionOnBoard(s.id);
-  });
+     !kanbanStore.isSessionOnBoard(s.id)
+  );
 
   // Filter to only root sessions (no parent)
   sessions = sessions.filter((s) => !s.parentSessionId);

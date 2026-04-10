@@ -73,7 +73,7 @@ describe('generateInitialName', () => {
   it('truncates at 50 chars when no space before position 20', () => {
     const noSpaces = 'a'.repeat(60);
     const result = generateInitialName(noSpaces);
-    expect(result).toBe('a'.repeat(50) + '...');
+    expect(result).toBe(`${'a'.repeat(50)  }...`);
   });
 
   it('collapses whitespace', () => {

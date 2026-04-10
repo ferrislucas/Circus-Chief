@@ -19,8 +19,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 // Mock the SDK to prevent real API calls in tests
-vi.mock('@anthropic-ai/claude-agent-sdk', () => {
-  return {
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     query: vi.fn(async function* () {
       // Yield Claude Agent SDK-level events (not raw Anthropic API streaming events).
       // handleStreamEvent expects: 'system', 'assistant', 'result' event types.
@@ -28,8 +27,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
       yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
       yield { type: 'result', subtype: 'success' };
     }),
-  };
-});
+  }));
 
 describe('sessionManager', () => {
   describe('buildPromptWithAttachments', () => {
@@ -1206,10 +1204,10 @@ describe('summary service integration', () => {
     });
 
     it('does not call onSessionComplete when turn completes successfully', async () => {
-      const { continueSession } = await import('./sessionManager.js');
+      const { continueSession: continueSessionFn } = await import('./sessionManager.js');
 
       // Continue a session
-      await continueSession(session.id, 'Follow-up message', tempDir);
+      await continueSessionFn(session.id, 'Follow-up message', tempDir);
 
       // Verify onSessionComplete was NOT called (session is still waiting for more input)
       expect(summaryServiceSpy.onSessionComplete).not.toHaveBeenCalled();

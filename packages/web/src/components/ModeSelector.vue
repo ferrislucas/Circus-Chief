@@ -3,11 +3,15 @@
     <select
       id="mode-select"
       :value="selectedMode"
-      @change="handleModeChange($event.target.value)"
       :disabled="disabled || togglingMode"
       class="mode-select"
+      @change="handleModeChange($event.target.value)"
     >
-      <option v-for="m in modes" :key="m.value" :value="m.value">
+      <option
+        v-for="m in modes"
+        :key="m.value"
+        :value="m.value"
+      >
         {{ m.label }}
       </option>
     </select>

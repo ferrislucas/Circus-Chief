@@ -1,15 +1,26 @@
 <template>
-  <div class="workflow-session-item" :style="{ paddingLeft: `${depth * 1.5 + 0.5}rem` }">
-    <router-link :to="`/sessions/${session.id}`" class="workflow-session-link">
+  <div
+    class="workflow-session-item"
+    :style="{ paddingLeft: `${depth * 1.5 + 0.5}rem` }"
+  >
+    <router-link
+      :to="`/sessions/${session.id}`"
+      class="workflow-session-link"
+    >
       <div class="workflow-session-label">
         <span class="workflow-session-role">
           {{ depth > 0 ? '└─' : '' }} CHILD
         </span>
-        <span v-if="statusLabel" :class="['workflow-session-status', `status-${session.status}`]">
+        <span
+          v-if="statusLabel"
+          :class="['workflow-session-status', `status-${session.status}`]"
+        >
           {{ statusLabel }}
         </span>
       </div>
-      <div class="workflow-session-name">{{ session.name }}</div>
+      <div class="workflow-session-name">
+        {{ session.name }}
+      </div>
       <div class="workflow-session-meta">
         <span class="workflow-session-summary">{{ summaryText }}</span>
         <div class="workflow-session-meta-right">
@@ -24,7 +35,10 @@
             @click.stop.prevent="selectedButtonForModal = indicator"
           >{{ getStatusIcon(indicator.status) }}</span>
 
-          <span v-if="nextTemplateName" class="workflow-session-next">
+          <span
+            v-if="nextTemplateName"
+            class="workflow-session-next"
+          >
             Next: {{ nextTemplateName }}
           </span>
           <span class="workflow-session-date">{{ formatDate(displayDate) }}</span>

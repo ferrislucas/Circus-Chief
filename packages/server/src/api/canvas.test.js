@@ -4,8 +4,7 @@ import request from 'supertest';
 import { canvasItems, projects } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { existsSync, rmSync, readFileSync } from 'fs';
-import { isBinaryContent, getTypeFromExtension } from './canvas.js';
-import canvasRouter from './canvas.js';
+import canvasRouter, { isBinaryContent, getTypeFromExtension } from './canvas.js';
 
 /**
  * Extracts mimeType and base64 data from request body for canvas image items.
@@ -1621,7 +1620,7 @@ describe('Canvas API', () => {
         expect(recoverRes.body.recovered).toBe(3);
 
         // Verify latest version is back in canvas list (list only shows latest version)
-        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        const listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
         expect(listRes.body).toHaveLength(1);
         expect(listRes.body[0].filename).toBe('multi.txt'); // Latest version (content stripped from list)
 
@@ -1640,7 +1639,7 @@ describe('Canvas API', () => {
           .timeout(5000);
 
         // Get list
-        let listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`)
+        const listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`)
           .timeout(5000);
 
         // Batch delete operations with Promise.all to prevent connection buildup

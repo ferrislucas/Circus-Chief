@@ -1,44 +1,74 @@
 <template>
   <!-- Only render if todos exist -->
-  <div v-if="todosStore.hasTodos" class="todo-drawer">
-    <div class="todo-header" @click="todosStore.toggleExpanded">
+  <div
+    v-if="todosStore.hasTodos"
+    class="todo-drawer"
+  >
+    <div
+      class="todo-header"
+      @click="todosStore.toggleExpanded"
+    >
       <span class="todo-label">Todos</span>
-      <span v-if="!todosStore.expanded" class="todo-summary">
+      <span
+        v-if="!todosStore.expanded"
+        class="todo-summary"
+      >
         <span
           v-for="todo in previewTodos"
           :key="todo.id"
           class="todo-chip"
         >
-          <span :class="['status-icon', `status-${todo.status}`]"></span>
+          <span :class="['status-icon', `status-${todo.status}`]" />
           <span class="todo-text">{{ truncate(todo.content, 20) }}</span>
         </span>
-        <span v-if="todosStore.items.length > 4" class="todo-more">
+        <span
+          v-if="todosStore.items.length > 4"
+          class="todo-more"
+        >
           (+{{ todosStore.items.length - 4 }} more)
         </span>
       </span>
-      <span v-else class="todo-counts">
-        <span v-if="todosStore.completedCount" class="count completed">
+      <span
+        v-else
+        class="todo-counts"
+      >
+        <span
+          v-if="todosStore.completedCount"
+          class="count completed"
+        >
           {{ todosStore.completedCount }} done
         </span>
-        <span v-if="todosStore.inProgressCount" class="count in-progress">
+        <span
+          v-if="todosStore.inProgressCount"
+          class="count in-progress"
+        >
           {{ todosStore.inProgressCount }} active
         </span>
-        <span v-if="todosStore.pendingCount" class="count pending">
+        <span
+          v-if="todosStore.pendingCount"
+          class="count pending"
+        >
           {{ todosStore.pendingCount }} pending
         </span>
       </span>
-      <button class="expand-toggle" :title="todosStore.expanded ? 'Collapse' : 'Expand'">
+      <button
+        class="expand-toggle"
+        :title="todosStore.expanded ? 'Collapse' : 'Expand'"
+      >
         {{ todosStore.expanded ? '▼' : '▲' }}
       </button>
     </div>
 
-    <div v-if="todosStore.expanded" class="todo-list">
+    <div
+      v-if="todosStore.expanded"
+      class="todo-list"
+    >
       <div
         v-for="todo in todosStore.items"
         :key="todo.id"
         :class="['todo-item', `todo-${todo.status}`]"
       >
-        <span :class="['status-icon', `status-${todo.status}`]"></span>
+        <span :class="['status-icon', `status-${todo.status}`]" />
         <span class="todo-content">{{ todo.content }}</span>
       </div>
     </div>
@@ -55,7 +85,7 @@ const previewTodos = computed(() => todosStore.items.slice(0, 4));
 
 function truncate(text, maxLength) {
   if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength) + '...';
+  return `${text.slice(0, maxLength)  }...`;
 }
 </script>
 

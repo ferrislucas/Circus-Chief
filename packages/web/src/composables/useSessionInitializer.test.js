@@ -21,8 +21,7 @@ vi.mock('./useApi.js', () => ({
 const mockHandlerFactory = () => vi.fn(() => () => {});
 let mockSubscription;
 
-vi.mock('./useWebSocket.js', () => {
-  return {
+vi.mock('./useWebSocket.js', () => ({
     ensureSubscribed: vi.fn(() => Promise.resolve()),
     useWebSocket: vi.fn(() => ({
       isConnected: { value: true },
@@ -58,8 +57,7 @@ vi.mock('./useWebSocket.js', () => {
       };
       return mockSubscription;
     }),
-  };
-});
+  }));
 
 import { useSessionSubscription, ensureSubscribed } from './useWebSocket.js';
 

@@ -5,22 +5,82 @@
       class="tab tab-back"
       title="Back to Sessions"
     >
-      <span class="back-icon" title="Back to Sessions">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="19" y1="12" x2="5" y2="12"></line>
-          <polyline points="12 19 5 12 12 5"></polyline>
+      <span
+        class="back-icon"
+        title="Back to Sessions"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line
+            x1="19"
+            y1="12"
+            x2="5"
+            y2="12"
+          />
+          <polyline points="12 19 5 12 12 5" />
         </svg>
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <line x1="8" y1="6" x2="21" y2="6"></line>
-          <line x1="8" y1="12" x2="21" y2="12"></line>
-          <line x1="8" y1="18" x2="21" y2="18"></line>
-          <line x1="3" y1="6" x2="3.01" y2="6"></line>
-          <line x1="3" y1="12" x2="3.01" y2="12"></line>
-          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line
+            x1="8"
+            y1="6"
+            x2="21"
+            y2="6"
+          />
+          <line
+            x1="8"
+            y1="12"
+            x2="21"
+            y2="12"
+          />
+          <line
+            x1="8"
+            y1="18"
+            x2="21"
+            y2="18"
+          />
+          <line
+            x1="3"
+            y1="6"
+            x2="3.01"
+            y2="6"
+          />
+          <line
+            x1="3"
+            y1="12"
+            x2="3.01"
+            y2="12"
+          />
+          <line
+            x1="3"
+            y1="18"
+            x2="3.01"
+            y2="18"
+          />
         </svg>
       </span>
     </router-link>
-    <span class="tab-separator"></span>
+    <span class="tab-separator" />
 
     <!-- Desktop tabs -->
     <div class="tabs-desktop">
@@ -35,19 +95,27 @@
           v-if="tab.id === 'changes' && hasChanges"
           class="changes-indicator"
           title="Uncommitted changes"
-        ></span>
+        />
         <span
           v-if="tab.id === 'canvas' && canvasCount > 0"
           class="canvas-indicator"
           title="Canvas contains files"
-        ></span>
+        />
       </router-link>
     </div>
 
     <!-- Mobile dropdown -->
     <div class="tabs-mobile">
-      <select :value="activeTab" @change="navigateToTab($event.target.value)" class="tab-select">
-        <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
+      <select
+        :value="activeTab"
+        class="tab-select"
+        @change="navigateToTab($event.target.value)"
+      >
+        <option
+          v-for="tab in tabs"
+          :key="tab.id"
+          :value="tab.id"
+        >
           {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' \u2022' : '' }}{{ tab.id === 'canvas' && canvasCount > 0 ? ' \u2022' : '' }}
         </option>
       </select>

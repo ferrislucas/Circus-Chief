@@ -1,21 +1,33 @@
 <template>
   <div class="summary-content card">
-    <div v-if="generating" class="summary-updating">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="generating"
+      class="summary-updating"
+    >
+      <span class="loading-spinner" />
       Updating summary...
     </div>
 
     <section class="summary-section">
       <h3>Details</h3>
-      <p class="full-summary">{{ summary.fullSummary }}</p>
+      <p class="full-summary">
+        {{ summary.fullSummary }}
+      </p>
     </section>
 
     <div class="summary-footer">
       <span class="summary-date">
         Last updated: {{ formatDate(summary.generatedAt) }}
       </span>
-      <button class="btn-link" @click="$emit('regenerate')" :disabled="regenerating">
-        <span v-if="regenerating" class="loading-spinner"></span>
+      <button
+        class="btn-link"
+        :disabled="regenerating"
+        @click="$emit('regenerate')"
+      >
+        <span
+          v-if="regenerating"
+          class="loading-spinner"
+        />
         Generate summary
       </button>
     </div>

@@ -9,9 +9,10 @@ import { createVCRQueryFn } from '../agents/vcr/VCRSummaryWrapper.js';
 /**
  * Process a content block from Claude's response
  * @param {Object} block - Content block
- * @param {Object} state - Mutable state object { responseText, structuredOutput }
+ * @param {Object} stateInput - Mutable state object { responseText, structuredOutput }
  */
-function processContentBlock(block, state) {
+function processContentBlock(block, stateInput) {
+  const state = stateInput;
   if (block.type === 'tool_use' && block.name === 'StructuredOutput') {
     state.structuredOutput = block.input;
   } else if (block.type === 'text') {

@@ -10,33 +10,23 @@ export const useSessionConversationsStore = defineStore('sessionConversations', 
   }),
 
   getters: {
-    activeConversation: (state) => {
-      return state.conversations.find((c) => c.id === state.activeConversationId) || null;
-    },
+    activeConversation: (state) => state.conversations.find((c) => c.id === state.activeConversationId) || null,
 
-    getConversationById: (state) => (id) => {
-      return state.conversations.find((c) => c.id === id);
-    },
+    getConversationById: (state) => (id) => state.conversations.find((c) => c.id === id),
 
-    rootConversations: (state) => {
-      return state.conversations.filter((c) => !c.parentConversationId);
-    },
+    rootConversations: (state) => state.conversations.filter((c) => !c.parentConversationId),
 
     conversationTree: (state) => {
-      const buildTree = (parentId = null) => {
-        return state.conversations
+      const buildTree = (parentId = null) => state.conversations
           .filter((c) => c.parentConversationId === parentId)
           .map((conv) => ({
             ...conv,
             children: buildTree(conv.id),
           }));
-      };
       return buildTree(null);
     },
 
-    getConversationChildren: (state) => (conversationId) => {
-      return state.conversations.filter((c) => c.parentConversationId === conversationId);
-    },
+    getConversationChildren: (state) => (conversationId) => state.conversations.filter((c) => c.parentConversationId === conversationId),
 
     getConversationParent: (state) => (conversationId) => {
       const conv = state.conversations.find((c) => c.id === conversationId);
@@ -44,13 +34,9 @@ export const useSessionConversationsStore = defineStore('sessionConversations', 
       return state.conversations.find((c) => c.id === conv.parentConversationId);
     },
 
-    getWorkLogsForMessage: (state) => (messageId) => {
-      return state.workLogs[messageId] || [];
-    },
+    getWorkLogsForMessage: (state) => (messageId) => state.workLogs[messageId] || [],
 
-    getUnassociatedWorkLogs: (state) => {
-      return state.workLogs['_unassociated'] || [];
-    },
+    getUnassociatedWorkLogs: (state) => state.workLogs['_unassociated'] || [],
   },
 
   actions: {

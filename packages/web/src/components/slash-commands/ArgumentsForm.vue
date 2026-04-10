@@ -1,27 +1,43 @@
 <template>
   <div class="arguments-form">
     <div class="form-header">
-      <h3 class="command-title">/{{ command.name }}</h3>
-      <p v-if="command.description" class="command-description">{{ command.description }}</p>
+      <h3 class="command-title">
+        /{{ command.name }}
+      </h3>
+      <p
+        v-if="command.description"
+        class="command-description"
+      >
+        {{ command.description }}
+      </p>
     </div>
 
-    <form @submit.prevent="handleSubmit" class="form-fields">
+    <form
+      class="form-fields"
+      @submit.prevent="handleSubmit"
+    >
       <!-- Skill arguments (simple text input) -->
       <template v-if="command.isSkill">
         <div class="form-field">
-          <label for="skill-args" class="field-label">
+          <label
+            for="skill-args"
+            class="field-label"
+          >
             Arguments
-            <span v-if="command.argumentHint" class="hint">{{ command.argumentHint }}</span>
+            <span
+              v-if="command.argumentHint"
+              class="hint"
+            >{{ command.argumentHint }}</span>
           </label>
           <input
             id="skill-args"
-            type="text"
             v-model="skillRawArgs"
+            type="text"
             :placeholder="command.argumentHint || 'Enter arguments...'"
             class="field-input"
             data-testid="skill-args-input"
             @keydown.enter.prevent="handleSubmit"
-          />
+          >
         </div>
       </template>
 
@@ -32,9 +48,15 @@
           :key="arg.name"
           class="form-field"
         >
-          <label :for="`arg-${arg.name}`" class="field-label">
+          <label
+            :for="`arg-${arg.name}`"
+            class="field-label"
+          >
             {{ arg.label }}
-            <span v-if="arg.required" class="required-indicator">*</span>
+            <span
+              v-if="arg.required"
+              class="required-indicator"
+            >*</span>
           </label>
 
           <!-- Select type -->
@@ -46,7 +68,12 @@
             class="field-select"
             :data-testid="`arg-${arg.name}`"
           >
-            <option value="" disabled>Select an option...</option>
+            <option
+              value=""
+              disabled
+            >
+              Select an option...
+            </option>
             <option
               v-for="opt in arg.options || []"
               :key="opt.value"
@@ -66,24 +93,28 @@
             class="field-textarea"
             rows="4"
             :data-testid="`arg-${arg.name}`"
-          ></textarea>
+          />
 
           <!-- Text type (default) -->
           <input
             v-else
-            type="text"
             :id="`arg-${arg.name}`"
             v-model="formData[arg.name]"
+            type="text"
             :required="arg.required"
             :placeholder="arg.placeholder || ''"
             class="field-input"
             :data-testid="`arg-${arg.name}`"
-          />
+          >
         </div>
       </template>
 
       <div class="form-actions">
-        <button type="button" class="btn btn-secondary" @click="emit('back')">
+        <button
+          type="button"
+          class="btn btn-secondary"
+          @click="emit('back')"
+        >
           Back
         </button>
         <button
@@ -92,7 +123,10 @@
           :disabled="!isValid || executing"
           data-testid="execute-command-btn"
         >
-          <span v-if="executing" class="loading-spinner"></span>
+          <span
+            v-if="executing"
+            class="loading-spinner"
+          />
           {{ executeLabel }}
         </button>
       </div>

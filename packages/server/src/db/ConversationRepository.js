@@ -1,37 +1,13 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { mapConversationRow, executeBranch } from './conversation-helpers.js';
 
 /**
  * Conversation repository class for managing conversation threads within sessions
  */
 export class ConversationRepository extends BaseRepository {
   constructor() {
-    super('conversations', ConversationRepository.#mapConversation);
-  }
-
-  static #mapConversation(row) {
-    return {
-      id: row.id,
-      sessionId: row.session_id,
-      name: row.name,
-      summary: row.summary,
-      summaryGeneratedAt: row.summary_generated_at,
-      isActive: row.is_active === 1,
-      claudeSessionId: row.claude_session_id,
-      // Branching fields
-      parentConversationId: row.parent_conversation_id || null,
-      branchFromMessageId: row.branch_from_message_id || null,
-      // Token usage fields
-      inputTokens: row.input_tokens || 0,
-      outputTokens: row.output_tokens || 0,
-      cacheReadInputTokens: row.cache_read_input_tokens || 0,
-      cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
-      webSearchRequests: row.web_search_requests || 0,
-      contextWindow: row.context_window || 200000,
-      model: row.model,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+    super('conversations', mapConversationRow);
   }
 
   /**
@@ -104,7 +80,7 @@ export class ConversationRepository extends BaseRepository {
       .all(sessionId);
 
     return rows.map((row) => ({
-      ...ConversationRepository.#mapConversation(row),
+      ...mapConversationRow(row),
       messageCount: row.message_count,
     }));
   }
@@ -334,76 +310,7 @@ export class ConversationRepository extends BaseRepository {
    * @returns {Object} The created branch conversation
    */
   branch(conversationId, messageId, name = null, initialPrompt = null) {
-    // Prompt is now required for branching
-    if (!initialPrompt || !initialPrompt.trim()) {
-      throw new Error('A prompt is required when branching');
-    }
-
-    const sourceConv = this.getById(conversationId);
-    if (!sourceConv) {
-      throw new Error('Source conversation not found');
-    }
-
-    // Get the branch point message to verify it exists and get its timestamp
-    const branchMessage = this.db
-      .prepare('SELECT * FROM conversation_messages WHERE id = ? AND conversation_id = ?')
-      .get(messageId, conversationId);
-
-    if (!branchMessage) {
-      throw new Error('Branch point message not found in conversation');
-    }
-
-    const id = databaseManager.generateId();
-    const now = Date.now();
-
-    // Auto-generate name from the prompt (first 40 chars)
-    const promptPreview = initialPrompt.length > 40
-      ? initialPrompt.substring(0, 40) + '...'
-      : initialPrompt;
-    const branchName = name || promptPreview;
-
-    // Deactivate all other conversations
-    this.db
-      .prepare('UPDATE conversations SET is_active = 0, updated_at = ? WHERE session_id = ?')
-      .run(now, sourceConv.sessionId);
-
-    // Create the new branch conversation
-    this.db
-      .prepare(
-        `INSERT INTO conversations (id, session_id, name, is_active, parent_conversation_id, branch_from_message_id, created_at, updated_at)
-         VALUES (?, ?, ?, 1, ?, ?, ?, ?)`
-      )
-      .run(id, sourceConv.sessionId, branchName, conversationId, messageId, now, now);
-
-    // Copy all messages BEFORE the branch point (NOT including it)
-    const messagesToCopy = this.db
-      .prepare(
-        `SELECT * FROM conversation_messages
-         WHERE conversation_id = ? AND timestamp < ?
-         ORDER BY timestamp ASC`
-      )
-      .all(conversationId, branchMessage.timestamp);
-
-    for (const msg of messagesToCopy) {
-      const newMsgId = databaseManager.generateId();
-      this.db
-        .prepare(
-          `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, tool_use, timestamp)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(newMsgId, sourceConv.sessionId, id, msg.role, msg.content, msg.tool_use, msg.timestamp);
-    }
-
-    // Add the new prompt as the replacement for the original user message
-    const promptMsgId = databaseManager.generateId();
-    this.db
-      .prepare(
-        `INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, timestamp)
-         VALUES (?, ?, ?, 'user', ?, ?)`
-      )
-      .run(promptMsgId, sourceConv.sessionId, id, initialPrompt.trim(), now);
-
-    return this.getById(id);
+    return executeBranch(this, conversationId, messageId, { name, initialPrompt });
   }
 
   /**
@@ -424,7 +331,7 @@ export class ConversationRepository extends BaseRepository {
       .all(sessionId);
 
     return rows.map((row) => ({
-      ...ConversationRepository.#mapConversation(row),
+      ...mapConversationRow(row),
       childCount: row.child_count || 0,
       messageCount: row.message_count || 0,
     }));

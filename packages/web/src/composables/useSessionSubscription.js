@@ -7,6 +7,26 @@ import { useWebSocket } from './useWebSocket.js';
 const sessionSubscriptionCounts = new Map();
 
 /**
+ * Create a session-scoped event handler factory.
+ * Registers a handler that only fires for the given sessionId, and returns an unsubscribe function.
+ * @param {Function} on - WebSocket on function
+ * @param {Function} off - WebSocket off function
+ * @param {string} sessionId - Session to filter for
+ * @returns {Function} Factory: (eventType, extractor, options?) => (callback) => unsubscribe
+ */
+function createSessionHandler(on, off, sessionId) {
+  return (eventType, extractor, options) => (callback) => {
+    const handler = (msg) => {
+      if (extractor.filter(msg)) {
+        callback(...extractor.args(msg));
+      }
+    };
+    on(eventType, handler, options?.replaySessionId);
+    return () => off(eventType, handler);
+  };
+}
+
+/**
  * Subscribe to session updates
  * @param {string} sessionId
  */
@@ -45,237 +65,55 @@ export function useSessionSubscription(sessionId) {
     }
   };
 
-  const onStatus = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.status);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_STATUS, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_STATUS, handler);
-  };
+  const bySession = (msg) => msg.sessionId === sessionId;
+  const handler = createSessionHandler(on, off, sessionId);
 
-  const onMessage = (callback) => {
-    const handler = (msg) => {
-      // Filter by sessionId to avoid cross-session interference
-      if (msg.message?.sessionId === sessionId) {
-        callback(msg.message);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_MESSAGE, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_MESSAGE, handler);
-  };
-
-  const onError = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.error);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_ERROR, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_ERROR, handler);
-  };
-
-  const onCanvasAdd = (callback) => {
-    const handler = (msg) => {
-      if (msg.item?.sessionId === sessionId) {
-        callback(msg.item);
-      }
-    };
-    on(WS_MESSAGE_TYPES.CANVAS_ADD, handler);
-    return () => off(WS_MESSAGE_TYPES.CANVAS_ADD, handler);
-  };
-
-  const onCanvasRemove = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.itemId);
-      }
-    };
-    on(WS_MESSAGE_TYPES.CANVAS_REMOVE, handler);
-    return () => off(WS_MESSAGE_TYPES.CANVAS_REMOVE, handler);
-  };
-
-  const onCanvasUpdate = (callback) => {
-    const handler = (msg) => {
-      if (msg.item?.sessionId === sessionId) {
-        callback(msg.item);
-      }
-    };
-    on(WS_MESSAGE_TYPES.CANVAS_UPDATE, handler);
-    return () => off(WS_MESSAGE_TYPES.CANVAS_UPDATE, handler);
-  };
-
-  const onPartial = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.text);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_PARTIAL, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_PARTIAL, handler);
-  };
-
-  const onTodosUpdate = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.todos, msg.conversationId);
-      }
-    };
-    on(WS_MESSAGE_TYPES.TODOS_UPDATE, handler);
-    return () => off(WS_MESSAGE_TYPES.TODOS_UPDATE, handler);
-  };
-
-  const onWorkLog = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId && msg.log) {
-        callback(msg.log);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_WORK_LOG, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_WORK_LOG, handler);
-  };
-
-  const onWorkLogsAssociated = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.messageId);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED, handler);
-  };
-
-  const onThinkingPartial = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.thinking);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL, handler);
-  };
-
-  const onSummaryUpdate = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.summary);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, handler);
-  };
-
-  const onSummaryGenerating = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.generating);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING, handler);
-  };
-
-  const onSessionUpdate = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.session);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
-  };
-
-  const onConversationCreated = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.conversation);
-      }
-    };
-    on(WS_MESSAGE_TYPES.CONVERSATION_CREATED, handler);
-    return () => off(WS_MESSAGE_TYPES.CONVERSATION_CREATED, handler);
-  };
-
-  const onConversationUpdated = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.conversation);
-      }
-    };
-    on(WS_MESSAGE_TYPES.CONVERSATION_UPDATED, handler);
-    return () => off(WS_MESSAGE_TYPES.CONVERSATION_UPDATED, handler);
-  };
-
-  const onConversationDeleted = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.conversationId, msg.newActiveConversation);
-      }
-    };
-    on(WS_MESSAGE_TYPES.CONVERSATION_DELETED, handler);
-    return () => off(WS_MESSAGE_TYPES.CONVERSATION_DELETED, handler);
-  };
-
-  const onUsageUpdate = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg);
-      }
-    };
-    // Pass sessionId to on() so only this session's buffered messages are replayed
-    on(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler, sessionId);
-    return () => off(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE, handler);
-  };
-
-  const onCommandOutput = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.runId, msg.buttonId, msg.output);
-      }
-    };
-    on(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, handler);
-    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT, handler);
-  };
-
-  const onCommandComplete = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.runId, msg.buttonId, msg.exitCode, msg.output);
-      }
-    };
-    on(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, handler);
-    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE, handler);
-  };
-
-  const onCommandError = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.runId, msg.buttonId, msg.error || msg.message);
-      }
-    };
-    on(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
-    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, handler);
-  };
-
-  const onCommandRunDeleted = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.runId, msg.buttonId);
-      }
-    };
-    on(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
-    return () => off(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, handler);
-  };
-
-  const onChangesUpdate = (callback) => {
-    const handler = (msg) => {
-      if (msg.sessionId === sessionId) {
-        callback(msg.changeCount, msg.hasChanges);
-      }
-    };
-    on(WS_MESSAGE_TYPES.CHANGES_UPDATE, handler);
-    return () => off(WS_MESSAGE_TYPES.CHANGES_UPDATE, handler);
-  };
+  const onStatus = handler(WS_MESSAGE_TYPES.SESSION_STATUS,
+    { filter: bySession, args: (msg) => [msg.status] });
+  const onMessage = handler(WS_MESSAGE_TYPES.SESSION_MESSAGE,
+    { filter: (msg) => msg.message?.sessionId === sessionId, args: (msg) => [msg.message] });
+  const onError = handler(WS_MESSAGE_TYPES.SESSION_ERROR,
+    { filter: bySession, args: (msg) => [msg.error] });
+  const onCanvasAdd = handler(WS_MESSAGE_TYPES.CANVAS_ADD,
+    { filter: (msg) => msg.item?.sessionId === sessionId, args: (msg) => [msg.item] });
+  const onCanvasRemove = handler(WS_MESSAGE_TYPES.CANVAS_REMOVE,
+    { filter: bySession, args: (msg) => [msg.itemId] });
+  const onCanvasUpdate = handler(WS_MESSAGE_TYPES.CANVAS_UPDATE,
+    { filter: (msg) => msg.item?.sessionId === sessionId, args: (msg) => [msg.item] });
+  const onPartial = handler(WS_MESSAGE_TYPES.SESSION_PARTIAL,
+    { filter: bySession, args: (msg) => [msg.text] });
+  const onTodosUpdate = handler(WS_MESSAGE_TYPES.TODOS_UPDATE,
+    { filter: bySession, args: (msg) => [msg.todos, msg.conversationId] });
+  const onWorkLog = handler(WS_MESSAGE_TYPES.SESSION_WORK_LOG,
+    { filter: (msg) => bySession(msg) && msg.log, args: (msg) => [msg.log] });
+  const onWorkLogsAssociated = handler(WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED,
+    { filter: bySession, args: (msg) => [msg.messageId] });
+  const onThinkingPartial = handler(WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL,
+    { filter: bySession, args: (msg) => [msg.thinking] });
+  const onSummaryUpdate = handler(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED,
+    { filter: bySession, args: (msg) => [msg.summary] });
+  const onSummaryGenerating = handler(WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING,
+    { filter: bySession, args: (msg) => [msg.generating] });
+  const onSessionUpdate = handler(WS_MESSAGE_TYPES.SESSION_UPDATED,
+    { filter: bySession, args: (msg) => [msg.session] });
+  const onConversationCreated = handler(WS_MESSAGE_TYPES.CONVERSATION_CREATED,
+    { filter: bySession, args: (msg) => [msg.conversation] });
+  const onConversationUpdated = handler(WS_MESSAGE_TYPES.CONVERSATION_UPDATED,
+    { filter: bySession, args: (msg) => [msg.conversation] });
+  const onConversationDeleted = handler(WS_MESSAGE_TYPES.CONVERSATION_DELETED,
+    { filter: bySession, args: (msg) => [msg.conversationId, msg.newActiveConversation] });
+  const onUsageUpdate = handler(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE,
+    { filter: bySession, args: (msg) => [msg] }, { replaySessionId: sessionId });
+  const onCommandOutput = handler(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
+    { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.output] });
+  const onCommandComplete = handler(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE,
+    { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.exitCode, msg.output] });
+  const onCommandError = handler(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+    { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.error || msg.message] });
+  const onCommandRunDeleted = handler(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED,
+    { filter: bySession, args: (msg) => [msg.runId, msg.buttonId] });
+  const onChangesUpdate = handler(WS_MESSAGE_TYPES.CHANGES_UPDATE,
+    { filter: bySession, args: (msg) => [msg.changeCount, msg.hasChanges] });
 
   // Auto-cleanup on unmount
   onUnmounted(() => {
