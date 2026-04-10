@@ -22,25 +22,20 @@ export function useProjectSubscription(projectId) {
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId });
   };
 
-  const onSessionCreated = (callback) => {
+  // Helper to create session event handlers that filter by projectId
+  const createSessionHandler = (messageType) => (callback) => {
     const handler = (msg) => {
       if (msg.projectId === projectId) {
         callback(msg.session);
       }
     };
-    on(WS_MESSAGE_TYPES.SESSION_CREATED, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_CREATED, handler);
+    on(messageType, handler);
+    return () => off(messageType, handler);
   };
 
-  const onSessionUpdated = (callback) => {
-    const handler = (msg) => {
-      if (msg.projectId === projectId) {
-        callback(msg.session);
-      }
-    };
-    on(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
-    return () => off(WS_MESSAGE_TYPES.SESSION_UPDATED, handler);
-  };
+  const onSessionCreated = createSessionHandler(WS_MESSAGE_TYPES.SESSION_CREATED);
+
+  const onSessionUpdated = createSessionHandler(WS_MESSAGE_TYPES.SESSION_UPDATED);
 
   const onSessionDeleted = (callback) => {
     const handler = (msg) => {

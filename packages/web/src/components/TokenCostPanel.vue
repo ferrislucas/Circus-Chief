@@ -1,57 +1,131 @@
 <template>
-  <div v-if="hasNonZeroCost" class="token-cost-panel">
+  <div
+    v-if="hasNonZeroCost"
+    class="token-cost-panel"
+  >
     <!-- Cost display (collapsed view) -->
-    <div v-if="!isExpanded" class="cost-display" @click="isExpanded = !isExpanded" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
+    <div
+      v-if="!isExpanded"
+      class="cost-display"
+      title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies"
+      @click="isExpanded = !isExpanded"
+    >
       <span class="cost-label">Cost:</span>
       <span class="cost-value">{{ formattedBillableTokens }}</span>
     </div>
 
     <!-- Expanded token breakdown -->
-    <div v-if="isExpanded" class="token-breakdown">
-      <div class="bte-header" title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies">
+    <div
+      v-if="isExpanded"
+      class="token-breakdown"
+    >
+      <div
+        class="bte-header"
+        title="Billable Token Equivalent - weighted token cost where output tokens are 5x and cache varies"
+      >
         <span class="bte-label">Cost:</span>
-        <span class="bte-value clickable" @click="isExpanded = false">{{ formattedBillableTokens }}</span>
+        <span
+          class="bte-value clickable"
+          @click="isExpanded = false"
+        >{{ formattedBillableTokens }}</span>
       </div>
 
       <div class="token-grid">
         <div class="token-item">
-          <div class="token-type">Input</div>
-          <div class="token-count">{{ formattedTokens.input }}</div>
-          <div class="token-weight">×{{ weights.input }}</div>
-          <div class="token-weighted">={{ formatWeighted(inputTokens, weights.input) }}</div>
+          <div class="token-type">
+            Input
+          </div>
+          <div class="token-count">
+            {{ formattedTokens.input }}
+          </div>
+          <div class="token-weight">
+            ×{{ weights.input }}
+          </div>
+          <div class="token-weighted">
+            ={{ formatWeighted(inputTokens, weights.input) }}
+          </div>
         </div>
         <div class="token-item">
-          <div class="token-type">Output</div>
-          <div class="token-count">{{ formattedTokens.output }}</div>
-          <div class="token-weight">×{{ weights.output }}</div>
-          <div class="token-weighted">={{ formatWeighted(outputTokens, weights.output) }}</div>
+          <div class="token-type">
+            Output
+          </div>
+          <div class="token-count">
+            {{ formattedTokens.output }}
+          </div>
+          <div class="token-weight">
+            ×{{ weights.output }}
+          </div>
+          <div class="token-weighted">
+            ={{ formatWeighted(outputTokens, weights.output) }}
+          </div>
         </div>
-        <div class="token-item" title="Tokens read from cache (90% discount)">
-          <div class="token-type">Cache Read</div>
-          <div class="token-count">{{ formattedTokens.cacheRead }}</div>
-          <div class="token-weight">×{{ weights.cacheRead }}</div>
-          <div class="token-weighted">={{ formatWeighted(cacheReadTokens, weights.cacheRead) }}</div>
+        <div
+          class="token-item"
+          title="Tokens read from cache (90% discount)"
+        >
+          <div class="token-type">
+            Cache Read
+          </div>
+          <div class="token-count">
+            {{ formattedTokens.cacheRead }}
+          </div>
+          <div class="token-weight">
+            ×{{ weights.cacheRead }}
+          </div>
+          <div class="token-weighted">
+            ={{ formatWeighted(cacheReadTokens, weights.cacheRead) }}
+          </div>
         </div>
-        <div class="token-item" title="Tokens written to cache (25% premium)">
-          <div class="token-type">Cache Create</div>
-          <div class="token-count">{{ formattedTokens.cacheCreation }}</div>
-          <div class="token-weight">×{{ weights.cacheCreation }}</div>
-          <div class="token-weighted">={{ formatWeighted(cacheCreationTokens, weights.cacheCreation) }}</div>
+        <div
+          class="token-item"
+          title="Tokens written to cache (25% premium)"
+        >
+          <div class="token-type">
+            Cache Create
+          </div>
+          <div class="token-count">
+            {{ formattedTokens.cacheCreation }}
+          </div>
+          <div class="token-weight">
+            ×{{ weights.cacheCreation }}
+          </div>
+          <div class="token-weighted">
+            ={{ formatWeighted(cacheCreationTokens, weights.cacheCreation) }}
+          </div>
         </div>
       </div>
 
       <div class="breakdown-footer">
-        <button type="button" class="settings-btn" @click="openSettings" title="Configure token cost weights">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3"></circle>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        <button
+          type="button"
+          class="settings-btn"
+          title="Configure token cost weights"
+          @click="openSettings"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="3"
+            />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
           </svg>
         </button>
       </div>
     </div>
 
     <!-- Settings modal -->
-    <TokenWeightsModal :is-open="showSettings" @close="showSettings = false" />
+    <TokenWeightsModal
+      :is-open="showSettings"
+      @close="showSettings = false"
+    />
   </div>
 </template>
 

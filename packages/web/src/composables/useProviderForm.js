@@ -33,7 +33,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
   const authTokenModified = ref(false);
 
   // ── Computed ──────────────────────────────────────────────────
-  const isEditing = computed(() => !!providerRef.value);
+  const isEditing = computed(() => Boolean(providerRef.value));
   const isValid = computed(() => form.value.name.trim().length > 0);
   const canTest = computed(() => form.value.baseUrl || form.value.authToken);
 

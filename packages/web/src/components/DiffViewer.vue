@@ -1,30 +1,58 @@
 <template>
   <div class="diff-viewer">
-    <div v-if="files.length === 0" class="diff-empty">
+    <div
+      v-if="files.length === 0"
+      class="diff-empty"
+    >
       No changes to display
     </div>
 
-    <div v-for="(file, fileIndex) in files" :key="fileIndex" class="diff-file">
-      <div class="diff-file-header" @click="toggleFile(fileIndex)">
+    <div
+      v-for="(file, fileIndex) in files"
+      :key="fileIndex"
+      class="diff-file"
+    >
+      <div
+        class="diff-file-header"
+        @click="toggleFile(fileIndex)"
+      >
         <span class="diff-file-toggle">{{ isFileExpanded(fileIndex) ? '▼' : '▶' }}</span>
         <span class="diff-file-icon">
-          <span v-if="file.isNew" class="file-badge file-badge-new">A</span>
-          <span v-else-if="file.isDeleted" class="file-badge file-badge-deleted">D</span>
-          <span v-else-if="file.isRenamed" class="file-badge file-badge-renamed">R</span>
-          <span v-else class="file-badge file-badge-modified">M</span>
+          <span
+            v-if="file.isNew"
+            class="file-badge file-badge-new"
+          >A</span>
+          <span
+            v-else-if="file.isDeleted"
+            class="file-badge file-badge-deleted"
+          >D</span>
+          <span
+            v-else-if="file.isRenamed"
+            class="file-badge file-badge-renamed"
+          >R</span>
+          <span
+            v-else
+            class="file-badge file-badge-modified"
+          >M</span>
         </span>
         <span class="diff-file-path">{{ file.displayPath }}</span>
         <span class="diff-file-stats">
-          <span v-if="file.additions" class="stat-additions">+{{ file.additions }}</span>
-          <span v-if="file.deletions" class="stat-deletions">-{{ file.deletions }}</span>
+          <span
+            v-if="file.additions"
+            class="stat-additions"
+          >+{{ file.additions }}</span>
+          <span
+            v-if="file.deletions"
+            class="stat-deletions"
+          >-{{ file.deletions }}</span>
         </span>
         <!-- Copy filename button -->
         <button
           class="copy-button"
           :class="{ copied: copiedFileIndex === fileIndex }"
-          @click.stop="copyFilePath(file.displayPath, fileIndex)"
           :title="copiedFileIndex === fileIndex ? 'Copied!' : 'Copy filename'"
           :aria-label="`Copy ${file.displayPath} to clipboard`"
+          @click.stop="copyFilePath(file.displayPath, fileIndex)"
         >
           <span class="copy-button-icon">
             {{ copiedFileIndex === fileIndex ? '✓' : '📋' }}
@@ -35,8 +63,8 @@
           v-if="isMarkdownFile(file.displayPath)"
           class="preview-toggle"
           :class="{ active: previewMode[fileIndex] }"
-          @click.stop="togglePreview(fileIndex)"
           :title="previewMode[fileIndex] ? 'Show diff' : 'Preview markdown'"
+          @click.stop="togglePreview(fileIndex)"
         >
           {{ previewMode[fileIndex] ? '📝 Diff' : '👁 Preview' }}
         </button>

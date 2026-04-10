@@ -23,6 +23,23 @@ export function getRootSession(session) {
 }
 
 /**
+ * Build a template context object for a session and its summary.
+ */
+function buildSessionContext(session, summary) {
+  return {
+    id: session.id,
+    name: session.name,
+    status: session.status,
+    summary: summary?.fullSummary || summary?.shortSummary || 'No summary available',
+    shortSummary: summary?.shortSummary || 'No summary available',
+    fullSummary: summary?.fullSummary || 'No summary available',
+    keyActions: summary?.keyActions || [],
+    filesModified: summary?.filesModified || [],
+    outcome: summary?.outcome || session.status,
+  };
+}
+
+/**
  * Render a template prompt with parent session and root session context
  * @param {string} templatePrompt - The Liquid template string
  * @param {{ parentSession: Object, parentSummary: Object|null, rootSession: Object, rootSummary: Object|null }} sessionContext - Session context objects
@@ -31,28 +48,8 @@ export function getRootSession(session) {
 export async function renderTemplatePrompt(templatePrompt, sessionContext) {
   const { parentSession, parentSummary, rootSession, rootSummary } = sessionContext;
   const context = {
-    parentSession: {
-      id: parentSession.id,
-      name: parentSession.name,
-      status: parentSession.status,
-      summary: parentSummary?.fullSummary || parentSummary?.shortSummary || 'No summary available',
-      shortSummary: parentSummary?.shortSummary || 'No summary available',
-      fullSummary: parentSummary?.fullSummary || 'No summary available',
-      keyActions: parentSummary?.keyActions || [],
-      filesModified: parentSummary?.filesModified || [],
-      outcome: parentSummary?.outcome || parentSession.status,
-    },
-    rootSession: {
-      id: rootSession.id,
-      name: rootSession.name,
-      status: rootSession.status,
-      summary: rootSummary?.fullSummary || rootSummary?.shortSummary || 'No summary available',
-      shortSummary: rootSummary?.shortSummary || 'No summary available',
-      fullSummary: rootSummary?.fullSummary || 'No summary available',
-      keyActions: rootSummary?.keyActions || [],
-      filesModified: rootSummary?.filesModified || [],
-      outcome: rootSummary?.outcome || rootSession.status,
-    },
+    parentSession: buildSessionContext(parentSession, parentSummary),
+    rootSession: buildSessionContext(rootSession, rootSummary),
   };
 
   return liquid.parseAndRender(templatePrompt, context);
@@ -82,6 +79,30 @@ function deriveSessionSettings(template, rootSession) {
 }
 
 /**
+ * Resolve the working directory for a new template-triggered session.
+ * Inherits the parent worktree if available, otherwise sets up git normally.
+ * @param {Object} parentSession - The parent session
+ * @param {Object} project - The project
+ * @param {Object} settings - Derived session settings
+ * @param {string} newSessionId - The new session ID
+ * @returns {Promise<{workingDirectory: string, gitWorktree: string|null}>}
+ */
+async function resolveWorkingDirectory(parentSession, project, settings, newSessionId) {
+  if (parentSession.gitWorktree) {
+    console.log(`Template trigger: Inheriting parent worktree: ${parentSession.gitWorktree}`);
+    return { workingDirectory: parentSession.gitWorktree, gitWorktree: parentSession.gitWorktree };
+  }
+
+  const gitSetup = await setupGitForSession({
+    projectDir: project.workingDirectory,
+    gitMode: settings.gitMode,
+    gitBranch: settings.gitBranch,
+    sessionId: newSessionId,
+  });
+  return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
+}
+
+/**
  * Check if a session should trigger its next template and do so
  * Called when a session completes (status changes to completed, error, or stopped)
  * @param {string} sessionId - The session that just completed
@@ -93,7 +114,6 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     return;
   }
 
-  // Only trigger if session has a next template configured
   if (!session.nextTemplateId) {
     return;
   }
@@ -113,21 +133,14 @@ export async function checkAndTriggerNextTemplate(sessionId) {
   console.log(`Template trigger: Triggering template "${template.name}" after session "${session.name}"`);
 
   try {
-    // Get the parent session's summary for the template context
     const parentSummary = sessionSummaries.getBySessionId(sessionId);
-
-    // Get the root session and its summary
     const rootSession = getRootSession(session);
     const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
 
-    // Render the template prompt with parent and root session context
     const renderedPrompt = await renderTemplatePrompt(template.prompt, { parentSession: session, parentSummary, rootSession, rootSummary });
     const settings = deriveSessionSettings(template, rootSession);
-
-    // Generate a name for the new session
     const newSessionName = `${template.name} (from: ${session.name})`;
 
-    // Create the new session
     const newSession = sessions.create(
       session.projectId,
       newSessionName,
@@ -136,14 +149,13 @@ export async function checkAndTriggerNextTemplate(sessionId) {
         mode: settings.mode,
         thinkingEnabled: settings.thinkingEnabled,
         gitBranch: settings.gitBranch,
-        parentSessionId: null, // Will be set below
+        parentSessionId: null,
         status: 'starting',
         model: settings.model,
         effortLevel: settings.effortLevel,
       }
     );
 
-    // Set the parent session reference and inherit the template's next template for chaining
     sessions.update(newSession.id, {
       parentSessionId: session.id,
       nextTemplateId: template.nextTemplateId || null,
@@ -156,44 +168,21 @@ export async function checkAndTriggerNextTemplate(sessionId) {
       maxTotalTokens: settings.maxTotalTokens,
     });
 
-    // Determine working directory: inherit from parent if it has a worktree
-    let workingDirectory;
-    let gitWorktree = null;
+    const { workingDirectory, gitWorktree } = await resolveWorkingDirectory(session, project, settings, newSession.id);
 
-    if (session.gitWorktree) {
-      // Parent is in a worktree - child should run in the same worktree
-      workingDirectory = session.gitWorktree;
-      gitWorktree = session.gitWorktree;
-      console.log(`Template trigger: Inheriting parent worktree: ${gitWorktree}`);
-    } else {
-      // Parent is not in a worktree - set up git environment normally
-      const gitSetup = await setupGitForSession({
-        projectDir: project.workingDirectory,
-        gitMode: settings.gitMode,
-        gitBranch: settings.gitBranch,
-        sessionId: newSession.id,
-      });
-      workingDirectory = gitSetup.workingDirectory;
-      gitWorktree = gitSetup.gitWorktree;
-    }
-
-    // Update session with worktree path if set
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });
     }
 
-    // Get the fully updated session and broadcast to project subscribers
     const updatedSession = sessions.getById(newSession.id);
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
       projectId: session.projectId,
       session: updatedSession,
     });
 
-    // Start the new session (non-blocking)
     runSession(newSession.id, renderedPrompt, workingDirectory, { systemPrompt: project.systemPrompt, model: settings.model }).catch((error) => {
       console.error(`Template trigger: Error running session ${newSession.id}:`, error);
       const errorSession = sessions.update(newSession.id, { status: 'error', error: error.message });
-      // Broadcast error status to project subscribers for session list updates
       broadcastToProject(session.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
         projectId: session.projectId,
         sessionId: newSession.id,

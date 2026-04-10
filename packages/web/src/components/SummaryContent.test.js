@@ -22,9 +22,7 @@ describe('SummaryContent', () => {
     it('renders Details section with full summary', () => {
       const wrapper = mountComponent();
 
-      const detailsSection = wrapper.findAll('.summary-section').find((s) => {
-        return s.find('h3').text() === 'Details';
-      });
+      const detailsSection = wrapper.findAll('.summary-section').find((s) => s.find('h3').text() === 'Details');
 
       expect(detailsSection).toBeDefined();
       expect(detailsSection.find('.full-summary').text()).toBe(baseSummary.fullSummary);

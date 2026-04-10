@@ -8,12 +8,22 @@
     />
     <div
       class="resize-handle"
+      aria-hidden="true"
       @mousedown="startResize"
       @touchstart.prevent="startResize"
-      aria-hidden="true"
     >
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <path d="M14 10L10 14M14 6L6 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        fill="none"
+      >
+        <path
+          d="M14 10L10 14M14 6L6 14"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+        />
       </svg>
     </div>
   </div>
@@ -80,7 +90,7 @@ function startResize(event) {
     }
 
     // Directly manipulate DOM to avoid Vue re-render
-    textareaRef.value.style.height = newHeight + 'px';
+    textareaRef.value.style.height = `${newHeight  }px`;
   };
 
   const stopResize = () => {

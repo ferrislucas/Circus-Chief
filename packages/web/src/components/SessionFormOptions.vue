@@ -4,15 +4,25 @@
 
     <div class="options-row">
       <div class="mode-selector-wrapper">
-        <ModeSelector :modelValue="mode" @update:modelValue="$emit('update:mode', $event)" />
+        <ModeSelector
+          :model-value="mode"
+          @update:model-value="$emit('update:mode', $event)"
+        />
       </div>
 
       <div class="model-selector-wrapper">
-        <ModelSelector :modelValue="model" @update:modelValue="$emit('update:model', $event)" @update:providerId="$emit('update:providerId', $event)" />
+        <ModelSelector
+          :model-value="model"
+          @update:model-value="$emit('update:model', $event)"
+          @update:provider-id="$emit('update:providerId', $event)"
+        />
       </div>
 
       <div class="effort-selector-wrapper">
-        <EffortLevelSelector :modelValue="effortLevel" @update:modelValue="$emit('update:effortLevel', $event)" />
+        <EffortLevelSelector
+          :model-value="effortLevel"
+          @update:model-value="$emit('update:effortLevel', $event)"
+        />
       </div>
 
       <div class="thinking-toggle">
@@ -22,22 +32,25 @@
               type="checkbox"
               :checked="thinkingEnabled"
               @change="$emit('update:thinkingEnabled', $event.target.checked)"
-            />
-            <span class="toggle-slider"></span>
+            >
+            <span class="toggle-slider" />
           </label>
           <span class="toggle-label">Enable Thinking</span>
         </div>
       </div>
 
-      <div v-if="!hideStartImmediately" class="thinking-toggle">
+      <div
+        v-if="!hideStartImmediately"
+        class="thinking-toggle"
+      >
         <div class="field-with-badge">
           <label class="toggle-switch">
             <input
               type="checkbox"
               :checked="startImmediately"
               @change="$emit('update:startImmediately', $event.target.checked)"
-            />
-            <span class="toggle-slider"></span>
+            >
+            <span class="toggle-slider" />
           </label>
           <span class="toggle-label">Start Immediately</span>
         </div>

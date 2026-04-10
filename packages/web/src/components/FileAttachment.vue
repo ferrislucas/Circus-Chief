@@ -7,41 +7,54 @@
   >
     <!-- Hidden file input -->
     <input
-      type="file"
       ref="fileInput"
+      type="file"
       multiple
       :accept="acceptTypes"
-      @change="handleFileSelect"
       class="hidden-input"
-    />
+      @change="handleFileSelect"
+    >
 
     <!-- Attach button -->
     <button
       type="button"
-      @click="openFilePicker"
       class="attach-btn"
       title="Attach files (drag & drop supported)"
+      @click="openFilePicker"
     >
       <span class="attach-icon">📎</span>
       <span class="attach-text">Attach</span>
     </button>
 
     <!-- Drop zone overlay -->
-    <div v-if="isDragging" class="drop-zone">
+    <div
+      v-if="isDragging"
+      class="drop-zone"
+    >
       <span class="drop-text">Drop files here</span>
     </div>
 
     <!-- Attached files list -->
-    <div v-if="files.length > 0" class="attached-files">
-      <div v-for="(file, index) in files" :key="index" class="file-chip">
+    <div
+      v-if="files.length > 0"
+      class="attached-files"
+    >
+      <div
+        v-for="(file, index) in files"
+        :key="index"
+        class="file-chip"
+      >
         <span class="file-icon">{{ getFileIcon(file) }}</span>
-        <span class="file-name" :title="file.name">{{ truncateName(file.name) }}</span>
+        <span
+          class="file-name"
+          :title="file.name"
+        >{{ truncateName(file.name) }}</span>
         <span class="file-size">({{ formatSize(file.size) }})</span>
         <button
           type="button"
-          @click="removeFile(index)"
           class="remove-btn"
           title="Remove file"
+          @click="removeFile(index)"
         >
           ×
         </button>
@@ -73,9 +86,10 @@ function openFilePicker() {
 }
 
 function handleFileSelect(e) {
-  addFiles(Array.from(e.target.files));
+  const target = e.target;
+  addFiles(Array.from(target.files));
   // Reset input so the same file can be selected again
-  e.target.value = '';
+  target.value = '';
 }
 
 function handleDragOver() {
@@ -139,7 +153,7 @@ function truncateName(name, maxLength = 25) {
   if (name.length <= maxLength) return name;
   const ext = name.split('.').pop();
   const base = name.slice(0, name.length - ext.length - 1);
-  const truncatedBase = base.slice(0, maxLength - ext.length - 4) + '...';
+  const truncatedBase = `${base.slice(0, maxLength - ext.length - 4)  }...`;
   return `${truncatedBase}.${ext}`;
 }
 

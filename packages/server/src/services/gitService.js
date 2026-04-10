@@ -75,6 +75,37 @@ async function git(directory, command, opts = {}) {
 }
 
 /**
+ * Detect the default branch using git commands (symbolic-ref, rev-parse).
+ * @param {string} directory
+ * @returns {Promise<string>}
+ */
+async function detectDefaultBranchFromGit(directory) {
+  // Try to get the default branch from the remote HEAD
+  try {
+    const ref = await git(directory, 'symbolic-ref refs/remotes/origin/HEAD');
+    // Returns something like "refs/remotes/origin/main"
+    return ref.replace('refs/remotes/', '');
+  } catch {
+    // Fallback: check if origin/main exists, otherwise try origin/master
+  }
+
+  try {
+    await git(directory, 'rev-parse --verify origin/main');
+    return 'origin/main';
+  } catch {
+    // origin/main doesn't exist
+  }
+
+  try {
+    await git(directory, 'rev-parse --verify origin/master');
+    return 'origin/master';
+  } catch {
+    // No origin remote available, fall back to HEAD
+    return 'HEAD';
+  }
+}
+
+/**
  * Get the default branch from origin remote
  * Uses GitHub CLI if available, falls back to git commands
  * Results are cached per repository with a 5-minute TTL
@@ -106,26 +137,7 @@ export async function getOriginDefaultBranch(directory) {
   }
 
   if (!branch) {
-    // Try to get the default branch from the remote HEAD
-    try {
-      const ref = await git(directory, 'symbolic-ref refs/remotes/origin/HEAD');
-      // Returns something like "refs/remotes/origin/main"
-      branch = ref.replace('refs/remotes/', '');
-    } catch {
-      // Fallback: check if origin/main exists, otherwise try origin/master
-      try {
-        await git(directory, 'rev-parse --verify origin/main');
-        branch = 'origin/main';
-      } catch {
-        try {
-          await git(directory, 'rev-parse --verify origin/master');
-          branch = 'origin/master';
-        } catch {
-          // No origin remote available, fall back to HEAD
-          branch = 'HEAD';
-        }
-      }
-    }
+    branch = await detectDefaultBranchFromGit(directory);
   }
 
   // Cache the result and evict old entries if needed

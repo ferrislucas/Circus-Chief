@@ -59,10 +59,11 @@ function createFileEntry(line) {
  * Apply file-level metadata from a header line to the current file.
  * Returns true if the line was consumed as a file header, false otherwise.
  * @param {string} line
- * @param {DiffFile} file
+ * @param {DiffFile} fileInput
  * @returns {boolean}
  */
-function parseFileHeader(line, file) {
+function parseFileHeader(line, fileInput) {
+  const file = fileInput;
   if (line.startsWith('new file mode')) {
     file.isNew = true;
     return true;
@@ -153,10 +154,12 @@ function finalizeFile(file, hunk, files) {
  * Add a parsed content line to the current hunk and update line numbers/counts.
  * @param {{ type: 'addition'|'deletion'|'context', content: string }} change
  * @param {DiffHunk} hunk
- * @param {DiffFile} file
- * @param {{ oldLineNum: number, newLineNum: number }} lineNums - Mutated in place
+ * @param {DiffFile} fileInput
+ * @param {{ oldLineNum: number, newLineNum: number }} lineNumsInput - Mutated in place
  */
-function addLineToHunk(change, hunk, file, lineNums) {
+function addLineToHunk(change, hunk, fileInput, lineNumsInput) {
+  const file = fileInput;
+  const lineNums = lineNumsInput;
   if (change.type === 'addition') {
     hunk.lines.push({ ...change, oldLineNumber: null, newLineNumber: lineNums.newLineNum++ });
     file.additions++;
@@ -169,54 +172,82 @@ function addLineToHunk(change, hunk, file, lineNums) {
 }
 
 /**
+ * Process a hunk header line, pushing the previous hunk if present.
+ * Returns the new current hunk (or null if parse failed).
+ */
+function processHunkHeader(line, currentFile, currentHunk, lineNumsInput) {
+  const nums = lineNumsInput;
+  if (currentHunk) currentFile.hunks.push(currentHunk);
+  const parsed = parseHunkHeader(line);
+  if (parsed) {
+    nums.oldLineNum = parsed.oldLineNum;
+    nums.newLineNum = parsed.newLineNum;
+    return parsed.hunk;
+  }
+  return currentHunk;
+}
+
+/**
+ * Handle a new file header line (diff --git).
+ * @param {string} line
+ * @param {Object} stateInput - Parser state (mutated in place)
+ * @returns {boolean} True if handled
+ */
+function handleFileHeader(line, stateInput) {
+  const st = stateInput;
+  if (!line.startsWith('diff --git')) return false;
+  if (st.currentFile) finalizeFile(st.currentFile, st.currentHunk, st.files);
+  st.currentFile = createFileEntry(line);
+  st.currentHunk = null;
+  return true;
+}
+
+/**
+ * Handle a hunk header or content line.
+ * @param {string} line
+ * @param {Object} stateInput - Parser state (mutated in place)
+ */
+function handleHunkOrContent(line, stateInput) {
+  const st = stateInput;
+  if (!st.currentFile) return;
+  if (parseFileHeader(line, st.currentFile)) return;
+
+  if (line.startsWith('@@')) {
+    st.currentHunk = processHunkHeader(line, st.currentFile, st.currentHunk, st.lineNums);
+    return;
+  }
+
+  if (!st.currentHunk) return;
+  const change = parseLineChange(line);
+  if (change) addLineToHunk(change, st.currentHunk, st.currentFile, st.lineNums);
+}
+
+/**
  * Parse a unified diff string into structured file objects
  * @param {string} diffText - Raw git diff output
  * @returns {DiffFile[]}
  */
 export function parseDiff(diffText) {
-  if (!diffText || !diffText.trim()) {
+  if (!diffText?.trim()) {
     return [];
   }
 
-  const files = [];
+  const state = {
+    files: [],
+    currentFile: null,
+    currentHunk: null,
+    lineNums: { oldLineNum: 0, newLineNum: 0 },
+  };
+
   const lines = diffText.split('\n');
-  let currentFile = null;
-  let currentHunk = null;
-  const lineNums = { oldLineNum: 0, newLineNum: 0 };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
-    // File header: diff --git a/path b/path
-    if (line.startsWith('diff --git')) {
-      if (currentFile) finalizeFile(currentFile, currentHunk, files);
-      currentFile = createFileEntry(line);
-      currentHunk = null;
-      continue;
+  for (const line of lines) {
+    if (!handleFileHeader(line, state)) {
+      handleHunkOrContent(line, state);
     }
-
-    if (!currentFile) continue;
-    if (parseFileHeader(line, currentFile)) continue;
-
-    // Hunk header: @@ -oldStart,oldCount +newStart,newCount @@ optional context
-    if (line.startsWith('@@')) {
-      if (currentHunk) currentFile.hunks.push(currentHunk);
-      const parsed = parseHunkHeader(line);
-      if (parsed) {
-        currentHunk = parsed.hunk;
-        lineNums.oldLineNum = parsed.oldLineNum;
-        lineNums.newLineNum = parsed.newLineNum;
-      }
-      continue;
-    }
-
-    if (!currentHunk) continue;
-    const change = parseLineChange(line);
-    if (change) addLineToHunk(change, currentHunk, currentFile, lineNums);
   }
 
-  if (currentFile) finalizeFile(currentFile, currentHunk, files);
-  return files;
+  if (state.currentFile) finalizeFile(state.currentFile, state.currentHunk, state.files);
+  return state.files;
 }
 
 /**

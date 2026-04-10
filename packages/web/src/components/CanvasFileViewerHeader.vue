@@ -15,7 +15,10 @@
       >
         ← Back to list
       </button>
-      <span v-if="showBackButton" class="breadcrumb-separator">/</span>
+      <span
+        v-if="showBackButton"
+        class="breadcrumb-separator"
+      >/</span>
       <div class="viewer-filename-wrapper">
         <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
         <span class="viewer-meta">{{ formatLastModified(item.updatedAt) }}</span>
@@ -49,13 +52,19 @@
             >
               <span class="version-number">v{{ versions.length - index }}</span>
               <span class="version-time">{{ formatRelativeTime(v.createdAt) }}</span>
-              <span v-if="v.id === item.id" class="version-current">(current)</span>
+              <span
+                v-if="v.id === item.id"
+                class="version-current"
+              >(current)</span>
             </li>
           </ul>
         </details>
 
         <!-- Three-dot menu -->
-        <div class="file-menu-container" ref="menuContainerRef">
+        <div
+          ref="menuContainerRef"
+          class="file-menu-container"
+        >
           <button
             class="btn-menu"
             :aria-label="'File actions'"
@@ -71,7 +80,7 @@
               v-if="menuOpen"
               class="menu-overlay"
               @click="closeMenu"
-            ></div>
+            />
           </Transition>
 
           <Transition name="slide">
@@ -93,7 +102,10 @@
                   <span class="menu-item-text">Copy filename</span>
                 </button>
               </li>
-              <li role="none" class="menu-divider"></li>
+              <li
+                role="none"
+                class="menu-divider"
+              />
               <li role="none">
                 <button
                   :class="['menu-item', 'is-danger', { 'is-highlighted': menuHighlightedIndex === 1 }]"
