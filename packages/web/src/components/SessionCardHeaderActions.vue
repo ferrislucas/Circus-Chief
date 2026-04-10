@@ -106,9 +106,7 @@ const canArchive = computed(() => {
 });
 
 const onArchiveClick = () => {
-  if (confirm('Archive this session?')) {
-    emit('archive');
-  }
+  emit('archive');
 };
 
 const onUnarchiveClick = () => {

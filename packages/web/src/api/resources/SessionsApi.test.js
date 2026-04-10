@@ -426,12 +426,27 @@ describe('SessionsApi', () => {
   });
 
   describe('archiveSession', () => {
-    it('sends POST to /sessions/:id/archive', async () => {
+    it('sends POST to /sessions/:id/archive with cleanup: false by default', async () => {
       mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', archived: true }));
 
       const result = await client.archiveSession('sess-123');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/archive', expect.objectContaining({ method: 'POST' }));
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/archive', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ cleanup: false }),
+      }));
+      expect(result.archived).toBe(true);
+    });
+
+    it('sends POST with cleanup: true when option is provided', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', archived: true }));
+
+      const result = await client.archiveSession('sess-123', { cleanup: true });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/archive', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ cleanup: true }),
+      }));
       expect(result.archived).toBe(true);
     });
   });
