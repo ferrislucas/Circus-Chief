@@ -1,34 +1,36 @@
 <template>
-  <div v-if="isOpen" class="modal-backdrop" @click.self="cancel">
-    <div class="modal-content" role="dialog" aria-labelledby="archive-modal-title">
-      <div class="modal-header">
-        <h2 id="archive-modal-title" class="modal-title">Archive Session</h2>
-        <button @click="cancel" class="close-btn" aria-label="Close modal">&times;</button>
-      </div>
+  <Teleport to="body">
+    <div v-if="isOpen" class="modal-backdrop" @click.self="cancel">
+      <div class="modal-content" role="dialog" aria-labelledby="archive-modal-title">
+        <div class="modal-header">
+          <h2 id="archive-modal-title" class="modal-title">Archive Session</h2>
+          <button @click="cancel" class="close-btn" aria-label="Close modal">&times;</button>
+        </div>
 
-      <div class="modal-body">
-        <p class="confirm-message">
-          Are you sure you want to archive <strong>{{ sessionName }}</strong>?
-        </p>
+        <div class="modal-body">
+          <p class="confirm-message">
+            Are you sure you want to archive <strong>{{ sessionName }}</strong>?
+          </p>
 
-        <div v-if="hasWorktree" class="cleanup-option">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              v-model="cleanupWorktree"
-              aria-label="Clean up git worktree"
-            />
-            <span>Clean up git worktree</span>
-          </label>
+          <div v-if="hasWorktree" class="cleanup-option">
+            <label class="checkbox-label">
+              <input
+                type="checkbox"
+                v-model="cleanupWorktree"
+                aria-label="Clean up git worktree"
+              />
+              <span>Clean up git worktree</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button @click="cancel" class="btn btn-secondary">Cancel</button>
+          <button @click="handleConfirm" class="btn btn-primary">Archive</button>
         </div>
       </div>
-
-      <div class="modal-footer">
-        <button @click="cancel" class="btn btn-secondary">Cancel</button>
-        <button @click="handleConfirm" class="btn btn-primary">Archive</button>
-      </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup>
