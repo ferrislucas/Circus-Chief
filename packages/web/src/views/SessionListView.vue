@@ -214,6 +214,15 @@
         </div>
       </div>
     </div>
+
+    <!-- Archive Confirm Modal -->
+    <ArchiveConfirmModal
+      :is-open="showArchiveModal"
+      :session-name="sessionToArchive?.name || 'this session'"
+      :has-worktree="!!(sessionToArchive?.gitWorktree && !sessionToArchive?.parentSessionId)"
+      @confirm="confirmArchive"
+      @cancel="cancelArchive"
+    />
   </div>
 </template>
 
@@ -236,6 +245,7 @@ import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 import KanbanBoard from '../components/KanbanBoard.vue';
 import AddSessionToLaneModal from '../components/AddSessionToLaneModal.vue';
+import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import './SessionListView.css';
 
 const route = useRoute();
@@ -362,12 +372,31 @@ async function fetchScheduledSessions() {
   await sessionsStore.fetchScheduledSessions(projectId.value);
 }
 
-async function handleArchive(sessionId) {
+// Archive modal state
+const showArchiveModal = ref(false);
+const sessionToArchive = ref(null);
+
+function handleArchive(sessionId) {
+  const session = sessionsStore.sessions.find(s => s.id === sessionId);
+  sessionToArchive.value = session || { id: sessionId };
+  showArchiveModal.value = true;
+}
+
+async function confirmArchive(cleanupWorktree) {
+  if (!sessionToArchive.value) return;
   try {
-    await sessionsStore.archiveSession(sessionId);
+    await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: cleanupWorktree });
   } catch (error) {
     console.error('Failed to archive session:', error);
+  } finally {
+    showArchiveModal.value = false;
+    sessionToArchive.value = null;
   }
+}
+
+function cancelArchive() {
+  showArchiveModal.value = false;
+  sessionToArchive.value = null;
 }
 
 async function handleUnarchive(sessionId) {

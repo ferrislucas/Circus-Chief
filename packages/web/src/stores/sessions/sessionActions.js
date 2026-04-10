@@ -183,10 +183,10 @@ export const sessionActions = {
     } catch (err) { this.error = err.message; throw err; }
   },
 
-  async archiveSession(id) {
+  async archiveSession(id, { cleanup = false } = {}) {
     this.error = null;
     try {
-      const updated = await api.archiveSession(id);
+      const updated = await api.archiveSession(id, { cleanup });
       this.sessions = this.sessions.filter((s) => s.id !== id);
       this.archivedSessions.unshift(updated);
       this.activeSessions = this.activeSessions.filter((s) => s.id !== id);
