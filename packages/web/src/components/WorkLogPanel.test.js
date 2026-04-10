@@ -21,14 +21,14 @@ async function flushAll(wrapper) {
 // Stub child components - use defineComponent for better compatibility
 const ThinkingBlockStub = defineComponent({
   name: 'ThinkingBlock',
-  template: '<div class="thinking-block-stub">{{ content }}</div>',
   props: ['content', 'timestamp', 'streaming'],
+  template: '<div class="thinking-block-stub">{{ content }}</div>',
 });
 
 const CommandBlockStub = defineComponent({
   name: 'CommandBlock',
-  template: '<div class="command-block-stub">{{ log.content }}</div>',
   props: ['log'],
+  template: '<div class="command-block-stub">{{ log.content }}</div>',
 });
 
 describe('WorkLogPanel', () => {

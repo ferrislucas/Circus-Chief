@@ -1,20 +1,39 @@
 <template>
-  <div v-if="summary" class="session-summary">
-    <p class="summary-text">{{ summary.shortSummary }}</p>
+  <div
+    v-if="summary"
+    class="session-summary"
+  >
+    <p class="summary-text">
+      {{ summary.shortSummary }}
+    </p>
     <div class="summary-meta">
-      <span v-if="filesCount > 0" class="summary-files">
+      <span
+        v-if="filesCount > 0"
+        class="summary-files"
+      >
         {{ filesCount }} {{ filesCount === 1 ? 'file' : 'files' }} modified
       </span>
     </div>
   </div>
-  <div v-else-if="summaryLoading" class="session-summary session-summary-loading">
-    <span class="loading-spinner-small"></span>
+  <div
+    v-else-if="summaryLoading"
+    class="session-summary session-summary-loading"
+  >
+    <span class="loading-spinner-small" />
     <span>Loading summary...</span>
   </div>
-  <div v-else-if="summaryError" class="session-summary session-summary-error">
+  <div
+    v-else-if="summaryError"
+    class="session-summary session-summary-error"
+  >
     <span class="error-icon">!</span>
     <span>Summary unavailable</span>
-    <button class="retry-btn" @click.prevent="$emit('retrySummary')">Retry</button>
+    <button
+      class="retry-btn"
+      @click.prevent="$emit('retrySummary')"
+    >
+      Retry
+    </button>
   </div>
 </template>
 

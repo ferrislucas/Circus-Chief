@@ -3,57 +3,99 @@
     <!-- Manual input with browse button -->
     <div class="path-input-group">
       <input
-        type="text"
         v-model="inputValue"
+        type="text"
         class="form-input"
         placeholder="/path/to/project"
         @input="emitUpdate"
-      />
-      <button type="button" @click="openBrowser" class="btn">Browse</button>
+      >
+      <button
+        type="button"
+        class="btn"
+        @click="openBrowser"
+      >
+        Browse
+      </button>
     </div>
 
     <!-- Directory browser modal overlay -->
-    <div v-if="showBrowser" class="path-browser-overlay" @click.self="closeBrowser">
+    <div
+      v-if="showBrowser"
+      class="path-browser-overlay"
+      @click.self="closeBrowser"
+    >
       <div class="path-browser">
         <div class="browser-header">
           <span class="browser-path">{{ currentBrowsePath }}</span>
-          <button type="button" @click="closeBrowser" class="browser-close">&times;</button>
+          <button
+            type="button"
+            class="browser-close"
+            @click="closeBrowser"
+          >
+            &times;
+          </button>
         </div>
         <div class="browser-content">
           <div
             v-if="parentPath"
-            @click="navigateTo(parentPath)"
             class="browser-item parent"
+            @click="navigateTo(parentPath)"
           >
             <span class="browser-item-icon">&larr;</span>
             Parent Directory
           </div>
-          <div v-if="loading" class="browser-loading">
-            <span class="loading-spinner"></span>
+          <div
+            v-if="loading"
+            class="browser-loading"
+          >
+            <span class="loading-spinner" />
             Loading...
           </div>
-          <div v-else-if="browseError" class="browser-error">{{ browseError }}</div>
+          <div
+            v-else-if="browseError"
+            class="browser-error"
+          >
+            {{ browseError }}
+          </div>
           <template v-else>
             <div
               v-for="entry in entries"
               :key="entry.name"
-              @click="navigateTo(joinPath(currentBrowsePath, entry.name))"
               class="browser-item"
+              @click="navigateTo(joinPath(currentBrowsePath, entry.name))"
             >
               <span class="browser-item-icon">&#128193;</span>
               {{ entry.name }}
             </div>
-            <div v-if="entries.length === 0 && !parentPath" class="browser-empty">
+            <div
+              v-if="entries.length === 0 && !parentPath"
+              class="browser-empty"
+            >
               No subdirectories
             </div>
-            <div v-else-if="entries.length === 0" class="browser-empty">
+            <div
+              v-else-if="entries.length === 0"
+              class="browser-empty"
+            >
               No subdirectories in this folder
             </div>
           </template>
         </div>
         <div class="browser-footer">
-          <button type="button" @click="closeBrowser" class="btn">Cancel</button>
-          <button type="button" @click="selectPath" class="btn btn-primary">Select</button>
+          <button
+            type="button"
+            class="btn"
+            @click="closeBrowser"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            @click="selectPath"
+          >
+            Select
+          </button>
         </div>
       </div>
     </div>
@@ -140,9 +182,9 @@ function selectPath() {
 // Helper to join paths
 function joinPath(base, name) {
   if (base === '/') {
-    return '/' + name;
+    return `/${  name}`;
   }
-  return base + '/' + name;
+  return `${base  }/${  name}`;
 }
 </script>
 

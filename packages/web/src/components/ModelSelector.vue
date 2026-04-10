@@ -1,14 +1,26 @@
 <template>
-  <div class="model-selector" :data-model="effectiveSelectedModel">
+  <div
+    class="model-selector"
+    :data-model="effectiveSelectedModel"
+  >
     <select
       id="model-select"
       :value="effectiveSelectedModel"
-      @change="handleModelChange($event.target.value)"
       :disabled="disabled"
       :class="selectClass || 'model-select'"
+      @change="handleModelChange($event.target.value)"
     >
-      <option v-if="allowEmpty" value="">{{ emptyLabel }}</option>
-      <optgroup v-for="provider in providersStore.providers" :key="provider.id" :label="provider.name">
+      <option
+        v-if="allowEmpty"
+        value=""
+      >
+        {{ emptyLabel }}
+      </option>
+      <optgroup
+        v-for="provider in providersStore.providers"
+        :key="provider.id"
+        :label="provider.name"
+      >
         <option
           v-for="model in provider.models"
           :key="model.id"
@@ -55,10 +67,8 @@ const providersStore = useProvidersStore();
 
 // Check if providers have models loaded
 // Providers may have been fetched without models (e.g., from ProvidersView)
-const providersHaveModels = computed(() => {
-  return providersStore.providers.length > 0 &&
-    providersStore.providers.some(p => p.models && p.models.length > 0);
-});
+const providersHaveModels = computed(() => providersStore.providers.length > 0 &&
+    providersStore.providers.some(p => p.models && p.models.length > 0));
 
 // Get all valid model IDs from all providers
 const validModelIds = computed(() => {

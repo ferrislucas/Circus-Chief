@@ -5,7 +5,6 @@ import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsReque
 import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
 import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
-import { isGitRepo } from '../services/gitService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
@@ -18,6 +17,10 @@ import {
   buildSchedulingUpdate,
   setupAndStartSession,
 } from './projects-session-helpers.js';
+import { validateGitSettings, buildRunsBySession } from './projects-helpers.js';
+
+// Error message constants
+const ERR_PROJECT_NOT_FOUND = 'Project not found';
 
 const router = Router();
 
@@ -46,7 +49,7 @@ router.post('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
   res.json(project);
 });
@@ -55,7 +58,7 @@ router.get('/:id', (req, res) => {
 router.put('/:id', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const result = UpdateProjectRequest.safeParse(req.body);
@@ -71,7 +74,7 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   projects.delete(req.params.id);
@@ -86,7 +89,7 @@ router.delete('/:id', (req, res) => {
 router.get('/:id/sessions', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   // Parse archived query param: undefined = all, 'true' = archived only, 'false' = non-archived only
@@ -119,45 +122,11 @@ router.get('/:id/sessions', (req, res) => {
     });
   }
 
-  // Get completed runs from DATABASE (latest run per button per session)
-  const dbRuns = commandRuns.getLatestRunsForProject(req.params.id);
-
-  // Get currently RUNNING commands from MEMORY
-  // (These may not yet be persisted to DB or are in 'running' state)
-  const runningRuns = commandRunner.getRunningByProjectId(req.params.id, (sessionId) => sessions.getById(sessionId));
-
-  // Build index: sessionId -> { buttonId -> run }
-  // Running commands take precedence over completed ones (more current state)
-  const runsBySession = {};
-
-  // First add DB runs (completed)
-  for (const run of dbRuns) {
-    if (!runsBySession[run.sessionId]) {
-      runsBySession[run.sessionId] = {};
-    }
-    runsBySession[run.sessionId][run.buttonId] = {
-      buttonId: run.buttonId,
-      status: run.status,
-      exitCode: run.exitCode,
-      runId: run.id,
-      startedAt: run.startedAt,
-      completedAt: run.completedAt,
-    };
-  }
-
-  // Then overlay running commands (takes precedence - they're more current)
-  for (const run of runningRuns) {
-    if (!runsBySession[run.sessionId]) {
-      runsBySession[run.sessionId] = {};
-    }
-    runsBySession[run.sessionId][run.buttonId] = {
-      buttonId: run.buttonId,
-      status: 'running',
-      exitCode: null,
-      runId: run.runId,
-      startedAt: run.startedAt,
-    };
-  }
+  // Build merged index of latest command runs per session
+  const runsBySession = buildRunsBySession(
+    commandRuns.getLatestRunsForProject(req.params.id),
+    commandRunner.getRunningByProjectId(req.params.id, (sessionId) => sessions.getById(sessionId))
+  );
 
   // Attach latestCommandRuns to each session as array
   const sessionsWithRuns = projectSessions.map(session => ({
@@ -187,7 +156,7 @@ router.get('/:id/sessions', (req, res) => {
 router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const projectDefs = projectDefaults.getByProjectId(req.params.id);
@@ -210,13 +179,9 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
   const initialStatus = determineInitialStatus(config);
 
   // Validate git settings for git repos
-  if (!config.gitMode || !config.gitBranch) {
-    const isGit = await isGitRepo(project.workingDirectory);
-    if (isGit) {
-      return res.status(400).json({
-        error: 'Git projects require both gitMode and gitBranch. Set project defaults or provide them per-session.'
-      });
-    }
+  const gitError = await validateGitSettings(config, project);
+  if (gitError) {
+    return res.status(400).json({ error: gitError });
   }
 
   const sessionName = config.name || generateInitialName(config.prompt);
@@ -230,13 +195,13 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     effortLevel: config.effortLevel,
   });
 
-  if (nextTemplateId) {
-    sessions.update(session.id, { nextTemplateId });
-  }
-
-  const schedulingUpdate = buildSchedulingUpdate(config, initialStatus);
-  if (Object.keys(schedulingUpdate).length > 0) {
-    sessions.update(session.id, schedulingUpdate);
+  // Apply optional post-create updates (next template + scheduling) in one pass
+  const postCreateUpdate = {
+    ...(nextTemplateId ? { nextTemplateId } : {}),
+    ...buildSchedulingUpdate(config, initialStatus),
+  };
+  if (Object.keys(postCreateUpdate).length > 0) {
+    sessions.update(session.id, postCreateUpdate);
   }
 
   // Setup git environment, start session, and broadcast
@@ -263,7 +228,7 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
 router.get('/:id/templates', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const available = sessionTemplates.getAvailableForProject(req.params.id);
@@ -274,7 +239,7 @@ router.get('/:id/templates', (req, res) => {
 router.post('/:id/templates', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const result = CreateSessionTemplateRequest.safeParse(req.body);
@@ -293,7 +258,7 @@ router.post('/:id/templates', (req, res) => {
 router.get('/:id/command-buttons', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const buttons = commandButtons.getByProjectId(req.params.id);
@@ -304,7 +269,7 @@ router.get('/:id/command-buttons', (req, res) => {
 router.post('/:id/command-buttons', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const result = CreateCommandButtonRequest.safeParse(req.body);
@@ -327,7 +292,7 @@ router.post('/:id/command-buttons', (req, res) => {
 router.get('/:id/command-buttons/:buttonId', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const button = commandButtons.getById(req.params.buttonId);
@@ -341,7 +306,7 @@ router.get('/:id/command-buttons/:buttonId', (req, res) => {
 router.patch('/:id/command-buttons/:buttonId', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const button = commandButtons.getById(req.params.buttonId);
@@ -362,7 +327,7 @@ router.patch('/:id/command-buttons/:buttonId', (req, res) => {
 router.delete('/:id/command-buttons/:buttonId', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const button = commandButtons.getById(req.params.buttonId);
@@ -378,7 +343,7 @@ router.delete('/:id/command-buttons/:buttonId', (req, res) => {
 router.get('/:id/session-defaults', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const defaults = projectDefaults.getByProjectId(req.params.id);
@@ -393,7 +358,7 @@ router.get('/:id/session-defaults', (req, res) => {
 router.post('/:id/session-defaults', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   const result = ProjectSessionDefaultsRequest.safeParse(req.body);
@@ -409,7 +374,7 @@ router.post('/:id/session-defaults', (req, res) => {
 router.delete('/:id/session-defaults', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
-    return res.status(404).json({ error: 'Project not found' });
+    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
   projectDefaults.resetToDefaults(req.params.id);

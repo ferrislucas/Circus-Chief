@@ -25,7 +25,7 @@ export class CanvasItemRepository extends BaseRepository {
       sessionId: row.session_id,
       type: row.type,
       content: row.content,
-      data: data,
+      data,
       mimeType: row.mime_type,
       filename: row.filename,
       width: row.width,

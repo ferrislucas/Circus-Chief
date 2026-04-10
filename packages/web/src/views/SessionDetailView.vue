@@ -1,16 +1,22 @@
 <template>
   <div class="container session-detail">
-    <div v-if="sessionsStore.loading" class="loading-state">
-      <span class="loading-spinner"></span>
+    <div
+      v-if="sessionsStore.loading"
+      class="loading-state"
+    >
+      <span class="loading-spinner" />
       Loading session...
     </div>
 
     <template v-else-if="sessionsStore.currentSession">
       <!-- Delete overlay -->
       <Transition name="fade">
-        <div v-if="isDeleting" class="delete-overlay">
+        <div
+          v-if="isDeleting"
+          class="delete-overlay"
+        >
           <div class="delete-overlay-content">
-            <span class="delete-spinner"></span>
+            <span class="delete-spinner" />
             <span>Deleting session...</span>
           </div>
         </div>
@@ -29,7 +35,7 @@
         :is-deleting="isDeleting"
         :button-statuses="buttonStatusesToDisplay"
         @duplicate="handleDuplicate"
-        @copySessionId="handleCopySessionId"
+        @copy-session-id="handleCopySessionId"
         @archive="handleArchive"
         @delete="handleDelete"
         @star="handleStar"
@@ -47,10 +53,28 @@
       <div class="tab-content">
         <!-- CRITICAL: :key ensures components remount when navigating between sessions,
              preventing stale WebSocket handlers from capturing the wrong sessionId -->
-        <SummaryTab v-if="activeTab === 'summary'" :key="route.params.id" :session-id="route.params.id" />
-        <ChangesTab v-else-if="activeTab === 'changes'" :key="route.params.id" :session-id="route.params.id" @update:file-count="changesFileCount = $event" />
-        <CanvasTab v-else-if="activeTab === 'canvas'" :key="route.params.id" :session-id="route.params.id" />
-        <CommandsTab v-else-if="activeTab === 'commands'" :key="route.params.id" :session-id="route.params.id" :project-id="sessionsStore.currentSession?.projectId" />
+        <SummaryTab
+          v-if="activeTab === 'summary'"
+          :key="route.params.id"
+          :session-id="route.params.id"
+        />
+        <ChangesTab
+          v-else-if="activeTab === 'changes'"
+          :key="route.params.id"
+          :session-id="route.params.id"
+          @update:file-count="changesFileCount = $event"
+        />
+        <CanvasTab
+          v-else-if="activeTab === 'canvas'"
+          :key="route.params.id"
+          :session-id="route.params.id"
+        />
+        <CommandsTab
+          v-else-if="activeTab === 'commands'"
+          :key="route.params.id"
+          :session-id="route.params.id"
+          :project-id="sessionsStore.currentSession?.projectId"
+        />
       </div>
 
       <!-- Session Chat Handle -->
@@ -181,7 +205,7 @@ async function mergeProjectSessionsToStore(projectId) {
  * @returns {{ root: object|null, earlyReturn: object[]|null }}
  */
 function findRootSession(sessionId) {
-  let root = sessionsStore.getRootSession(sessionId);
+  const root = sessionsStore.getRootSession(sessionId);
   if (root) return { root, earlyReturn: null };
 
   const current = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
@@ -234,7 +258,7 @@ async function buildSessionChain() {
   for (const entry of tree) {
     if (!summariesMap.value[entry.session.id]) {
       api.getSessionSummary(entry.session.id)
-        .then(summary => { if (summary) summariesMap.value = { ...summariesMap.value, [entry.session.id]: summary }; })
+        .then(fetchedSummary => { if (fetchedSummary) summariesMap.value = { ...summariesMap.value, [entry.session.id]: fetchedSummary }; })
         .catch(() => { /* Summaries are not critical */ });
     }
   }
@@ -373,10 +397,10 @@ const { cleanup, initializeSession } = useSessionInitializer({
 const activeTab = computed(() => route.params.tab || 'summary');
 
 // Get the session hierarchy path (for breadcrumbs)
-const sessionPath = computed(() => {
+const sessionPath = computed(() => 
   // Use route.params.id directly to be reactive to route changes
-  return sessionsStore.getSessionPath(route.params.id);
-});
+   sessionsStore.getSessionPath(route.params.id)
+);
 
 // Command button status indicators for real-time updates (mirrors SessionCard behavior)
 const buttonStatusesToDisplay = computed(() => {

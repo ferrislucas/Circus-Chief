@@ -1,7 +1,10 @@
 <template>
   <div class="table-wrapper">
-    <div v-if="loading" class="loading-overlay">
-      <div class="spinner"></div>
+    <div
+      v-if="loading"
+      class="loading-overlay"
+    >
+      <div class="spinner" />
     </div>
 
     <table class="log-table">
@@ -14,7 +17,10 @@
             @click="col.sortable ? $emit('sort', col.key) : null"
           >
             {{ col.label }}
-            <span v-if="col.sortable && sortBy === col.key" class="sort-indicator">
+            <span
+              v-if="col.sortable && sortBy === col.key"
+              class="sort-indicator"
+            >
               {{ sortOrder === 'ASC' ? '\u2191' : '\u2193' }}
             </span>
           </th>
@@ -22,7 +28,12 @@
       </thead>
       <tbody>
         <tr v-if="!loading && logs.length === 0">
-          <td :colspan="columns.length" class="empty-cell">No agent call logs found.</td>
+          <td
+            :colspan="columns.length"
+            class="empty-cell"
+          >
+            No agent call logs found.
+          </td>
         </tr>
         <tr
           v-for="log in logs"
@@ -30,12 +41,21 @@
           class="log-row"
         >
           <td class="td">
-            <span class="status-dot" :class="statusDotClass(log.status)"></span>
+            <span
+              class="status-dot"
+              :class="statusDotClass(log.status)"
+            />
             <span class="status-text">{{ log.status }}</span>
           </td>
-          <td class="td font-mono text-sm">{{ log.agentType || '\u2014' }}</td>
-          <td class="td font-mono text-sm">{{ log.callType || '\u2014' }}</td>
-          <td class="td model-cell">{{ log.model || '\u2014' }}</td>
+          <td class="td font-mono text-sm">
+            {{ log.agentType || '\u2014' }}
+          </td>
+          <td class="td font-mono text-sm">
+            {{ log.callType || '\u2014' }}
+          </td>
+          <td class="td model-cell">
+            {{ log.model || '\u2014' }}
+          </td>
           <td class="td">
             <router-link
               v-if="log.sessionId"
@@ -47,16 +67,27 @@
             <span v-else>&#x2014;</span>
           </td>
           <td class="td">
-            <span v-if="getEffortLevel(log)" :class="['effort-badge', `effort-${getEffortLevel(log)}`]">
+            <span
+              v-if="getEffortLevel(log)"
+              :class="['effort-badge', `effort-${getEffortLevel(log)}`]"
+            >
               {{ getEffortLevelLabel(getEffortLevel(log)) }}
             </span>
             <span v-else>&#x2014;</span>
           </td>
-          <td class="td text-right" :title="tokenTooltip(log)">
+          <td
+            class="td text-right"
+            :title="tokenTooltip(log)"
+          >
             {{ formatNumber(log.totalTokens) }}
           </td>
-          <td class="td text-right">{{ formatDuration(log.durationMs) }}</td>
-          <td class="td text-right" :title="log.startedAt ? new Date(log.startedAt).toLocaleString() : ''">
+          <td class="td text-right">
+            {{ formatDuration(log.durationMs) }}
+          </td>
+          <td
+            class="td text-right"
+            :title="log.startedAt ? new Date(log.startedAt).toLocaleString() : ''"
+          >
             {{ log.startedAt ? relativeTime(log.startedAt) : '\u2014' }}
           </td>
         </tr>

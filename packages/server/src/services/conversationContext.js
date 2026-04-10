@@ -11,7 +11,7 @@ export function formatConversationHistory(messageArray) {
     const role = msg.role === 'user' ? 'User' : 'Assistant';
     // Truncate very long messages to avoid context overflow
     const content = msg.content.length > 10000
-      ? msg.content.substring(0, 10000) + '\n[... message truncated ...]'
+      ? `${msg.content.substring(0, 10000)  }\n[... message truncated ...]`
       : msg.content;
     return `${role}: ${content}`;
   }).join('\n\n');

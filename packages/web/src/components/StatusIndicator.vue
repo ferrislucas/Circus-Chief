@@ -39,13 +39,9 @@ const statusIcons = {
 const statusText = computed(() => statusTexts[props.status]);
 const statusIcon = computed(() => statusIcons[props.status]);
 
-const isAnimated = computed(() => {
-  return props.status === 'running' || props.status === 'starting';
-});
+const isAnimated = computed(() => props.status === 'running' || props.status === 'starting');
 
-const ariaLabel = computed(() => {
-  return `Session is ${statusText.value.toLowerCase()}`;
-});
+const ariaLabel = computed(() => `Session is ${statusText.value.toLowerCase()}`);
 </script>
 
 <style scoped>

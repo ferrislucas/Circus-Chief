@@ -1,5 +1,8 @@
 <template>
-  <div v-if="gitStatus?.isGitRepo" class="form-group">
+  <div
+    v-if="gitStatus?.isGitRepo"
+    class="form-group"
+  >
     <label class="form-label">Git Options</label>
     <div class="segmented-control">
       <button
@@ -30,7 +33,10 @@
     </div>
 
     <!-- Branch name input (shown for branch or worktree) -->
-    <div v-if="modelValue" class="branch-input-row">
+    <div
+      v-if="modelValue"
+      class="branch-input-row"
+    >
       <label class="form-label form-label-small">Branch Name</label>
       <div class="quick-branch-input">
         <input
@@ -40,7 +46,7 @@
           :placeholder="autoBranchName"
           @input="$emit('update:branchName', $event.target.value)"
           @focus="$emit('branchEdit')"
-        />
+        >
         <button
           v-if="editingBranch"
           type="button"
@@ -50,14 +56,24 @@
           Reset
         </button>
       </div>
-      <p class="form-help">Auto-generated from prompt</p>
+      <p class="form-help">
+        Auto-generated from prompt
+      </p>
     </div>
 
-    <p v-if="modelValue === ''" class="current-branch-hint">On: {{ gitStatus.currentBranch }}</p>
+    <p
+      v-if="modelValue === ''"
+      class="current-branch-hint"
+    >
+      On: {{ gitStatus.currentBranch }}
+    </p>
   </div>
 
-  <div v-if="loadingGit" class="git-loading">
-    <span class="loading-spinner"></span>
+  <div
+    v-if="loadingGit"
+    class="git-loading"
+  >
+    <span class="loading-spinner" />
     Loading git info...
   </div>
 </template>

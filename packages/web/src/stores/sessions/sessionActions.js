@@ -2,11 +2,12 @@ import { api } from '../../composables/useApi.js';
 
 /**
  * Update a session in a list, or add it if not found.
- * @param {Array} list - The list to update
+ * @param {Array} listInput - The list to update
  * @param {Object} sessionData - The session data
  * @param {boolean} addIfMissing - Whether to add the session if not found
  */
-function updateSessionInList(list, sessionData, addIfMissing = false) {
+function updateSessionInList(listInput, sessionData, addIfMissing = false) {
+  const list = listInput;
   const index = list.findIndex((s) => s.id === sessionData.id);
   if (index !== -1) {
     list[index] = { ...list[index], ...sessionData };
@@ -21,11 +22,41 @@ function updateSessionInList(list, sessionData, addIfMissing = false) {
  * @param {Array} targetList - The list to add to
  * @param {Object} sessionData - The session data
  */
+/**
+ * Fetch child sessions for a given parent and merge them into the sessions list.
+ */
+async function fetchChildSessions(sessionsList, projectId, parentId) {
+  try {
+    const projectSessions = await api.getProjectSessions(projectId);
+    const childSessions = projectSessions.filter(s => s.parentSessionId === parentId);
+    const newChildren = childSessions.filter(child => !sessionsList.find(s => s.id === child.id));
+    sessionsList.push(...newChildren);
+  } catch (error) { console.error('Failed to fetch child sessions:', error); }
+}
+
 function moveSessionBetweenLists(sourceList, targetList, sessionData) {
   const existingSession = sourceList.find((s) => s.id === sessionData.id);
   const merged = existingSession ? { ...existingSession, ...sessionData } : sessionData;
   updateSessionInList(targetList, merged, true);
   return sourceList.filter((s) => s.id !== sessionData.id);
+}
+
+/**
+ * Fetch ancestor sessions that are not already in the sessions array.
+ * @param {Array} sessions - The current sessions array
+ * @param {string|null} startParentId - The first parentSessionId to follow
+ */
+async function fetchAncestorSessions(sessions, startParentId) {
+  let parentId = startParentId;
+  while (parentId) {
+    const existingParent = sessions.find((s) => s.id === parentId);
+    if (existingParent) { parentId = existingParent.parentSessionId; continue; }
+    try {
+      const parentSession = await api.getSession(parentId);
+      sessions.push(parentSession);
+      parentId = parentSession.parentSessionId;
+    } catch (error) { console.error('Failed to fetch parent session:', error); break; }
+  }
 }
 
 /**
@@ -110,24 +141,10 @@ export const sessionActions = {
         this.sessions.push(fetchedSession);
       }
       if (this.currentSession?.parentSessionId) {
-        let parentId = this.currentSession.parentSessionId;
-        while (parentId) {
-          const existingParent = this.sessions.find((s) => s.id === parentId);
-          if (existingParent) { parentId = existingParent.parentSessionId; continue; }
-          try {
-            const parentSession = await api.getSession(parentId);
-            this.sessions.push(parentSession);
-            parentId = parentSession.parentSessionId;
-          } catch (error) { console.error('Failed to fetch parent session:', error); break; }
-        }
+        await fetchAncestorSessions(this.sessions, this.currentSession.parentSessionId);
       }
       if (this.currentSession?.projectId) {
-        try {
-          const projectSessions = await api.getProjectSessions(this.currentSession.projectId);
-          const childSessions = projectSessions.filter(s => s.parentSessionId === id);
-          const newChildren = childSessions.filter(child => !this.sessions.find(s => s.id === child.id));
-          this.sessions.push(...newChildren);
-        } catch (error) { console.error('Failed to fetch child sessions:', error); }
+        await fetchChildSessions(this.sessions, this.currentSession.projectId, id);
       }
     } catch (err) { this.error = err.message; }
     finally { if (showLoading) this.loading = false; }

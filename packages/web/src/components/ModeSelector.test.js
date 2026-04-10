@@ -26,15 +26,13 @@ describe('ModeSelector', () => {
     setActivePinia(createPinia());
   });
 
-  const mountComponent = (props = {}, attrs = {}) => {
-    return mount(ModeSelector, {
+  const mountComponent = (props = {}, attrs = {}) => mount(ModeSelector, {
       props: {
         modelValue: 'yolo',
         ...props,
       },
       attrs,
     });
-  };
 
   describe('rendering', () => {
     it('renders a select dropdown', () => {

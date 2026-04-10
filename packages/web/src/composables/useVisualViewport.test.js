@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ref } from 'vue';
+import { ref, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
-import { nextTick } from 'vue';
 import { useVisualViewport } from './useVisualViewport.js';
 
 /**
@@ -23,9 +22,7 @@ describe('useVisualViewport', () => {
     originalVisualViewport = window.visualViewport;
 
     // Mock requestAnimationFrame and cancelAnimationFrame
-    rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
-      return setTimeout(cb, 0);
-    });
+    rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => setTimeout(cb, 0));
 
     cancelRafSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
       clearTimeout(id);

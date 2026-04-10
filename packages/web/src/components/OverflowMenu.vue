@@ -1,5 +1,8 @@
 <template>
-  <div class="overflow-menu-container" ref="containerRef">
+  <div
+    ref="containerRef"
+    class="overflow-menu-container"
+  >
     <button
       class="btn-kebab"
       :aria-label="ariaLabel"
@@ -15,7 +18,7 @@
         v-if="isOpen"
         class="menu-overlay"
         @click="handleOutsideClick"
-      ></div>
+      />
     </Transition>
 
     <Transition name="slide">
@@ -40,11 +43,18 @@
             @mouseenter="!isDeleting && (highlightedIndex = index)"
             @mouseleave="highlightedIndex = null"
           >
-            <span v-if="item.icon" class="menu-item-icon">{{ item.icon }}</span>
+            <span
+              v-if="item.icon"
+              class="menu-item-icon"
+            >{{ item.icon }}</span>
             <span class="menu-item-text">{{ item.text }}</span>
           </button>
         </li>
-        <li v-if="showDivider" role="none" class="menu-divider"></li>
+        <li
+          v-if="showDivider"
+          role="none"
+          class="menu-divider"
+        />
         <li role="none">
           <button
             :class="['menu-item', 'is-danger', { 'is-highlighted': highlightedIndex === items.length, 'is-disabled': isDeleting }]"
@@ -54,8 +64,14 @@
             @mouseenter="!isDeleting && (highlightedIndex = items.length)"
             @mouseleave="highlightedIndex = null"
           >
-            <span v-if="isDeleting" class="menu-item-spinner"></span>
-            <span v-else class="menu-item-icon">🗑</span>
+            <span
+              v-if="isDeleting"
+              class="menu-item-spinner"
+            />
+            <span
+              v-else
+              class="menu-item-icon"
+            >🗑</span>
             <span class="menu-item-text">{{ isDeleting ? 'Deleting...' : deleteText }}</span>
           </button>
         </li>

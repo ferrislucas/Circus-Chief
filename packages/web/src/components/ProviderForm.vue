@@ -1,9 +1,20 @@
 <template>
-  <div v-if="isOpen" class="modal-overlay" @click.self="close">
+  <div
+    v-if="isOpen"
+    class="modal-overlay"
+    @click.self="close"
+  >
     <div class="modal">
       <div class="modal-header">
         <h2>{{ isEditing ? 'Edit Provider' : 'Add Provider' }}</h2>
-        <button type="button" class="close-btn" @click="close" title="Close">×</button>
+        <button
+          type="button"
+          class="close-btn"
+          title="Close"
+          @click="close"
+        >
+          ×
+        </button>
       </div>
 
       <div class="modal-body">
@@ -17,7 +28,7 @@
               placeholder="e.g., AWS Bedrock"
               required
               maxlength="100"
-            />
+            >
           </div>
 
           <div class="form-group">
@@ -30,7 +41,7 @@
               v-model="form.baseUrl"
               type="url"
               placeholder="https://bedrock-runtime.us-east-1.amazonaws.com"
-            />
+            >
           </div>
 
           <div class="form-group">
@@ -45,12 +56,12 @@
                 :type="showAuthToken ? 'text' : 'password'"
                 placeholder="Your authentication token"
                 @input="authTokenModified = true"
-              />
+              >
               <button
                 type="button"
                 class="toggle-visibility-btn"
-                @click="showAuthToken = !showAuthToken"
                 :title="showAuthToken ? 'Hide' : 'Show'"
+                @click="showAuthToken = !showAuthToken"
               >
                 {{ showAuthToken ? 'Hide' : 'Show' }}
               </button>
@@ -65,7 +76,9 @@
 
           <!-- Advanced Settings Section -->
           <details class="expandable-section">
-            <summary class="section-header">Advanced Settings</summary>
+            <summary class="section-header">
+              Advanced Settings
+            </summary>
             <div class="section-content">
               <div class="form-group">
                 <label for="api-timeout">API Timeout (ms)</label>
@@ -76,7 +89,7 @@
                   placeholder="120000"
                   min="1000"
                   step="1000"
-                />
+                >
               </div>
 
               <div class="form-group">
@@ -93,23 +106,27 @@
                       placeholder="KEY"
                       class="env-key"
                       @blur="updateEnvVarKey(index, key)"
-                    />
+                    >
                     <input
                       v-model="form.additionalEnvVars[key]"
                       type="text"
                       placeholder="value"
                       class="env-value"
-                    />
+                    >
                     <button
                       type="button"
                       class="remove-env-btn"
-                      @click="removeEnvVar(key)"
                       title="Remove"
+                      @click="removeEnvVar(key)"
                     >
                       ×
                     </button>
                   </div>
-                  <button type="button" class="btn btn-sm btn-secondary" @click="addEnvVar">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-secondary"
+                    @click="addEnvVar"
+                  >
                     + Add Variable
                   </button>
                 </div>
@@ -117,19 +134,36 @@
             </div>
           </details>
 
-          <div v-if="error" class="error-message">{{ error }}</div>
+          <div
+            v-if="error"
+            class="error-message"
+          >
+            {{ error }}
+          </div>
 
           <!-- Test Result -->
-          <div v-if="testResult" :class="['test-result', testResult.success ? 'success' : 'failure']">
+          <div
+            v-if="testResult"
+            :class="['test-result', testResult.success ? 'success' : 'failure']"
+          >
             <div class="test-result-header">
               <span class="test-icon">{{ testResult.success ? '✓' : '✗' }}</span>
               <span class="test-message">{{ testResult.message }}</span>
             </div>
-            <div v-if="testResult.details" class="test-details">
-              <div v-if="testResult.details.model" class="test-detail">
+            <div
+              v-if="testResult.details"
+              class="test-details"
+            >
+              <div
+                v-if="testResult.details.model"
+                class="test-detail"
+              >
                 Model: <code>{{ testResult.details.model }}</code>
               </div>
-              <div v-if="testResult.details.code" class="test-detail">
+              <div
+                v-if="testResult.details.code"
+                class="test-detail"
+              >
                 Error Code: <code>{{ testResult.details.code }}</code>
               </div>
             </div>
@@ -141,20 +175,25 @@
         <button
           type="button"
           class="btn btn-secondary"
-          @click="testConnection"
           :disabled="saving || testing || !canTest"
+          @click="testConnection"
         >
           {{ testing ? 'Testing...' : 'Test Connection' }}
         </button>
         <div class="footer-actions">
-          <button type="button" class="btn btn-secondary" @click="close" :disabled="saving">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="saving"
+            @click="close"
+          >
             Cancel
           </button>
           <button
             type="button"
             class="btn btn-primary"
-            @click="save"
             :disabled="saving || !isValid"
+            @click="save"
           >
             {{ saving ? 'Saving...' : 'Save' }}
           </button>

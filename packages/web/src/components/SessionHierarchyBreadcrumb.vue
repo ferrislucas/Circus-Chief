@@ -1,5 +1,8 @@
 <template>
-  <nav class="session-breadcrumb" aria-label="Session hierarchy">
+  <nav
+    class="session-breadcrumb"
+    aria-label="Session hierarchy"
+  >
     <ol class="breadcrumb-list">
       <li
         v-for="(session, index) in path"
@@ -21,7 +24,10 @@
         >
           {{ truncateName(session.name) }}
         </span>
-        <span v-if="index < path.length - 1" class="breadcrumb-separator">›</span>
+        <span
+          v-if="index < path.length - 1"
+          class="breadcrumb-separator"
+        >›</span>
       </li>
     </ol>
   </nav>
@@ -42,7 +48,7 @@ defineProps({
 const truncateName = (name, maxLength = 30) => {
   if (!name) return 'Unnamed';
   if (name.length <= maxLength) return name;
-  return name.substring(0, maxLength - 3) + '...';
+  return `${name.substring(0, maxLength - 3)  }...`;
 };
 </script>
 

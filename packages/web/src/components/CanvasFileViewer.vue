@@ -4,28 +4,37 @@
     <CanvasFileViewerHeader
       :item="item"
       :versions="versions"
-      :showBackButton="showBackButton"
-      :isEditing="isEditing"
+      :show-back-button="showBackButton"
+      :is-editing="isEditing"
       @back="handleBack"
-      @selectVersion="selectVersion"
-      @deleteAll="handleDeleteAll"
+      @select-version="selectVersion"
+      @delete-all="handleDeleteAll"
       @edit="toggleEditing"
     />
 
     <!-- Content -->
-    <div v-if="isEditing && item.type === 'markdown'" class="viewer-content viewer-content-editing">
+    <div
+      v-if="isEditing && item.type === 'markdown'"
+      class="viewer-content viewer-content-editing"
+    >
       <MarkdownEditor
         :content="item.content || ''"
-        :sessionId="sessionId"
+        :session-id="sessionId"
         :filename="item.filename"
-        :itemId="item.id"
+        :item-id="item.id"
         @save="handleSave"
       />
     </div>
-    <div v-else class="viewer-content">
+    <div
+      v-else
+      class="viewer-content"
+    >
       <!-- Loading state while fetching content -->
-      <div v-if="contentLoading" class="content-loading">
-        <span class="loading-spinner"></span>
+      <div
+        v-if="contentLoading"
+        class="content-loading"
+      >
+        <span class="loading-spinner" />
         Loading content...
       </div>
 
@@ -35,7 +44,7 @@
           :src="`data:${item.mimeType};base64,${item.data}`"
           :alt="item.filename || 'Image'"
           class="viewer-image"
-        />
+        >
 
         <MarkdownViewer
           v-if="item.type === 'markdown'"
@@ -43,11 +52,22 @@
           class="viewer-markdown"
         />
 
-        <pre v-else-if="item.type === 'json'" class="viewer-json">{{ formatJson(item.data) }}</pre>
+        <pre
+          v-else-if="item.type === 'json'"
+          class="viewer-json"
+        >{{ formatJson(item.data) }}</pre>
 
-        <div v-else-if="item.type === 'text'" class="viewer-text">{{ item.content }}</div>
+        <div
+          v-else-if="item.type === 'text'"
+          class="viewer-text"
+        >
+          {{ item.content }}
+        </div>
 
-        <pre v-else-if="item.type === 'code'" class="hljs viewer-code"><code v-html="highlightedCode"></code></pre>
+        <pre
+          v-else-if="item.type === 'code'"
+          class="hljs viewer-code"
+        ><code v-html="highlightedCode" /></pre>
       </template>
     </div>
   </div>

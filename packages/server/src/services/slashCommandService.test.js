@@ -725,11 +725,11 @@ First: $0, Second: $1, Third: $2, All: $ARGUMENTS`
 
   describe('marketplace plugin discovery', () => {
     let marketplaceDir;
-    let originalHome;
+    let savedHome;
 
     beforeEach(async () => {
       // Save original HOME and set to temp directory so known_marketplaces.json is discovered
-      originalHome = process.env.HOME;
+      savedHome = process.env.HOME;
       marketplaceDir = join(tmpdir(), `marketplace-test-${Date.now()}`);
       process.env.HOME = marketplaceDir;
 
@@ -740,7 +740,7 @@ First: $0, Second: $1, Third: $2, All: $ARGUMENTS`
     });
 
     afterEach(async () => {
-      process.env.HOME = originalHome;
+      process.env.HOME = savedHome;
       await rm(marketplaceDir, { recursive: true, force: true });
     });
 

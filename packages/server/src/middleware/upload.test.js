@@ -8,9 +8,9 @@ describe('Upload Middleware', () => {
 
   // Create a test endpoint that uses the upload middleware
   function createTestApp() {
-    const app = express();
+    const testApp = express();
 
-    app.post('/upload', upload.array('files', 10), handleUploadError, (req, res) => {
+    testApp.post('/upload', upload.array('files', 10), handleUploadError, (req, res) => {
       res.json({
         files: (req.files || []).map((f) => ({
           filename: f.originalname,
@@ -20,7 +20,7 @@ describe('Upload Middleware', () => {
       });
     });
 
-    return app;
+    return testApp;
   }
 
   beforeEach(() => {

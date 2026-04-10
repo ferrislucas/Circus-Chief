@@ -10,7 +10,7 @@ const md = new MarkdownIt({
   breaks: true, // Convert \n to <br>
   linkify: true, // Auto-convert URLs to links
   typographer: true, // Enable smart quotes and other typographic replacements
-  highlight: function (str, lang) {
+  highlight (str, lang) {
     // Only highlight when language is explicitly specified
     // IMPORTANT: Do NOT use highlightAuto() - it's extremely expensive and
     // causes severe performance issues on iPad during streaming updates

@@ -13,7 +13,12 @@
           <span v-else>&#8505;</span>
         </span>
         <span class="toast-message">{{ toast.message }}</span>
-        <button class="toast-close" @click="uiStore.removeToast(toast.id)">&times;</button>
+        <button
+          class="toast-close"
+          @click="uiStore.removeToast(toast.id)"
+        >
+          &times;
+        </button>
       </div>
     </TransitionGroup>
   </div>

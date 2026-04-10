@@ -1,13 +1,20 @@
 <template>
   <Teleport to="body">
-    <Transition name="slide-left" appear @after-leave="afterLeave">
+    <Transition
+      name="slide-left"
+      appear
+      @after-leave="afterLeave"
+    >
       <div
         v-if="visible"
         class="overlay-backdrop"
         data-testid="session-chat-overlay"
         @click.self="close"
       >
-        <div class="overlay-panel-wrapper" @click.stop>
+        <div
+          class="overlay-panel-wrapper"
+          @click.stop
+        >
           <!-- Close handle anchored to left edge of panel -->
           <div
             class="overlay-close-handle"
@@ -44,132 +51,290 @@
               v-if="isOverlaySessionActive"
               class="active-spinner"
               :title="overlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
-            ></span>
+            />
           </div>
 
           <!-- Existing overlay-content -->
           <div class="overlay-content session-chat-overlay">
-          <!-- Header (no padding constraints) -->
-          <div class="overlay-header" @touchmove="handleHeaderTouchmove">
-            <!-- Row 1: Session Name -->
-            <div class="overlay-header-row">
-              <!-- Editing mode -->
-              <template v-if="isEditingName">
-                <div class="name-edit-form">
-                  <input
-                    ref="nameEditInput"
-                    v-model="editNameValue"
-                    type="text"
-                    class="name-edit-input"
-                    placeholder="Session name"
-                    @keyup.enter="saveSessionName"
-                    @keyup.escape="cancelEditName"
-                  />
-                  <button class="btn-icon pr-edit-btn pr-save-btn" title="Save" @click="saveSessionName">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                  </button>
-                  <button class="btn-icon pr-edit-btn pr-cancel-btn" title="Cancel" @click="cancelEditName">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <line x1="18" y1="6" x2="6" y2="18"></line>
-                      <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                  </button>
-                  <button v-if="editNameValue" class="btn-icon pr-edit-btn pr-clear-btn" title="Clear name" @click="clearSessionName">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="3 6 5 6 21 6"></polyline>
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    </svg>
-                  </button>
-                </div>
-              </template>
+            <!-- Header (no padding constraints) -->
+            <div
+              class="overlay-header"
+              @touchmove="handleHeaderTouchmove"
+            >
+              <!-- Row 1: Session Name -->
+              <div class="overlay-header-row">
+                <!-- Editing mode -->
+                <template v-if="isEditingName">
+                  <div class="name-edit-form">
+                    <input
+                      ref="nameEditInput"
+                      v-model="editNameValue"
+                      type="text"
+                      class="name-edit-input"
+                      placeholder="Session name"
+                      @keyup.enter="saveSessionName"
+                      @keyup.escape="cancelEditName"
+                    >
+                    <button
+                      class="btn-icon pr-edit-btn pr-save-btn"
+                      title="Save"
+                      @click="saveSessionName"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </button>
+                    <button
+                      class="btn-icon pr-edit-btn pr-cancel-btn"
+                      title="Cancel"
+                      @click="cancelEditName"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <line
+                          x1="18"
+                          y1="6"
+                          x2="6"
+                          y2="18"
+                        />
+                        <line
+                          x1="6"
+                          y1="6"
+                          x2="18"
+                          y2="18"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      v-if="editNameValue"
+                      class="btn-icon pr-edit-btn pr-clear-btn"
+                      title="Clear name"
+                      @click="clearSessionName"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      </svg>
+                    </button>
+                  </div>
+                </template>
 
-              <!-- Display mode -->
-              <template v-else>
-                <div class="session-name-wrapper">
-                  <span class="overlay-root-name">{{ rootSessionName }}</span>
-                  <button class="btn-link name-edit-trigger" @click="startEditName" title="Edit session name">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                  </button>
-                </div>
-              </template>
+                <!-- Display mode -->
+                <template v-else>
+                  <div class="session-name-wrapper">
+                    <span class="overlay-root-name">{{ rootSessionName }}</span>
+                    <button
+                      class="btn-link name-edit-trigger"
+                      title="Edit session name"
+                      @click="startEditName"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Row 2: Session Selector -->
+              <div
+                v-if="hasDescendants"
+                ref="pickerAreaRef"
+                class="overlay-header-row overlay-header-selector"
+                data-testid="session-tree-dropdown"
+              >
+                <button
+                  class="dropdown-trigger"
+                  data-testid="overlay-picker-trigger"
+                  :aria-expanded="pickerOpen ? 'true' : 'false'"
+                  @click="togglePicker"
+                >
+                  <span class="dropdown-name">{{ activeSessionDisplayName }}</span>
+                  <span class="dropdown-chevron">{{ pickerOpen ? '&#9650;' : '&#9660;' }}</span>
+                </button>
+                <SessionChatPicker
+                  v-if="pickerOpen"
+                  :sessions="sessionChain"
+                  :active-session-id="activeSessionId"
+                  :summaries="summariesMap"
+                  @select="handlePickerSelect"
+                />
+              </div>
+
+              <!-- Row 3: Back to List + New Session -->
+              <div class="overlay-header-row overlay-header-actions">
+                <router-link
+                  :to="backToSessionsUrl"
+                  class="back-to-sessions-link"
+                  title="Back to Sessions"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line
+                      x1="19"
+                      y1="12"
+                      x2="5"
+                      y2="12"
+                    />
+                    <polyline points="12 19 5 12 12 5" />
+                  </svg>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <line
+                      x1="8"
+                      y1="6"
+                      x2="21"
+                      y2="6"
+                    />
+                    <line
+                      x1="8"
+                      y1="12"
+                      x2="21"
+                      y2="12"
+                    />
+                    <line
+                      x1="8"
+                      y1="18"
+                      x2="21"
+                      y2="18"
+                    />
+                    <line
+                      x1="3"
+                      y1="6"
+                      x2="3.01"
+                      y2="6"
+                    />
+                    <line
+                      x1="3"
+                      y1="12"
+                      x2="3.01"
+                      y2="12"
+                    />
+                    <line
+                      x1="3"
+                      y1="18"
+                      x2="3.01"
+                      y2="18"
+                    />
+                  </svg>
+                </router-link>
+                <button
+                  class="add-session-btn"
+                  data-testid="overlay-add-session-btn"
+                  title="Create a new child session"
+                  :disabled="isCreatingSession"
+                  @click="addChildSession"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <line
+                      x1="12"
+                      y1="5"
+                      x2="12"
+                      y2="19"
+                    />
+                    <line
+                      x1="5"
+                      y1="12"
+                      x2="19"
+                      y2="12"
+                    />
+                  </svg>
+                  {{ isCreatingSession ? 'Creating...' : 'New Session' }}
+                </button>
+              </div>
             </div>
 
-            <!-- Row 2: Session Selector -->
-            <div v-if="hasDescendants" class="overlay-header-row overlay-header-selector" ref="pickerAreaRef" data-testid="session-tree-dropdown">
-              <button
-                class="dropdown-trigger"
-                data-testid="overlay-picker-trigger"
-                :aria-expanded="pickerOpen ? 'true' : 'false'"
-                @click="togglePicker"
+            <!-- Content wrapper (with padding) -->
+            <div
+              ref="overlayBodyRef"
+              class="overlay-body"
+            >
+              <div
+                v-if="switchingSession"
+                class="session-switch-loading"
               >
-                <span class="dropdown-name">{{ activeSessionDisplayName }}</span>
-                <span class="dropdown-chevron">{{ pickerOpen ? '&#9650;' : '&#9660;' }}</span>
-              </button>
-              <SessionChatPicker
-                v-if="pickerOpen"
-                :sessions="sessionChain"
-                :active-session-id="activeSessionId"
-                :summaries="summariesMap"
-                @select="handlePickerSelect"
+                <span class="session-switch-spinner" />
+                <span class="session-switch-text">Loading session...</span>
+              </div>
+              <ConversationTab
+                v-else
+                ref="conversationTabRef"
+                :key="activeSessionId"
+                :session-id="activeSessionId"
+                :scroll-container-ref="overlayBodyRef"
+                :hide-new-conversation="true"
               />
             </div>
-
-            <!-- Row 3: Back to List + New Session -->
-            <div class="overlay-header-row overlay-header-actions">
-              <router-link
-                :to="backToSessionsUrl"
-                class="back-to-sessions-link"
-                title="Back to Sessions"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="19" y1="12" x2="5" y2="12"></line>
-                  <polyline points="12 19 5 12 12 5"></polyline>
-                </svg>
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="8" y1="6" x2="21" y2="6"></line>
-                  <line x1="8" y1="12" x2="21" y2="12"></line>
-                  <line x1="8" y1="18" x2="21" y2="18"></line>
-                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
-                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
-                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
-                </svg>
-              </router-link>
-              <button
-                class="add-session-btn"
-                data-testid="overlay-add-session-btn"
-                title="Create a new child session"
-                :disabled="isCreatingSession"
-                @click="addChildSession"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"></line>
-                  <line x1="5" y1="12" x2="19" y2="12"></line>
-                </svg>
-                {{ isCreatingSession ? 'Creating...' : 'New Session' }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Content wrapper (with padding) -->
-          <div class="overlay-body" ref="overlayBodyRef">
-            <div v-if="switchingSession" class="session-switch-loading">
-              <span class="session-switch-spinner"></span>
-              <span class="session-switch-text">Loading session...</span>
-            </div>
-            <ConversationTab
-              v-else
-              ref="conversationTabRef"
-              :session-id="activeSessionId"
-              :key="activeSessionId"
-              :scroll-container-ref="overlayBodyRef"
-              :hide-new-conversation="true"
-            />
-          </div>
           </div><!-- end overlay-content -->
         </div><!-- end overlay-panel-wrapper -->
       </div>
@@ -341,9 +506,7 @@ const rootSessionName = computed(() => {
   return mainSessionsStore.currentSession?.name || sessionsStore.currentSession?.name || 'Session';
 });
 
-const hasDescendants = computed(() => {
-  return props.sessionChain.length > 1;
-});
+const hasDescendants = computed(() => props.sessionChain.length > 1);
 
 const activeSessionName = computed(() => {
   const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
@@ -355,9 +518,7 @@ const overlaySessionStatus = computed(() => {
   return session?.status || '';
 });
 
-const isOverlaySessionActive = computed(() => {
-  return overlaySessionStatus.value === 'running' || overlaySessionStatus.value === 'starting';
-});
+const isOverlaySessionActive = computed(() => overlaySessionStatus.value === 'running' || overlaySessionStatus.value === 'starting');
 
 const backToSessionsUrl = computed(() => {
   const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
@@ -902,7 +1063,7 @@ defineExpose({
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   flex-shrink: 0;
-  z-index: 10;
+  z-index: 20;
   width: 100%;
 }
 

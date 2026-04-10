@@ -423,7 +423,7 @@ describe('NewSessionView - Quick Response Insertion', () => {
 
       const currentValue = existingInput.trim();
       const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
+        ? `${currentValue  }\n\n${  quickResponseContent}`
         : quickResponseContent;
 
       expect(newValue).toBe('Check the authentication module\n\nAlso review error handling');
@@ -435,7 +435,7 @@ describe('NewSessionView - Quick Response Insertion', () => {
 
       const currentValue = existingInput.trim();
       const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
+        ? `${currentValue  }\n\n${  quickResponseContent}`
         : quickResponseContent;
 
       expect(newValue).toBe('Start coding');
@@ -447,7 +447,7 @@ describe('NewSessionView - Quick Response Insertion', () => {
 
       const currentValue = existingInput.trim();
       const newValue = currentValue
-        ? currentValue + '\n\n' + quickResponseContent
+        ? `${currentValue  }\n\n${  quickResponseContent}`
         : quickResponseContent;
 
       expect(newValue).toBe('Review the API\n\nFocus on endpoints');

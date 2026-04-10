@@ -1,14 +1,20 @@
 <template>
-  <div v-if="!isSessionRunning" class="conversation-selector">
+  <div
+    v-if="!isSessionRunning"
+    class="conversation-selector"
+  >
     <div class="selector-row">
       <!-- Dropdown -->
-      <div v-if="conversations.length > 1" class="dropdown-container">
+      <div
+        v-if="conversations.length > 1"
+        class="dropdown-container"
+      >
         <button
           type="button"
           class="dropdown-trigger"
           data-testid="conversation-selector"
-          @click.stop="toggleDropdown"
           title="Switch conversation"
+          @click.stop="toggleDropdown"
         >
           <span class="dropdown-label">
             {{ activeConversationDisplayName }}
@@ -16,7 +22,10 @@
           <span class="dropdown-arrow">▼</span>
         </button>
 
-        <div v-if="isOpen" class="dropdown-menu">
+        <div
+          v-if="isOpen"
+          class="dropdown-menu"
+        >
           <!-- Tree view of conversations -->
           <ConversationTreeItem
             v-for="(conv, index) in rootConversations"
@@ -36,8 +45,8 @@
       <button
         type="button"
         class="btn btn-new"
-        @click="handleCreate"
         title="Start a new conversation"
+        @click="handleCreate"
       >
         <span>+</span>
         new conversation
@@ -66,9 +75,7 @@ const activeConversationId = computed(() => sessionsStore.activeConversationId);
 const activeConversation = computed(() => sessionsStore.activeConversation);
 
 // Root conversations are those without a parent (top-level)
-const rootConversations = computed(() => {
-  return conversations.value.filter(c => !c.parentConversationId);
-});
+const rootConversations = computed(() => conversations.value.filter(c => !c.parentConversationId));
 
 // Check if session is currently running or starting
 const isSessionRunning = computed(() => {

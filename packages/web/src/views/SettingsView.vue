@@ -39,10 +39,14 @@
       <div class="tabs-mobile">
         <select
           :value="activeTab"
-          @change="navigateToTab($event.target.value)"
           class="tab-select"
+          @change="navigateToTab($event.target.value)"
         >
-          <option v-for="tab in tabs" :key="tab.id" :value="tab.id">
+          <option
+            v-for="tab in tabs"
+            :key="tab.id"
+            :value="tab.id"
+          >
             {{ tab.label }}
           </option>
         </select>

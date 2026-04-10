@@ -64,7 +64,7 @@ describe('Projects API - Repository URL', () => {
         .send({
           name: 'Test Project',
           workingDirectory: tempDir,
-          repoUrl: repoUrl,
+          repoUrl,
         });
 
       expect(res.status).toBe(200);

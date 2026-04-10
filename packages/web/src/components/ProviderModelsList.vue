@@ -5,12 +5,15 @@
       <span class="models-hint">Assign tiers to map provider models to Opus / Sonnet / Haiku roles</span>
     </div>
 
-    <div v-if="models.length > 0" class="models-list">
+    <div
+      v-if="models.length > 0"
+      class="models-list"
+    >
       <div class="model-row model-row-header">
         <span class="col-model-id">Model ID</span>
         <span class="col-display-name">Display Name</span>
         <span class="col-tier">Tier</span>
-        <span class="col-actions"></span>
+        <span class="col-actions" />
       </div>
       <div
         v-for="(model, index) in models"
@@ -22,34 +25,52 @@
           type="text"
           placeholder="anthropic.claude-3-sonnet-…"
           class="col-model-id model-input"
-        />
+        >
         <input
           v-model="model.displayName"
           type="text"
           placeholder="My Sonnet"
           class="col-display-name model-input"
-        />
-        <select v-model="model.tier" class="col-tier model-input tier-select">
-          <option value="opus">Opus</option>
-          <option value="sonnet">Sonnet</option>
-          <option value="haiku">Haiku</option>
-          <option value="custom">Custom</option>
+        >
+        <select
+          v-model="model.tier"
+          class="col-tier model-input tier-select"
+        >
+          <option value="opus">
+            Opus
+          </option>
+          <option value="sonnet">
+            Sonnet
+          </option>
+          <option value="haiku">
+            Haiku
+          </option>
+          <option value="custom">
+            Custom
+          </option>
         </select>
         <button
           type="button"
           class="col-actions remove-model-btn"
-          @click="$emit('remove', index)"
           title="Remove model"
+          @click="$emit('remove', index)"
         >
           ×
         </button>
       </div>
     </div>
-    <div v-else class="models-empty">
+    <div
+      v-else
+      class="models-empty"
+    >
       No models added yet.
     </div>
 
-    <button type="button" class="btn btn-sm btn-secondary add-model-btn" @click="$emit('add')">
+    <button
+      type="button"
+      class="btn btn-sm btn-secondary add-model-btn"
+      @click="$emit('add')"
+    >
       + Add Model
     </button>
   </div>

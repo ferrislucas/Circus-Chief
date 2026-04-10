@@ -1,19 +1,55 @@
 <template>
-  <div class="command-block" :class="`command-${log.type}`">
+  <div
+    class="command-block"
+    :class="`command-${log.type}`"
+  >
     <div class="command-header">
       <span class="command-icon">
-        <svg v-if="log.type === 'tool_input'" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="4 17 10 11 4 5"/>
-          <line x1="12" y1="19" x2="20" y2="19"/>
+        <svg
+          v-if="log.type === 'tool_input'"
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="4 17 10 11 4 5" />
+          <line
+            x1="12"
+            y1="19"
+            x2="20"
+            y2="19"
+          />
         </svg>
-        <svg v-else xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="16 18 22 12 16 6"/>
-          <polyline points="8 6 2 12 8 18"/>
+        <svg
+          v-else
+          xmlns="http://www.w3.org/2000/svg"
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="16 18 22 12 16 6" />
+          <polyline points="8 6 2 12 8 18" />
         </svg>
       </span>
       <span class="command-label">{{ log.type === 'tool_input' ? 'Input' : 'Output' }}</span>
-      <span v-if="log.toolName" class="command-tool-name">{{ log.toolName }}</span>
-      <span v-if="log.timestamp" class="command-time">{{ formatTime(log.timestamp) }}</span>
+      <span
+        v-if="log.toolName"
+        class="command-tool-name"
+      >{{ log.toolName }}</span>
+      <span
+        v-if="log.timestamp"
+        class="command-time"
+      >{{ formatTime(log.timestamp) }}</span>
     </div>
     <div class="command-content">
       <!-- Tool input: show command summary with collapsible raw JSON -->
@@ -29,11 +65,22 @@
 
       <!-- Fallback: Original display for outputs or when no summary available -->
       <template v-else>
-        <pre class="command-pre" :class="{ expanded: isExpanded }">{{ displayContent }}</pre>
-        <button v-if="shouldTruncate && !isExpanded" class="show-more-btn" @click="toggleExpanded">
+        <pre
+          class="command-pre"
+          :class="{ expanded: isExpanded }"
+        >{{ displayContent }}</pre>
+        <button
+          v-if="shouldTruncate && !isExpanded"
+          class="show-more-btn"
+          @click="toggleExpanded"
+        >
           Show more ({{ lineCount }} lines)
         </button>
-        <button v-if="isExpanded && shouldTruncate" class="show-more-btn" @click="toggleExpanded">
+        <button
+          v-if="isExpanded && shouldTruncate"
+          class="show-more-btn"
+          @click="toggleExpanded"
+        >
           Show less
         </button>
       </template>
@@ -63,8 +110,24 @@ const displayContent = computed(() => {
   if (isExpanded.value || !shouldTruncate.value) {
     return props.log.content;
   }
-  return lines.value.slice(0, MAX_LINES).join('\n') + '\n...';
+  return `${lines.value.slice(0, MAX_LINES).join('\n')  }\n...`;
 });
+
+/**
+ * Tool-name to summary-extraction mapping.
+ * Each value is a function that receives the parsed input and returns a summary string.
+ */
+const toolSummaryExtractors = {
+  bash: (input) => input.command,
+  read: (input) => input.file_path,
+  edit: (input) => input.file_path,
+  write: (input) => input.file_path,
+  grep: (input) => `"${input.pattern}"${input.path ? ` in ${input.path}` : ''}`,
+  glob: (input) => input.pattern,
+  task: (input) => input.description || input.prompt?.slice(0, 100),
+  webfetch: (input) => input.url,
+  websearch: (input) => input.query,
+};
 
 /**
  * Extracts a human-readable command summary from tool input JSON.
@@ -75,30 +138,8 @@ const commandSummary = computed(() => {
 
   try {
     const input = JSON.parse(props.log.content);
-    const toolName = props.log.toolName?.toLowerCase();
-
-    switch (toolName) {
-      case 'bash':
-        return input.command;
-      case 'read':
-        return input.file_path;
-      case 'edit':
-        return input.file_path;
-      case 'write':
-        return input.file_path;
-      case 'grep':
-        return `"${input.pattern}"${input.path ? ` in ${input.path}` : ''}`;
-      case 'glob':
-        return input.pattern;
-      case 'task':
-        return input.description || input.prompt?.slice(0, 100);
-      case 'webfetch':
-        return input.url;
-      case 'websearch':
-        return input.query;
-      default:
-        return null;
-    }
+    const extractor = toolSummaryExtractors[props.log.toolName?.toLowerCase()];
+    return extractor ? extractor(input) : null;
   } catch {
     return null;
   }

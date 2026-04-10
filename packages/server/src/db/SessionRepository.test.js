@@ -932,7 +932,7 @@ describe('SessionRepository', () => {
       expect(result).toHaveLength(1);
       expect(result[0]).toMatchObject({
         id: session.id,
-        projectId: projectId,
+        projectId,
         name: 'Test Session',
         prUrl: 'https://github.com/org/repo/pull/123',
         status: 'stopped',

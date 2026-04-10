@@ -38,8 +38,7 @@ describe('TemplateSelector', () => {
     store = useTemplatesStore();
   });
 
-  const mountComponent = (props = {}, attrs = {}) => {
-    return mount(TemplateSelector, {
+  const mountComponent = (props = {}, attrs = {}) => mount(TemplateSelector, {
       props: {
         sessionId: 'session-1',
         projectId: 'project-1',
@@ -49,7 +48,6 @@ describe('TemplateSelector', () => {
       },
       attrs,
     });
-  };
 
   describe('rendering', () => {
     it('renders the selector label', () => {

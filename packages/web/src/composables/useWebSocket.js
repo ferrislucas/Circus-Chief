@@ -245,11 +245,11 @@ export function useWebSocket() {
  * @returns {Promise<void>} - Resolves when subscription message is sent
  */
 export async function ensureSubscribed(sessionId) {
-  const { send } = useWebSocket();
+  const { send: wsSend } = useWebSocket();
 
   // If socket is already open, send immediately
   if (socket?.readyState === WebSocket.OPEN) {
-    send(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
+    wsSend(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId });
     return;
   }
 
