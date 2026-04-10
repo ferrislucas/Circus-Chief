@@ -1063,7 +1063,7 @@ defineExpose({
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   flex-shrink: 0;
-  z-index: 10;
+  z-index: 20;
   width: 100%;
 }
 

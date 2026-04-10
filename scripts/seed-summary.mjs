@@ -35,6 +35,7 @@ const ciFailuresJson = ciFailures != null ? JSON.stringify(ciFailures) : null;
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
 db.pragma('foreign_keys = OFF');
 
 // Ensure session exists before creating summary (fixes foreign key constraint error)

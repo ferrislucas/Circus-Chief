@@ -37,6 +37,7 @@ const {
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
 
 const now = Date.now();
 db.prepare(
