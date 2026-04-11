@@ -46,18 +46,15 @@
       </button>
     </div>
 
-    <!-- Scheduling Info (only for scheduled sessions) -->
-    <SchedulingInfo
-      v-if="isScheduled"
-      :session="session"
-    />
-
     <!-- Session Overview Section -->
     <div
-      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading"
+      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || isScheduled || loading"
       class="session-overview card"
     >
-      <div class="overview-header">
+      <div
+        v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading"
+        class="overview-header"
+      >
         <h3>Session Overview</h3>
       </div>
 
@@ -176,9 +173,38 @@
           </div>
         </div>
       </div>
+
+      <!-- Scheduling section (only for scheduled sessions) -->
+      <div
+        v-if="isScheduled"
+        class="overview-scheduling"
+      >
+        <span class="scheduling-icon">⏰</span>
+        <div class="scheduling-details">
+          <p class="scheduling-time">
+            Scheduled for <strong>{{ scheduledTimeDisplay }}</strong>
+          </p>
+          <p class="scheduling-countdown">
+            {{ schedulingCountdown }}
+          </p>
+        </div>
+        <button
+          class="btn-link scheduling-edit-link"
+          @click="showScheduleTimeModal = true"
+        >
+          Edit time
+        </button>
+      </div>
     </div>
 
-    <!-- Session Summary Section -->
+    <!-- Scheduling Edit Modal -->
+    <SchedulingEditModal
+      v-if="isScheduled"
+      :is-open="showScheduleTimeModal"
+      :session="session"
+      @close="showScheduleTimeModal = false"
+      @saved="showScheduleTimeModal = false"
+    />
     <div
       v-if="loading"
       class="loading-state"
@@ -221,7 +247,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { format, formatDistanceToNow } from 'date-fns';
 import { formatTokenCount } from '@claudetools/shared';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
@@ -229,7 +256,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import MarkdownViewer from './MarkdownViewer.vue';
-import SchedulingInfo from './SchedulingInfo.vue';
+import SchedulingEditModal from './SchedulingEditModal.vue';
 import { useModelInfo } from '../composables/useModelInfo.js';
 import { useSummaryStreaming } from '../composables/useSummaryStreaming.js';
 import {
@@ -269,6 +296,9 @@ const generatingManual = ref(false);
 const filesCount = ref(0);
 const latestResponse = ref(null);
 const latestResponseExpanded = ref(false);
+const showScheduleTimeModal = ref(false);
+const nowTick = ref(Date.now());
+let countdownInterval = null;
 
 const session = computed(() =>
   sessionsStore.sessions.find((s) => s.id === props.sessionId)
@@ -279,6 +309,18 @@ const isRunning = computed(() => {
   return status === 'running' || status === 'starting';
 });
 const isScheduled = computed(() => session.value?.status === 'scheduled');
+
+const scheduledTimeDisplay = computed(() =>
+  session.value?.scheduledAt
+    ? format(new Date(session.value.scheduledAt), 'EEEE, MMMM d, yyyy h:mm a')
+    : ''
+);
+
+const schedulingCountdown = computed(() =>
+  session.value?.scheduledAt
+    ? formatDistanceToNow(new Date(session.value.scheduledAt), { addSuffix: true, now: new Date(nowTick.value) })
+    : ''
+);
 
 const runningSessionIds = computed(() => {
   const ids = [];
@@ -389,6 +431,12 @@ onMounted(async () => {
   onSummaryGenerating((isGenerating) => {
     generating.value = isGenerating;
   });
+
+  countdownInterval = setInterval(() => { nowTick.value = Date.now(); }, 1000);
+});
+
+onUnmounted(() => {
+  if (countdownInterval) clearInterval(countdownInterval);
 });
 
 async function handleRegenerate() {
@@ -674,5 +722,55 @@ async function handleRegenerate() {
   color: var(--color-text-soft);
   margin: 0;
   line-height: 1.4;
+}
+
+.overview-scheduling {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.overview-scheduling .scheduling-icon {
+  font-size: 1.25rem;
+  flex-shrink: 0;
+}
+
+.scheduling-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.scheduling-time {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.scheduling-time strong {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.scheduling-countdown {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
+}
+
+.scheduling-edit-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 0;
+}
+
+.scheduling-edit-link:hover {
+  text-decoration: underline;
 }
 </style>
