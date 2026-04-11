@@ -14,32 +14,6 @@
         {{ formatModelName(message.model) }}
       </span>
       <span class="message-time">{{ formatTime(message.timestamp) }}</span>
-      <!-- Branch button for user messages -->
-      <button
-        v-if="message.role === 'user' && canBranch && !isBranching"
-        type="button"
-        class="branch-btn"
-        data-testid="branch-button"
-        title="Create a branch from this message"
-        @click="emit('openBranch', message.id)"
-      >
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 16 16"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            d="M4 2v8M4 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM12 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM4 6c0 2 2 4 4 4h2"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <span class="branch-btn-text">Branch</span>
-      </button>
     </div>
     <div class="message-content">
       <MarkdownViewer
@@ -82,48 +56,20 @@
       v-if="message.role === 'assistant'"
       :work-logs="workLogs"
     />
-    <!-- Branch Editor for user messages -->
-    <BranchEditor
-      v-if="message.role === 'user' && isBranching"
-      ref="branchEditorRef"
-      :message-id="message.id"
-      @create="emit('branchCreate', $event)"
-      @cancel="emit('closeBranch')"
-    />
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue';
 import { useMessageFormatting } from '../composables/useMessageFormatting.js';
 import MarkdownViewer from './MarkdownViewer.vue';
 import WorkLogPanel from './WorkLogPanel.vue';
-import BranchEditor from './BranchEditor.vue';
 
 const props = defineProps({
   message: { type: Object, required: true },
-  canBranch: { type: Boolean, default: false },
-  isBranching: { type: Boolean, default: false },
   workLogs: { type: Array, default: () => [] },
 });
 
-const emit = defineEmits(['openBranch', 'branchCreate', 'closeBranch']);
-
-const branchEditorRef = ref(null);
-
 const { formatTime, formatModelName, formatFileSize, getAttachmentIcon } = useMessageFormatting();
-
-/**
- * Reset the branch editor creating state.
- * Called from parent component when branch creation fails.
- */
-function resetBranchEditor() {
-  if (branchEditorRef.value) {
-    branchEditorRef.value.resetCreating();
-  }
-}
-
-defineExpose({ resetBranchEditor });
 </script>
 
 <style scoped>
@@ -175,46 +121,6 @@ defineExpose({ resetBranchEditor });
   background: var(--color-background-mute);
   border-radius: 0.25rem;
   font-family: ui-monospace, monospace;
-}
-
-/* Branch button - always visible for user messages */
-.branch-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.25rem;
-  margin-left: 0.5rem;
-  padding: 0.5rem;
-  min-width: 44px;
-  min-height: 44px;
-  background: rgba(139, 92, 246, 0.1);
-  border: 1px solid rgba(139, 92, 246, 0.25);
-  border-radius: 0.375rem;
-  color: rgba(139, 92, 246, 0.8);
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 500;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.branch-btn:hover {
-  background: rgba(139, 92, 246, 0.2);
-  border-color: rgba(139, 92, 246, 0.4);
-  color: rgba(139, 92, 246, 0.95);
-}
-
-.branch-btn:active {
-  transform: scale(0.97);
-}
-
-.branch-btn-text {
-  display: none;
-}
-
-@media (min-width: 480px) {
-  .branch-btn-text {
-    display: inline;
-  }
 }
 
 .message-content {
