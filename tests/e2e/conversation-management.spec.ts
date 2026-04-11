@@ -291,62 +291,6 @@ test.describe('Conversation Branching', () => {
     await cleanupCreatedResources();
   });
 
-  test('branch button visible on user messages', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/summary`);
-    await openSessionOverlay(page);
-
-    // Wait for the user message to appear
-    const userMessage = page.locator('[data-testid="message-user"]');
-    await expect(userMessage.first()).toBeVisible({ timeout: 10000 });
-
-    // Hover over the message to make the branch button visible
-    await userMessage.first().hover();
-
-    // Verify branch button is visible
-    const branchBtn = userMessage.first().locator('[data-testid="branch-button"]');
-    await expect(branchBtn).toBeVisible({ timeout: 5000 });
-  });
-
-  test('branch button not visible on assistant messages', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/summary`);
-    await openSessionOverlay(page);
-
-    // Wait for at least one message to appear
-    const userMessage = page.locator('[data-testid="message-user"]');
-    await expect(userMessage.first()).toBeVisible({ timeout: 10000 });
-
-    // If there are any assistant messages, verify they don't have branch buttons
-    const assistantMessages = page.locator('[data-testid="message-assistant"]');
-    const assistantCount = await assistantMessages.count();
-
-    for (let i = 0; i < assistantCount; i++) {
-      await assistantMessages.nth(i).hover();
-      const branchBtn = assistantMessages.nth(i).locator('[data-testid="branch-button"]');
-      await expect(branchBtn).not.toBeVisible();
-    }
-  });
-
-  test('clicking branch button opens branch editor', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}/summary`);
-    await openSessionOverlay(page);
-
-    const userMessage = page.locator('[data-testid="message-user"]');
-    await expect(userMessage.first()).toBeVisible({ timeout: 10000 });
-
-    // Hover to reveal branch button
-    await userMessage.first().hover();
-
-    // Click branch button
-    const branchBtn = userMessage.first().locator('[data-testid="branch-button"]');
-    await expect(branchBtn).toBeVisible({ timeout: 5000 });
-    await branchBtn.click();
-    await page.waitForTimeout(500);
-
-    // Verify the branch editor appears (BranchEditor component)
-    const branchEditor = page.locator('.branch-editor');
-    await expect(branchEditor).toBeVisible({ timeout: 5000 });
-  });
-
   test('creating a branch via API produces new conversation', async () => {
     // Get the initial conversation and its messages
     const initialConvs = await getConversations(session.id);

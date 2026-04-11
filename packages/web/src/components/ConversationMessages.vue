@@ -9,12 +9,7 @@
         v-for="message in messages"
         :key="message.id"
         :message="message"
-        :can-branch="canBranch"
-        :is-branching="branchingMessageId === message.id"
         :work-logs="getWorkLogsForMessage(message.id)"
-        @open-branch="openBranchEditor"
-        @branch-create="handleBranchCreate"
-        @close-branch="closeBranchEditor"
       />
     </template>
 
@@ -44,9 +39,7 @@
 
 <script setup>
 import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
-import { useUiStore } from '../stores/ui.js';
 import { useMessageScroll } from '../composables/useMessageScroll.js';
 import MessageItem from './MessageItem.vue';
 import StreamingMessage from './StreamingMessage.vue';
@@ -61,11 +54,6 @@ const props = defineProps({
 });
 
 const sessionsStore = useInjectedSessionsStore();
-const uiStore = useUiStore();
-const router = useRouter();
-
-// Local state
-const branchingMessageId = ref(null);
 
 // Derived data from store
 const messages = computed(() => sessionsStore.messages);
@@ -79,59 +67,12 @@ const { messagesContainer, isNearBottom, scrollToBottom, scrollToClaudesTurn } =
   scrollContainer: computed(() => props.scrollContainerRef),
 });
 
-const canBranch = computed(() => props.sessionStatus !== 'running' && props.sessionStatus !== 'starting');
-
 const isUsersTurn = computed(() => props.sessionStatus === 'waiting' || props.sessionStatus === 'stopped' || props.sessionStatus === 'error');
 
 const hasAssistantMessages = computed(() => sessionsStore.messages.some(msg => msg.role === 'assistant'));
 
 function getWorkLogsForMessage(messageId) {
   return sessionsStore.getWorkLogsForMessage(messageId);
-}
-
-// Branching methods
-function openBranchEditor(messageId) {
-  branchingMessageId.value = messageId;
-}
-
-function closeBranchEditor() {
-  branchingMessageId.value = null;
-}
-
-async function handleBranchCreate({ messageId, prompt }) {
-  let branchCreated = false;
-  try {
-    const activeConv = sessionsStore.activeConversation;
-    if (!activeConv) {
-      throw new Error('No active conversation');
-    }
-
-    if (!prompt) {
-      throw new Error('A prompt is required');
-    }
-
-    const branchConversation = await sessionsStore.branchConversation(
-      props.sessionId,
-      activeConv.id,
-      { messageId, prompt }
-    );
-
-    branchCreated = true;
-
-    router.push({
-      path: `/sessions/${props.sessionId}/conversation`,
-      query: { conv: branchConversation.id }
-    });
-
-    closeBranchEditor();
-  } catch (err) {
-    uiStore.error(err.message);
-  } finally {
-    if (!branchCreated) {
-      // Find the MessageItem for this message and reset its branch editor
-      // The MessageItem component handles its own branch editor ref
-    }
-  }
 }
 
 // Expose scrollToBottom so parent can call it
