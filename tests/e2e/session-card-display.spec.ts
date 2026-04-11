@@ -112,6 +112,41 @@ test.describe('Session Card Display', () => {
       const scheduledTime = page.locator('.scheduled-time');
       await expect(scheduledTime).toHaveCount(0);
     });
+
+    test('parent session with scheduled child shows child scheduled time', async ({ page }) => {
+      const futureTime = Date.now() + 30 * 60 * 1000;
+
+      // Create parent session
+      const parent = await seedSession(project.id, {
+        prompt: 'Parent workflow',
+        name: 'Parent Session',
+        startImmediately: false,
+      });
+
+      // Create scheduled child session
+      await seedSession(project.id, {
+        prompt: 'Child task',
+        name: 'Scheduled Child',
+        startImmediately: false,
+        parentSessionId: parent.id,
+        scheduledAt: futureTime,
+        status: 'scheduled',
+      });
+
+      await navigateAndWait(page, `/projects/${project.id}/sessions`, {
+        waitFor: '.session-card',
+      });
+
+      // Parent card should show the scheduled time from its child
+      const scheduledTime = page.locator('.scheduled-time');
+      await expect(scheduledTime).toBeVisible({ timeout: 10000 });
+      await expect(scheduledTime).toContainText('in');
+
+      // Should also show absolute time on hover
+      const titleAttr = await scheduledTime.getAttribute('title');
+      expect(titleAttr).toBeTruthy();
+      expect(titleAttr).toMatch(/\w+ \d+, \d+:\d+/);
+    });
   });
 
   test.describe('Files changed badge', () => {
