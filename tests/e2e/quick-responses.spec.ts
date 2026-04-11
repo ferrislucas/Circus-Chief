@@ -106,8 +106,9 @@ async function navigateToSessionAndExpandPanel(page, sessionId: string) {
   await panel.click();
 
   // Wait for responses content or empty state to appear.
+  // Scope to within the panel to avoid matching other components' .empty-state
   await expect(
-    page.locator('.responses-content, .empty-state')
+    panel.locator('.responses-content, .empty-state')
   ).toBeVisible({ timeout: 5000 });
 }
 
@@ -369,11 +370,11 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     await navigateToSessionAndExpandPanel(page, session.id);
 
     // Wait for the empty text element to be visible before checking its content
-    // This fixes a race condition where .empty-state is visible but .empty-text hasn't rendered yet
-    await expect(page.locator('.empty-text')).toBeVisible({ timeout: 5000 });
+    // Scope to within the panel to avoid matching other components' elements
+    await expect(page.locator('.quick-responses-panel .empty-text')).toBeVisible({ timeout: 10000 });
 
     // Verify empty state text
-    await expect(page.locator('.empty-text')).toContainText('No quick responses yet');
+    await expect(page.locator('.quick-responses-panel .empty-text')).toContainText('No quick responses yet');
   });
 
   test('panel collapse and expand toggle works', async ({ page }) => {

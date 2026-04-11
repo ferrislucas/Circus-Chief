@@ -9,8 +9,9 @@
     "dev": "yarn build && NODE_ENV=production node packages/server/src/index.js -p 5000",
     "build": "yarn workspace @claudetools/web build && yarn workspace @claudetools/server build",
     "start": "NODE_ENV=production node packages/server/src/index.js -p 5000",
-    "test": "yarn workspaces run test",
-    "test:coverage": "yarn workspaces run test:coverage",
+    "test": "yarn workspaces foreach -A run test",
+    "test:integration": "vitest run --config tests/integration/vitest.config.js",
+    "test:coverage": "yarn workspaces foreach -A run test:coverage",
     "test:e2e": "./scripts/pw.sh test",
     "lint": "npx eslint packages/*/src"
   },
@@ -23,8 +24,8 @@
     "eslint-plugin-vue": "9",
     "jsdom": "^27.4.0",
     "playwright": "^1.57.0",
-    "prettier": "^3.2.4",
     "supertest": "^7.1.4",
+    "prettier": "^3.2.4",
     "vitest": "^4.0.16",
     "vue-eslint-parser": "9"
   },

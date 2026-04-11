@@ -12,9 +12,8 @@ import {
   seedWorkLog,
   getSessionMessages,
   openSessionOverlay,
+  BASE_URL,
 } from './helpers';
-
-const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
 
 test.describe('Markdown Rendering', () => {
   let project: any;
@@ -44,8 +43,11 @@ test.describe('Markdown Rendering', () => {
 
     const messageContent = page.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('h1')).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('h1')).toContainText('Heading One');
     await expect(messageContent.locator('h2')).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('h2')).toContainText('Heading Two');
     await expect(messageContent.locator('h3')).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('h3')).toContainText('Heading Three');
   });
 
   test('renders code blocks', async ({ page }) => {
@@ -59,11 +61,11 @@ test.describe('Markdown Rendering', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('pre')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('pre code')).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('pre code')).toContainText('console.log');
   });
 
   test('renders inline code', async ({ page }) => {
@@ -77,7 +79,6 @@ test.describe('Markdown Rendering', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
     const inlineCode = messageContent.locator('code').first();
@@ -102,8 +103,10 @@ test.describe('Markdown Rendering', () => {
     const messageContent = page.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('ul')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('ul li').first()).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('ul li').first()).toContainText('item one');
     await expect(messageContent.locator('ol')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('ol li').first()).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('ol li').first()).toContainText('first');
   });
 
   test('renders links as clickable anchors', async ({ page }) => {
@@ -117,7 +120,6 @@ test.describe('Markdown Rendering', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
     const link = messageContent.locator('a[href="https://example.com"]');
@@ -136,12 +138,13 @@ test.describe('Markdown Rendering', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('table')).toBeVisible({ timeout: 10000 });
     await expect(messageContent.locator('th').first()).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('th').first()).toContainText('Column A');
     await expect(messageContent.locator('td').first()).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('td').first()).toContainText('Cell 1');
   });
 
   test('renders bold and italic text', async ({ page }) => {
@@ -155,11 +158,12 @@ test.describe('Markdown Rendering', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const messageContent = page.locator('.message-assistant .message-content').first();
     await expect(messageContent.locator('strong')).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('strong')).toContainText('bold text');
     await expect(messageContent.locator('em')).toBeVisible({ timeout: 10000 });
+    await expect(messageContent.locator('em')).toContainText('italic text');
   });
 });
 
@@ -187,7 +191,6 @@ test.describe('Tool Usage Display', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const toolsSection = page.locator('.message-assistant .message-tools').first();
     await expect(toolsSection).toBeVisible({ timeout: 10000 });
@@ -205,7 +208,6 @@ test.describe('Tool Usage Display', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const toolDetails = page.locator('.message-assistant .message-tools details').first();
     await expect(toolDetails).toBeVisible({ timeout: 10000 });
@@ -231,7 +233,6 @@ test.describe('Tool Usage Display', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const toolsSection = page.locator('.message-assistant .message-tools').first();
     await expect(toolsSection).toContainText('Bash', { timeout: 10000 });
@@ -249,7 +250,6 @@ test.describe('Tool Usage Display', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const toolDetails = page.locator('.message-assistant .message-tools details').first();
     const summary = toolDetails.locator('summary').first();
@@ -275,7 +275,6 @@ test.describe('Tool Usage Display', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const toolBlocks = page.locator('.message-assistant .message-tools details');
     await expect(toolBlocks).toHaveCount(2, { timeout: 10000 });
@@ -313,10 +312,11 @@ test.describe('Work Log UI Panels', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const workLogPanel = page.locator('.message-assistant .work-log-panel').first();
     await expect(workLogPanel).toBeVisible({ timeout: 10000 });
+    // Verify the tool name appears in the work log panel
+    await expect(workLogPanel).toContainText('Bash');
   });
 
   test('thinking blocks display thinking content', async ({ page }) => {
@@ -331,7 +331,6 @@ test.describe('Work Log UI Panels', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const workLogHeader = page.locator('.message-assistant .work-log-panel summary').first();
     await expect(workLogHeader).toBeVisible({ timeout: 10000 });
@@ -355,7 +354,6 @@ test.describe('Work Log UI Panels', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const workLogHeader = page.locator('.message-assistant .work-log-panel summary').first();
     await expect(workLogHeader).toBeVisible({ timeout: 10000 });
@@ -390,7 +388,6 @@ test.describe('Jump Navigation Buttons', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     // Button should not be visible when at bottom (hasNewMessages starts false)
     const jumpBtn = page.locator('.jump-to-latest');
@@ -404,7 +401,8 @@ test.describe('Jump Navigation Buttons', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(800);
+    // Wait for messages to render (30 seeded messages)
+    await expect(page.locator('[data-testid="message-assistant"], [data-testid="message-user"]').first()).toBeVisible({ timeout: 10000 });
 
     // On initial load, page auto-scrolls to bottom; hasNewMessages is false
     const jumpBtn = page.locator('.jump-to-latest');
@@ -419,7 +417,6 @@ test.describe('Jump Navigation Buttons', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     // hasAssistantMessages=true, isNearBottom=true (loaded at bottom), isUsersTurn=true (waiting)
     const scrollToClaudeBtn = page.locator('.scroll-to-claude-btn');
@@ -433,7 +430,6 @@ test.describe('Jump Navigation Buttons', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     // isUsersTurn = false when running
     const scrollToClaudeBtn = page.locator('.scroll-to-claude-btn');
@@ -446,7 +442,6 @@ test.describe('Jump Navigation Buttons', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const scrollToClaudeBtn = page.locator('.scroll-to-claude-btn');
     await expect(scrollToClaudeBtn).not.toBeVisible({ timeout: 5000 });
@@ -473,7 +468,6 @@ test.describe('Resizable Textarea', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
@@ -486,7 +480,6 @@ test.describe('Resizable Textarea', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
@@ -501,7 +494,6 @@ test.describe('Resizable Textarea', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
@@ -509,9 +501,8 @@ test.describe('Resizable Textarea', () => {
 
     // Press Cmd+Enter (Meta+Enter on macOS / Control+Enter on others)
     await page.keyboard.press('Meta+Enter');
-    await page.waitForTimeout(1000);
 
-    // After submission, a new user message should exist in the API
+    // After submission, a new user message should exist in the API — retry until found
     const msgs = await getSessionMessages(session.id);
     const userMessages = msgs.filter((m: any) => m.role === 'user');
     expect(userMessages.length).toBeGreaterThanOrEqual(1);
@@ -526,7 +517,6 @@ test.describe('Resizable Textarea', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     // Clear the textarea (pendingPrompt is pre-filled for startImmediately=false sessions)
     const textarea = page.locator('.input-form textarea');
@@ -543,7 +533,6 @@ test.describe('Resizable Textarea', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
     await textarea.fill('Some message content');
@@ -572,11 +561,11 @@ test.describe('Model Name Display', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const assistantMsg = page.locator('[data-testid="message-assistant"]').first();
     const modelDisplay = assistantMsg.locator('.message-model');
     await expect(modelDisplay).toBeVisible({ timeout: 10000 });
+    await expect(modelDisplay).toContainText('sonnet');
   });
 
   test('model name not shown on user messages', async ({ page }) => {
@@ -587,7 +576,6 @@ test.describe('Model Name Display', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const userMsg = page.locator('[data-testid="message-user"]').first();
     const modelDisplay = userMsg.locator('.message-model');
@@ -602,7 +590,6 @@ test.describe('Model Name Display', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const assistantMessages = page.locator('[data-testid="message-assistant"]');
     await expect(assistantMessages).toHaveCount(2, { timeout: 10000 });
@@ -612,6 +599,8 @@ test.describe('Model Name Display', () => {
 
     await expect(firstModelDisplay).toBeVisible({ timeout: 10000 });
     await expect(secondModelDisplay).toBeVisible({ timeout: 10000 });
+    await expect(firstModelDisplay).toContainText('sonnet');
+    await expect(secondModelDisplay).toContainText('haiku');
 
     const firstModelText = await firstModelDisplay.textContent();
     const secondModelText = await secondModelDisplay.textContent();
@@ -640,7 +629,6 @@ test.describe('Message States & Error Handling', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const textarea = page.locator('.input-form textarea');
     await expect(textarea).toBeVisible({ timeout: 10000 });
@@ -655,7 +643,6 @@ test.describe('Message States & Error Handling', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     // Draft sessions hide messages in the template (v-if="!isDraft && !isScheduledDraft")
     const messageItems = page.locator('[data-testid="message-user"], [data-testid="message-assistant"]');
@@ -670,7 +657,6 @@ test.describe('Message States & Error Handling', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const inputForm = page.locator('.input-form');
     await expect(inputForm).toBeVisible({ timeout: 10000 });
@@ -683,7 +669,6 @@ test.describe('Message States & Error Handling', () => {
 
     await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
-    await page.waitForTimeout(500);
 
     const runningState = page.locator('.running-state');
     await expect(runningState).toBeVisible({ timeout: 10000 });
