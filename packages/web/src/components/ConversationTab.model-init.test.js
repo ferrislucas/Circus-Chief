@@ -250,7 +250,6 @@ describe('ConversationTab - Model Initialization Bug', () => {
               Object.defineProperty(this, 'select', { value: () => ta?.select() });
             },
           },
-          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
           AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
           SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
