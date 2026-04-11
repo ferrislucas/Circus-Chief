@@ -93,11 +93,13 @@
         >
           ↑ Showing last 200 lines. Use Copy to get full output.
         </div>
+        <!-- eslint-disable vue/no-v-html -->
         <div
           ref="outputContainerRef"
           class="output-text"
           v-html="formattedOutput || '(no output)'"
         />
+        <!-- eslint-enable vue/no-v-html -->
       </div>
     </div>
 
