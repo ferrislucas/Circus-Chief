@@ -9,6 +9,7 @@ import {
   getCanvasTrash,
   deleteCanvasItem,
   navigateAndWait,
+  API_URL,
 } from './helpers';
 
 // A minimal 1x1 red PNG image in base64
@@ -29,8 +30,6 @@ test.describe('Canvas Management', () => {
   });
 
   test('API returns error when image file path does not exist', async () => {
-    const API_URL = process.env.API_URL || 'http://localhost:5000';
-
     const response = await fetch(`${API_URL}/api/sessions/${session.id}/canvas`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

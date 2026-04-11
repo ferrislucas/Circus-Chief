@@ -31,7 +31,7 @@ test.describe('Slash Commands', () => {
    */
   async function navigateToSessionWithSlashCommands(page: any, projectId: string, sessionId: string) {
     // Wait for session to reach 'waiting' state in the API
-    await waitForSessionStatus(page, sessionId, 'waiting', 30000);
+    await waitForSessionStatus(sessionId, 'waiting', 30000);
 
     // Navigate directly to the session conversation
     await page.goto(`/sessions/${sessionId}/summary`);

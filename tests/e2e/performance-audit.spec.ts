@@ -12,8 +12,9 @@
  */
 
 import { test, expect } from '@playwright/test';
+import { API_URL } from './helpers';
 
-const LIVE_API = process.env.API_URL || 'http://localhost:5000';
+const LIVE_API = API_URL;
 
 // Thresholds (in ms) — adjust as you tighten performance
 const THRESHOLDS = {

@@ -389,7 +389,6 @@ test.describe('Auto-Trigger Mechanism', () => {
     // Wait for child session to be created
     const child = await waitForChildSession(parent.id, 20000);
 
-    expect(child).toBeTruthy();
     expect(child.parentSessionId).toBe(parent.id);
     // Child name format: "TemplateName (from: ParentName)"
     // Parent name may be auto-renamed by mock summary, so only check template name
@@ -463,7 +462,7 @@ test.describe('Auto-Trigger Mechanism', () => {
     await sendSessionMessage(parent.id, 'Go');
 
     // Wait for session to reach 'waiting' (mock completion)
-    await waitForSessionStatus(null as any, parent.id, 'waiting', 15000);
+    await waitForSessionStatus(parent.id, 'waiting', 15000);
 
     // Brief wait to make sure no child was created
     await new Promise((r) => setTimeout(r, 2000));
@@ -494,7 +493,6 @@ test.describe('Auto-Trigger Mechanism', () => {
     // Wait for child session to be created
     const child = await waitForChildSession(parent.id, 20000);
 
-    expect(child).toBeTruthy();
     expect(child.parentSessionId).toBe(parent.id);
   });
 
@@ -532,17 +530,14 @@ test.describe('Auto-Trigger Mechanism', () => {
 
     // Wait for first child (Session from template A)
     const childA = await waitForChildSession(root.id, 25000);
-    expect(childA).toBeTruthy();
     expect(childA.parentSessionId).toBe(root.id);
 
     // Wait for second child (Session from template B, child of A)
     const childB = await waitForChildSession(childA.id, 25000);
-    expect(childB).toBeTruthy();
     expect(childB.parentSessionId).toBe(childA.id);
 
     // Wait for third child (Session from template C, child of B)
     const childC = await waitForChildSession(childB.id, 25000);
-    expect(childC).toBeTruthy();
     expect(childC.parentSessionId).toBe(childB.id);
 
     // Verify the full chain exists: root → A → B → C

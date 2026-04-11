@@ -8,9 +8,8 @@ import {
   updateSessionStatus,
   getSessionMessages,
   getSession,
+  API_URL,
 } from './helpers';
-
-const API_URL = process.env.API_URL || 'http://localhost:5000';
 
 // Helper to wait for session to reach a specific status
 async function waitForSessionStatus(sessionId: string, targetStatus: string, timeoutMs = 10000) {
