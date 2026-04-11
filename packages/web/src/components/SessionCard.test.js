@@ -1247,6 +1247,129 @@ describe('SessionCard', () => {
       const scheduledTime = wrapper.find('.scheduled-time');
       expect(scheduledTime.exists()).toBe(false);
     });
+
+    it('shows nearest future scheduled time from child sessions', () => {
+      const futureTime = Date.now() + 30 * 60 * 1000; // 30 min from now
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-1',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: futureTime,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(true);
+      expect(scheduledTime.text()).toContain('minute');
+      expect(scheduledTime.attributes('title')).toMatch(/\d{1,2}:\d{2}/);
+    });
+
+    it('shows earliest future time when multiple children are scheduled', () => {
+      const soonestTime = Date.now() + 10 * 60 * 1000; // 10 min from now
+      const laterTime = Date.now() + 60 * 60 * 1000;   // 60 min from now
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-1',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: laterTime,
+        },
+        {
+          id: 'child-2',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: soonestTime,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(true);
+      expect(scheduledTime.text()).toContain('10'); // should show ~10 minutes
+    });
+
+    it('hides scheduled time when all children have past scheduledAt', () => {
+      const pastTime = Date.now() - 30 * 60 * 1000; // 30 min ago
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-1',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: pastTime,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
+
+    it('ignores past times and shows only future scheduled time', () => {
+      const pastTime = Date.now() - 30 * 60 * 1000;
+      const futureTime = Date.now() + 15 * 60 * 1000;
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-past',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: pastTime,
+        },
+        {
+          id: 'child-future',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: futureTime,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(true);
+      expect(scheduledTime.text()).toContain('15'); // future time, not past
+    });
+
+    it('ignores children with scheduledAt null', () => {
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-1',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: null,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
+
+    it('shows no time when parent has no scheduled children', () => {
+      mockSessionsStoreData.sessions = [];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
   });
 
   describe('kanbanEnabled prop', () => {
