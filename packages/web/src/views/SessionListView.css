@@ -322,6 +322,31 @@
   font-size: 0.9rem;
 }
 
+/* Responsive add-session button labels in tab bar */
+.add-session-label-short {
+  display: none;
+}
+
+.add-session-label-full {
+  display: inline;
+}
+
+@media (max-width: 768px) {
+  .add-session-label-full {
+    display: none;
+  }
+
+  .add-session-label-short {
+    display: inline;
+  }
+}
+
+/* Prevent the tab bar button from shrinking or wrapping */
+.tabs-desktop .btn-primary {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .btn-secondary {
   background: var(--color-background);
   border: 1px solid var(--color-border);
