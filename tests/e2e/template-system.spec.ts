@@ -462,7 +462,7 @@ test.describe('Auto-Trigger Mechanism', () => {
     await sendSessionMessage(parent.id, 'Go');
 
     // Wait for session to reach 'waiting' (mock completion)
-    await waitForSessionStatus(null as any, parent.id, 'waiting', 15000);
+    await waitForSessionStatus(parent.id, 'waiting', 15000);
 
     // Brief wait to make sure no child was created
     await new Promise((r) => setTimeout(r, 2000));

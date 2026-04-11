@@ -262,12 +262,11 @@ test.describe('Model Provider UI - Settings Page', () => {
     await page.locator('.modal .btn-primary').click();
     await expect(modal).toBeHidden({ timeout: 10000 });
 
-    // Wait for update
-    await page.waitForTimeout(1000);
-
-    // Verify via API
-    const updated = await getProvider(provider.id);
-    expect(updated.baseUrl).toBe('https://after-edit.example.com');
+    // Verify the update was persisted via API (poll until the value is updated)
+    await expect(async () => {
+      const updated = await getProvider(provider.id);
+      expect(updated.baseUrl).toBe('https://after-edit.example.com');
+    }).toPass({ timeout: 5000 });
   });
 
   test('can delete a provider via the UI', async ({ page }) => {

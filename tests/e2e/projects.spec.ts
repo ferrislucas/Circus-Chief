@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mkdtempSync } from 'fs';
-import { cleanupAll, getProject, seedProject } from './helpers';
+import { cleanupAll, getProject, seedProject, API_URL } from './helpers';
 
 test.describe('Project Management', () => {
   test.beforeEach(async () => {
@@ -93,7 +93,7 @@ test.describe('Project Management', () => {
 
   test('can reset system prompt to default', async ({ page }) => {
     // Create a project with a custom system prompt
-    const response = await fetch(`${process.env.API_URL || 'http://localhost:5000'}/api/projects`, {
+    const response = await fetch(`${API_URL}/api/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

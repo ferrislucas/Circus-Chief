@@ -15,6 +15,7 @@ import {
   navigateAndWait,
   openSessionOverlay,
   API_URL,
+  BASE_URL,
   waitForSessionToExist,
 } from './helpers';
 
@@ -189,7 +190,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       const project = await seedProject('PATCH Invalid Test', '/tmp/patch-invalid');
       const session = await seedSession(project.id, { prompt: 'Test prompt' });
 
-      const response = await fetch(`${process.env.API_URL || 'http://localhost:5000'}/api/sessions/${session.id}`, {
+      const response = await fetch(`${API_URL}/api/sessions/${session.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ effortLevel: 'invalid' }),
@@ -309,7 +310,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       const project = await seedProject('UI Dropdown Test', '/tmp/ui-dropdown');
 
       // Navigate to new session page
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/projects/${project.id}/sessions/new`);
+      await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/sessions/new`);
 
       // Check that effort level dropdown is visible
       const dropdown = page.locator('#effort-select');
@@ -320,7 +321,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       const project = await seedProject('UI Default Test', '/tmp/ui-default');
 
       // Navigate to new session page
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/projects/${project.id}/sessions/new`);
+      await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/sessions/new`);
 
       // Check that dropdown shows "auto" as selected
       const dropdown = page.locator('#effort-select');
@@ -332,7 +333,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       const project = await seedProject('UI Create High Test', '/tmp/ui-create-high');
 
       // Navigate to new session page
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/projects/${project.id}/sessions/new`);
+      await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/sessions/new`);
 
       // Select "high" effort level
       await page.locator('#effort-select').selectOption('high');
@@ -360,7 +361,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       const project = await seedProject('UI Create Low Test', '/tmp/ui-create-low');
 
       // Navigate to new session page
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/projects/${project.id}/sessions/new`);
+      await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/sessions/new`);
 
       // Select "low" effort level
       await page.locator('#effort-select').selectOption('low');
@@ -391,7 +392,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
 
       for (const level of effortLevels) {
         // Navigate to new session page
-        await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/projects/${project.id}/sessions/new`);
+        await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/sessions/new`);
 
         // Select effort level
         await page.locator('#effort-select').selectOption(level);
@@ -432,7 +433,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'high',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
 
       // Check that effort level dropdown is visible in input form
@@ -447,7 +448,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'medium',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
 
       // Check that dropdown shows "medium"
@@ -463,7 +464,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         // effortLevel defaults to null (auto)
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
 
       // Check that dropdown shows "auto"
@@ -479,7 +480,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'low',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
 
       // Change dropdown to "max"
@@ -508,7 +509,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'high',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
 
       // Change dropdown to "low"
@@ -536,7 +537,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         effortLevel: 'medium',
       });
 
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/sessions/${session.id}/summary`);
+      await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
       await openSessionOverlay(page);
 
       // Change dropdown to "high"
@@ -574,7 +575,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       await setProjectSessionDefaults(project.id, { effortLevel: 'medium' });
 
       // Navigate to new session page
-      await navigateAndWait(page, `${process.env.BASE_URL || 'http://localhost:5000'}/projects/${project.id}/sessions/new`);
+      await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/sessions/new`);
 
       // Check that dropdown shows "medium" (from project defaults)
       const dropdown = page.locator('#effort-select');

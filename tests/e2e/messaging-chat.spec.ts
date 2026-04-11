@@ -12,9 +12,8 @@ import {
   seedWorkLog,
   getSessionMessages,
   openSessionOverlay,
+  BASE_URL,
 } from './helpers';
-
-const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
 
 test.describe('Markdown Rendering', () => {
   let project: any;

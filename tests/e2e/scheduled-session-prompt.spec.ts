@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, cleanupAll, navigateAndWait, openSessionOverlay, getSessionMessages } from './helpers';
+import { seedProject, cleanupAll, navigateAndWait, openSessionOverlay, getSessionMessages, API_URL } from './helpers';
 
 /**
  * Test for Issue #435: Scheduled session prompt should appear in text input, not as message
@@ -92,8 +92,6 @@ test.describe('Scheduled Session Prompt Location (#435)', () => {
  * Helper function to create a scheduled session via API
  */
 async function createScheduledSession(projectId: string, prompt: string, scheduledAt: number) {
-  const API_URL = process.env.API_URL || 'http://localhost:5000';
-
   const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

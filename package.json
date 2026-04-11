@@ -26,7 +26,6 @@
     "playwright": "^1.57.0",
     "supertest": "^7.1.4",
     "prettier": "^3.2.4",
-    "@vitest/coverage-v8": "^4.0.16",
     "vitest": "^4.0.16",
     "vue-eslint-parser": "9"
   },
