@@ -12,14 +12,14 @@
             Are you sure you want to archive <strong>{{ sessionName }}</strong>?
           </p>
 
-          <div v-if="hasWorktree" class="cleanup-option">
+          <div v-if="hasCleanupScript" class="cleanup-option">
             <label class="checkbox-label">
               <input
                 type="checkbox"
-                v-model="cleanupWorktree"
-                aria-label="Clean up git worktree"
+                v-model="runCleanup"
+                aria-label="Run project cleanup script"
               />
-              <span>Clean up git worktree</span>
+              <span>Run project cleanup script</span>
             </label>
           </div>
         </div>
@@ -45,7 +45,7 @@ const props = defineProps({
     type: String,
     default: 'this session',
   },
-  hasWorktree: {
+  hasCleanupScript: {
     type: Boolean,
     default: false,
   },
@@ -53,20 +53,20 @@ const props = defineProps({
 
 const emit = defineEmits(['confirm', 'cancel']);
 
-const cleanupWorktree = ref(true);
+const runCleanup = ref(true);
 
-// Reset cleanupWorktree to true whenever modal opens
+// Reset runCleanup to true whenever modal opens
 watch(
   () => props.isOpen,
   (isOpen) => {
     if (isOpen) {
-      cleanupWorktree.value = true;
+      runCleanup.value = true;
     }
   }
 );
 
 function handleConfirm() {
-  emit('confirm', cleanupWorktree.value);
+  emit('confirm', runCleanup.value);
 }
 
 function cancel() {

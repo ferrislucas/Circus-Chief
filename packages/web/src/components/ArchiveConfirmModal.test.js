@@ -17,7 +17,7 @@ describe('ArchiveConfirmModal.vue', () => {
   const defaultProps = {
     isOpen: true,
     sessionName: 'My Session',
-    hasWorktree: false,
+    hasCleanupScript: false,
   };
 
   function mountModal(props = {}, listeners = {}) {
@@ -50,14 +50,14 @@ describe('ArchiveConfirmModal.vue', () => {
     });
   });
 
-  describe('Worktree cleanup checkbox', () => {
-    it('shows cleanup checkbox when hasWorktree is true', () => {
-      mountModal({ hasWorktree: true });
+  describe('Cleanup script checkbox', () => {
+    it('shows cleanup checkbox when hasCleanupScript is true', () => {
+      mountModal({ hasCleanupScript: true });
       expect(document.querySelector('input[type="checkbox"]')).not.toBeNull();
     });
 
-    it('hides cleanup checkbox when hasWorktree is false', () => {
-      mountModal({ hasWorktree: false });
+    it('hides cleanup checkbox when hasCleanupScript is false', () => {
+      mountModal({ hasCleanupScript: false });
       expect(document.querySelector('input[type="checkbox"]')).toBeNull();
     });
   });
@@ -65,7 +65,7 @@ describe('ArchiveConfirmModal.vue', () => {
   describe('Confirm action', () => {
     it('emits confirm(true) when Archive clicked with checkbox checked (default)', async () => {
       const onConfirm = vi.fn();
-      mountModal({ hasWorktree: true, onConfirm });
+      mountModal({ hasCleanupScript: true, onConfirm });
       const buttons = document.querySelectorAll('button');
       const archiveBtn = Array.from(buttons).find(b => b.textContent === 'Archive');
       archiveBtn.click();
@@ -76,7 +76,7 @@ describe('ArchiveConfirmModal.vue', () => {
 
     it('emits confirm(false) when Archive clicked with checkbox unchecked', async () => {
       const onConfirm = vi.fn();
-      mountModal({ hasWorktree: true, onConfirm });
+      mountModal({ hasCleanupScript: true, onConfirm });
       const checkbox = document.querySelector('input[type="checkbox"]');
       checkbox.click();
       await nextTick();
@@ -120,8 +120,8 @@ describe('ArchiveConfirmModal.vue', () => {
   });
 
   describe('State reset on re-open', () => {
-    it('resets cleanupWorktree to true when modal re-opens', async () => {
-      const wrapper = mountModal({ isOpen: true, hasWorktree: true });
+    it('resets runCleanup to true when modal re-opens', async () => {
+      const wrapper = mountModal({ isOpen: true, hasCleanupScript: true });
       // Uncheck the checkbox
       const checkbox = document.querySelector('input[type="checkbox"]');
       checkbox.click();
