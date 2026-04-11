@@ -56,7 +56,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
       }
 
       // Fetch new project data
-      projectsStore.fetchProject(newProjectId);
+      await projectsStore.fetchProject(newProjectId);
       await sessionsStore.fetchSessions(newProjectId);
       await commandButtonsStore.fetchButtons(newProjectId);
       fetchSummariesBatch(sessionsStore.sessions);
