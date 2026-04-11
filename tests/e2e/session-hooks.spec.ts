@@ -8,6 +8,7 @@ import {
   waitForFile,
   readMarkerFile,
   cleanupCreatedResources,
+  API_URL,
 } from './helpers';
 
 test.describe('Session Lifecycle Hooks', () => {
@@ -63,7 +64,7 @@ test.describe('Session Lifecycle Hooks', () => {
     });
 
     // Delete the session
-    const response = await fetch(`${process.env.API_URL || 'http://localhost:5000'}/api/sessions/${session.id}`, {
+    const response = await fetch(`${API_URL}/api/sessions/${session.id}`, {
       method: 'DELETE',
     });
     expect(response.ok).toBe(true);

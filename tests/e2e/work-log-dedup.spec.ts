@@ -7,10 +7,9 @@ import {
   getSessionMessages,
   getSession,
   openSessionOverlay,
+  BASE_URL,
+  API_URL,
 } from './helpers';
-
-const BASE_URL = process.env.BASE_URL || 'http://localhost:5000';
-const API_URL = process.env.API_URL || 'http://localhost:5000';
 
 // Helper to wait for session to reach a specific status
 async function waitForSessionStatus(sessionId: string, targetStatus: string, timeoutMs = 10000) {

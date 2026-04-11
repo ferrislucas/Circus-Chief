@@ -67,6 +67,10 @@ export async function apiPost(path, body) {
     method: 'POST',
     body: JSON.stringify(body),
   });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`API POST ${path} failed (${response.status}): ${text}`);
+  }
   return response.json();
 }
 
@@ -78,6 +82,10 @@ export async function apiPatch(path, body) {
     method: 'PATCH',
     body: JSON.stringify(body),
   });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`API PATCH ${path} failed (${response.status}): ${text}`);
+  }
   return response.json();
 }
 
