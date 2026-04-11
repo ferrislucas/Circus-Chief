@@ -114,10 +114,10 @@ import { useUiStore } from '../stores/ui.js';
 import { api } from '../composables/useApi.js';
 
 const props = defineProps({
-  isOpen: Boolean,
-  projectId: String,
-  laneId: String,
-  laneName: String,
+  isOpen: { type: Boolean, default: false },
+  projectId: { type: String, default: '' },
+  laneId: { type: String, default: '' },
+  laneName: { type: String, default: '' },
 });
 
 const emit = defineEmits(['close', 'update:isOpen', 'added']);

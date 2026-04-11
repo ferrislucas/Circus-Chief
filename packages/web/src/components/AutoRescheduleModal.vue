@@ -172,8 +172,8 @@ import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 
 const props = defineProps({
-  isOpen: Boolean,
-  session: Object,
+  isOpen: { type: Boolean, default: false },
+  session: { type: Object, default: null },
 });
 
 const emit = defineEmits(['close', 'saved']);

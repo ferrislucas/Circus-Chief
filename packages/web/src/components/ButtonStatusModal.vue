@@ -171,12 +171,14 @@
               >
                 ↑ Showing last 200 lines of output
               </div>
+              <!-- eslint-disable vue/no-v-html -->
               <div
                 ref="outputContainerRef"
                 class="output-text"
                 data-testid="output-text"
                 v-html="formattedOutput || '(no output)'"
               />
+              <!-- eslint-enable vue/no-v-html -->
             </template>
           </div>
         </div>
