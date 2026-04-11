@@ -119,6 +119,66 @@ describe('ArchiveConfirmModal.vue', () => {
     });
   });
 
+  describe('Loading state', () => {
+    it('disables Archive button when loading is true', () => {
+      mountModal({ loading: true });
+      const buttons = document.querySelectorAll('button');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archiving...');
+      expect(archiveBtn).not.toBeNull();
+      expect(archiveBtn.disabled).toBe(true);
+    });
+
+    it('shows loading text on Archive button when loading is true', () => {
+      mountModal({ loading: true });
+      const buttons = document.querySelectorAll('button');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archiving...');
+      expect(archiveBtn).not.toBeNull();
+    });
+
+    it('disables Cancel button when loading is true', () => {
+      mountModal({ loading: true });
+      const buttons = document.querySelectorAll('button');
+      const cancelBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Cancel');
+      expect(cancelBtn.disabled).toBe(true);
+    });
+
+    it('disables close (x) button when loading is true', () => {
+      mountModal({ loading: true });
+      const closeBtn = document.querySelector('.close-btn');
+      expect(closeBtn.disabled).toBe(true);
+    });
+
+    it('does not emit cancel on backdrop click when loading is true', async () => {
+      const onCancel = vi.fn();
+      mountModal({ loading: true }, { onCancel });
+      const backdrop = document.querySelector('.modal-backdrop');
+      backdrop.click();
+      await nextTick();
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it('does not emit cancel on Escape key when loading is true', async () => {
+      const onCancel = vi.fn();
+      mountModal({ isOpen: true, loading: true }, { onCancel });
+      const event = new KeyboardEvent('keydown', { key: 'Escape' });
+      document.dispatchEvent(event);
+      await nextTick();
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it('buttons are enabled and text is normal when loading is false', () => {
+      mountModal({ loading: false });
+      const buttons = document.querySelectorAll('button');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archive');
+      const cancelBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Cancel');
+      const closeBtn = document.querySelector('.close-btn');
+      expect(archiveBtn).not.toBeNull();
+      expect(archiveBtn.disabled).toBe(false);
+      expect(cancelBtn.disabled).toBe(false);
+      expect(closeBtn.disabled).toBe(false);
+    });
+  });
+
   describe('State reset on re-open', () => {
     it('resets runCleanup to true when modal re-opens', async () => {
       const wrapper = mountModal({ isOpen: true, hasCleanupScript: true });

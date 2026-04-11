@@ -493,12 +493,13 @@ vi.mock('../components/ScheduledTabContent.vue', () => ({
 vi.mock('../components/ArchiveConfirmModal.vue', () => ({
   default: defineComponent({
     name: 'ArchiveConfirmModal',
-    props: ['isOpen', 'sessionName', 'hasCleanupScript'],
+    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'loading'],
     emits: ['confirm', 'cancel'],
     template: `
       <div v-if="isOpen" class="archive-confirm-modal" data-testid="archive-confirm-modal">
         <span class="modal-session-name">{{ sessionName }}</span>
         <span class="modal-has-cleanup-script" :data-has-cleanup-script="hasCleanupScript"></span>
+        <span class="modal-loading" :data-loading="loading"></span>
         <button class="modal-confirm-btn" @click="$emit('confirm', true)">Archive</button>
         <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', false)">Archive No Cleanup</button>
         <button class="modal-cancel-btn" @click="$emit('cancel')">Cancel</button>
@@ -2772,13 +2773,11 @@ describe('SessionListView batch summary fetching', () => {
       await nextTick();
 
       // Confirm
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       await wrapper.find('.modal-confirm-btn').trigger('click');
       await flushPromises();
 
       // Modal should be closed even on error (finally block)
       expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
-      consoleSpy.mockRestore();
     });
 
     it('does not call archiveSession when no session is selected for archive', async () => {
@@ -2791,6 +2790,122 @@ describe('SessionListView batch summary fetching', () => {
       // Modal should not be visible and archiveSession should not be called
       expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
       expect(mockSessionsStore.archiveSession).not.toHaveBeenCalled();
+    });
+
+    it('shows success toast on successful archive', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      // Import uiStore to check toast
+      const { useUiStore } = await import('../stores/ui.js');
+      const uiStore = useUiStore();
+      expect(uiStore.toasts.some(t => t.message === 'Session archived')).toBe(true);
+    });
+
+    it('shows error toast on archive failure', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      mockSessionsStore.archiveSession.mockRejectedValueOnce(new Error('Archive failed'));
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      // Import uiStore to check toast
+      const { useUiStore } = await import('../stores/ui.js');
+      const uiStore = useUiStore();
+      expect(uiStore.toasts.some(t => t.message === 'Archive failed')).toBe(true);
+    });
+
+    it('passes loading=true to ArchiveConfirmModal while archiving', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+
+      // Use a deferred promise
+      let resolveArchive;
+      mockSessionsStore.archiveSession.mockReturnValue(new Promise(r => { resolveArchive = r; }));
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('loading')).toBe(false);
+
+      // Trigger confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await nextTick();
+
+      // loading should be true while API call is in-flight
+      expect(modal.props('loading')).toBe(true);
+
+      // Resolve the archive call
+      resolveArchive();
+      await flushPromises();
+    });
+
+    it('keeps modal open on archive failure', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+
+      let rejectArchive;
+      mockSessionsStore.archiveSession.mockReturnValue(new Promise((_, reject) => { rejectArchive = reject; }));
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Trigger confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await nextTick();
+
+      // Modal should still be open while loading
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(true);
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('loading')).toBe(true);
+
+      // Reject the archive call
+      rejectArchive(new Error('Network error'));
+      await flushPromises();
+
+      // Modal closes in the finally block
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
     });
   });
 });

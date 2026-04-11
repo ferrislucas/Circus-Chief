@@ -100,6 +100,7 @@
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
         :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && !sessionsStore.currentSession?.parentSessionId)"
+        :loading="archiving"
         @confirm="confirmArchive"
         @cancel="cancelArchive"
       />
@@ -174,6 +175,7 @@ const summary = ref(null);
 const isDeleting = ref(false);
 const chatOverlayOpen = ref(false);
 const showArchiveModal = ref(false);
+const archiving = ref(false);
 
 // Session ID to pass to the overlay - resolves to running child if present
 const overlaySessionId = ref(route.params.id);
@@ -640,7 +642,7 @@ async function handleArchive() {
 }
 
 async function confirmArchive(runCleanup) {
-  showArchiveModal.value = false;
+  archiving.value = true;
   try {
     const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
@@ -652,6 +654,9 @@ async function confirmArchive(runCleanup) {
     }
   } catch (err) {
     uiStore.error(err.message);
+  } finally {
+    archiving.value = false;
+    showArchiveModal.value = false;
   }
 }
 

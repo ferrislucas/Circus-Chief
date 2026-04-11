@@ -1,10 +1,10 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="modal-backdrop" @click.self="cancel">
+    <div v-if="isOpen" class="modal-backdrop" @click.self="handleBackdropClick">
       <div class="modal-content" role="dialog" aria-labelledby="archive-modal-title">
         <div class="modal-header">
           <h2 id="archive-modal-title" class="modal-title">Archive Session</h2>
-          <button @click="cancel" class="close-btn" aria-label="Close modal">&times;</button>
+          <button @click="cancel" class="close-btn" aria-label="Close modal" :disabled="loading">&times;</button>
         </div>
 
         <div class="modal-body">
@@ -25,8 +25,10 @@
         </div>
 
         <div class="modal-footer">
-          <button @click="cancel" class="btn btn-secondary">Cancel</button>
-          <button @click="handleConfirm" class="btn btn-primary">Archive</button>
+          <button @click="cancel" class="btn btn-secondary" :disabled="loading">Cancel</button>
+          <button @click="handleConfirm" class="btn btn-primary" :disabled="loading">
+            {{ loading ? 'Archiving...' : 'Archive' }}
+          </button>
         </div>
       </div>
     </div>
@@ -46,6 +48,10 @@ const props = defineProps({
     default: 'this session',
   },
   hasCleanupScript: {
+    type: Boolean,
+    default: false,
+  },
+  loading: {
     type: Boolean,
     default: false,
   },
@@ -70,13 +76,19 @@ function handleConfirm() {
 }
 
 function cancel() {
+  if (props.loading) return;
+  emit('cancel');
+}
+
+function handleBackdropClick() {
+  if (props.loading) return;
   emit('cancel');
 }
 
 // Handle Escape key to close modal
 function handleEscape(event) {
-  if (event.key === 'Escape' && props.isOpen) {
-    cancel();
+  if (event.key === 'Escape' && props.isOpen && !props.loading) {
+    emit('cancel');
   }
 }
 
@@ -207,5 +219,15 @@ onUnmounted(() => {
 
 .btn-secondary:hover {
   background: var(--color-background-secondary);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.close-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>
