@@ -2576,6 +2576,28 @@ describe('Sessions Store', () => {
         await expect(store.archiveSession('session-1')).rejects.toThrow('Archive failed');
         expect(store.error).toBe('Archive failed');
       });
+
+      it('calls api.archiveSession with cleanup: false by default', async () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'session-1', status: 'completed', archived: false }];
+
+        api.archiveSession.mockResolvedValue({ id: 'session-1', status: 'completed', archived: true });
+
+        await store.archiveSession('session-1');
+
+        expect(api.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      });
+
+      it('forwards cleanup: true option to api.archiveSession', async () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'session-1', status: 'completed', archived: false }];
+
+        api.archiveSession.mockResolvedValue({ id: 'session-1', status: 'completed', archived: true });
+
+        await store.archiveSession('session-1', { cleanup: true });
+
+        expect(api.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: true });
+      });
     });
 
     describe('unarchiveSession', () => {

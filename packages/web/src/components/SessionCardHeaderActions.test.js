@@ -140,7 +140,7 @@ describe('SessionCardHeaderActions', () => {
       expect(wrapper.find('.archive-btn[title="Archive session"]').exists()).toBe(false);
     });
 
-    it('shows confirm dialog when archive button is clicked', async () => {
+    it('does not show confirm dialog when archive button is clicked (confirmation handled by parent modal)', async () => {
       confirmSpy.mockReturnValue(true);
       const wrapper = mountComponent({
         showArchive: true,
@@ -148,18 +148,8 @@ describe('SessionCardHeaderActions', () => {
       });
       const btn = wrapper.find('.archive-btn');
       await btn.trigger('click');
-      expect(confirmSpy).toHaveBeenCalledWith('Archive this session?');
-    });
-
-    it('does not emit archive event when user cancels', async () => {
-      confirmSpy.mockReturnValue(false);
-      const wrapper = mountComponent({
-        showArchive: true,
-        sessionStatus: 'completed',
-      });
-      const btn = wrapper.find('.archive-btn');
-      await btn.trigger('click');
-      expect(wrapper.emitted('archive')).toBeFalsy();
+      // Archive confirmation is now handled by ArchiveConfirmModal in the parent view
+      expect(confirmSpy).not.toHaveBeenCalled();
     });
   });
 

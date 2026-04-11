@@ -862,40 +862,16 @@ describe('SessionCard', () => {
         }
       });
 
-      it('shows confirmation dialog with correct message when archive button is clicked', async () => {
-        confirmSpy.mockReturnValue(false);
-        const wrapper = mountComponent({
-          session: { ...baseSession, status: 'completed' },
-          showArchive: true,
-        });
-        const btn = wrapper.find('.archive-btn');
-        await btn.trigger('click');
-        expect(confirmSpy).toHaveBeenCalledWith('Archive this session?');
-      });
-
-      it('does not emit archive event when user cancels confirmation', async () => {
-        confirmSpy.mockReturnValue(false);
-        const wrapper = mountComponent({
-          session: { ...baseSession, status: 'completed' },
-          showArchive: true,
-        });
-        const btn = wrapper.find('.archive-btn');
-        await btn.trigger('click');
-        expect(wrapper.emitted('archive')).toBeFalsy();
-      });
-
-      it('emits archive event when user confirms', async () => {
+      it('does not show confirm dialog when archive button is clicked (confirmation handled by parent modal)', async () => {
         confirmSpy.mockReturnValue(true);
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'completed' },
           showArchive: true,
         });
         const btn = wrapper.find('.archive-btn');
-        // Confirm that confirm was mocked to return true
-        expect(confirmSpy.getMockImplementation()).toBeDefined();
         await btn.trigger('click');
-        // If confirm returned true, the archive event should be emitted
-        expect(confirmSpy).toHaveBeenCalledWith('Archive this session?');
+        // Archive confirmation is now handled by ArchiveConfirmModal in the parent view
+        expect(confirmSpy).not.toHaveBeenCalled();
       });
     });
 
