@@ -284,15 +284,43 @@ const runningSessionIds = computed(() => {
 
 const hasRunningSession = computed(() => runningSessionIds.value.length > 0);
 
-// Scheduled time display (for this specific session when it's scheduled)
+/** Find the nearest upcoming scheduledAt from any session in the workflow tree. */
+const nearestScheduledAt = computed(() => {
+  const now = Date.now();
+
+  // Check the session itself first (most relevant).
+  // Note: For self-scheduled sessions, we show the time even if it's in the past —
+  // this preserves backward compatibility and signals a potential scheduling issue.
+  if (props.session.status === 'scheduled' && props.session.scheduledAt) {
+    return props.session.scheduledAt;
+  }
+
+  // Find the earliest future scheduled time among children.
+  // Only future times are shown for children (past scheduled times mean the
+  // session should have already been triggered).
+  const allSessions = getWorkflowSessions();
+  let earliest = null;
+  for (const s of allSessions) {
+    // Skip the root session (already checked above)
+    if (s.id === props.session.id) continue;
+    if (s.status === 'scheduled' && s.scheduledAt) {
+      const t = new Date(s.scheduledAt).getTime();
+      if (t >= now && (earliest === null || t < earliest)) {
+        earliest = t;
+      }
+    }
+  }
+  return earliest;
+});
+
 const scheduledTimeDisplay = computed(() => {
-  if (props.session.status !== 'scheduled' || !props.session.scheduledAt) return null;
-  return formatDistanceToNow(new Date(props.session.scheduledAt), { addSuffix: true });
+  if (!nearestScheduledAt.value) return null;
+  return formatDistanceToNow(new Date(nearestScheduledAt.value), { addSuffix: true });
 });
 
 const scheduledAbsoluteTime = computed(() => {
-  if (props.session.status !== 'scheduled' || !props.session.scheduledAt) return null;
-  return format(new Date(props.session.scheduledAt), 'MMM d, h:mm a');
+  if (!nearestScheduledAt.value) return null;
+  return format(new Date(nearestScheduledAt.value), 'MMM d, h:mm a');
 });
 
 const buttonStatusesToDisplay = computed(() => {
