@@ -14,9 +14,15 @@ vi.mock('../services/gitService.js', () => ({
   removeWorktree: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock hookService
+vi.mock('../services/hookService.js', () => ({
+  executeHookAsync: vi.fn(),
+}));
+
 import archiveRouter from './sessions-archive.js';
 import { broadcastToProject } from '../websocket.js';
 import { removeWorktree } from '../services/gitService.js';
+import { executeHookAsync } from '../services/hookService.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
 describe('Sessions Archive API', () => {
@@ -136,6 +142,68 @@ describe('Sessions Archive API', () => {
         .send({});
 
       expect(res.status).toBe(404);
+    });
+
+    it('executes onSessionDeleted hook when cleanup is true and project has hook configured', async () => {
+      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
+      projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ cleanup: true });
+
+      expect(res.status).toBe(200);
+      expect(executeHookAsync).toHaveBeenCalledWith(
+        './cleanup.sh',
+        expect.any(String),
+        expect.objectContaining({
+          sessionId: session.id,
+          projectId: project.id,
+          sessionName: 'Test Session',
+        })
+      );
+    });
+
+    it('does not execute onSessionDeleted hook when cleanup is false', async () => {
+      projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ cleanup: false });
+
+      expect(res.status).toBe(200);
+      expect(executeHookAsync).not.toHaveBeenCalled();
+    });
+
+    it('does not execute onSessionDeleted hook when project has no hook configured', async () => {
+      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ cleanup: true });
+
+      expect(res.status).toBe(200);
+      expect(executeHookAsync).not.toHaveBeenCalled();
+    });
+
+    it('does not execute onSessionDeleted hook for child sessions even with cleanup true', async () => {
+      const parentSession = sessions.create(project.id, 'Parent Session', 'parent prompt');
+      sessions.update(parentSession.id, { status: 'stopped' });
+
+      const childSession = sessions.create(project.id, 'Child Session', 'child prompt');
+      sessions.update(childSession.id, {
+        status: 'stopped',
+        gitWorktree: '/path/to/wt',
+        parentSessionId: parentSession.id,
+      });
+      projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${childSession.id}/archive`)
+        .send({ cleanup: true });
+
+      expect(res.status).toBe(200);
+      expect(executeHookAsync).not.toHaveBeenCalled();
     });
 
     it('broadcasts SESSION_UPDATED via WebSocket on archive', async () => {

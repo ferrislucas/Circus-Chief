@@ -4,6 +4,7 @@ import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import * as gitService from '../services/gitService.js';
+import { executeHookAsync } from '../services/hookService.js';
 
 const router = Router();
 
@@ -28,6 +29,16 @@ router.post('/:id/archive', requireSessionAndProject, async (req, res) => {
     updated = sessions.update(req.params.id, { archived: true, gitWorktree: null });
   } else {
     updated = sessions.update(req.params.id, { archived: true });
+  }
+
+  // Execute project cleanup command if cleanup requested and project has one configured
+  // Skip for child sessions - they share parent's resources and shouldn't trigger teardown
+  if (cleanup && req.project?.onSessionDeleted && !req.session_.parentSessionId) {
+    executeHookAsync(req.project.onSessionDeleted, req.workingDirectory, {
+      sessionId: req.session_.id,
+      projectId: req.project.id,
+      sessionName: req.session_.name,
+    });
   }
 
   // Broadcast update to project subscribers
