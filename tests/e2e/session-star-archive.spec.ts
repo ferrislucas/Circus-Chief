@@ -240,13 +240,15 @@ test.describe('Archive / Unarchive Sessions', () => {
       startImmediately: false,
     });
 
-    // Handle the confirmation dialog
-    page.on('dialog', dialog => dialog.accept());
-
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click archive button (use first() to avoid multiple matches)
     await page.locator('button.archive-btn[title="Archive session"]').first().click();
+
+    // Confirm via the ArchiveConfirmModal
+    const modal = page.locator('.modal-backdrop');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await modal.locator('.btn-primary').filter({ hasText: 'Archive' }).click();
 
     // Wait for the archive action to complete and UI to update
     await page.waitForTimeout(1500);
@@ -346,9 +348,6 @@ test.describe('Archive / Unarchive Sessions', () => {
       startImmediately: false,
     });
 
-    // Handle the confirmation dialog
-    page.on('dialog', dialog => dialog.accept());
-
     await navigateAndWait(page, `/sessions/${session.id}`);
 
     // Open overflow menu (aria-label is "Session actions" on session detail page)
@@ -359,6 +358,11 @@ test.describe('Archive / Unarchive Sessions', () => {
 
     // Click Archive menu item (button.menu-item with Archive text)
     await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click({ timeout: 10000 });
+
+    // Confirm via the ArchiveConfirmModal
+    const modal = page.locator('.modal-backdrop');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await modal.locator('.btn-primary').filter({ hasText: 'Archive' }).click();
 
     // Wait for archive to complete
     await page.waitForTimeout(2000);

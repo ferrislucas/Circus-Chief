@@ -144,9 +144,6 @@ test.describe('Toast Notifications', () => {
   });
 
   test('success toast appears on session archive', async ({ page }) => {
-    // Accept confirm dialog
-    page.on('dialog', dialog => dialog.accept());
-
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Archive
@@ -155,6 +152,11 @@ test.describe('Toast Notifications', () => {
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
+
+    // Confirm via the ArchiveConfirmModal
+    const modal = page.locator('.modal-backdrop');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await modal.locator('.btn-primary').filter({ hasText: 'Archive' }).click();
 
     // Wait for success toast
     const toast = page.locator('.toast.toast-success');
@@ -194,9 +196,6 @@ test.describe('Toast Notifications', () => {
   test('toast auto-dismisses after timeout', async ({ page }) => {
     test.setTimeout(20000);
 
-    // Accept confirm dialog
-    page.on('dialog', dialog => dialog.accept());
-
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a toast
@@ -205,6 +204,11 @@ test.describe('Toast Notifications', () => {
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
+
+    // Confirm via the ArchiveConfirmModal
+    const modal = page.locator('.modal-backdrop');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await modal.locator('.btn-primary').filter({ hasText: 'Archive' }).click();
 
     // Wait for toast to appear
     const toast = page.locator('.toast.toast-success');
@@ -215,9 +219,6 @@ test.describe('Toast Notifications', () => {
   });
 
   test('toast can be manually closed via close button', async ({ page }) => {
-    // Accept confirm dialog
-    page.on('dialog', dialog => dialog.accept());
-
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a toast
@@ -226,6 +227,11 @@ test.describe('Toast Notifications', () => {
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
+
+    // Confirm via the ArchiveConfirmModal
+    const modal = page.locator('.modal-backdrop');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await modal.locator('.btn-primary').filter({ hasText: 'Archive' }).click();
 
     // Wait for toast to appear
     const toast = page.locator('.toast.toast-success');
@@ -239,9 +245,6 @@ test.describe('Toast Notifications', () => {
   });
 
   test('toast displays correct icon for success type', async ({ page }) => {
-    // Accept confirm dialog
-    page.on('dialog', dialog => dialog.accept());
-
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a success toast
@@ -250,6 +253,11 @@ test.describe('Toast Notifications', () => {
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
+
+    // Confirm via the ArchiveConfirmModal
+    const modal = page.locator('.modal-backdrop');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await modal.locator('.btn-primary').filter({ hasText: 'Archive' }).click();
 
     // Verify the toast icon exists
     const toastIcon = page.locator('.toast.toast-success .toast-icon');
@@ -271,9 +279,6 @@ test.describe('Toast Notifications', () => {
       })
     );
 
-    // Accept confirm dialog
-    page.on('dialog', dialog => dialog.accept());
-
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive (will fail due to intercepted route)
@@ -282,6 +287,11 @@ test.describe('Toast Notifications', () => {
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
+
+    // Confirm via the ArchiveConfirmModal
+    const modal = page.locator('.modal-backdrop');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await modal.locator('.btn-primary').filter({ hasText: 'Archive' }).click();
 
     // Verify error toast appears with icon
     const errorToast = page.locator('.toast.toast-error');
@@ -295,9 +305,6 @@ test.describe('Toast Notifications', () => {
   });
 
   test('multiple toasts can stack simultaneously', async ({ page }) => {
-    // Accept all dialogs
-    page.on('dialog', dialog => dialog.accept());
-
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Star the session (produces a toast in some implementations) — actually, star doesn't produce a toast
@@ -315,6 +322,11 @@ test.describe('Toast Notifications', () => {
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
+
+    // Confirm via the ArchiveConfirmModal
+    const modal = page.locator('.modal-backdrop');
+    await expect(modal).toBeVisible({ timeout: 5000 });
+    await modal.locator('.btn-primary').filter({ hasText: 'Archive' }).click();
 
     // Wait for the archive toast
     await expect(page.locator('.toast').first()).toBeVisible({ timeout: 8000 });

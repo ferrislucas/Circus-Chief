@@ -325,6 +325,16 @@
         </div>
       </div>
     </div>
+
+    <!-- Archive Confirm Modal -->
+    <ArchiveConfirmModal
+      :is-open="showArchiveModal"
+      :session-name="sessionToArchive?.name || 'this session'"
+      :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && !sessionToArchive?.parentSessionId)"
+      :loading="archiving"
+      @confirm="confirmArchive"
+      @cancel="cancelArchive"
+    />
   </div>
 </template>
 
@@ -347,6 +357,7 @@ import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 import KanbanBoard from '../components/KanbanBoard.vue';
 import AddSessionToLaneModal from '../components/AddSessionToLaneModal.vue';
+import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import './SessionListView.css';
 
 const route = useRoute();
@@ -473,12 +484,35 @@ async function fetchScheduledSessions() {
   await sessionsStore.fetchScheduledSessions(projectId.value);
 }
 
-async function handleArchive(sessionId) {
+// Archive modal state
+const showArchiveModal = ref(false);
+const sessionToArchive = ref(null);
+const archiving = ref(false);
+
+function handleArchive(sessionId) {
+  const session = sessionsStore.sessions.find(s => s.id === sessionId);
+  sessionToArchive.value = session || { id: sessionId };
+  showArchiveModal.value = true;
+}
+
+async function confirmArchive(runCleanup) {
+  if (!sessionToArchive.value) return;
+  archiving.value = true;
   try {
-    await sessionsStore.archiveSession(sessionId);
+    await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
+    uiStore.success('Session archived');
   } catch (error) {
-    console.error('Failed to archive session:', error);
+    uiStore.error(error.message || 'Failed to archive session');
+  } finally {
+    archiving.value = false;
+    showArchiveModal.value = false;
+    sessionToArchive.value = null;
   }
+}
+
+function cancelArchive() {
+  showArchiveModal.value = false;
+  sessionToArchive.value = null;
 }
 
 async function handleUnarchive(sessionId) {

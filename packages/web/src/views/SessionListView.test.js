@@ -489,6 +489,25 @@ vi.mock('../components/ScheduledTabContent.vue', () => ({
   }),
 }));
 
+// Mock ArchiveConfirmModal to make it testable
+vi.mock('../components/ArchiveConfirmModal.vue', () => ({
+  default: defineComponent({
+    name: 'ArchiveConfirmModal',
+    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'loading'],
+    emits: ['confirm', 'cancel'],
+    template: `
+      <div v-if="isOpen" class="archive-confirm-modal" data-testid="archive-confirm-modal">
+        <span class="modal-session-name">{{ sessionName }}</span>
+        <span class="modal-has-cleanup-script" :data-has-cleanup-script="hasCleanupScript"></span>
+        <span class="modal-loading" :data-loading="loading"></span>
+        <button class="modal-confirm-btn" @click="$emit('confirm', true)">Archive</button>
+        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', false)">Archive No Cleanup</button>
+        <button class="modal-cancel-btn" @click="$emit('cancel')">Cancel</button>
+      </div>
+    `,
+  }),
+}));
+
 import SessionListView from './SessionListView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -2428,10 +2447,10 @@ describe('SessionListView batch summary fetching', () => {
     mockGetKanbanBoard.mockReset();
     mockGetKanbanBoard.mockResolvedValue({ lanes: [], cards: [] });
 
-    mockProjectsStore = {
+    mockProjectsStore = reactive({
       currentProject: { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path' },
       fetchProject: vi.fn(),
-    };
+    });
     useProjectsStore.mockReturnValue(mockProjectsStore);
 
     mockSessionsStore = createSessionsStoreMock([
@@ -2564,5 +2583,329 @@ describe('SessionListView batch summary fetching', () => {
     await flushPromises();
 
     expect(mockGetSessionSummariesBatch).not.toHaveBeenCalled();
+  });
+
+  describe('Archive confirmation modal flow', () => {
+    it('opens ArchiveConfirmModal when SessionCard emits archive event', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'My Session', status: 'completed', gitWorktree: '/path/to/wt' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Modal should not be visible initially
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+
+      // Trigger archive event from SessionCard (SessionCard emits archive with session.id)
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      expect(sessionCard.exists()).toBe(true);
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Modal should now be visible
+      const modal = wrapper.find('.archive-confirm-modal');
+      expect(modal.exists()).toBe(true);
+      expect(modal.find('.modal-session-name').text()).toBe('My Session');
+    });
+
+    it('passes hasCleanupScript=true when project has onSessionDeleted and session is not a child', async () => {
+      mockProjectsStore.currentProject = { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path', onSessionDeleted: './cleanup.sh' };
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('hasCleanupScript')).toBe(true);
+    });
+
+    it('passes hasCleanupScript=false when session is a child even with onSessionDeleted configured', async () => {
+      mockProjectsStore.currentProject = { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path', onSessionDeleted: './cleanup.sh' };
+      // Include a parent session (renders a SessionCard) and a child session
+      // (found via sessions.find in handleArchive)
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'parent-1', name: 'Parent Session', status: 'completed' },
+        { id: 'child-1', name: 'Child Session', status: 'completed', parentSessionId: 'parent-1' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Emit archive with child session ID from the parent's SessionCard.
+      // handleArchive will find the child session via sessionsStore.sessions.find()
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'child-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('hasCleanupScript')).toBe(false);
+    });
+
+    it('passes hasCleanupScript=false when project has no onSessionDeleted', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('hasCleanupScript')).toBe(false);
+    });
+
+    it('calls archiveSession with cleanup: true when modal confirms with cleanup', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed', gitWorktree: '/path/to/wt' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Click confirm button (emits confirm with true)
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: true });
+    });
+
+    it('calls archiveSession with cleanup: false when modal confirms without cleanup', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Click confirm-no-cleanup button (emits confirm with false)
+      await wrapper.find('.modal-confirm-no-cleanup-btn').trigger('click');
+      await flushPromises();
+
+      expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+    });
+
+    it('closes modal and does not archive when cancel is clicked', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(true);
+
+      // Click cancel
+      await wrapper.find('.modal-cancel-btn').trigger('click');
+      await nextTick();
+
+      // Modal should be closed
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+      // archiveSession should not have been called
+      expect(mockSessionsStore.archiveSession).not.toHaveBeenCalled();
+    });
+
+    it('closes modal after successful archive', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      // Modal should be closed after archiving
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+    });
+
+    it('closes modal even when archiveSession fails', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      mockSessionsStore.archiveSession.mockRejectedValueOnce(new Error('Archive failed'));
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      // Modal should be closed even on error (finally block)
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+    });
+
+    it('does not call archiveSession when no session is selected for archive', async () => {
+      mockSessionsStore = createSessionsStoreMock([]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Modal should not be visible and archiveSession should not be called
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+      expect(mockSessionsStore.archiveSession).not.toHaveBeenCalled();
+    });
+
+    it('shows success toast on successful archive', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      // Import uiStore to check toast
+      const { useUiStore } = await import('../stores/ui.js');
+      const uiStore = useUiStore();
+      expect(uiStore.toasts.some(t => t.message === 'Session archived')).toBe(true);
+    });
+
+    it('shows error toast on archive failure', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      mockSessionsStore.archiveSession.mockRejectedValueOnce(new Error('Archive failed'));
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      // Import uiStore to check toast
+      const { useUiStore } = await import('../stores/ui.js');
+      const uiStore = useUiStore();
+      expect(uiStore.toasts.some(t => t.message === 'Archive failed')).toBe(true);
+    });
+
+    it('passes loading=true to ArchiveConfirmModal while archiving', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+
+      // Use a deferred promise
+      let resolveArchive;
+      mockSessionsStore.archiveSession.mockReturnValue(new Promise(r => { resolveArchive = r; }));
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('loading')).toBe(false);
+
+      // Trigger confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await nextTick();
+
+      // loading should be true while API call is in-flight
+      expect(modal.props('loading')).toBe(true);
+
+      // Resolve the archive call
+      resolveArchive();
+      await flushPromises();
+    });
+
+    it('keeps modal open on archive failure', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+
+      let rejectArchive;
+      mockSessionsStore.archiveSession.mockReturnValue(new Promise((_, reject) => { rejectArchive = reject; }));
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      // Open modal
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      // Trigger confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await nextTick();
+
+      // Modal should still be open while loading
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(true);
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('loading')).toBe(true);
+
+      // Reject the archive call
+      rejectArchive(new Error('Network error'));
+      await flushPromises();
+
+      // Modal closes in the finally block
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+    });
   });
 });
