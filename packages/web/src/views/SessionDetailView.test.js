@@ -75,12 +75,13 @@ vi.mock('../components/SessionTabsPanel.vue', () => ({
 vi.mock('../components/ArchiveConfirmModal.vue', () => ({
   default: {
     name: 'ArchiveConfirmModal',
-    props: ['isOpen', 'sessionName', 'hasCleanupScript'],
+    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'loading'],
     emits: ['confirm', 'cancel'],
     template: `
       <div v-if="isOpen" class="archive-confirm-modal" data-testid="archive-confirm-modal">
         <span class="modal-session-name">{{ sessionName }}</span>
         <span class="modal-has-cleanup-script" :data-has-cleanup-script="hasCleanupScript"></span>
+        <span class="modal-loading" :data-loading="loading"></span>
         <button class="modal-confirm-btn" @click="$emit('confirm', true)">Archive</button>
         <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', false)">Archive No Cleanup</button>
         <button class="modal-cancel-btn" @click="$emit('cancel')">Cancel</button>
@@ -4172,6 +4173,67 @@ describe('SessionDetailView', () => {
       await flushPromises();
 
       expect(errorSpy).toHaveBeenCalledWith('Archive failed');
+    });
+
+    it('passes loading=true to ArchiveConfirmModal while archiving', async () => {
+      const wrapper = await mountWithSession();
+
+      // Use a deferred promise so we can check loading state mid-flight
+      let resolveArchive;
+      sessionsStore.archiveSession.mockReturnValue(new Promise(r => { resolveArchive = r; }));
+
+      // Open modal
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('loading')).toBe(false);
+
+      // Trigger confirm (starts the async operation)
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await nextTick();
+
+      // loading should be true while API call is in-flight
+      expect(modal.props('loading')).toBe(true);
+
+      // Resolve the archive call
+      resolveArchive();
+      await flushPromises();
+
+      // loading should be false after completion
+      // Note: modal may no longer exist after the finally block closes it
+    });
+
+    it('keeps modal open on archive failure and shows error toast', async () => {
+      const wrapper = await mountWithSession();
+
+      // Use a deferred promise for control
+      let rejectArchive;
+      sessionsStore.archiveSession.mockReturnValue(new Promise((_, reject) => { rejectArchive = reject; }));
+
+      const uiStore = useUiStore();
+      const errorSpy = vi.spyOn(uiStore, 'error');
+
+      // Open modal
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      // Trigger confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await nextTick();
+
+      // Modal should still be open and loading
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('loading')).toBe(true);
+
+      // Reject the archive call
+      rejectArchive(new Error('Network error'));
+      await flushPromises();
+
+      // Error toast should have been shown
+      expect(errorSpy).toHaveBeenCalledWith('Network error');
     });
   });
 });

@@ -311,6 +311,7 @@
       :is-open="showArchiveModal"
       :session-name="sessionToArchive?.name || 'this session'"
       :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && !sessionToArchive?.parentSessionId)"
+      :loading="archiving"
       @confirm="confirmArchive"
       @cancel="cancelArchive"
     />
@@ -466,6 +467,7 @@ async function fetchScheduledSessions() {
 // Archive modal state
 const showArchiveModal = ref(false);
 const sessionToArchive = ref(null);
+const archiving = ref(false);
 
 function handleArchive(sessionId) {
   const session = sessionsStore.sessions.find(s => s.id === sessionId);
@@ -475,11 +477,14 @@ function handleArchive(sessionId) {
 
 async function confirmArchive(runCleanup) {
   if (!sessionToArchive.value) return;
+  archiving.value = true;
   try {
     await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
+    uiStore.success('Session archived');
   } catch (error) {
-    console.error('Failed to archive session:', error);
+    uiStore.error(error.message || 'Failed to archive session');
   } finally {
+    archiving.value = false;
     showArchiveModal.value = false;
     sessionToArchive.value = null;
   }
