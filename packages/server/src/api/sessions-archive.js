@@ -3,7 +3,6 @@ import { sessions } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
-import * as gitService from '../services/gitService.js';
 import { executeHookAsync } from '../services/hookService.js';
 
 const router = Router();
@@ -17,19 +16,7 @@ router.post('/:id/archive', requireSessionAndProject, async (req, res) => {
 
   const { cleanup } = req.body || {};
 
-  let updated;
-  if (cleanup && req.session_.gitWorktree && !req.session_.parentSessionId) {
-    // Clean up git worktree before archiving
-    try {
-      await gitService.removeWorktree(req.project.workingDirectory, req.session_.gitWorktree, true);
-    } catch (error) {
-      // Log but don't fail - worktree may already be removed or have issues
-      console.warn(`Failed to remove worktree for session ${req.session_.id}:`, error.message);
-    }
-    updated = sessions.update(req.params.id, { archived: true, gitWorktree: null });
-  } else {
-    updated = sessions.update(req.params.id, { archived: true });
-  }
+  const updated = sessions.update(req.params.id, { archived: true });
 
   // Execute project cleanup command if cleanup requested and project has one configured
   // Skip for child sessions - they share parent's resources and shouldn't trigger teardown

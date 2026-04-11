@@ -310,7 +310,7 @@
     <ArchiveConfirmModal
       :is-open="showArchiveModal"
       :session-name="sessionToArchive?.name || 'this session'"
-      :has-worktree="!!(sessionToArchive?.gitWorktree && !sessionToArchive?.parentSessionId)"
+      :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && !sessionToArchive?.parentSessionId)"
       @confirm="confirmArchive"
       @cancel="cancelArchive"
     />
@@ -473,10 +473,10 @@ function handleArchive(sessionId) {
   showArchiveModal.value = true;
 }
 
-async function confirmArchive(cleanupWorktree) {
+async function confirmArchive(runCleanup) {
   if (!sessionToArchive.value) return;
   try {
-    await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: cleanupWorktree });
+    await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
   } catch (error) {
     console.error('Failed to archive session:', error);
   } finally {

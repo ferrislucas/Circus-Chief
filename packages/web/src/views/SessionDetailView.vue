@@ -99,7 +99,7 @@
       <ArchiveConfirmModal
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
-        :has-worktree="!!(sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
+        :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && !sessionsStore.currentSession?.parentSessionId)"
         @confirm="confirmArchive"
         @cancel="cancelArchive"
       />
@@ -111,6 +111,7 @@
 import { computed, onMounted, onUnmounted, onActivated, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useProjectsStore } from '../stores/projects.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
@@ -135,6 +136,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 const route = useRoute();
 const router = useRouter();
 const sessionsStore = useSessionsStore();
+const projectsStore = useProjectsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
@@ -637,11 +639,11 @@ async function handleArchive() {
   }
 }
 
-async function confirmArchive(cleanupWorktree) {
+async function confirmArchive(runCleanup) {
   showArchiveModal.value = false;
   try {
     const projectId = sessionsStore.currentSession?.projectId;
-    await sessionsStore.archiveSession(currentSessionId.value, { cleanup: cleanupWorktree });
+    await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
     uiStore.success('Session archived');
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);

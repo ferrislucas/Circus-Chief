@@ -9,11 +9,6 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
-// Mock gitService
-vi.mock('../services/gitService.js', () => ({
-  removeWorktree: vi.fn().mockResolvedValue(undefined),
-}));
-
 // Mock hookService
 vi.mock('../services/hookService.js', () => ({
   executeHookAsync: vi.fn(),
@@ -21,7 +16,6 @@ vi.mock('../services/hookService.js', () => ({
 
 import archiveRouter from './sessions-archive.js';
 import { broadcastToProject } from '../websocket.js';
-import { removeWorktree } from '../services/gitService.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 
@@ -44,62 +38,6 @@ describe('Sessions Archive API', () => {
   });
 
   describe('POST /:id/archive', () => {
-    it('archives a session with cleanup: true and gitWorktree set', async () => {
-      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
-
-      const res = await request(app)
-        .post(`/api/sessions/${session.id}/archive`)
-        .send({ cleanup: true });
-
-      expect(res.status).toBe(200);
-      expect(res.body.archived).toBe(true);
-      expect(res.body.gitWorktree).toBeNull();
-      expect(removeWorktree).toHaveBeenCalledWith(project.workingDirectory, '/path/to/wt', true);
-    });
-
-    it('archives with cleanup: true but no gitWorktree does not call removeWorktree', async () => {
-      const res = await request(app)
-        .post(`/api/sessions/${session.id}/archive`)
-        .send({ cleanup: true });
-
-      expect(res.status).toBe(200);
-      expect(res.body.archived).toBe(true);
-      expect(removeWorktree).not.toHaveBeenCalled();
-    });
-
-    it('does not clean up worktree for child sessions even with cleanup: true', async () => {
-      const parentSession = sessions.create(project.id, 'Parent Session', 'parent prompt');
-      sessions.update(parentSession.id, { status: 'stopped' });
-
-      const childSession = sessions.create(project.id, 'Child Session', 'child prompt');
-      sessions.update(childSession.id, {
-        status: 'stopped',
-        gitWorktree: '/path/to/wt',
-        parentSessionId: parentSession.id,
-      });
-
-      const res = await request(app)
-        .post(`/api/sessions/${childSession.id}/archive`)
-        .send({ cleanup: true });
-
-      expect(res.status).toBe(200);
-      expect(res.body.archived).toBe(true);
-      expect(removeWorktree).not.toHaveBeenCalled();
-    });
-
-    it('still archives successfully when removeWorktree throws', async () => {
-      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
-      removeWorktree.mockRejectedValueOnce(new Error('Worktree removal failed'));
-
-      const res = await request(app)
-        .post(`/api/sessions/${session.id}/archive`)
-        .send({ cleanup: true });
-
-      expect(res.status).toBe(200);
-      expect(res.body.archived).toBe(true);
-      expect(removeWorktree).toHaveBeenCalled();
-    });
-
     it('archives without cleanup flag (backward compatibility)', async () => {
       sessions.update(session.id, { gitWorktree: '/path/to/wt' });
 
@@ -109,8 +47,20 @@ describe('Sessions Archive API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.archived).toBe(true);
-      expect(removeWorktree).not.toHaveBeenCalled();
       // gitWorktree should be preserved when not cleaning up
+      expect(res.body.gitWorktree).toBe('/path/to/wt');
+    });
+
+    it('archives with cleanup: true — does not modify gitWorktree', async () => {
+      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ cleanup: true });
+
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(true);
+      // gitWorktree should be preserved even with cleanup: true
       expect(res.body.gitWorktree).toBe('/path/to/wt');
     });
 

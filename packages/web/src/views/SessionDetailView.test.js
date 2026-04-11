@@ -8,6 +8,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
 
 // Mock components
@@ -69,6 +70,22 @@ vi.mock('../components/SessionTabsPanel.vue', () => ({
     name: 'SessionTabsPanel',
     template: '<div class="tabs"><span v-for="tab in tabs" :key="tab.id">{{ tab.label }}</span></div>',
     props: ['sessionId', 'projectId', 'activeTab', 'tabs', 'hasChanges', 'canvasCount', 'isSessionActive', 'sessionStatus'],
+  }
+}));
+vi.mock('../components/ArchiveConfirmModal.vue', () => ({
+  default: {
+    name: 'ArchiveConfirmModal',
+    props: ['isOpen', 'sessionName', 'hasCleanupScript'],
+    emits: ['confirm', 'cancel'],
+    template: `
+      <div v-if="isOpen" class="archive-confirm-modal" data-testid="archive-confirm-modal">
+        <span class="modal-session-name">{{ sessionName }}</span>
+        <span class="modal-has-cleanup-script" :data-has-cleanup-script="hasCleanupScript"></span>
+        <button class="modal-confirm-btn" @click="$emit('confirm', true)">Archive</button>
+        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', false)">Archive No Cleanup</button>
+        <button class="modal-cancel-btn" @click="$emit('cancel')">Cancel</button>
+      </div>
+    `,
   }
 }));
 vi.mock('../composables/useApi.js', () => ({
@@ -136,6 +153,7 @@ describe('SessionDetailView', () => {
   let pinia;
   let router;
   let sessionsStore;
+  let projectsStore;
   let canvasStore;
   let todosStore;
   // Track mounted wrappers for cleanup to prevent memory leaks (OOM)
@@ -154,6 +172,7 @@ describe('SessionDetailView', () => {
     });
 
     sessionsStore = useSessionsStore();
+    projectsStore = useProjectsStore();
     canvasStore = useCanvasStore();
     todosStore = useTodosStore();
 
@@ -3949,6 +3968,210 @@ describe('SessionDetailView', () => {
 
       // Overlay should remain closed
       expect(wrapper.vm.chatOverlayOpen).toBe(false);
+    });
+  });
+
+  describe('Archive confirmation modal flow', () => {
+    async function mountWithSession(sessionOverrides = {}) {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+        archived: false,
+        ...sessionOverrides,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(sessionsStore, 'archiveSession').mockResolvedValue(undefined);
+      vi.spyOn(sessionsStore, 'unarchiveSession').mockResolvedValue(undefined);
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      return wrapper;
+    }
+
+    it('opens ArchiveConfirmModal when archive event is emitted for non-archived session', async () => {
+      const wrapper = await mountWithSession();
+
+      // Modal should not be visible initially
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+
+      // Emit archive event from SessionHeaderPanel
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      // Modal should now be visible
+      const modal = wrapper.find('.archive-confirm-modal');
+      expect(modal.exists()).toBe(true);
+      expect(modal.find('.modal-session-name').text()).toBe('Test Session');
+    });
+
+    it('passes hasCleanupScript=true when project has onSessionDeleted and session is not a child', async () => {
+      projectsStore.currentProject = { id: 'proj-1', onSessionDeleted: './cleanup.sh' };
+      const wrapper = await mountWithSession();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('hasCleanupScript')).toBe(true);
+    });
+
+    it('passes hasCleanupScript=false when session is a child even with onSessionDeleted configured', async () => {
+      projectsStore.currentProject = { id: 'proj-1', onSessionDeleted: './cleanup.sh' };
+      const wrapper = await mountWithSession({ parentSessionId: 'parent-1' });
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('hasCleanupScript')).toBe(false);
+    });
+
+    it('passes hasCleanupScript=false when project has no onSessionDeleted', async () => {
+      projectsStore.currentProject = { id: 'proj-1' };
+      const wrapper = await mountWithSession();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('hasCleanupScript')).toBe(false);
+    });
+
+    it('calls archiveSession with cleanup: true when modal confirms with cleanup', async () => {
+      const wrapper = await mountWithSession({ gitWorktree: '/path/to/wt' });
+
+      // Open modal
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      // Click confirm (emits confirm with true)
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      expect(sessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: true });
+    });
+
+    it('calls archiveSession with cleanup: false when modal confirms without cleanup', async () => {
+      const wrapper = await mountWithSession();
+
+      // Open modal
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      // Click confirm-no-cleanup (emits confirm with false)
+      await wrapper.find('.modal-confirm-no-cleanup-btn').trigger('click');
+      await flushPromises();
+
+      expect(sessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+    });
+
+    it('closes modal and does not archive when cancel is clicked', async () => {
+      const wrapper = await mountWithSession();
+
+      // Open modal
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(true);
+
+      // Click cancel
+      await wrapper.find('.modal-cancel-btn').trigger('click');
+      await nextTick();
+
+      // Modal should be closed
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+      expect(sessionsStore.archiveSession).not.toHaveBeenCalled();
+    });
+
+    it('uses confirm dialog for unarchive (not modal)', async () => {
+      window.confirm = vi.fn(() => true);
+      const wrapper = await mountWithSession({ archived: true });
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await flushPromises();
+
+      // Unarchive uses window.confirm, not the modal
+      expect(window.confirm).toHaveBeenCalledWith('Restore this session to active?');
+      expect(sessionsStore.unarchiveSession).toHaveBeenCalledWith('session-1');
+      // Modal should not appear for unarchive
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+    });
+
+    it('does not unarchive when user cancels confirm dialog', async () => {
+      window.confirm = vi.fn(() => false);
+      const wrapper = await mountWithSession({ archived: true });
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await flushPromises();
+
+      expect(window.confirm).toHaveBeenCalled();
+      expect(sessionsStore.unarchiveSession).not.toHaveBeenCalled();
+    });
+
+    it('closes modal after successful archive', async () => {
+      const wrapper = await mountWithSession();
+
+      // Open modal
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      // Confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      // Modal should be closed
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
+    });
+
+    it('shows error toast when archive fails', async () => {
+      const wrapper = await mountWithSession();
+
+      // Override the spy to reject
+      sessionsStore.archiveSession.mockRejectedValueOnce(new Error('Archive failed'));
+
+      const uiStore = useUiStore();
+      const errorSpy = vi.spyOn(uiStore, 'error');
+
+      // Open modal
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      // Confirm
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      expect(errorSpy).toHaveBeenCalledWith('Archive failed');
     });
   });
 });
