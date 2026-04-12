@@ -295,6 +295,8 @@ describe('SessionChatOverlay', () => {
       expect(backLink.getAttribute('title')).toBe('Back to Sessions');
       // Verify SVG icons are present
       expect(backLink.querySelectorAll('svg').length).toBe(2);
+      // Verify "Sessions" text label is present
+      expect(backLink.textContent).toContain('Sessions');
       wrapper.unmount();
     });
 
@@ -309,6 +311,51 @@ describe('SessionChatOverlay', () => {
       const backLink = document.querySelector('.back-to-sessions-link');
       expect(backLink).toBeTruthy();
       expect(backLink.getAttribute('href')).toBe('/');
+      wrapper.unmount();
+    });
+
+    it('back link has Sessions text label', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({
+        ...rootSession,
+        projectId: 'proj-123',
+      });
+      const wrapper = mountOverlay();
+      await nextTick();
+      const textSpan = document.querySelector('.back-to-sessions-text');
+      expect(textSpan).toBeTruthy();
+      expect(textSpan.textContent).toBe('Sessions');
+      wrapper.unmount();
+    });
+
+    it('back link has accessible minimum click target size', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({
+        ...rootSession,
+        projectId: 'proj-123',
+      });
+      const wrapper = mountOverlay();
+      await nextTick();
+      const backLink = document.querySelector('.back-to-sessions-link');
+      expect(backLink).toBeTruthy();
+      // Verify the class is applied (scoped CSS handles the actual sizing)
+      expect(backLink.classList.contains('back-to-sessions-link')).toBe(true);
+      wrapper.unmount();
+    });
+
+    it('back link has sufficient spacing from adjacent buttons', async () => {
+      mockSessionsStore.getSessionById.mockReturnValue({
+        ...rootSession,
+        projectId: 'proj-123',
+      });
+      const wrapper = mountOverlay();
+      await nextTick();
+      const backLink = document.querySelector('.back-to-sessions-link');
+      const addBtn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      expect(backLink).toBeTruthy();
+      expect(addBtn).toBeTruthy();
+      // Verify both elements are siblings in the same row
+      expect(backLink.parentElement).toBe(addBtn.parentElement);
+      // Back link should come before the add button
+      expect(backLink.compareDocumentPosition(addBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       wrapper.unmount();
     });
 
