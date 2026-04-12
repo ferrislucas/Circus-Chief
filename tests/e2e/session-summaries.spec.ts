@@ -538,6 +538,9 @@ test.describe('Session Summaries', () => {
     });
 
     test('PUT /settings/summary updates disable flags', async () => {
+      // Reset to clean state first to avoid interference from other test files
+      await fetch(`${API_URL}/api/settings/summary`, { method: 'DELETE' });
+
       const putResponse = await fetch(`${API_URL}/api/settings/summary`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
