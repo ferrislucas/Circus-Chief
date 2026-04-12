@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body">
+  <Teleport to="body" :disabled="disableTeleport">
     <div
       v-if="isOpen"
       class="settings-overlay"
@@ -199,7 +199,7 @@
   />
 
   <!-- Delete Confirmation Dialog -->
-  <Teleport to="body">
+  <Teleport to="body" :disabled="disableTeleport">
     <div
       v-if="deleteConfirm"
       class="confirm-overlay"
@@ -232,6 +232,9 @@
 import { ref, computed } from 'vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import QuickResponseDialog from './QuickResponseDialog.vue';
+import { useOverlayTeleportDisabled } from '../composables/useOverlayStore.js';
+
+const disableTeleport = useOverlayTeleportDisabled();
 
 const props = defineProps({
   isOpen: {

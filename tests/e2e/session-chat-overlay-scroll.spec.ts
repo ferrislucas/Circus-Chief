@@ -312,3 +312,189 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     ).not.toBe(beforeScroll);
   });
 });
+
+test.describe('Session Chat Overlay Input Anchoring', () => {
+  test.describe.configure({ timeout: 60000 });
+
+  let project: any;
+  let session: any;
+
+  test.beforeEach(async () => {
+    project = await seedProject('Overlay Anchor Test', '/tmp/overlay-anchor');
+  });
+
+  test.afterEach(async () => {
+    await cleanupCreatedResources();
+  });
+
+  // Helper to navigate and open the overlay
+  async function openOverlay(page: any, sessionId: string) {
+    await navigateAndWait(page, `/sessions/${sessionId}`, {
+      waitFor: '.session-detail',
+      timeout: 15000,
+    });
+    const handle = page.locator('[data-testid="session-chat-handle"]');
+    await expect(handle).toBeVisible({ timeout: 10000 });
+    await handle.click();
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
+    await expect(overlay).toBeVisible({ timeout: 5000 });
+    // Wait for slide-in animation to complete
+    await page.waitForTimeout(400);
+    return overlay;
+  }
+
+  test('input form is anchored near the bottom of overlay with few messages', async ({ page }) => {
+    session = await seedSession(project.id, {
+      prompt: 'Anchor test prompt',
+      name: 'Anchor Test',
+    });
+    await waitForSessionToExist(session.id);
+    // Only 3 messages — not enough to cause scrolling
+    seedConversationHistory(session.id, 3);
+    await updateSessionStatus(session.id, 'waiting');
+
+    const overlay = await openOverlay(page, session.id);
+
+    // Wait for input form to render (status is 'waiting' so canSendMessage is true)
+    const inputForm = overlay.locator('.input-form');
+    await expect(inputForm).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Measure the input-form position relative to overlay-body
+    const positions = await page.evaluate(() => {
+      const inputForm = document.querySelector('.input-form');
+      const overlayBody = document.querySelector('.overlay-body');
+      if (!inputForm || !overlayBody) return null;
+      const inputRect = inputForm.getBoundingClientRect();
+      const bodyRect = overlayBody.getBoundingClientRect();
+      return {
+        inputBottom: inputRect.bottom,
+        bodyBottom: bodyRect.bottom,
+        bodyHeight: bodyRect.height,
+      };
+    });
+
+    expect(positions).not.toBeNull();
+    // The input form's bottom should be within 100px of the overlay body's bottom
+    // (anchored at bottom, not floating mid-screen)
+    const gap = positions!.bodyBottom - positions!.inputBottom;
+    expect(gap).toBeLessThan(100);
+  });
+
+  test('input form flows naturally after messages when many messages exist', async ({ page }) => {
+    session = await seedSession(project.id, {
+      prompt: 'Many messages prompt',
+      name: 'Many Messages',
+    });
+    await waitForSessionToExist(session.id);
+    seedConversationHistory(session.id, 50);
+    await updateSessionStatus(session.id, 'waiting');
+
+    const overlay = await openOverlay(page, session.id);
+
+    // Wait for input form and messages to render
+    const inputForm = overlay.locator('.input-form');
+    await expect(inputForm).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(1000);
+
+    // Scroll to bottom of .overlay-body
+    await page.evaluate(() => {
+      const body = document.querySelector('.overlay-body');
+      if (body) body.scrollTop = body.scrollHeight;
+    });
+    await page.waitForTimeout(500);
+
+    // No excessive gap between last message and input form
+    const gapInfo = await page.evaluate(() => {
+      const messages = document.querySelectorAll('[data-testid="message-user"], [data-testid="message-assistant"]');
+      const inputForm = document.querySelector('.input-form');
+      if (!messages.length || !inputForm) return null;
+      const lastMessage = messages[messages.length - 1];
+      const lastMsgRect = lastMessage.getBoundingClientRect();
+      const inputRect = inputForm.getBoundingClientRect();
+      return {
+        gap: inputRect.top - lastMsgRect.bottom,
+        messageCount: messages.length,
+      };
+    });
+
+    expect(gapInfo).not.toBeNull();
+    // Gap between last message and input form should be reasonable (not hundreds of pixels)
+    expect(gapInfo!.gap).toBeLessThan(150);
+  });
+
+  test('no double scrollbar in overlay with many messages', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 600 }); // Smaller height to ensure scrolling
+    session = await seedSession(project.id, {
+      prompt: 'Scrollbar test prompt',
+      name: 'Scrollbar Test',
+    });
+    await waitForSessionToExist(session.id);
+    seedConversationHistory(session.id, 50);
+    await updateSessionStatus(session.id, 'waiting');
+
+    const overlay = await openOverlay(page, session.id);
+
+    // Wait for messages to render
+    await expect(overlay.locator('[data-testid="message-user"]').first()).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const scrollInfo = await page.evaluate(() => {
+      const body = document.querySelector('.overlay-body');
+      const messages = document.querySelector('.overlay-body .messages');
+      if (!body || !messages) return null;
+      const bodyStyle = window.getComputedStyle(body);
+      const messagesStyle = window.getComputedStyle(messages);
+      return {
+        bodyOverflowY: bodyStyle.overflowY,
+        messagesOverflowY: messagesStyle.overflowY,
+        bodyScrollHeight: body.scrollHeight,
+        bodyClientHeight: body.clientHeight,
+        bodyScrollable: body.scrollHeight > body.clientHeight,
+      };
+    });
+
+    expect(scrollInfo).not.toBeNull();
+    // .overlay-body should be the scrollable container
+    expect(scrollInfo!.bodyOverflowY).toBe('auto');
+    // .messages should NOT be independently scrollable
+    expect(scrollInfo!.messagesOverflowY).toBe('visible');
+    // Content should overflow .overlay-body (proving single scroll container works)
+    expect(scrollInfo!.bodyScrollable).toBe(true);
+  });
+
+  test('mobile viewport — input anchored at bottom with few messages', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 }); // iPhone SE
+    session = await seedSession(project.id, {
+      prompt: 'Mobile anchor test',
+      name: 'Mobile Anchor',
+    });
+    await waitForSessionToExist(session.id);
+    seedConversationHistory(session.id, 3);
+    await updateSessionStatus(session.id, 'waiting');
+
+    const overlay = await openOverlay(page, session.id);
+
+    // Wait for input form to render
+    const inputForm = overlay.locator('.input-form');
+    await expect(inputForm).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    const positions = await page.evaluate(() => {
+      const inputForm = document.querySelector('.input-form');
+      const overlayBody = document.querySelector('.overlay-body');
+      if (!inputForm || !overlayBody) return null;
+      const inputRect = inputForm.getBoundingClientRect();
+      const bodyRect = overlayBody.getBoundingClientRect();
+      return {
+        inputBottom: inputRect.bottom,
+        bodyBottom: bodyRect.bottom,
+      };
+    });
+
+    expect(positions).not.toBeNull();
+    // Input form should be near the bottom of the overlay body
+    const gap = positions!.bodyBottom - positions!.inputBottom;
+    expect(gap).toBeLessThan(100);
+  });
+});

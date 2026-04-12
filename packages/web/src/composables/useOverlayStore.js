@@ -14,6 +14,7 @@ import { useTodosStore } from '../stores/todos.js';
  */
 export const SESSIONS_STORE_KEY = Symbol('overlay-sessions-store');
 export const TODOS_STORE_KEY = Symbol('overlay-todos-store');
+export const TELEPORT_TARGET_KEY = Symbol('overlay-teleport-target');
 
 /**
  * Returns the sessions store from the nearest provider, or falls back to the
@@ -53,4 +54,20 @@ export function useInjectedSessionsStore() {
  */
 export function useInjectedTodosStore() {
   return inject(TODOS_STORE_KEY, useTodosStore());
+}
+
+/**
+ * Returns whether modals should disable teleporting when inside the overlay.
+ *
+ * When inside a SessionChatOverlay (which uses a native <dialog> in the top layer),
+ * modals must NOT teleport to <body> — doing so moves them outside the dialog's
+ * top layer, where the ::backdrop blocks pointer events. By disabling the Teleport,
+ * modals render inline within the dialog and remain fully interactive.
+ *
+ * Outside the overlay tree, returns false so modals teleport to body as normal.
+ *
+ * @returns {boolean} true when inside the overlay (disable teleport), false otherwise.
+ */
+export function useOverlayTeleportDisabled() {
+  return inject(TELEPORT_TARGET_KEY, false);
 }

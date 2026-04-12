@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body">
+  <Teleport to="body" :disabled="disableTeleport">
     <div
       v-if="isOpen"
       class="modal-backdrop"
@@ -168,8 +168,10 @@
 
 <script setup>
 import { ref, reactive, watch } from 'vue';
-import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
+import { useInjectedSessionsStore, useOverlayTeleportDisabled } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
+
+const disableTeleport = useOverlayTeleportDisabled();
 
 const props = defineProps({
   isOpen: Boolean,

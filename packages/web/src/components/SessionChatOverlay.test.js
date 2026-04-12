@@ -82,6 +82,7 @@ vi.mock('../stores/createOverlayTodosStore.js', () => ({
 vi.mock('../composables/useOverlayStore.js', () => ({
   SESSIONS_STORE_KEY: Symbol('test-sessions-store'),
   TODOS_STORE_KEY: Symbol('test-todos-store'),
+  TELEPORT_TARGET_KEY: Symbol('test-teleport-target'),
   useInjectedSessionsStore: () => mockSessionsStore,
   useInjectedTodosStore: () => mockTodosStore,
 }));
@@ -192,6 +193,14 @@ describe('SessionChatOverlay', () => {
     pinia = createPinia();
     setActivePinia(pinia);
 
+    // jsdom doesn't support <dialog> — polyfill showModal/close with attribute tracking
+    HTMLDialogElement.prototype.showModal = function() {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close = function() {
+      this.removeAttribute('open');
+    };
+
     router = createRouter({
       history: createMemoryHistory(),
       routes: [
@@ -218,7 +227,7 @@ describe('SessionChatOverlay', () => {
   });
 
   afterEach(() => {
-    // Clean up teleported content
+    // Clean up component DOM artifacts from attachTo: document.body
     document.querySelectorAll('[data-testid="session-chat-overlay"]').forEach(el => el.remove());
   });
 
@@ -235,11 +244,13 @@ describe('SessionChatOverlay', () => {
     });
   }
 
-  async function waitForTransition() {
-    // In jsdom, CSS transitions don't actually run, so we manually
-    // trigger the afterLeave hook to simulate the transition completing
+  async function waitForCloseAnimation() {
+    // In jsdom, CSS animations don't run. Trigger animationend on the dialog
+    // to simulate the close animation completing.
     await nextTick();
-    await new Promise(r => setTimeout(r, 10)); // Small delay for Vue to process state changes
+    const dialog = document.querySelector('[data-testid="session-chat-overlay"]');
+    if (dialog) dialog.dispatchEvent(new Event('animationend'));
+    await nextTick();
   }
 
   describe('rendering', () => {
@@ -330,10 +341,10 @@ describe('SessionChatOverlay', () => {
         attachTo: document.body,
       });
       await nextTick();
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      const dialog = document.querySelector('[data-testid="session-chat-overlay"]');
+      dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
       await nextTick();
-      await waitForTransition();
-      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
+      await waitForCloseAnimation();
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -346,12 +357,11 @@ describe('SessionChatOverlay', () => {
         attachTo: document.body,
       });
       await nextTick();
-      // Click the backdrop (overlay-backdrop) directly, not the content
-      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
-      backdrop.click();
+      // Click the dialog element directly (simulates backdrop click)
+      const dialog = document.querySelector('[data-testid="session-chat-overlay"]');
+      dialog.click();
       await nextTick();
-      await waitForTransition();
-      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
+      await waitForCloseAnimation();
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -384,8 +394,7 @@ describe('SessionChatOverlay', () => {
       expect(handle).toBeTruthy();
       handle.click();
       await nextTick();
-      await waitForTransition();
-      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
+      await waitForCloseAnimation();
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -402,8 +411,7 @@ describe('SessionChatOverlay', () => {
       expect(handle).toBeTruthy();
       handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
       await nextTick();
-      await waitForTransition();
-      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
+      await waitForCloseAnimation();
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
@@ -420,15 +428,14 @@ describe('SessionChatOverlay', () => {
       expect(handle).toBeTruthy();
       handle.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
       await nextTick();
-      await waitForTransition();
-      wrapper.vm.afterLeave(); // Manually trigger the transition complete hook
+      await waitForCloseAnimation();
       expect(onClose).toHaveBeenCalled();
       wrapper.unmount();
     });
   });
 
   describe('close animation', () => {
-    it('delays close event until after transition completes', async () => {
+    it('delays close event until after animation completes', async () => {
       const onClose = vi.fn();
       const wrapper = mount(SessionChatOverlay, {
         props: { sessionId: 'sess-root' },
@@ -445,11 +452,8 @@ describe('SessionChatOverlay', () => {
       // Immediately after click, close should NOT have been emitted yet
       expect(onClose).not.toHaveBeenCalled();
 
-      // Wait for transition
-      await waitForTransition();
-
-      // Manually trigger afterLeave to simulate transition completing
-      wrapper.vm.afterLeave();
+      // Simulate animation completing
+      await waitForCloseAnimation();
 
       // Now close should have been emitted
       expect(onClose).toHaveBeenCalledTimes(1);
@@ -470,7 +474,6 @@ describe('SessionChatOverlay', () => {
 
       // Should be in closing state
       expect(wrapper.vm.closing).toBe(true);
-      expect(wrapper.vm.visible).toBe(false);
 
       // Clean up
       document.querySelectorAll('[data-testid="session-chat-overlay"]').forEach(el => el.remove());
@@ -495,35 +498,29 @@ describe('SessionChatOverlay', () => {
       handle.click();
       await nextTick();
 
-      // Wait for transition
-      await waitForTransition();
-
-      // Manually trigger afterLeave to simulate transition completing
-      wrapper.vm.afterLeave();
+      // Simulate animation completing
+      await waitForCloseAnimation();
 
       // Should only emit close once
       expect(onClose).toHaveBeenCalledTimes(1);
       wrapper.unmount();
     });
 
-    it('component remains mounted during transition', async () => {
+    it('component remains mounted during close animation', async () => {
       const wrapper = mountOverlay();
       await nextTick();
 
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
-      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
+      const dialog = document.querySelector('[data-testid="session-chat-overlay"]');
 
       // Trigger close
       handle.click();
       await nextTick();
 
-      // Component should still be in DOM
-      expect(backdrop).toBeTruthy();
+      // Component should still be in DOM during close animation
+      expect(dialog).toBeTruthy();
 
-      // Wait for transition
-      await waitForTransition();
-
-      // After transition, parent would unmount, so we manually unmount here
+      // After animation, parent would unmount, so we manually unmount here
       wrapper.unmount();
     });
 
@@ -550,11 +547,8 @@ describe('SessionChatOverlay', () => {
         // Should not emit immediately
         expect(onClose).not.toHaveBeenCalled();
 
-        // Wait for transition
-        await waitForTransition();
-
-        // Manually trigger afterLeave to simulate transition completing
-        testWrapper.vm.afterLeave();
+        // Simulate animation completing
+        await waitForCloseAnimation();
 
         // Should emit once
         expect(onClose).toHaveBeenCalledTimes(1);
@@ -706,13 +700,14 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       expect(document.querySelector('[data-testid="session-chat-picker"]')).toBeTruthy();
 
-      // Press Escape
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      // Dispatch cancel event on dialog (simulates Escape key)
+      const dialog = document.querySelector('[data-testid="session-chat-overlay"]');
+      dialog.dispatchEvent(new Event('cancel', { cancelable: true }));
       await nextTick();
 
       // Picker should be closed but overlay should stay open
       expect(wrapper.vm.pickerOpen).toBe(false);
-      expect(wrapper.vm.visible).toBe(true);
+      expect(dialog.hasAttribute('open')).toBe(true);
       expect(onClose).not.toHaveBeenCalled();
 
       wrapper.unmount();
@@ -794,21 +789,22 @@ describe('SessionChatOverlay', () => {
   });
 
   describe('animation', () => {
-    it('applies correct transition classes on mount', async () => {
+    it('dialog has open attribute after mount', async () => {
       const wrapper = mountOverlay();
       await nextTick();
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop).toBeTruthy();
+      const dialog = document.querySelector('[data-testid="session-chat-overlay"]');
+      expect(dialog).toBeTruthy();
+      expect(dialog.hasAttribute('open')).toBe(true);
       wrapper.unmount();
     });
 
-    it('positions overlay on right side of viewport', async () => {
+    it('uses overlay-dialog class for positioning', async () => {
       const wrapper = mountOverlay();
       await nextTick();
-      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
-      expect(backdrop).toBeTruthy();
-      // Verify the backdrop class exists which has justify-content: flex-end
-      expect(backdrop.classList.contains('overlay-backdrop')).toBe(true);
+      const dialog = document.querySelector('[data-testid="session-chat-overlay"]');
+      expect(dialog).toBeTruthy();
+      // Verify the dialog class exists which has justify-content: flex-end
+      expect(dialog.classList.contains('overlay-dialog')).toBe(true);
       wrapper.unmount();
     });
 

@@ -1,20 +1,16 @@
 <template>
-  <Teleport to="body">
-    <Transition
-      name="slide-left"
-      appear
-      @after-leave="afterLeave"
+  <dialog
+    ref="dialogRef"
+    class="overlay-dialog"
+    data-testid="session-chat-overlay"
+    @close="onDialogClose"
+    @cancel.prevent="onDialogCancel"
+    @click="onBackdropClick"
+  >
+    <div
+      class="overlay-panel-wrapper"
+      @click.stop
     >
-      <div
-        v-if="visible"
-        class="overlay-backdrop"
-        data-testid="session-chat-overlay"
-        @click.self="close"
-      >
-        <div
-          class="overlay-panel-wrapper"
-          @click.stop
-        >
           <!-- Close handle anchored to left edge of panel -->
           <div
             class="overlay-close-handle"
@@ -337,9 +333,7 @@
             </div>
           </div><!-- end overlay-content -->
         </div><!-- end overlay-panel-wrapper -->
-      </div>
-    </Transition>
-  </Teleport>
+  </dialog>
 </template>
 
 <script setup>
@@ -364,7 +358,7 @@ import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
 import { createOverlaySessionsStore } from '../stores/createOverlaySessionsStore.js';
 import { createOverlayTodosStore } from '../stores/createOverlayTodosStore.js';
-import { SESSIONS_STORE_KEY, TODOS_STORE_KEY } from '../composables/useOverlayStore.js';
+import { SESSIONS_STORE_KEY, TODOS_STORE_KEY, TELEPORT_TARGET_KEY } from '../composables/useOverlayStore.js';
 
 import ConversationTab from './ConversationTab.vue';
 import SessionChatPicker from './SessionChatPicker.vue';
@@ -408,8 +402,15 @@ const sessionsStore = overlaySessionsStore;
 const todosStore = overlayTodosStore;
 
 // Internal state
-const visible = ref(true);
+const dialogRef = ref(null);
+
+// Signal child modals to disable teleporting when inside the overlay.
+// Modals that use <Teleport to="body"> would render outside the dialog's top layer,
+// making them unclickable behind the dialog's ::backdrop. Disabling teleport keeps
+// them inline within the dialog, where they remain fully interactive.
+provide(TELEPORT_TARGET_KEY, true);
 const closing = ref(false);
+let closeFinished = false;
 const activeSessionId = ref(props.sessionId);
 const isMobile = ref(false);
 const isCreatingSession = ref(false);
@@ -531,23 +532,58 @@ const backToSessionsUrl = computed(() => {
 // Methods
 function close() {
   // Guard: don't re-trigger if already closing
-  if (closing.value) {
-    console.log('[SessionChatOverlay] Already closing, ignoring close() call');
+  if (closing.value) return;
+  closing.value = true;
+  closeFinished = false;
+
+  const dialog = dialogRef.value;
+  if (!dialog) {
+    emit('close');
     return;
   }
-  console.log('[SessionChatOverlay] close() called, setting closing=true, visible=false');
-  closing.value = true;
-  visible.value = false;  // This triggers the leave transition
+
+  dialog.classList.add('closing');
+
+  const finish = () => {
+    // Idempotency: only run once even if both animationend and setTimeout fire
+    if (closeFinished) return;
+    closeFinished = true;
+
+    dialog.close();
+    dialog.classList.remove('closing');
+    closing.value = false;
+    emit('close');
+  };
+
+  dialog.addEventListener('animationend', finish, { once: true });
+
+  // Safety fallback: if animationend never fires (e.g., prefers-reduced-motion
+  // or CSS not loaded), close after the animation duration + buffer.
+  setTimeout(finish, 500);
 }
 
-function afterLeave() {
-  if (!closing.value) {
-    console.log('[SessionChatOverlay] afterLeave() called but not closing, ignoring');
-    return;
+function onDialogCancel() {
+  // @cancel.prevent in the template already calls preventDefault().
+  // Delegate to tiered escape logic:
+  if (pickerOpen.value) {
+    pickerOpen.value = false;
+  } else if (isEditingName.value) {
+    cancelEditName();
+  } else {
+    close();
   }
-  console.log('[SessionChatOverlay] afterLeave() called, emitting close event');
-  closing.value = false; // Reset state
-  emit('close');  // Only emit after transition completes
+}
+
+function onBackdropClick() {
+  // Only fires for backdrop clicks because .overlay-panel-wrapper has @click.stop.
+  close();
+}
+
+function onDialogClose() {
+  // This fires after dialog.close() is called programmatically.
+  // Do NOT call close() or emit('close') here — the finish() function
+  // in close() already handles emission. This handler is intentionally
+  // empty to avoid double-firing.
 }
 
 async function selectSession(sessionId) {
@@ -770,18 +806,6 @@ function checkMobile() {
   isMobile.value = window.innerWidth < 768;
 }
 
-function handleEscape(event) {
-  if (event.key === 'Escape') {
-    if (pickerOpen.value) {
-      pickerOpen.value = false;
-    } else if (isEditingName.value) {
-      cancelEditName();
-    } else {
-      close();
-    }
-  }
-}
-
 /**
  * Prevent touch-drag on the overlay header from scrolling the overlay,
  * while allowing touch-move inside interactive children that need it:
@@ -794,60 +818,9 @@ function handleHeaderTouchmove(event) {
   event.preventDefault();
 }
 
-// Body scroll lock — iOS-compatible "fixed wrapper" pattern.
-// On iOS Safari, `overflow: hidden` alone is insufficient: it doesn't reset
-// the existing scroll offset and touch gestures can still move the body.
-// Setting `position: fixed` truly freezes the page.
-//
-// CRITICAL: We apply the `position: fixed` + negative `top` offset to the
-// Vue root (`#app`) rather than `document.body`. When the offset lives on
-// `document.body`, Safari/WebKit treats a `position: fixed` body as a new
-// containing block for its `position: fixed` descendants — so the overlay's
-// `.overlay-backdrop` (which is itself `position: fixed`) inherits the
-// negative top offset and its sticky header ends up scrolled above the
-// viewport. Pinning the offset to `#app` keeps the overlay (which is
-// Teleported to `document.body`) outside the fixed wrapper, so the backdrop
-// remains anchored to the real viewport.
-let savedScrollY = 0;
-let savedAppStyles = {};
-
-function lockBodyScroll() {
-  savedScrollY = window.scrollY;
-  const app = document.getElementById('app');
-  // Always hide body overflow so background cannot scroll.
-  document.body.style.overflow = 'hidden';
-  if (!app) return;
-  savedAppStyles = {
-    position: app.style.position,
-    top: app.style.top,
-    left: app.style.left,
-    right: app.style.right,
-    width: app.style.width,
-  };
-  app.style.position = 'fixed';
-  app.style.top = `-${savedScrollY}px`;
-  app.style.left = '0';
-  app.style.right = '0';
-  app.style.width = '100%';
-}
-
-function unlockBodyScroll() {
-  document.body.style.overflow = '';
-  const app = document.getElementById('app');
-  if (app) {
-    app.style.position = savedAppStyles.position || '';
-    app.style.top = savedAppStyles.top || '';
-    app.style.left = savedAppStyles.left || '';
-    app.style.right = savedAppStyles.right || '';
-    app.style.width = savedAppStyles.width || '';
-  }
-  window.scrollTo(0, savedScrollY);
-}
-
 // Lifecycle
 onMounted(async () => {
-  lockBodyScroll();
-  document.addEventListener('keydown', handleEscape);
+  dialogRef.value?.showModal();
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
@@ -864,8 +837,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  unlockBodyScroll();
-  document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
   cleanupSubscription();
@@ -880,8 +851,7 @@ defineExpose({
   activeSessionId,
   isMobile,
   closing,
-  visible,
-  afterLeave,
+  dialogRef,
   isCreatingSession,
   switchingSession,
   pickerOpen,
@@ -889,36 +859,76 @@ defineExpose({
 });
 </script>
 
-<!-- Transition styles must be unscoped because Teleport moves the DOM outside this component's scope -->
+<!--
+  The ::backdrop pseudo-element lives in the browser's top layer, outside the
+  component's DOM tree. Vue scoped CSS cannot target it (the data-v attribute
+  isn't applied to ::backdrop). Dialog animations use @keyframes which also
+  must be unscoped so the animation-name resolves correctly.
+-->
 <style>
-/* Slide-left transition (unscoped for Teleport compatibility) */
-.slide-left-enter-active,
-.slide-left-leave-active {
-  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+/* ::backdrop is in the top layer — scoped CSS can't reach it.
+   Fully opaque so no underlying page content bleeds through. */
+.overlay-dialog::backdrop {
+  background: rgb(17, 24, 39);
 }
 
-.slide-left-enter-from {
-  transform: translateX(100%);
+/* Slide-in animation (enter) */
+.overlay-dialog[open] {
+  animation: dialog-slide-in 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.slide-left-enter-to {
-  transform: translateX(0);
+/* Slide-out animation (close) */
+.overlay-dialog.closing {
+  animation: dialog-slide-out 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-.slide-left-leave-from {
-  transform: translateX(0);
+@keyframes dialog-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
 
-.slide-left-leave-to {
-  transform: translateX(100%);
+@keyframes dialog-slide-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
 }
 
 /* Respect user's motion preferences */
 @media (prefers-reduced-motion: reduce) {
-  .slide-left-enter-active,
-  .slide-left-leave-active {
-    transition: transform 0.15s ease;
+  .overlay-dialog[open],
+  .overlay-dialog.closing {
+    animation-duration: 0.15s;
   }
+}
+</style>
+
+<style scoped>
+/* Dialog base — replaces .overlay-backdrop */
+.overlay-dialog {
+  /* Reset default dialog styles — must override UA stylesheet */
+  border: none;
+  padding: 0;
+  margin: 0;
+  max-width: none;
+  max-height: none;
+  /* Solid background — the old .overlay-backdrop had background: rgb(17, 24, 39).
+     Without this, the area to the left of the panel (which is max-width 900px)
+     is transparent and the underlying page bleeds through. */
+  background: rgb(17, 24, 39);
+  /* Override UA inset (top/right/bottom/left: auto) that centers the dialog */
+  inset: 0;
+
+  /* Full viewport coverage */
+  width: 100vw;
+  height: 100dvh;
+
+  /* Flex layout to position panel at right edge */
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+
+  /* Prevent any overflow */
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 /* Session switch loading spinner */
@@ -951,21 +961,6 @@ defineExpose({
 .session-switch-text {
   color: #9ca3af;
   font-size: 0.8125rem;
-}
-</style>
-
-<style scoped>
-.overlay-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: rgb(17, 24, 39);
-  display: flex;
-  justify-content: flex-end;
-  align-items: flex-start;
-  overflow: hidden;
-  overflow-y: hidden;
-  overscroll-behavior: none;
 }
 
 .overlay-panel-wrapper {
@@ -1043,6 +1038,9 @@ defineExpose({
   padding: 0;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
   position: relative;
+  /* Solid background — replaces the old .overlay-backdrop background.
+     Without this the underlying page bleeds through the transparent dialog. */
+  background: rgb(17, 24, 39);
 }
 
 .overlay-body {
@@ -1140,6 +1138,18 @@ defineExpose({
   bottom: 0;
   z-index: 10;
   background: rgb(17, 24, 39);
+}
+
+/* Make ConversationTab fill the overlay body so the input form
+   anchors to the bottom of the viewport instead of floating mid-screen. */
+.session-chat-overlay :deep(.conversation-tab) {
+  flex: 1;
+  min-height: 100%;
+}
+
+/* Push input form to the bottom when messages don't fill the viewport */
+.session-chat-overlay :deep(.input-form) {
+  margin-top: auto;
 }
 
 @media (max-width: 768px) {

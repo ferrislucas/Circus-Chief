@@ -1,5 +1,5 @@
 <template>
-  <Teleport to="body">
+  <Teleport to="body" :disabled="disableTeleport">
     <div
       v-if="isOpen"
       class="dialog-overlay"
@@ -171,6 +171,9 @@
 <script setup>
 import { ref, computed, watch, nextTick } from 'vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import { useOverlayTeleportDisabled } from '../composables/useOverlayStore.js';
+
+const disableTeleport = useOverlayTeleportDisabled();
 
 const props = defineProps({
   isOpen: {

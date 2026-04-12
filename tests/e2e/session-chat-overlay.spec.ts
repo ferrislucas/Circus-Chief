@@ -851,10 +851,10 @@ test.describe('Session Chat Overlay', () => {
       await page.setViewportSize({ width: 1920, height: 800 });
       const overlay = await openOverlay(page, parentSession.id);
 
-      // Backdrop uses overflow: hidden to prevent layout shift; scrolling
+      // Dialog uses overflow: hidden to prevent layout shift; scrolling
       // happens inside the overlay-body element instead.
-      const backdrop = page.locator('.overlay-backdrop');
-      await expect(backdrop).toHaveCSS('overflow-y', 'hidden');
+      const dialog = page.locator('.overlay-dialog');
+      await expect(dialog).toHaveCSS('overflow', 'hidden');
 
       // The overlay-body is the scrollable container
       const overlayBody = overlay.locator('.overlay-body');

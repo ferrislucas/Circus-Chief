@@ -95,7 +95,7 @@ test.describe('SessionChatOverlay header scroll bug diagnosis', () => {
         return hits;
       }
 
-      const backdrop = document.querySelector('.overlay-backdrop');
+      const backdrop = document.querySelector('.overlay-dialog');
       const panelWrapper = document.querySelector('.overlay-panel-wrapper');
       const content = document.querySelector('.overlay-content');
       const header = document.querySelector('.overlay-header');
@@ -264,10 +264,10 @@ test.describe('SessionChatOverlay header scroll bug diagnosis', () => {
         for (const m of mutations) {
           m.addedNodes.forEach((n) => {
             if (!(n instanceof HTMLElement)) return;
-            if (n.classList?.contains('overlay-backdrop') || n.querySelector?.('.overlay-backdrop')) {
-              const backdrop = n.classList.contains('overlay-backdrop')
+            if (n.classList?.contains('overlay-dialog') || n.querySelector?.('.overlay-dialog')) {
+              const backdrop = n.classList.contains('overlay-dialog')
                 ? n
-                : n.querySelector('.overlay-backdrop') as HTMLElement;
+                : n.querySelector('.overlay-dialog') as HTMLElement;
               if (backdrop) {
                 (window as any).__scrollEvents.push({
                   time: performance.now(),
@@ -325,7 +325,7 @@ test.describe('SessionChatOverlay header scroll bug diagnosis', () => {
           t: performance.now(),
           bodyTop: document.body.style.top,
           header: rect(document.querySelector('.overlay-header')),
-          backdrop: rect(document.querySelector('.overlay-backdrop')),
+          backdrop: rect(document.querySelector('.overlay-dialog')),
           content: {
             rect: rect(document.querySelector('.overlay-content')),
             scroll: scroll(document.querySelector('.overlay-content')),
@@ -454,14 +454,14 @@ test.describe('SessionChatOverlay header scroll bug diagnosis', () => {
     // The previous scroll lock set `document.body.style.position = 'fixed'`
     // and `document.body.style.top = '-${savedScrollY}px'`. On Safari/WebKit,
     // `position: fixed` descendants of a `position: fixed` ancestor get
-    // shifted by the ancestor's `top` value, so the overlay-backdrop — which
+    // shifted by the ancestor's `top` value, so the overlay dialog — which
     // is supposed to be pinned to the viewport — ends up offset upward by the
     // amount the underlying page was scrolled. The sticky header rides along
     // with it, ending up above the viewport.
     //
-    // The correct approach is to put the offset on a dedicated wrapper
-    // (the Vue #app root) instead of document.body, so the scroll lock
-    // doesn't create a new containing block for the overlay's fixed panel.
+    // The overlay now uses a native <dialog> element with showModal(), which
+    // eliminates this entire class of bugs. The browser handles scroll locking
+    // natively, and no manual position:fixed hacks are needed.
     //
     // This test encodes that contract: after opening the overlay with the
     // underlying view scrolled, document.body must NOT be in position:fixed
