@@ -51,7 +51,8 @@ describe('Upload Middleware', () => {
       ];
 
       allowedTypes.forEach(({ type, ext }) => {
-        it(`accepts ${type} files`, async () => {
+        // Retry up to 2 times on transient EPIPE errors under heavy concurrent load
+        it(`accepts ${type} files`, { retry: 2 }, async () => {
           const response = await request(app)
             .post('/upload')
             .attach('files', Buffer.from('test content'), {

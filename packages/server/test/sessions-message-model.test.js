@@ -54,6 +54,7 @@ import { setupGitForSession } from '../src/services/gitSessionSetup.js';
 
 describe('Sessions API - Model Parameter', () => {
   let app;
+  let server;
   let project;
 
   beforeEach(() => {
@@ -73,12 +74,14 @@ describe('Sessions API - Model Parameter', () => {
     app.use(express.json());
     app.use('/api/sessions', sessionsRouter);
     app.use('/api/projects', projectsRouter);
+    server = app.listen(0);
 
     // Create test project with temp directory
     project = projects.create('Test Project', testTempDir);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    await new Promise((resolve) => server.close(resolve));
     // Clean up temp directory
     if (testTempDir && existsSync(testTempDir)) {
       rmSync(testTempDir, { recursive: true, force: true });
@@ -94,7 +97,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('passes model to continueSession when provided', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .send({ content: 'Test message', model: 'claude-opus-4-6' })
         .expect(200);
@@ -111,7 +114,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('passes null model to continueSession when not provided', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .send({ content: 'Test message' })
         .expect(200);
@@ -128,7 +131,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('passes model via form-data with files', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .field('content', 'Test message')
         .field('model', 'claude-sonnet-4-6')
@@ -150,7 +153,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('accepts tier name as model', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .send({ content: 'Test message', model: 'opus' })
         .expect(200);
@@ -166,7 +169,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('accepts custom provider model ID', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .send({ content: 'Test message', model: 'custom-provider-model-v2' })
         .expect(200);
@@ -183,7 +186,7 @@ describe('Sessions API - Model Parameter', () => {
 
     it('can switch models between messages', async () => {
       // First message with opus
-      await request(app)
+      await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .send({ content: 'First message', model: 'claude-opus-4-6' })
         .expect(200);
@@ -196,7 +199,7 @@ describe('Sessions API - Model Parameter', () => {
       );
 
       // Second message with sonnet
-      await request(app)
+      await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .send({ content: 'Second message', model: 'claude-sonnet-4-6' })
         .expect(200);
@@ -220,7 +223,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('passes model to runSession when provided', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .post(`/api/sessions/${session.id}/start`)
         .send({ model: 'claude-opus-4-6' })
         .expect(200);
@@ -239,7 +242,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('passes null model to runSession when not provided', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .post(`/api/sessions/${session.id}/start`)
         .send({})
         .expect(200);
@@ -257,7 +260,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('starts draft session with custom model', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .post(`/api/sessions/${session.id}/start`)
         .send({ model: 'custom-provider-sonnet' })
         .expect(200);
@@ -282,7 +285,7 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('returns error for non-existent provider ID', async () => {
-      const response = await request(app)
+      const response = await request(server)
         .patch(`/api/sessions/${session.id}`)
         .send({ providerId: 'non-existent-provider' })
         .expect(400);
