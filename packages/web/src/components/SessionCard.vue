@@ -109,8 +109,10 @@
               :key="indicator.buttonId"
               :class="['button-status-indicator', `button-status-${indicator.status}`]"
               :title="indicator.label"
+              :aria-label="indicator.status"
               @click.stop.prevent="selectedButtonForModal = indicator"
-            >{{ getStatusIcon(indicator.status) }}</span>
+              v-html="getStatusIcon(indicator.status)"
+            ></span>
           </p>
 
           <p
@@ -173,6 +175,7 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useKanbanStore } from '../stores/kanban.js';
+import { getStatusIconSvg } from './statusIcons';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import SessionCardSummary from './SessionCardSummary.vue';
@@ -350,20 +353,7 @@ const buttonStatusesToDisplay = computed(() => {
     }));
 });
 
-const getStatusIcon = (status) => {
-  switch (status) {
-    case 'running':
-      return '\u2299';
-    case 'success':
-      return '\u2713';
-    case 'error':
-      return '\u2715';
-    case 'killed':
-      return '\u2715';
-    default:
-      return '';
-  }
-};
+const getStatusIcon = (status) => getStatusIconSvg(status);
 
 const onStarClick = () => {
   sessionsStore.toggleSessionStar(props.session.id);
@@ -474,6 +464,11 @@ const onStarClick = () => {
   border: 1px solid transparent;
 }
 
+.button-status-indicator svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
 .button-status-indicator:hover {
   transform: scale(1.15);
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
@@ -483,7 +478,7 @@ const onStarClick = () => {
   background-color: rgba(210, 153, 34, 0.3);
   color: #d29922;
   border-color: #d29922;
-  animation: pulse 1.5s ease-in-out infinite;
+  animation: hourglass-flip 2s ease-in-out infinite;
 }
 
 .button-status-success {
@@ -492,10 +487,18 @@ const onStarClick = () => {
   border-color: #3fb950;
 }
 
+.button-status-success svg {
+  animation: pop-in 0.3s ease-out;
+}
+
 .button-status-error {
   background-color: rgba(248, 81, 73, 0.3);
   color: #f85149;
   border-color: #f85149;
+}
+
+.button-status-error svg {
+  animation: shake 0.4s ease-in-out;
 }
 
 .button-status-killed {
@@ -504,9 +507,22 @@ const onStarClick = () => {
   border-color: #f85149;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+@keyframes hourglass-flip {
+  0%, 80%   { transform: rotate(0deg); }
+  90%       { transform: rotate(180deg); }
+  100%      { transform: rotate(180deg); }
+}
+
+@keyframes pop-in {
+  0%   { transform: scale(0); }
+  70%  { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-2px); }
+  75%      { transform: translateX(2px); }
 }
 
 @media (max-width: 480px) {

@@ -131,8 +131,8 @@ describe('CommandButtonItem', () => {
         }
       });
 
-      // For a completed run, a checkmark icon is displayed
-      expect(wrapper.text()).toContain('✓');
+      // For a completed run, a checkmark SVG is displayed
+      expect(wrapper.find('[data-testid="command-status"] svg').exists()).toBe(true);
     });
   });
 

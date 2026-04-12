@@ -57,7 +57,8 @@ describe('CommandButtonStatusBar', () => {
     });
 
     const indicator = wrapper.find('.button-status-indicator');
-    expect(indicator.text()).toBe('⊙');
+    expect(indicator.find('svg').exists()).toBe(true);
+    expect(indicator.attributes('aria-label')).toBe('running');
     expect(indicator.classes()).toContain('button-status-running');
   });
 
@@ -76,7 +77,8 @@ describe('CommandButtonStatusBar', () => {
     });
 
     const indicator = wrapper.find('.button-status-indicator');
-    expect(indicator.text()).toBe('✓');
+    expect(indicator.find('svg').exists()).toBe(true);
+    expect(indicator.attributes('aria-label')).toBe('success');
     expect(indicator.classes()).toContain('button-status-success');
   });
 
@@ -95,7 +97,8 @@ describe('CommandButtonStatusBar', () => {
     });
 
     const indicator = wrapper.find('.button-status-indicator');
-    expect(indicator.text()).toBe('✕');
+    expect(indicator.find('svg').exists()).toBe(true);
+    expect(indicator.attributes('aria-label')).toBe('error');
     expect(indicator.classes()).toContain('button-status-error');
   });
 

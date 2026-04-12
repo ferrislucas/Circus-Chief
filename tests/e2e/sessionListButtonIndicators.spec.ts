@@ -82,8 +82,8 @@ test.describe('Session List Command Button Indicators', () => {
     const runningIndicator = page.locator('.button-status-running');
     await expect(runningIndicator).toBeVisible({ timeout: 5000 });
 
-    // It should show the running icon
-    await expect(runningIndicator).toContainText('⊙');
+    // It should show the running icon (SVG)
+    await expect(runningIndicator.locator('svg')).toBeVisible();
 
     // Wait for completion
     await waitForCommandRunComplete(session.id, runId, 10000);
@@ -126,8 +126,8 @@ test.describe('Session List Command Button Indicators', () => {
     const errorIndicator = page.locator('.button-status-error');
     await expect(errorIndicator).toBeVisible({ timeout: 5000 });
 
-    // It should show the error icon
-    await expect(errorIndicator).toContainText('✕');
+    // It should show the error icon (SVG)
+    await expect(errorIndicator.locator('svg')).toBeVisible();
   });
 
   /**
