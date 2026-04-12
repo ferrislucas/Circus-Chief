@@ -64,6 +64,10 @@ module.exports = {
         'sonarjs/no-duplicate-string': 'off',
         'sonarjs/no-identical-functions': 'off',
         'sonarjs/cognitive-complexity': 'off',
+        // Test files intentionally define multiple stub/mock components inline
+        'vue/one-component-per-file': 'off',
+        // Test stub components don't need full prop type definitions
+        'vue/require-prop-types': 'off',
       },
     },
   ],

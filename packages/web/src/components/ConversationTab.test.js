@@ -1350,7 +1350,6 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
           TemplateSelector: { template: '<div class="template-selector-stub"></div>' },
           OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
           ResizableTextarea: { template: '<textarea class="resizable-textarea-stub"></textarea>' },
-          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
           SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
           SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
@@ -2384,7 +2383,6 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
           SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
           AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
-          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
         },
       },
     });
@@ -2608,7 +2606,6 @@ describe('ConversationTab - Quick Response Insertion', () => {
           SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
           AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
-          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
         },
       },
     });
@@ -3159,7 +3156,6 @@ describe('ConversationTab - Model selector persistence on stop', () => {
           SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
           ScheduleSessionModal: { template: '<div class="schedule-session-modal-stub"></div>' },
           AutoRescheduleModal: { template: '<div class="auto-reschedule-modal-stub"></div>' },
-          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
         },
       },
     });
@@ -3941,7 +3937,6 @@ describe('ConversationTab - Input clearing on submit', () => {
           SlashCommandButton: { template: '<div class="slash-command-button-stub"></div>' },
           SlashCommandWizard: { template: '<div class="slash-command-wizard-stub"></div>' },
           OrchestrationPanel: { template: '<div class="orchestration-panel-stub"></div>' },
-          BranchEditor: { template: '<div class="branch-editor-stub"></div>' },
         },
       },
     });

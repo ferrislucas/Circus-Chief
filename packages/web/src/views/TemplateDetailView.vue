@@ -44,12 +44,12 @@
         <!-- Prompt Field -->
         <div class="form-group">
           <label for="prompt">Prompt</label>
-          <textarea
+          <ResizableTextarea
             id="prompt"
             v-model="formData.prompt"
             class="form-input form-textarea"
             placeholder="Session prompt. Use {{parentSession.summary}} to reference parent session data."
-            rows="6"
+            :min-height="120"
             required
           />
           <InterpolationHelp />
@@ -231,6 +231,7 @@ import { api } from '../api/index.js';
 import ModelSelector from '../components/ModelSelector.vue';
 import EffortLevelSelector from '../components/EffortLevelSelector.vue';
 import InterpolationHelp from '../components/InterpolationHelp.vue';
+import ResizableTextarea from '../components/ResizableTextarea.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -431,10 +432,9 @@ onMounted(async () => {
   color: var(--color-text-soft);
 }
 
-textarea.form-textarea {
+:deep(textarea.form-textarea) {
   font-family: var(--font-mono);
   font-size: 0.85rem;
-  resize: vertical;
   min-height: 120px;
   line-height: 1.5;
 }
