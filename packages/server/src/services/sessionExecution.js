@@ -143,6 +143,21 @@ export async function _executeSession({
 }
 
 /**
+ * Build prompt with conversation context when switching models.
+ * When the model changes, we can't resume the previous session, so we include
+ * conversation history as context so the new model can continue naturally.
+ * @param {boolean} modelChanged
+ * @param {string} conversationId
+ * @param {string} promptWithAttachments
+ * @returns {Promise<string>}
+ */
+async function buildPromptForContinue(modelChanged, conversationId, promptWithAttachments) {
+  if (!modelChanged) return promptWithAttachments;
+  const { buildConversationContextForModelSwitch } = await import('./conversationContext.js');
+  return buildConversationContextForModelSwitch(conversationId) + promptWithAttachments;
+}
+
+/**
  * Continue a session with a follow-up message (core implementation)
  * @param {string} sessionId
  * @param {string} content
@@ -224,13 +239,8 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   // Only resume if we have a session ID AND model hasn't changed
   const canResume = activeConversation.claudeSessionId && !modelChanged;
 
-  // When model changes, include conversation history as context so the new model
-  // can continue naturally without needing to resume the incompatible session
-  const { buildConversationContextForModelSwitch } = await import('./conversationContext.js');
-  const conversationContext = modelChanged
-    ? buildConversationContextForModelSwitch(activeConversation.id)
-    : '';
-  const promptWithContext = conversationContext + promptWithAttachments;
+  // Build prompt with conversation context when model changes
+  const promptWithContext = await buildPromptForContinue(modelChanged, activeConversation.id, promptWithAttachments);
 
   const queryParams = buildQueryParams({
     prompt: promptWithContext,

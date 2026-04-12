@@ -85,7 +85,7 @@ describe('buildQueryParams', () => {
 
 describe('continueSessionCore model fallback', () => {
   let sessionRepo;
-  let messageRepo;
+  let _messageRepo;
   let conversationRepo;
   let projectRepo;
   let session;
@@ -94,7 +94,7 @@ describe('continueSessionCore model fallback', () => {
   beforeEach(() => {
     mockQuery.mockClear();
     sessionRepo = new SessionRepository();
-    messageRepo = new MessageRepository();
+    _messageRepo = new MessageRepository();
     conversationRepo = new ConversationRepository();
     projectRepo = new ProjectRepository();
 
@@ -165,14 +165,14 @@ describe('continueSessionCore model fallback', () => {
 describe('runSessionCore model fallback', () => {
   let sessionRepo;
   let projectRepo;
-  let conversationRepo;
+  let _conversationRepo;
   let session;
   let tempDir;
 
   beforeEach(() => {
     mockQuery.mockClear();
     sessionRepo = new SessionRepository();
-    conversationRepo = new ConversationRepository();
+    _conversationRepo = new ConversationRepository();
     projectRepo = new ProjectRepository();
 
     tempDir = mkdtempSync(join(tmpdir(), 'run-session-test-'));
