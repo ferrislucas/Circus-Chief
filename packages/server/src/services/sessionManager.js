@@ -243,8 +243,13 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   const agentType = session.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
 
-  // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(model);
+  // Resolve the effective model: fall back to session.model so that resuming
+  // without an explicit model still resolves the correct provider (e.g.
+  // third-party base URL and auth tokens).
+  const effectiveModel = model || session.model;
+
+  // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
+  const provider = resolveProviderFromModel(effectiveModel);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Check if model changed (can't resume with different model/provider)
@@ -274,7 +279,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     session,
     sessionId,
     systemPrompt,
-    model,
+    model: effectiveModel,
     sessionEnv,
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
