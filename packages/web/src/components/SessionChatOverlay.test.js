@@ -1470,4 +1470,80 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
   });
+
+  describe('ensureHeaderVisible', () => {
+    it('unconditionally resets document-level scroll offsets', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const header = document.querySelector('.overlay-header');
+      expect(header).toBeTruthy();
+
+      // Set residual scroll to simulate the iPad Safari issue
+      document.documentElement.scrollTop = 75;
+      document.body.scrollTop = 75;
+
+      wrapper.vm.ensureHeaderVisible();
+
+      // Should have unconditionally reset document-level scroll
+      expect(document.documentElement.scrollTop).toBe(0);
+      expect(document.body.scrollTop).toBe(0);
+
+      wrapper.unmount();
+    });
+
+    it('resets non-zero scrollTop on ancestor elements', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const header = document.querySelector('.overlay-header');
+      expect(header).toBeTruthy();
+
+      // Set a non-zero scrollTop on the header's parent (.overlay-content)
+      const overlayContent = header.parentElement;
+      overlayContent.scrollTop = 30;
+
+      wrapper.vm.ensureHeaderVisible();
+
+      // Should have reset the ancestor's scrollTop
+      expect(overlayContent.scrollTop).toBe(0);
+
+      wrapper.unmount();
+    });
+
+    it('calls scrollIntoView unconditionally via double-rAF', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const header = document.querySelector('.overlay-header');
+      expect(header).toBeTruthy();
+
+      // Spy on scrollIntoView
+      header.scrollIntoView = vi.fn();
+
+      wrapper.vm.ensureHeaderVisible();
+
+      // Flush the double-rAF. In jsdom rAF is setTimeout-based.
+      await new Promise(r => setTimeout(r, 50));
+
+      // scrollIntoView should always be called as a backstop
+      expect(header.scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' });
+
+      wrapper.unmount();
+    });
+
+    it('is called automatically on mount and is exposed', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(wrapper.vm.ensureHeaderVisible).toBeDefined();
+      expect(typeof wrapper.vm.ensureHeaderVisible).toBe('function');
+
+      wrapper.unmount();
+    });
+  });
 });
