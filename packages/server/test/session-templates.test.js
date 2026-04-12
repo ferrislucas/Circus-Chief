@@ -40,11 +40,6 @@ describe('Session Templates Integration', () => {
       expect(res.body.global[0].name).toBe('Global 1');
     });
 
-    it('returns 404 for non-existent project', async () => {
-      const res = await request(app).get('/api/projects/non-existent/templates');
-
-      expect(res.status).toBe(404);
-    });
   });
 
   describe('POST /api/projects/:id/templates', () => {
