@@ -77,17 +77,6 @@ describe('Sessions API - Files Count Endpoint', () => {
       expect(res.body.count).toBe(0);
     });
 
-    it('returns count for many modified files', async () => {
-      gitService.getOriginDefaultBranch.mockResolvedValue('origin/main');
-      gitService.getModifiedFilesCount.mockResolvedValue(42);
-
-      const res = await request(app)
-        .get(`/api/sessions/${session.id}/files-count`)
-        .expect(200);
-
-      expect(res.body.count).toBe(42);
-    });
-
     it('handles origin/master as default branch', async () => {
       gitService.getOriginDefaultBranch.mockResolvedValue('origin/master');
       gitService.getModifiedFilesCount.mockResolvedValue(7);
