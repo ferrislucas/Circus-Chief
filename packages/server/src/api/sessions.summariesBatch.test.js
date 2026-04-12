@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { projects, sessions, sessionSummaries } from '../database.js';
@@ -14,6 +14,7 @@ import sessionsRouter from './sessions.js';
 
 describe('Sessions API - Batch Summaries Endpoint', () => {
   let app;
+  let server;
   let project;
   let session1;
   let session2;
@@ -25,12 +26,17 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
     app = express();
     app.use(express.json());
     app.use('/api/sessions', sessionsRouter);
+    server = app.listen(0);
 
     // Create test data
     project = projects.create('Test Project', '/tmp/test-repo');
     session1 = sessions.create(project.id, 'Session 1', 'Prompt 1');
     session2 = sessions.create(project.id, 'Session 2', 'Prompt 2');
     session3 = sessions.create(project.id, 'Session 3', 'Prompt 3');
+  });
+
+  afterEach(async () => {
+    await new Promise((resolve) => server.close(resolve));
   });
 
   describe('POST /api/sessions/summaries/batch', () => {
@@ -44,7 +50,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
         fullSummary: 'Full summary 2',
       });
 
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: [session1.id, session2.id] })
         .expect(200);
@@ -61,7 +67,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
         fullSummary: 'Full summary 1',
       });
 
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: [session1.id, session2.id] })
         .expect(200);
@@ -72,7 +78,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
     });
 
     it('returns null for all IDs when no summaries exist', async () => {
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: [session1.id, session2.id, session3.id] })
         .expect(200);
@@ -83,7 +89,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
     });
 
     it('returns all requested IDs in the response map', async () => {
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: [session1.id, session2.id, session3.id] })
         .expect(200);
@@ -100,7 +106,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
         fullSummary: 'Full',
       });
 
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: [session1.id] })
         .expect(200);
@@ -110,7 +116,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
     });
 
     it('handles non-existent session IDs gracefully (returns null)', async () => {
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: ['non-existent-1', 'non-existent-2'] })
         .expect(200);
@@ -120,7 +126,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
     });
 
     it('returns 400 when ids is not provided', async () => {
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({})
         .expect(400);
@@ -129,7 +135,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
     });
 
     it('returns 400 when ids is an empty array', async () => {
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: [] })
         .expect(400);
@@ -138,7 +144,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
     });
 
     it('returns 400 when ids is not an array', async () => {
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: 'not-an-array' })
         .expect(400);
@@ -156,7 +162,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
         messageCount: 15,
       });
 
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: [session1.id] })
         .expect(200);
@@ -177,7 +183,7 @@ describe('Sessions API - Batch Summaries Endpoint', () => {
         fullSummary: 'Full',
       });
 
-      const res = await request(app)
+      const res = await request(server)
         .post('/api/sessions/summaries/batch')
         .send({ ids: [session1.id, session2.id, 'non-existent'] })
         .expect(200);
