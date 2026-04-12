@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, quickResponses } from '../database.js';
+import { projects, quickResponses, getDatabase } from '../database.js';
 import quickResponsesRouter from './quickResponses.js';
 
 describe('Quick Responses API', () => {
@@ -12,6 +12,9 @@ describe('Quick Responses API', () => {
     app = express();
     app.use(express.json());
     app.use('/api', quickResponsesRouter);
+
+    // Clear seeded quick responses so tests start with an empty table
+    getDatabase().prepare('DELETE FROM quick_responses').run();
 
     // Create project
     const project = projects.create('Test Project', '/tmp/test');

@@ -3,6 +3,7 @@
  * app_settings, providers, provider_models, agent_call_logs.
  * Each export is an array of { name, up(db) } migration objects.
  */
+import { randomUUID } from 'node:crypto';
 import { addColumnIfMissing, tableExists } from './migrationUtils.js';
 
 /**
@@ -58,6 +59,39 @@ function updateBuiltInModels(db) {
      SET model_id = ?, display_name = ?
      WHERE provider_id = ? AND id = ?`
   ).run('claude-opus-4-6', 'Opus 4.6', providerId, 'anthropic-opus');
+}
+
+/**
+ * Seed default global quick responses when the table is empty.
+ */
+function seedDefaultQuickResponses(db) {
+  const count = db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt;
+  if (count > 0) return;
+
+  const defaults = [
+    { label: 'Put a plan on the canvas', content: 'Put a plan on the canvas to get this done', autoSubmit: false, sortOrder: 0 },
+    { label: 'Yes', content: 'Yes', autoSubmit: true, sortOrder: 1 },
+    { label: 'Review the plan', content: `Review the plan on the canvas. Are there any issues that you can find? Is test coverage specified explicitly enough? Does the current code match the assumptions in the plan?\n\nList the issues that you find and then update the plan on the canvas to address any issues that you find. Don't talk about issues with the original plan in the plan itself. Just tell me what the issues are, and update the plan so that the plan doesn't have the issues.`, autoSubmit: true, sortOrder: 2 },
+    { label: 'Implement the plan on the canvas', content: 'Implement the plan on the canvas', autoSubmit: true, sortOrder: 3 },
+    { label: 'Create / Update PR', content: `Ensure all relevant changes are committed and pushed. Then look at the session's summary and create a draft PR if no PR already exists.`, autoSubmit: true, sortOrder: 4 },
+    { label: 'Review PR', content: 'Look at the PR related to the root session. Review the PR. Are there any issues? Are best practices adhered to? Does the PR accomplish the goal? Are all changes covered by tests?', autoSubmit: true, sortOrder: 5 },
+    { label: 'Add tests', content: 'Inspect the changes on our branch. For each change, ensure we have tests that assert the change is working in the expected way. Implement the tests.', autoSubmit: true, sortOrder: 6 },
+    { label: 'Merge in main', content: 'Merge in the latest main branch', autoSubmit: true, sortOrder: 7 },
+    { label: 'Add tests to the plan', content: 'Call out specific test cases in the plan, we should have an assertion for each change called for in the plan', autoSubmit: true, sortOrder: 8 },
+    { label: 'Tests are failing', content: 'Tests are failing. Look at the canvas for details', autoSubmit: true, sortOrder: 9 },
+    { label: 'Continue', content: 'Continue', autoSubmit: true, sortOrder: 10 },
+  ];
+
+  const stmt = db.prepare(
+    `INSERT INTO quick_responses
+     (id, project_id, label, content, auto_submit, category, sort_order, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  const now = Date.now();
+  for (const item of defaults) {
+    stmt.run(randomUUID(), null, item.label, item.content, item.autoSubmit ? 1 : 0, null, item.sortOrder, now, now);
+  }
 }
 
 /** @type {Array<{name: string, up: (db: import('better-sqlite3').Database) => void}>} */
@@ -198,5 +232,11 @@ export const miscMigrations = [
         CREATE INDEX IF NOT EXISTS idx_agent_call_logs_model ON agent_call_logs(model);
       `);
     },
+  },
+
+  // --- Seed default global quick responses ---
+  {
+    name: 'quick_responses-seed-defaults',
+    up(db) { seedDefaultQuickResponses(db); },
   },
 ];
