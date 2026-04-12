@@ -203,10 +203,12 @@ test.describe('Scheduling UI', () => {
       await expect(modal).not.toBeVisible({ timeout: 10000 });
 
       // Close the overlay to see the summary tab
-      const closeButton = page.locator('.overlay-close-btn');
-      if (await closeButton.isVisible()) {
-        await closeButton.click();
-      }
+      const closeButton = page.locator('.overlay-close-handle');
+      await expect(closeButton).toBeVisible({ timeout: 5000 });
+      await closeButton.click();
+
+      // Wait for overlay to fully disappear
+      await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout: 5000 });
 
       // Verify scheduling info is visible in the overview card
       const schedulingSection = page.locator('.overview-scheduling');
@@ -240,10 +242,12 @@ test.describe('Scheduling UI', () => {
       await expect(modal).not.toBeVisible({ timeout: 10000 });
 
       // Close the overlay
-      const closeButton = page.locator('.overlay-close-btn');
-      if (await closeButton.isVisible()) {
-        await closeButton.click();
-      }
+      const closeButton = page.locator('.overlay-close-handle');
+      await expect(closeButton).toBeVisible({ timeout: 5000 });
+      await closeButton.click();
+
+      // Wait for overlay to fully disappear before interacting with summary tab
+      await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout: 5000 });
 
       // Click the Edit time link in the overview card
       await page.click('.scheduling-edit-link');
