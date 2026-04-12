@@ -175,6 +175,34 @@ describe('useProjectSessionSubscription', () => {
       expect(mockCommandButtonsStore.fetchButtons).toHaveBeenCalledWith('test-project-1');
     });
 
+    it('awaits fetchProject before fetching sessions', async () => {
+      // Use a deferred promise for fetchProject to verify ordering
+      let resolveFetchProject;
+      mockProjectsStore.fetchProject.mockReturnValue(new Promise(r => { resolveFetchProject = r; }));
+
+      mount(testComponent, {
+        global: {
+          plugins: [createPinia()],
+        },
+      });
+
+      // Allow the watcher to fire
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // fetchProject should have been called
+      expect(mockProjectsStore.fetchProject).toHaveBeenCalledWith('test-project-1');
+
+      // But fetchSessions should NOT have been called yet (still waiting on fetchProject)
+      expect(mockSessionsStore.fetchSessions).not.toHaveBeenCalled();
+
+      // Now resolve fetchProject
+      resolveFetchProject();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Now fetchSessions should have been called
+      expect(mockSessionsStore.fetchSessions).toHaveBeenCalledWith('test-project-1');
+    });
+
     it('subscribes to WebSocket on mount', async () => {
       mount(testComponent, {
         global: {
