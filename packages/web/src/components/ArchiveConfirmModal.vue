@@ -1,10 +1,30 @@
 <template>
   <Teleport to="body">
-    <div v-if="isOpen" class="modal-backdrop" @click.self="handleBackdropClick">
-      <div class="modal-content" role="dialog" aria-labelledby="archive-modal-title">
+    <div
+      v-if="isOpen"
+      class="modal-backdrop"
+      @click.self="handleBackdropClick"
+    >
+      <div
+        class="modal-content"
+        role="dialog"
+        aria-labelledby="archive-modal-title"
+      >
         <div class="modal-header">
-          <h2 id="archive-modal-title" class="modal-title">Archive Session</h2>
-          <button @click="cancel" class="close-btn" aria-label="Close modal" :disabled="loading">&times;</button>
+          <h2
+            id="archive-modal-title"
+            class="modal-title"
+          >
+            Archive Session
+          </h2>
+          <button
+            class="close-btn"
+            aria-label="Close modal"
+            :disabled="loading"
+            @click="cancel"
+          >
+            &times;
+          </button>
         </div>
 
         <div class="modal-body">
@@ -12,21 +32,34 @@
             Are you sure you want to archive <strong>{{ sessionName }}</strong>?
           </p>
 
-          <div v-if="hasCleanupScript" class="cleanup-option">
+          <div
+            v-if="hasCleanupScript"
+            class="cleanup-option"
+          >
             <label class="checkbox-label">
               <input
-                type="checkbox"
                 v-model="runCleanup"
+                type="checkbox"
                 aria-label="Run project cleanup script"
-              />
+              >
               <span>Run project cleanup script</span>
             </label>
           </div>
         </div>
 
         <div class="modal-footer">
-          <button @click="cancel" class="btn btn-secondary" :disabled="loading">Cancel</button>
-          <button @click="handleConfirm" class="btn btn-primary" :disabled="loading">
+          <button
+            class="btn btn-secondary"
+            :disabled="loading"
+            @click="cancel"
+          >
+            Cancel
+          </button>
+          <button
+            class="btn btn-primary"
+            :disabled="loading"
+            @click="handleConfirm"
+          >
             {{ loading ? 'Archiving...' : 'Archive' }}
           </button>
         </div>

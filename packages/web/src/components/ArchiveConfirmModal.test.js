@@ -67,7 +67,7 @@ describe('ArchiveConfirmModal.vue', () => {
       const onConfirm = vi.fn();
       mountModal({ hasCleanupScript: true, onConfirm });
       const buttons = document.querySelectorAll('button');
-      const archiveBtn = Array.from(buttons).find(b => b.textContent === 'Archive');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archive');
       archiveBtn.click();
       await nextTick();
       expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -81,7 +81,7 @@ describe('ArchiveConfirmModal.vue', () => {
       checkbox.click();
       await nextTick();
       const buttons = document.querySelectorAll('button');
-      const archiveBtn = Array.from(buttons).find(b => b.textContent === 'Archive');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archive');
       archiveBtn.click();
       await nextTick();
       expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -94,7 +94,7 @@ describe('ArchiveConfirmModal.vue', () => {
       const onCancel = vi.fn();
       mountModal({}, { onCancel });
       const buttons = document.querySelectorAll('button');
-      const cancelBtn = Array.from(buttons).find(b => b.textContent === 'Cancel');
+      const cancelBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Cancel');
       cancelBtn.click();
       await nextTick();
       expect(onCancel).toHaveBeenCalledTimes(1);

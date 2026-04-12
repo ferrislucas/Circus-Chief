@@ -1,8 +1,10 @@
 <template>
+  <!-- eslint-disable vue/no-v-html -->
   <div
     class="markdown-viewer"
     v-html="renderedContent"
   />
+  <!-- eslint-enable vue/no-v-html -->
 </template>
 
 <script setup>

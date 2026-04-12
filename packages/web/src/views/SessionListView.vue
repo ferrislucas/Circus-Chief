@@ -49,7 +49,7 @@
         :to="`/projects/${route.params.id}/sessions/new`"
         class="btn btn-primary mobile-only"
       >
-        New Session
+        + Session
       </router-link>
     </div>
 
@@ -106,8 +106,9 @@
           v-if="activeTab === 'sessions'"
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary desktop-only"
+          aria-label="New Session"
         >
-          New Session
+          <span class="add-session-label-full">+ Session</span><span class="add-session-label-short">+</span>
         </router-link>
       </div>
 

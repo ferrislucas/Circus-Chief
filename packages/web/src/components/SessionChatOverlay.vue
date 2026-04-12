@@ -994,7 +994,7 @@ defineExpose({
   background: rgba(55, 65, 81, 0.4);
   border-radius: 8px;
   cursor: pointer;
-  z-index: 10;
+  z-index: 30;
   transition: background-color 0.2s ease;
   min-width: 44px;
   min-height: 44px;

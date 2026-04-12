@@ -42,6 +42,16 @@ vi.mock('../components/EffortLevelSelector.vue', () => ({
   },
 }));
 
+// Mock ResizableTextarea component
+vi.mock('../components/ResizableTextarea.vue', () => ({
+  default: {
+    name: 'ResizableTextarea',
+    template: '<textarea :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value); $emit(\'input\', $event)" />',
+    props: ['modelValue', 'minHeight', 'maxHeight'],
+    emits: ['update:modelValue', 'input'],
+  },
+}));
+
 describe('TemplateDetailView - New Form Fields', () => {
   let pinia;
   let router;
@@ -608,6 +618,50 @@ describe('TemplateDetailView - New Form Fields', () => {
       const callArgs = templatesStore.updateTemplate.mock.calls[0];
       // Mode should be 'yolo', not undefined
       expect(callArgs[1].mode).toBe('yolo');
+    });
+  });
+
+  describe('ResizableTextarea Integration', () => {
+    it('renders ResizableTextarea for the prompt field', async () => {
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const resizableTextarea = wrapper.findComponent({ name: 'ResizableTextarea' });
+      expect(resizableTextarea.exists()).toBe(true);
+      expect(resizableTextarea.props('modelValue')).toBe('Test prompt');
+      expect(resizableTextarea.props('minHeight')).toBe(120);
+    });
+
+    it('updates prompt via ResizableTextarea v-model', async () => {
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const resizableTextarea = wrapper.findComponent({ name: 'ResizableTextarea' });
+      await resizableTextarea.vm.$emit('update:modelValue', 'New prompt text');
+      await nextTick();
+
+      expect(resizableTextarea.props('modelValue')).toBe('New prompt text');
+
+      // Verify the updated prompt is included in form submission
+      const form = wrapper.find('form');
+      await form.trigger('submit.prevent');
+      await flushPromises();
+
+      expect(templatesStore.updateTemplate).toHaveBeenCalled();
+      const callArgs = templatesStore.updateTemplate.mock.calls[0];
+      expect(callArgs[1].prompt).toBe('New prompt text');
     });
   });
 });

@@ -64,10 +64,12 @@
           {{ item.content }}
         </div>
 
+        <!-- eslint-disable vue/no-v-html -->
         <pre
           v-else-if="item.type === 'code'"
           class="hljs viewer-code"
         ><code v-html="highlightedCode" /></pre>
+        <!-- eslint-enable vue/no-v-html -->
       </template>
     </div>
   </div>
