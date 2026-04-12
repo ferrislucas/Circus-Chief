@@ -58,6 +58,7 @@
           <div class="overlay-content session-chat-overlay">
             <!-- Header (no padding constraints) -->
             <div
+              ref="overlayHeaderRef"
               class="overlay-header"
               @touchmove="handleHeaderTouchmove"
             >
@@ -422,6 +423,15 @@ const switchingSession = ref(true);
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
 
+// Overlay header ref for viewport visibility checks
+const overlayHeaderRef = ref(null);
+
+// Interval ID for post-mount header visibility re-checks (iPad Safari safety net).
+// Declared at module scope so the existing onUnmounted can clear it — lifecycle
+// hooks must be registered synchronously during setup, not after an await.
+let headerCheckIntervalId = null;
+let headerCheckRafId = null;
+
 // Template ref to the ConversationTab for flushing drafts before session switch
 const conversationTabRef = ref(null);
 
@@ -672,6 +682,10 @@ async function switchToSession(newSessionId) {
   } finally {
     // Always hide spinner — even if something unexpected throws
     switchingSession.value = false;
+    // Ensure header is visible after session switch re-render
+    nextTick(() => {
+      ensureHeaderVisible();
+    });
   }
 }
 
@@ -795,6 +809,48 @@ function handleHeaderTouchmove(event) {
   event.preventDefault();
 }
 
+/**
+ * Ensure the overlay header is visible within the viewport.
+ *
+ * On iPad Safari the header can end up above the fold when the overlay
+ * opens. Detection via getBoundingClientRect is unreliable because Safari
+ * can report rect.top >= 0 (layout viewport) while the element is visually
+ * displaced (visual viewport). So we skip detection entirely and
+ * unconditionally apply every correction we know of:
+ *
+ * 1. Reset scrollTop on every ancestor up to <html>
+ * 2. Reset window scroll to 0
+ * 3. After the browser paints (rAF), call scrollIntoView as a final
+ *    backstop — this lets the browser itself figure out how to make the
+ *    element visible regardless of what caused the displacement.
+ */
+function ensureHeaderVisible() {
+  const header = overlayHeaderRef.value;
+  if (!header) return;
+
+  // Reset scroll on every ancestor — including body and documentElement.
+  let el = header.parentElement;
+  while (el) {
+    if (el.scrollTop !== 0) el.scrollTop = 0;
+    el = el.parentElement;
+  }
+  window.scrollTo(0, 0);
+
+  // After the browser has painted, use scrollIntoView as the definitive
+  // fix. requestAnimationFrame fires after layout but before paint on the
+  // NEXT frame, so the browser has fully resolved positions by then.
+  // We use a double-rAF to guarantee we're past the current paint.
+  headerCheckRafId = requestAnimationFrame(() => {
+    headerCheckRafId = requestAnimationFrame(() => {
+      headerCheckRafId = null;
+      const h = overlayHeaderRef.value;
+      if (h && typeof h.scrollIntoView === 'function') {
+        h.scrollIntoView({ block: 'start', behavior: 'auto' });
+      }
+    });
+  });
+}
+
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
 // On iOS Safari, `overflow: hidden` alone is insufficient: it doesn't reset
 // the existing scroll offset and touch gestures can still move the body.
@@ -830,6 +886,14 @@ function lockBodyScroll() {
   app.style.left = '0';
   app.style.right = '0';
   app.style.width = '100%';
+
+  // Reset the actual viewport scroll to 0. On iPad Safari, residual
+  // window.scrollY can displace position:fixed elements (like the overlay
+  // backdrop) even though they should be viewport-anchored. Since #app is
+  // already pinned with position:fixed, this scrollTo is visually invisible
+  // — fixed elements don't move with scroll — but it ensures the viewport
+  // origin is at 0 when the overlay first paints.
+  window.scrollTo(0, 0);
 }
 
 function unlockBodyScroll() {
@@ -862,6 +926,23 @@ onMounted(async () => {
   } finally {
     switchingSession.value = false;
   }
+
+  // After the overlay is fully rendered, ensure the header is visible.
+  // On iPad Safari the header can end up above the viewport due to residual
+  // scroll offsets that survive the body-scroll-lock.
+  nextTick(() => {
+    ensureHeaderVisible();
+  });
+
+  // Safety net: re-check header visibility a few times after mount.
+  // iPad Safari can trigger delayed layout shifts after the initial paint.
+  let checks = 0;
+  const maxChecks = 5;
+  headerCheckIntervalId = setInterval(() => {
+    ensureHeaderVisible();
+    checks++;
+    if (checks >= maxChecks) clearInterval(headerCheckIntervalId);
+  }, 500);
 });
 
 onUnmounted(() => {
@@ -870,6 +951,8 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
   cleanupSubscription();
+  if (headerCheckIntervalId) clearInterval(headerCheckIntervalId);
+  if (headerCheckRafId) cancelAnimationFrame(headerCheckRafId);
   // Clean up overlay stores: dispose subscriptions AND remove from Pinia registry
   // to prevent state leaks on every overlay open/close cycle.
   overlaySessionsStore.$cleanup();
@@ -887,6 +970,7 @@ defineExpose({
   switchingSession,
   pickerOpen,
   handlePickerSelect,
+  ensureHeaderVisible,
 });
 </script>
 
