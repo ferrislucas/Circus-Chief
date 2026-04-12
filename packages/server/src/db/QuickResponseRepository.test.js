@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { QuickResponseRepository } from './QuickResponseRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
+import { getDatabase } from './index.js';
 
 describe('QuickResponseRepository', () => {
   let repo;
@@ -9,6 +10,9 @@ describe('QuickResponseRepository', () => {
   let projectId2;
 
   beforeEach(() => {
+    // Clear seeded default quick responses so tests start with a clean slate
+    getDatabase().prepare('DELETE FROM quick_responses').run();
+
     repo = new QuickResponseRepository();
     projectRepo = new ProjectRepository();
 

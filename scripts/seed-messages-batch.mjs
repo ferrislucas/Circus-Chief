@@ -32,7 +32,7 @@ const { dbPath, messages } = JSON.parse(raw);
 
 const db = new Database(dbPath, { readonly: false });
 db.pragma('journal_mode = WAL');
-db.pragma('busy_timeout = 5000');
+db.pragma('busy_timeout = 30000');
 db.pragma('foreign_keys = OFF');
 
 // Cache resolved conversation IDs by sessionId
@@ -84,7 +84,22 @@ const insertAll = db.transaction(() => {
   }
 });
 
-insertAll();
+// Retry the transaction in case of transient SQLITE_BUSY errors
+const MAX_RETRIES = 3;
+for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+  try {
+    insertAll();
+    break;
+  } catch (err) {
+    if (err.code === 'SQLITE_BUSY' && attempt < MAX_RETRIES) {
+      // Wait with exponential backoff before retrying
+      const delay = 1000 * attempt;
+      await new Promise(resolve => setTimeout(resolve, delay));
+      continue;
+    }
+    throw err;
+  }
+}
 db.close();
 
 process.stdout.write(JSON.stringify(results));
