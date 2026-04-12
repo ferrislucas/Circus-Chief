@@ -27,9 +27,9 @@ function mountComponent(props = {}) {
 
 describe('RunningState', () => {
   describe('rendering', () => {
-    it('should render "Claude is working..." message', () => {
+    it('should render "Agent is working..." message', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.running-title').text()).toBe('Claude is working...');
+      expect(wrapper.find('.running-title').text()).toBe('Agent is working...');
     });
 
     it('should render loading spinner inside stop button', () => {
