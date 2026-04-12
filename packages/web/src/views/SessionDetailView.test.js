@@ -4236,4 +4236,187 @@ describe('SessionDetailView', () => {
       expect(errorSpy).toHaveBeenCalledWith('Network error');
     });
   });
+
+  describe('project data fetching for archive modal', () => {
+    it('fetches project on mount when currentProject is not loaded', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      // currentProject is null (simulating direct navigation to session URL)
+      projectsStore.currentProject = null;
+      const fetchProjectSpy = vi.spyOn(projectsStore, 'fetchProject').mockResolvedValue(undefined);
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      expect(fetchProjectSpy).toHaveBeenCalledWith('proj-1');
+    });
+
+    it('does not fetch project on mount when currentProject is already loaded', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      // currentProject is already loaded
+      projectsStore.currentProject = { id: 'proj-1', name: 'My Project' };
+      const fetchProjectSpy = vi.spyOn(projectsStore, 'fetchProject').mockResolvedValue(undefined);
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      expect(fetchProjectSpy).not.toHaveBeenCalled();
+    });
+
+    it('fetches project when navigating to a session in a different project', async () => {
+      // Initial session in proj-1
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      projectsStore.currentProject = { id: 'proj-1', name: 'Project 1' };
+
+      const fetchProjectSpy = vi.spyOn(projectsStore, 'fetchProject').mockResolvedValue(undefined);
+
+      // Set up routes with a catch-all for navigation
+      router = createRouter({
+        history: createMemoryHistory(),
+        routes: [
+          { path: '/sessions/:id/:tab?', component: SessionDetailView }
+        ]
+      });
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      expect(fetchProjectSpy).not.toHaveBeenCalled();
+
+      // Now simulate navigating to a session in a different project
+      sessionsStore.currentSession = {
+        id: 'session-2',
+        name: 'Other Session',
+        status: 'completed',
+        projectId: 'proj-2',
+      };
+
+      await router.push('/sessions/session-2');
+      await flushPromises();
+
+      // Should have fetched the new project since it differs from the loaded one
+      expect(fetchProjectSpy).toHaveBeenCalledWith('proj-2');
+    });
+
+    it('does not fetch project when navigating to a session in the same project', async () => {
+      // Initial session in proj-1
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      projectsStore.currentProject = { id: 'proj-1', name: 'Project 1' };
+
+      const fetchProjectSpy = vi.spyOn(projectsStore, 'fetchProject').mockResolvedValue(undefined);
+
+      router = createRouter({
+        history: createMemoryHistory(),
+        routes: [
+          { path: '/sessions/:id/:tab?', component: SessionDetailView }
+        ]
+      });
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      expect(fetchProjectSpy).not.toHaveBeenCalled();
+
+      // Navigate to another session in the SAME project
+      sessionsStore.currentSession = {
+        id: 'session-2',
+        name: 'Another Session',
+        status: 'completed',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-2');
+      await flushPromises();
+
+      // Should NOT have fetched the project again
+      expect(fetchProjectSpy).not.toHaveBeenCalled();
+    });
+  });
 });
