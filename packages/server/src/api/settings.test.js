@@ -7,19 +7,25 @@ import settingsRouter from './settings.js';
 
 describe('Settings API', () => {
   let app;
+  let server;
 
   beforeEach(() => {
     app = express();
     app.use(express.json());
     app.use('/api/settings', settingsRouter);
+    server = app.listen(0);
 
     // Reset token weights to defaults before each test
     settings.resetTokenCostWeights();
   });
 
+  afterEach(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
   describe('GET /api/settings/token-weights', () => {
     it('returns default weights when not customized', async () => {
-      const res = await request(app).get('/api/settings/token-weights');
+      const res = await request(server).get('/api/settings/token-weights');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
@@ -34,7 +40,7 @@ describe('Settings API', () => {
       };
       settings.setTokenCostWeights(customWeights);
 
-      const res = await request(app).get('/api/settings/token-weights');
+      const res = await request(server).get('/api/settings/token-weights');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customWeights);
@@ -47,7 +53,7 @@ describe('Settings API', () => {
         throw new Error('Database error');
       };
 
-      const res = await request(app).get('/api/settings/token-weights');
+      const res = await request(server).get('/api/settings/token-weights');
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Failed to get token weights');
@@ -66,7 +72,7 @@ describe('Settings API', () => {
         cacheCreation: 1.5,
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send(newWeights);
 
@@ -86,7 +92,7 @@ describe('Settings API', () => {
         cacheCreation: 1.25,
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send(invalidWeights);
 
@@ -101,7 +107,7 @@ describe('Settings API', () => {
         // missing cacheRead and cacheCreation
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send(incompleteWeights);
 
@@ -117,7 +123,7 @@ describe('Settings API', () => {
         cacheCreation: 1.25,
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send(negativeWeights);
 
@@ -135,7 +141,7 @@ describe('Settings API', () => {
         cacheCreation: 0,
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send(zeroWeights);
 
@@ -152,7 +158,7 @@ describe('Settings API', () => {
         cacheCreation: 1.456,
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send(decimalWeights);
 
@@ -166,7 +172,7 @@ describe('Settings API', () => {
         throw new Error('Database error');
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send(DEFAULT_TOKEN_COST_WEIGHTS);
 
@@ -177,7 +183,7 @@ describe('Settings API', () => {
     });
 
     it('rejects request with missing body', async () => {
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send({});
 
@@ -194,7 +200,7 @@ describe('Settings API', () => {
         extraField: 'ignored',
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/token-weights')
         .send(weightsWithExtra);
 
@@ -219,7 +225,7 @@ describe('Settings API', () => {
       });
 
       // Then reset
-      const res = await request(app).delete('/api/settings/token-weights');
+      const res = await request(server).delete('/api/settings/token-weights');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
@@ -230,7 +236,7 @@ describe('Settings API', () => {
     });
 
     it('returns defaults even if no custom weights were set', async () => {
-      const res = await request(app).delete('/api/settings/token-weights');
+      const res = await request(server).delete('/api/settings/token-weights');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
@@ -242,7 +248,7 @@ describe('Settings API', () => {
         throw new Error('Database error');
       };
 
-      const res = await request(app).delete('/api/settings/token-weights');
+      const res = await request(server).delete('/api/settings/token-weights');
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Failed to reset token weights');
@@ -254,7 +260,7 @@ describe('Settings API', () => {
   describe('Integration: Full lifecycle', () => {
     it('GET -> PUT -> GET -> DELETE -> GET', async () => {
       // 1. Get defaults
-      let res = await request(app).get('/api/settings/token-weights');
+      let res = await request(server).get('/api/settings/token-weights');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
 
@@ -265,24 +271,24 @@ describe('Settings API', () => {
         cacheRead: 0.4,
         cacheCreation: 2.5,
       };
-      res = await request(app)
+      res = await request(server)
         .put('/api/settings/token-weights')
         .send(customWeights);
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customWeights);
 
       // 3. Get custom
-      res = await request(app).get('/api/settings/token-weights');
+      res = await request(server).get('/api/settings/token-weights');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customWeights);
 
       // 4. Reset to defaults
-      res = await request(app).delete('/api/settings/token-weights');
+      res = await request(server).delete('/api/settings/token-weights');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
 
       // 5. Get defaults again
-      res = await request(app).get('/api/settings/token-weights');
+      res = await request(server).get('/api/settings/token-weights');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(DEFAULT_TOKEN_COST_WEIGHTS);
     });
@@ -290,7 +296,7 @@ describe('Settings API', () => {
 
   describe('GET /api/settings/general', () => {
     it('returns default settings when not customized', async () => {
-      const res = await request(app).get('/api/settings/general');
+      const res = await request(server).get('/api/settings/general');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -304,7 +310,7 @@ describe('Settings API', () => {
       };
       settings.setGeneralSettings(customSettings);
 
-      const res = await request(app).get('/api/settings/general');
+      const res = await request(server).get('/api/settings/general');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customSettings);
@@ -317,7 +323,7 @@ describe('Settings API', () => {
         throw new Error('Database error');
       };
 
-      const res = await request(app).get('/api/settings/general');
+      const res = await request(server).get('/api/settings/general');
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Failed to get general settings');
@@ -333,7 +339,7 @@ describe('Settings API', () => {
         disableAnalytics: true,
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/general')
         .send(newSettings);
 
@@ -350,7 +356,7 @@ describe('Settings API', () => {
         disableAnalytics: 'not-a-boolean',
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/general')
         .send(invalidSettings);
 
@@ -363,7 +369,7 @@ describe('Settings API', () => {
         disableAnalytics: false,
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/general')
         .send(newSettings);
 
@@ -376,7 +382,7 @@ describe('Settings API', () => {
         disableAnalytics: true,
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/general')
         .send(newSettings);
 
@@ -390,7 +396,7 @@ describe('Settings API', () => {
         throw new Error('Database error');
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/general')
         .send({ disableAnalytics: false });
 
@@ -401,7 +407,7 @@ describe('Settings API', () => {
     });
 
     it('rejects request with missing body', async () => {
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/general')
         .send({});
 
@@ -415,7 +421,7 @@ describe('Settings API', () => {
         extraField: 'ignored',
       };
 
-      const res = await request(app)
+      const res = await request(server)
         .put('/api/settings/general')
         .send(settingsWithExtra);
 
@@ -434,7 +440,7 @@ describe('Settings API', () => {
       });
 
       // Then reset
-      const res = await request(app).delete('/api/settings/general');
+      const res = await request(server).delete('/api/settings/general');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -449,7 +455,7 @@ describe('Settings API', () => {
     });
 
     it('returns defaults even if no custom settings were set', async () => {
-      const res = await request(app).delete('/api/settings/general');
+      const res = await request(server).delete('/api/settings/general');
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
@@ -463,7 +469,7 @@ describe('Settings API', () => {
         throw new Error('Database error');
       };
 
-      const res = await request(app).delete('/api/settings/general');
+      const res = await request(server).delete('/api/settings/general');
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Failed to reset general settings');
@@ -475,7 +481,7 @@ describe('Settings API', () => {
   describe('Integration: General settings full lifecycle', () => {
     it('GET -> PUT -> GET -> DELETE -> GET', async () => {
       // 1. Get defaults
-      let res = await request(app).get('/api/settings/general');
+      let res = await request(server).get('/api/settings/general');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         disableAnalytics: false,
@@ -485,26 +491,26 @@ describe('Settings API', () => {
       const customSettings = {
         disableAnalytics: true,
       };
-      res = await request(app)
+      res = await request(server)
         .put('/api/settings/general')
         .send(customSettings);
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customSettings);
 
       // 3. Get custom
-      res = await request(app).get('/api/settings/general');
+      res = await request(server).get('/api/settings/general');
       expect(res.status).toBe(200);
       expect(res.body).toEqual(customSettings);
 
       // 4. Reset to defaults
-      res = await request(app).delete('/api/settings/general');
+      res = await request(server).delete('/api/settings/general');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         disableAnalytics: false,
       });
 
       // 5. Get defaults again
-      res = await request(app).get('/api/settings/general');
+      res = await request(server).get('/api/settings/general');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         disableAnalytics: false,
