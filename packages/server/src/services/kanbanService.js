@@ -7,7 +7,7 @@ import {
   projects,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 
 /**

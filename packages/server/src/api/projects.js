@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { projects, sessions, sessionTemplates, commandButtons, projectDefaults, commandRuns } from '../database.js';
 import { commandRunner } from '../services/commandRunner.js';
-import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsRequest } from '@claudetools/shared/contracts/projects';
+import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsRequest } from '@circuschief/shared/contracts/projects';
 import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
-import { CreateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
-import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@claudetools/shared/contracts/commandButtons';
+import { CreateSessionTemplateRequest } from '@circuschief/shared/contracts/templates';
+import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@circuschief/shared/contracts/commandButtons';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
 import {
   generateInitialName,

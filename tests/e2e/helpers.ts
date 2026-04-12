@@ -1573,7 +1573,7 @@ export async function getConversationMessages(sessionId: string, conversationId:
 
 function getDBPath(): string {
   if (process.env.DB_PATH) return process.env.DB_PATH;
-  return join(process.cwd(), 'claudetools.db');
+  return join(process.cwd(), 'circuschief.db');
 }
 
 function runSeedMessage(payload: object): any {

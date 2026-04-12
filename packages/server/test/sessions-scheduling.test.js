@@ -12,7 +12,7 @@ vi.mock('../src/websocket.js', () => ({
 // Import after mocking
 import sessionsRouter from '../src/api/sessions.js';
 import { broadcastToProject, broadcastToSession } from '../src/websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Sessions API - Scheduling Endpoints', () => {
   let app;

@@ -1,14 +1,14 @@
 import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
-import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
+import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 
 /**
  * Get the base API URL for canvas and session operations.
- * Uses CLAUDETOOLS_API_URL environment variable if set, otherwise constructs
+ * Uses CIRCUSCHIEF_API_URL environment variable if set, otherwise constructs
  * from the runtime port to ensure dynamic port handling.
  * @returns {string} The base API URL (e.g., http://localhost:5000)
  */
 export function getApiBaseUrl() {
-  return process.env.CLAUDETOOLS_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
+  return process.env.CIRCUSCHIEF_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
 }
 
 /**
@@ -365,7 +365,7 @@ This session is running in an isolated git worktree:
 - Worktree path: ${session.gitWorktree}
 - Branch: ${session.gitBranch || 'unknown'}
 
-CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working directory is already set to the worktree. Running \`cd /home/ubuntu/workspace/claudetools.io && ...\` will escape the worktree isolation and affect the main repository instead.`;
+CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working directory is already set to the worktree. Running \`cd /home/ubuntu/workspace/circuschief.io && ...\` will escape the worktree isolation and affect the main repository instead.`;
 }
 
 /**

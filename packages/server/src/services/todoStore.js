@@ -1,6 +1,6 @@
 import { todos, conversations } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 /**
  * Update todos for a conversation (replaces all existing todos for that conversation)

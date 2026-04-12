@@ -11,10 +11,10 @@
         >
           <img
             src="/logo.png"
-            alt="Vibehive Logo"
+            alt="Circus Chief Logo"
             class="logo-image"
           >
-          <span class="logo-text">Vibehive</span>
+          <span class="logo-text">Circus Chief</span>
         </router-link>
         <nav class="nav">
           <SystemIndicators />

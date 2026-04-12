@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 // Mock Vue's onUnmounted
 vi.mock('vue', () => ({

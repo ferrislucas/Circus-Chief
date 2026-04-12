@@ -3,7 +3,7 @@ import { sessions, sessionTemplates, sessionSummaries, projects } from '../datab
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const liquid = new Liquid();
 

@@ -10,7 +10,7 @@ vi.mock('../websocket.js', () => ({
 // Import after mocks are set up
 import { addItem, getItems, updateItemContent, removeItem } from './canvasStore.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('canvasStore', () => {
   let project;

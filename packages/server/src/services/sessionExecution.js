@@ -193,7 +193,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
 
   // Store the user message with conversation ID
   const { broadcastToSession } = await import('../websocket.js');
-  const { WS_MESSAGE_TYPES } = await import('@claudetools/shared');
+  const { WS_MESSAGE_TYPES } = await import('@circuschief/shared');
   const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
   console.log(`[SESSION] continueSession: created user message ${message.id} in conversation ${activeConversation.id}`);
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {

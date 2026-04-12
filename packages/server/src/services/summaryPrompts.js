@@ -3,7 +3,7 @@
  * Pure functions with no side effects.
  */
 
-import { DEFAULT_SESSION_TITLE_PROMPT } from '@claudetools/shared';
+import { DEFAULT_SESSION_TITLE_PROMPT } from '@circuschief/shared';
 
 // Maximum retry attempts for failed parsing
 export const MAX_RETRIES = 2;

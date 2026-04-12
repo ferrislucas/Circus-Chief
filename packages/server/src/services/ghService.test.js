@@ -426,10 +426,10 @@ describe('ghService', () => {
 
   describe('extractPrInfo', () => {
     it('extracts PR info from valid GitHub URL', () => {
-      const result = extractPrInfo('https://github.com/anthropics/claudetools.io/pull/123');
+      const result = extractPrInfo('https://github.com/anthropics/circuschief.io/pull/123');
       expect(result).toEqual({
         owner: 'anthropics',
-        repo: 'claudetools.io',
+        repo: 'circuschief.io',
         number: 123,
       });
     });
@@ -465,32 +465,32 @@ describe('ghService', () => {
   describe('validatePrRepository', () => {
     it('validates PR from expected repository', () => {
       const result = validatePrRepository(
-        'https://github.com/anthropics/claudetools.io/pull/123',
-        'https://github.com/anthropics/claudetools.io'
+        'https://github.com/anthropics/circuschief.io/pull/123',
+        'https://github.com/anthropics/circuschief.io'
       );
       expect(result).toEqual({ valid: true, mismatch: false, error: null });
     });
 
     it('detects PR from different owner', () => {
       const result = validatePrRepository(
-        'https://github.com/user/claudetools.io/pull/123',
-        'https://github.com/anthropics/claudetools.io'
+        'https://github.com/user/circuschief.io/pull/123',
+        'https://github.com/anthropics/circuschief.io'
       );
       expect(result.valid).toBe(false);
       expect(result.mismatch).toBe(true);
-      expect(result.error).toContain('user/claudetools.io');
-      expect(result.error).toContain('anthropics/claudetools.io');
+      expect(result.error).toContain('user/circuschief.io');
+      expect(result.error).toContain('anthropics/circuschief.io');
     });
 
     it('detects PR from different repo', () => {
       const result = validatePrRepository(
         'https://github.com/anthropics/different-repo/pull/123',
-        'https://github.com/anthropics/claudetools.io'
+        'https://github.com/anthropics/circuschief.io'
       );
       expect(result.valid).toBe(false);
       expect(result.mismatch).toBe(true);
       expect(result.error).toContain('anthropics/different-repo');
-      expect(result.error).toContain('anthropics/claudetools.io');
+      expect(result.error).toContain('anthropics/circuschief.io');
     });
 
     it('handles trailing slash in expected repo URL', () => {

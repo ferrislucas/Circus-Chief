@@ -48,7 +48,7 @@ describe('hookService', () => {
         sessionName: 'My Test Session',
       };
       const result = await executeHook(
-        'echo "$CLAUDETOOLS_SESSION_ID|$CLAUDETOOLS_PROJECT_ID|$CLAUDETOOLS_SESSION_NAME"',
+        'echo "$CIRCUSCHIEF_SESSION_ID|$CIRCUSCHIEF_PROJECT_ID|$CIRCUSCHIEF_SESSION_NAME"',
         tempDir,
         context
       );

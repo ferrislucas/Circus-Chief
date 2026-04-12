@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { projects, sessions, messages } from '../src/database.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 // Mock the websocket module to track broadcasts
 vi.mock('../src/websocket.js', () => ({

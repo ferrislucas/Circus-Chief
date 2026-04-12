@@ -1,6 +1,6 @@
 # E2E Testing Guide
 
-This document covers patterns, conventions, and infrastructure for writing and running end-to-end tests in claudetools.io.
+This document covers patterns, conventions, and infrastructure for writing and running end-to-end tests in Circus Chief.
 
 ## Running Tests
 

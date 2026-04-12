@@ -4,7 +4,7 @@ import {
   CreateQuickResponseRequest,
   UpdateQuickResponseRequest,
   ReorderQuickResponsesRequest,
-} from '@claudetools/shared/contracts/quickResponses';
+} from '@circuschief/shared/contracts/quickResponses';
 
 const router = Router();
 
