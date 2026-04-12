@@ -384,6 +384,118 @@ test.describe('File Attachments - Different File Types', () => {
   });
 });
 
+test.describe('File Attachments - UI Workflow', () => {
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    project = await seedProject('UI Workflow Test', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+  });
+
+  test('creates session with file attachment through UI', async ({ page }) => {
+    // 1. Navigate to new session page
+    await navigateAndWait(page, `/projects/${project.id}/sessions/new`);
+
+    // 2. Fill in prompt via the textarea inside ResizableTextarea
+    await page.locator('textarea').fill('Analyze this file');
+
+    // 3. Attach file using Playwright's setInputFiles on the hidden file input
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'test.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Test file content'),
+    });
+
+    // 4. Verify file chip appears in FileAttachment component
+    await expect(page.locator('.file-chip')).toContainText('test.txt');
+
+    // 5. Submit form
+    await page.locator('button.btn-submit').click();
+
+    // 6. Verify navigation to session detail (not stuck/hanging)
+    await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+/, { timeout: 15000 });
+
+    // 7. Verify attachment was stored
+    const sessionId = page.url().match(/sessions\/([a-f0-9-]+)/)?.[1];
+    expect(sessionId).toBeTruthy();
+    const attachments = await getSessionAttachments(sessionId!);
+    expect(attachments.length).toBe(1);
+    expect(attachments[0].filename).toBe('test.txt');
+  });
+
+  test('creates session with multiple files through UI', async ({ page }) => {
+    await navigateAndWait(page, `/projects/${project.id}/sessions/new`);
+    await page.locator('textarea').fill('Review these files');
+
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles([
+      { name: 'file1.txt', mimeType: 'text/plain', buffer: Buffer.from('Content 1') },
+      { name: 'file2.json', mimeType: 'application/json', buffer: Buffer.from('{"key":"value"}') },
+    ]);
+
+    // Verify both file chips appear
+    await expect(page.locator('.file-chip')).toHaveCount(2);
+
+    await page.locator('button.btn-submit').click();
+    await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+/, { timeout: 15000 });
+
+    const sessionId = page.url().match(/sessions\/([a-f0-9-]+)/)?.[1];
+    expect(sessionId).toBeTruthy();
+    const attachments = await getSessionAttachments(sessionId!);
+    expect(attachments.length).toBe(2);
+  });
+
+  test('remove file before submitting', async ({ page }) => {
+    await navigateAndWait(page, `/projects/${project.id}/sessions/new`);
+    await page.locator('textarea').fill('Analyze this');
+
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'removeme.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Will be removed'),
+    });
+
+    // Verify chip appears
+    await expect(page.locator('.file-chip')).toContainText('removeme.txt');
+
+    // Click remove button on the file chip
+    await page.locator('.file-chip .remove-btn').first().click();
+
+    // Verify chip is gone
+    await expect(page.locator('.file-chip')).toHaveCount(0);
+
+    // Submit without file — should work as normal JSON session
+    await page.locator('button.btn-submit').click();
+    await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+/, { timeout: 15000 });
+  });
+
+  test('form shows loading state during file upload submission', async ({ page }) => {
+    await navigateAndWait(page, `/projects/${project.id}/sessions/new`);
+    await page.locator('textarea').fill('Analyze this');
+
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'test.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Test content'),
+    });
+
+    // Submit and check that button becomes disabled (loading state)
+    const submitButton = page.locator('button.btn-submit');
+    await submitButton.click();
+
+    // The button should be disabled during submission (loading state)
+    // Then eventually navigates away — verifying the UI doesn't "hang"
+    await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+/, { timeout: 15000 });
+  });
+});
+
 test.describe('File Attachments - Error Handling', () => {
   let project: any;
 

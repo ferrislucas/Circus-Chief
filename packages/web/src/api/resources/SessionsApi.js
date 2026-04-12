@@ -65,16 +65,35 @@ export function SessionsApi(ApiClient) {
         const formData = new FormData();
         formData.append('prompt', jsonData.prompt);
 
-        // Append optional fields — boolean values need String() conversion
+        // All optional string/null fields
         const optionalFields = [
-          'name', 'mode', 'model', 'effortLevel', 'gitBranch', 'gitMode', 'templateId',
+          'name', 'mode', 'model', 'effortLevel', 'gitBranch', 'gitMode',
+          'templateId', 'providerId', 'parentSessionId',
         ];
         for (const field of optionalFields) {
-          if (jsonData[field] !== undefined) formData.append(field, jsonData[field]);
+          if (jsonData[field] !== undefined && jsonData[field] !== null) {
+            formData.append(field, jsonData[field]);
+          }
         }
-        const booleanFields = ['thinkingEnabled', 'startImmediately'];
+
+        // Boolean fields (need String conversion)
+        const booleanFields = [
+          'thinkingEnabled', 'startImmediately',
+          'autoRescheduleEnabled', 'rescheduleOnTokenLimit', 'rescheduleOnServiceError',
+        ];
         for (const field of booleanFields) {
           if (jsonData[field] !== undefined) formData.append(field, String(jsonData[field]));
+        }
+
+        // Numeric fields (need String conversion)
+        const numericFields = [
+          'scheduledAt', 'rescheduleDelayMinutes', 'maxRescheduleCount',
+          'maxTotalTokens', 'rescheduleAtTokenCount',
+        ];
+        for (const field of numericFields) {
+          if (jsonData[field] !== undefined && jsonData[field] !== null) {
+            formData.append(field, String(jsonData[field]));
+          }
         }
 
         for (const file of files) {
