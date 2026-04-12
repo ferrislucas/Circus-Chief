@@ -244,7 +244,9 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
   const agent = createAgentForSession(agentType);
 
   // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(model);
+  // Fall back to session.model so that resuming without an explicit model still
+  // resolves the correct provider (e.g. third-party base URL and auth tokens).
+  const provider = resolveProviderFromModel(model || session.model);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Check if model changed (can't resume with different model/provider)
@@ -274,7 +276,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     session,
     sessionId,
     systemPrompt,
-    model,
+    model: model || session.model,
     sessionEnv,
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
