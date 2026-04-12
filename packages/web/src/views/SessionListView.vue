@@ -22,6 +22,26 @@
               <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6m4-3l6 6m0 0l-6 6m6-6H9" />
             </svg>
           </a>
+          <router-link
+            :to="`/projects/${route.params.id}/edit`"
+            class="settings-link"
+            title="Project settings"
+          >
+            <svg
+              class="settings-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+            >
+              <path d="M12.22 2h-.44a2 2 0 00-2 2v.18a2 2 0 01-1 1.73l-.43.25a2 2 0 01-2 0l-.15-.08a2 2 0 00-2.73.73l-.22.38a2 2 0 00.73 2.73l.15.1a2 2 0 011 1.72v.51a2 2 0 01-1 1.74l-.15.09a2 2 0 00-.73 2.73l.22.38a2 2 0 002.73.73l.15-.08a2 2 0 012 0l.43.25a2 2 0 011 1.73V20a2 2 0 002 2h.44a2 2 0 002-2v-.18a2 2 0 011-1.73l.43-.25a2 2 0 012 0l.15.08a2 2 0 002.73-.73l.22-.39a2 2 0 00-.73-2.73l-.15-.08a2 2 0 01-1-1.74v-.5a2 2 0 011-1.74l.15-.09a2 2 0 00.73-2.73l-.22-.38a2 2 0 00-2.73-.73l-.15.08a2 2 0 01-2 0l-.43-.25a2 2 0 01-1-1.73V4a2 2 0 00-2-2z" />
+              <circle
+                cx="12"
+                cy="12"
+                r="3"
+              />
+            </svg>
+          </router-link>
         </div>
       </div>
       <router-link
@@ -29,7 +49,7 @@
         :to="`/projects/${route.params.id}/sessions/new`"
         class="btn btn-primary mobile-only"
       >
-        New Session
+        + Session
       </router-link>
     </div>
 
@@ -86,8 +106,9 @@
           v-if="activeTab === 'sessions'"
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary desktop-only"
+          aria-label="New Session"
         >
-          New Session
+          <span class="add-session-label-full">+ Session</span><span class="add-session-label-short">+</span>
         </router-link>
       </div>
 
@@ -305,6 +326,16 @@
         </div>
       </div>
     </div>
+
+    <!-- Archive Confirm Modal -->
+    <ArchiveConfirmModal
+      :is-open="showArchiveModal"
+      :session-name="sessionToArchive?.name || 'this session'"
+      :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && !sessionToArchive?.parentSessionId)"
+      :loading="archiving"
+      @confirm="confirmArchive"
+      @cancel="cancelArchive"
+    />
   </div>
 </template>
 
@@ -327,6 +358,7 @@ import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 import KanbanBoard from '../components/KanbanBoard.vue';
 import AddSessionToLaneModal from '../components/AddSessionToLaneModal.vue';
+import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import './SessionListView.css';
 
 const route = useRoute();
@@ -453,12 +485,35 @@ async function fetchScheduledSessions() {
   await sessionsStore.fetchScheduledSessions(projectId.value);
 }
 
-async function handleArchive(sessionId) {
+// Archive modal state
+const showArchiveModal = ref(false);
+const sessionToArchive = ref(null);
+const archiving = ref(false);
+
+function handleArchive(sessionId) {
+  const session = sessionsStore.sessions.find(s => s.id === sessionId);
+  sessionToArchive.value = session || { id: sessionId };
+  showArchiveModal.value = true;
+}
+
+async function confirmArchive(runCleanup) {
+  if (!sessionToArchive.value) return;
+  archiving.value = true;
   try {
-    await sessionsStore.archiveSession(sessionId);
+    await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
+    uiStore.success('Session archived');
   } catch (error) {
-    console.error('Failed to archive session:', error);
+    uiStore.error(error.message || 'Failed to archive session');
+  } finally {
+    archiving.value = false;
+    showArchiveModal.value = false;
+    sessionToArchive.value = null;
   }
+}
+
+function cancelArchive() {
+  showArchiveModal.value = false;
+  sessionToArchive.value = null;
 }
 
 async function handleUnarchive(sessionId) {

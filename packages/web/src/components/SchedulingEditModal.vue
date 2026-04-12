@@ -240,8 +240,8 @@ import TemplateSelector from './TemplateSelector.vue';
 const disableTeleport = useOverlayTeleportDisabled();
 
 const props = defineProps({
-  isOpen: Boolean,
-  session: Object,
+  isOpen: { type: Boolean, default: false },
+  session: { type: Object, default: null },
 });
 
 const emit = defineEmits(['close', 'saved']);

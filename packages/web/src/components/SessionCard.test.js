@@ -862,40 +862,16 @@ describe('SessionCard', () => {
         }
       });
 
-      it('shows confirmation dialog with correct message when archive button is clicked', async () => {
-        confirmSpy.mockReturnValue(false);
-        const wrapper = mountComponent({
-          session: { ...baseSession, status: 'completed' },
-          showArchive: true,
-        });
-        const btn = wrapper.find('.archive-btn');
-        await btn.trigger('click');
-        expect(confirmSpy).toHaveBeenCalledWith('Archive this session?');
-      });
-
-      it('does not emit archive event when user cancels confirmation', async () => {
-        confirmSpy.mockReturnValue(false);
-        const wrapper = mountComponent({
-          session: { ...baseSession, status: 'completed' },
-          showArchive: true,
-        });
-        const btn = wrapper.find('.archive-btn');
-        await btn.trigger('click');
-        expect(wrapper.emitted('archive')).toBeFalsy();
-      });
-
-      it('emits archive event when user confirms', async () => {
+      it('does not show confirm dialog when archive button is clicked (confirmation handled by parent modal)', async () => {
         confirmSpy.mockReturnValue(true);
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'completed' },
           showArchive: true,
         });
         const btn = wrapper.find('.archive-btn');
-        // Confirm that confirm was mocked to return true
-        expect(confirmSpy.getMockImplementation()).toBeDefined();
         await btn.trigger('click');
-        // If confirm returned true, the archive event should be emitted
-        expect(confirmSpy).toHaveBeenCalledWith('Archive this session?');
+        // Archive confirmation is now handled by ArchiveConfirmModal in the parent view
+        expect(confirmSpy).not.toHaveBeenCalled();
       });
     });
 
@@ -1266,6 +1242,129 @@ describe('SessionCard', () => {
     it('hides scheduled time when scheduledAt is undefined', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'scheduled' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
+
+    it('shows nearest future scheduled time from child sessions', () => {
+      const futureTime = Date.now() + 30 * 60 * 1000; // 30 min from now
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-1',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: futureTime,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(true);
+      expect(scheduledTime.text()).toContain('minute');
+      expect(scheduledTime.attributes('title')).toMatch(/\d{1,2}:\d{2}/);
+    });
+
+    it('shows earliest future time when multiple children are scheduled', () => {
+      const soonestTime = Date.now() + 10 * 60 * 1000; // 10 min from now
+      const laterTime = Date.now() + 60 * 60 * 1000;   // 60 min from now
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-1',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: laterTime,
+        },
+        {
+          id: 'child-2',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: soonestTime,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(true);
+      expect(scheduledTime.text()).toContain('10'); // should show ~10 minutes
+    });
+
+    it('hides scheduled time when all children have past scheduledAt', () => {
+      const pastTime = Date.now() - 30 * 60 * 1000; // 30 min ago
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-1',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: pastTime,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
+
+    it('ignores past times and shows only future scheduled time', () => {
+      const pastTime = Date.now() - 30 * 60 * 1000;
+      const futureTime = Date.now() + 15 * 60 * 1000;
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-past',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: pastTime,
+        },
+        {
+          id: 'child-future',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: futureTime,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(true);
+      expect(scheduledTime.text()).toContain('15'); // future time, not past
+    });
+
+    it('ignores children with scheduledAt null', () => {
+      mockSessionsStoreData.sessions = [
+        {
+          id: 'child-1',
+          parentSessionId: 'session-123',
+          status: 'scheduled',
+          scheduledAt: null,
+        },
+      ];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
+      });
+
+      const scheduledTime = wrapper.find('.scheduled-time');
+      expect(scheduledTime.exists()).toBe(false);
+    });
+
+    it('shows no time when parent has no scheduled children', () => {
+      mockSessionsStoreData.sessions = [];
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, status: 'running' },
       });
 
       const scheduledTime = wrapper.find('.scheduled-time');

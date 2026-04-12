@@ -130,6 +130,26 @@ test.describe('Session Chat Overlay', () => {
     await expect(overlay).not.toBeVisible({ timeout: 5000 });
   });
 
+  test('close handle has highest z-index in overlay', async ({ page }) => {
+    const overlay = await openOverlay(page, parentSession.id);
+
+    const closeHandle = page.locator('[data-testid="session-chat-overlay-close-handle"]');
+    await expect(closeHandle).toBeVisible();
+
+    // Verify the close handle's z-index is higher than the overlay header and controls row
+    const handleZIndex = await closeHandle.evaluate((el) =>
+      window.getComputedStyle(el).zIndex
+    );
+
+    // The close handle should have z-index: 30 (above header z-index: 20 and controls z-index: 10)
+    expect(parseInt(handleZIndex, 10)).toBeGreaterThanOrEqual(30);
+
+    // Verify the handle is clickable even with content in the overlay
+    await closeHandle.click();
+    await page.waitForTimeout(300);
+    await expect(overlay).not.toBeVisible({ timeout: 5000 });
+  });
+
   test('pressing Escape closes overlay', async ({ page }) => {
     const overlay = await openOverlay(page, parentSession.id);
 

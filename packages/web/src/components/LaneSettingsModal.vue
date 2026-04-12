@@ -391,9 +391,9 @@ import SlashCommandButton from './SlashCommandButton.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 
 const props = defineProps({
-  isOpen: Boolean,
-  projectId: String,
-  lane: Object,
+  isOpen: { type: Boolean, default: false },
+  projectId: { type: String, default: '' },
+  lane: { type: Object, default: null },
 });
 
 const emit = defineEmits(['close', 'update:isOpen', 'updated', 'deleted']);
