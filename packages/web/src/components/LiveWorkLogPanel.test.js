@@ -63,9 +63,9 @@ describe('LiveWorkLogPanel', () => {
   }
 
   describe('rendering', () => {
-    it('shows header with "Claude is working..." text', () => {
+    it('shows header with "Agent is working..." text', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.live-title').text()).toBe('Claude is working...');
+      expect(wrapper.find('.live-title').text()).toBe('Agent is working...');
     });
 
     it('does not show logs container when no content', () => {
