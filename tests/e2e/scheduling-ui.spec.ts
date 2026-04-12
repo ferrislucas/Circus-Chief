@@ -242,7 +242,7 @@ test.describe('Scheduling UI', () => {
       await expect(modal).not.toBeVisible({ timeout: 10000 });
 
       // Close the overlay
-      const closeButton = page.locator('.overlay-close-handle');
+      const closeButton = page.locator('[data-testid="session-chat-overlay-close-handle"]');
       await expect(closeButton).toBeVisible({ timeout: 5000 });
       await closeButton.click();
 

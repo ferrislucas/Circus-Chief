@@ -20,6 +20,7 @@ import {
 } from './streamEventHandler.js';
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { schedulerService } from './schedulerService.js';
+import { buildConversationContextForModelSwitch } from './conversationContext.js';
 
 /**
  * Create the agent for a session, using gateway + logging + VCR.
@@ -143,6 +144,20 @@ export async function _executeSession({
 }
 
 /**
+ * Build prompt with conversation context when switching models.
+ * When the model changes, we can't resume the previous session, so we include
+ * conversation history as context so the new model can continue naturally.
+ * @param {boolean} modelChanged
+ * @param {string} conversationId
+ * @param {string} promptWithAttachments
+ * @returns {Promise<string>}
+ */
+async function buildPromptForContinue(modelChanged, conversationId, promptWithAttachments) {
+  if (!modelChanged) return promptWithAttachments;
+  return buildConversationContextForModelSwitch(conversationId) + promptWithAttachments;
+}
+
+/**
  * Continue a session with a follow-up message (core implementation)
  * @param {string} sessionId
  * @param {string} content
@@ -203,8 +218,13 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   const agentType = session.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
 
-  // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(model);
+  // Resolve the effective model: fall back to session.model so that resuming
+  // without an explicit model still resolves the correct provider (e.g.
+  // third-party base URL and auth tokens).
+  const effectiveModel = model || session.model;
+
+  // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
+  const provider = resolveProviderFromModel(effectiveModel);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Check if model changed from the session's last requested model
@@ -222,13 +242,8 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   // Only resume if we have a session ID AND model hasn't changed
   const canResume = activeConversation.claudeSessionId && !modelChanged;
 
-  // When model changes, include conversation history as context so the new model
-  // can continue naturally without needing to resume the incompatible session
-  const { buildConversationContextForModelSwitch } = await import('./conversationContext.js');
-  const conversationContext = modelChanged
-    ? buildConversationContextForModelSwitch(activeConversation.id)
-    : '';
-  const promptWithContext = conversationContext + promptWithAttachments;
+  // Build prompt with conversation context when model changes
+  const promptWithContext = await buildPromptForContinue(modelChanged, activeConversation.id, promptWithAttachments);
 
   const queryParams = buildQueryParams({
     prompt: promptWithContext,
@@ -237,7 +252,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     session,
     sessionId,
     systemPrompt,
-    model,
+    model: effectiveModel,
     sessionEnv,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
   });
@@ -310,8 +325,13 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   const agentType = session.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
 
-  // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(model);
+  // Resolve the effective model: fall back to session.model as defense-in-depth
+  // (draftSessionService already resolves the model upstream, but this ensures
+  // correctness if called directly).
+  const effectiveModel = model || session.model;
+
+  // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
+  const provider = resolveProviderFromModel(effectiveModel);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   const queryParams = buildQueryParams({
@@ -321,7 +341,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     session,
     sessionId,
     systemPrompt,
-    model,
+    model: effectiveModel,
     sessionEnv,
   });
 
