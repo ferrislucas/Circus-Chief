@@ -994,7 +994,7 @@ defineExpose({
   background: rgba(55, 65, 81, 0.4);
   border-radius: 8px;
   cursor: pointer;
-  z-index: 10;
+  z-index: 30;
   transition: background-color 0.2s ease;
   min-width: 44px;
   min-height: 44px;
@@ -1134,12 +1134,21 @@ defineExpose({
    claude button) uses `position: sticky; bottom: 0` so it always stays at the
    bottom of the .overlay-body scroll viewport. This keeps the button visible
    and tappable regardless of scroll position while the button and cost panel
-   remain naturally aligned as siblings in the same flex row. */
+   remain naturally aligned as siblings in the same flex row.
+
+   pointer-events: none on the row itself allows clicks to pass through the
+   sticky background to elements beneath it (e.g. the session picker dropdown).
+   Interactive children restore pointer-events via the rule below. */
 .session-chat-overlay :deep(.conversation-controls-row) {
   position: sticky;
   bottom: 0;
   z-index: 10;
   background: rgb(17, 24, 39);
+  pointer-events: none;
+}
+
+.session-chat-overlay :deep(.conversation-controls-row > *) {
+  pointer-events: auto;
 }
 
 @media (max-width: 768px) {

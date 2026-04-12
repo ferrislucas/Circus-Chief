@@ -31,7 +31,7 @@
         stroke-width="2"
         stroke-linecap="round"
         stroke-linejoin="round"
-aria-hidden="true"
+        aria-hidden="true"
       >
         <rect
           x="4"
@@ -126,7 +126,7 @@ aria-hidden="true"
         stroke-width="2"
         stroke-linecap="round"
         stroke-linejoin="round"
-aria-hidden="true"
+        aria-hidden="true"
       >
         <path d="M6 19v-3" />
         <path d="M10 19v-3" />
@@ -169,7 +169,7 @@ aria-hidden="true"
         stroke-width="2"
         stroke-linecap="round"
         stroke-linejoin="round"
-aria-hidden="true"
+        aria-hidden="true"
       >
         <ellipse
           cx="12"
