@@ -240,10 +240,10 @@ test.describe('Scheduling UI', () => {
       await expect(modal).not.toBeVisible({ timeout: 10000 });
 
       // Close the overlay
-      const closeButton = page.locator('.overlay-close-btn');
-      if (await closeButton.isVisible()) {
-        await closeButton.click();
-      }
+      const closeButton = page.locator('[data-testid="session-chat-overlay-close-handle"]');
+      await closeButton.click();
+      const overlay = page.locator('.session-chat-overlay');
+      await expect(overlay).not.toBeVisible({ timeout: 5000 });
 
       // Click the Edit time link in the overview card
       await page.click('.scheduling-edit-link');
