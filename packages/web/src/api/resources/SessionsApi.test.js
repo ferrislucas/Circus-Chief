@@ -179,6 +179,68 @@ describe('SessionsApi', () => {
       expect(formData.get('gitMode')).toBe('branch');
       expect(formData.get('templateId')).toBe('tmpl-1');
     });
+
+    it('includes parentSessionId and scheduling fields in FormData', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+      const file = new File(['test'], 'test.txt', { type: 'text/plain' });
+
+      await client.createSession('proj-123', {
+        prompt: 'Hello',
+        parentSessionId: 'parent-123',
+        scheduledAt: 1700000000000,
+        autoRescheduleEnabled: true,
+        rescheduleDelayMinutes: 30,
+        rescheduleOnTokenLimit: true,
+        rescheduleOnServiceError: false,
+        maxRescheduleCount: 5,
+        maxTotalTokens: 100000,
+        rescheduleAtTokenCount: 80000,
+        files: [file],
+      });
+
+      const formData = mockFetch.mock.calls[0][1].body;
+      expect(formData.get('parentSessionId')).toBe('parent-123');
+      expect(formData.get('scheduledAt')).toBe('1700000000000');
+      expect(formData.get('autoRescheduleEnabled')).toBe('true');
+      expect(formData.get('rescheduleDelayMinutes')).toBe('30');
+      expect(formData.get('rescheduleOnTokenLimit')).toBe('true');
+      expect(formData.get('rescheduleOnServiceError')).toBe('false');
+      expect(formData.get('maxRescheduleCount')).toBe('5');
+      expect(formData.get('maxTotalTokens')).toBe('100000');
+      expect(formData.get('rescheduleAtTokenCount')).toBe('80000');
+    });
+
+    it('does not append null optional fields to FormData', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+      const file = new File(['test'], 'test.txt', { type: 'text/plain' });
+
+      await client.createSession('proj-123', {
+        prompt: 'Hello',
+        parentSessionId: null,
+        scheduledAt: undefined,
+        files: [file],
+      });
+
+      const formData = mockFetch.mock.calls[0][1].body;
+      expect(formData.get('parentSessionId')).toBeNull();   // Not appended to FormData
+      expect(formData.get('scheduledAt')).toBeNull();       // Not appended to FormData
+    });
+
+    it('does not append null boolean fields to FormData', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+      const file = new File(['test'], 'test.txt', { type: 'text/plain' });
+
+      await client.createSession('proj-123', {
+        prompt: 'Hello',
+        thinkingEnabled: null,
+        startImmediately: null,
+        files: [file],
+      });
+
+      const formData = mockFetch.mock.calls[0][1].body;
+      expect(formData.get('thinkingEnabled')).toBeNull();   // Not appended
+      expect(formData.get('startImmediately')).toBeNull();   // Not appended
+    });
   });
 
   describe('getSession', () => {
