@@ -1,4 +1,62 @@
 /**
+ * Append defined values from jsonData to formData for the given field names.
+ * @param {FormData} formData
+ * @param {Object} jsonData
+ * @param {string[]} fields
+ */
+function appendOptionalFields(formData, jsonData, fields) {
+  for (const field of fields) {
+    if (jsonData[field] !== undefined && jsonData[field] !== null) {
+      formData.append(field, jsonData[field]);
+    }
+  }
+}
+
+/**
+ * Append defined boolean values from jsonData (as strings) for the given field names.
+ * @param {FormData} formData
+ * @param {Object} jsonData
+ * @param {string[]} fields
+ */
+function appendBooleanFields(formData, jsonData, fields) {
+  for (const field of fields) {
+    if (jsonData[field] !== undefined && jsonData[field] !== null) formData.append(field, String(jsonData[field]));
+  }
+}
+
+/**
+ * Build a FormData payload for session creation with file uploads.
+ * @param {Object} jsonData - JSON session data
+ * @param {File[]} files - Files to attach
+ * @returns {FormData}
+ */
+function buildSessionFormData(jsonData, files) {
+  const formData = new FormData();
+  formData.append('prompt', jsonData.prompt);
+
+  appendOptionalFields(formData, jsonData, [
+    'name', 'mode', 'model', 'effortLevel', 'gitBranch', 'gitMode',
+    'templateId', 'parentSessionId',
+  ]);
+
+  appendBooleanFields(formData, jsonData, [
+    'thinkingEnabled', 'startImmediately',
+    'autoRescheduleEnabled', 'rescheduleOnTokenLimit', 'rescheduleOnServiceError',
+  ]);
+
+  appendOptionalFields(formData, jsonData, [
+    'scheduledAt', 'rescheduleDelayMinutes', 'maxRescheduleCount',
+    'maxTotalTokens', 'rescheduleAtTokenCount',
+  ]);
+
+  for (const file of files) {
+    formData.append('files', file);
+  }
+
+  return formData;
+}
+
+/**
  * Sessions API resource mixin
  * Adds session-related methods to ApiClient
  * @param {import('../ApiClient.js').ApiClient} ApiClient
@@ -62,44 +120,7 @@ export function SessionsApi(ApiClient) {
 
       // Use FormData if files are attached, otherwise JSON
       if (files && files.length > 0) {
-        const formData = new FormData();
-        formData.append('prompt', jsonData.prompt);
-
-        // All optional string/null fields
-        const optionalFields = [
-          'name', 'mode', 'model', 'effortLevel', 'gitBranch', 'gitMode',
-          'templateId', 'providerId', 'parentSessionId',
-        ];
-        for (const field of optionalFields) {
-          if (jsonData[field] !== undefined && jsonData[field] !== null) {
-            formData.append(field, jsonData[field]);
-          }
-        }
-
-        // Boolean fields (need String conversion)
-        const booleanFields = [
-          'thinkingEnabled', 'startImmediately',
-          'autoRescheduleEnabled', 'rescheduleOnTokenLimit', 'rescheduleOnServiceError',
-        ];
-        for (const field of booleanFields) {
-          if (jsonData[field] !== undefined) formData.append(field, String(jsonData[field]));
-        }
-
-        // Numeric fields (need String conversion)
-        const numericFields = [
-          'scheduledAt', 'rescheduleDelayMinutes', 'maxRescheduleCount',
-          'maxTotalTokens', 'rescheduleAtTokenCount',
-        ];
-        for (const field of numericFields) {
-          if (jsonData[field] !== undefined && jsonData[field] !== null) {
-            formData.append(field, String(jsonData[field]));
-          }
-        }
-
-        for (const file of files) {
-          formData.append('files', file);
-        }
-
+        const formData = buildSessionFormData(jsonData, files);
         return this._uploadFormData(`/projects/${projectId}/sessions`, formData);
       }
 
