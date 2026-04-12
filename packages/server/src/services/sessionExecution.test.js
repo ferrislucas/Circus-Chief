@@ -20,6 +20,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 import { buildQueryParams } from './sessionExecution.js';
 import { continueSession, runSession, continueSessionWithExistingMessage } from './sessionManager.js';
 import * as sessionProvider from './sessionProvider.js';
+
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { MessageRepository } from '../db/MessageRepository.js';
