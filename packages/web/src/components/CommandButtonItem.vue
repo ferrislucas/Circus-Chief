@@ -19,9 +19,10 @@
         <div
           v-if="run"
           :class="['status-indicator', `status-${run.status}`]"
+          :aria-label="run.status"
           data-testid="command-status"
         >
-          {{ statusIcon }}
+          <span v-html="statusIcon"></span>
         </div>
 
         <!-- Action Menu (copy/canvas/copy-command) -->
@@ -120,6 +121,7 @@ import { ansiToHtml, stripAnsi } from '../utils/ansi.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
+import { getStatusIconSvg } from './statusIcons';
 import ActionMenu from './ActionMenu.vue';
 
 /**
@@ -409,16 +411,7 @@ watch(
 
 const statusIcon = computed(() => {
   if (!props.run) return '';
-  switch (props.run.status) {
-    case 'running':
-      return '⊙';
-    case 'success':
-      return '✓';
-    case 'error':
-      return '✕';
-    default:
-      return '';
-  }
+  return getStatusIconSvg(props.run.status);
 });
 
 const handleRun = async () => {
@@ -590,8 +583,11 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
-  font-weight: bold;
+}
+
+.status-indicator svg {
+  width: 0.875rem;
+  height: 0.875rem;
 }
 
 .status-success {
@@ -599,13 +595,21 @@ defineExpose({
   color: var(--color-success);
 }
 
+.status-success svg {
+  animation: pop-in 0.3s ease-out;
+}
+
 .status-error {
   background-color: rgba(248, 81, 73, 0.2);
   color: var(--color-error);
 }
 
+.status-error svg {
+  animation: shake 0.4s ease-in-out;
+}
+
 .status-running {
-  animation: pulse 1.5s ease-in-out infinite;
+  animation: hourglass-flip 2s ease-in-out infinite;
 }
 
 .output-section {
@@ -724,9 +728,22 @@ defineExpose({
   to { transform: rotate(360deg); }
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 0.7; }
-  50% { opacity: 1; }
+@keyframes hourglass-flip {
+  0%, 80%   { transform: rotate(0deg); }
+  90%       { transform: rotate(180deg); }
+  100%      { transform: rotate(180deg); }
+}
+
+@keyframes pop-in {
+  0%   { transform: scale(0); }
+  70%  { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-2px); }
+  75%      { transform: translateX(2px); }
 }
 
 @media (max-width: 640px) {

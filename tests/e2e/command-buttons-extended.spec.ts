@@ -386,7 +386,7 @@ test.describe('Status Bar on Session Detail', () => {
     // Status bar should show running indicator
     const runningIndicator = page.locator('[data-testid="button-status-bar"] .button-status-running');
     await expect(runningIndicator).toBeVisible({ timeout: 10000 });
-    await expect(runningIndicator).toContainText('⊙');
+    await expect(runningIndicator.locator('svg')).toBeVisible();
 
     // Cleanup: kill the command
     await killCommandRun(session.id, runId);
@@ -412,7 +412,7 @@ test.describe('Status Bar on Session Detail', () => {
     // Status bar should show success indicator
     const successIndicator = page.locator('[data-testid="button-status-bar"] .button-status-success');
     await expect(successIndicator).toBeVisible({ timeout: 10000 });
-    await expect(successIndicator).toContainText('✓');
+    await expect(successIndicator.locator('svg')).toBeVisible();
   });
 
   test('status bar shows error indicator on failure', async ({ page }) => {
@@ -434,7 +434,7 @@ test.describe('Status Bar on Session Detail', () => {
     // Status bar should show error indicator
     const errorIndicator = page.locator('[data-testid="button-status-bar"] .button-status-error');
     await expect(errorIndicator).toBeVisible({ timeout: 10000 });
-    await expect(errorIndicator).toContainText('✕');
+    await expect(errorIndicator.locator('svg')).toBeVisible();
   });
 
   test('status bar shows multiple button statuses simultaneously', async ({ page }) => {
