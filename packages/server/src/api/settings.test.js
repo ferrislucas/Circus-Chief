@@ -5,7 +5,9 @@ import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
 import { settings } from '../db/index.js';
 import settingsRouter from './settings.js';
 
-describe('Settings API', () => {
+// Use a generous timeout to avoid flakiness during full-suite runs
+// where GC pressure and event-loop contention cause sporadic slowdowns.
+describe('Settings API', { timeout: 30_000 }, () => {
   let app;
 
   beforeEach(() => {

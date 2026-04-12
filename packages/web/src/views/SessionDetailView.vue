@@ -480,12 +480,17 @@ onMounted(async () => {
   // Initialize the session with WebSocket subscription and data fetching
   await initializeSession(currentSessionId.value);
 
+  // Fetch project data so ArchiveConfirmModal can check for cleanup scripts
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (projectId && !projectsStore.currentProject) {
+    await projectsStore.fetchProject(projectId);
+  }
+
   // Build session chain BEFORE resolving overlay target (resolveOverlayTarget reads sessionChain)
   await buildSessionChain();
   resolveOverlayTarget();
 
   // Subscribe to project channel for SESSION_CREATED events
-  const projectId = sessionsStore.currentSession?.projectId;
   if (projectId) {
     send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
     currentProjectSubscriptionId = projectId;
@@ -520,12 +525,18 @@ watch(
       cleanup();
       currentSessionId.value = newSessionId;
       await initializeSession(newSessionId);
+
+      // Fetch project data if project changed so ArchiveConfirmModal can check for cleanup scripts
+      const newProjectId = sessionsStore.currentSession?.projectId;
+      if (newProjectId && projectsStore.currentProject?.id !== newProjectId) {
+        await projectsStore.fetchProject(newProjectId);
+      }
+
       // Build session chain BEFORE resolving overlay target (resolveOverlayTarget reads sessionChain)
       await buildSessionChain();
       resolveOverlayTarget();
 
       // Update project subscription if project changed
-      const newProjectId = sessionsStore.currentSession?.projectId;
       if (newProjectId !== currentProjectSubscriptionId) {
         if (currentProjectSubscriptionId) {
           send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
