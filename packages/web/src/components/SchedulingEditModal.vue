@@ -233,11 +233,11 @@
 import { ref, reactive, computed, watch } from 'vue';
 import { useInjectedSessionsStore, useOverlayTeleportDisabled } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
-
-const disableTeleport = useOverlayTeleportDisabled();
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
+
+const disableTeleport = useOverlayTeleportDisabled();
 
 const props = defineProps({
   isOpen: Boolean,

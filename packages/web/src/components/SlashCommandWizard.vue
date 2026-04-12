@@ -63,10 +63,10 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useSlashCommandsStore } from '../stores/slashCommands.js';
 import { useUiStore } from '../stores/ui.js';
 import { useOverlayTeleportDisabled } from '../composables/useOverlayStore.js';
-
-const disableTeleport = useOverlayTeleportDisabled();
 import CommandGrid from './slash-commands/CommandGrid.vue';
 import ArgumentsForm from './slash-commands/ArgumentsForm.vue';
+
+const disableTeleport = useOverlayTeleportDisabled();
 
 const props = defineProps({
   isOpen: { type: Boolean, required: true },

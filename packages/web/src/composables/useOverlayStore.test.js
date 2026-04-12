@@ -36,8 +36,10 @@ vi.mock('../composables/useApi.js', () => ({
 import {
   useInjectedSessionsStore,
   useInjectedTodosStore,
+  useOverlayTeleportDisabled,
   SESSIONS_STORE_KEY,
   TODOS_STORE_KEY,
+  TELEPORT_TARGET_KEY,
 } from './useOverlayStore.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useTodosStore } from '../stores/todos.js';
@@ -97,10 +99,13 @@ describe('useOverlayStore', () => {
   });
 
   describe('Symbol keys', () => {
-    it('SESSIONS_STORE_KEY and TODOS_STORE_KEY are unique symbols', () => {
+    it('SESSIONS_STORE_KEY, TODOS_STORE_KEY, and TELEPORT_TARGET_KEY are unique symbols', () => {
       expect(typeof SESSIONS_STORE_KEY).toBe('symbol');
       expect(typeof TODOS_STORE_KEY).toBe('symbol');
+      expect(typeof TELEPORT_TARGET_KEY).toBe('symbol');
       expect(SESSIONS_STORE_KEY).not.toBe(TODOS_STORE_KEY);
+      expect(SESSIONS_STORE_KEY).not.toBe(TELEPORT_TARGET_KEY);
+      expect(TODOS_STORE_KEY).not.toBe(TELEPORT_TARGET_KEY);
     });
   });
 
@@ -151,6 +156,34 @@ describe('useOverlayStore', () => {
 
       expect(injectedStore).toBe(mockStore);
       expect(injectedStore.isMock).toBe(true);
+    });
+  });
+
+  describe('useOverlayTeleportDisabled', () => {
+    it('returns false when no provider exists (outside overlay)', () => {
+      const result = withSetup(useOverlayTeleportDisabled);
+
+      expect(result).toBe(false);
+    });
+
+    it('returns true when TELEPORT_TARGET_KEY provider is true (inside overlay)', () => {
+      const result = withProviderAndChild(
+        useOverlayTeleportDisabled,
+        TELEPORT_TARGET_KEY,
+        true,
+      );
+
+      expect(result).toBe(true);
+    });
+
+    it('returns the provided value when TELEPORT_TARGET_KEY is explicitly false', () => {
+      const result = withProviderAndChild(
+        useOverlayTeleportDisabled,
+        TELEPORT_TARGET_KEY,
+        false,
+      );
+
+      expect(result).toBe(false);
     });
   });
 });
