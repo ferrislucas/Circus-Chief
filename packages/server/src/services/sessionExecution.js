@@ -204,7 +204,9 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   const agent = createAgentForSession(agentType);
 
   // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(model);
+  // Fall back to session.model so that resuming without an explicit model still
+  // resolves the correct provider (e.g. third-party base URL and auth tokens).
+  const provider = resolveProviderFromModel(model || session.model);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Check if model changed from the session's last requested model
@@ -237,7 +239,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     session,
     sessionId,
     systemPrompt,
-    model,
+    model: model || session.model,
     sessionEnv,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
   });
@@ -311,7 +313,9 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   const agent = createAgentForSession(agentType);
 
   // Derive provider from the model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(model);
+  // Fall back to session.model as defense-in-depth (draftSessionService already
+  // resolves the model upstream, but this ensures correctness if called directly).
+  const provider = resolveProviderFromModel(model || session.model);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   const queryParams = buildQueryParams({
@@ -321,7 +325,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     session,
     sessionId,
     systemPrompt,
-    model,
+    model: model || session.model,
     sessionEnv,
   });
 
