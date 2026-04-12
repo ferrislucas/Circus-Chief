@@ -180,13 +180,12 @@ describe('SessionsApi', () => {
       expect(formData.get('templateId')).toBe('tmpl-1');
     });
 
-    it('includes providerId, parentSessionId, and scheduling fields in FormData', async () => {
+    it('includes parentSessionId and scheduling fields in FormData', async () => {
       mockFetch.mockReturnValue(mockResponse({ id: '1' }));
       const file = new File(['test'], 'test.txt', { type: 'text/plain' });
 
       await client.createSession('proj-123', {
         prompt: 'Hello',
-        providerId: 'provider-abc',
         parentSessionId: 'parent-123',
         scheduledAt: 1700000000000,
         autoRescheduleEnabled: true,
@@ -200,7 +199,6 @@ describe('SessionsApi', () => {
       });
 
       const formData = mockFetch.mock.calls[0][1].body;
-      expect(formData.get('providerId')).toBe('provider-abc');
       expect(formData.get('parentSessionId')).toBe('parent-123');
       expect(formData.get('scheduledAt')).toBe('1700000000000');
       expect(formData.get('autoRescheduleEnabled')).toBe('true');
@@ -218,16 +216,30 @@ describe('SessionsApi', () => {
 
       await client.createSession('proj-123', {
         prompt: 'Hello',
-        providerId: null,
         parentSessionId: null,
         scheduledAt: undefined,
         files: [file],
       });
 
       const formData = mockFetch.mock.calls[0][1].body;
-      expect(formData.get('providerId')).toBeNull();       // Not appended to FormData
       expect(formData.get('parentSessionId')).toBeNull();   // Not appended to FormData
       expect(formData.get('scheduledAt')).toBeNull();       // Not appended to FormData
+    });
+
+    it('does not append null boolean fields to FormData', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+      const file = new File(['test'], 'test.txt', { type: 'text/plain' });
+
+      await client.createSession('proj-123', {
+        prompt: 'Hello',
+        thinkingEnabled: null,
+        startImmediately: null,
+        files: [file],
+      });
+
+      const formData = mockFetch.mock.calls[0][1].body;
+      expect(formData.get('thinkingEnabled')).toBeNull();   // Not appended
+      expect(formData.get('startImmediately')).toBeNull();   // Not appended
     });
   });
 

@@ -475,7 +475,7 @@ test.describe('File Attachments - UI Workflow', () => {
     await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+/, { timeout: 15000 });
   });
 
-  test('form shows loading state during file upload submission', async ({ page }) => {
+  test('completes submission without hanging when file is attached', async ({ page }) => {
     await navigateAndWait(page, `/projects/${project.id}/sessions/new`);
     await page.locator('textarea').fill('Analyze this');
 
