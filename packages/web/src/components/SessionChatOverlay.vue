@@ -277,6 +277,7 @@
                       y2="18"
                     />
                   </svg>
+                  <span class="back-to-sessions-text">Sessions</span>
                 </router-link>
                 <button
                   class="add-session-btn"
@@ -1315,12 +1316,22 @@ defineExpose({
   gap: 0.25rem;
   color: var(--color-text-soft, #9ca3af);
   text-decoration: none;
-  transition: color 0.15s;
+  transition: color 0.15s, background-color 0.15s;
   flex-shrink: 0;
-  margin-right: 0.75rem;
+  margin-right: 1.5rem;
+  padding: 0.5rem 0.75rem;
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: 6px;
 }
 
 .back-to-sessions-link:hover {
   color: var(--color-primary, #06b6d4);
+  background: rgba(6, 182, 212, 0.1);
+}
+
+.back-to-sessions-text {
+  font-size: 0.8125rem;
+  margin-left: 0.25rem;
 }
 </style>
