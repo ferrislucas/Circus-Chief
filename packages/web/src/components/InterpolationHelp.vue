@@ -1,6 +1,6 @@
 <template>
   <p class="form-help">
-    Available variables: <code v-pre>{{parentSession.summary}}</code>, <code v-pre>{{parentSession.status}}</code>, <code v-pre>{{parentSession.name}}</code>, <code v-pre>{{rootSession.id}}</code>, <code v-pre>{{rootSession.name}}</code>, <code v-pre>{{rootSession.summary}}</code>, <code v-pre>{{rootSession.status}}</code>
+    Available variables: <code v-pre>{{rootSession.id}}</code>, <code v-pre>{{rootSession.name}}</code>, <code v-pre>{{rootSession.summary}}</code>, <code v-pre>{{rootSession.status}}</code>
   </p>
 </template>
 
