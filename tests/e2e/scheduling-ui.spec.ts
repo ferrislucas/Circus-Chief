@@ -171,4 +171,87 @@ test.describe('Scheduling UI', () => {
       expect(timeTextAfterReload).toMatch(/in/i);
     });
   });
+
+  test.describe('Scheduling Info in Session Overview', () => {
+    test('displays scheduling info in session overview card on summary tab', async ({ page }) => {
+      // Create a scheduled session via the scheduling flow
+      const session = await seedSession(project.id, { prompt: 'Scheduled task', startImmediately: false });
+
+      // Navigate to the session
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
+
+      // Expand the Orchestration panel and schedule the session
+      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      await orchestrationPanel.click();
+
+      // Click clock icon to open scheduling modal
+      await page.click('.btn-schedule');
+
+      // Set a time in the future (1 hour from now)
+      const futureTime = new Date(Date.now() + 3600000);
+      const timeString = futureTime.toISOString().slice(0, 16);
+      await page.fill('input[type="datetime-local"]', timeString);
+
+      // Wait for Schedule button and click it
+      const scheduleButton = page.locator('button:has-text("Schedule")');
+      await expect(scheduleButton).toBeEnabled({ timeout: 3000 });
+      await scheduleButton.click();
+
+      // Wait for modal to close
+      const modal = page.locator('.modal-backdrop');
+      await expect(modal).not.toBeVisible({ timeout: 10000 });
+
+      // Close the overlay to see the summary tab
+      const closeButton = page.locator('.overlay-close-btn');
+      if (await closeButton.isVisible()) {
+        await closeButton.click();
+      }
+
+      // Verify scheduling info is visible in the overview card
+      const schedulingSection = page.locator('.overview-scheduling');
+      await expect(schedulingSection).toBeVisible({ timeout: 5000 });
+      await expect(schedulingSection).toContainText('Scheduled for');
+      await expect(schedulingSection).toContainText('Edit time');
+    });
+
+    test('clicking Edit time opens scheduling edit modal from summary tab', async ({ page }) => {
+      // Create and schedule a session
+      const session = await seedSession(project.id, { prompt: 'Scheduled task', startImmediately: false });
+
+      // Navigate and schedule
+      await navigateAndWait(page, `/sessions/${session.id}/summary`);
+      await openSessionOverlay(page);
+
+      const orchestrationPanel = page.locator('.orchestration-panel .panel-header');
+      await orchestrationPanel.click();
+
+      await page.click('.btn-schedule');
+
+      const futureTime = new Date(Date.now() + 3600000);
+      const timeString = futureTime.toISOString().slice(0, 16);
+      await page.fill('input[type="datetime-local"]', timeString);
+
+      const scheduleButton = page.locator('button:has-text("Schedule")');
+      await expect(scheduleButton).toBeEnabled({ timeout: 3000 });
+      await scheduleButton.click();
+
+      const modal = page.locator('.modal-backdrop');
+      await expect(modal).not.toBeVisible({ timeout: 10000 });
+
+      // Close the overlay
+      const closeButton = page.locator('.overlay-close-btn');
+      if (await closeButton.isVisible()) {
+        await closeButton.click();
+      }
+
+      // Click the Edit time link in the overview card
+      await page.click('.scheduling-edit-link');
+
+      // Verify modal opens with datetime picker
+      const editModal = page.locator('.modal-backdrop');
+      await expect(editModal).toBeVisible();
+      await expect(page.locator('input[type="datetime-local"]')).toBeVisible();
+    });
+  });
 });

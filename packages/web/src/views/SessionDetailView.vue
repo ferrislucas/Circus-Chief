@@ -94,6 +94,16 @@
         @close="handleOverlayClose"
         @session-created="buildSessionChain"
       />
+
+      <!-- Archive Confirm Modal -->
+      <ArchiveConfirmModal
+        :is-open="showArchiveModal"
+        :session-name="sessionsStore.currentSession?.name || 'this session'"
+        :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && !sessionsStore.currentSession?.parentSessionId)"
+        :loading="archiving"
+        @confirm="confirmArchive"
+        @cancel="cancelArchive"
+      />
     </template>
   </div>
 </template>
@@ -102,6 +112,7 @@
 import { computed, onMounted, onUnmounted, onActivated, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useProjectsStore } from '../stores/projects.js';
 import { useCanvasStore } from '../stores/canvas.js';
 import { useTodosStore } from '../stores/todos.js';
 import { useUiStore } from '../stores/ui.js';
@@ -117,6 +128,7 @@ import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
 import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
+import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { api } from '../composables/useApi.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
@@ -125,6 +137,7 @@ import { WS_MESSAGE_TYPES } from '@claudetools/shared';
 const route = useRoute();
 const router = useRouter();
 const sessionsStore = useSessionsStore();
+const projectsStore = useProjectsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const canvasStore = useCanvasStore();
 const todosStore = useTodosStore();
@@ -161,6 +174,8 @@ const {
 const summary = ref(null);
 const isDeleting = ref(false);
 const chatOverlayOpen = ref(false);
+const showArchiveModal = ref(false);
+const archiving = ref(false);
 
 // Session ID to pass to the overlay - resolves to running child if present
 const overlaySessionId = ref(route.params.id);
@@ -601,22 +616,37 @@ async function handleDelete() {
 }
 
 async function handleArchive() {
-  try {
-    const projectId = sessionsStore.currentSession?.projectId;
-    const isArchived = sessionsStore.currentSession?.archived;
+  const isArchived = sessionsStore.currentSession?.archived;
 
-    const confirmMessage = isArchived ? 'Restore this session to active?' : 'Archive this session?';
-    if (!confirm(confirmMessage)) {
+  if (isArchived) {
+    // Unarchive path: keep simple confirm dialog
+    if (!confirm('Restore this session to active?')) {
       return;
     }
-
-    if (isArchived) {
+    try {
+      const projectId = sessionsStore.currentSession?.projectId;
       await sessionsStore.unarchiveSession(currentSessionId.value);
       uiStore.success('Session unarchived');
-    } else {
-      await sessionsStore.archiveSession(currentSessionId.value);
-      uiStore.success('Session archived');
+      if (projectId) {
+        router.push(`/projects/${projectId}/sessions`);
+      } else {
+        router.push('/');
+      }
+    } catch (err) {
+      uiStore.error(err.message);
     }
+  } else {
+    // Archive path: show modal with cleanup option
+    showArchiveModal.value = true;
+  }
+}
+
+async function confirmArchive(runCleanup) {
+  archiving.value = true;
+  try {
+    const projectId = sessionsStore.currentSession?.projectId;
+    await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
+    uiStore.success('Session archived');
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);
     } else {
@@ -624,7 +654,14 @@ async function handleArchive() {
     }
   } catch (err) {
     uiStore.error(err.message);
+  } finally {
+    archiving.value = false;
+    showArchiveModal.value = false;
   }
+}
+
+function cancelArchive() {
+  showArchiveModal.value = false;
 }
 
 async function handleStar() {

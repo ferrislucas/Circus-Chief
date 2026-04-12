@@ -60,6 +60,14 @@ vi.mock('./SchedulingInfo.vue', () => ({
   },
 }));
 
+vi.mock('./SchedulingEditModal.vue', () => ({
+  default: {
+    name: 'SchedulingEditModal',
+    props: ['isOpen', 'session'],
+    template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
+  },
+}));
+
 import SummaryTab from './SummaryTab.vue';
 import { api } from '../composables/useApi.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
@@ -120,6 +128,11 @@ describe('SummaryTab', () => {
             name: 'SchedulingInfo',
             template: '<div class="scheduling-info-stub" data-testid="scheduling-info">SchedulingInfo</div>',
             props: ['session'],
+          },
+          SchedulingEditModal: {
+            name: 'SchedulingEditModal',
+            template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
+            props: ['isOpen', 'session'],
           },
         },
       },
@@ -223,6 +236,11 @@ describe('SummaryTab', () => {
               template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
               props: ['session'],
             },
+            SchedulingEditModal: {
+              name: 'SchedulingEditModal',
+              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
+              props: ['isOpen', 'session'],
+            },
           },
         },
       });
@@ -257,6 +275,11 @@ describe('SummaryTab', () => {
               template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
               props: ['session'],
             },
+            SchedulingEditModal: {
+              name: 'SchedulingEditModal',
+              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
+              props: ['isOpen', 'session'],
+            },
           },
         },
       });
@@ -290,6 +313,7 @@ describe('SummaryTab', () => {
                 template: '<div class="session-log-stream-stub">SessionLogStream</div>',
               },
               SchedulingInfo: true,
+              SchedulingEditModal: true,
             },
           },
         });
@@ -325,6 +349,11 @@ describe('SummaryTab', () => {
               template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
               props: ['session'],
             },
+            SchedulingEditModal: {
+              name: 'SchedulingEditModal',
+              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
+              props: ['isOpen', 'session'],
+            },
           },
         },
       });
@@ -359,6 +388,11 @@ describe('SummaryTab', () => {
               name: 'SchedulingInfo',
               template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
               props: ['session'],
+            },
+            SchedulingEditModal: {
+              name: 'SchedulingEditModal',
+              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
+              props: ['isOpen', 'session'],
             },
           },
         },
@@ -397,6 +431,11 @@ describe('SummaryTab', () => {
               template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
               props: ['session'],
             },
+            SchedulingEditModal: {
+              name: 'SchedulingEditModal',
+              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
+              props: ['isOpen', 'session'],
+            },
           },
         },
       });
@@ -421,6 +460,7 @@ describe('SummaryTab', () => {
               props: ['sessionIds'],
               template: '<div class="session-log-stream-stub">{{ sessionIds }}</div>',
             },
+            SchedulingEditModal: true,
           },
         },
       });
@@ -1177,7 +1217,7 @@ describe('SummaryTab', () => {
   });
 
   describe('Scheduling Info', () => {
-    it('renders SchedulingInfo when session status is scheduled', async () => {
+    it('renders scheduling section inside session overview when session is scheduled', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'scheduled',
@@ -1188,42 +1228,100 @@ describe('SummaryTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.findComponent({ name: 'SchedulingInfo' }).exists()).toBe(true);
+      expect(wrapper.find('.session-overview').exists()).toBe(true);
+      expect(wrapper.find('.overview-scheduling').exists()).toBe(true);
+      expect(wrapper.text()).toContain('Scheduled for');
+      expect(wrapper.text()).toContain('Edit time');
     });
 
-    it('does not render SchedulingInfo for non-scheduled sessions', async () => {
-      // Default session has status: 'waiting'
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.findComponent({ name: 'SchedulingInfo' }).exists()).toBe(false);
-    });
-
-    it('passes session prop to SchedulingInfo', async () => {
-      const scheduledSession = {
+    it('does not show Session Overview header when only scheduling info is present', async () => {
+      sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'scheduled',
         scheduledAt: Date.now() + 3600000,
       };
-      sessionsStore.currentSession = scheduledSession;
-      sessionsStore.sessions = [scheduledSession];
+      sessionsStore.sessions = [sessionsStore.currentSession];
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
-      expect(schedulingInfo.exists()).toBe(true);
-      expect(schedulingInfo.props('session')).toEqual(scheduledSession);
+      expect(wrapper.find('.session-overview').exists()).toBe(true);
+      expect(wrapper.find('.overview-scheduling').exists()).toBe(true);
+      // Header should NOT show when only scheduling is present
+      expect(wrapper.find('.overview-header').exists()).toBe(false);
     });
 
-    it('does not render SchedulingInfo when session is null', async () => {
+    it('shows Session Overview header when both scheduling and summary exist', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.overview-header').exists()).toBe(true);
+      expect(wrapper.find('.overview-scheduling').exists()).toBe(true);
+    });
+
+    it('renders SchedulingEditModal when session is scheduled', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SchedulingEditModal' }).exists()).toBe(true);
+    });
+
+    it('opens SchedulingEditModal when Edit time is clicked', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('.scheduling-edit-link').trigger('click');
+      await flushAll(wrapper);
+
+      const modal = wrapper.findComponent({ name: 'SchedulingEditModal' });
+      expect(modal.exists()).toBe(true);
+      expect(modal.props('isOpen')).toBe(true);
+    });
+
+    it('does not render scheduling section for non-scheduled sessions', async () => {
+      // Default session is status: 'waiting'
+      sessionsStore.currentSession = { id: 'sess-123', status: 'waiting' };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Has content' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.overview-scheduling').exists()).toBe(false);
+      expect(wrapper.findComponent({ name: 'SchedulingEditModal' }).exists()).toBe(false);
+    });
+
+    it('does not render scheduling section when session is null', async () => {
       sessionsStore.currentSession = null;
       sessionsStore.sessions = [];
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.findComponent({ name: 'SchedulingInfo' }).exists()).toBe(false);
+      expect(wrapper.find('.overview-scheduling').exists()).toBe(false);
+      expect(wrapper.findComponent({ name: 'SchedulingEditModal' }).exists()).toBe(false);
     });
   });
 
