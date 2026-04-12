@@ -246,8 +246,10 @@ test.describe('Scheduling UI', () => {
       await expect(closeButton).toBeVisible({ timeout: 5000 });
       await closeButton.click();
 
-      // Wait for overlay to fully disappear before interacting with summary tab
+      // Wait for overlay to be fully removed from DOM (not just hidden — the CSS transition
+      // may keep it in the DOM briefly after it becomes invisible)
       await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout: 5000 });
+      await page.locator('[data-testid="session-chat-overlay"]').waitFor({ state: 'detached', timeout: 5000 });
 
       // Click the Edit time link in the overview card
       await page.click('.scheduling-edit-link');
