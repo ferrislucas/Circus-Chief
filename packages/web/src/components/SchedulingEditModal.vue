@@ -238,8 +238,8 @@ import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
 
 const props = defineProps({
-  isOpen: Boolean,
-  session: Object,
+  isOpen: { type: Boolean, default: false },
+  session: { type: Object, default: null },
 });
 
 const emit = defineEmits(['close', 'saved']);

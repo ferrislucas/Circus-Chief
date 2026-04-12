@@ -21,19 +21,6 @@ vi.mock('./WorkLogPanel.vue', () => ({
   },
 }));
 
-vi.mock('./BranchEditor.vue', () => ({
-  default: {
-    name: 'BranchEditor',
-    props: ['messageId'],
-    emits: ['create', 'cancel'],
-    setup(props, { expose }) {
-      expose({ resetCreating: vi.fn() });
-      return {};
-    },
-    template: '<div class="branch-editor"></div>',
-  },
-}));
-
 function createMessage(overrides = {}) {
   return {
     id: 'msg-1',
@@ -51,8 +38,6 @@ function mountComponent(props = {}) {
   return mount(MessageItem, {
     props: {
       message: createMessage(),
-      canBranch: false,
-      isBranching: false,
       workLogs: [],
       ...props,
     },
@@ -160,61 +145,6 @@ describe('MessageItem', () => {
     });
   });
 
-  describe('branch button', () => {
-    it('should show branch button for user messages when canBranch is true', () => {
-      const wrapper = mountComponent({
-        message: createMessage({ role: 'user' }),
-        canBranch: true,
-        isBranching: false,
-      });
-      expect(wrapper.find('[data-testid="branch-button"]').exists()).toBe(true);
-    });
-
-    it('should not show branch button when canBranch is false', () => {
-      const wrapper = mountComponent({
-        message: createMessage({ role: 'user' }),
-        canBranch: false,
-      });
-      expect(wrapper.find('[data-testid="branch-button"]').exists()).toBe(false);
-    });
-
-    it('should not show branch button for assistant messages', () => {
-      const wrapper = mountComponent({
-        message: createMessage({ role: 'assistant' }),
-        canBranch: true,
-      });
-      expect(wrapper.find('[data-testid="branch-button"]').exists()).toBe(false);
-    });
-
-    it('should hide branch button when isBranching is true', () => {
-      const wrapper = mountComponent({
-        message: createMessage({ role: 'user' }),
-        canBranch: true,
-        isBranching: true,
-      });
-      expect(wrapper.find('[data-testid="branch-button"]').exists()).toBe(false);
-    });
-
-    it('should render clickable branch button for user messages', async () => {
-      // Note: Testing custom emit capture with Vue Test Utils + script setup SFCs
-      // is unreliable (known issue). We verify the button renders and is clickable instead.
-      // Emit behavior is tested at the integration/E2E level.
-      const wrapper = mountComponent({
-        message: createMessage({ id: 'msg-42', role: 'user' }),
-        canBranch: true,
-      });
-
-      const btn = wrapper.find('[data-testid="branch-button"]');
-      expect(btn.exists()).toBe(true);
-      // Verify button is not disabled
-      expect(btn.attributes('disabled')).toBeUndefined();
-      // Verify the click handler is bound (click event is captured)
-      await btn.trigger('click');
-      const emitted = wrapper.emitted();
-      expect(emitted.click).toBeTruthy();
-    });
-  });
-
   describe('attachments', () => {
     it('should not render attachments section when empty', () => {
       const wrapper = mountComponent({
@@ -294,32 +224,6 @@ describe('MessageItem', () => {
         message: createMessage({ role: 'user' }),
       });
       expect(wrapper.findComponent({ name: 'WorkLogPanel' }).exists()).toBe(false);
-    });
-  });
-
-  describe('branch editor', () => {
-    it('should show BranchEditor when isBranching is true for user messages', () => {
-      const wrapper = mountComponent({
-        message: createMessage({ role: 'user' }),
-        isBranching: true,
-      });
-      expect(wrapper.findComponent({ name: 'BranchEditor' }).exists()).toBe(true);
-    });
-
-    it('should not show BranchEditor when isBranching is false', () => {
-      const wrapper = mountComponent({
-        message: createMessage({ role: 'user' }),
-        isBranching: false,
-      });
-      expect(wrapper.findComponent({ name: 'BranchEditor' }).exists()).toBe(false);
-    });
-
-    it('should not show BranchEditor for assistant messages', () => {
-      const wrapper = mountComponent({
-        message: createMessage({ role: 'assistant' }),
-        isBranching: true,
-      });
-      expect(wrapper.findComponent({ name: 'BranchEditor' }).exists()).toBe(false);
     });
   });
 });

@@ -2909,3 +2909,111 @@ describe('SessionListView batch summary fetching', () => {
     });
   });
 });
+
+describe('Add Session button responsive labels', () => {
+  let mockProjectsStore;
+  let mockSessionsStore;
+  let mockCommandButtonsStore;
+
+  async function flushAll(wrapper) {
+    await flushPromises();
+    await nextTick();
+    if (wrapper && wrapper.vm) {
+      await wrapper.vm.$nextTick?.();
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setActivePinia(createPinia());
+
+    Object.assign(mockRoute, {
+      params: { id: 'test-project-id' },
+      name: 'SessionList',
+    });
+
+    onSessionSummaryUpdatedCallback = null;
+    onSessionUpdatedCallback = null;
+    onSessionDeletedCallback = null;
+    capturedSummaryCallbacks = null;
+    mockArchivedLoaded = null;
+
+    mockGetSessionSummary.mockReset();
+    mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
+    mockGetKanbanBoard.mockReset();
+    mockGetKanbanBoard.mockResolvedValue({ lanes: [], cards: [] });
+
+    mockProjectsStore = {
+      currentProject: { id: 'test-project-id', name: 'Test Project' },
+      fetchProject: vi.fn(),
+    };
+    useProjectsStore.mockReturnValue(mockProjectsStore);
+
+    mockSessionsStore = createSessionsStoreMock([
+      { id: 'session-1', name: 'Session 1', status: 'completed' },
+      { id: 'session-2', name: 'Session 2', status: 'running' },
+    ]);
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    mockCommandButtonsStore = {
+      buttons: [],
+      runs: {},
+      loading: false,
+      error: null,
+      fetchButtons: vi.fn().mockResolvedValue(),
+      fetchLatestRunsForProject: vi.fn().mockResolvedValue(),
+      getButtonsByProjectId: vi.fn(() => []),
+      getLatestRunForButton: vi.fn(() => null),
+    };
+    useCommandButtonsStore.mockReturnValue(mockCommandButtonsStore);
+  });
+
+  it('renders desktop button with both full and short label spans', async () => {
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    const desktopBtn = wrapper.find('.tabs-desktop .btn-primary');
+    expect(desktopBtn.exists()).toBe(true);
+    expect(desktopBtn.find('.add-session-label-full').exists()).toBe(true);
+    expect(desktopBtn.find('.add-session-label-full').text()).toBe('+ Session');
+    expect(desktopBtn.find('.add-session-label-short').exists()).toBe(true);
+    expect(desktopBtn.find('.add-session-label-short').text()).toBe('+');
+  });
+
+  it('renders desktop button with aria-label for accessibility', async () => {
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    const desktopBtn = wrapper.find('.tabs-desktop .btn-primary');
+    expect(desktopBtn.exists()).toBe(true);
+    expect(desktopBtn.attributes('aria-label')).toBe('New Session');
+  });
+
+  it('renders mobile button with "+ Session" text', async () => {
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    const mobileBtn = wrapper.find('.mobile-only.btn-primary');
+    expect(mobileBtn.exists()).toBe(true);
+    expect(mobileBtn.text()).toContain('+ Session');
+  });
+
+  it('does not affect empty-state button text', async () => {
+    // Empty state requires no sessions
+    mockSessionsStore = createSessionsStoreMock([]);
+    useSessionsStore.mockReturnValue(mockSessionsStore);
+
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    const emptyStateBtn = wrapper.find('.empty-state .btn-primary');
+    expect(emptyStateBtn.exists()).toBe(true);
+    expect(emptyStateBtn.text()).toBe('New Session');
+  });
+});
