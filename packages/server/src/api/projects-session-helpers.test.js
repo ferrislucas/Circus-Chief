@@ -49,7 +49,7 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
-vi.mock('@claudetools/shared', () => ({
+vi.mock('@circuschief/shared', () => ({
   WS_MESSAGE_TYPES: {
     SESSION_CREATED: 'session_created',
     SESSION_UPDATED: 'session_updated',

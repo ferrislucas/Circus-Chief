@@ -4,7 +4,7 @@ import { mkdir } from 'fs/promises';
 import { extname, join, basename } from 'path';
 import { sessions, canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES, UpdateCanvasItemRequest } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES, UpdateCanvasItemRequest } from '@circuschief/shared';
 import { upload, handleUploadError } from '../middleware/upload.js';
 import {
   isBinaryContent,

@@ -3,7 +3,7 @@ import * as slashCommandService from '../services/slashCommandService.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 /**
  * Generate an initial session name from the prompt

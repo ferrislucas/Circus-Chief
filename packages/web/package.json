@@ -1,5 +1,5 @@
 {
-  "name": "@claudetools/web",
+  "name": "@circuschief/web",
   "version": "1.0.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -12,7 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@claudetools/shared": "1.0.0",
+    "@circuschief/shared": "1.0.0",
     "ansi-to-html": "^0.7.2",
     "dompurify": "^3.3.1",
     "highlight.js": "^11.11.1",

@@ -17,9 +17,9 @@ export function executeHookAsync(hookCommand, workingDirectory, context = {}) {
 
   const env = {
     ...process.env,
-    CLAUDETOOLS_SESSION_ID: context.sessionId || '',
-    CLAUDETOOLS_PROJECT_ID: context.projectId || '',
-    CLAUDETOOLS_SESSION_NAME: context.sessionName || '',
+    CIRCUSCHIEF_SESSION_ID: context.sessionId || '',
+    CIRCUSCHIEF_PROJECT_ID: context.projectId || '',
+    CIRCUSCHIEF_SESSION_NAME: context.sessionName || '',
   };
 
   execAsync(hookCommand, { cwd: workingDirectory, env, shell: true })
@@ -46,9 +46,9 @@ export async function executeHook(hookCommand, workingDirectory, context = {}) {
 
   const env = {
     ...process.env,
-    CLAUDETOOLS_SESSION_ID: context.sessionId || '',
-    CLAUDETOOLS_PROJECT_ID: context.projectId || '',
-    CLAUDETOOLS_SESSION_NAME: context.sessionName || '',
+    CIRCUSCHIEF_SESSION_ID: context.sessionId || '',
+    CIRCUSCHIEF_PROJECT_ID: context.projectId || '',
+    CIRCUSCHIEF_SESSION_NAME: context.sessionName || '',
   };
 
   try {

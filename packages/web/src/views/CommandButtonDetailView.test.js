@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 import CommandButtonDetailView from './CommandButtonDetailView.vue';
-import { ROUTE_PARAMS } from '@claudetools/shared/routeParams';
+import { ROUTE_PARAMS } from '@circuschief/shared/routeParams';
 
 // Global helper to flush all async updates and force DOM re-render
 async function flushAll(wrapper) {

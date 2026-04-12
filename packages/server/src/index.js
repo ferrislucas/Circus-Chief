@@ -1,10 +1,11 @@
 import { createServer } from 'http';
 import { parseArgs } from 'node:util';
 import { execSync } from 'child_process';
+import { existsSync } from 'fs';
 import { createApp } from './app.js';
 import { initDatabase } from './database.js';
 import { initWebSocket } from './websocket.js';
-import { DEFAULT_SERVER_PORT } from '@claudetools/shared';
+import { DEFAULT_SERVER_PORT } from '@circuschief/shared';
 import * as prStatusService from './services/prStatusService.js';
 import * as systemMonitor from './services/systemMonitor.js';
 import { schedulerService } from './services/schedulerService.js';
@@ -40,7 +41,12 @@ const { values } = parseArgs({
 const port = parseInt(values.port, 10);
 process.env.PORT = String(port);
 const production = process.env.NODE_ENV === 'production';
-const dbPath = process.env.DB_PATH || 'claudetools.db';
+// Migration: fall back to legacy claudetools.db if circuschief.db doesn't exist
+let dbPath = process.env.DB_PATH || 'circuschief.db';
+if (!process.env.DB_PATH && !existsSync('circuschief.db') && existsSync('claudetools.db')) {
+  console.log('[migration] Using legacy claudetools.db — rename to circuschief.db to suppress this message');
+  dbPath = 'claudetools.db';
+}
 
 // Catch uncaught exceptions
 process.on('uncaughtException', (err) => {

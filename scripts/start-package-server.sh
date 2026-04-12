@@ -10,7 +10,7 @@
 #   3. Installing the tarball in an isolated temp directory
 #   4. Starting the server from there
 #
-# This validates that `npx claudetools` will work for real users.
+# This validates that `npx circuschief` will work for real users.
 #
 # PORT ASSIGNMENT:
 #   Uses the same worktree-aware logic as start-server.sh.
@@ -85,7 +85,7 @@ mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
 # Initialize package.json for the test installation
-echo '{"name":"claudetools-test","version":"1.0.0"}' > package.json
+echo '{"name":"circuschief-test","version":"1.0.0"}' > package.json
 
 npm install "$TARBALL_PATH" --save 2>&1 | tail -3
 
@@ -100,11 +100,11 @@ echo "$SELECTED_PORT" > "$PORT_FILE"
 echo "${VCR_MODE:-}" > "$PROJECT_ROOT/.vcr-mode"
 
 # Use an absolute DB_PATH so the test process (seed scripts) can access the same database.
-# Without this, the server creates its DB at $INSTALL_DIR/claudetools.db but the seed scripts
-# default to $PROJECT_ROOT/claudetools.db — a completely different (empty) file.
-export DB_PATH="$INSTALL_DIR/claudetools.db"
+# Without this, the server creates its DB at $INSTALL_DIR/circuschief.db but the seed scripts
+# default to $PROJECT_ROOT/circuschief.db — a completely different (empty) file.
+export DB_PATH="$INSTALL_DIR/circuschief.db"
 echo "$DB_PATH" > "$PROJECT_ROOT/.db-path"
 
 # Start the server from the installed package
 cd "$INSTALL_DIR"
-VCR_MODE="${VCR_MODE:-}" DB_PATH="$DB_PATH" node node_modules/.bin/claudetools -p "$SELECTED_PORT"
+VCR_MODE="${VCR_MODE:-}" DB_PATH="$DB_PATH" node node_modules/.bin/circuschief -p "$SELECTED_PORT"

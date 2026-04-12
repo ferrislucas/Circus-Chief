@@ -21,7 +21,7 @@
 
 <script setup>
 import { ref, computed, watch, toRef } from 'vue';
-import { EFFORT_LEVELS } from '@claudetools/shared';
+import { EFFORT_LEVELS } from '@circuschief/shared';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
 

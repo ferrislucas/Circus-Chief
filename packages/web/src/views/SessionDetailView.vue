@@ -132,7 +132,7 @@ import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { api } from '../composables/useApi.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const route = useRoute();
 const router = useRouter();

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { sessions, attachments, sessionSummaries } from '../database.js';
 import { cleanupActiveSession, stopSession, restartSession } from '../services/sessionManager.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';

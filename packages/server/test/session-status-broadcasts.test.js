@@ -38,7 +38,7 @@ vi.mock('../src/services/summaryService.js', () => ({
 
 // Import the mocked functions for assertions
 import { broadcastToSession, broadcastToProject } from '../src/websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 // We need to test that broadcastSessionStatus broadcasts to both
 // session and project subscribers. Since broadcastSessionStatus is

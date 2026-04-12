@@ -4,7 +4,7 @@ import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ModelSelector from './ModelSelector.vue';
 import { useProvidersStore } from '../stores/providers.js';
-import { CLAUDE_MODELS } from '@claudetools/shared';
+import { CLAUDE_MODELS } from '@circuschief/shared';
 
 // Use actual model data from the shared package
 const [haiku, sonnet, opus] = CLAUDE_MODELS;

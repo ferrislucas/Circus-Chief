@@ -1,6 +1,6 @@
 import { extname } from 'path';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 // Common MIME type constants
 const MIME_TEXT_PLAIN = 'text/plain';

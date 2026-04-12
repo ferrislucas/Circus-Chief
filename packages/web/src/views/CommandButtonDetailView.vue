@@ -176,7 +176,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
 import { api } from '../composables/useApi.js';
-import { ROUTE_PARAMS } from '@claudetools/shared/routeParams';
+import { ROUTE_PARAMS } from '@circuschief/shared/routeParams';
 
 const route = useRoute();
 const router = useRouter();

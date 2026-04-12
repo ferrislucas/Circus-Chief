@@ -5,7 +5,7 @@ import {
   UpdateProviderRequest,
   CreateProviderModelRequest,
   TestConnectionRequest,
-} from '@claudetools/shared/contracts/providers';
+} from '@circuschief/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
 
 // Error message constants

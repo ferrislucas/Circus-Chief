@@ -1,6 +1,6 @@
 import { sessions, messages, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';

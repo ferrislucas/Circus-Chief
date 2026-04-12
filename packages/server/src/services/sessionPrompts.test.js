@@ -27,7 +27,7 @@ import {
   PLAN_MODE_PROMPT,
   buildSystemPromptConfig,
 } from './sessionPrompts.js';
-import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared';
+import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 
 describe('sessionPrompts', () => {
   beforeEach(() => {
@@ -44,32 +44,32 @@ describe('sessionPrompts', () => {
 
   afterEach(() => {
     // Restore env vars we may have set
-    delete process.env.CLAUDETOOLS_API_URL;
+    delete process.env.CIRCUSCHIEF_API_URL;
     delete process.env.PORT;
   });
 
   // ── getApiBaseUrl ─────────────────────────────────────────────────────
 
   describe('getApiBaseUrl', () => {
-    it('returns CLAUDETOOLS_API_URL when set', () => {
-      process.env.CLAUDETOOLS_API_URL = 'https://custom.example.com';
+    it('returns CIRCUSCHIEF_API_URL when set', () => {
+      process.env.CIRCUSCHIEF_API_URL = 'https://custom.example.com';
       expect(getApiBaseUrl()).toBe('https://custom.example.com');
     });
 
-    it('uses PORT env var when CLAUDETOOLS_API_URL is not set', () => {
-      delete process.env.CLAUDETOOLS_API_URL;
+    it('uses PORT env var when CIRCUSCHIEF_API_URL is not set', () => {
+      delete process.env.CIRCUSCHIEF_API_URL;
       process.env.PORT = '3456';
       expect(getApiBaseUrl()).toBe('http://localhost:3456');
     });
 
     it('falls back to DEFAULT_SERVER_PORT when neither env var is set', () => {
-      delete process.env.CLAUDETOOLS_API_URL;
+      delete process.env.CIRCUSCHIEF_API_URL;
       delete process.env.PORT;
       expect(getApiBaseUrl()).toBe(`http://localhost:${DEFAULT_SERVER_PORT}`);
     });
 
-    it('CLAUDETOOLS_API_URL takes precedence over PORT', () => {
-      process.env.CLAUDETOOLS_API_URL = 'https://override.example.com';
+    it('CIRCUSCHIEF_API_URL takes precedence over PORT', () => {
+      process.env.CIRCUSCHIEF_API_URL = 'https://override.example.com';
       process.env.PORT = '9999';
       expect(getApiBaseUrl()).toBe('https://override.example.com');
     });

@@ -65,7 +65,7 @@ vi.mock('./todoStore.js', () => ({
 import { runSession } from './sessionManager.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Token Accumulation - Multi-Message Turns', () => {
   let tempDir;
