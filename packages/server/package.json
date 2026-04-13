@@ -1,11 +1,11 @@
 {
-  "name": "@claudetools/server",
+  "name": "@circuschief/server",
   "version": "1.0.0",
   "license": "Apache-2.0",
   "type": "module",
   "main": "src/index.js",
   "bin": {
-    "claudetools": "./bin/cli.js"
+    "circuschief": "./bin/cli.js"
   },
   "scripts": {
     "dev": "node --watch src/index.js",
@@ -18,7 +18,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.76",
     "@anthropic-ai/sdk": "^0.71.2",
-    "@claudetools/shared": "1.0.0",
+    "@circuschief/shared": "1.0.0",
     "better-sqlite3": "^11.7.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",

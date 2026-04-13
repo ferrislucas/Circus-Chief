@@ -31,7 +31,7 @@ import {
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { runSession } from './sessionManager.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   getFullBoard,
   addSessionToBoard,

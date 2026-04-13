@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { TOAST_DURATION } from '@claudetools/shared';
+import { TOAST_DURATION } from '@circuschief/shared';
 
 let toastId = 0;
 

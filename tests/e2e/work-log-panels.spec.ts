@@ -67,7 +67,7 @@ test.describe('Work Log Panels', () => {
 
       // Assertions
       await expect(page.locator('.running-state')).toBeVisible();
-      await expect(page.locator('.running-title')).toHaveText('Claude is working...');
+      await expect(page.locator('.running-title')).toHaveText('Agent is working...');
       await expect(page.locator('.running-state .live-work-log-panel')).toBeVisible();
     });
 

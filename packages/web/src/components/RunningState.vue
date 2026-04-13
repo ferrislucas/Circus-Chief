@@ -3,7 +3,7 @@
     <!-- Header row with status, token display, and stop button -->
     <div class="running-header">
       <div class="running-status">
-        <span class="running-title">Claude is working...</span>
+        <span class="running-title">Agent is working...</span>
       </div>
       <div class="running-actions">
         <span
@@ -150,7 +150,7 @@ const templateLink = computed(() => `/projects/${props.projectId}/templates`);
   font-style: italic;
 }
 
-/* Hide "Claude is working..." text on extremely small screens */
+/* Hide "Agent is working..." text on extremely small screens */
 @media (max-width: 360px) {
   .running-title {
     display: none;

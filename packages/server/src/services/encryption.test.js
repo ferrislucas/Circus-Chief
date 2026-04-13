@@ -5,8 +5,8 @@ import { tmpdir } from 'os';
 import { encrypt, decrypt, _resetKeyForTesting, _setKeyDirForTesting } from './encryption.js';
 
 describe('encryption service', () => {
-  // Use an isolated temp directory so tests never touch ~/.claudetools/secret.key
-  const testKeyDir = join(tmpdir(), `claudetools-encryption-test-${process.pid}`);
+  // Use an isolated temp directory so tests never touch ~/.circuschief/secret.key
+  const testKeyDir = join(tmpdir(), `circuschief-encryption-test-${process.pid}`);
   const testKeyPath = join(testKeyDir, 'secret.key');
 
   beforeEach(() => {

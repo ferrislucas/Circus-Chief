@@ -109,7 +109,7 @@ import { onMounted, onUnmounted, reactive, watch, ref, computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useGlobalSessionSubscription, useWebSocket } from '../composables/useWebSocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { api } from '../composables/useApi.js';
 import SessionCard from '../components/SessionCard.vue';
 

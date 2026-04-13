@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createServer } from 'http';
 import WebSocket from 'ws';
 import { WebSocketManager } from './WebSocketManager.js';
-import { WS_MESSAGE_TYPES, createMessage } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES, createMessage } from '@circuschief/shared';
 
 describe('WebSocketManager', () => {
   let server;

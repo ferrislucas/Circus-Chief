@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SettingsRepository } from './SettingsRepository.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
+import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
 
 describe('SettingsRepository', () => {
   // Uses global setup from test/setup.js

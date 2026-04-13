@@ -1,6 +1,6 @@
 import { canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 /**
  * Add an item to the canvas

@@ -205,7 +205,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useWebSocket } from '../composables/useWebSocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { getColorForPercent } from '../utils/systemIndicators.js';
 import SystemStatDetailModal from './SystemStatDetailModal.vue';
 

@@ -4,7 +4,7 @@
  */
 
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 /**
  * Broadcast summary update to session and project subscribers

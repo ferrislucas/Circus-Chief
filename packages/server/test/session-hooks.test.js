@@ -79,14 +79,14 @@ describe('Session Lifecycle Hooks', () => {
   describe('Hook execution context', () => {
     it('project includes hook fields when retrieved', () => {
       const created = projects.create('Test', tempDir, null, {
-        onSessionCreated: 'echo $CLAUDETOOLS_SESSION_ID',
-        onSessionDeleted: 'echo $CLAUDETOOLS_PROJECT_ID',
+        onSessionCreated: 'echo $CIRCUSCHIEF_SESSION_ID',
+        onSessionDeleted: 'echo $CIRCUSCHIEF_PROJECT_ID',
       });
 
       const retrieved = projects.getById(created.id);
 
-      expect(retrieved.onSessionCreated).toBe('echo $CLAUDETOOLS_SESSION_ID');
-      expect(retrieved.onSessionDeleted).toBe('echo $CLAUDETOOLS_PROJECT_ID');
+      expect(retrieved.onSessionCreated).toBe('echo $CIRCUSCHIEF_SESSION_ID');
+      expect(retrieved.onSessionDeleted).toBe('echo $CIRCUSCHIEF_PROJECT_ID');
     });
 
     it('hook fields appear in project list', () => {

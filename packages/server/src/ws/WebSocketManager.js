@@ -1,5 +1,5 @@
 import { WebSocketServer } from 'ws';
-import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES, parseMessage, createMessage } from '@circuschief/shared';
 
 /**
  * WebSocket manager class for handling WebSocket connections and messaging

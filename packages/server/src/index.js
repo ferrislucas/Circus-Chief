@@ -4,7 +4,7 @@ import { execSync } from 'child_process';
 import { createApp } from './app.js';
 import { initDatabase } from './database.js';
 import { initWebSocket } from './websocket.js';
-import { DEFAULT_SERVER_PORT } from '@claudetools/shared';
+import { DEFAULT_SERVER_PORT } from '@circuschief/shared';
 import * as prStatusService from './services/prStatusService.js';
 import * as systemMonitor from './services/systemMonitor.js';
 import { schedulerService } from './services/schedulerService.js';
@@ -40,7 +40,7 @@ const { values } = parseArgs({
 const port = parseInt(values.port, 10);
 process.env.PORT = String(port);
 const production = process.env.NODE_ENV === 'production';
-const dbPath = process.env.DB_PATH || 'claudetools.db';
+const dbPath = process.env.DB_PATH || 'circuschief.db';
 
 // Catch uncaught exceptions
 process.on('uncaughtException', (err) => {

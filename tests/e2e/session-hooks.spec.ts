@@ -16,7 +16,7 @@ test.describe('Session Lifecycle Hooks', () => {
 
   test.beforeEach(async () => {
     // Create a temporary directory for marker files
-    markerDir = await mkdtemp(join(tmpdir(), 'claudetools-test-hooks-'));
+    markerDir = await mkdtemp(join(tmpdir(), 'circuschief-test-hooks-'));
   });
 
   test.afterEach(async () => {
@@ -32,7 +32,7 @@ test.describe('Session Lifecycle Hooks', () => {
   test('onSessionCreated hook executes on session creation', async () => {
     // Create a project with onSessionCreated hook configured
     const project = await seedProject('hook-test-created', process.cwd(), {
-      onSessionCreated: `touch ${markerDir}/session-created-\${CLAUDETOOLS_SESSION_ID}.txt`,
+      onSessionCreated: `touch ${markerDir}/session-created-\${CIRCUSCHIEF_SESSION_ID}.txt`,
     });
 
     // Create a session in the project
@@ -53,7 +53,7 @@ test.describe('Session Lifecycle Hooks', () => {
   test('onSessionDeleted hook executes on session deletion', async () => {
     // Create a project with onSessionDeleted hook configured
     const project = await seedProject('hook-test-deleted', process.cwd(), {
-      onSessionDeleted: `touch ${markerDir}/session-deleted-\${CLAUDETOOLS_SESSION_ID}.txt`,
+      onSessionDeleted: `touch ${markerDir}/session-deleted-\${CIRCUSCHIEF_SESSION_ID}.txt`,
     });
 
     // Create a session in the project
@@ -80,7 +80,7 @@ test.describe('Session Lifecycle Hooks', () => {
   test('hook receives correct environment variables', async () => {
     // Create a project with hook that writes env vars to a file
     const project = await seedProject('hook-test-env-vars', process.cwd(), {
-      onSessionCreated: `echo "\${CLAUDETOOLS_SESSION_ID},\${CLAUDETOOLS_PROJECT_ID},\${CLAUDETOOLS_SESSION_NAME}" > ${markerDir}/env-vars.txt`,
+      onSessionCreated: `echo "\${CIRCUSCHIEF_SESSION_ID},\${CIRCUSCHIEF_PROJECT_ID},\${CIRCUSCHIEF_SESSION_NAME}" > ${markerDir}/env-vars.txt`,
     });
 
     // Create a session with a known name
@@ -108,7 +108,7 @@ test.describe('Session Lifecycle Hooks', () => {
 
   test('hook executes in correct working directory', async () => {
     // Create a temp directory to use as the working directory
-    const workingDir = await mkdtemp(join(tmpdir(), 'claudetools-test-workdir-'));
+    const workingDir = await mkdtemp(join(tmpdir(), 'circuschief-test-workdir-'));
 
     try {
       // Create a project with specific working directory

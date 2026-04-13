@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-claudetools.io is a local-first web application for managing Claude Code sessions with a visual canvas for artifacts. It allows users to view/manage sessions, share a visual canvas (images, documents, data), and interact with active Claude Code sessions from a web browser.
+Circus Chief (circuschief.io) is a local-first web application for managing Claude Code sessions with a visual canvas for artifacts. It allows users to view/manage sessions, share a visual canvas (images, documents, data), and interact with active Claude Code sessions from a web browser.
 
 ## Common Commands
 
@@ -16,12 +16,12 @@ yarn dev
 yarn test
 
 # Run tests for a specific package
-yarn workspace @claudetools/server test
-yarn workspace @claudetools/web test
+yarn workspace @circuschief/server test
+yarn workspace @circuschief/web test
 
 # Run a single test file (vitest)
-yarn workspace @claudetools/server test src/db/SessionRepository.test.js
-yarn workspace @claudetools/web test src/stores/ui.test.js
+yarn workspace @circuschief/server test src/db/SessionRepository.test.js
+yarn workspace @circuschief/web test src/stores/ui.test.js
 
 # E2E tests with Playwright
 ./scripts/pw.sh test                           # Run all E2E tests
@@ -43,7 +43,7 @@ yarn build
 - **packages/web** - Vue.js 3 frontend (Vite, Pinia, Vue Router)
 - **packages/shared** - Shared types, constants, and Zod contracts
 
-### Server Package (`@claudetools/server`)
+### Server Package (`@circuschief/server`)
 
 - `src/index.js` - Entry point, starts HTTP server
 - `src/app.js` - Express app configuration
@@ -55,14 +55,14 @@ yarn build
 - `src/services/` - Business logic (sessionManager, canvasStore, gitService, diffService)
 - `src/ws/` - WebSocket manager for real-time updates
 
-### Web Package (`@claudetools/web`)
+### Web Package (`@circuschief/web`)
 
 - `src/router.js` - Vue Router configuration
 - `src/views/` - Page components (ProjectListView, SessionListView, SessionDetailView, etc.)
 - `src/components/` - Reusable components (CanvasTab, ConversationTab, NotesTab, ChangesTab, ToastContainer)
 - `src/stores/` - Pinia stores (projects, sessions, canvas, ui)
 
-### Shared Package (`@claudetools/shared`)
+### Shared Package (`@circuschief/shared`)
 
 - `src/types.js` - JSDoc type definitions
 - `src/protocol.js` - WebSocket message type definitions
@@ -96,22 +96,22 @@ Dark mode only using Tailwind CSS. Key colors:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `5000` | Server port |
-| `DB_PATH` | `claudetools.db` | SQLite database path |
+| `DB_PATH` | `circuschief.db` | SQLite database path |
 | `VITE_API_URL` | `http://localhost:5000` | Backend API URL (frontend) |
 
 ## Working Directory Guidelines
 
 **CRITICAL: Never use `cd` to change to a hardcoded project path before running commands.**
 
-When running in a claudetools.io session, your working directory is already set correctly. This may be:
+When running in a circuschief.io session, your working directory is already set correctly. This may be:
 - The main project directory
 - A git worktree for branch isolation
 
 ### Do NOT do this:
 ```bash
 # BAD - bypasses worktree isolation
-cd /home/ubuntu/workspace/claudetools.io && git status
-cd /home/ubuntu/workspace/claudetools.io && yarn test
+cd /home/ubuntu/workspace/circuschief.io && git status
+cd /home/ubuntu/workspace/circuschief.io && yarn test
 ```
 
 ### Do this instead:

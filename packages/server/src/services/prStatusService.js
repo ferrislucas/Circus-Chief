@@ -1,6 +1,6 @@
 import { sessions, sessionSummaries } from '../database.js';
 import { webSocketManager, broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as ghService from './ghService.js';
 
 // Default polling interval in milliseconds (1 minute)
