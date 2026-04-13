@@ -31,21 +31,6 @@ function getEncryptionKey() {
     console.warn(`[encryption] Invalid key file at ${keyPath}, regenerating...`);
   }
 
-  // Migration: check legacy ~/.claudetools/secret.key path
-  if (!_keyDirOverride) {
-    const legacyKeyDir = join(homedir(), '.claudetools');
-    const legacyKeyPath = join(legacyKeyDir, 'secret.key');
-    if (existsSync(legacyKeyPath)) {
-      const keyHex = readFileSync(legacyKeyPath, 'utf-8').trim();
-      if (/^[0-9a-fA-F]{64}$/.test(keyHex)) {
-        console.log('[encryption] Migrating key from ~/.claudetools/ to ~/.circuschief/');
-        mkdirSync(keyDir, { recursive: true });
-        writeFileSync(keyPath, keyHex, { mode: 0o600 });
-        return Buffer.from(keyHex, 'hex');
-      }
-    }
-  }
-
   // Generate a new key
   const key = crypto.randomBytes(KEY_LENGTH);
   mkdirSync(keyDir, { recursive: true });
