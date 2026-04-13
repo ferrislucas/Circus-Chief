@@ -32,8 +32,10 @@
             :key="indicator.buttonId"
             :class="['button-status-indicator', `button-status-${indicator.status}`]"
             :title="indicator.label"
+            :aria-label="indicator.status"
             @click.stop.prevent="selectedButtonForModal = indicator"
-          >{{ getStatusIcon(indicator.status) }}</span>
+            v-html="getStatusIcon(indicator.status)"
+          ></span>
 
           <span
             v-if="nextTemplateName"
@@ -66,6 +68,7 @@
 <script setup>
 import { computed, ref } from 'vue';
 import { useTemplatesStore } from '../stores/templates.js';
+import { getStatusIconSvg } from './statusIcons';
 import PrIndicators from './PrIndicators.vue';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import SessionLogStream from './SessionLogStream.vue';
@@ -156,20 +159,7 @@ const buttonStatusesToDisplay = computed(() => {
     }));
 });
 
-const getStatusIcon = (status) => {
-  switch (status) {
-    case 'running':
-      return '⊙';
-    case 'success':
-      return '✓';
-    case 'error':
-      return '✕';
-    case 'killed':
-      return '✕';
-    default:
-      return '';
-  }
-};
+const getStatusIcon = (status) => getStatusIconSvg(status);
 </script>
 
 <style scoped>
@@ -280,7 +270,11 @@ const getStatusIcon = (status) => {
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   border: 1px solid transparent;
-  font-size: 0.875rem;
+}
+
+.button-status-indicator :deep(svg) {
+  width: 0.75rem;
+  height: 0.75rem;
 }
 
 .button-status-indicator:hover {
@@ -292,7 +286,7 @@ const getStatusIcon = (status) => {
   background-color: rgba(210, 153, 34, 0.3);
   color: #d29922;
   border-color: #d29922;
-  animation: pulse 1.5s ease-in-out infinite;
+  animation: hourglass-flip 2s ease-in-out infinite;
 }
 
 .button-status-success {
@@ -301,10 +295,18 @@ const getStatusIcon = (status) => {
   border-color: #3fb950;
 }
 
+.button-status-success :deep(svg) {
+  animation: pop-in 0.3s ease-out;
+}
+
 .button-status-error {
   background-color: rgba(248, 81, 73, 0.3);
   color: #f85149;
   border-color: #f85149;
+}
+
+.button-status-error :deep(svg) {
+  animation: shake 0.4s ease-in-out;
 }
 
 .button-status-killed {
@@ -313,8 +315,21 @@ const getStatusIcon = (status) => {
   border-color: #f85149;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.7; }
+@keyframes hourglass-flip {
+  0%, 80%   { transform: rotate(0deg); }
+  90%       { transform: rotate(180deg); }
+  100%      { transform: rotate(180deg); }
+}
+
+@keyframes pop-in {
+  0%   { transform: scale(0); }
+  70%  { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-2px); }
+  75%      { transform: translateX(2px); }
 }
 </style>

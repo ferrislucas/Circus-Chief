@@ -51,7 +51,7 @@ test.describe('Command Buttons - Remove Run Feature', () => {
       expect(run.status).toBe('success');
       expect(run.exitCode).toBe(0);
 
-      // Step 3: Navigate to session and verify status indicator shows ✓
+      // Step 3: Navigate to session and verify status indicator shows checkmark
       await navigateAndWait(page, `/sessions/${session.id}`);
       // Wait for WebSocket to connect and receive button status updates
       await page.waitForTimeout(1000);
@@ -110,7 +110,7 @@ test.describe('Command Buttons - Remove Run Feature', () => {
       expect(run.status).toBe('error');
       expect(run.exitCode).toBe(1);
 
-      // Step 3: Navigate to session and verify error status (✕ indicator)
+      // Step 3: Navigate to session and verify error status (cross indicator)
       await navigateAndWait(page, `/sessions/${session.id}`);
       // Wait for WebSocket to connect and receive button status updates
       await page.waitForTimeout(1000);
@@ -208,7 +208,7 @@ test.describe('Command Buttons - Remove Run Feature', () => {
       // Wait for WebSocket to connect
       await page.waitForTimeout(1000);
 
-      // Step 4: Wait for running status (⊙ indicator, pulsing)
+      // Step 4: Wait for running status (hourglass indicator, flipping)
       const runningIndicator = page.locator(
         `.command-status-bar .button-status-indicator.button-status-running[title*="Long Running"]`
       );
