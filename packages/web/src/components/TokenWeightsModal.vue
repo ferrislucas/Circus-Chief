@@ -129,7 +129,7 @@
 import { ref, computed, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
+import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },

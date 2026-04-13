@@ -17,7 +17,7 @@ vi.mock('../services/hookService.js', () => ({
 import archiveRouter from './sessions-archive.js';
 import { broadcastToProject } from '../websocket.js';
 import { executeHookAsync } from '../services/hookService.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Sessions Archive API', () => {
   let app;

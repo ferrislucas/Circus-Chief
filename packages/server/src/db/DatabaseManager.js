@@ -19,7 +19,7 @@ export class DatabaseManager {
    * @param {string} dbPath - Path to database file (use ':memory:' for in-memory)
    * @returns {Database.Database}
    */
-  init(dbPath = 'claudetools.db') {
+  init(dbPath = 'circuschief.db') {
     this.#db = new Database(dbPath);
 
     // Enable WAL mode and foreign keys

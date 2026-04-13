@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { sessions, canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 // Error message constants
 const ERR_SESSION_NOT_FOUND = 'Session not found';

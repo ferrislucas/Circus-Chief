@@ -1,5 +1,5 @@
 import { onUnmounted } from 'vue';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { useWebSocket } from './useWebSocket.js';
 
 // Track active project subscriptions for re-subscription on reconnect

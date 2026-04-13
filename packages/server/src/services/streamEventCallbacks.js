@@ -1,6 +1,6 @@
 import { sessions, conversations } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import * as kanbanService from './kanbanService.js';
 import {

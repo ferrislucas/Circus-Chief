@@ -13,7 +13,7 @@ vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
 }));
 
-vi.mock('@claudetools/shared', () => ({
+vi.mock('@circuschief/shared', () => ({
   WS_MESSAGE_TYPES: { CANVAS_ADD: 'canvas_add' },
 }));
 

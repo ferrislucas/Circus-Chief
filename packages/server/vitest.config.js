@@ -4,8 +4,8 @@ import { resolve } from 'path';
 export default defineConfig({
   resolve: {
     alias: {
-      '@claudetools/shared/contracts': resolve(__dirname, '../shared/src/contracts'),
-      '@claudetools/shared': resolve(__dirname, '../shared/src'),
+      '@circuschief/shared/contracts': resolve(__dirname, '../shared/src/contracts'),
+      '@circuschief/shared': resolve(__dirname, '../shared/src'),
     },
   },
   test: {

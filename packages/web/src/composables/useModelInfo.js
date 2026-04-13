@@ -1,4 +1,4 @@
-import { CLAUDE_MODELS, DEFAULT_MODEL } from '@claudetools/shared';
+import { CLAUDE_MODELS, DEFAULT_MODEL } from '@circuschief/shared';
 import { useProvidersStore } from '../stores/providers.js';
 
 /**

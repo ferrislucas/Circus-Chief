@@ -5,10 +5,10 @@ import { createRouter, createMemoryHistory } from 'vue-router';
 import { h, defineComponent, nextTick } from 'vue';
 import SessionChatOverlay from './SessionChatOverlay.vue';
 import { api } from '../composables/useApi.js';
-import { generateWorktreeBranch } from '@claudetools/shared';
+import { generateWorktreeBranch } from '@circuschief/shared';
 
-// Mock @claudetools/shared
-vi.mock('@claudetools/shared', () => ({
+// Mock @circuschief/shared
+vi.mock('@circuschief/shared', () => ({
   generateWorktreeBranch: vi.fn(() => 'claude-tools/abcd-new-session'),
 }));
 

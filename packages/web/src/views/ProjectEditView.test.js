@@ -7,7 +7,7 @@ import ProjectEditView from './ProjectEditView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
-import { DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared/constants';
+import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared/constants';
 
 // Mock the API and components
 vi.mock('../composables/useApi.js');

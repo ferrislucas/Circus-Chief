@@ -3,7 +3,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import apiRouter from './api/index.js';
-import { MAX_JSON_SIZE } from '@claudetools/shared';
+import { MAX_JSON_SIZE } from '@circuschief/shared';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

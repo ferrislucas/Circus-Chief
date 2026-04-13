@@ -1,6 +1,6 @@
 import { sessions } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 /**
  * Custom error class for schedule operations, includes HTTP status code.

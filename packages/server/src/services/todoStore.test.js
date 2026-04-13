@@ -10,7 +10,7 @@ vi.mock('../websocket.js', () => ({
 // Import after mocks are set up
 import { updateTodos, getTodosByConversation, getTodosForSession, clearTodos } from './todoStore.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('todoStore - conversation-scoped functions', () => {
   let project;

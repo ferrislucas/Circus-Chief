@@ -9,7 +9,7 @@ vi.mock('../src/websocket.js', () => ({
 
 // Import the mocked functions for assertions
 import { broadcastToSession, broadcastToProject } from '../src/websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Project Subscription Broadcasts', () => {
   let project;

@@ -1,6 +1,6 @@
 # Publishing to npm
 
-This document explains how claudetools is packaged for distribution via `npx claudetools`.
+This document explains how Circus Chief is packaged for distribution via `npx circuschief`.
 
 ## Quick Start
 
@@ -20,8 +20,8 @@ node scripts/build-package.js --version=0.2.0
 # Test locally (manual)
 cd dist-package && npm pack
 cd /tmp && mkdir test && cd test
-npm install /path/to/dist-package/claudetools-0.2.0.tgz
-npx claudetools
+npm install /path/to/dist-package/circuschief-0.2.0.tgz
+npx circuschief
 
 # Publish
 cd dist-package && npm publish
@@ -56,13 +56,13 @@ CLI flags take precedence over environment variables.
 
 ## How It Works
 
-The app is a monorepo with three packages (`server`, `web`, `shared`) that use Yarn workspace symlinks to reference each other. That structure doesn't survive `npm publish` — when someone runs `npx claudetools`, they get a single flat tarball with no workspace wiring.
+The app is a monorepo with three packages (`server`, `web`, `shared`) that use Yarn workspace symlinks to reference each other. That structure doesn't survive `npm publish` — when someone runs `npx circuschief`, they get a single flat tarball with no workspace wiring.
 
 `scripts/build-package.js` assembles a publishable package in `dist-package/` by:
 
 1. **Building the frontend** — runs `vite build` to produce static HTML/CSS/JS in `packages/web/dist/`
 2. **Copying the source tree** — copies `packages/server/src/`, `packages/shared/src/`, and `packages/web/dist/` into `dist-package/`, preserving the same directory structure
-3. **Rewriting imports** — transforms `@claudetools/shared` imports into relative paths (e.g., `../../shared/src/index.js`)
+3. **Rewriting imports** — transforms `@circuschief/shared` imports into relative paths (e.g., `../../shared/src/index.js`)
 4. **Generating package.json** — merges runtime dependencies from `server` and `shared` into a single flat `package.json`
 5. **Writing the CLI entry point** — produces a `bin/cli.js` that sets `NODE_ENV=production` before starting the server
 
@@ -70,18 +70,18 @@ The app is a monorepo with three packages (`server`, `web`, `shared`) that use Y
 
 ### The core problem
 
-The server imports from `@claudetools/shared`:
+The server imports from `@circuschief/shared`:
 
 ```js
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
-import { CreateProjectRequest } from '@claudetools/shared/contracts/projects';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { CreateProjectRequest } from '@circuschief/shared/contracts/projects';
 ```
 
-In the monorepo, Yarn creates symlinks (`node_modules/@claudetools/shared -> ../../packages/shared`) that make these resolve. In a published npm tarball, those symlinks don't exist, so the imports fail.
+In the monorepo, Yarn creates symlinks (`node_modules/@circuschief/shared -> ../../packages/shared`) that make these resolve. In a published npm tarball, those symlinks don't exist, so the imports fail.
 
 ### Options considered
 
-**Publish `@claudetools/shared` as a separate npm package.** This would make imports resolve naturally, but requires maintaining two npm packages in lockstep — publish shared first, then the main package, keep versions coordinated. Ongoing operational tax for no user benefit.
+**Publish `@circuschief/shared` as a separate npm package.** This would make imports resolve naturally, but requires maintaining two npm packages in lockstep — publish shared first, then the main package, keep versions coordinated. Ongoing operational tax for no user benefit.
 
 **Bundle the server with esbuild.** This would inline `shared` into a single output file, eliminating the import problem entirely. However, the server has two `__dirname`-relative filesystem operations:
 
@@ -90,7 +90,7 @@ In the monorepo, Yarn creates symlinks (`node_modules/@claudetools/shared -> ../
 
 Bundling moves everything into one file, breaking these paths. Solvable (inline the SQL, fix the static path), but adds complexity for edge cases. Also makes production stack traces harder to read.
 
-**Rewrite imports in a build step (chosen).** Copy the source files as-is and mechanically rewrite `@claudetools/shared` to relative paths. The directory structure is preserved, so `__dirname`-relative paths keep working. No bundler, no second package, no path fixups. The only transform is the import rewrite.
+**Rewrite imports in a build step (chosen).** Copy the source files as-is and mechanically rewrite `@circuschief/shared` to relative paths. The directory structure is preserved, so `__dirname`-relative paths keep working. No bundler, no second package, no path fixups. The only transform is the import rewrite.
 
 ### Why preserve the directory structure
 
@@ -117,14 +117,14 @@ The build script walks every `.js` file in `packages/server/src/` and rewrites t
 
 | Original | Rewritten |
 |----------|-----------|
-| `from '@claudetools/shared'` | `from '../../shared/src/index.js'` |
-| `from '@claudetools/shared/contracts/projects'` | `from '../../shared/src/contracts/projects.js'` |
+| `from '@circuschief/shared'` | `from '../../shared/src/index.js'` |
+| `from '@circuschief/shared/contracts/projects'` | `from '../../shared/src/contracts/projects.js'` |
 
 The relative path depth is calculated per-file based on its position in the directory tree. The `.js` extension is added explicitly because the original imports relied on the shared package's `exports` field for resolution, which isn't available when using direct relative paths.
 
 ### What the frontend build does
 
-The Vue frontend is built by Vite into static HTML/CSS/JS. All `@claudetools/shared` imports in the frontend are resolved at build time by Vite's bundler — they're baked into the JavaScript bundles. No runtime resolution needed. The server just serves these files with `express.static()`.
+The Vue frontend is built by Vite into static HTML/CSS/JS. All `@circuschief/shared` imports in the frontend are resolved at build time by Vite's bundler — they're baked into the JavaScript bundles. No runtime resolution needed. The server just serves these files with `express.static()`.
 
 ### Test files are excluded
 
@@ -136,7 +136,7 @@ The build script filters out `*.test.js` files from both `server` and `shared` p
 
 ## E2E Testing Against the Built Package
 
-`./scripts/pw.sh test-package` runs the full Playwright E2E suite against the actual npm artifact. This validates that `npx claudetools` will work for real users — not just that the source code works in the monorepo.
+`./scripts/pw.sh test-package` runs the full Playwright E2E suite against the actual npm artifact. This validates that `npx circuschief` will work for real users — not just that the source code works in the monorepo.
 
 ### What it does
 
@@ -144,7 +144,7 @@ The build script filters out `*.test.js` files from both `server` and `shared` p
 2. **Packs a tarball** — runs `npm pack` inside `dist-package/`, producing a `.tgz` identical to what `npm publish` would upload
 3. **Installs in an isolated directory** — creates `.package-test/` with a fresh `package.json` and installs the tarball via `npm install`, simulating a real user install
 4. **Symlinks test cassettes** — links `tests/` into the install directory so VCR replay cassettes are reachable at the expected relative path
-5. **Starts the server from the installed binary** — runs `node node_modules/.bin/claudetools`, the same entry point a user gets from `npx claudetools`
+5. **Starts the server from the installed binary** — runs `node node_modules/.bin/circuschief`, the same entry point a user gets from `npx circuschief`
 6. **Runs Playwright tests** — same E2E suite as `./scripts/pw.sh test`, but hitting the package-installed server
 
 ### Why this catches issues that `pw.sh test` doesn't

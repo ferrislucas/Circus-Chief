@@ -133,7 +133,7 @@
 import { ref, computed } from 'vue';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useSettingsStore } from '../stores/settings.js';
-import { formatTokenCount } from '@claudetools/shared';
+import { formatTokenCount } from '@circuschief/shared';
 import TokenWeightsModal from './TokenWeightsModal.vue';
 
 const sessionsStore = useInjectedSessionsStore();

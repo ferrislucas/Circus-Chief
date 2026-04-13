@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { sessions, sessionTemplates, modelProviders } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from '../services/summaryService.js';
 import { setSessionNameFromPr } from '../services/prUrlService.js';
 import { requireSession } from '../middleware/sessionLookup.js';
