@@ -272,7 +272,7 @@ const getStatusIcon = (status) => getStatusIconSvg(status);
   border: 1px solid transparent;
 }
 
-.button-status-indicator svg {
+.button-status-indicator :deep(svg) {
   width: 0.75rem;
   height: 0.75rem;
 }
@@ -295,7 +295,7 @@ const getStatusIcon = (status) => getStatusIconSvg(status);
   border-color: #3fb950;
 }
 
-.button-status-success svg {
+.button-status-success :deep(svg) {
   animation: pop-in 0.3s ease-out;
 }
 
@@ -305,7 +305,7 @@ const getStatusIcon = (status) => getStatusIconSvg(status);
   border-color: #f85149;
 }
 
-.button-status-error svg {
+.button-status-error :deep(svg) {
   animation: shake 0.4s ease-in-out;
 }
 

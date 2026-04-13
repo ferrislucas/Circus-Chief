@@ -585,7 +585,7 @@ defineExpose({
   justify-content: center;
 }
 
-.status-indicator svg {
+.status-indicator :deep(svg) {
   width: 0.875rem;
   height: 0.875rem;
 }
@@ -595,7 +595,7 @@ defineExpose({
   color: var(--color-success);
 }
 
-.status-success svg {
+.status-success :deep(svg) {
   animation: pop-in 0.3s ease-out;
 }
 
@@ -604,11 +604,14 @@ defineExpose({
   color: var(--color-error);
 }
 
-.status-error svg {
+.status-error :deep(svg) {
   animation: shake 0.4s ease-in-out;
 }
 
 .status-running {
+  background-color: rgba(210, 153, 34, 0.3);
+  color: #d29922;
+  border-color: #d29922;
   animation: hourglass-flip 2s ease-in-out infinite;
 }
 
