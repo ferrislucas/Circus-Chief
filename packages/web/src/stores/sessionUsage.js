@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { calculateBillableTokens, formatTokenCount } from '@claudetools/shared';
+import { calculateBillableTokens, formatTokenCount } from '@circuschief/shared';
 import { useSettingsStore } from './settings.js';
 
 /**

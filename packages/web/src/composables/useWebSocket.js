@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import { WS_RECONNECT_BASE_DELAY, WS_RECONNECT_MAX_DELAY, parseMessage, createMessage, WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_RECONNECT_BASE_DELAY, WS_RECONNECT_MAX_DELAY, parseMessage, createMessage, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { sessionSubscriptionCounts } from './useSessionSubscription.js';
 import { projectSubscriptionIds } from './useProjectSubscription.js';
 

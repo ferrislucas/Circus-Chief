@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useSessionsStore } from './sessions.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
+import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
 
 // Mock the API module
 vi.mock('../composables/useApi.js', () => ({

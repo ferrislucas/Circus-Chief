@@ -1,7 +1,7 @@
 import os from 'os';
 import fs from 'fs';
 import { execFile, execFileSync } from 'child_process';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { broadcast } from '../ws/index.js';
 
 // Broadcast interval in milliseconds (5 seconds)

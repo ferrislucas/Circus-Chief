@@ -64,7 +64,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
 import * as kanbanService from './kanbanService.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   createWorkLog,
   associateAndBroadcastWorkLogs,

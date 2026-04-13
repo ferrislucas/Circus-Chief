@@ -1,5 +1,5 @@
 import { databaseManager } from './DatabaseManager.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
+import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
 
 const TOKEN_WEIGHTS_KEY = 'token_cost_weights';
 const SUMMARY_SETTINGS_KEY = 'summary_settings';

@@ -5,7 +5,7 @@
       class="live-header"
     >
       <span class="loading-spinner" />
-      <span class="live-title">Claude is working...</span>
+      <span class="live-title">Agent is working...</span>
       <span
         v-if="totalCount"
         class="live-count"
@@ -188,7 +188,7 @@ defineExpose({
   }
 }
 
-/* Hide "Claude is working..." text on extremely small screens */
+/* Hide "Agent is working..." text on extremely small screens */
 @media (max-width: 360px) {
   .live-title {
     display: none;

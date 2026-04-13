@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { kanbanBoards, kanbanLanes, kanbanCards, projects } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   CreateKanbanLaneRequest,
   UpdateKanbanLaneRequest,
@@ -9,7 +9,7 @@ import {
   CreateKanbanCardRequest,
   MoveKanbanCardRequest,
   ReorderKanbanCardsRequest,
-} from '@claudetools/shared/contracts/kanban';
+} from '@circuschief/shared/contracts/kanban';
 import { moveCard as moveCardService } from '../services/kanbanService.js';
 
 const router = Router({ mergeParams: true });

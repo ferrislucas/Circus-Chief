@@ -22,7 +22,7 @@ vi.mock('../services/kanbanService.js', () => ({
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
 import { moveCard as moveCardService } from '../services/kanbanService.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Kanban API', () => {
   let app;

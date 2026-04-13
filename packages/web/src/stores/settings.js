@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@claudetools/shared';
+import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
 
 export const useSettingsStore = defineStore('settings', {
   state: () => ({

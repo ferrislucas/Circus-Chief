@@ -6,7 +6,7 @@
  * Produces dist-package/ with the same packages/ tree shape so that all
  * __dirname-relative paths (schema.sql, ../../web/dist) keep working.
  *
- * The only transform: rewrite `@claudetools/shared` imports to relative paths.
+ * The only transform: rewrite `@circuschief/shared` imports to relative paths.
  */
 
 import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
@@ -46,7 +46,7 @@ if (!posthogKey) {
 console.log('Building frontend...');
 // Always explicitly set VITE_POSTHOG_KEY (even when empty) to prevent Vite
 // from picking up stale values from any local .env files.
-execSync('yarn workspace @claudetools/web build', {
+execSync('yarn workspace @circuschief/web build', {
   cwd: ROOT,
   stdio: 'inherit',
   env: {
@@ -92,8 +92,8 @@ cpSync(join(ROOT, 'packages/shared/package.json'), join(DIST, 'packages/shared/p
 console.log('Copying packages/server/bin...');
 cpSync(join(ROOT, 'packages/server/bin'), join(DIST, 'packages/server/bin'), { recursive: true });
 
-// --- 4. Rewrite @claudetools/shared imports to relative paths ---
-console.log('Rewriting @claudetools/shared imports...');
+// --- 4. Rewrite @circuschief/shared imports to relative paths ---
+console.log('Rewriting @circuschief/shared imports...');
 
 function rewriteFile(filePath) {
   const content = readFileSync(filePath, 'utf-8');
@@ -111,17 +111,17 @@ function rewriteFile(filePath) {
   let updated = content;
 
   // NOTE: Only static `import ... from '...'` syntax is rewritten here.
-  // If require() or dynamic import() of @claudetools/shared are introduced,
+  // If require() or dynamic import() of @circuschief/shared are introduced,
   // this script must be updated to handle those patterns as well.
   //
-  // Rewrite: from '@claudetools/shared/contracts/foo' → relative path to shared/src/contracts/foo
-  // Rewrite: from '@claudetools/shared' → relative path to shared/src/index.js
+  // Rewrite: from '@circuschief/shared/contracts/foo' → relative path to shared/src/contracts/foo
+  // Rewrite: from '@circuschief/shared' → relative path to shared/src/index.js
   updated = updated.replace(
-    /from\s+['"]@claudetools\/shared\/([^'"]+)['"]/g,
+    /from\s+['"]@circuschief\/shared\/([^'"]+)['"]/g,
     (match, subpath) => `from '${relPath}/${subpath}.js'`
   );
   updated = updated.replace(
-    /from\s+['"]@claudetools\/shared['"]/g,
+    /from\s+['"]@circuschief\/shared['"]/g,
     `from '${relPath}/index.js'`
   );
 
@@ -156,15 +156,15 @@ const sharedPkg = JSON.parse(readFileSync(join(ROOT, 'packages/shared/package.js
 
 // Merge runtime deps (server + shared), excluding workspace references
 const deps = { ...sharedPkg.dependencies, ...serverPkg.dependencies };
-delete deps['@claudetools/shared'];
+delete deps['@circuschief/shared'];
 
 const publishPkg = {
-  name: 'claudetools',
+  name: 'circuschief',
   version,
   description: 'Local-first web UI for managing Claude Code sessions',
   type: 'module',
   bin: {
-    claudetools: './packages/server/bin/cli.js',
+    circuschief: './packages/server/bin/cli.js',
   },
   files: [
     'packages/server/bin/',
@@ -200,7 +200,7 @@ console.log('Package built in dist-package/');
 console.log('');
 console.log('To test locally:');
 console.log('  cd dist-package && npm pack');
-console.log(`  npx ./dist-package/claudetools-${version}.tgz`);
+console.log(`  npx ./dist-package/circuschief-${version}.tgz`);
 console.log('');
 console.log('To publish:');
 console.log('  cd dist-package && npm publish');

@@ -5,7 +5,7 @@ import {
   projects,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';

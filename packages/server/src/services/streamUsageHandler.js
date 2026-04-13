@@ -1,6 +1,6 @@
 import { sessions, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { updateTurnUsage, currentTurnUsage, estimatedOutputTokens, estimateTokens } from './usageTracker.js';
 import { activeConversationIds, currentModels } from './streamEventHandler.js';
 
