@@ -39,7 +39,7 @@ import commandButtonsRouter from './commandButtons.js';
 import sessionsRouter from './sessions.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { commandRunner } from '../services/commandRunner.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Command Buttons API', () => {
   let app;

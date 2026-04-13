@@ -87,7 +87,7 @@ vi.mock('../components/ModelSelector.vue', () => ({
   },
 }));
 
-vi.mock('@claudetools/shared', async (importOriginal) => {
+vi.mock('@circuschief/shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,

@@ -70,7 +70,7 @@
             placeholder="Shell command to run when a session is created..."
           />
           <p class="form-help">
-            Runs in the background after session creation. Environment variables: CLAUDETOOLS_SESSION_ID, CLAUDETOOLS_PROJECT_ID, CLAUDETOOLS_SESSION_NAME
+            Runs in the background after session creation. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
           </p>
         </div>
 
@@ -87,7 +87,7 @@
             placeholder="Shell command to run when a session is deleted..."
           />
           <p class="form-help">
-            Runs in the background after session deletion. Environment variables: CLAUDETOOLS_SESSION_ID, CLAUDETOOLS_PROJECT_ID, CLAUDETOOLS_SESSION_NAME
+            Runs in the background after session deletion. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
           </p>
         </div>
       </details>
@@ -128,7 +128,7 @@ import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
-import { DEFAULT_SYSTEM_PROMPT } from '@claudetools/shared/constants';
+import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared/constants';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();

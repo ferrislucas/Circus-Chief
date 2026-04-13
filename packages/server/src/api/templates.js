@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { sessionTemplates } from '../database.js';
-import { CreateSessionTemplateRequest, UpdateSessionTemplateRequest } from '@claudetools/shared/contracts/templates';
+import { CreateSessionTemplateRequest, UpdateSessionTemplateRequest } from '@circuschief/shared/contracts/templates';
 
 const router = Router();
 

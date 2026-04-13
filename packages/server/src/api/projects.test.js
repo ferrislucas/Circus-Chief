@@ -26,7 +26,7 @@ vi.mock('../services/gitSessionSetup.js', () => ({
 import projectsRouter from './projects.js';
 import { broadcastToProject } from '../websocket.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Projects API', () => {
   let app;

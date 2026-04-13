@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { messages, conversations, projects } from '../database.js';
 import { continueSessionWithExistingMessage } from '../services/sessionManager.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { requireSession } from '../middleware/sessionLookup.js';
 
 const router = Router();

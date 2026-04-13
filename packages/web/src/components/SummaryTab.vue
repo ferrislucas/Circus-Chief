@@ -81,7 +81,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { format, formatDistanceToNow } from 'date-fns';
-import { formatTokenCount } from '@claudetools/shared';
+import { formatTokenCount } from '@circuschief/shared';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';

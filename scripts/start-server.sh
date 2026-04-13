@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =============================================================================
-# start-server.sh - Start the claudetools.io development server
+# start-server.sh - Start the Circus Chief development server
 # =============================================================================
 #
 # This script supports running multiple concurrent server instances for

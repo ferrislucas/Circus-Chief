@@ -15,13 +15,13 @@ You are an expert CI/CD automation agent responsible for running the complete te
    - Expected duration: 10-30 seconds
 
 2. **Server Unit Tests** (Vitest)
-   - Command: `yarn workspace @claudetools/server test`
+   - Command: `yarn workspace @circuschief/server test`
    - Sleep interval: 30 seconds between status checks
    - Expected duration: 30-60 seconds
    - Test files: 41 files in `packages/server/test/`
 
 3. **Web Unit Tests** (Vitest)
-   - Command: `yarn workspace @claudetools/web test`
+   - Command: `yarn workspace @circuschief/web test`
    - Sleep interval: 30 seconds between status checks
    - Expected duration: 30-60 seconds
    - Test files: 26 files in `packages/web/src/`
@@ -98,7 +98,7 @@ nohup yarn lint > "$OUTDIR/lint.log" 2>&1 &
 echo $! > "$OUTDIR/lint.pid"
 
 # Example for server tests:
-nohup yarn workspace @claudetools/server test > "$OUTDIR/server.log" 2>&1 &
+nohup yarn workspace @circuschief/server test > "$OUTDIR/server.log" 2>&1 &
 echo $! > "$OUTDIR/server.pid"
 ```
 

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { requireSession } from '../middleware/sessionLookup.js';
 import { validateDraftSession, startDraft, DraftSessionError } from '../services/draftSessionService.js';
 

@@ -1,4 +1,4 @@
-# claudetools.io
+# Circus Chief
 
 A local-first web platform for managing Claude Code sessions with a visual canvas for artifacts.
 
@@ -46,15 +46,15 @@ This starts:
 
 ```bash
 # Server only
-yarn workspace @claudetools/server dev      # Development with auto-reload
-yarn workspace @claudetools/server start    # Production
-yarn workspace @claudetools/server test     # Unit tests
+yarn workspace @circuschief/server dev      # Development with auto-reload
+yarn workspace @circuschief/server start    # Production
+yarn workspace @circuschief/server test     # Unit tests
 
 # Web only
-yarn workspace @claudetools/web dev         # Vite dev server
-yarn workspace @claudetools/web build       # Production build
-yarn workspace @claudetools/web preview     # Preview production build
-yarn workspace @claudetools/web test        # Unit tests
+yarn workspace @circuschief/web dev         # Vite dev server
+yarn workspace @circuschief/web build       # Production build
+yarn workspace @circuschief/web preview     # Preview production build
+yarn workspace @circuschief/web test        # Unit tests
 ```
 
 ## Testing
@@ -63,8 +63,8 @@ yarn workspace @claudetools/web test        # Unit tests
 
 ```bash
 yarn test                                    # All unit tests
-yarn workspace @claudetools/server test      # Server tests only
-yarn workspace @claudetools/web test         # Web tests only
+yarn workspace @circuschief/server test      # Server tests only
+yarn workspace @circuschief/web test         # Web tests only
 ```
 
 ### E2E Tests (Playwright)
@@ -86,11 +86,11 @@ yarn workspace @claudetools/web test         # Web tests only
 |----------|---------|-------------|
 | `PORT` | `5000` | Server port |
 | `NODE_ENV` | `development` | Environment mode |
-| `DB_PATH` | `claudetools.db` | SQLite database path |
+| `DB_PATH` | `circuschief.db` | SQLite database path |
 
 ### Web (Vite) — Build-Time Only
 
-These variables are resolved during `yarn build` (specifically `vite build`). They are string-replaced into the compiled JS bundle and **cannot be changed at runtime**. End users running `npx claudetools` get whatever values were set when the package was built.
+These variables are resolved during `yarn build` (specifically `vite build`). They are string-replaced into the compiled JS bundle and **cannot be changed at runtime**. End users running `npx circuschief` get whatever values were set when the package was built.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -120,13 +120,13 @@ This application uses [PostHog](https://posthog.com) for anonymous usage analyti
 
 ### How it works
 
-claudetools is distributed as an npm package. End users run it via `npx claudetools` — no build step required on their machine.
+Circus Chief is distributed as an npm package. End users run it via `npx circuschief` — no build step required on their machine.
 
 The build/publish/run flow:
 
 1. **Build** (`yarn build`): Vite compiles the Vue.js frontend into static assets (`packages/web/dist/`). Server-side code requires no compilation.
 2. **Publish** (`npm publish`): The package ships with the pre-built frontend included.
-3. **Run** (`npx claudetools`): The Express server starts and serves the pre-built frontend as static files.
+3. **Run** (`npx circuschief`): The Express server starts and serves the pre-built frontend as static files.
 
 ### Build-time vs runtime variables
 
@@ -149,7 +149,7 @@ yarn install --frozen-lockfile
 yarn build
 
 # Start server (serves frontend static files)
-NODE_ENV=production yarn workspace @claudetools/server start
+NODE_ENV=production yarn workspace @circuschief/server start
 ```
 
 ### Publishing to npm

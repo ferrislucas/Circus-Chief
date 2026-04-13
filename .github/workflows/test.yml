@@ -49,9 +49,9 @@ jobs:
 
       - name: Run unit tests
         run: |
-          yarn workspace @claudetools/shared test
-          yarn workspace @claudetools/server test
-          yarn workspace @claudetools/web test
+          yarn workspace @circuschief/shared test
+          yarn workspace @circuschief/server test
+          yarn workspace @circuschief/web test
 
   coverage:
     name: Coverage
@@ -71,6 +71,6 @@ jobs:
 
       - name: Run coverage
         run: |
-          yarn workspace @claudetools/shared test:coverage
-          yarn workspace @claudetools/server test:coverage
-          yarn workspace @claudetools/web test:coverage
+          yarn workspace @circuschief/shared test:coverage
+          yarn workspace @circuschief/server test:coverage
+          yarn workspace @circuschief/web test:coverage

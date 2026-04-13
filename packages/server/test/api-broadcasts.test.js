@@ -49,7 +49,7 @@ vi.mock('../src/services/hookService.js', () => ({
 // import { broadcastToSession, broadcastToProject } from '../src/websocket.js';
 // import sessionsRouter from '../src/api/sessions.js';
 // import projectsRouter from '../src/api/projects.js';
-// import { WS_MESSAGE_TYPES } from '@claudetools/shared';
+// import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 // TODO: supertest package not properly installed due to peer dependency conflicts
 // Skip this test suite until the dependency issue is resolved

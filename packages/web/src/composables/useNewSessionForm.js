@@ -1,5 +1,5 @@
 import { ref, nextTick } from 'vue';
-import { generateWorktreeBranch } from '@claudetools/shared';
+import { generateWorktreeBranch } from '@circuschief/shared';
 
 /**
  * Composable for managing new session form state and defaults.
