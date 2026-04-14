@@ -365,7 +365,7 @@ This session is running in an isolated git worktree:
 - Worktree path: ${session.gitWorktree}
 - Branch: ${session.gitBranch || 'unknown'}
 
-CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working directory is already set to the worktree. Running \`cd /home/ubuntu/workspace/circuschief.io && ...\` will escape the worktree isolation and affect the main repository instead.`;
+CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working directory is already set to the worktree. Running \`cd /home/ubuntu/workspace/circus-chief && ...\` will escape the worktree isolation and affect the main repository instead.`;
 }
 
 /**
