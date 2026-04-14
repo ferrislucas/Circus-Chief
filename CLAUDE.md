@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Circus Chief (circuschief.io) is a local-first web application for managing Claude Code sessions with a visual canvas for artifacts. It allows users to view/manage sessions, share a visual canvas (images, documents, data), and interact with active Claude Code sessions from a web browser.
+Circus Chief is a local-first web application for managing Claude Code sessions with a visual canvas for artifacts. It allows users to view/manage sessions, share a visual canvas (images, documents, data), and interact with active Claude Code sessions from a web browser.
 
 ## Common Commands
 
@@ -103,15 +103,15 @@ Dark mode only using Tailwind CSS. Key colors:
 
 **CRITICAL: Never use `cd` to change to a hardcoded project path before running commands.**
 
-When running in a circuschief.io session, your working directory is already set correctly. This may be:
+When running in a Circus Chief session, your working directory is already set correctly. This may be:
 - The main project directory
 - A git worktree for branch isolation
 
 ### Do NOT do this:
 ```bash
 # BAD - bypasses worktree isolation
-cd /home/ubuntu/workspace/circuschief.io && git status
-cd /home/ubuntu/workspace/circuschief.io && yarn test
+cd /home/ubuntu/workspace/circus-chief && git status
+cd /home/ubuntu/workspace/circus-chief && yarn test
 ```
 
 ### Do this instead:

@@ -41,8 +41,8 @@ describe('prUrlService', () => {
 
   describe('parsePrUrl', () => {
     it('parses a valid GitHub PR URL', () => {
-      const result = parsePrUrl('https://github.com/anthropics/circuschief.io/pull/123');
-      expect(result).toEqual({ owner: 'anthropics', repo: 'circuschief.io', number: 123 });
+      const result = parsePrUrl('https://github.com/anthropics/circus-chief/pull/123');
+      expect(result).toEqual({ owner: 'anthropics', repo: 'circus-chief', number: 123 });
     });
 
     it('returns null for null input', () => {
@@ -70,8 +70,8 @@ describe('prUrlService', () => {
   describe('validatePrUrl', () => {
     it('validates matching repository', () => {
       const result = validatePrUrl(
-        'https://github.com/anthropics/circuschief.io/pull/123',
-        'https://github.com/anthropics/circuschief.io'
+        'https://github.com/anthropics/circus-chief/pull/123',
+        'https://github.com/anthropics/circus-chief'
       );
       expect(result.valid).toBe(true);
       expect(result.mismatch).toBe(false);
@@ -80,8 +80,8 @@ describe('prUrlService', () => {
     it('rejects PR from different owner', () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const result = validatePrUrl(
-        'https://github.com/user/circuschief.io/pull/123',
-        'https://github.com/anthropics/circuschief.io'
+        'https://github.com/user/circus-chief/pull/123',
+        'https://github.com/anthropics/circus-chief'
       );
       expect(result.valid).toBe(false);
       expect(result.mismatch).toBe(true);
@@ -92,7 +92,7 @@ describe('prUrlService', () => {
       const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const result = validatePrUrl(
         'https://github.com/anthropics/different-repo/pull/123',
-        'https://github.com/anthropics/circuschief.io'
+        'https://github.com/anthropics/circus-chief'
       );
       expect(result.valid).toBe(false);
       expect(result.mismatch).toBe(true);
