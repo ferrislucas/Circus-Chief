@@ -6,7 +6,8 @@
 
 <p align="center">
   An open-source, touch-optimized control plane for managing Claude Code agents.<br/>
-  It runs on your machine with one goal: empower phones and tablets to build software with Claude Code.
+  It runs on your machine with one goal: empower phones and tablets to build software with Claude Code.<br/><br/>
+  Supports Anthropic API, AWS Bedrock, Google Vertex AI, or any Anthropic-compatible endpoint.
 </p>
 
 ---
@@ -27,11 +28,12 @@
 - **Command buttons** — run shell commands without touching a keyboard, with live output streaming
 - **Slash command wizards** — tap through complex operations step by step with argument forms
 
-### Spend less on tokens
+### Orchestration
 
-- **Bring your own provider** — Anthropic API, AWS Bedrock, Google Vertex AI, or any Anthropic-compatible endpoint
 - **Session scheduling** — queue sessions to run at specific times
 - **Auto-retry on token exhaustion or provider downtime** — configurable delay, max retries, and proactive rescheduling before hitting limits
+- **Kanban lane automation** — trigger templates automatically as sessions move between lanes
+- **Ask the agent to orchestrate** — agents can create sessions and place them in kanban lanes via the API, so you can ask one agent to fan out work across files or folders and track it all on the board
 
 ### Git-native workflow
 
