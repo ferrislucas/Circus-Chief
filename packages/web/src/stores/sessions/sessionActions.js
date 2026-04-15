@@ -84,12 +84,12 @@ export const sessionActions = {
     } finally { this.loadingScheduled = false; }
   },
 
-  async fetchSessions(projectId) {
-    this.loading = true;
+  async fetchSessions(projectId, { silent = false } = {}) {
+    if (!silent) this.loading = true;
     this.error = null;
     try { this.sessions = await api.getProjectSessions(projectId, false, null); }
     catch (err) { this.error = err.message; }
-    finally { this.loading = false; }
+    finally { if (!silent) this.loading = false; }
   },
 
   async fetchArchivedSessions(projectId, { reset = true } = {}) {
