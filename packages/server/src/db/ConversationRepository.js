@@ -91,26 +91,31 @@ export class ConversationRepository extends BaseRepository {
    * @param {Object} data - Fields to update
    * @returns {Object} The updated conversation
    */
-  update(id, data) {
+  /**
+   * Build the SET clause fields from data, collecting updates and values.
+   * Handles the isActive special case (deactivating other conversations).
+   * @param {string} id - Conversation ID
+   * @param {Object} data - Fields to update
+   * @returns {{ updates: string[], values: any[] }}
+   */
+  #buildUpdateFields(id, data) {
+    const FIELD_MAP = {
+      name: 'name',
+      summary: 'summary',
+      summaryGeneratedAt: 'summary_generated_at',
+      claudeSessionId: 'claude_session_id',
+    };
+
     const updates = [];
     const values = [];
 
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
+    for (const [key, column] of Object.entries(FIELD_MAP)) {
+      if (data[key] !== undefined) {
+        updates.push(`${column} = ?`);
+        values.push(data[key]);
+      }
     }
-    if (data.summary !== undefined) {
-      updates.push('summary = ?');
-      values.push(data.summary);
-    }
-    if (data.summaryGeneratedAt !== undefined) {
-      updates.push('summary_generated_at = ?');
-      values.push(data.summaryGeneratedAt);
-    }
-    if (data.claudeSessionId !== undefined) {
-      updates.push('claude_session_id = ?');
-      values.push(data.claudeSessionId);
-    }
+
     if (data.isActive !== undefined) {
       // If setting this conversation as active, deactivate others first
       if (data.isActive) {
@@ -124,6 +129,12 @@ export class ConversationRepository extends BaseRepository {
       updates.push('is_active = ?');
       values.push(data.isActive ? 1 : 0);
     }
+
+    return { updates, values };
+  }
+
+  update(id, data) {
+    const { updates, values } = this.#buildUpdateFields(id, data);
 
     if (updates.length === 0) {
       return this.getById(id);

@@ -252,30 +252,45 @@ function createMinimalSummary(sessionId, session, allMessages) {
 }
 
 /**
- * Internal implementation of generateSummary (called by concurrency guard wrapper)
+ * Retry summary generation if parsing failed and retries remain.
+ * Returns { shouldRetry: true, result } if a retry was performed,
+ * or { shouldRetry: false } if no retry is needed.
+ * @param {Object} summaryData - Parsed summary data (may have _parseFailed flag)
+ * @param {number} retryCount - Current retry count
  * @param {string} sessionId
- * @param {number} retryCount
  * @param {boolean} force
  * @param {boolean} userInitiated
- * @returns {Promise<Object|null>}
+ * @returns {Promise<{ shouldRetry: boolean, result?: Object|null }>}
  */
+async function retryIfParseFailed(summaryData, retryCount, { sessionId, force, userInitiated }) {
+  if (!summaryData._parseFailed || retryCount >= MAX_RETRIES) {
+    return { shouldRetry: false };
+  }
+
+  console.log(
+    `[SummaryService] Parse failed for session ${sessionId}, retrying (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`
+  );
+  const backoffMs = 1000 * (retryCount + 1);
+  await new Promise((resolve) => setTimeout(resolve, backoffMs));
+  const result = await _doGenerateSummary(sessionId, retryCount + 1, force, userInitiated);
+  return { shouldRetry: true, result };
+}
+
 async function _doGenerateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
+  // Early-exit checks
+  const check = shouldGenerateSummary(sessionId, force, userInitiated);
+  if (check.skip) return check.result;
+
+  const { session, globalSettings, existingSummary, allMessages } = check;
+  const recentMessages = allMessages.slice(-MAX_MESSAGES);
+
+  // Broadcast that we're generating (do this early so UI always gets the event)
+  broadcastGeneratingStatus(sessionId, true);
+
   try {
-    // Early-exit checks
-    const check = shouldGenerateSummary(sessionId, force, userInitiated);
-    if (check.skip) return check.result;
-
-    const { session, globalSettings, existingSummary, allMessages } = check;
-    const recentMessages = allMessages.slice(-MAX_MESSAGES);
-
-    // Broadcast that we're generating (do this early so UI always gets the event)
-    broadcastGeneratingStatus(sessionId, true);
-
     // Handle sessions with too few messages
     if (allMessages.length < MIN_MESSAGES_FOR_SUMMARY) {
-      const summary = createMinimalSummary(sessionId, session, allMessages);
-      broadcastGeneratingStatus(sessionId, false);
-      return summary;
+      return createMinimalSummary(sessionId, session, allMessages);
     }
 
     // Build conversation context and prompt
@@ -287,24 +302,13 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       systemPrompt: SUMMARY_SYSTEM_PROMPT,
     });
 
-    // Parse response
+    // Parse response and retry if needed
     const summaryData = parseSummaryResponse(responseText);
-
-    // Retry if parsing failed and we haven't exhausted retries
-    if (summaryData._parseFailed && retryCount < MAX_RETRIES) {
-      console.log(
-        `[SummaryService] Parse failed for session ${sessionId}, retrying (attempt ${retryCount + 2}/${MAX_RETRIES + 1})`
-      );
-      const backoffMs = 1000 * (retryCount + 1);
-      await new Promise((resolve) => setTimeout(resolve, backoffMs));
-      return _doGenerateSummary(sessionId, retryCount + 1, force, userInitiated);
-    }
+    const retryResult = await retryIfParseFailed(summaryData, retryCount, { sessionId, force, userInitiated });
+    if (retryResult.shouldRetry) return retryResult.result;
 
     // Persist summary and broadcast updates
     const summary = await saveSummaryResult(sessionId, summaryData, session, allMessages);
-
-    // Clear the generating flag so the UI knows generation is complete
-    broadcastGeneratingStatus(sessionId, false);
 
     console.log(`[SummaryService] Successfully generated summary for session ${sessionId}`);
 
@@ -320,11 +324,9 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       stack: error.stack,
       sessionId,
     });
-
-    // Broadcast that generation stopped
-    broadcastGeneratingStatus(sessionId, false);
-
     return null;
+  } finally {
+    broadcastGeneratingStatus(sessionId, false);
   }
 }
 

@@ -142,40 +142,28 @@ export function useSessionInitializer({
   }
 
   /**
-   * Initialize session - called on mount AND on route change (session navigation).
-   * Sets up WebSocket subscription and handlers for the given session.
-   *
-   * @param {string} sessionId - The session ID to initialize
+   * Subscribe to the session WebSocket channel and wait for confirmation.
+   * @param {Object} subscription - The session subscription object
+   * @param {string} sessionId - The session ID
    */
-  async function initializeSession(sessionId) {
-    // STEP 1: Create new subscription for this session
-    currentSubscription = useSessionSubscription(sessionId);
-    const {
-      subscribe, unsubscribe,
-      onStatus, onMessage, onPartial, onError,
-      onCanvasAdd, onCanvasRemove, onCanvasUpdate,
-      onTodosUpdate, onSessionUpdate, onSummaryUpdate,
-      onConversationCreated, onConversationUpdated, onConversationDeleted,
-      onUsageUpdate, onChangesUpdate,
-      onWorkLog, onWorkLogsAssociated,
-      onThinkingPartial,
-      onCommandOutput, onCommandComplete, onCommandError, onCommandRunDeleted,
-    } = currentSubscription;
-
-    // STEP 2: Subscribe via the subscription object AND await connection
-    subscribe();
+  async function setupSessionSubscription(subscription, sessionId) {
+    subscription.subscribe();
     try {
       await ensureSubscribed(sessionId);
     } catch (error) {
       console.error('Failed to subscribe to session updates:', error);
       uiStore.error('Failed to subscribe to session updates');
     }
+  }
 
-    // STEP 3: Fetch critical data BEFORE registering handlers
+  /**
+   * Fetch critical initial data for the session (session info, conversations, command buttons).
+   * @param {string} sessionId - The session ID
+   */
+  async function fetchCriticalSessionData(sessionId) {
     await sessionsStore.fetchSession(sessionId);
     await sessionsStore.fetchConversations(sessionId);
 
-    // Fetch command buttons for the project
     const projectId = sessionsStore.currentSession?.projectId;
     if (projectId) {
       try {
@@ -184,9 +172,28 @@ export function useSessionInitializer({
         console.debug('Failed to fetch command buttons:', error);
       }
     }
+  }
 
-    // STEP 4: Register all handlers
-    cleanups.push(
+  /**
+   * Register all WebSocket event handlers for the session and return cleanup functions.
+   * @param {Object} subscription - The session subscription object
+   * @param {string} sessionId - The session ID
+   * @returns {Function[]} Array of cleanup functions
+   */
+  function registerSessionHandlers(subscription, sessionId) {
+    const {
+      onStatus, onMessage, onPartial, onError,
+      onCanvasAdd, onCanvasRemove, onCanvasUpdate,
+      onTodosUpdate, onSessionUpdate, onSummaryUpdate,
+      onConversationCreated, onConversationUpdated, onConversationDeleted,
+      onUsageUpdate, onChangesUpdate,
+      onWorkLog, onWorkLogsAssociated,
+      onThinkingPartial,
+    } = subscription;
+
+    const handlers = [];
+
+    handlers.push(
       onStatus((status) => {
         sessionsStore.updateSessionStatus(sessionId, status);
         if (status === 'running' || status === 'starting') {
@@ -200,32 +207,16 @@ export function useSessionInitializer({
       })
     );
 
-    cleanups.push(
-      onMessage((message) => {
-        sessionsStore.addMessage(message);
-        sessionsStore.clearPartialText();
-      })
-    );
+    handlers.push(onMessage((message) => {
+      sessionsStore.addMessage(message);
+      sessionsStore.clearPartialText();
+    }));
 
-    cleanups.push(
-      onPartial((text) => {
-        sessionsStore.setPartialText(text);
-      })
-    );
+    handlers.push(onPartial((text) => { sessionsStore.setPartialText(text); }));
+    handlers.push(onWorkLog((log) => { sessionsStore.addWorkLog(log); }));
+    handlers.push(onWorkLogsAssociated((messageId) => { sessionsStore.associateWorkLogs(messageId); }));
 
-    cleanups.push(
-      onWorkLog((log) => {
-        sessionsStore.addWorkLog(log);
-      })
-    );
-
-    cleanups.push(
-      onWorkLogsAssociated((messageId) => {
-        sessionsStore.associateWorkLogs(messageId);
-      })
-    );
-
-    cleanups.push(
+    handlers.push(
       onThinkingPartial((thinking) => {
         if (thinking === null) {
           sessionsStore.clearPartialThinking(sessionId);
@@ -235,61 +226,17 @@ export function useSessionInitializer({
       })
     );
 
-    cleanups.push(
-      onConversationCreated((conversation) => {
-        sessionsStore.addConversation(conversation);
-      })
-    );
+    handlers.push(onConversationCreated((conversation) => { sessionsStore.addConversation(conversation); }));
+    handlers.push(onError((err) => { uiStore.error(err); }));
+    handlers.push(onCanvasAdd((item) => { canvasStore.addItem(item); }));
+    handlers.push(onCanvasRemove((itemId) => { canvasStore.removeItem(itemId); }));
+    handlers.push(onCanvasUpdate((item) => { canvasStore.patchItem(item); }));
+    handlers.push(onTodosUpdate((todos, conversationId) => { todosStore.updateTodos(todos, conversationId); }));
+    handlers.push(onSessionUpdate((session) => { sessionsStore.updateSession(session); }));
+    handlers.push(onSummaryUpdate((newSummary) => { summary.value = newSummary; }));
+    handlers.push(onConversationUpdated((conversation) => { sessionsStore.updateConversation(conversation); }));
 
-    cleanups.push(
-      onError((error) => {
-        uiStore.error(error);
-      })
-    );
-
-    cleanups.push(
-      onCanvasAdd((item) => {
-        canvasStore.addItem(item);
-      })
-    );
-
-    cleanups.push(
-      onCanvasRemove((itemId) => {
-        canvasStore.removeItem(itemId);
-      })
-    );
-
-    cleanups.push(
-      onCanvasUpdate((item) => {
-        canvasStore.patchItem(item);
-      })
-    );
-
-    cleanups.push(
-      onTodosUpdate((todos, conversationId) => {
-        todosStore.updateTodos(todos, conversationId);
-      })
-    );
-
-    cleanups.push(
-      onSessionUpdate((session) => {
-        sessionsStore.updateSession(session);
-      })
-    );
-
-    cleanups.push(
-      onSummaryUpdate((newSummary) => {
-        summary.value = newSummary;
-      })
-    );
-
-    cleanups.push(
-      onConversationUpdated((conversation) => {
-        sessionsStore.updateConversation(conversation);
-      })
-    );
-
-    cleanups.push(
+    handlers.push(
       onConversationDeleted((conversationId, newActiveConv) => {
         sessionsStore.removeConversation(conversationId, newActiveConv, sessionId);
         if (newActiveConv) {
@@ -298,7 +245,7 @@ export function useSessionInitializer({
       })
     );
 
-    cleanups.push(
+    handlers.push(
       onUsageUpdate((msg) => {
         if (msg.isFinal) {
           sessionsStore.finalizeUsage(msg.usage, msg.conversationId);
@@ -308,7 +255,7 @@ export function useSessionInitializer({
       })
     );
 
-    cleanups.push(
+    handlers.push(
       onChangesUpdate((changeCount, hasChangesUpdate) => {
         changesFileCount.value = changeCount;
         if (typeof hasChangesUpdate === 'boolean') {
@@ -319,29 +266,36 @@ export function useSessionInitializer({
       })
     );
 
-    cleanups.push(
-      ...registerCommandHandlers(currentSubscription, sessionId, { sessionsStore, commandButtonsStore })
+    handlers.push(
+      ...registerCommandHandlers(subscription, sessionId, { sessionsStore, commandButtonsStore })
     );
 
-    // STEP 5: Fetch remaining data
-    await sessionsStore.fetchMessages(sessionId);
-    await sessionsStore.fetchWorkLogs(sessionId);
-    await canvasStore.fetchItems(sessionId);
+    return handlers;
+  }
+
+  /**
+   * Fetch remaining (non-critical) session data and set up reconnect handler.
+   * @param {string} sessionId - The session ID
+   * @returns {Function[]} Cleanup functions for reconnect handler
+   */
+  function fetchRemainingDataAndSetupReconnect(sessionId) {
+    const reconnectCleanups = [];
+
+    sessionsStore.fetchMessages(sessionId);
+    sessionsStore.fetchWorkLogs(sessionId);
+    canvasStore.fetchItems(sessionId);
     todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
 
-    // Fetch summary for PR indicators (don't await, not critical)
     api.getSessionSummary(sessionId).then((s) => {
       summary.value = s;
     }).catch(() => {
       // Ignore errors - summary may not exist yet
     });
 
-    // Check for file system changes initially
     checkForChanges();
 
-    // Re-fetch all critical data when WebSocket reconnects (e.g., after wake-from-sleep)
     const { onReconnect } = useWebSocket();
-    cleanups.push(
+    reconnectCleanups.push(
       onReconnect(async () => {
         await sessionsStore.fetchSession(sessionId);
         await sessionsStore.fetchConversations(sessionId);
@@ -352,10 +306,34 @@ export function useSessionInitializer({
       })
     );
 
-    // Fetch templates for the selector
     if (sessionsStore.currentSession?.projectId) {
       templatesStore.fetchProjectTemplates(sessionsStore.currentSession.projectId);
     }
+
+    return reconnectCleanups;
+  }
+
+  /**
+   * Initialize session - called on mount AND on route change (session navigation).
+   * Sets up WebSocket subscription and handlers for the given session.
+   *
+   * @param {string} sessionId - The session ID to initialize
+   */
+  async function initializeSession(sessionId) {
+    // STEP 1: Create new subscription for this session
+    currentSubscription = useSessionSubscription(sessionId);
+
+    // STEP 2: Subscribe via the subscription object AND await connection
+    await setupSessionSubscription(currentSubscription, sessionId);
+
+    // STEP 3: Fetch critical data BEFORE registering handlers
+    await fetchCriticalSessionData(sessionId);
+
+    // STEP 4: Register all handlers
+    cleanups.push(...registerSessionHandlers(currentSubscription, sessionId));
+
+    // STEP 5: Fetch remaining data and set up reconnect
+    cleanups.push(...fetchRemainingDataAndSetupReconnect(sessionId));
 
     // STEP 6: Start polling if session is actively processing
     const status = sessionsStore.currentSession?.status;

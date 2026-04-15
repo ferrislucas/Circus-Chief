@@ -111,6 +111,26 @@ export class CommandRunner {
     return exitCode ?? 1;
   }
 
+  /** Handle a run failure (process error or setup exception). Flushes output, marks failed, resolves. */
+  #handleRunFailure({ entry: entryParam, runId, err, onError, resolve }) {
+    const entry = entryParam;
+    let errorOutput = `[Error] Failed to execute command: ${err.message}`;
+    if (entry) {
+      const remaining = entry.outputProcessor.flush();
+      if (remaining) { entry.output += remaining; entry.outputBuffer += remaining; }
+      this.#flushOutputBuffer(entry, runId);
+      errorOutput = entry.output;
+    }
+    const msg = entry ? `Failed to execute command: ${err.message}` : `Error running command: ${err.message}`;
+    console.error(`[commandRunner.run] Error for runId: ${runId}`, err);
+    if (onError) onError(msg);
+    if (commandRuns && typeof commandRuns.complete === 'function') {
+      try { commandRuns.complete(runId, 1, errorOutput); } catch (dbErr) { console.warn(`[commandRunner.run] DB error for runId: ${runId}`, dbErr.message); }
+    }
+    this.processes.delete(runId);
+    resolve(1);
+  }
+
   /**
    * Run a command and stream output via callback
    *
@@ -139,7 +159,6 @@ export class CommandRunner {
         const entry = this.#createProcessEntry(child, sessionId, buttonId);
         this.processes.set(runId, entry);
 
-        // Buffer timer management
         const clearBufferTimer = () => {
           if (entry.bufferFlushTimer) {
             clearInterval(entry.bufferFlushTimer);
@@ -148,7 +167,6 @@ export class CommandRunner {
         };
         entry.bufferFlushTimer = setInterval(() => this.#flushOutputBuffer(entry, runId), this.outputBufferFlushInterval);
 
-        // Data handler for both stdout and stderr
         const handleData = (data) => {
           const text = entry.outputProcessor.process(data.toString());
           if (text) {
@@ -163,20 +181,7 @@ export class CommandRunner {
 
         child.on('error', (err) => {
           clearBufferTimer();
-          const remainingText = entry.outputProcessor.flush();
-          if (remainingText) {
-            entry.output += remainingText;
-            entry.outputBuffer += remainingText;
-          }
-          this.#flushOutputBuffer(entry, runId);
-          const msg = `Failed to execute command: ${err.message}`;
-          console.error(`[commandRunner.run] Error for runId: ${runId}`, err);
-          if (onError) onError(msg);
-          if (commandRuns && typeof commandRuns.complete === 'function') {
-            try { commandRuns.complete(runId, 1, entry.output); } catch (dbErr) { console.warn('[commandRunner.run] Warning: Error completing run in database for runId:', runId, dbErr.message); }
-          }
-          this.processes.delete(runId);
-          resolve(1);
+          this.#handleRunFailure({ entry, runId, err, onError, resolve });
         });
 
         child.on('close', (exitCode, signal) => {
@@ -190,28 +195,12 @@ export class CommandRunner {
           resolve(this.#handleProcessClose({ entry, runId, exitCode, signal }, onComplete));
         });
       } catch (err) {
-        const msg = `Error running command: ${err.message}`;
-        console.error(`[commandRunner.run] Exception for runId: ${runId}`, err);
-        if (onError) onError(msg);
-        // Mark as error in database (if available) and persist the error message
-        if (commandRuns && typeof commandRuns.complete === 'function') {
-          try {
-            commandRuns.complete(runId, 1, `[Error] ${msg}`);
-          } catch (dbErr) {
-            console.warn(`[commandRunner.run] Warning: Error marking failed run in database for runId: ${runId}`, dbErr.message);
-          }
-        }
-        this.processes.delete(runId);
-        resolve(1);
+        this.#handleRunFailure({ entry: null, runId, err, onError, resolve });
       }
     });
   }
 
-  /**
-   * Kill a running process
-   * @param {string} runId
-   * @returns {boolean} True if process was killed, false if not found
-   */
+  /** Kill a running process. Returns true if killed, false if not found. */
   kill(runId) {
     const entry = this.processes.get(runId);
     if (!entry) {
@@ -279,30 +268,17 @@ export class CommandRunner {
     }
   }
 
-  /**
-   * Get all active runs
-   * @returns {Map} Map of runId -> process info
-   */
+  /** Get all active runs as a new Map. */
   getActiveRuns() {
     return new Map(this.processes);
   }
 
-  /**
-   * Check if a run is active
-   * @param {string} runId
-   * @returns {boolean}
-   */
+  /** Check if a run is active. */
   isRunning(runId) {
     return this.processes.has(runId);
   }
 
-  /**
-   * Get all running commands for a project
-   * Used for merging in-memory running commands with completed runs from the database
-   * @param {string} projectId
-   * @param {Function} getSessionById - Function to look up session by ID
-   * @returns {Array} Running command runs
-   */
+  /** Get all running commands for a project (merges in-memory with completed DB runs). */
   getRunningByProjectId(projectId, getSessionById) {
     const results = [];
     for (const [runId, entry] of this.processes.entries()) {
@@ -324,15 +300,7 @@ export class CommandRunner {
     return results;
   }
 
-  /**
-   * Get all active runs for a specific session (both running and recent completed)
-   * @param {string} sessionId
-   * @returns {Array} Array of run info objects
-   */
-  /**
-   * Mark an orphaned run as error in the database
-   * @param {Object} dbRun - The database run record
-   */
+  /** Mark an orphaned run as error in the database. */
   #markOrphanedRunAsError(dbRun) {
     console.log(
       `[commandRunner.getRunsBySession] Orphaned run detected: ${dbRun.id}, marking as error`
@@ -348,11 +316,7 @@ export class CommandRunner {
     }
   }
 
-  /**
-   * Process a database run record and return a normalized run object
-   * @param {Object} dbRun - The database run record
-   * @returns {Object} Normalized run object
-   */
+  /** Process a database run record and return a normalized run object. */
   #processDbRun(dbRun) {
     let status = dbRun.status;
     let exitCode = dbRun.exitCode;

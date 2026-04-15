@@ -37,19 +37,19 @@ module.exports = {
       },
     },
     {
-      // Vue composables are intentionally cohesive modules - allow larger functions (ratcheted 300 → 250)
+      // Vue composables are intentionally cohesive modules - allow larger functions (ratcheted 250 → 230)
       // Complex subscription/initialization composables benefit from cohesion
       files: ['packages/web/src/composables/use*.js'],
       excludedFiles: ['**/*.test.js'],
       rules: {
-        'max-lines-per-function': ['error', { max: 250, skipBlankLines: true, skipComments: true }],
+        'max-lines-per-function': ['error', { max: 230, skipBlankLines: true, skipComments: true }],
       },
     },
     {
-      // API resource classes are wrapper collections - allow larger functions (ratcheted 200 → 150)
+      // API resource classes are wrapper collections - allow larger functions (ratcheted 150 → 130)
       files: ['packages/web/src/api/resources/*Api.js'],
       rules: {
-        'max-lines-per-function': ['error', { max: 150, skipBlankLines: true, skipComments: true }],
+        'max-lines-per-function': ['error', { max: 130, skipBlankLines: true, skipComments: true }],
       },
     },
     {
@@ -58,6 +58,7 @@ module.exports = {
       rules: {
         'max-lines': 'off',
         'max-params': 'off',
+        'max-statements': 'off',
         'max-lines-per-function': 'off',
         'max-nested-callbacks': ['warn', 5],
         // SonarJS rules are too noisy for test files (repeated strings, similar test helpers)
@@ -88,11 +89,14 @@ module.exports = {
     // max-lines ratcheted from 400 → 300 in PR 4 (Vue files get 600 via override)
     'max-lines': ['error', { max: 300, skipBlankLines: true, skipComments: true }],
 
-    // max-lines-per-function ratcheted from 100 → 80 in PR 4
-    'max-lines-per-function': ['error', { max: 80, skipBlankLines: true, skipComments: true }],
+    // max-lines-per-function ratcheted from 80 → 70
+    'max-lines-per-function': ['error', { max: 70, skipBlankLines: true, skipComments: true }],
 
-    // max-nested-callbacks enforced at 3
-    'max-nested-callbacks': ['error', 3],
+    // max-nested-callbacks ratcheted from 3 → 2
+    'max-nested-callbacks': ['error', 2],
+
+    // max-statements enforced at 25 (new rule)
+    'max-statements': ['error', 25],
 
     // Phase 1 (PR 1): Hygiene rules
     // Correctness — partially or not auto-fixable, manual review expected

@@ -27,6 +27,136 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
 
   const { fetchSummariesBatch, updateSummary, cleanupSummary } = summaryCallbacks;
 
+  /**
+   * Handle command run output (for real-time status icon updates).
+   * Extracted to avoid excessive callback nesting inside the watch handler.
+   */
+  function handleCommandRunOutput(runId, sessionId, buttonId, output) {
+    const existingRun = commandButtonsStore.runs[runId];
+    const sessions = sessionsStore.sessions;
+    const storeSession = sessions.find(s => s.id === sessionId);
+    const existingSessionRun = storeSession?.latestCommandRuns?.find(r => r.runId === runId);
+    const startedAt = existingRun?.startedAt || existingSessionRun?.startedAt || Date.now();
+
+    if (!commandButtonsStore.runs[runId]) {
+      commandButtonsStore.runs[runId] = {
+        runId,
+        buttonId,
+        sessionId,
+        status: 'running',
+        output: '',
+        exitCode: null,
+        startedAt,
+        outputTruncated: false,
+      };
+    }
+    commandButtonsStore.appendOutput(runId, output);
+
+    sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+      buttonId,
+      status: 'running',
+      runId,
+      startedAt,
+    });
+  }
+
+  /**
+   * Handle command run complete.
+   * Extracted to avoid excessive callback nesting inside the watch handler.
+   */
+  function handleCommandRunComplete({ runId, sessionId, buttonId, exitCode, output }) {
+    if (!commandButtonsStore.runs[runId]) {
+      commandButtonsStore.runs[runId] = {
+        runId,
+        buttonId,
+        sessionId,
+        status: 'running',
+        output: '',
+        exitCode: null,
+        startedAt: Date.now(),
+        outputTruncated: false,
+      };
+    }
+    commandButtonsStore.completeRun(runId, exitCode, output);
+
+    const status = exitCode === 0 ? 'success' : 'error';
+    sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+      buttonId,
+      status,
+      exitCode,
+      runId,
+      completedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Handle command run error.
+   * Extracted to avoid excessive callback nesting inside the watch handler.
+   */
+  function handleCommandRunError(runId, sessionId, buttonId, error) {
+    if (!commandButtonsStore.runs[runId]) {
+      commandButtonsStore.runs[runId] = {
+        runId,
+        buttonId,
+        sessionId,
+        status: 'running',
+        output: '',
+        exitCode: null,
+        startedAt: Date.now(),
+        outputTruncated: false,
+      };
+    }
+    commandButtonsStore.errorRun(runId, error);
+
+    sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
+      buttonId,
+      status: 'error',
+      runId,
+      completedAt: Date.now(),
+    });
+  }
+
+  /**
+   * Register all project-level event handlers and return cleanup functions.
+   * @param {Object} subscription - Destructured subscription handlers
+   * @param {Object} stores - Store references
+   * @param {Object} callbacks - Summary callback functions
+   * @returns {Function[]} Array of cleanup functions
+   */
+  function registerProjectEventHandlers(subscription, stores, callbacks) {
+    const {
+      onSessionCreated, onSessionUpdated, onSessionDeleted,
+      onSessionSummaryUpdated,
+      onCommandRunOutput, onCommandRunComplete, onCommandRunError, onCommandRunDeleted,
+      onKanbanBoardUpdated, onKanbanCardMoved, onKanbanCardAdded, onKanbanCardRemoved,
+    } = subscription;
+
+    const handlers = [];
+
+    handlers.push(onSessionCreated((session) => { stores.sessionsStore.addSessionToList(session); }));
+    handlers.push(onSessionUpdated((session) => { stores.sessionsStore.updateSession(session); }));
+    handlers.push(onSessionDeleted((sid) => {
+      stores.sessionsStore.removeSessionFromList(sid);
+      callbacks.cleanupSummary(sid);
+    }));
+    handlers.push(onSessionSummaryUpdated((sid, summary) => { callbacks.updateSummary(sid, summary); }));
+    handlers.push(onCommandRunOutput(handleCommandRunOutput));
+    handlers.push(onCommandRunComplete(handleCommandRunComplete));
+    handlers.push(onCommandRunError(handleCommandRunError));
+    handlers.push(onCommandRunDeleted((runId, sid, buttonId) => {
+      stores.commandButtonsStore.clearRun(runId);
+      stores.sessionsStore.removeSessionCommandRun(sid, buttonId);
+    }));
+    handlers.push(onKanbanBoardUpdated((board) => { stores.kanbanStore.handleBoardUpdated(board); }));
+    handlers.push(onKanbanCardMoved((cardId, fromLaneId, toLaneId, card) => {
+      stores.kanbanStore.handleCardMoved(cardId, fromLaneId, toLaneId, card);
+    }));
+    handlers.push(onKanbanCardAdded((card, laneId) => { stores.kanbanStore.handleCardAdded(card, laneId); }));
+    handlers.push(onKanbanCardRemoved((cardId, laneId) => { stores.kanbanStore.handleCardRemoved(cardId, laneId); }));
+
+    return handlers;
+  }
+
   // Store cleanup functions for WebSocket listeners
   const cleanups = [];
 
@@ -82,156 +212,16 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
       currentUnsubscribe = unsubscribe;
       subscribe();
 
-      // Handle new session created
-      cleanups.push(
-        onSessionCreated((session) => {
-          sessionsStore.addSessionToList(session);
-        })
-      );
-
-      // Handle session updated
-      cleanups.push(
-        onSessionUpdated((session) => {
-          sessionsStore.updateSession(session);
-        })
-      );
-
-      // Handle session deleted
-      cleanups.push(
-        onSessionDeleted((sessionId) => {
-          sessionsStore.removeSessionFromList(sessionId);
-          cleanupSummary(sessionId);
-        })
-      );
-
-      // Handle session summary updated (real-time updates when summaries are generated)
-      cleanups.push(
-        onSessionSummaryUpdated((sessionId, summary) => {
-          updateSummary(sessionId, summary);
-        })
-      );
-
-      // Handle command run output (for real-time status icon updates)
-      cleanups.push(
-        onCommandRunOutput((runId, sessionId, buttonId, output) => {
-          const existingRun = commandButtonsStore.runs[runId];
-          const sessions = sessionsStore.sessions;
-          const storeSession = sessions.find(s => s.id === sessionId);
-          const existingSessionRun = storeSession?.latestCommandRuns?.find(r => r.runId === runId);
-          const startedAt = existingRun?.startedAt || existingSessionRun?.startedAt || Date.now();
-
-          if (!commandButtonsStore.runs[runId]) {
-            commandButtonsStore.runs[runId] = {
-              runId,
-              buttonId,
-              sessionId,
-              status: 'running',
-              output: '',
-              exitCode: null,
-              startedAt,
-              outputTruncated: false,
-            };
-          }
-          commandButtonsStore.appendOutput(runId, output);
-
-          sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-            buttonId,
-            status: 'running',
-            runId,
-            startedAt,
-          });
-        })
-      );
-
-      // Handle command run complete
-      cleanups.push(
-        onCommandRunComplete(({ runId, sessionId, buttonId, exitCode, output }) => {
-          if (!commandButtonsStore.runs[runId]) {
-            commandButtonsStore.runs[runId] = {
-              runId,
-              buttonId,
-              sessionId,
-              status: 'running',
-              output: '',
-              exitCode: null,
-              startedAt: Date.now(),
-              outputTruncated: false,
-            };
-          }
-          commandButtonsStore.completeRun(runId, exitCode, output);
-
-          const status = exitCode === 0 ? 'success' : 'error';
-          sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-            buttonId,
-            status,
-            exitCode,
-            runId,
-            completedAt: Date.now(),
-          });
-        })
-      );
-
-      // Handle command run error
-      cleanups.push(
-        onCommandRunError((runId, sessionId, buttonId, error) => {
-          if (!commandButtonsStore.runs[runId]) {
-            commandButtonsStore.runs[runId] = {
-              runId,
-              buttonId,
-              sessionId,
-              status: 'running',
-              output: '',
-              exitCode: null,
-              startedAt: Date.now(),
-              outputTruncated: false,
-            };
-          }
-          commandButtonsStore.errorRun(runId, error);
-
-          sessionsStore.updateSessionCommandRun(sessionId, buttonId, {
-            buttonId,
-            status: 'error',
-            runId,
-            completedAt: Date.now(),
-          });
-        })
-      );
-
-      // Handle command run deleted
-      cleanups.push(
-        onCommandRunDeleted((runId, sessionId, buttonId) => {
-          commandButtonsStore.clearRun(runId);
-          sessionsStore.removeSessionCommandRun(sessionId, buttonId);
-        })
-      );
-
-      // Handle kanban board updated (full board refresh)
-      cleanups.push(
-        onKanbanBoardUpdated((board) => {
-          kanbanStore.handleBoardUpdated(board);
-        })
-      );
-
-      // Handle kanban card moved
-      cleanups.push(
-        onKanbanCardMoved((cardId, fromLaneId, toLaneId, card) => {
-          kanbanStore.handleCardMoved(cardId, fromLaneId, toLaneId, card);
-        })
-      );
-
-      // Handle kanban card added
-      cleanups.push(
-        onKanbanCardAdded((card, laneId) => {
-          kanbanStore.handleCardAdded(card, laneId);
-        })
-      );
-
-      // Handle kanban card removed
-      cleanups.push(
-        onKanbanCardRemoved((cardId, laneId) => {
-          kanbanStore.handleCardRemoved(cardId, laneId);
-        })
-      );
+      cleanups.push(...registerProjectEventHandlers(
+        {
+          onSessionCreated, onSessionUpdated, onSessionDeleted,
+          onSessionSummaryUpdated,
+          onCommandRunOutput, onCommandRunComplete, onCommandRunError, onCommandRunDeleted,
+          onKanbanBoardUpdated, onKanbanCardMoved, onKanbanCardAdded, onKanbanCardRemoved,
+        },
+        { sessionsStore, commandButtonsStore, kanbanStore },
+        { updateSummary, cleanupSummary },
+      ));
     },
     { immediate: true }
   );

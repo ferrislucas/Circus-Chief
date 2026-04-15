@@ -158,66 +158,14 @@ async function buildPromptForContinue(modelChanged, conversationId, promptWithAt
 }
 
 /**
- * Continue a session with a follow-up message (core implementation)
- * @param {string} sessionId
- * @param {string} content
- * @param {string} workingDirectory
- * @param {Object} config - Session options and callbacks
- * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
- * @param {Object} config.callbacks - Callback functions from sessionManager
+ * Resolve model/provider and build session environment for a continue operation.
+ * Also detects model changes and updates the session record.
+ * @param {Object} session - Current session object
+ * @param {string} sessionId - Session ID
+ * @param {string|null} model - Requested model (null to keep current)
+ * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
-export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
-  const { options = {}, callbacks } = config;
-  const { systemPrompt = null, fileAttachments = [], model = null } = options;
-  // Check if session is already running
-  if (activeSessions.has(sessionId)) {
-    throw new Error('Session is already processing');
-  }
-
-  // Get the session to retrieve the Claude session ID and settings
-  let session = sessions.getById(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-
-  const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
-
-  // Ensure there's an active conversation for this session
-  const activeConversation = conversations.ensureActiveConversation(sessionId);
-  activeConversationIds.set(sessionId, activeConversation.id);
-  console.log(`[SESSION] continueSession: ensured active conversation ${activeConversation.id} for session ${sessionId}`);
-
-  // Each conversation has its own Claude session context
-  // If null, Claude will start a fresh session (no resume)
-
-  // Store the user message with conversation ID
-  const { broadcastToSession } = await import('../websocket.js');
-  const { WS_MESSAGE_TYPES } = await import('@circuschief/shared');
-  const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
-  console.log(`[SESSION] continueSession: created user message ${message.id} in conversation ${activeConversation.id}`);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
-    message,
-    conversationId: activeConversation.id, // Include conversation context
-  });
-  console.log(`[SESSION] continueSession: broadcast user message ${message.id} to conversation ${activeConversation.id}`);
-
-  // Associate any pending attachments with the message
-  if (fileAttachments.length > 0) {
-    attachments.updateMessageIdForSession(sessionId, message.id);
-  }
-
-  // Build prompt with attachment context
-  const promptWithAttachments = buildPromptWithAttachments(content, fileAttachments);
-
-  // Update status to running
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
-
-  // Create agent via gateway (or mock agent in mock mode)
-  const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
-
+function buildContinueModelAndEnv(session, sessionId, model) {
   // Resolve the effective model: fall back to session.model so that resuming
   // without an explicit model still resolves the correct provider (e.g.
   // third-party base URL and auth tokens).
@@ -230,15 +178,29 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   // Check if model changed from the session's last requested model
   // When model changes, we can't resume the previous session - thinking blocks and
   // session context may be incompatible between different models/providers
-  const modelChanged = model && session.model && model !== session.model;
+  const modelChanged = Boolean(model && session.model && model !== session.model);
 
   // Update session.model to track the user-requested model (short format)
   // This must happen AFTER modelChanged detection so we compare old vs new
+  let updatedSession = session;
   if (model) {
     sessions.update(sessionId, { model });
-    session = sessions.getById(sessionId); // refresh
+    updatedSession = sessions.getById(sessionId); // refresh
   }
 
+  return { effectiveModel, sessionEnv, modelChanged, session: updatedSession };
+}
+
+/**
+ * Build query params and agent call meta for a continue session operation.
+ * @param {Object} opts
+ * @returns {{ queryParams: Object, agentCallMeta: Object }}
+ */
+async function buildContinueParams({
+  sessionId, session, model, systemPrompt, effectiveModel, sessionEnv,
+  modelChanged, activeConversation, promptWithAttachments,
+  workingDirectory, controller, agentType,
+}) {
   // Only resume if we have a session ID AND model hasn't changed
   const canResume = activeConversation.claudeSessionId && !modelChanged;
 
@@ -268,6 +230,85 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     isResume: canResume,
     promptLength: promptWithContext.length,
   };
+
+  return { queryParams, agentCallMeta };
+}
+
+/**
+ * Set up the active conversation, create the user message, broadcast it,
+ * associate attachments, and build the prompt with attachment context.
+ * @returns {{ activeConversation: Object, promptWithAttachments: string }}
+ */
+async function setupConversationAndMessage(sessionId, content, fileAttachments) {
+  const activeConversation = conversations.ensureActiveConversation(sessionId);
+  activeConversationIds.set(sessionId, activeConversation.id);
+
+  const { broadcastToSession } = await import('../websocket.js');
+  const { WS_MESSAGE_TYPES } = await import('@circuschief/shared');
+  const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
+    message,
+    conversationId: activeConversation.id,
+  });
+
+  if (fileAttachments.length > 0) {
+    attachments.updateMessageIdForSession(sessionId, message.id);
+  }
+
+  const promptWithAttachments = buildPromptWithAttachments(content, fileAttachments);
+  return { activeConversation, promptWithAttachments };
+}
+
+/**
+ * Continue a session with a follow-up message (core implementation)
+ * @param {string} sessionId
+ * @param {string} content
+ * @param {string} workingDirectory
+ * @param {Object} config - Session options and callbacks
+ * @param {Object} [config.options] - Session options (systemPrompt, fileAttachments, model)
+ * @param {Object} config.callbacks - Callback functions from sessionManager
+ */
+export async function continueSessionCore(sessionId, content, workingDirectory, config = {}) {
+  const { options = {}, callbacks } = config;
+  const { systemPrompt = null, fileAttachments = [], model = null } = options;
+  // Check if session is already running
+  if (activeSessions.has(sessionId)) {
+    throw new Error('Session is already processing');
+  }
+
+  // Get the session to retrieve the Claude session ID and settings
+  let session = sessions.getById(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller });
+
+  // Ensure there's an active conversation and create the user message
+  const { activeConversation, promptWithAttachments } = await setupConversationAndMessage(
+    sessionId, content, fileAttachments
+  );
+
+  // Update status to running
+  sessions.update(sessionId, { status: 'running' });
+  broadcastSessionStatus(sessionId, 'running');
+
+  // Create agent via gateway (or mock agent in mock mode)
+  const agentType = session.agentType || 'claude-code';
+  const agent = createAgentForSession(agentType);
+
+  // Resolve model/provider and detect model changes
+  const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
+  session = modelEnv.session;
+
+  // Build query params and agent call meta
+  const { queryParams, agentCallMeta } = await buildContinueParams({
+    sessionId, session, model, systemPrompt,
+    effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
+    modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
+    workingDirectory, controller, agentType,
+  });
 
   await _executeSession({
     sessionId,

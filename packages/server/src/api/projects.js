@@ -151,6 +151,37 @@ router.get('/:id/sessions', (req, res) => {
   }
 });
 
+/**
+ * Validate and prepare the session configuration from the request body.
+ * Returns { config, nextTemplateId } on success, or { error, status } on failure.
+ */
+async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, project) {
+  const projectDefs = projectDefaults.getByProjectId(projectId);
+  const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
+  const config = prepareSessionConfig(reqBody, projectDefs, systemDefaults);
+  config.files = reqFiles || [];
+
+  if (!config.prompt) {
+    return { error: 'Prompt is required', status: 400 };
+  }
+
+  // Apply template overrides and resolve nextTemplateId
+  applyTemplateOverrides(config);
+  const { nextTemplateId, error: nextTemplateError } = resolveNextTemplateId(reqBody, config.nextTemplateId || null);
+  if (nextTemplateError) {
+    return { error: nextTemplateError, status: 400 };
+  }
+  config.nextTemplateId = nextTemplateId;
+
+  // Validate git settings for git repos
+  const gitError = await validateGitSettings(config, project);
+  if (gitError) {
+    return { error: gitError, status: 400 };
+  }
+
+  return { config, nextTemplateId };
+}
+
 // POST /api/projects/:id/sessions - Create session
 // Supports both JSON and multipart/form-data (for file attachments)
 router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
@@ -159,30 +190,13 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
   }
 
-  const projectDefs = projectDefaults.getByProjectId(req.params.id);
-  const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
-  const config = prepareSessionConfig(req.body, projectDefs, systemDefaults);
-  config.files = req.files || [];
-
-  if (!config.prompt) {
-    return res.status(400).json({ error: 'Prompt is required' });
+  const prepared = await validateAndPrepareSessionConfig(req.body, req.files, req.params.id, project);
+  if (prepared.error) {
+    return res.status(prepared.status).json({ error: prepared.error });
   }
 
-  // Apply template overrides and resolve nextTemplateId
-  applyTemplateOverrides(config);
-  const { nextTemplateId, error: nextTemplateError } = resolveNextTemplateId(req.body, config.nextTemplateId || null);
-  if (nextTemplateError) {
-    return res.status(400).json({ error: nextTemplateError });
-  }
-  config.nextTemplateId = nextTemplateId;
-
+  const { config, nextTemplateId } = prepared;
   const initialStatus = determineInitialStatus(config);
-
-  // Validate git settings for git repos
-  const gitError = await validateGitSettings(config, project);
-  if (gitError) {
-    return res.status(400).json({ error: gitError });
-  }
 
   const sessionName = config.name || generateInitialName(config.prompt);
   const session = sessions.create(req.params.id, sessionName, config.prompt, {

@@ -76,6 +76,70 @@ class SchedulerService {
   }
 
   /**
+   * Resolve skill/command invocations in the prompt, returning the effective prompt and system prompt.
+   * @param {object} session - Session object
+   * @param {string} workingDirectory - Working directory
+   * @param {string} projectSystemPrompt - Project-level system prompt
+   * @returns {Promise<{prompt: string, effectivePrompt: string, effectiveSystemPrompt: string, sessionAttachments: Array}>}
+   */
+  async resolveScheduledPrompt(session, workingDirectory, projectSystemPrompt) {
+    const prompt = session.pendingPrompt.trim();
+    const sessionAttachments = attachments.getBySessionId(session.id);
+
+    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
+      workingDirectory, prompt, projectSystemPrompt
+    );
+
+    return {
+      prompt,
+      effectivePrompt: resolved ? resolved.userMessage : prompt,
+      effectiveSystemPrompt: resolved ? resolved.systemPrompt : projectSystemPrompt,
+      sessionAttachments,
+    };
+  }
+
+  /**
+   * Handle the fresh-session branch of startScheduledSession.
+   * Creates the initial user message, updates status, and starts the session.
+   * @param {object} session - Session object
+   * @param {string} prompt - Raw prompt text
+   * @param {string} effectivePrompt - Prompt after slash command resolution
+   * @param {string} effectiveSystemPrompt - System prompt after resolution
+   * @param {string} workingDirectory - Working directory
+   * @param {Array} sessionAttachments - Attachments for context
+   */
+  async startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments }) {
+    const activeConv = conversations.getActiveBySessionId(session.id);
+    if (!activeConv) {
+      throw new Error(`No active conversation found for session ${session.id}`);
+    }
+
+    // Create the initial user message
+    const userMessage = messages.create(session.id, 'user', prompt, { toolUse: null, conversationId: activeConv.id });
+
+    // Broadcast the new message so UI updates
+    broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
+      sessionId: session.id,
+      message: userMessage,
+    });
+
+    // Update status from 'scheduled' to 'starting' and clear pendingPrompt
+    sessions.update(session.id, {
+      status: 'starting',
+      scheduledAt: null,
+      pendingPrompt: null,
+    });
+    broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
+
+    await this.sessionManager.runSession(
+      session.id,
+      effectivePrompt,
+      workingDirectory,
+      { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
+    );
+  }
+
+  /**
    * Start a scheduled session
    * @param {object} session - Session to start
    */
@@ -100,27 +164,17 @@ class SchedulerService {
       throw new Error(`No pendingPrompt found for session ${session.id}`);
     }
 
-    const prompt = session.pendingPrompt.trim();
+    // Resolve skill/command invocations
+    const { prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments } =
+      await this.resolveScheduledPrompt(session, workingDirectory, project.systemPrompt);
 
     // Get the session messages to determine if this is initial or continuation
     const sessionMessages = messages.getBySessionId(session.id);
     const hasAssistantResponses = sessionMessages.some((msg) => msg.role === 'assistant');
 
-    // Get attachments for context
-    const sessionAttachments = attachments.getBySessionId(session.id);
-
-    // Resolve skill/command invocations so skill body goes into system prompt
-    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
-      workingDirectory, prompt, project.systemPrompt
-    );
-    const effectivePrompt = resolved ? resolved.userMessage : prompt;
-    const effectiveSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
-
     // Determine if this is an initial run or a continuation
     if (hasAssistantResponses) {
       // Session has conversation history - this is a scheduled continuation
-
-      // Update status from 'scheduled' to 'starting' and clear pendingPrompt
       sessions.update(session.id, {
         status: 'starting',
         scheduledAt: null,
@@ -136,37 +190,7 @@ class SchedulerService {
       );
     } else {
       // Fresh session - initial run
-      // First, create the user message so it appears in the conversation
-
-      // Get the active conversation
-      const activeConv = conversations.getActiveBySessionId(session.id);
-      if (!activeConv) {
-        throw new Error(`No active conversation found for session ${session.id}`);
-      }
-
-      // Create the initial user message
-      const userMessage = messages.create(session.id, 'user', prompt, { toolUse: null, conversationId: activeConv.id });
-
-      // Broadcast the new message so UI updates
-      broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
-        sessionId: session.id,
-        message: userMessage,
-      });
-
-      // Update status from 'scheduled' to 'starting' and clear pendingPrompt
-      sessions.update(session.id, {
-        status: 'starting',
-        scheduledAt: null,
-        pendingPrompt: null,
-      });
-      broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
-
-      await this.sessionManager.runSession(
-        session.id,
-        effectivePrompt,
-        workingDirectory,
-        { systemPrompt: effectiveSystemPrompt, fileAttachments: sessionAttachments, model: session.pendingModel }
-      );
+      await this.startFreshScheduledSession({ session, prompt, effectivePrompt, effectiveSystemPrompt, workingDirectory, sessionAttachments });
     }
   }
 
