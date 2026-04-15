@@ -1,8 +1,10 @@
 import { isGitRepo } from '../services/gitService.js';
 
 /**
- * Validate that git projects have required gitMode and gitBranch settings.
- * @param {Object} config - The session configuration
+ * Validate and default git settings for git-backed projects.
+ * If gitMode or gitBranch are missing for a git project, defaults are applied
+ * (gitMode: 'none', gitBranch: 'main') instead of rejecting the request.
+ * @param {Object} config - The session configuration (mutated in place)
  * @param {Object} project - The project object
  * @returns {Promise<string|null>} Error message if validation fails, null otherwise.
  */
@@ -10,7 +12,8 @@ export async function validateGitSettings(config, project) {
   if (!config.gitMode || !config.gitBranch) {
     const isGit = await isGitRepo(project.workingDirectory);
     if (isGit) {
-      return 'Git projects require both gitMode and gitBranch. Set project defaults or provide them per-session.';
+      if (!config.gitMode) config.gitMode = 'none';
+      if (!config.gitBranch) config.gitBranch = 'main';
     }
   }
   return null;
