@@ -4,6 +4,7 @@
     class="command-status-bar"
     data-testid="button-status-bar"
   >
+    <!-- eslint-disable vue/no-v-html -->
     <span
       v-for="indicator in buttonStatuses"
       :key="indicator.buttonId"
@@ -13,7 +14,8 @@
       data-testid="button-status-indicator"
       @click="selectedButtonForModal = indicator"
       v-html="getStatusIcon(indicator.status)"
-    ></span>
+    />
+    <!-- eslint-enable vue/no-v-html -->
     <!-- Button Status Modal -->
     <ButtonStatusModal
       v-if="selectedButtonForModal"
