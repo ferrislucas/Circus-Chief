@@ -60,6 +60,7 @@
             <div
               ref="overlayHeaderRef"
               class="overlay-header"
+              :class="{ 'header-compact': inputFocused && isMobile && !isEditingName }"
               @touchmove="handleHeaderTouchmove"
             >
               <!-- Row 1: Session Name -->
@@ -432,6 +433,10 @@ const overlayHeaderRef = ref(null);
 let headerCheckIntervalId = null;
 let headerCheckRafId = null;
 
+// Track whether the prompt textarea is focused (for compact header on mobile)
+const inputFocused = ref(false);
+let focusOutRaf = null;
+
 // Template ref to the ConversationTab for flushing drafts before session switch
 const conversationTabRef = ref(null);
 
@@ -798,6 +803,43 @@ function handleEscape(event) {
 }
 
 /**
+ * Handle focusin on the overlay body — detect when the prompt textarea gains focus.
+ * Uses event delegation from .overlay-body so we catch the bubbling event from
+ * InputForm → ResizableTextarea's <textarea>.
+ */
+function handleOverlayFocusin(e) {
+  if (e.target.tagName === 'TEXTAREA') {
+    // Cancel any pending focusout that would have cleared inputFocused
+    if (focusOutRaf) {
+      cancelAnimationFrame(focusOutRaf);
+      focusOutRaf = null;
+    }
+    inputFocused.value = true;
+
+    // After keyboard animation completes, scroll textarea into view
+    setTimeout(() => {
+      e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 350);
+  }
+}
+
+/**
+ * Handle focusout on the overlay body — detect when the prompt textarea loses focus.
+ * Uses requestAnimationFrame delay to avoid flashing the header when focus moves
+ * from textarea to another element (e.g. Send button).
+ */
+function handleOverlayFocusout(e) {
+  if (e.target.tagName === 'TEXTAREA') {
+    // Defer: if focus moves to another element in the overlay (e.g. Send button),
+    // focusin will fire on the next target and we skip collapsing.
+    focusOutRaf = requestAnimationFrame(() => {
+      focusOutRaf = null;
+      inputFocused.value = false;
+    });
+  }
+}
+
+/**
  * Prevent touch-drag on the overlay header from scrolling the overlay,
  * while allowing touch-move inside interactive children that need it:
  * - SessionChatPicker dropdown (scrollable list)
@@ -825,6 +867,9 @@ function handleHeaderTouchmove(event) {
  *    element visible regardless of what caused the displacement.
  */
 function ensureHeaderVisible() {
+  // Don't fight with keyboard-aware scroll when the user is typing
+  if (inputFocused.value) return;
+
   const header = overlayHeaderRef.value;
   if (!header) return;
 
@@ -917,6 +962,15 @@ onMounted(async () => {
   window.addEventListener('resize', checkMobile);
   checkMobile();
 
+  // Register focusin/focusout BEFORE the await so they're ready immediately.
+  // overlayBodyRef is a template ref on .overlay-body which is always rendered
+  // (it does not depend on switchingSession), so it is available at mount time.
+  const body = overlayBodyRef.value;
+  if (body) {
+    body.addEventListener('focusin', handleOverlayFocusin);
+    body.addEventListener('focusout', handleOverlayFocusout);
+  }
+
   // Load data for the active session, then reveal ConversationTab.
   // switchingSession starts as true, so ConversationTab won't mount until
   // currentSession is set to the correct overlay session.
@@ -950,6 +1004,12 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
+  const body = overlayBodyRef.value;
+  if (body) {
+    body.removeEventListener('focusin', handleOverlayFocusin);
+    body.removeEventListener('focusout', handleOverlayFocusout);
+  }
+  if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
   cleanupSubscription();
   if (headerCheckIntervalId) clearInterval(headerCheckIntervalId);
   if (headerCheckRafId) cancelAnimationFrame(headerCheckRafId);
@@ -957,6 +1017,19 @@ onUnmounted(() => {
   // to prevent state leaks on every overlay open/close cycle.
   overlaySessionsStore.$cleanup();
   overlayTodosStore.$cleanup();
+});
+
+// Re-scroll textarea into view after the compact header transition frees space.
+watch(inputFocused, (focused) => {
+  if (focused && isMobile.value) {
+    // After the header collapse transition (200ms) + buffer, re-center the textarea
+    setTimeout(() => {
+      const activeEl = document.activeElement;
+      if (activeEl?.tagName === 'TEXTAREA') {
+        activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }, 250);
+  }
 });
 
 // Expose for testing
@@ -971,6 +1044,7 @@ defineExpose({
   pickerOpen,
   handlePickerSelect,
   ensureHeaderVisible,
+  inputFocused,
 });
 </script>
 
@@ -1150,6 +1224,34 @@ defineExpose({
   flex-shrink: 0;
   z-index: 20;
   width: 100%;
+  transition: padding 0.2s ease, gap 0.2s ease;
+}
+
+/* Compact header: collapse to a single row showing only the session name */
+.overlay-header.header-compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+}
+
+/* Hide the session selector row and actions row in compact mode */
+.overlay-header.header-compact .overlay-header-selector,
+.overlay-header.header-compact .overlay-header-actions {
+  display: none;
+}
+
+/* Shrink the session name text */
+.overlay-header.header-compact .overlay-root-name {
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Hide the edit-name trigger in compact mode */
+.overlay-header.header-compact .name-edit-trigger {
+  display: none;
 }
 
 .overlay-header-row {
