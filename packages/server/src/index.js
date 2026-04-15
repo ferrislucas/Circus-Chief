@@ -3,12 +3,14 @@ import { parseArgs } from 'node:util';
 import { execSync } from 'child_process';
 import { createApp } from './app.js';
 import { initDatabase } from './database.js';
-import { initWebSocket } from './websocket.js';
+import { initWebSocket, webSocketManager } from './websocket.js';
 import { DEFAULT_SERVER_PORT } from '@circuschief/shared';
 import * as prStatusService from './services/prStatusService.js';
 import * as systemMonitor from './services/systemMonitor.js';
 import { schedulerService } from './services/schedulerService.js';
 import * as sessionManager from './services/sessionManager.js';
+import { clearScheduledTimers } from './services/summaryService.js';
+import { commandRunner } from './services/commandRunner.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -77,27 +79,39 @@ prStatusService.start();
 systemMonitor.start();
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  schedulerService.stop();
-  prStatusService.stop();
-  systemMonitor.stop();
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-});
+function shutdown(signal) {
+  console.log(`${signal} received, shutting down gracefully`);
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
+  // Safety net: force exit after 5 seconds
+  const forceTimeout = setTimeout(() => {
+    console.error('Graceful shutdown timed out, forcing exit');
+    process.exit(1);
+  }, 5000);
+  forceTimeout.unref();
+
+  // Stop periodic services
   schedulerService.stop();
   prStatusService.stop();
   systemMonitor.stop();
+
+  // Clear dangling timers from summary service
+  clearScheduledTimers();
+
+  // Kill child processes spawned by commandRunner
+  commandRunner.shutdownAll();
+
+  // Close all WebSocket connections (must happen before server.close())
+  webSocketManager.close();
+
+  // Close HTTP server (now unblocked since WS clients are terminated)
   server.close(() => {
     console.log('Server closed');
     process.exit(0);
   });
-});
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Start server on all interfaces
 server.listen(port, '0.0.0.0', () => {

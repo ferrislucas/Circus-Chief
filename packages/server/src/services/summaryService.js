@@ -36,6 +36,9 @@ import { isSummaryStale } from './summaryStaleCheck.js';
 // Create the concurrency guard instance for summary generation
 const guard = createConcurrencyGuard();
 
+// Track scheduled CI-check timers so they can be cleared on shutdown
+const activeTimers = new Set();
+
 /**
  * Generate summary for a session using Claude Code SDK (with concurrency guard)
  * Only one generation can be in-flight per session at a time. If a generation is already
@@ -366,14 +369,17 @@ export function onSessionActivity(sessionId) {
  * @param {string} sessionId
  */
 function scheduleCiChecks(sessionId) {
-  const scheduleCiCheck = async () => {
+  const makeCheck = (timerId) => async () => {
+    activeTimers.delete(timerId);
     const prStatusService = await import('./prStatusService.js');
     prStatusService.checkSessionCiStatusNow(sessionId);
   };
   // Check after 2 minutes (CI often takes a few minutes)
-  setTimeout(scheduleCiCheck, 2 * 60 * 1000);
+  const timerId1 = setTimeout(() => makeCheck(timerId1)(), 2 * 60 * 1000);
+  activeTimers.add(timerId1);
   // Check again after 5 minutes
-  setTimeout(scheduleCiCheck, 5 * 60 * 1000);
+  const timerId2 = setTimeout(() => makeCheck(timerId2)(), 5 * 60 * 1000);
+  activeTimers.add(timerId2);
 }
 
 /**
@@ -546,6 +552,16 @@ export { parsePrUrl, validatePrUrl, extractPrUrlIfNeeded, enrichPrData as _enric
 
 // From childSessionContext.js
 export { getChildSessions, buildChildSessionContext, aggregateFilesModified };
+
+/**
+ * Clear all pending CI-check timers (called during graceful shutdown).
+ */
+export function clearScheduledTimers() {
+  for (const id of activeTimers) {
+    clearTimeout(id);
+  }
+  activeTimers.clear();
+}
 
 // Read-only accessors for concurrency guard state
 export const isGenerationActive = (key) => guard.isActive(key);

@@ -33,11 +33,10 @@ export class CommandRunner {
    * Wrap command with platform-specific TTY allocation.
    */
   #wrapCommandForPlatform(command) {
-    const osType = platform();
-    if (osType === 'linux') {
-      return `script -q -e -c ${JSON.stringify(command)} /dev/null`;
-    }
-    return `script -q /dev/null sh -c ${JSON.stringify(command)}`;
+    const cmd = JSON.stringify(command);
+    return platform() === 'linux'
+      ? `script -q -e -c ${cmd} /dev/null`
+      : `script -q /dev/null sh -c ${cmd}`;
   }
 
   /**
@@ -62,8 +61,7 @@ export class CommandRunner {
    */
   #flushOutputBuffer(entryInput, runId) {
     const entry = entryInput;
-    if (!entry.outputBuffer) return;
-    if (!entry.sessionId || !entry.buttonId) return;
+    if (!entry.outputBuffer || !entry.sessionId || !entry.buttonId) return;
     if (!commandRuns || typeof commandRuns.appendOutput !== 'function') return;
     try {
       commandRuns.appendOutput(runId, entry.outputBuffer);
@@ -104,21 +102,11 @@ export class CommandRunner {
 
     this.processes.delete(runId);
     if (onComplete) onComplete(exitCode, entry.output);
-    // Use ?? 1 (not signal-specific codes like 143 for SIGTERM) because:
-    // - Exit codes >128 indicate signal termination (convention: 128 + signal number)
-    // - Normalizing to 1 simplifies error handling for consumers
-    // - The signal information is already logged above for debugging
+    // Normalize to 1 on signal termination (signal info already logged above)
     return exitCode ?? 1;
   }
 
-  /**
-   * Run a command and stream output via callback
-   *
-   * @param {{ runId: string, command: string, workingDirectory: string }} params - Command parameters
-   * @param {{ onOutput?: function, onComplete?: function, onError?: function }} callbacks - Callback functions
-   * @param {{ sessionId?: string, buttonId?: string }} metadata - Optional metadata
-   * @returns {Promise<number>} Exit code
-   */
+  /** Run a command and stream output via callback. Returns exit code. */
   async run(params, callbacks = {}, metadata = {}) {
     const { runId, command, workingDirectory } = params;
     const { onOutput, onComplete, onError } = callbacks;
@@ -234,22 +222,10 @@ export class CommandRunner {
 
       // Give it a moment to terminate gracefully, then force kill
       setTimeout(() => {
-        // Check if process is still in our map (not yet closed)
-        if (this.processes.has(runId)) {
-          console.log(`[commandRunner.kill] Process still running, sending SIGKILL to runId: ${runId}`);
-          try {
-            process.kill(-pid, 'SIGKILL');
-          } catch (e) {
-            // Fallback to killing just the process if process group kill fails
-            try {
-              entry.process.kill('SIGKILL');
-            } catch (err) {
-              // Process may have already exited
-              console.log(`[commandRunner.kill] SIGKILL failed, process may have exited: ${err.message}`);
-            }
-          }
-        } else {
-          console.log(`[commandRunner.kill] Process already exited for runId: ${runId}`);
+        if (!this.processes.has(runId)) return;
+        console.log(`[commandRunner.kill] Process still running, sending SIGKILL to runId: ${runId}`);
+        try { process.kill(-pid, 'SIGKILL'); } catch {
+          try { entry.process.kill('SIGKILL'); } catch { /* already dead */ }
         }
       }, 1000);
 
@@ -277,6 +253,19 @@ export class CommandRunner {
       console.error(`Error killing process ${runId}:`, err);
       return false;
     }
+  }
+
+  /** Terminate all active child processes (called during graceful shutdown). */
+  shutdownAll() {
+    const sendSignal = (sig) => {
+      for (const [, entry] of this.processes) {
+        try { process.kill(-entry.process.pid, sig); } catch {
+          try { entry.process.kill(sig); } catch { /* already dead */ }
+        }
+      }
+    };
+    sendSignal('SIGTERM');
+    setTimeout(() => sendSignal('SIGKILL'), 1000);
   }
 
   /**
