@@ -189,7 +189,7 @@ console.log('Writing bin/cli.js...');
 const cli = `#!/usr/bin/env node
 
 process.env.NODE_ENV = 'production';
-import '../src/index.js';
+await import('../src/index.js');
 `;
 
 writeFileSync(join(DIST, 'packages/server/bin/cli.js'), cli);
