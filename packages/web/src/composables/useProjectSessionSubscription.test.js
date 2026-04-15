@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ref, computed } from 'vue';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
@@ -35,21 +35,25 @@ const mockKanbanStore = {
   handleCardRemoved: vi.fn(),
 };
 
-// Mock useProjectSubscription
+// Mock useProjectSubscription - all "on" handlers must return a cleanup function
 const mockSubscribe = vi.fn();
 const mockUnsubscribe = vi.fn();
-const mockOnSessionCreated = vi.fn();
-const mockOnSessionUpdated = vi.fn();
-const mockOnSessionDeleted = vi.fn();
-const mockOnSessionSummaryUpdated = vi.fn();
-const mockOnCommandRunOutput = vi.fn();
-const mockOnCommandRunComplete = vi.fn();
+const mockOnSessionCreated = vi.fn(() => vi.fn());
+const mockOnSessionUpdated = vi.fn(() => vi.fn());
+const mockOnSessionDeleted = vi.fn(() => vi.fn());
+const mockOnSessionSummaryUpdated = vi.fn(() => vi.fn());
+const mockOnCommandRunOutput = vi.fn(() => vi.fn());
+const mockOnCommandRunComplete = vi.fn(() => vi.fn());
 const mockOnKanbanBoardUpdated = vi.fn(() => vi.fn());
 const mockOnKanbanCardMoved = vi.fn(() => vi.fn());
 const mockOnKanbanCardAdded = vi.fn(() => vi.fn());
 const mockOnKanbanCardRemoved = vi.fn(() => vi.fn());
-const mockOnCommandRunError = vi.fn();
-const mockOnCommandRunDeleted = vi.fn();
+const mockOnCommandRunError = vi.fn(() => vi.fn());
+const mockOnCommandRunDeleted = vi.fn(() => vi.fn());
+
+// Mock useWebSocket (for onReconnect)
+const mockReconnectCleanup = vi.fn();
+const mockOnReconnect = vi.fn(() => mockReconnectCleanup);
 
 vi.mock('../stores/projects.js', () => ({
   useProjectsStore: vi.fn(() => mockProjectsStore),
@@ -84,6 +88,9 @@ vi.mock('./useWebSocket.js', () => ({
     onKanbanCardAdded: mockOnKanbanCardAdded,
     onKanbanCardRemoved: mockOnKanbanCardRemoved,
   })),
+  useWebSocket: vi.fn(() => ({
+    onReconnect: mockOnReconnect,
+  })),
 }));
 
 import { useProjectSessionSubscription } from './useProjectSessionSubscription.js';
@@ -91,7 +98,7 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useKanbanStore } from '../stores/kanban.js';
-import { useProjectSubscription } from './useWebSocket.js';
+import { useProjectSubscription, useWebSocket } from './useWebSocket.js';
 
 describe('useProjectSessionSubscription', () => {
   let testComponent;
@@ -128,18 +135,21 @@ describe('useProjectSessionSubscription', () => {
 
     mockSubscribe.mockReset();
     mockUnsubscribe.mockReset();
-    mockOnSessionCreated.mockReset();
-    mockOnSessionUpdated.mockReset();
-    mockOnSessionDeleted.mockReset();
-    mockOnSessionSummaryUpdated.mockReset();
-    mockOnCommandRunOutput.mockReset();
-    mockOnCommandRunComplete.mockReset();
-    mockOnCommandRunError.mockReset();
-    mockOnCommandRunDeleted.mockReset();
-    mockOnKanbanBoardUpdated.mockReset();
-    mockOnKanbanCardMoved.mockReset();
-    mockOnKanbanCardAdded.mockReset();
-    mockOnKanbanCardRemoved.mockReset();
+    mockOnSessionCreated.mockReset().mockReturnValue(vi.fn());
+    mockOnSessionUpdated.mockReset().mockReturnValue(vi.fn());
+    mockOnSessionDeleted.mockReset().mockReturnValue(vi.fn());
+    mockOnSessionSummaryUpdated.mockReset().mockReturnValue(vi.fn());
+    mockOnCommandRunOutput.mockReset().mockReturnValue(vi.fn());
+    mockOnCommandRunComplete.mockReset().mockReturnValue(vi.fn());
+    mockOnCommandRunError.mockReset().mockReturnValue(vi.fn());
+    mockOnCommandRunDeleted.mockReset().mockReturnValue(vi.fn());
+    mockOnKanbanBoardUpdated.mockReset().mockReturnValue(vi.fn());
+    mockOnKanbanCardMoved.mockReset().mockReturnValue(vi.fn());
+    mockOnKanbanCardAdded.mockReset().mockReturnValue(vi.fn());
+    mockOnKanbanCardRemoved.mockReset().mockReturnValue(vi.fn());
+    mockReconnectCleanup.mockReset();
+    mockOnReconnect.mockReset();
+    mockOnReconnect.mockReturnValue(mockReconnectCleanup);
 
     // Setup summary callbacks
     summaryCallbacks = {
@@ -470,6 +480,206 @@ describe('useProjectSessionSubscription', () => {
 
       expect(archivedLoaded).toBeDefined();
       expect(archivedLoaded.value).toBe(false);
+    });
+  });
+
+  describe('reconnect handling', () => {
+    it('re-fetches sessions on WebSocket reconnect', async () => {
+      mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // onReconnect should have been called with a callback
+      expect(mockOnReconnect).toHaveBeenCalled();
+      const reconnectCallback = mockOnReconnect.mock.calls[0][0];
+
+      // Reset fetchSessions call count from initial mount
+      mockSessionsStore.fetchSessions.mockClear();
+      summaryCallbacks.fetchSummariesBatch.mockClear();
+
+      // Simulate WebSocket reconnect
+      await reconnectCallback();
+
+      expect(mockSessionsStore.fetchSessions).toHaveBeenCalledWith('test-project-1', { silent: true });
+      expect(summaryCallbacks.fetchSummariesBatch).toHaveBeenCalledWith(mockSessionsStore.sessions);
+    });
+
+    it('cleans up reconnect handler on unmount', async () => {
+      const wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Unmount should call the cleanup returned by onReconnect
+      wrapper.unmount();
+
+      expect(mockReconnectCleanup).toHaveBeenCalled();
+    });
+
+    it('cleans up reconnect handler on projectId change', async () => {
+      const projectId = ref('test-project-1');
+      const componentWithDynamicProject = {
+        template: '<div>Test</div>',
+        setup() {
+          useProjectSessionSubscription(projectId, summaryCallbacks);
+          return {};
+        },
+      };
+
+      mount(componentWithDynamicProject, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // First onReconnect registration
+      expect(mockOnReconnect).toHaveBeenCalledTimes(1);
+      const firstCleanup = mockReconnectCleanup;
+
+      // Change projectId - should clean up old and register new
+      mockOnReconnect.mockClear();
+      const newReconnectCleanup = vi.fn();
+      mockOnReconnect.mockReturnValue(newReconnectCleanup);
+
+      projectId.value = 'test-project-2';
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Old cleanup should have been called
+      expect(firstCleanup).toHaveBeenCalled();
+      // New onReconnect should have been registered
+      expect(mockOnReconnect).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('visibility change handling', () => {
+    let wrapper;
+    let originalVisibilityState;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      originalVisibilityState = document.visibilityState;
+    });
+
+    afterEach(() => {
+      if (wrapper) {
+        wrapper.unmount();
+        wrapper = null;
+      }
+      Object.defineProperty(document, 'visibilityState', {
+        value: originalVisibilityState,
+        writable: true,
+        configurable: true,
+      });
+      vi.useRealTimers();
+    });
+
+    it('re-fetches sessions when tab becomes visible after threshold', async () => {
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Reset from initial mount
+      mockSessionsStore.fetchSessions.mockClear();
+      summaryCallbacks.fetchSummariesBatch.mockClear();
+
+      // Advance time past the 30-second threshold
+      vi.advanceTimersByTime(31_000);
+
+      Object.defineProperty(document, 'visibilityState', {
+        value: 'visible',
+        writable: true,
+        configurable: true,
+      });
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(mockSessionsStore.fetchSessions).toHaveBeenCalledWith('test-project-1', { silent: true });
+      expect(summaryCallbacks.fetchSummariesBatch).toHaveBeenCalledWith(mockSessionsStore.sessions);
+    });
+
+    it('skips re-fetch when tab becomes visible within threshold', async () => {
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Reset from initial mount
+      mockSessionsStore.fetchSessions.mockClear();
+
+      // Do NOT advance time past threshold (still within 30 seconds)
+      vi.advanceTimersByTime(5_000);
+
+      Object.defineProperty(document, 'visibilityState', {
+        value: 'visible',
+        writable: true,
+        configurable: true,
+      });
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should NOT have fetched again since we're within threshold
+      expect(mockSessionsStore.fetchSessions).not.toHaveBeenCalled();
+    });
+
+    it('removes visibilitychange listener on unmount', async () => {
+      vi.useRealTimers();
+      const removeListenerSpy = vi.spyOn(document, 'removeEventListener');
+
+      wrapper = mount(testComponent, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      wrapper.unmount();
+      wrapper = null; // prevent double unmount in afterEach
+
+      expect(removeListenerSpy).toHaveBeenCalledWith('visibilitychange', expect.any(Function));
+
+      removeListenerSpy.mockRestore();
+    });
+
+    it('skips re-fetch when projectId is null', async () => {
+      const componentWithNullProject = {
+        template: '<div>Test</div>',
+        setup() {
+          const projectId = ref(null);
+          useProjectSessionSubscription(projectId, summaryCallbacks);
+          return {};
+        },
+      };
+
+      wrapper = mount(componentWithNullProject, {
+        global: { plugins: [createPinia()] },
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      // fetchSessions should not have been called for null project
+      expect(mockSessionsStore.fetchSessions).not.toHaveBeenCalled();
+
+      // Advance past threshold
+      vi.advanceTimersByTime(31_000);
+
+      Object.defineProperty(document, 'visibilityState', {
+        value: 'visible',
+        writable: true,
+        configurable: true,
+      });
+
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Still should not have been called since projectId is null
+      expect(mockSessionsStore.fetchSessions).not.toHaveBeenCalled();
     });
   });
 

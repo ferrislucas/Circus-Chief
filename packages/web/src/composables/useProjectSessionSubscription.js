@@ -3,7 +3,7 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useKanbanStore } from '../stores/kanban.js';
-import { useProjectSubscription } from './useWebSocket.js';
+import { useProjectSubscription, useWebSocket } from './useWebSocket.js';
 
 /**
  * Composable that encapsulates the WebSocket subscription setup for a project's
@@ -26,6 +26,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
   const kanbanStore = useKanbanStore();
 
   const { fetchSummariesBatch, updateSummary, cleanupSummary } = summaryCallbacks;
+  const { onReconnect } = useWebSocket();
 
   /**
    * Handle command run output (for real-time status icon updates).
@@ -166,6 +167,25 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
   // Track if archived sessions have been loaded
   const archivedLoaded = ref(false);
 
+  // Track last fetch time to debounce visibility/reconnect re-fetches
+  let lastFetchTime = 0;
+  const STALE_THRESHOLD_MS = 30_000; // 30 seconds
+
+  // Re-fetch sessions when the tab becomes visible after being hidden
+  const onVisibilityChange = async () => {
+    if (document.visibilityState !== 'visible') return;
+    const now = Date.now();
+    if (now - lastFetchTime < STALE_THRESHOLD_MS) return;
+    lastFetchTime = now;
+
+    const pid = projectId.value;
+    if (!pid) return;
+    await sessionsStore.fetchSessions(pid, { silent: true });
+    fetchSummariesBatch(sessionsStore.sessions);
+  };
+
+  document.addEventListener('visibilitychange', onVisibilityChange);
+
   // Watch for projectId changes to properly subscribe/unsubscribe
   watch(
     projectId,
@@ -190,6 +210,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
       await sessionsStore.fetchSessions(newProjectId);
       await commandButtonsStore.fetchButtons(newProjectId);
       fetchSummariesBatch(sessionsStore.sessions);
+      lastFetchTime = Date.now();
 
       // Create new subscription for new project
       const {
@@ -222,6 +243,17 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
         { sessionsStore, commandButtonsStore, kanbanStore },
         { updateSummary, cleanupSummary },
       ));
+
+      // Re-fetch all session data when WebSocket reconnects (e.g., after wake-from-sleep)
+      cleanups.push(
+        onReconnect(async () => {
+          const pid = projectId.value;
+          if (!pid) return;
+          lastFetchTime = Date.now();
+          await sessionsStore.fetchSessions(pid, { silent: true });
+          fetchSummariesBatch(sessionsStore.sessions);
+        })
+      );
     },
     { immediate: true }
   );
@@ -232,6 +264,7 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
     if (currentUnsubscribe) {
       currentUnsubscribe();
     }
+    document.removeEventListener('visibilitychange', onVisibilityChange);
   });
 
   return {
