@@ -1863,10 +1863,10 @@ describe('summaryService', () => {
 
   describe('parsePrUrl', () => {
     it('parses valid GitHub PR URL', () => {
-      const result = parsePrUrl('https://github.com/anthropics/circuschief.io/pull/123');
+      const result = parsePrUrl('https://github.com/anthropics/circus-chief/pull/123');
       expect(result).toEqual({
         owner: 'anthropics',
-        repo: 'circuschief.io',
+        repo: 'circus-chief',
         number: 123,
       });
     });
@@ -1907,39 +1907,39 @@ describe('summaryService', () => {
   describe('validatePrUrl', () => {
     it('validates PR from expected repository', () => {
       const result = validatePrUrl(
-        'https://github.com/anthropics/circuschief.io/pull/123',
-        'https://github.com/anthropics/circuschief.io'
+        'https://github.com/anthropics/circus-chief/pull/123',
+        'https://github.com/anthropics/circus-chief'
       );
       expect(result.valid).toBe(true);
       expect(result.mismatch).toBe(false);
       expect(result.error).toBeNull();
       expect(result.prComponents).toEqual({
         owner: 'anthropics',
-        repo: 'circuschief.io',
+        repo: 'circus-chief',
         number: 123,
       });
     });
 
     it('detects PR from different owner', () => {
       const result = validatePrUrl(
-        'https://github.com/user/circuschief.io/pull/123',
-        'https://github.com/anthropics/circuschief.io'
+        'https://github.com/user/circus-chief/pull/123',
+        'https://github.com/anthropics/circus-chief'
       );
       expect(result.valid).toBe(false);
       expect(result.mismatch).toBe(true);
-      expect(result.error).toContain('user/circuschief.io');
-      expect(result.error).toContain('anthropics/circuschief.io');
+      expect(result.error).toContain('user/circus-chief');
+      expect(result.error).toContain('anthropics/circus-chief');
     });
 
     it('detects PR from different repo', () => {
       const result = validatePrUrl(
         'https://github.com/anthropics/different-repo/pull/123',
-        'https://github.com/anthropics/circuschief.io'
+        'https://github.com/anthropics/circus-chief'
       );
       expect(result.valid).toBe(false);
       expect(result.mismatch).toBe(true);
       expect(result.error).toContain('anthropics/different-repo');
-      expect(result.error).toContain('anthropics/circuschief.io');
+      expect(result.error).toContain('anthropics/circus-chief');
     });
 
     it('accepts PR when no expected repo URL provided', () => {
@@ -2339,12 +2339,12 @@ describe('summaryService', () => {
   describe('PR URL extraction from messages', () => {
     it('extracts PR URL from user message containing GitHub PR link', async () => {
       // Add a message with a PR URL
-      messages.create(sessionId, 'user', 'Check out this PR: https://github.com/anthropics/circuschief.io/pull/123');
+      messages.create(sessionId, 'user', 'Check out this PR: https://github.com/anthropics/circus-chief/pull/123');
 
       await summaryService.extractPrUrlIfNeeded(sessionId);
 
       const session = sessions.getById(sessionId);
-      expect(session.prUrl).toBe('https://github.com/anthropics/circuschief.io/pull/123');
+      expect(session.prUrl).toBe('https://github.com/anthropics/circus-chief/pull/123');
     });
 
     it('extracts PR URL from assistant message containing GitHub PR link', async () => {
