@@ -3020,4 +3020,34 @@ describe('summaryService', () => {
       );
     });
   });
+
+  describe('clearScheduledTimers', () => {
+    it('clears pending CI check timers', () => {
+      const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
+
+      // Trigger scheduleCiChecks by calling onSessionComplete with a session that has a prUrl
+      sessions.update(sessionId, { prUrl: 'https://github.com/owner/repo/pull/1' });
+      summaryService.onSessionComplete(sessionId);
+
+      // clearScheduledTimers should clear the timers scheduled by scheduleCiChecks
+      summaryService.clearScheduledTimers();
+
+      // clearTimeout should have been called (at least twice for the two scheduled timers)
+      expect(clearTimeoutSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+      clearTimeoutSpy.mockRestore();
+    });
+
+    it('is a no-op when no timers are scheduled', () => {
+      const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
+
+      // Call without any prior activity
+      expect(() => summaryService.clearScheduledTimers()).not.toThrow();
+
+      // No clearTimeout calls should have been made
+      expect(clearTimeoutSpy).not.toHaveBeenCalled();
+
+      clearTimeoutSpy.mockRestore();
+    });
+  });
 });
