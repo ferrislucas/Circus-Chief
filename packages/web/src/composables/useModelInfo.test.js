@@ -8,6 +8,11 @@ describe('useModelInfo', () => {
       expect(getModelDisplayName('claude-opus-4-6')).toBe('Opus 4.6');
     });
 
+    it('returns "Opus 4.7" for claude-opus-4-7', () => {
+      const { getModelDisplayName } = useModelInfo();
+      expect(getModelDisplayName('claude-opus-4-7')).toBe('Opus 4.7');
+    });
+
     it('returns "Sonnet 4.6" for claude-sonnet-4-6', () => {
       const { getModelDisplayName } = useModelInfo();
       expect(getModelDisplayName('claude-sonnet-4-6')).toBe('Sonnet 4.6');
@@ -40,9 +45,14 @@ describe('useModelInfo', () => {
   });
 
   describe('getModelDescription', () => {
-    it('returns "Most capable (default)" for Opus model', () => {
+    it('returns "Previous generation" for Opus 4.6 model', () => {
       const { getModelDescription } = useModelInfo();
-      expect(getModelDescription('claude-opus-4-6')).toBe('Most capable (default)');
+      expect(getModelDescription('claude-opus-4-6')).toBe('Previous generation');
+    });
+
+    it('returns "Most capable (default)" for Opus 4.7 model', () => {
+      const { getModelDescription } = useModelInfo();
+      expect(getModelDescription('claude-opus-4-7')).toBe('Most capable (default)');
     });
 
     it('returns "Balanced" for Sonnet model', () => {
@@ -68,12 +78,22 @@ describe('useModelInfo', () => {
   });
 
   describe('getModelInfo', () => {
-    it('returns object with name and description for valid model', () => {
+    it('returns object with name and description for Opus 4.6', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('claude-opus-4-6');
 
       expect(info).toEqual({
         name: 'Opus 4.6',
+        description: 'Previous generation',
+      });
+    });
+
+    it('returns object with name and description for Opus 4.7', () => {
+      const { getModelInfo } = useModelInfo();
+      const info = getModelInfo('claude-opus-4-7');
+
+      expect(info).toEqual({
+        name: 'Opus 4.7',
         description: 'Most capable (default)',
       });
     });

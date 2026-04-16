@@ -28,7 +28,7 @@ function seedBuiltInProvider(db) {
   const defaultModels = [
     { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
     { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: 'Balanced', tier: 'sonnet' },
-    { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Most capable (default)', tier: 'opus' },
+    { id: 'anthropic-opus', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Most capable (default)', tier: 'opus' },
   ];
 
   const insertModel = db.prepare(
@@ -238,5 +238,18 @@ export const miscMigrations = [
   {
     name: 'quick_responses-seed-defaults',
     up(db) { seedDefaultQuickResponses(db); },
+  },
+
+  // --- Update built-in Opus model to 4.7 ---
+  {
+    name: 'providers-update-built-in-opus-4-7',
+    up(db) {
+      const providerId = 'anthropic-default';
+      db.prepare(
+        `UPDATE provider_models
+         SET model_id = ?, display_name = ?, description = ?
+         WHERE provider_id = ? AND id = ?`
+      ).run('claude-opus-4-7', 'Opus 4.7', 'Most capable (default)', providerId, 'anthropic-opus');
+    },
   },
 ];
