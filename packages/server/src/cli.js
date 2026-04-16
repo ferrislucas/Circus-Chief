@@ -11,16 +11,21 @@ function showHelp() {
   console.log(`Usage: circuschief [options]
 
 Options:
-  -p, --port <number>  Port to listen on (default: ${DEFAULT_SERVER_PORT})
+  -p, --port <number>  Port to listen on (env: PORT, default: ${DEFAULT_SERVER_PORT})
+  --no-analytics       Disable anonymous usage analytics
   -h, --help           Show this help message
-  -v, --version        Show version number`);
+  -V, --version        Show version number`);
 }
 
 function getVersion() {
-  const pkg = JSON.parse(
-    readFileSync(join(__dirname, '../package.json'), 'utf-8')
-  );
-  return pkg.version;
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(__dirname, '../package.json'), 'utf-8')
+    );
+    return pkg.version;
+  } catch {
+    return 'unknown';
+  }
 }
 
 export function parseCliOptions(argv = process.argv) {
@@ -28,11 +33,12 @@ export function parseCliOptions(argv = process.argv) {
   try {
     ({ values } = parseArgs({
       args: argv.slice(2),
+      strict: true,
       options: {
         port: {
           type: 'string',
           short: 'p',
-          default: String(DEFAULT_SERVER_PORT),
+          default: process.env.PORT || String(DEFAULT_SERVER_PORT),
         },
         help: {
           type: 'boolean',
@@ -41,7 +47,11 @@ export function parseCliOptions(argv = process.argv) {
         },
         version: {
           type: 'boolean',
-          short: 'v',
+          short: 'V',
+          default: false,
+        },
+        'no-analytics': {
+          type: 'boolean',
           default: false,
         },
       },
@@ -68,5 +78,5 @@ export function parseCliOptions(argv = process.argv) {
     process.exit(1);
   }
 
-  return { port };
+  return { port, disableAnalytics: values['no-analytics'] };
 }
