@@ -174,10 +174,11 @@ async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, pro
   config.nextTemplateId = nextTemplateId;
 
   // Validate git settings for git repos
-  const gitError = await validateGitSettings(config, project);
+  const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
   if (gitError) {
     return { error: gitError, status: 400 };
   }
+  Object.assign(config, updatedConfig);
 
   return { config, nextTemplateId };
 }

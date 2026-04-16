@@ -18,6 +18,15 @@ import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
+// Mock summaryService to prevent fire-and-forget async calls from producing
+// console output after vitest worker teardown (EnvironmentTeardownError)
+vi.mock('./summaryService.js', () => ({
+  onSessionActivity: vi.fn().mockResolvedValue(undefined),
+  onSessionComplete: vi.fn().mockResolvedValue(undefined),
+  extractPrUrlIfNeeded: vi.fn().mockResolvedValue(undefined),
+  generateSummary: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Mock the SDK to prevent real API calls in tests
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
     query: vi.fn(async function* () {
@@ -1134,9 +1143,9 @@ describe('summary service integration', () => {
   let projectRepo;
   let session;
   let tempDir;
-  let summaryServiceSpy;
+  let summaryServiceMock;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     sessionRepo = new SessionRepository();
     messageRepo = new MessageRepository();
     conversationRepo = new ConversationRepository();
@@ -1148,6 +1157,12 @@ describe('summary service integration', () => {
     // Create a session
     session = sessionRepo.create(project.id, 'Test Session', 'Test prompt', 'standard');
     sessionRepo.update(session.id, { claudeSessionId: 'mock-claude-session-id' });
+
+    // Get the already-mocked summaryService and clear call history
+    summaryServiceMock = await import('./summaryService.js');
+    vi.mocked(summaryServiceMock.onSessionComplete).mockClear();
+    vi.mocked(summaryServiceMock.extractPrUrlIfNeeded).mockClear();
+    vi.mocked(summaryServiceMock.onSessionActivity).mockClear();
   });
 
   afterEach(() => {
@@ -1157,23 +1172,6 @@ describe('summary service integration', () => {
   });
 
   describe('runSession summary integration', () => {
-    beforeEach(async () => {
-      // Spy on summary service methods
-      const summaryService = await import('./summaryService.js');
-      summaryServiceSpy = {
-        onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
-        extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
-      };
-    });
-
-    afterEach(() => {
-      // Restore spies
-      if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionComplete.mockRestore();
-        summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
-      }
-    });
-
     it('does not call onSessionComplete when turn completes successfully', async () => {
       const { runSession } = await import('./sessionManager.js');
 
@@ -1181,28 +1179,11 @@ describe('summary service integration', () => {
       await runSession(session.id, 'Test message', tempDir);
 
       // Verify onSessionComplete was NOT called (session is still waiting for more input)
-      expect(summaryServiceSpy.onSessionComplete).not.toHaveBeenCalled();
+      expect(summaryServiceMock.onSessionComplete).not.toHaveBeenCalled();
     });
   });
 
   describe('continueSession summary integration', () => {
-    beforeEach(async () => {
-      // Spy on summary service methods
-      const summaryService = await import('./summaryService.js');
-      summaryServiceSpy = {
-        onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
-        extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
-      };
-    });
-
-    afterEach(() => {
-      // Restore spies
-      if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionComplete.mockRestore();
-        summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
-      }
-    });
-
     it('does not call onSessionComplete when turn completes successfully', async () => {
       const { continueSession: continueSessionFn } = await import('./sessionManager.js');
 
@@ -1210,28 +1191,11 @@ describe('summary service integration', () => {
       await continueSessionFn(session.id, 'Follow-up message', tempDir);
 
       // Verify onSessionComplete was NOT called (session is still waiting for more input)
-      expect(summaryServiceSpy.onSessionComplete).not.toHaveBeenCalled();
+      expect(summaryServiceMock.onSessionComplete).not.toHaveBeenCalled();
     });
   });
 
   describe('continueSessionWithExistingMessage summary integration', () => {
-    beforeEach(async () => {
-      // Spy on summary service methods
-      const summaryService = await import('./summaryService.js');
-      summaryServiceSpy = {
-        onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
-        extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
-      };
-    });
-
-    afterEach(() => {
-      // Restore spies
-      if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionComplete.mockRestore();
-        summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
-      }
-    });
-
     it('does not call onSessionComplete when turn completes successfully', async () => {
       const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
 
@@ -1243,28 +1207,11 @@ describe('summary service integration', () => {
       await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
 
       // Verify onSessionComplete was NOT called (session is still waiting for more input)
-      expect(summaryServiceSpy.onSessionComplete).not.toHaveBeenCalled();
+      expect(summaryServiceMock.onSessionComplete).not.toHaveBeenCalled();
     });
   });
 
   describe('stopSession summary integration', () => {
-    beforeEach(async () => {
-      // Spy on summary service methods
-      const summaryService = await import('./summaryService.js');
-      summaryServiceSpy = {
-        onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
-        extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
-      };
-    });
-
-    afterEach(() => {
-      // Restore spies
-      if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionComplete.mockRestore();
-        summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
-      }
-    });
-
     it('calls onSessionComplete when session is stopped', async () => {
       const { stopSession } = await import('./sessionManager.js');
 
@@ -1272,28 +1219,11 @@ describe('summary service integration', () => {
       await stopSession(session.id);
 
       // Verify onSessionComplete was called (session is truly complete now)
-      expect(summaryServiceSpy.onSessionComplete).toHaveBeenCalledWith(session.id);
+      expect(summaryServiceMock.onSessionComplete).toHaveBeenCalledWith(session.id);
     });
   });
 
   describe('error handling summary integration', () => {
-    beforeEach(async () => {
-      // Spy on summary service methods
-      const summaryService = await import('./summaryService.js');
-      summaryServiceSpy = {
-        onSessionComplete: vi.spyOn(summaryService, 'onSessionComplete').mockImplementation(() => Promise.resolve()),
-        extractPrUrlIfNeeded: vi.spyOn(summaryService, 'extractPrUrlIfNeeded').mockImplementation(() => Promise.resolve()),
-      };
-    });
-
-    afterEach(() => {
-      // Restore spies
-      if (summaryServiceSpy) {
-        summaryServiceSpy.onSessionComplete.mockRestore();
-        summaryServiceSpy.extractPrUrlIfNeeded.mockRestore();
-      }
-    });
-
     it('calls onSessionComplete when session encounters an error in handleStreamEvent', async () => {
       // Note: handleStreamEvent is not exported, so we'll test the behavior indirectly
       // by verifying that the error path in sessionManager calls onSessionComplete
@@ -1301,11 +1231,10 @@ describe('summary service integration', () => {
 
       // For this test, we'll manually call onSessionComplete to verify the integration
       // This simulates what happens when an error occurs
-      const summaryService = await import('./summaryService.js');
-      await summaryService.onSessionComplete(session.id);
+      await summaryServiceMock.onSessionComplete(session.id);
 
       // Verify onSessionComplete was called
-      expect(summaryServiceSpy.onSessionComplete).toHaveBeenCalledWith(session.id);
+      expect(summaryServiceMock.onSessionComplete).toHaveBeenCalledWith(session.id);
     });
   });
 });

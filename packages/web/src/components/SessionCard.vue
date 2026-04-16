@@ -104,6 +104,7 @@
             />
 
             <!-- Command button status indicators -->
+            <!-- eslint-disable vue/no-v-html -->
             <span
               v-for="indicator in buttonStatusesToDisplay"
               :key="indicator.buttonId"
@@ -112,7 +113,8 @@
               :aria-label="indicator.status"
               @click.stop.prevent="selectedButtonForModal = indicator"
               v-html="getStatusIcon(indicator.status)"
-            ></span>
+            />
+            <!-- eslint-enable vue/no-v-html -->
           </p>
 
           <p
