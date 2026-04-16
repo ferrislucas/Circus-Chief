@@ -120,6 +120,45 @@ export function getTemplateSessionSettings(template, session) {
  * @param {Object} [options] - Options
  * @param {number} [options.depth=0] - Current recursion depth
  */
+/**
+ * Create and configure a child session from a template for lane entry.
+ * @param {Object} template
+ * @param {Object} session - Parent session
+ * @param {Object} lane
+ * @param {number} depth - Current trigger depth
+ * @returns {{ newSession: Object, renderedPrompt: string, settings: Object }}
+ */
+async function buildChildSessionFromTemplate(template, session, lane, depth) {
+  // Render prompt with session context
+  const parentSummary = sessionSummaries.getBySessionId(session.id);
+  const rootSession = getRootSession(session);
+  const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
+  const renderedPrompt = await renderTemplatePrompt(
+    template.prompt,
+    { parentSession: session, parentSummary, rootSession, rootSummary }
+  );
+
+  // Get settings and create session
+  const settings = getTemplateSessionSettings(template, session);
+  const newSession = sessions.create(session.projectId, `${template.name} (lane: ${lane.name})`, renderedPrompt, {
+    mode: settings.mode,
+    thinkingEnabled: settings.thinkingEnabled,
+    gitBranch: settings.gitBranch,
+    status: 'starting',
+    model: settings.model,
+  });
+
+  // Configure session
+  sessions.update(newSession.id, {
+    parentSessionId: session.id,
+    nextTemplateId: template.nextTemplateId || null,
+    targetLaneId: template.targetLaneId || null,
+    laneTriggerDepth: depth + 1,
+  });
+
+  return { newSession, renderedPrompt, settings };
+}
+
 export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   const { depth = 0 } = options;
 
@@ -141,32 +180,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
   console.log(`Kanban: Triggering on-enter template "${template.name}" for session "${session.name}" entering lane "${lane.name}"`);
 
   try {
-    // Render prompt with session context
-    const parentSummary = sessionSummaries.getBySessionId(sessionId);
-    const rootSession = getRootSession(session);
-    const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
-    const renderedPrompt = await renderTemplatePrompt(
-      template.prompt,
-      { parentSession: session, parentSummary, rootSession, rootSummary }
-    );
-
-    // Get settings and create session
-    const settings = getTemplateSessionSettings(template, session);
-    const newSession = sessions.create(session.projectId, `${template.name} (lane: ${lane.name})`, renderedPrompt, {
-      mode: settings.mode,
-      thinkingEnabled: settings.thinkingEnabled,
-      gitBranch: settings.gitBranch,
-      status: 'starting',
-      model: settings.model,
-    });
-
-    // Configure session
-    sessions.update(newSession.id, {
-      parentSessionId: session.id,
-      nextTemplateId: template.nextTemplateId || null,
-      targetLaneId: template.targetLaneId || null,
-      laneTriggerDepth: depth + 1,
-    });
+    const { newSession, renderedPrompt, settings } = await buildChildSessionFromTemplate(template, session, lane, depth);
 
     // Determine working directory
     const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project, {
@@ -203,6 +217,48 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
  * @param {Object} [options] - Options
  * @param {number} [options.depth=0] - Current recursion depth
  */
+/**
+ * Create and configure a child session from a lane's on-enter prompt.
+ * @param {Object} lane
+ * @param {Object} session - Parent session
+ * @param {number} depth - Current trigger depth
+ * @returns {Promise<{ newSession: Object, renderedPrompt: string, settings: Object }>}
+ */
+async function buildChildSessionFromPrompt(lane, session, depth) {
+  // Render prompt with session context
+  const parentSummary = sessionSummaries.getBySessionId(session.id);
+  const rootSession = getRootSession(session);
+  const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
+  const renderedPrompt = await renderTemplatePrompt(
+    lane.onEnterPrompt,
+    { parentSession: session, parentSummary, rootSession, rootSummary }
+  );
+
+  // Get settings and create session
+  const settings = getLaneSessionSettings(lane, session);
+  const newSession = sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
+    ...settings,
+    status: 'starting',
+  });
+
+  // Configure session
+  const sessionUpdates = { parentSessionId: session.id, laneTriggerDepth: depth + 1 };
+  if (lane.onEnterAutoRescheduleEnabled) {
+    Object.assign(sessionUpdates, {
+      autoRescheduleEnabled: true,
+      rescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || 15,
+      rescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
+      rescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
+      maxRescheduleCount: lane.onEnterMaxRescheduleCount || null,
+      maxTotalTokens: lane.onEnterMaxTotalTokens || null,
+      rescheduleAtTokenCount: lane.onEnterRescheduleAtTokenCount || null,
+    });
+  }
+  sessions.update(newSession.id, sessionUpdates);
+
+  return { newSession, renderedPrompt, settings };
+}
+
 export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   const { depth = 0 } = options;
 
@@ -218,36 +274,7 @@ export async function triggerOnEnterPrompt(sessionId, lane, options = {}) {
   console.log(`Kanban: Triggering on-enter prompt for session "${session.name}" entering lane "${lane.name}"`);
 
   try {
-    // Render prompt with session context
-    const parentSummary = sessionSummaries.getBySessionId(sessionId);
-    const rootSession = getRootSession(session);
-    const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
-    const renderedPrompt = await renderTemplatePrompt(
-      lane.onEnterPrompt,
-      { parentSession: session, parentSummary, rootSession, rootSummary }
-    );
-
-    // Get settings and create session
-    const settings = getLaneSessionSettings(lane, session);
-    const newSession = sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
-      ...settings,
-      status: 'starting',
-    });
-
-    // Configure session
-    const sessionUpdates = { parentSessionId: session.id, laneTriggerDepth: depth + 1 };
-    if (lane.onEnterAutoRescheduleEnabled) {
-      Object.assign(sessionUpdates, {
-        autoRescheduleEnabled: true,
-        rescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || 15,
-        rescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
-        rescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
-        maxRescheduleCount: lane.onEnterMaxRescheduleCount || null,
-        maxTotalTokens: lane.onEnterMaxTotalTokens || null,
-        rescheduleAtTokenCount: lane.onEnterRescheduleAtTokenCount || null,
-      });
-    }
-    sessions.update(newSession.id, sessionUpdates);
+    const { newSession, renderedPrompt, settings } = await buildChildSessionFromPrompt(lane, session, depth);
 
     // Determine working directory
     const { workingDirectory, gitWorktree } = await determineWorkingDirectory(session, project);

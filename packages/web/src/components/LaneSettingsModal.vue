@@ -452,61 +452,82 @@ const isValid = computed(() => {
   return true;
 });
 
-/* eslint-disable-next-line complexity */
+/**
+ * Build the reschedule-related form fields from lane data.
+ * @param {Object} lane - The lane object
+ * @returns {Object} Reschedule form fields
+ */
+function buildRescheduleFields(lane) {
+  return {
+    onEnterAutoRescheduleEnabled: lane.onEnterAutoRescheduleEnabled || false,
+    onEnterRescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || 15,
+    onEnterRescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
+    onEnterRescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
+    onEnterMaxRescheduleCount: lane.onEnterMaxRescheduleCount || null,
+    onEnterMaxTotalTokens: lane.onEnterMaxTotalTokens || null,
+    onEnterRescheduleAtTokenCount: lane.onEnterRescheduleAtTokenCount || null,
+  };
+}
+
+/**
+ * Build form data object from an existing lane.
+ * @param {Object} lane - The lane object to extract form data from
+ * @returns {Object} Form data fields
+ */
+function buildFormFromLane(lane) {
+  return {
+    name: lane.name || '',
+    onEnterTemplateId: lane.onEnterTemplateId || null,
+    onEnterPrompt: lane.onEnterPrompt || '',
+    onEnterMode: lane.onEnterMode || null,
+    onEnterModel: lane.onEnterModel || null,
+    onEnterEffortLevel: lane.onEnterEffortLevel || null,
+    onEnterThinkingEnabled: lane.onEnterThinkingEnabled ?? null,
+    ...buildRescheduleFields(lane),
+  };
+}
+
+/**
+ * Detect the automation type from lane properties.
+ * @param {Object} lane - The lane object
+ * @returns {string} 'template', 'prompt', or 'none'
+ */
+function detectAutomationType(lane) {
+  if (lane.onEnterTemplateId) return 'template';
+  if (lane.onEnterPrompt) return 'prompt';
+  return 'none';
+}
+
+/**
+ * Determine whether the agent settings section should be expanded.
+ * @param {Object} formData - The reactive form object
+ * @returns {boolean} Whether agent settings should be shown
+ */
+function buildAgentSettings(formData) {
+  return Boolean(
+    formData.onEnterMode ||
+    formData.onEnterModel ||
+    formData.onEnterEffortLevel ||
+    formData.onEnterThinkingEnabled !== null ||
+    formData.onEnterAutoRescheduleEnabled,
+  );
+}
+
 function resetForm() {
   if (props.lane) {
-    form.name = props.lane.name || '';
-    form.onEnterTemplateId = props.lane.onEnterTemplateId || null;
-    form.onEnterPrompt = props.lane.onEnterPrompt || '';
+    const data = buildFormFromLane(props.lane);
+    Object.assign(form, data);
 
-    // Agent settings
-    form.onEnterMode = props.lane.onEnterMode || null;
-    form.onEnterModel = props.lane.onEnterModel || null;
-    form.onEnterEffortLevel = props.lane.onEnterEffortLevel || null;
-    form.onEnterThinkingEnabled = props.lane.onEnterThinkingEnabled ?? null;
-    form.onEnterAutoRescheduleEnabled = props.lane.onEnterAutoRescheduleEnabled || false;
-    form.onEnterRescheduleDelayMinutes = props.lane.onEnterRescheduleDelayMinutes || 15;
-    form.onEnterRescheduleOnTokenLimit = props.lane.onEnterRescheduleOnTokenLimit ?? true;
-    form.onEnterRescheduleOnServiceError = props.lane.onEnterRescheduleOnServiceError ?? true;
-    form.onEnterMaxRescheduleCount = props.lane.onEnterMaxRescheduleCount || null;
-    form.onEnterMaxTotalTokens = props.lane.onEnterMaxTotalTokens || null;
-    form.onEnterRescheduleAtTokenCount = props.lane.onEnterRescheduleAtTokenCount || null;
-
-    // Determine automation type from current values
-    if (props.lane.onEnterTemplateId) {
-      automationType.value = 'template';
-    } else if (props.lane.onEnterPrompt) {
-      automationType.value = 'prompt';
-    } else {
-      automationType.value = 'none';
-    }
-
-    // Auto-expand settings section if any agent settings are already configured
-    showAgentSettings.value = Boolean(form.onEnterMode ||
-      form.onEnterModel ||
-      form.onEnterEffortLevel ||
-      form.onEnterThinkingEnabled !== null ||
-      form.onEnterAutoRescheduleEnabled);
+    automationType.value = detectAutomationType(props.lane);
+    showAgentSettings.value = buildAgentSettings(form);
 
     // Initialize position tracking
     const index = kanbanStore.board?.lanes?.findIndex((l) => l.id === props.lane.id) ?? -1;
     initialLaneIndex.value = index;
     currentLaneIndex.value = index;
   } else {
-    form.name = '';
-    form.onEnterTemplateId = null;
-    form.onEnterPrompt = '';
-    form.onEnterMode = null;
-    form.onEnterModel = null;
-    form.onEnterEffortLevel = null;
-    form.onEnterThinkingEnabled = null;
-    form.onEnterAutoRescheduleEnabled = false;
-    form.onEnterRescheduleDelayMinutes = 15;
-    form.onEnterRescheduleOnTokenLimit = true;
-    form.onEnterRescheduleOnServiceError = true;
-    form.onEnterMaxRescheduleCount = null;
-    form.onEnterMaxTotalTokens = null;
-    form.onEnterRescheduleAtTokenCount = null;
+    const defaults = buildFormFromLane({});
+    Object.assign(form, defaults);
     automationType.value = 'none';
     showAgentSettings.value = false;
     initialLaneIndex.value = -1;
@@ -542,77 +563,98 @@ function handleMoveLane(toIndex) {
   currentLaneIndex.value = toIndex;
 }
 
+/**
+ * Build save data when automation type is 'none' -- clear all automation fields.
+ * @returns {Object} Save data fields for 'none' automation
+ */
+function buildSaveDataForNone() {
+  return {
+    onEnterTemplateId: null,
+    onEnterPrompt: null,
+    onEnterMode: null,
+    onEnterModel: null,
+    onEnterEffortLevel: null,
+    onEnterThinkingEnabled: null,
+    onEnterAutoRescheduleEnabled: false,
+    onEnterRescheduleDelayMinutes: 15,
+    onEnterRescheduleOnTokenLimit: true,
+    onEnterRescheduleOnServiceError: true,
+    onEnterMaxRescheduleCount: null,
+    onEnterMaxTotalTokens: null,
+    onEnterRescheduleAtTokenCount: null,
+  };
+}
+
+/**
+ * Build save data when automation type is 'template'.
+ * @param {Object} formData - The reactive form object
+ * @returns {Object} Save data fields for 'template' automation
+ */
+function buildSaveDataForTemplate(formData) {
+  return {
+    ...buildSaveDataForNone(),
+    onEnterTemplateId: formData.onEnterTemplateId,
+    onEnterPrompt: null,
+  };
+}
+
+/**
+ * Build save data when automation type is 'prompt'.
+ * @param {Object} formData - The reactive form object
+ * @returns {Object} Save data fields for 'prompt' automation
+ */
+function buildSaveDataForPrompt(formData) {
+  return {
+    onEnterTemplateId: null,
+    onEnterPrompt: formData.onEnterPrompt.trim(),
+    onEnterMode: formData.onEnterMode,
+    onEnterModel: formData.onEnterModel,
+    onEnterEffortLevel: formData.onEnterEffortLevel,
+    onEnterThinkingEnabled: formData.onEnterThinkingEnabled,
+    onEnterAutoRescheduleEnabled: formData.onEnterAutoRescheduleEnabled,
+    onEnterRescheduleDelayMinutes: formData.onEnterRescheduleDelayMinutes,
+    onEnterRescheduleOnTokenLimit: formData.onEnterRescheduleOnTokenLimit,
+    onEnterRescheduleOnServiceError: formData.onEnterRescheduleOnServiceError,
+    onEnterMaxRescheduleCount: formData.onEnterMaxRescheduleCount,
+    onEnterMaxTotalTokens: formData.onEnterMaxTotalTokens,
+    onEnterRescheduleAtTokenCount: formData.onEnterRescheduleAtTokenCount,
+  };
+}
+
+/**
+ * Handle lane position change if the user moved the lane.
+ * @param {Object} lane - The lane being saved
+ * @param {number} fromIndex - Original lane index
+ * @param {number} toIndex - New lane index
+ * @param {string} projectId - The project ID
+ */
+async function handleLanePositionChange(lane, fromIndex, toIndex, projectId) {
+  if (toIndex === fromIndex || toIndex < 0) return;
+  const lanes = kanbanStore.board?.lanes;
+  if (!lanes || lanes.length <= 1) return;
+
+  const newOrder = lanes.map((l) => l.id);
+  newOrder.splice(fromIndex, 1);
+  newOrder.splice(toIndex, 0, lane.id);
+  await kanbanStore.reorderLanes(projectId, newOrder);
+}
+
 async function handleSave() {
   if (!props.lane || !isValid.value) return;
 
   saving.value = true;
   try {
-    const data = {
-      name: form.name.trim(),
-    };
+    const data = { name: form.name.trim() };
 
-    // Set automation based on type
     if (automationType.value === 'template') {
-      data.onEnterTemplateId = form.onEnterTemplateId;
-      data.onEnterPrompt = null; // Clear prompt when using template
-      // Clear agent settings when using template
-      data.onEnterMode = null;
-      data.onEnterModel = null;
-      data.onEnterEffortLevel = null;
-      data.onEnterThinkingEnabled = null;
-      data.onEnterAutoRescheduleEnabled = false;
-      data.onEnterRescheduleDelayMinutes = 15;
-      data.onEnterRescheduleOnTokenLimit = true;
-      data.onEnterRescheduleOnServiceError = true;
-      data.onEnterMaxRescheduleCount = null;
-      data.onEnterMaxTotalTokens = null;
-      data.onEnterRescheduleAtTokenCount = null;
+      Object.assign(data, buildSaveDataForTemplate(form));
     } else if (automationType.value === 'prompt') {
-      data.onEnterTemplateId = null; // Clear template when using prompt
-      data.onEnterPrompt = form.onEnterPrompt.trim();
-      // Include agent settings
-      data.onEnterMode = form.onEnterMode;
-      data.onEnterModel = form.onEnterModel;
-      data.onEnterEffortLevel = form.onEnterEffortLevel;
-      data.onEnterThinkingEnabled = form.onEnterThinkingEnabled;
-      data.onEnterAutoRescheduleEnabled = form.onEnterAutoRescheduleEnabled;
-      data.onEnterRescheduleDelayMinutes = form.onEnterRescheduleDelayMinutes;
-      data.onEnterRescheduleOnTokenLimit = form.onEnterRescheduleOnTokenLimit;
-      data.onEnterRescheduleOnServiceError = form.onEnterRescheduleOnServiceError;
-      data.onEnterMaxRescheduleCount = form.onEnterMaxRescheduleCount;
-      data.onEnterMaxTotalTokens = form.onEnterMaxTotalTokens;
-      data.onEnterRescheduleAtTokenCount = form.onEnterRescheduleAtTokenCount;
+      Object.assign(data, buildSaveDataForPrompt(form));
     } else {
-      // None - clear both
-      data.onEnterTemplateId = null;
-      data.onEnterPrompt = null;
-      data.onEnterMode = null;
-      data.onEnterModel = null;
-      data.onEnterEffortLevel = null;
-      data.onEnterThinkingEnabled = null;
-      data.onEnterAutoRescheduleEnabled = false;
-      data.onEnterRescheduleDelayMinutes = 15;
-      data.onEnterRescheduleOnTokenLimit = true;
-      data.onEnterRescheduleOnServiceError = true;
-      data.onEnterMaxRescheduleCount = null;
-      data.onEnterMaxTotalTokens = null;
-      data.onEnterRescheduleAtTokenCount = null;
+      Object.assign(data, buildSaveDataForNone());
     }
 
-    // Check if position changed
-    if (currentLaneIndex.value !== initialLaneIndex.value && currentLaneIndex.value >= 0) {
-      const lanes = kanbanStore.board?.lanes;
-      if (lanes && lanes.length > 1) {
-        const newOrder = lanes.map((l) => l.id);
-        const laneId = props.lane.id;
-        const [movedId] = newOrder.splice(initialLaneIndex.value, 1);
-        newOrder.splice(currentLaneIndex.value, 0, movedId);
-
-        // Reorder lanes first, then update lane properties
-        await kanbanStore.reorderLanes(props.projectId, newOrder);
-      }
-    }
-
+    await handleLanePositionChange(props.lane, initialLaneIndex.value, currentLaneIndex.value, props.projectId);
     await kanbanStore.updateLane(props.projectId, props.lane.id, data);
     uiStore.success('Lane settings saved');
     emit('updated');

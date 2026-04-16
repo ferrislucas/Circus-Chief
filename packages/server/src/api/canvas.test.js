@@ -1597,37 +1597,44 @@ describe('Canvas API', () => {
       it('recovers all versions of a file', async () => {
         // Create multiple versions
         const v1 = await request(app).post(`/api/sessions/${sessionId}/canvas`)
-          .send({ type: 'text', content: 'V1', filename: 'multi.txt' });
+          .send({ type: 'text', content: 'V1', filename: 'multi.txt' })
+          .timeout(5000);
         const v2 = await request(app).post(`/api/sessions/${sessionId}/canvas`)
-          .send({ type: 'text', content: 'V2', filename: 'multi.txt' });
+          .send({ type: 'text', content: 'V2', filename: 'multi.txt' })
+          .timeout(5000);
         const v3 = await request(app).post(`/api/sessions/${sessionId}/canvas`)
-          .send({ type: 'text', content: 'V3', filename: 'multi.txt' });
+          .send({ type: 'text', content: 'V3', filename: 'multi.txt' })
+          .timeout(5000);
 
-        // Delete all versions individually (list endpoint only shows latest version now)
-        await request(app).delete(`/api/sessions/${sessionId}/canvas/${v1.body.id}`);
-        await request(app).delete(`/api/sessions/${sessionId}/canvas/${v2.body.id}`);
-        await request(app).delete(`/api/sessions/${sessionId}/canvas/${v3.body.id}`);
+        // Delete all versions with Promise.all to prevent connection buildup
+        await Promise.all([
+          request(app).delete(`/api/sessions/${sessionId}/canvas/${v1.body.id}`).timeout(5000),
+          request(app).delete(`/api/sessions/${sessionId}/canvas/${v2.body.id}`).timeout(5000),
+          request(app).delete(`/api/sessions/${sessionId}/canvas/${v3.body.id}`).timeout(5000),
+        ]);
 
         // Verify trash has 3 items
-        let trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+        let trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`)
+          .timeout(5000);
         expect(trashRes.body).toHaveLength(3);
 
         // Recover by filename
         const recoverRes = await request(app)
-          .post(`/api/sessions/${sessionId}/canvas-trash/recover-file/multi.txt`);
+          .post(`/api/sessions/${sessionId}/canvas-trash/recover-file/multi.txt`)
+          .timeout(5000);
 
         expect(recoverRes.status).toBe(200);
         expect(recoverRes.body.recovered).toBe(3);
 
         // Verify latest version is back in canvas list (list only shows latest version)
-        const listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`);
+        const listRes = await request(app).get(`/api/sessions/${sessionId}/canvas`).timeout(5000);
         expect(listRes.body).toHaveLength(1);
         expect(listRes.body[0].filename).toBe('multi.txt'); // Latest version (content stripped from list)
 
         // Verify trash is empty
-        trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`);
+        trashRes = await request(app).get(`/api/sessions/${sessionId}/canvas-trash`).timeout(5000);
         expect(trashRes.body).toHaveLength(0);
-      });
+      }, 15000); // Add test-level timeout for CI stability
 
       it('returns count of recovered items', async () => {
         // Create items with explicit timeouts

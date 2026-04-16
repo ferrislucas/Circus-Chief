@@ -61,42 +61,32 @@ export class ProjectRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
+  /**
+   * Field mapping from camelCase data keys to snake_case column names.
+   * Entries with a transform function apply that transform to the value.
+   */
+  static #FIELD_MAP = {
+    name: { column: 'name' },
+    workingDirectory: { column: 'working_directory' },
+    systemPrompt: { column: 'system_prompt' },
+    onSessionCreated: { column: 'on_session_created' },
+    onSessionDeleted: { column: 'on_session_deleted' },
+    prPollInterval: { column: 'pr_poll_interval' },
+    repoUrl: { column: 'repo_url' },
+    kanbanEnabled: { column: 'kanban_enabled', transform: (v) => v ? 1 : 0 },
+  };
+
   update(id, data) {
     const updates = [];
     const values = [];
 
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
+    for (const [key, { column, transform }] of Object.entries(ProjectRepository.#FIELD_MAP)) {
+      if (data[key] !== undefined) {
+        updates.push(`${column} = ?`);
+        values.push(transform ? transform(data[key]) : data[key]);
+      }
     }
-    if (data.workingDirectory !== undefined) {
-      updates.push('working_directory = ?');
-      values.push(data.workingDirectory);
-    }
-    if (data.systemPrompt !== undefined) {
-      updates.push('system_prompt = ?');
-      values.push(data.systemPrompt);
-    }
-    if (data.onSessionCreated !== undefined) {
-      updates.push('on_session_created = ?');
-      values.push(data.onSessionCreated);
-    }
-    if (data.onSessionDeleted !== undefined) {
-      updates.push('on_session_deleted = ?');
-      values.push(data.onSessionDeleted);
-    }
-    if (data.prPollInterval !== undefined) {
-      updates.push('pr_poll_interval = ?');
-      values.push(data.prPollInterval);
-    }
-    if (data.repoUrl !== undefined) {
-      updates.push('repo_url = ?');
-      values.push(data.repoUrl);
-    }
-    if (data.kanbanEnabled !== undefined) {
-      updates.push('kanban_enabled = ?');
-      values.push(data.kanbanEnabled ? 1 : 0);
-    }
+
     if (updates.length === 0) return this.getById(id);
 
     updates.push('updated_at = ?');

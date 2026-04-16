@@ -233,6 +233,80 @@ function ensureRunExists(runId, buttonId, sessionId) {
 }
 
 /**
+ * Handle a newly created session from WebSocket.
+ * Extracted from onMounted to reduce callback nesting depth.
+ */
+function handleSessionCreated(session) {
+  // Add if it's an active session (running/waiting/starting)
+  if (['running', 'waiting', 'starting'].includes(session.status)) {
+    // Check if session already exists to avoid duplicates
+    const exists = sessionsStore.activeSessions.some((s) => s.id === session.id);
+    if (!exists) {
+      sessionsStore.activeSessions.unshift(session);
+      // Fetch buttons for this project if we haven't already
+      if (session.projectId && !fetchedProjectIds.value.has(session.projectId)) {
+        commandButtonsStore.fetchButtons(session.projectId);
+        fetchedProjectIds.value.add(session.projectId);
+      }
+    }
+  }
+}
+
+/**
+ * Handle an updated session from WebSocket.
+ * Extracted from onMounted to reduce callback nesting depth.
+ */
+function handleSessionUpdated(session) {
+  // Handle status transitions: add to active if becoming active, remove if not
+  const isActive = ['running', 'waiting', 'starting'].includes(session.status);
+  const existingIndex = sessionsStore.activeSessions.findIndex((s) => s.id === session.id);
+
+  if (isActive) {
+    if (existingIndex >= 0) {
+      // Update existing session
+      sessionsStore.activeSessions[existingIndex] = session;
+    } else {
+      // Add to active sessions
+      sessionsStore.activeSessions.unshift(session);
+    }
+  } else {
+    // Remove from active sessions if no longer active
+    if (existingIndex >= 0) {
+      sessionsStore.activeSessions.splice(existingIndex, 1);
+      // Clean up summary data
+      delete summaries[session.id];
+      delete loadingSummaries[session.id];
+      delete summaryErrors[session.id];
+    }
+  }
+}
+
+/**
+ * Handle a deleted session from WebSocket.
+ * Extracted from onMounted to reduce callback nesting depth.
+ */
+function handleSessionDeleted(sessionId) {
+  const existingIndex = sessionsStore.activeSessions.findIndex((s) => s.id === sessionId);
+  if (existingIndex >= 0) {
+    sessionsStore.activeSessions.splice(existingIndex, 1);
+  }
+  // Clean up summary data
+  delete summaries[sessionId];
+  delete loadingSummaries[sessionId];
+  delete summaryErrors[sessionId];
+}
+
+/**
+ * Handle a session summary update from WebSocket.
+ * Extracted from onMounted to reduce callback nesting depth.
+ */
+function handleSessionSummaryUpdated(sessionId, summary) {
+  summaries[sessionId] = summary;
+  loadingSummaries[sessionId] = false;
+  summaryErrors[sessionId] = false;
+}
+
+/**
  * Set up WebSocket handlers for command run events.
  */
 function setupCommandRunHandlers(on, off, handlerCleanups) {
@@ -267,72 +341,12 @@ onMounted(async () => {
   await ensureButtonsLoadedForSessions();
 
   // Set up WebSocket listeners for real-time updates
-  cleanups.push(
-    onSessionCreated((session) => {
-      // Add if it's an active session (running/waiting/starting)
-      if (['running', 'waiting', 'starting'].includes(session.status)) {
-        // Check if session already exists to avoid duplicates
-        const exists = sessionsStore.activeSessions.some((s) => s.id === session.id);
-        if (!exists) {
-          sessionsStore.activeSessions.unshift(session);
-          // Fetch buttons for this project if we haven't already
-          if (session.projectId && !fetchedProjectIds.value.has(session.projectId)) {
-            commandButtonsStore.fetchButtons(session.projectId);
-            fetchedProjectIds.value.add(session.projectId);
-          }
-        }
-      }
-    })
-  );
-
-  cleanups.push(
-    onSessionUpdated((session) => {
-      // Handle status transitions: add to active if becoming active, remove if not
-      const isActive = ['running', 'waiting', 'starting'].includes(session.status);
-      const existingIndex = sessionsStore.activeSessions.findIndex((s) => s.id === session.id);
-
-      if (isActive) {
-        if (existingIndex >= 0) {
-          // Update existing session
-          sessionsStore.activeSessions[existingIndex] = session;
-        } else {
-          // Add to active sessions
-          sessionsStore.activeSessions.unshift(session);
-        }
-      } else {
-        // Remove from active sessions if no longer active
-        if (existingIndex >= 0) {
-          sessionsStore.activeSessions.splice(existingIndex, 1);
-          // Clean up summary data
-          delete summaries[session.id];
-          delete loadingSummaries[session.id];
-          delete summaryErrors[session.id];
-        }
-      }
-    })
-  );
-
-  cleanups.push(
-    onSessionDeleted((sessionId) => {
-      const existingIndex = sessionsStore.activeSessions.findIndex((s) => s.id === sessionId);
-      if (existingIndex >= 0) {
-        sessionsStore.activeSessions.splice(existingIndex, 1);
-      }
-      // Clean up summary data
-      delete summaries[sessionId];
-      delete loadingSummaries[sessionId];
-      delete summaryErrors[sessionId];
-    })
-  );
+  cleanups.push(onSessionCreated(handleSessionCreated));
+  cleanups.push(onSessionUpdated(handleSessionUpdated));
+  cleanups.push(onSessionDeleted(handleSessionDeleted));
 
   // Handle session summary updated (real-time updates when summaries are generated)
-  cleanups.push(
-    onSessionSummaryUpdated((sessionId, summary) => {
-      summaries[sessionId] = summary;
-      loadingSummaries[sessionId] = false;
-      summaryErrors[sessionId] = false;
-    })
-  );
+  cleanups.push(onSessionSummaryUpdated(handleSessionSummaryUpdated));
 
   // Set up global WebSocket handlers for command run events (for all projects)
   const { on, off } = useWebSocket();
