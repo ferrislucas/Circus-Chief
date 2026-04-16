@@ -531,28 +531,13 @@ export function propagatePrUrlToParent(sessionId, prUrl) {
 }
 
 // Re-export from extracted modules for backward compatibility
-// These are used by external consumers and tests
 export {
-  // From summaryPrompts.js
-  MAX_MESSAGES,
-  MIN_MESSAGES_FOR_SUMMARY,
-  MAX_RETRIES,
-  DEFAULT_SESSION_TITLE_PROMPT,
-  SUMMARY_SYSTEM_PROMPT,
-  formatMessages,
-  buildIncrementalPrompt,
-  parseSummaryResponse,
-  stripMarkdownCodeBlock as _stripMarkdownCodeBlock,
-  trackMessageMetadata as _trackMessageMetadata,
+  MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT,
+  SUMMARY_SYSTEM_PROMPT, formatMessages, buildIncrementalPrompt, parseSummaryResponse,
+  stripMarkdownCodeBlock as _stripMarkdownCodeBlock, trackMessageMetadata as _trackMessageMetadata,
 };
-
-// From summaryClaudeClient.js
 export { callClaude };
-
-// From prUrlService.js
 export { parsePrUrl, validatePrUrl, extractPrUrlIfNeeded, enrichPrData as _enrichPrData };
-
-// From childSessionContext.js
 export { getChildSessions, buildChildSessionContext, aggregateFilesModified };
 
 /**
