@@ -5,18 +5,17 @@
 <h1 align="center">Circus Chief</h1>
 
 <p align="center">
-  An open-source, touch-optimized control plane for managing Claude Code agents.<br/>
-  It runs on your machine with one goal: empower phones and tablets to build software with Claude Code.<br/><br/>
-  Supports Anthropic API, AWS Bedrock, Google Vertex AI, or any Anthropic-compatible endpoint.
+  An open-source, touch-optimized control plane for managing Claude Code agents.<br/><br/>
+  Supports Anthropic API, AWS Bedrock, Google Vertex AI, z.ai, or any Anthropic-compatible endpoint.
 </p>
 
 ---
 
-## Why Circus Chief?
+## Features
 
 ### Stay on top of your agents
 
-- **AI-generated session summaries** — scan what every session accomplished without reading the full conversation
+- **AI-generated session summaries** — scan what every session accomplished without reading the full conversation, with PRs automatically linked (requires GitHub CLI)
 - **Kanban board** — organize sessions into workflow stages with drag-and-drop and lane automation
 - **Command buttons with live status** — kick off builds, tests, or CI tasks and see pass/fail indicators right on the session list
 - **Star, archive, and filter** to keep your session list manageable
@@ -48,6 +47,14 @@
 
 ---
 
+## How to Run
+
+```bash
+npx circuschief
+```
+
+---
+
 ## Tech Stack
 
 - **Frontend**: Vue.js 3 + Vite + Pinia + Vue Router
@@ -57,10 +64,11 @@
 
 ## Prerequisites
 
-- macOS
+- macOS or Linux
 - Node.js 20+
 - Yarn
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [GitHub CLI](https://cli.github.com/) (optional — enables automatic PR linking)
 
 ## Documentation
 
