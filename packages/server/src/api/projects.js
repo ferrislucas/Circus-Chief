@@ -179,10 +179,11 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
   const initialStatus = determineInitialStatus(config);
 
   // Validate git settings for git repos
-  const gitError = await validateGitSettings(config, project);
+  const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
   if (gitError) {
     return res.status(400).json({ error: gitError });
   }
+  Object.assign(config, updatedConfig);
 
   const sessionName = config.name || generateInitialName(config.prompt);
   const session = sessions.create(req.params.id, sessionName, config.prompt, {
