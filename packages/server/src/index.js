@@ -79,7 +79,10 @@ prStatusService.start();
 systemMonitor.start();
 
 // Graceful shutdown
+let shuttingDown = false;
 function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`${signal} received, shutting down gracefully`);
 
   // Safety net: force exit after 5 seconds
