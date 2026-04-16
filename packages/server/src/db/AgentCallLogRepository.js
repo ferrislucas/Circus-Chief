@@ -134,6 +134,33 @@ export class AgentCallLogRepository extends BaseRepository {
   }
 
   /**
+   * Build WHERE conditions and params from filter options.
+   * @param {Object} options - Filter options
+   * @returns {{ conditions: string[], params: any[] }}
+   */
+  static buildFilters({ agentType, callType, status, model, sessionId, startDate, endDate }) {
+    const filterMap = [
+      [agentType, 'acl.agent_type = ?'],
+      [callType, 'acl.call_type = ?'],
+      [status, 'acl.status = ?'],
+      [model, 'acl.model = ?'],
+      [sessionId, 'acl.session_id = ?'],
+      [startDate, 'acl.started_at >= ?'],
+      [endDate, 'acl.started_at <= ?'],
+    ];
+
+    const conditions = [];
+    const params = [];
+    for (const [value, condition] of filterMap) {
+      if (value) {
+        conditions.push(condition);
+        params.push(value);
+      }
+    }
+    return { conditions, params };
+  }
+
+  /**
    * Get all call logs with optional filtering, sorting, and pagination.
    * Returns { rows, total } where total is the full count (before limit/offset).
    */
@@ -162,37 +189,9 @@ export class AgentCallLogRepository extends BaseRepository {
     const safeSortBy = SORTABLE_COLUMNS.includes(sortBy) ? sortBy : 'started_at';
     const safeSortOrder = sortOrder === 'ASC' ? 'ASC' : 'DESC';
 
-    const conditions = [];
-    const params = [];
-
-    if (agentType) {
-      conditions.push('acl.agent_type = ?');
-      params.push(agentType);
-    }
-    if (callType) {
-      conditions.push('acl.call_type = ?');
-      params.push(callType);
-    }
-    if (status) {
-      conditions.push('acl.status = ?');
-      params.push(status);
-    }
-    if (model) {
-      conditions.push('acl.model = ?');
-      params.push(model);
-    }
-    if (sessionId) {
-      conditions.push('acl.session_id = ?');
-      params.push(sessionId);
-    }
-    if (startDate) {
-      conditions.push('acl.started_at >= ?');
-      params.push(startDate);
-    }
-    if (endDate) {
-      conditions.push('acl.started_at <= ?');
-      params.push(endDate);
-    }
+    const { conditions, params } = AgentCallLogRepository.buildFilters({
+      agentType, callType, status, model, sessionId, startDate, endDate,
+    });
 
     const whereClause = conditions.length > 0 ? `WHERE ${  conditions.join(' AND ')}` : '';
 

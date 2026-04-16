@@ -26,10 +26,11 @@ import { ref, watch, onUnmounted, defineAsyncComponent } from 'vue';
 import { useCanvasStore } from '../stores/canvas.js';
 
 const MdEditorAsync = defineAsyncComponent(() =>
-  import('md-editor-v3').then((mod) => 
+  import('md-editor-v3').then(async (mod) => {
     // Import styles when the module loads
-     import('md-editor-v3/lib/style.css').then(() => mod.MdEditor)
-  )
+    await import('md-editor-v3/lib/style.css');
+    return mod.MdEditor;
+  })
 );
 
 const props = defineProps({

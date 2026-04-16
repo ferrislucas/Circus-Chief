@@ -102,6 +102,15 @@ export class QuickResponseRepository extends BaseRepository {
    * @param {Object} data - Fields to update
    * @returns {Object|null} Updated quick response or null if not found
    */
+  /** @type {Array<[string, string, ((v: any) => any)?]>} [dataKey, columnName, transform?] */
+  static #UPDATE_FIELDS = [
+    ['label', 'label'],
+    ['content', 'content'],
+    ['autoSubmit', 'auto_submit', (v) => v ? 1 : 0],
+    ['category', 'category'],
+    ['sortOrder', 'sort_order'],
+  ];
+
   update(id, data) {
     const existing = this.getById(id);
     if (!existing) {
@@ -111,25 +120,11 @@ export class QuickResponseRepository extends BaseRepository {
     const updates = [];
     const values = [];
 
-    if (data.label !== undefined) {
-      updates.push('label = ?');
-      values.push(data.label);
-    }
-    if (data.content !== undefined) {
-      updates.push('content = ?');
-      values.push(data.content);
-    }
-    if (data.autoSubmit !== undefined) {
-      updates.push('auto_submit = ?');
-      values.push(data.autoSubmit ? 1 : 0);
-    }
-    if (data.category !== undefined) {
-      updates.push('category = ?');
-      values.push(data.category);
-    }
-    if (data.sortOrder !== undefined) {
-      updates.push('sort_order = ?');
-      values.push(data.sortOrder);
+    for (const [key, column, transform] of QuickResponseRepository.#UPDATE_FIELDS) {
+      if (data[key] !== undefined) {
+        updates.push(`${column} = ?`);
+        values.push(transform ? transform(data[key]) : data[key]);
+      }
     }
 
     if (updates.length > 0) {

@@ -71,6 +71,49 @@ router.get('/:name', async (req, res) => {
  *   - sessionId: Session to execute command in (required)
  *   - args: Object with argument values keyed by argument name (optional)
  */
+/**
+ * Handle execution of a skill invocation (skill body -> system prompt, args -> user message).
+ * Returns the response payload, or null if the command is not a skill.
+ */
+async function handleSkillExecution({ workingDirectory, name, args, sessionId, project }) {
+  const skillInvocation = await slashCommandService.buildSkillInvocation(
+    workingDirectory, name, args
+  );
+
+  if (!skillInvocation) return null;
+
+  const skillSystemPrompt = slashCommandService.buildSkillSystemPrompt(
+    project.systemPrompt || null, skillInvocation
+  );
+  const userMessage = slashCommandService.buildSkillUserMessage(skillInvocation);
+
+  continueSession(sessionId, userMessage, workingDirectory, {
+    systemPrompt: skillSystemPrompt,
+  }).catch(err => {
+    console.error('Error executing skill:', err);
+  });
+
+  return { success: true, command: name, message: userMessage };
+}
+
+/**
+ * Handle execution of a non-skill slash command.
+ * Returns the response payload.
+ */
+async function handleCommandExecution({ workingDirectory, name, args, sessionId, project }) {
+  const commandString = await slashCommandService.buildCommandString(
+    workingDirectory, name, args
+  );
+
+  continueSession(sessionId, commandString, workingDirectory, {
+    systemPrompt: project.systemPrompt || null,
+  }).catch(err => {
+    console.error('Error executing command:', err);
+  });
+
+  return { success: true, command: name, message: commandString };
+}
+
 router.post('/:name/execute', async (req, res) => {
   const { name } = req.params;
   const { sessionId, args = {} } = req.body;
@@ -103,63 +146,15 @@ router.post('/:name/execute', async (req, res) => {
     }
 
   try {
-    // Check if this is a skill — skills need special handling:
-    // skill body → system prompt, user args → user message
-    const skillInvocation = await slashCommandService.buildSkillInvocation(
-      workingDirectory,
-      name,
-      args
-    );
-
-    if (skillInvocation) {
-      // Skill: inject body as system prompt context, args as user message
-      const skillSystemPrompt = slashCommandService.buildSkillSystemPrompt(
-        project.systemPrompt || null,
-        skillInvocation
-      );
-      const userMessage = slashCommandService.buildSkillUserMessage(skillInvocation);
-
-      continueSession(
-        sessionId,
-        userMessage,
-        workingDirectory,
-        { systemPrompt: skillSystemPrompt } // No file attachments for slash commands
-      ).catch(err => {
-        console.error('Error executing skill:', err);
-      });
-
-      res.json({
-        success: true,
-        command: name,
-        message: userMessage,
-      });
-      return;
+    // Check if this is a skill — skills need special handling
+    const skillResult = await handleSkillExecution({ workingDirectory, name, args, sessionId, project });
+    if (skillResult) {
+      return res.json(skillResult);
     }
 
-    // Non-skill command: build command string and send as user message
-    const commandString = await slashCommandService.buildCommandString(
-      workingDirectory,
-      name,
-      args
-    );
-
-    // Use continueSession to send the command
-    // This handles the full message flow including broadcasting to WebSocket
-    continueSession(
-      sessionId,
-      commandString,
-      workingDirectory,
-      { systemPrompt: project.systemPrompt || null } // No file attachments for slash commands
-    ).catch(err => {
-      // Log but don't throw - continueSession runs asynchronously
-      console.error('Error executing command:', err);
-    });
-
-    res.json({
-      success: true,
-      command: name,
-      message: commandString,
-    });
+    // Non-skill command
+    const cmdResult = await handleCommandExecution({ workingDirectory, name, args, sessionId, project });
+    res.json(cmdResult);
   } catch (err) {
     console.error('Error executing command:', err);
     res.status(500).json({ error: err.message });

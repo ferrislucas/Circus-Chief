@@ -217,50 +217,39 @@ function validateAndFetchContinueContext(sessionId, conversationId) {
   return { session, conversation, lastUserMessage };
 }
 
-export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
-  const { systemPrompt = null, model = null } = options;
-  const context = validateAndFetchContinueContext(sessionId, conversationId);
-  let session = context.session;
-  const { conversation, lastUserMessage } = context;
-
-  const controller = new AbortController();
-  activeSessions.set(sessionId, { controller });
-
-  // Make sure this conversation is active
-  if (!conversation.isActive) {
-    conversations.update(conversationId, { isActive: true });
-  }
-  activeConversationIds.set(sessionId, conversationId);
-
-  // Update status to running
-  sessions.update(sessionId, { status: 'running' });
-  broadcastSessionStatus(sessionId, 'running');
-
-  // Use the existing user message content as the prompt
-  // Note: We do NOT create a new user message here - it already exists
-
-  // Create agent via gateway (or mock agent in mock mode)
-  const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
-
-  // Resolve the effective model: fall back to session.model so that resuming
-  // without an explicit model still resolves the correct provider (e.g.
-  // third-party base URL and auth tokens).
+/**
+ * Resolve the effective model, provider, and session env from a model override.
+ * Detects model changes and updates the session record when needed.
+ * @param {Object} session - Current session object
+ * @param {string} sessionId - Session ID
+ * @param {string|null} model - Requested model (null to keep current)
+ * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
+ */
+function buildModelAndProvider(session, sessionId, model) {
   const effectiveModel = model || session.model;
-
-  // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(effectiveModel);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
+  const modelChanged = Boolean(model && session.model && model !== session.model);
 
-  // Check if model changed (can't resume with different model/provider)
-  const modelChanged = model && session.model && model !== session.model;
-
-  // Update session.model after detecting change
+  let updatedSession = session;
   if (model) {
     sessions.update(sessionId, { model });
-    session = sessions.getById(sessionId);
+    updatedSession = sessions.getById(sessionId);
   }
 
+  return { effectiveModel, sessionEnv, modelChanged, session: updatedSession };
+}
+
+/**
+ * Build query params for continueSessionWithExistingMessage.
+ * Handles context building (model switch / branch) and resume detection.
+ * @returns {{ queryParams: Object, agentCallMeta: Object }}
+ */
+function buildExistingMessageQueryParams({
+  sessionId, conversationId, session, model, systemPrompt,
+  effectiveModel, sessionEnv, modelChanged, conversation,
+  lastUserMessage, workingDirectory, controller, agentType,
+}) {
   // Determine context needs and build context
   const { needsContext, contextType } = determineContextNeed(conversation, modelChanged);
   if (needsContext) {
@@ -284,7 +273,6 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     resumeSessionId: canResume ? conversation.claudeSessionId : null,
   });
 
-  // Logging metadata for agent call tracking
   const agentCallMeta = {
     sessionId,
     conversationId,
@@ -295,6 +283,44 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     isResume: canResume,
     promptLength: promptWithContext.length,
   };
+
+  return { queryParams, agentCallMeta };
+}
+
+export async function continueSessionWithExistingMessage(sessionId, conversationId, workingDirectory, options = {}) {
+  const { systemPrompt = null, model = null } = options;
+  const context = validateAndFetchContinueContext(sessionId, conversationId);
+  let session = context.session;
+  const { conversation, lastUserMessage } = context;
+
+  const controller = new AbortController();
+  activeSessions.set(sessionId, { controller });
+
+  // Make sure this conversation is active
+  if (!conversation.isActive) {
+    conversations.update(conversationId, { isActive: true });
+  }
+  activeConversationIds.set(sessionId, conversationId);
+
+  // Update status to running
+  sessions.update(sessionId, { status: 'running' });
+  broadcastSessionStatus(sessionId, 'running');
+
+  // Create agent via gateway (or mock agent in mock mode)
+  const agentType = session.agentType || 'claude-code';
+  const agent = createAgentForSession(agentType);
+
+  // Resolve model/provider and detect model changes
+  const modelEnv = buildModelAndProvider(session, sessionId, model);
+  session = modelEnv.session;
+
+  // Build query params and agent call meta
+  const { queryParams, agentCallMeta } = buildExistingMessageQueryParams({
+    sessionId, conversationId, session, model, systemPrompt,
+    effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
+    modelChanged: modelEnv.modelChanged, conversation,
+    lastUserMessage, workingDirectory, controller, agentType,
+  });
 
   await _executeSession({
     sessionId,

@@ -107,28 +107,77 @@ async function resolveWorkingDirectory(parentSession, project, settings, newSess
  * Called when a session completes (status changes to completed, error, or stopped)
  * @param {string} sessionId - The session that just completed
  */
-export async function checkAndTriggerNextTemplate(sessionId) {
+/**
+ * Fetch the trigger context (session, template, project) with early-exit on missing data.
+ * @param {string} sessionId
+ * @returns {{ session: Object, template: Object, project: Object }|null} null if any lookup fails
+ */
+function fetchTriggerContext(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session) {
     console.warn(`Template trigger: Session ${sessionId} not found`);
-    return;
+    return null;
   }
 
   if (!session.nextTemplateId) {
-    return;
+    return null;
   }
 
   const template = sessionTemplates.getById(session.nextTemplateId);
   if (!template) {
     console.warn(`Template trigger: Template ${session.nextTemplateId} not found for session ${sessionId}`);
-    return;
+    return null;
   }
 
   const project = projects.getById(session.projectId);
   if (!project) {
     console.warn(`Template trigger: Project ${session.projectId} not found for session ${sessionId}`);
-    return;
+    return null;
   }
+
+  return { session, template, project };
+}
+
+/**
+ * Build the child session creation options and post-create update fields.
+ * @param {Object} template
+ * @param {Object} parentSession
+ * @param {Object} rootSession
+ * @param {Object} settings - Derived session settings
+ * @param {string} renderedPrompt
+ * @returns {{ createOpts: Object, postCreateUpdate: Object }}
+ */
+function buildChildSessionOptions(template, parentSession, settings) {
+  const createOpts = {
+    mode: settings.mode,
+    thinkingEnabled: settings.thinkingEnabled,
+    gitBranch: settings.gitBranch,
+    parentSessionId: null,
+    status: 'starting',
+    model: settings.model,
+    effortLevel: settings.effortLevel,
+  };
+
+  const postCreateUpdate = {
+    parentSessionId: parentSession.id,
+    nextTemplateId: template.nextTemplateId || null,
+    autoRescheduleEnabled: settings.autoRescheduleEnabled,
+    rescheduleOnTokenLimit: settings.rescheduleOnTokenLimit,
+    rescheduleOnServiceError: settings.rescheduleOnServiceError,
+    rescheduleDelayMinutes: settings.rescheduleDelayMinutes,
+    rescheduleAtTokenCount: settings.rescheduleAtTokenCount,
+    maxRescheduleCount: settings.maxRescheduleCount,
+    maxTotalTokens: settings.maxTotalTokens,
+  };
+
+  return { createOpts, postCreateUpdate };
+}
+
+export async function checkAndTriggerNextTemplate(sessionId) {
+  const ctx = fetchTriggerContext(sessionId);
+  if (!ctx) return;
+
+  const { session, template, project } = ctx;
 
   console.log(`Template trigger: Triggering template "${template.name}" after session "${session.name}"`);
 
@@ -141,32 +190,10 @@ export async function checkAndTriggerNextTemplate(sessionId) {
     const settings = deriveSessionSettings(template, rootSession);
     const newSessionName = `${template.name} (from: ${session.name})`;
 
-    const newSession = sessions.create(
-      session.projectId,
-      newSessionName,
-      renderedPrompt,
-      {
-        mode: settings.mode,
-        thinkingEnabled: settings.thinkingEnabled,
-        gitBranch: settings.gitBranch,
-        parentSessionId: null,
-        status: 'starting',
-        model: settings.model,
-        effortLevel: settings.effortLevel,
-      }
-    );
+    const { createOpts, postCreateUpdate } = buildChildSessionOptions(template, session, settings);
 
-    sessions.update(newSession.id, {
-      parentSessionId: session.id,
-      nextTemplateId: template.nextTemplateId || null,
-      autoRescheduleEnabled: settings.autoRescheduleEnabled,
-      rescheduleOnTokenLimit: settings.rescheduleOnTokenLimit,
-      rescheduleOnServiceError: settings.rescheduleOnServiceError,
-      rescheduleDelayMinutes: settings.rescheduleDelayMinutes,
-      rescheduleAtTokenCount: settings.rescheduleAtTokenCount,
-      maxRescheduleCount: settings.maxRescheduleCount,
-      maxTotalTokens: settings.maxTotalTokens,
-    });
+    const newSession = sessions.create(session.projectId, newSessionName, renderedPrompt, createOpts);
+    sessions.update(newSession.id, postCreateUpdate);
 
     const { workingDirectory, gitWorktree } = await resolveWorkingDirectory(session, project, settings, newSession.id);
 

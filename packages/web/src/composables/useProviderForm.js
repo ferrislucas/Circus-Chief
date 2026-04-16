@@ -3,6 +3,61 @@ import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
 
 /**
+ * Create the default (empty) form state for a new provider.
+ * @returns {Object} Default form values
+ */
+function createFormDefaults() {
+  return {
+    name: '',
+    baseUrl: null,
+    authToken: null,
+    apiTimeoutMs: null,
+    additionalEnvVars: {},
+  };
+}
+
+/**
+ * Build form state from an existing provider.
+ * @param {Object} provider - The provider to build form data from
+ * @returns {{ formData: Object, envKeys: string[], models: Object[], authModified: boolean }}
+ */
+function buildFormFromProvider(provider) {
+  const formData = {
+    name: provider.name,
+    baseUrl: provider.baseUrl,
+    authToken: provider.authToken === '••••••••' ? null : provider.authToken,
+    apiTimeoutMs: provider.apiTimeoutMs,
+    additionalEnvVars: provider.additionalEnvVars ? { ...provider.additionalEnvVars } : {},
+  };
+  const envKeys = Object.keys(formData.additionalEnvVars);
+  const models = (provider.models || []).map((m) => ({
+    _serverId: m.id,
+    modelId: m.modelId,
+    displayName: m.displayName,
+    tier: m.tier || 'custom',
+  }));
+  return { formData, envKeys, models, authModified: false };
+}
+
+/**
+ * Create all reactive state refs used by the provider form.
+ * @returns {Object} All reactive state refs
+ */
+function createFormState() {
+  return {
+    form: ref(createFormDefaults()),
+    localModels: ref([]),
+    envVarKeys: ref([]),
+    showAuthToken: ref(false),
+    saving: ref(false),
+    testing: ref(false),
+    error: ref(null),
+    testResult: ref(null),
+    authTokenModified: ref(false),
+  };
+}
+
+/**
  * Composable that manages all ProviderForm state and logic:
  * form data, validation, model list, env-var helpers, test-connection, save & reconcile.
  *
@@ -15,22 +70,8 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
   const uiStore = useUiStore();
 
   // ── Form state ────────────────────────────────────────────────
-  const form = ref({
-    name: '',
-    baseUrl: null,
-    authToken: null,
-    apiTimeoutMs: null,
-    additionalEnvVars: {},
-  });
-
-  const localModels = ref([]);
-  const envVarKeys = ref([]);
-  const showAuthToken = ref(false);
-  const saving = ref(false);
-  const testing = ref(false);
-  const error = ref(null);
-  const testResult = ref(null);
-  const authTokenModified = ref(false);
+  const state = createFormState();
+  const { form, localModels, envVarKeys, showAuthToken, saving, testing, error, testResult, authTokenModified } = state;
 
   // ── Computed ──────────────────────────────────────────────────
   const isEditing = computed(() => Boolean(providerRef.value));
@@ -44,30 +85,13 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
       if (!isOpen) return;
 
       if (provider) {
-        form.value = {
-          name: provider.name,
-          baseUrl: provider.baseUrl,
-          authToken: provider.authToken === '••••••••' ? null : provider.authToken,
-          apiTimeoutMs: provider.apiTimeoutMs,
-          additionalEnvVars: provider.additionalEnvVars ? { ...provider.additionalEnvVars } : {},
-        };
-        envVarKeys.value = Object.keys(form.value.additionalEnvVars);
-        authTokenModified.value = false;
-
-        localModels.value = (provider.models || []).map((m) => ({
-          _serverId: m.id,
-          modelId: m.modelId,
-          displayName: m.displayName,
-          tier: m.tier || 'custom',
-        }));
+        const result = buildFormFromProvider(provider);
+        form.value = result.formData;
+        envVarKeys.value = result.envKeys;
+        localModels.value = result.models;
+        authTokenModified.value = result.authModified;
       } else {
-        form.value = {
-          name: '',
-          baseUrl: null,
-          authToken: null,
-          apiTimeoutMs: null,
-          additionalEnvVars: {},
-        };
+        form.value = createFormDefaults();
         envVarKeys.value = [];
         localModels.value = [];
         authTokenModified.value = true;

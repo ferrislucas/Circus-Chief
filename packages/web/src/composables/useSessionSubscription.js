@@ -27,6 +27,68 @@ function createSessionHandler(on, off, sessionId) {
 }
 
 /**
+ * Register all session-scoped event handlers.
+ * Returns an object of handler factories keyed by event name.
+ * @param {Function} on - WebSocket on function
+ * @param {Function} off - WebSocket off function
+ * @param {string} sessionId - Session to filter for
+ * @returns {Object} Map of event handler factories (e.g., onStatus, onMessage, ...)
+ */
+function registerEventHandlers(on, off, sessionId) {
+  const bySession = (msg) => msg.sessionId === sessionId;
+  const handler = createSessionHandler(on, off, sessionId);
+
+  return {
+    onStatus: handler(WS_MESSAGE_TYPES.SESSION_STATUS,
+      { filter: bySession, args: (msg) => [msg.status] }),
+    onMessage: handler(WS_MESSAGE_TYPES.SESSION_MESSAGE,
+      { filter: (msg) => msg.message?.sessionId === sessionId, args: (msg) => [msg.message] }),
+    onError: handler(WS_MESSAGE_TYPES.SESSION_ERROR,
+      { filter: bySession, args: (msg) => [msg.error] }),
+    onCanvasAdd: handler(WS_MESSAGE_TYPES.CANVAS_ADD,
+      { filter: (msg) => msg.item?.sessionId === sessionId, args: (msg) => [msg.item] }),
+    onCanvasRemove: handler(WS_MESSAGE_TYPES.CANVAS_REMOVE,
+      { filter: bySession, args: (msg) => [msg.itemId] }),
+    onCanvasUpdate: handler(WS_MESSAGE_TYPES.CANVAS_UPDATE,
+      { filter: (msg) => msg.item?.sessionId === sessionId, args: (msg) => [msg.item] }),
+    onPartial: handler(WS_MESSAGE_TYPES.SESSION_PARTIAL,
+      { filter: bySession, args: (msg) => [msg.text] }),
+    onTodosUpdate: handler(WS_MESSAGE_TYPES.TODOS_UPDATE,
+      { filter: bySession, args: (msg) => [msg.todos, msg.conversationId] }),
+    onWorkLog: handler(WS_MESSAGE_TYPES.SESSION_WORK_LOG,
+      { filter: (msg) => bySession(msg) && msg.log, args: (msg) => [msg.log] }),
+    onWorkLogsAssociated: handler(WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED,
+      { filter: bySession, args: (msg) => [msg.messageId] }),
+    onThinkingPartial: handler(WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL,
+      { filter: bySession, args: (msg) => [msg.thinking] }),
+    onSummaryUpdate: handler(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED,
+      { filter: bySession, args: (msg) => [msg.summary] }),
+    onSummaryGenerating: handler(WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING,
+      { filter: bySession, args: (msg) => [msg.generating] }),
+    onSessionUpdate: handler(WS_MESSAGE_TYPES.SESSION_UPDATED,
+      { filter: bySession, args: (msg) => [msg.session] }),
+    onConversationCreated: handler(WS_MESSAGE_TYPES.CONVERSATION_CREATED,
+      { filter: bySession, args: (msg) => [msg.conversation] }),
+    onConversationUpdated: handler(WS_MESSAGE_TYPES.CONVERSATION_UPDATED,
+      { filter: bySession, args: (msg) => [msg.conversation] }),
+    onConversationDeleted: handler(WS_MESSAGE_TYPES.CONVERSATION_DELETED,
+      { filter: bySession, args: (msg) => [msg.conversationId, msg.newActiveConversation] }),
+    onUsageUpdate: handler(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE,
+      { filter: bySession, args: (msg) => [msg] }, { replaySessionId: sessionId }),
+    onCommandOutput: handler(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
+      { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.output] }),
+    onCommandComplete: handler(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE,
+      { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.exitCode, msg.output] }),
+    onCommandError: handler(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
+      { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.error || msg.message] }),
+    onCommandRunDeleted: handler(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED,
+      { filter: bySession, args: (msg) => [msg.runId, msg.buttonId] }),
+    onChangesUpdate: handler(WS_MESSAGE_TYPES.CHANGES_UPDATE,
+      { filter: bySession, args: (msg) => [msg.changeCount, msg.hasChanges] }),
+  };
+}
+
+/**
  * Subscribe to session updates
  * @param {string} sessionId
  */
@@ -65,55 +127,7 @@ export function useSessionSubscription(sessionId) {
     }
   };
 
-  const bySession = (msg) => msg.sessionId === sessionId;
-  const handler = createSessionHandler(on, off, sessionId);
-
-  const onStatus = handler(WS_MESSAGE_TYPES.SESSION_STATUS,
-    { filter: bySession, args: (msg) => [msg.status] });
-  const onMessage = handler(WS_MESSAGE_TYPES.SESSION_MESSAGE,
-    { filter: (msg) => msg.message?.sessionId === sessionId, args: (msg) => [msg.message] });
-  const onError = handler(WS_MESSAGE_TYPES.SESSION_ERROR,
-    { filter: bySession, args: (msg) => [msg.error] });
-  const onCanvasAdd = handler(WS_MESSAGE_TYPES.CANVAS_ADD,
-    { filter: (msg) => msg.item?.sessionId === sessionId, args: (msg) => [msg.item] });
-  const onCanvasRemove = handler(WS_MESSAGE_TYPES.CANVAS_REMOVE,
-    { filter: bySession, args: (msg) => [msg.itemId] });
-  const onCanvasUpdate = handler(WS_MESSAGE_TYPES.CANVAS_UPDATE,
-    { filter: (msg) => msg.item?.sessionId === sessionId, args: (msg) => [msg.item] });
-  const onPartial = handler(WS_MESSAGE_TYPES.SESSION_PARTIAL,
-    { filter: bySession, args: (msg) => [msg.text] });
-  const onTodosUpdate = handler(WS_MESSAGE_TYPES.TODOS_UPDATE,
-    { filter: bySession, args: (msg) => [msg.todos, msg.conversationId] });
-  const onWorkLog = handler(WS_MESSAGE_TYPES.SESSION_WORK_LOG,
-    { filter: (msg) => bySession(msg) && msg.log, args: (msg) => [msg.log] });
-  const onWorkLogsAssociated = handler(WS_MESSAGE_TYPES.SESSION_WORK_LOGS_ASSOCIATED,
-    { filter: bySession, args: (msg) => [msg.messageId] });
-  const onThinkingPartial = handler(WS_MESSAGE_TYPES.SESSION_THINKING_PARTIAL,
-    { filter: bySession, args: (msg) => [msg.thinking] });
-  const onSummaryUpdate = handler(WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED,
-    { filter: bySession, args: (msg) => [msg.summary] });
-  const onSummaryGenerating = handler(WS_MESSAGE_TYPES.SESSION_SUMMARY_GENERATING,
-    { filter: bySession, args: (msg) => [msg.generating] });
-  const onSessionUpdate = handler(WS_MESSAGE_TYPES.SESSION_UPDATED,
-    { filter: bySession, args: (msg) => [msg.session] });
-  const onConversationCreated = handler(WS_MESSAGE_TYPES.CONVERSATION_CREATED,
-    { filter: bySession, args: (msg) => [msg.conversation] });
-  const onConversationUpdated = handler(WS_MESSAGE_TYPES.CONVERSATION_UPDATED,
-    { filter: bySession, args: (msg) => [msg.conversation] });
-  const onConversationDeleted = handler(WS_MESSAGE_TYPES.CONVERSATION_DELETED,
-    { filter: bySession, args: (msg) => [msg.conversationId, msg.newActiveConversation] });
-  const onUsageUpdate = handler(WS_MESSAGE_TYPES.SESSION_USAGE_UPDATE,
-    { filter: bySession, args: (msg) => [msg] }, { replaySessionId: sessionId });
-  const onCommandOutput = handler(WS_MESSAGE_TYPES.COMMAND_RUN_OUTPUT,
-    { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.output] });
-  const onCommandComplete = handler(WS_MESSAGE_TYPES.COMMAND_RUN_COMPLETE,
-    { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.exitCode, msg.output] });
-  const onCommandError = handler(WS_MESSAGE_TYPES.COMMAND_RUN_ERROR,
-    { filter: bySession, args: (msg) => [msg.runId, msg.buttonId, msg.error || msg.message] });
-  const onCommandRunDeleted = handler(WS_MESSAGE_TYPES.COMMAND_RUN_DELETED,
-    { filter: bySession, args: (msg) => [msg.runId, msg.buttonId] });
-  const onChangesUpdate = handler(WS_MESSAGE_TYPES.CHANGES_UPDATE,
-    { filter: bySession, args: (msg) => [msg.changeCount, msg.hasChanges] });
+  const eventHandlers = registerEventHandlers(on, off, sessionId);
 
   // Auto-cleanup on unmount
   onUnmounted(() => {
@@ -123,29 +137,7 @@ export function useSessionSubscription(sessionId) {
   return {
     subscribe,
     unsubscribe,
-    onStatus,
-    onMessage,
-    onPartial,
-    onError,
-    onCanvasAdd,
-    onCanvasRemove,
-    onCanvasUpdate,
-    onTodosUpdate,
-    onWorkLog,
-    onWorkLogsAssociated,
-    onThinkingPartial,
-    onSummaryUpdate,
-    onSummaryGenerating,
-    onSessionUpdate,
-    onConversationCreated,
-    onConversationUpdated,
-    onConversationDeleted,
-    onUsageUpdate,
-    onCommandOutput,
-    onCommandComplete,
-    onCommandError,
-    onCommandRunDeleted,
-    onChangesUpdate,
+    ...eventHandlers,
   };
 }
 

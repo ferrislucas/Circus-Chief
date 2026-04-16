@@ -11,6 +11,65 @@ const TABLE_SESSIONS = 'sessions';
 const COL_INTEGER_DEFAULT_0 = 'INTEGER DEFAULT 0';
 
 /**
+ * SQL column definition for the sessions table with updated status CHECK constraint.
+ */
+const SESSIONS_BASE_COLUMNS = `
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled')),
+    mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
+    thinking_enabled INTEGER NOT NULL DEFAULT 0,
+    git_branch TEXT,
+    git_worktree TEXT,
+    pr_url TEXT,
+    error TEXT,
+    effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
+    cost_usd REAL DEFAULT 0,
+    claude_session_id TEXT,
+    model TEXT,
+    next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
+    parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    input_tokens INTEGER DEFAULT 0,
+    output_tokens INTEGER DEFAULT 0,
+    cache_read_input_tokens INTEGER DEFAULT 0,
+    cache_creation_input_tokens INTEGER DEFAULT 0,
+    web_search_requests INTEGER DEFAULT 0,
+    context_window INTEGER DEFAULT 200000,
+    archived INTEGER NOT NULL DEFAULT 0,
+    starred INTEGER NOT NULL DEFAULT 0,
+    manually_named INTEGER NOT NULL DEFAULT 0,
+    scheduled_at INTEGER DEFAULT NULL,
+    reschedule_delay_minutes INTEGER DEFAULT 15,
+    auto_reschedule_enabled INTEGER DEFAULT 0,
+    reschedule_on_token_limit INTEGER DEFAULT 1,
+    reschedule_on_service_error INTEGER DEFAULT 1,
+    max_reschedule_count INTEGER DEFAULT NULL,
+    max_total_tokens INTEGER DEFAULT NULL,
+    reschedule_count INTEGER DEFAULT 0,
+    reschedule_at_token_count INTEGER DEFAULT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+`;
+
+/**
+ * All possible column names that may exist in the sessions table for migration SELECT.
+ */
+const SESSIONS_ALL_COLUMNS = [
+  'id', 'project_id', 'name', 'status', 'mode', 'thinking_enabled',
+  'git_branch', 'git_worktree', 'pr_url', 'error', 'effort_level',
+  'cost_usd', 'claude_session_id', 'model', 'next_template_id',
+  'parent_session_id', 'input_tokens', 'output_tokens',
+  'cache_read_input_tokens', 'cache_creation_input_tokens',
+  'web_search_requests', 'context_window', 'archived', 'starred',
+  'manually_named', 'scheduled_at', 'reschedule_delay_minutes',
+  'auto_reschedule_enabled', 'reschedule_on_token_limit',
+  'reschedule_on_service_error', 'max_reschedule_count',
+  'max_total_tokens', 'reschedule_count', 'reschedule_at_token_count',
+  'created_at', 'updated_at',
+];
+
+/**
  * Migrate sessions table to include 'stopped' and 'scheduled' in status CHECK constraint.
  * SQLite doesn't support ALTER TABLE to modify constraints, so we recreate the table.
  */
@@ -22,76 +81,17 @@ function migrateSessionsStatusConstraint(db) {
     return;
   }
 
-  // Get all columns from the current table to preserve data
   const columnNames = getColumns(db, TABLE_SESSIONS);
-
-  const baseColumns = `
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled')),
-      mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
-      thinking_enabled INTEGER NOT NULL DEFAULT 0,
-      git_branch TEXT,
-      git_worktree TEXT,
-      pr_url TEXT,
-      error TEXT,
-      effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
-      cost_usd REAL DEFAULT 0,
-      claude_session_id TEXT,
-      model TEXT,
-      next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
-      parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
-      input_tokens INTEGER DEFAULT 0,
-      output_tokens INTEGER DEFAULT 0,
-      cache_read_input_tokens INTEGER DEFAULT 0,
-      cache_creation_input_tokens INTEGER DEFAULT 0,
-      web_search_requests INTEGER DEFAULT 0,
-      context_window INTEGER DEFAULT 200000,
-      archived INTEGER NOT NULL DEFAULT 0,
-      starred INTEGER NOT NULL DEFAULT 0,
-      manually_named INTEGER NOT NULL DEFAULT 0,
-      scheduled_at INTEGER DEFAULT NULL,
-      reschedule_delay_minutes INTEGER DEFAULT 15,
-      auto_reschedule_enabled INTEGER DEFAULT 0,
-      reschedule_on_token_limit INTEGER DEFAULT 1,
-      reschedule_on_service_error INTEGER DEFAULT 1,
-      max_reschedule_count INTEGER DEFAULT NULL,
-      max_total_tokens INTEGER DEFAULT NULL,
-      reschedule_count INTEGER DEFAULT 0,
-      reschedule_at_token_count INTEGER DEFAULT NULL,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  `;
-
-  const selectColumns = [
-    'id', 'project_id', 'name', 'status', 'mode', 'thinking_enabled',
-    'git_branch', 'git_worktree', 'pr_url', 'error', 'effort_level',
-    'cost_usd', 'claude_session_id', 'model', 'next_template_id',
-    'parent_session_id', 'input_tokens', 'output_tokens',
-    'cache_read_input_tokens', 'cache_creation_input_tokens',
-    'web_search_requests', 'context_window', 'archived', 'starred',
-    'manually_named', 'scheduled_at', 'reschedule_delay_minutes',
-    'auto_reschedule_enabled', 'reschedule_on_token_limit',
-    'reschedule_on_service_error', 'max_reschedule_count',
-    'max_total_tokens', 'reschedule_count', 'reschedule_at_token_count',
-    'created_at', 'updated_at',
-  ]
+  const selectColumns = SESSIONS_ALL_COLUMNS
     .filter((col) => columnNames.includes(col))
     .join(', ');
 
   db.exec(`
-    CREATE TABLE sessions_new (
-      ${baseColumns}
-    );
-
+    CREATE TABLE sessions_new (${SESSIONS_BASE_COLUMNS});
     INSERT INTO sessions_new (${selectColumns})
     SELECT ${selectColumns} FROM sessions;
-
     DROP TABLE sessions;
-
     ALTER TABLE sessions_new RENAME TO sessions;
-
     CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
     CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
