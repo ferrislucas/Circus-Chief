@@ -162,36 +162,42 @@ describe('Projects API', () => {
     });
 
     describe('git repo validation', () => {
-      it('returns 400 for git repo when gitMode is missing', async () => {
+      it('succeeds for git repo when gitMode is missing (defaults to none)', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
           gitBranch: 'feature-x',
         });
 
-        expect(res.status).toBe(400);
-        expect(res.body.error).toContain('gitMode');
-        expect(res.body.error).toContain('gitBranch');
+        expect(res.status).toBe(201);
+
+        // gitBranch should be preserved from the request
+        const session = sessions.getById(res.body.id);
+        expect(session.gitBranch).toBe('feature-x');
       });
 
-      it('returns 400 for git repo when gitBranch is missing', async () => {
+      it('succeeds for git repo when gitBranch is missing (defaults to main)', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
           gitMode: 'worktree',
         });
 
-        expect(res.status).toBe(400);
-        expect(res.body.error).toContain('gitMode');
-        expect(res.body.error).toContain('gitBranch');
+        expect(res.status).toBe(201);
+
+        // gitBranch should default to 'main'
+        const session = sessions.getById(res.body.id);
+        expect(session.gitBranch).toBe('main');
       });
 
-      it('returns 400 for git repo when both gitMode and gitBranch are missing', async () => {
+      it('succeeds for git repo when both gitMode and gitBranch are missing (defaults applied)', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
         });
 
-        expect(res.status).toBe(400);
-        expect(res.body.error).toContain('gitMode');
-        expect(res.body.error).toContain('gitBranch');
+        expect(res.status).toBe(201);
+
+        // gitBranch should default to 'main'
+        const session = sessions.getById(res.body.id);
+        expect(session.gitBranch).toBe('main');
       });
 
       it('succeeds for non-git project without gitMode/gitBranch', async () => {

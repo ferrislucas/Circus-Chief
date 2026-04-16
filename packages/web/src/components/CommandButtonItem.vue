@@ -22,7 +22,9 @@
           :aria-label="run.status"
           data-testid="command-status"
         >
-          <span v-html="statusIcon"></span>
+          <!-- eslint-disable vue/no-v-html -->
+          <span v-html="statusIcon" />
+          <!-- eslint-enable vue/no-v-html -->
         </div>
 
         <!-- Action Menu (copy/canvas/copy-command) -->
