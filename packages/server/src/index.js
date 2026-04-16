@@ -1,10 +1,10 @@
 import { createServer } from 'http';
-import { parseArgs } from 'node:util';
 import { execSync } from 'child_process';
 import { createApp } from './app.js';
 import { initDatabase } from './database.js';
 import { initWebSocket, webSocketManager } from './websocket.js';
-import { DEFAULT_SERVER_PORT } from '@circuschief/shared';
+import { parseCliOptions } from './cli.js';
+import { settings } from './db/index.js';
 import * as prStatusService from './services/prStatusService.js';
 import * as systemMonitor from './services/systemMonitor.js';
 import { schedulerService } from './services/schedulerService.js';
@@ -29,17 +29,7 @@ function validateNodeEnvironment() {
   }
 }
 
-const { values } = parseArgs({
-  options: {
-    port: {
-      type: 'string',
-      short: 'p',
-      default: String(DEFAULT_SERVER_PORT),
-    },
-  },
-});
-
-const port = parseInt(values.port, 10);
+const { port, disableAnalytics } = parseCliOptions();
 process.env.PORT = String(port);
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || 'circuschief.db';
@@ -58,6 +48,12 @@ validateNodeEnvironment();
 // Initialize database
 initDatabase(dbPath);
 console.log(`Database initialized: ${dbPath}`);
+
+// Apply --no-analytics flag to persisted settings
+if (disableAnalytics) {
+  settings.setGeneralSettings({ disableAnalytics: true });
+  console.log('Analytics disabled via --no-analytics flag');
+}
 
 // Create Express app
 const app = createApp({ production });
@@ -118,6 +114,6 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 // Start server on all interfaces
 server.listen(port, '0.0.0.0', () => {
-  console.log(`Server running on http://0.0.0.0:${port}`);
-  console.log(`WebSocket available at ws://0.0.0.0:${port}/ws`);
+  console.log(`Circus Chief running on http://localhost:${port}`);
+  console.log(`WebSocket available at ws://localhost:${port}/ws`);
 });
