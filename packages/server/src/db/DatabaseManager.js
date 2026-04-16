@@ -19,7 +19,7 @@ export class DatabaseManager {
    * @param {string} dbPath - Path to database file (use ':memory:' for in-memory)
    * @returns {Database.Database}
    */
-  init(dbPath = 'circuschief.db') {
+  init(dbPath) {
     this.#db = new Database(dbPath);
 
     // Enable WAL mode and foreign keys

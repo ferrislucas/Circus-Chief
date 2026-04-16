@@ -1,5 +1,7 @@
 import { createServer } from 'http';
 import { execSync } from 'child_process';
+import { mkdirSync } from 'fs';
+import { dirname } from 'path';
 import { createApp } from './app.js';
 import { initDatabase } from './database.js';
 import { initWebSocket, webSocketManager } from './websocket.js';
@@ -11,6 +13,7 @@ import { schedulerService } from './services/schedulerService.js';
 import * as sessionManager from './services/sessionManager.js';
 import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
+import { getDefaultDbPath } from './config.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -32,7 +35,7 @@ function validateNodeEnvironment() {
 const { port, disableAnalytics } = parseCliOptions();
 process.env.PORT = String(port);
 const production = process.env.NODE_ENV === 'production';
-const dbPath = process.env.DB_PATH || 'circuschief.db';
+const dbPath = process.env.DB_PATH || getDefaultDbPath();
 
 // Catch uncaught exceptions
 process.on('uncaughtException', (err) => {
@@ -44,6 +47,9 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Validate Node.js environment
 validateNodeEnvironment();
+
+// Ensure the database directory exists
+mkdirSync(dirname(dbPath), { recursive: true });
 
 // Initialize database
 initDatabase(dbPath);
