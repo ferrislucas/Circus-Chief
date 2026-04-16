@@ -514,6 +514,35 @@ describe('WebSocketManager', () => {
       expect(manager.getProjectSubscriptions().size).toBe(0);
     });
 
+    it('terminates all connected clients on close', async () => {
+      manager.init(server);
+
+      const ws1 = await connectClient();
+      const ws2 = await connectClient();
+
+      // Both clients should be connected
+      expect(manager.getClients().size).toBe(2);
+
+      // Track close events on the client side
+      const ws1Closed = new Promise((resolve) => ws1.on('close', resolve));
+      const ws2Closed = new Promise((resolve) => ws2.on('close', resolve));
+
+      manager.close();
+
+      // Both clients should receive close events
+      await Promise.all([ws1Closed, ws2Closed]);
+
+      expect(manager.getServer()).toBeNull();
+      expect(manager.getClients().size).toBe(0);
+    });
+
+    it('handles close with no connected clients gracefully', () => {
+      manager.init(server);
+      // No clients connected
+      expect(() => manager.close()).not.toThrow();
+      expect(manager.getServer()).toBeNull();
+    });
+
     it('can be called multiple times safely', () => {
       manager.init(server);
       manager.close();

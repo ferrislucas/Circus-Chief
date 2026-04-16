@@ -226,6 +226,11 @@ export class WebSocketManager {
    */
   close() {
     if (this.#wss) {
+      // Terminate all connected clients first so their underlying TCP
+      // sockets close, unblocking server.close() during shutdown.
+      for (const client of this.#wss.clients) {
+        client.terminate();
+      }
       this.#wss.close();
       this.#wss = null;
     }

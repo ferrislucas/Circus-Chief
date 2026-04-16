@@ -248,6 +248,50 @@ describe('CommandRunner', () => {
 
   });
 
+  describe('shutdownAll', () => {
+    it('sends SIGTERM to all active processes', async () => {
+      // Start 2 long-running commands
+      const run1Promise = runner.run(
+        { runId: 'shutdown-run-1', command: 'sleep 10', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} }
+      );
+      const run2Promise = runner.run(
+        { runId: 'shutdown-run-2', command: 'sleep 10', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {}, onError: () => {} }
+      );
+
+      // Give time for processes to start
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(runner.getActiveRuns().size).toBe(2);
+
+      runner.shutdownAll();
+
+      // Both processes should exit
+      await Promise.all([run1Promise, run2Promise]);
+
+      expect(runner.getActiveRuns().size).toBe(0);
+    });
+
+    it('is a no-op when no processes are active', () => {
+      expect(() => runner.shutdownAll()).not.toThrow();
+    });
+
+    it('handles already-exited processes gracefully', async () => {
+      // Start a fast command that completes immediately
+      await runner.run(
+        { runId: 'shutdown-fast', command: 'true', workingDirectory: process.cwd() },
+        { onOutput: () => {}, onComplete: () => {} }
+      );
+
+      // Process has already exited
+      expect(runner.getActiveRuns().size).toBe(0);
+
+      // Should not throw even though processes are already gone
+      expect(() => runner.shutdownAll()).not.toThrow();
+    });
+  });
+
   describe('kill', () => {
     it('returns false when killing non-existent process', () => {
       const killed = runner.kill('nonexistent-run');
