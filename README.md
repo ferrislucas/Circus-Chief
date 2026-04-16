@@ -53,6 +53,20 @@
 npx circuschief
 ```
 
+### Options
+
+| Flag | Description |
+|------|-------------|
+| `-p, --port <number>` | Port to listen on (default: `5000`) |
+| `-h, --help` | Show help message |
+| `-v, --version` | Show version number |
+
+**Example — run on a custom port:**
+
+```bash
+npx circuschief -p 8080
+```
+
 ---
 
 ## Tech Stack
