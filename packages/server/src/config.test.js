@@ -1,9 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { homedir } from 'os';
-import { join, sep } from 'path';
+import { homedir, tmpdir } from 'os';
+import { join, sep, dirname } from 'path';
 import { mkdirSync, existsSync, rmSync } from 'fs';
-import { dirname } from 'path';
-import { tmpdir } from 'os';
 import { getDefaultDbPath } from './config.js';
 
 describe('getDefaultDbPath', () => {
