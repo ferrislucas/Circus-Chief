@@ -196,4 +196,7 @@ export const allMigrations = validateMigrations([
 
   // --- Seed default global quick responses ---
   m.get('quick_responses-seed-defaults'),
+
+  // --- Update built-in Opus model to 4.7 ---
+  m.get('providers-update-built-in-opus-4-7'),
 ]);

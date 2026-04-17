@@ -28,7 +28,8 @@ function seedBuiltInProvider(db) {
   const defaultModels = [
     { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
     { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: 'Balanced', tier: 'sonnet' },
-    { id: 'anthropic-opus', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Most capable (default)', tier: 'opus' },
+    { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Previous generation', tier: 'opus' },
+    { id: 'anthropic-opus-4-7', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Most capable (default)', tier: 'opus' },
   ];
 
   const insertModel = db.prepare(
@@ -240,16 +241,24 @@ export const miscMigrations = [
     up(db) { seedDefaultQuickResponses(db); },
   },
 
-  // --- Update built-in Opus model to 4.7 ---
+  // --- Add Opus 4.7 as a new built-in model (keep Opus 4.6 for existing sessions) ---
   {
     name: 'providers-update-built-in-opus-4-7',
     up(db) {
       const providerId = 'anthropic-default';
+
+      // Mark existing Opus 4.6 row as previous generation
       db.prepare(
         `UPDATE provider_models
-         SET model_id = ?, display_name = ?, description = ?
+         SET description = ?
          WHERE provider_id = ? AND id = ?`
-      ).run('claude-opus-4-7', 'Opus 4.7', 'Most capable (default)', providerId, 'anthropic-opus');
+      ).run('Previous generation', providerId, 'anthropic-opus');
+
+      // Insert new Opus 4.7 row (OR IGNORE in case seed already created it)
+      db.prepare(
+        `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run('anthropic-opus-4-7', providerId, 'claude-opus-4-7', 'Opus 4.7', 'Most capable (default)', 'opus', Date.now());
     },
   },
 ];
