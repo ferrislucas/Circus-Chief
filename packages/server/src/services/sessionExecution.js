@@ -21,6 +21,8 @@ import {
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { schedulerService } from './schedulerService.js';
 import { buildConversationContextForModelSwitch } from './conversationContext.js';
+import { broadcastToSession } from '../websocket.js';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 /**
  * Create the agent for a session, using gateway + logging + VCR.
@@ -243,8 +245,6 @@ async function setupConversationAndMessage(sessionId, content, fileAttachments) 
   const activeConversation = conversations.ensureActiveConversation(sessionId);
   activeConversationIds.set(sessionId, activeConversation.id);
 
-  const { broadcastToSession } = await import('../websocket.js');
-  const { WS_MESSAGE_TYPES } = await import('@circuschief/shared');
   const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
     message,
