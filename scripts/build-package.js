@@ -9,7 +9,7 @@
  * The only transform: rewrite `@circuschief/shared` imports to relative paths.
  */
 
-import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
+import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'fs';
 import { join, relative, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -19,13 +19,38 @@ const ROOT = dirname(dirname(__filename));
 const DIST = join(ROOT, 'dist-package');
 const version = process.argv.find(a => a.startsWith('--version='))?.split('=')[1] || '0.1.0';
 
+// --- Read .env.production if it exists ---
+// Parses KEY=VALUE lines (ignoring comments and blank lines) as a fallback
+// source for PostHog configuration. CLI flags and env vars take precedence.
+const dotenvVars = {};
+const envProdPath = join(ROOT, '.env.production');
+if (existsSync(envProdPath)) {
+  const lines = readFileSync(envProdPath, 'utf-8').split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex === -1) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+    // Strip surrounding quotes (single or double)
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    dotenvVars[key] = value;
+  }
+  console.log('Loaded .env.production');
+}
+
 // --- PostHog configuration ---
-// Resolution order (first non-empty wins): CLI flag → env var → default
+// Resolution order (first non-empty wins): CLI flag → env var → .env.production → default
 const posthogKey = process.argv.find(a => a.startsWith('--posthog-key='))?.split('=')[1]
   || process.env.POSTHOG_KEY
+  || dotenvVars.VITE_POSTHOG_KEY
   || '';
 const posthogHost = process.argv.find(a => a.startsWith('--posthog-host='))?.split('=')[1]
   || process.env.POSTHOG_HOST
+  || dotenvVars.VITE_POSTHOG_HOST
   || 'https://us.i.posthog.com';
 
 /** cpSync filter: exclude test files but always keep directories */
@@ -41,11 +66,11 @@ mkdirSync(DIST, { recursive: true });
 
 // --- 2. Build frontend ---
 if (!posthogKey) {
-  console.log('⚠ No PostHog key provided (--posthog-key or POSTHOG_KEY); analytics will be disabled in this build');
+  console.log('⚠ No PostHog key provided (--posthog-key, POSTHOG_KEY, or .env.production); analytics will be disabled in this build');
 }
 console.log('Building frontend...');
-// Always explicitly set VITE_POSTHOG_KEY (even when empty) to prevent Vite
-// from picking up stale values from any local .env files.
+// Explicitly set VITE_POSTHOG_KEY so the resolved value (from CLI flag,
+// env var, or .env.production) is what Vite bakes into the bundle.
 execSync('yarn workspace @circuschief/web build', {
   cwd: ROOT,
   stdio: 'inherit',

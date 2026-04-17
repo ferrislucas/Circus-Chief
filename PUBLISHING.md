@@ -33,14 +33,33 @@ The PostHog API key is a **public client-side key** (always visible in the brows
 
 ### Resolution order (first non-empty wins)
 
-| Value | CLI flag | Environment variable | Default |
-|-------|----------|---------------------|---------|
-| API key | `--posthog-key=<key>` | `POSTHOG_KEY` | empty (analytics disabled) |
-| API host | `--posthog-host=<host>` | `POSTHOG_HOST` | `https://us.i.posthog.com` |
+| Value | CLI flag | Environment variable | `.env.production` | Default |
+|-------|----------|---------------------|-------------------|---------|
+| API key | `--posthog-key=<key>` | `POSTHOG_KEY` | `VITE_POSTHOG_KEY` | empty (analytics disabled) |
+| API host | `--posthog-host=<host>` | `POSTHOG_HOST` | `VITE_POSTHOG_HOST` | `https://us.i.posthog.com` |
 
-CLI flags take precedence over environment variables.
+CLI flags take precedence over environment variables, which take precedence over `.env.production`.
 
-- Omitting the key produces a working package with analytics disabled
+### Using `.env.production` (recommended for local publishing)
+
+Create a `.env.production` file in the project root (it's gitignored):
+
+```bash
+VITE_POSTHOG_KEY=phc_xxxxx
+VITE_POSTHOG_HOST=https://us.i.posthog.com
+```
+
+Then simply run the build without any extra flags:
+
+```bash
+node scripts/build-package.js --version=0.2.0
+```
+
+The build script reads `.env.production` automatically and injects the key into the bundle. See `.env.production.example` for a template.
+
+### Notes
+
+- Omitting the key from all sources produces a working package with analytics disabled
 - `scripts/start-package-server.sh` intentionally provides no key since E2E tests don't need analytics
 - After the Vite build, the script verifies the key appears in the output bundle (if one was provided)
 
