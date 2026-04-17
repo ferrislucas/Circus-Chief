@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { execSync } from 'child_process';
+import * as os from 'os';
 
 export function getAPIURL(): string {
   if (process.env.API_URL) return process.env.API_URL;
@@ -1573,7 +1574,8 @@ export async function getConversationMessages(sessionId: string, conversationId:
 
 function getDBPath(): string {
   if (process.env.DB_PATH) return process.env.DB_PATH;
-  return join(process.cwd(), 'circuschief.db');
+  // Match the server's default location
+  return join(os.homedir(), '.circuschief', 'circuschief.db');
 }
 
 function runSeedMessage(payload: object): any {

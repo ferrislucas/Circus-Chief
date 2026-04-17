@@ -71,7 +71,7 @@ yarn workspace @circuschief/web test         # Web tests only
 |----------|---------|-------------|
 | `PORT` | `5000` | Server port |
 | `NODE_ENV` | `development` | Environment mode |
-| `DB_PATH` | `circuschief.db` | SQLite database path |
+| `DB_PATH` | `~/.circuschief/circuschief.db` | SQLite database path |
 
 ### Web (Vite) — Build-Time Only
 
