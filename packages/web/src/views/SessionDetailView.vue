@@ -396,6 +396,7 @@ const { cleanup, initializeSession } = useSessionInitializer({
   startPolling,
   stopPolling,
   resetPolling,
+  onReconnectCallback: buildSessionChain,
 });
 
 const activeTab = computed(() => route.params.tab || 'summary');

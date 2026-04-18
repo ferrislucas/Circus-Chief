@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <h1>New Project</h1>
+    <h1>Add a Repository</h1>
 
     <form
       class="form card"
@@ -9,24 +9,28 @@
       <div class="form-group">
         <label
           class="form-label"
-          for="name"
-        >Project Name</label>
-        <input
-          id="name"
-          v-model="name"
-          type="text"
-          class="form-input"
-          placeholder="My Project"
-          required
-        >
+          for="workingDirectory"
+        >Repository Folder</label>
+        <PathChooser v-model="workingDirectory" />
+        <p class="form-help">
+          The root of your codebase — typically a git repository.
+        </p>
       </div>
 
       <div class="form-group">
         <label
           class="form-label"
-          for="workingDirectory"
-        >Working Directory</label>
-        <PathChooser v-model="workingDirectory" />
+          for="name"
+        >Display Name</label>
+        <input
+          id="name"
+          v-model="name"
+          type="text"
+          class="form-input"
+          placeholder="my-app"
+          required
+          @input="onNameInput"
+        >
       </div>
 
       <details class="advanced-settings">
@@ -115,7 +119,7 @@
             v-if="loading"
             class="loading-spinner"
           />
-          Create Project
+          Add Repository
         </button>
       </div>
     </form>
@@ -123,7 +127,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
@@ -144,6 +148,24 @@ const onSessionDeleted = ref('');
 const loading = ref(false);
 const error = ref(null);
 
+// Track whether name was auto-filled (vs manually typed)
+const nameAutoFilled = ref(true);
+
+watch(workingDirectory, (newPath) => {
+  if (newPath && nameAutoFilled.value) {
+    const segments = newPath.replace(/\/+$/, '').split('/');
+    name.value = segments[segments.length - 1] || '';
+  }
+});
+
+// When user manually edits name, stop auto-filling
+function onNameInput() {
+  nameAutoFilled.value = false;
+}
+
+// Expose for testing
+defineExpose({ name, workingDirectory, onNameInput });
+
 async function handleSubmit() {
   loading.value = true;
   error.value = null;
@@ -157,7 +179,7 @@ async function handleSubmit() {
       onSessionCreated: onSessionCreated.value || undefined,
       onSessionDeleted: onSessionDeleted.value || undefined,
     });
-    uiStore.success('Project created successfully');
+    uiStore.success('Repository added');
     router.push(`/projects/${project.id}/sessions`);
   } catch (err) {
     error.value = err.message;
@@ -237,5 +259,21 @@ h1 {
 
 .btn-link:hover {
   color: var(--color-primary-hover);
+}
+
+@media (max-width: 480px) {
+  .form {
+    max-width: none;
+  }
+
+  .form-actions {
+    flex-direction: column-reverse;
+  }
+
+  .form-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
 }
 </style>

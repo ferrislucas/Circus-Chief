@@ -13,13 +13,12 @@ test.describe('Project Management', () => {
 
   test('can create a new project', async ({ page }) => {
     await page.goto('/');
-    await page.click('text=New Project');
+    await page.click('text=Add Repository');
 
     await expect(page).toHaveURL('/projects/new');
 
-    await page.fill('input[id="name"]', 'Test Project');
     await page.fill('.path-chooser input', '/tmp/test-project');
-    await page.click('button:has-text("Create Project")');
+    await page.click('button:has-text("Add Repository")');
 
     // Should redirect to sessions page with project ID in URL
     await expect(page).toHaveURL(/\/projects\/[\w-]+\/sessions/);
@@ -31,11 +30,11 @@ test.describe('Project Management', () => {
 
     const project = await getProject(projectId!);
     expect(project).not.toBeNull();
-    expect(project.name).toBe('Test Project');
+    expect(project.name).toBe('test-project');
     expect(project.workingDirectory).toBe('/tmp/test-project');
 
     // Verify project name is visible on the sessions page header
-    await expect(page.getByText('Test Project')).toBeVisible();
+    await expect(page.getByText('test-project')).toBeVisible();
   });
 
   test('can edit project name', async ({ page }) => {
@@ -146,11 +145,10 @@ test.describe('Project Management', () => {
 
   test('can create project with custom system prompt', async ({ page }) => {
     await page.goto('/');
-    await page.click('text=New Project');
+    await page.click('text=Add Repository');
 
     await expect(page).toHaveURL('/projects/new');
 
-    await page.fill('input[id="name"]', 'Test Project');
     await page.fill('.path-chooser input', '/tmp/test-project');
 
     // Expand Advanced Settings to access system prompt
@@ -159,7 +157,7 @@ test.describe('Project Management', () => {
     const customPrompt = 'You are a specialized coding assistant.';
     await page.fill('textarea[id="systemPrompt"]', customPrompt);
 
-    await page.click('button:has-text("Create Project")');
+    await page.click('button:has-text("Add Repository")');
 
     // Should redirect to sessions page with project ID in URL
     await expect(page).toHaveURL(/\/projects\/[\w-]+\/sessions/);

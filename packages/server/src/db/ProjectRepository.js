@@ -20,6 +20,8 @@ export class ProjectRepository extends BaseRepository {
       prPollInterval: row.pr_poll_interval,
       repoUrl: row.repo_url,
       kanbanEnabled: row.kanban_enabled === undefined ? true : Boolean(row.kanban_enabled),
+      sessionCount: row.session_count ?? 0,
+      lastActivityAt: row.last_activity_at ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -57,7 +59,15 @@ export class ProjectRepository extends BaseRepository {
   }
 
   getAll() {
-    const rows = this.db.prepare('SELECT * FROM projects ORDER BY updated_at DESC').all();
+    const rows = this.db.prepare(`
+      SELECT p.*,
+        COUNT(CASE WHEN s.archived = 0 THEN s.id END) as session_count,
+        MAX(s.updated_at) as last_activity_at
+      FROM projects p
+      LEFT JOIN sessions s ON s.project_id = p.id
+      GROUP BY p.id
+      ORDER BY p.updated_at DESC
+    `).all();
     return this.mapAll(rows);
   }
 
