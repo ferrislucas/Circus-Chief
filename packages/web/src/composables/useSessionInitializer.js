@@ -89,6 +89,7 @@ function registerCommandHandlers(subscription, sessionId, stores) {
  * @param {Function} options.startPolling - Function to start status polling
  * @param {Function} options.stopPolling - Function to stop status polling
  * @param {Function} options.resetPolling - Function to reset polling state
+ * @param {Function} [options.onReconnectCallback] - Optional callback invoked after WebSocket reconnection (e.g., to rebuild session chain)
  * @returns {Object} Session initializer utilities
  */
 export function useSessionInitializer({
@@ -99,6 +100,7 @@ export function useSessionInitializer({
   startPolling,
   stopPolling,
   resetPolling,
+  onReconnectCallback,
 }) {
   const summary = summaryRef;
   const hasChanges = hasChangesRef;
@@ -303,6 +305,10 @@ export function useSessionInitializer({
         await sessionsStore.fetchWorkLogs(sessionId);
         await canvasStore.fetchItems(sessionId);
         checkForChanges();
+        // Rebuild session chain so descendant statuses are fresh (fixes stale spinner bug)
+        if (onReconnectCallback) {
+          await onReconnectCallback();
+        }
       })
     );
 
