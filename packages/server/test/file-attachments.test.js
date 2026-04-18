@@ -1107,16 +1107,18 @@ describe('File Attachments API', () => {
         onSessionDeleted: 'echo "cleanup"',
       });
 
-      // Create parent session
+      // Create parent session with worktree (required for cleanup hook to execute)
       const parentSession = sessions.create(project.id, 'Parent Session', 'prompt', 'standard');
+      const worktreePath = join(testTempDir, '.worktrees', parentSession.id);
+      sessions.update(parentSession.id, { gitWorktree: worktreePath });
 
       // Delete parent session
       await request(app).delete(`/api/sessions/${parentSession.id}`).expect(204);
 
-      // Verify executeHookAsync WAS called
+      // Verify executeHookAsync WAS called (workingDirectory resolves to gitWorktree when set)
       expect(executeHookAsync).toHaveBeenCalledWith(
         'echo "cleanup"',
-        testTempDir,
+        worktreePath,
         {
           sessionId: parentSession.id,
           projectId: project.id,
