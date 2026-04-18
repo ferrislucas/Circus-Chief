@@ -133,7 +133,7 @@ describe('RunningState', () => {
         nextTemplate: { id: 'tmpl-1', name: 'Deploy' },
         projectId: 'proj-1',
       });
-      expect(wrapper.find('.template-pending-description').text()).toContain('will trigger when Claude finishes');
+      expect(wrapper.find('.template-pending-description').text()).toContain('will trigger when the agent finishes');
     });
 
     it('should link to project templates page', () => {
