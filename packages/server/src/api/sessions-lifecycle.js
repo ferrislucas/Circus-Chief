@@ -175,8 +175,9 @@ router.delete('/:id', requireSessionAndProject, async (req, res) => {
   }
 
   // Execute on_session_deleted hook if configured (non-blocking)
+  // Only run for worktree sessions - branch-mode sessions have nothing to clean up
   // Skip for child sessions - they share parent's resources and shouldn't trigger teardown
-  if (req.project?.onSessionDeleted && !req.session_.parentSessionId) {
+  if (req.project?.onSessionDeleted && req.session_.gitWorktree && !req.session_.parentSessionId) {
     executeHookAsync(req.project.onSessionDeleted, req.workingDirectory, {
       sessionId: req.session_.id,
       projectId: req.project.id,

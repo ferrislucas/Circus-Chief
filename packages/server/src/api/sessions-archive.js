@@ -19,8 +19,9 @@ router.post('/:id/archive', requireSessionAndProject, async (req, res) => {
   const updated = sessions.update(req.params.id, { archived: true });
 
   // Execute project cleanup command if cleanup requested and project has one configured
+  // Only run for worktree sessions - branch-mode sessions have nothing to clean up
   // Skip for child sessions - they share parent's resources and shouldn't trigger teardown
-  if (cleanup && req.project?.onSessionDeleted && !req.session_.parentSessionId) {
+  if (cleanup && req.project?.onSessionDeleted && req.session_.gitWorktree && !req.session_.parentSessionId) {
     executeHookAsync(req.project.onSessionDeleted, req.workingDirectory, {
       sessionId: req.session_.id,
       projectId: req.project.id,

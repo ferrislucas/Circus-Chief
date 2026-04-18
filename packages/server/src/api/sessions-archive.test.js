@@ -126,8 +126,8 @@ describe('Sessions Archive API', () => {
       expect(executeHookAsync).not.toHaveBeenCalled();
     });
 
-    it('executes onSessionDeleted hook for non-worktree sessions with cleanup true', async () => {
-      // Session has no gitWorktree (branch mode or no git) — hook should still fire
+    it('does not execute onSessionDeleted hook for non-worktree sessions with cleanup true', async () => {
+      // Session has no gitWorktree (branch mode or no git) — hook should NOT fire
       projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
 
       const res = await request(app)
@@ -135,15 +135,7 @@ describe('Sessions Archive API', () => {
         .send({ cleanup: true });
 
       expect(res.status).toBe(200);
-      expect(executeHookAsync).toHaveBeenCalledWith(
-        './cleanup.sh',
-        expect.any(String),
-        expect.objectContaining({
-          sessionId: session.id,
-          projectId: project.id,
-          sessionName: 'Test Session',
-        })
-      );
+      expect(executeHookAsync).not.toHaveBeenCalled();
     });
 
     it('does not execute onSessionDeleted hook when project has no hook configured', async () => {

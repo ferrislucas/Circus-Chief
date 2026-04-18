@@ -5,6 +5,7 @@ import { join } from 'path';
 import {
   seedProject,
   seedSession,
+  updateSessionFields,
   waitForFile,
   readMarkerFile,
   cleanupCreatedResources,
@@ -50,18 +51,19 @@ test.describe('Session Lifecycle Hooks', () => {
     expect(fileExists).toBe(true);
   });
 
-  test('onSessionDeleted hook executes on session deletion', async () => {
+  test('onSessionDeleted hook executes on session deletion for worktree sessions', async () => {
     // Create a project with onSessionDeleted hook configured
     const project = await seedProject('hook-test-deleted', process.cwd(), {
       onSessionDeleted: `touch ${markerDir}/session-deleted-\${CIRCUSCHIEF_SESSION_ID}.txt`,
     });
 
-    // Create a session in the project
+    // Create a session in the project with a gitWorktree (required for hook to fire)
     const session = await seedSession(project.id, {
       prompt: 'Test session for onSessionDeleted hook',
       name: 'Hook Test Session Delete',
       startImmediately: false,
     });
+    await updateSessionFields(session.id, { gitWorktree: `/tmp/fake-wt-${session.id}` });
 
     // Delete the session
     const response = await fetch(`${API_URL}/api/sessions/${session.id}`, {
@@ -75,6 +77,35 @@ test.describe('Session Lifecycle Hooks', () => {
 
     // Assert marker file exists
     expect(fileExists).toBe(true);
+  });
+
+  test('onSessionDeleted hook does not execute for non-worktree sessions', async () => {
+    // Create a project with onSessionDeleted hook configured
+    const project = await seedProject('hook-test-no-wt', process.cwd(), {
+      onSessionDeleted: `touch ${markerDir}/session-deleted-nowt-\${CIRCUSCHIEF_SESSION_ID}.txt`,
+    });
+
+    // Create a session WITHOUT a gitWorktree (branch mode)
+    const session = await seedSession(project.id, {
+      prompt: 'Test session without worktree',
+      name: 'No Worktree Session Delete',
+      startImmediately: false,
+    });
+    // No gitWorktree set — hook should NOT fire
+
+    // Delete the session
+    const response = await fetch(`${API_URL}/api/sessions/${session.id}`, {
+      method: 'DELETE',
+    });
+    expect(response.ok).toBe(true);
+
+    // Wait a short time to confirm the marker file is NOT created
+    const markerFile = join(markerDir, `session-deleted-nowt-${session.id}.txt`);
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    const fileExists = await waitForFile(markerFile, 0).catch(() => false);
+
+    // Assert marker file was NOT created
+    expect(fileExists).toBe(false);
   });
 
   test('hook receives correct environment variables', async () => {
