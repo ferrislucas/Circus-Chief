@@ -145,7 +145,7 @@ describe('ProjectRepository', () => {
     });
 
     it('returns sessionCount and lastActivityAt for each project', () => {
-      const project = repo.create('Test Project', '/tmp/test');
+      repo.create('Test Project', '/tmp/test');
 
       const projects = repo.getAll();
 
@@ -159,11 +159,11 @@ describe('ProjectRepository', () => {
       const sessionRepo = new SessionRepository();
 
       // Create 3 non-archived sessions and 2 archived sessions
-      sessionRepo.create(project.id, 'Session 1');
-      sessionRepo.create(project.id, 'Session 2');
-      sessionRepo.create(project.id, 'Session 3');
-      const archived1 = sessionRepo.create(project.id, 'Archived 1');
-      const archived2 = sessionRepo.create(project.id, 'Archived 2');
+      sessionRepo.create(project.id, 'Session 1', 'test prompt');
+      sessionRepo.create(project.id, 'Session 2', 'test prompt');
+      sessionRepo.create(project.id, 'Session 3', 'test prompt');
+      const archived1 = sessionRepo.create(project.id, 'Archived 1', 'test prompt');
+      const archived2 = sessionRepo.create(project.id, 'Archived 2', 'test prompt');
       sessionRepo.update(archived1.id, { archived: true });
       sessionRepo.update(archived2.id, { archived: true });
 
@@ -177,8 +177,8 @@ describe('ProjectRepository', () => {
       const project = repo.create('Test Project', '/tmp/test');
       const sessionRepo = new SessionRepository();
 
-      const s1 = sessionRepo.create(project.id, 'Session 1');
-      const s2 = sessionRepo.create(project.id, 'Session 2');
+      const s1 = sessionRepo.create(project.id, 'Session 1', 'test prompt');
+      const s2 = sessionRepo.create(project.id, 'Session 2', 'test prompt');
 
       // Update session 2 to have a later updatedAt
       sessionRepo.update(s2.id, { name: 'Updated Session 2' });

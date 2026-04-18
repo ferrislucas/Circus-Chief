@@ -163,6 +163,9 @@ function onNameInput() {
   nameAutoFilled.value = false;
 }
 
+// Expose for testing
+defineExpose({ name, workingDirectory, onNameInput });
+
 async function handleSubmit() {
   loading.value = true;
   error.value = null;

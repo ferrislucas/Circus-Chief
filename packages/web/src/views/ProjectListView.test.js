@@ -130,7 +130,8 @@ describe('ProjectListView', () => {
       const cta = wrapper.find('.cta-button');
       expect(cta.exists()).toBe(true);
       expect(cta.text()).toBe('Add Your First Repository');
-      expect(cta.attributes('to')).toBe('/projects/new');
+      // router-link renders as <a href="...">; the 'to' prop becomes the href attribute
+      expect(cta.attributes('href')).toBe('/projects/new');
     });
   });
 

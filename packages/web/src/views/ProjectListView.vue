@@ -46,7 +46,9 @@
 
       <div class="steps-grid">
         <div class="step-card card">
-          <div class="step-number">1</div>
+          <div class="step-number">
+            1
+          </div>
           <h3 class="step-title">
             Pick a repo folder
           </h3>
@@ -55,7 +57,9 @@
           </p>
         </div>
         <div class="step-card card">
-          <div class="step-number">2</div>
+          <div class="step-number">
+            2
+          </div>
           <h3 class="step-title">
             Create coding sessions
           </h3>
@@ -64,7 +68,9 @@
           </p>
         </div>
         <div class="step-card card">
-          <div class="step-number">3</div>
+          <div class="step-number">
+            3
+          </div>
           <h3 class="step-title">
             Track changes &amp; artifacts
           </h3>
@@ -117,7 +123,10 @@
             @click.stop
           >
             <span class="edit-label-full">Edit</span>
-            <span class="edit-label-short" aria-hidden="true">&#9881;</span>
+            <span
+              class="edit-label-short"
+              aria-hidden="true"
+            >&#9881;</span>
           </router-link>
         </div>
       </div>

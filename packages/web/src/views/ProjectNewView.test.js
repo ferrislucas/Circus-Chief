@@ -60,6 +60,7 @@ describe('ProjectNewView', () => {
     });
 
     // Mock UI store
+    // eslint-disable-next-line no-undef
     const { useUiStore } = require('../stores/ui.js');
     uiStore = useUiStore();
     vi.spyOn(uiStore, 'success').mockImplementation(() => {});
