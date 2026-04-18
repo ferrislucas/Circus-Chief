@@ -87,10 +87,17 @@ export async function cleanupCreatedResources() {
 
 /**
  * Wait for page to be fully loaded and ready
+ *
+ * Options:
+ *  - timeout: how long to wait (default 10000ms)
+ *  - loadState: which load state to wait for (default 'networkidle').
+ *    Use 'domcontentloaded' for pages with persistent WebSocket connections
+ *    where 'networkidle' will never resolve.
  */
-export async function waitForPageReady(page: Page, options: { timeout?: number } = {}) {
+export async function waitForPageReady(page: Page, options: { timeout?: number; loadState?: 'networkidle' | 'domcontentloaded' | 'load' } = {}) {
   const timeout = options.timeout || 10000;
-  await page.waitForLoadState('networkidle', { timeout });
+  const loadState = options.loadState || 'networkidle';
+  await page.waitForLoadState(loadState, { timeout });
   // Wait for any loading indicators to disappear
   const loadingIndicators = page.locator('.loading, .spinner, [data-loading="true"]');
   const count = await loadingIndicators.count();
@@ -104,14 +111,16 @@ export async function waitForPageReady(page: Page, options: { timeout?: number }
  *
  * Options:
  *  - timeout: overall timeout for navigation + readiness (default 10000ms)
- *  - waitFor: a CSS selector to wait for after networkidle (resolves race
+ *  - waitFor: a CSS selector to wait for after the load state (resolves race
  *    conditions where async Vue data-fetching completes after the initial
  *    load event). The selector is awaited with { state: 'visible' }.
+ *  - loadState: which load state to wait for (default 'networkidle').
+ *    Use 'domcontentloaded' for pages with persistent WebSocket connections.
  */
 export async function navigateAndWait(
   page: Page,
   url: string,
-  options: { timeout?: number; waitFor?: string } = {},
+  options: { timeout?: number; waitFor?: string; loadState?: 'networkidle' | 'domcontentloaded' | 'load' } = {},
 ) {
   await page.goto(url);
   await waitForPageReady(page, options);

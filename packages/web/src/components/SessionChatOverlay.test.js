@@ -1471,77 +1471,183 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('ensureHeaderVisible', () => {
-    it('unconditionally resets document-level scroll offsets', async () => {
+  describe('visualViewport syncing', () => {
+    // Preserve the original window.visualViewport descriptor so each test
+    // can install its own mock and then restore.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      'visualViewport'
+    );
+
+    function installMockVisualViewport(props = {}) {
+      const addEventListener = vi.fn();
+      const removeEventListener = vi.fn();
+      const vv = {
+        offsetTop: 120,
+        offsetLeft: 0,
+        width: 390,
+        height: 580,
+        addEventListener,
+        removeEventListener,
+        ...props,
+      };
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: vv,
+      });
+      return vv;
+    }
+
+    function restoreVisualViewport() {
+      if (originalDescriptor) {
+        Object.defineProperty(window, 'visualViewport', originalDescriptor);
+      } else {
+        // jsdom has no native visualViewport; delete what the test set
+        delete window.visualViewport;
+      }
+    }
+
+    afterEach(() => {
+      restoreVisualViewport();
+    });
+
+    it('applies geometry from window.visualViewport on mount', async () => {
+      installMockVisualViewport({
+        offsetTop: 120,
+        offsetLeft: 0,
+        width: 390,
+        height: 580,
+      });
+
       const wrapper = mountOverlay();
       await nextTick();
       await new Promise(r => setTimeout(r, 10));
 
-      const header = document.querySelector('.overlay-header');
-      expect(header).toBeTruthy();
-
-      // Set residual scroll to simulate the iPad Safari issue
-      document.documentElement.scrollTop = 75;
-      document.body.scrollTop = 75;
-
-      wrapper.vm.ensureHeaderVisible();
-
-      // Should have unconditionally reset document-level scroll
-      expect(document.documentElement.scrollTop).toBe(0);
-      expect(document.body.scrollTop).toBe(0);
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop).toBeTruthy();
+      expect(backdrop.style.top).toBe('120px');
+      expect(backdrop.style.left).toBe('0px');
+      expect(backdrop.style.width).toBe('390px');
+      expect(backdrop.style.height).toBe('580px');
 
       wrapper.unmount();
     });
 
-    it('resets non-zero scrollTop on ancestor elements', async () => {
+    it('attaches resize and scroll listeners on mount', async () => {
+      const vv = installMockVisualViewport();
+
       const wrapper = mountOverlay();
       await nextTick();
       await new Promise(r => setTimeout(r, 10));
 
-      const header = document.querySelector('.overlay-header');
-      expect(header).toBeTruthy();
-
-      // Set a non-zero scrollTop on the header's parent (.overlay-content)
-      const overlayContent = header.parentElement;
-      overlayContent.scrollTop = 30;
-
-      wrapper.vm.ensureHeaderVisible();
-
-      // Should have reset the ancestor's scrollTop
-      expect(overlayContent.scrollTop).toBe(0);
+      expect(vv.addEventListener).toHaveBeenCalledWith(
+        'resize',
+        expect.any(Function)
+      );
+      expect(vv.addEventListener).toHaveBeenCalledWith(
+        'scroll',
+        expect.any(Function)
+      );
 
       wrapper.unmount();
     });
 
-    it('calls scrollIntoView unconditionally via double-rAF', async () => {
+    it('removes listeners on unmount using the same handler reference', async () => {
+      const vv = installMockVisualViewport();
+
       const wrapper = mountOverlay();
       await nextTick();
       await new Promise(r => setTimeout(r, 10));
 
-      const header = document.querySelector('.overlay-header');
-      expect(header).toBeTruthy();
+      // Capture the handler passed to addEventListener so we can prove the
+      // same reference was passed to removeEventListener (otherwise the
+      // listener would leak).
+      const resizeAdd = vv.addEventListener.mock.calls.find(
+        c => c[0] === 'resize'
+      );
+      const scrollAdd = vv.addEventListener.mock.calls.find(
+        c => c[0] === 'scroll'
+      );
+      expect(resizeAdd).toBeDefined();
+      expect(scrollAdd).toBeDefined();
+      const resizeHandler = resizeAdd[1];
+      const scrollHandler = scrollAdd[1];
 
-      // Spy on scrollIntoView
-      header.scrollIntoView = vi.fn();
+      wrapper.unmount();
 
-      wrapper.vm.ensureHeaderVisible();
+      expect(vv.removeEventListener).toHaveBeenCalledWith(
+        'resize',
+        resizeHandler
+      );
+      expect(vv.removeEventListener).toHaveBeenCalledWith(
+        'scroll',
+        scrollHandler
+      );
+    });
 
-      // Flush the double-rAF. In jsdom rAF is setTimeout-based.
-      await new Promise(r => setTimeout(r, 50));
+    it('re-syncs backdrop geometry when visualViewport resizes', async () => {
+      const vv = installMockVisualViewport({
+        offsetTop: 120,
+        offsetLeft: 0,
+        width: 390,
+        height: 580,
+      });
 
-      // scrollIntoView should always be called as a backstop
-      expect(header.scrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' });
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop.style.top).toBe('120px');
+      expect(backdrop.style.height).toBe('580px');
+
+      // Simulate URL bar retracting / keyboard dismissing: visual viewport
+      // shifts up and grows taller. Invoke the registered resize handler.
+      const resizeHandler = vv.addEventListener.mock.calls.find(
+        c => c[0] === 'resize'
+      )[1];
+      vv.offsetTop = 40;
+      vv.height = 620;
+      resizeHandler();
+
+      expect(backdrop.style.top).toBe('40px');
+      expect(backdrop.style.height).toBe('620px');
 
       wrapper.unmount();
     });
 
-    it('is called automatically on mount and is exposed', async () => {
+    it('is a no-op when window.visualViewport is undefined', async () => {
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: undefined,
+      });
+
       const wrapper = mountOverlay();
       await nextTick();
       await new Promise(r => setTimeout(r, 10));
 
-      expect(wrapper.vm.ensureHeaderVisible).toBeDefined();
-      expect(typeof wrapper.vm.ensureHeaderVisible).toBe('function');
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop).toBeTruthy();
+      // No inline geometry should have been written; CSS `inset: 0` remains
+      // authoritative in this fallback path.
+      expect(backdrop.style.top).toBe('');
+      expect(backdrop.style.left).toBe('');
+      expect(backdrop.style.width).toBe('');
+      expect(backdrop.style.height).toBe('');
+
+      // Unmounting must not throw.
+      expect(() => wrapper.unmount()).not.toThrow();
+    });
+
+    it('exposes syncToVisualViewport for testing', async () => {
+      installMockVisualViewport();
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(wrapper.vm.syncToVisualViewport).toBeDefined();
+      expect(typeof wrapper.vm.syncToVisualViewport).toBe('function');
 
       wrapper.unmount();
     });

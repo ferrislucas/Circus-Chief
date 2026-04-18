@@ -370,8 +370,13 @@ test.describe('Settings', () => {
       await navigateAndWait(page, `${BASE_URL}/settings/providers`);
       await page.waitForSelector('.provider-list', { timeout: 10000 });
 
-      const anthropicCard = page.locator('.provider-card:has-text("Anthropic")');
+      // Use .built-in-badge to uniquely identify the built-in Anthropic card,
+      // since :has-text("Anthropic") can match custom providers whose base URL contains "anthropic"
+      const anthropicCard = page.locator('.provider-card:has(.built-in-badge)');
       await expect(anthropicCard).toBeVisible();
+
+      // Verify it's the Anthropic provider
+      await expect(anthropicCard.locator('h3')).toContainText('Anthropic');
 
       // Check for built-in badge (DOM text is "Built-in", CSS renders it as "BUILT-IN")
       await expect(anthropicCard.locator('.built-in-badge')).toBeVisible();
@@ -382,7 +387,7 @@ test.describe('Settings', () => {
       await navigateAndWait(page, `${BASE_URL}/settings/providers`);
       await page.waitForSelector('.provider-list', { timeout: 10000 });
 
-      const anthropicCard = page.locator('.provider-card:has-text("Anthropic")');
+      const anthropicCard = page.locator('.provider-card:has(.built-in-badge)');
 
       await expect(anthropicCard.locator('button:has-text("Edit")')).toHaveCount(0);
       await expect(anthropicCard.locator('button:has-text("Delete")')).toHaveCount(0);

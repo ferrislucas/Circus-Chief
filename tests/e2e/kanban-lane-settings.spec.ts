@@ -77,6 +77,11 @@ test.describe('Kanban Lane Settings - Position Changes', () => {
     await page.reload();
     await expect(page.locator('.kanban-board')).toBeVisible();
 
+    // Wait for lanes to render with their titles
+    await expect(page.locator('.kanban-lane').first()).toBeVisible();
+    await expect(page.locator('.kanban-lane:has-text("To Do")')).toBeVisible();
+    await expect(page.locator('.kanban-lane:has-text("In Progress")')).toBeVisible();
+
     // Verify "In Progress" is still in position 2
     const lanesAfter = page.locator('.kanban-lane');
     const allLaneTitles = await lanesAfter.allTextContents();

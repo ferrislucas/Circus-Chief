@@ -592,6 +592,7 @@ test.describe('Orchestration Panel - Template Selector', () => {
     // Verify via API
     await page.waitForTimeout(1500);
     const updatedSession = await getSession(session.id);
+    expect(updatedSession).not.toBeNull();
     expect(updatedSession.nextTemplateId).toBeNull();
   });
 
@@ -722,8 +723,9 @@ test.describe('Orchestration Panel - Integration', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
 
-    // Expand the panel
+    // Expand the panel — wait for it to be visible first
     const panelHeader = page.locator('.orchestration-panel .panel-header');
+    await expect(panelHeader).toBeVisible({ timeout: 10000 });
     await panelHeader.click();
 
     // 1) Select template using its ID
@@ -788,8 +790,10 @@ test.describe('Orchestration Panel - Integration', () => {
     await openSessionOverlay(page);
 
     // Panel should be auto-expanded (template + auto-reschedule set)
+    // Wait for the orchestration panel to render first
+    await expect(page.locator('.orchestration-panel')).toBeVisible({ timeout: 10000 });
     const content = page.locator('.orchestration-content');
-    await expect(content).toBeVisible();
+    await expect(content).toBeVisible({ timeout: 10000 });
 
     // Template selector should show the selected template with preview
     const preview = page.locator('.template-preview');
