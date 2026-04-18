@@ -115,6 +115,8 @@ const FIELD_DEFINITIONS = [
   { field: 'autoSendPendingPrompt', transform: Boolean },
   { field: 'providerId', validate: validateProviderId },
   { field: 'prUrl', validate: validatePrUrl },
+  // Git fields
+  { field: 'gitWorktree' },
   // Scheduling fields
   { field: 'scheduledAt' },
   { field: 'autoRescheduleEnabled', transform: Boolean },

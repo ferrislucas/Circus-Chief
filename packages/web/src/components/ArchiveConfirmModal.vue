@@ -40,9 +40,9 @@
               <input
                 v-model="runCleanup"
                 type="checkbox"
-                aria-label="Run project cleanup script"
+                aria-label="Run git worktree cleanup"
               >
-              <span>Run project cleanup script</span>
+              <span>Run git worktree cleanup</span>
             </label>
           </div>
         </div>
