@@ -28,8 +28,8 @@
     <button
       v-if="hasAssistantMessages && isUsersTurn"
       class="scroll-to-claude-btn"
-      title="Jump to Claude's response"
-      aria-label="Scroll to Claude's latest response"
+      title="Jump to the agent's response"
+      aria-label="Scroll to the agent's latest response"
       @click="scrollToClaudesTurn"
     >
       💬

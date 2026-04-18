@@ -157,7 +157,7 @@
             Enable thinking (extended thinking) by default
           </label>
           <p class="form-help">
-            Enable Claude's extended thinking capability for new sessions.
+            Enable the agent's extended thinking capability for new sessions.
           </p>
         </div>
 
@@ -188,7 +188,7 @@
             </option>
           </select>
           <p class="form-help">
-            Set the default effort level for new sessions. Controls how much effort Claude puts into responses.
+            Set the default effort level for new sessions. Controls how much effort the agent puts into responses.
           </p>
         </div>
 
@@ -259,7 +259,7 @@
             select-class="form-input"
           />
           <p class="form-help">
-            Choose the default Claude model for new sessions in this project.
+            Choose the default model for new sessions in this project.
           </p>
         </div>
 

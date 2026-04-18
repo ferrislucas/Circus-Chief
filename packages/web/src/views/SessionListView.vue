@@ -189,7 +189,7 @@
         v-else-if="sessionsStore.sessions.length === 0"
         class="empty-state"
       >
-        <p>No sessions yet. Start a new session to interact with Claude.</p>
+        <p>No sessions yet. Start a new session to interact with the agent.</p>
         <router-link
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary"

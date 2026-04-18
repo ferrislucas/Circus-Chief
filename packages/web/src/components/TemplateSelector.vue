@@ -64,7 +64,7 @@
       v-else
       class="selector-help"
     >
-      When Claude finishes responding, a new session will automatically start using this template.
+      When the agent finishes responding, a new session will automatically start using this template.
     </p>
     <div
       v-if="saving"

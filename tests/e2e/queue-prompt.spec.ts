@@ -113,7 +113,7 @@ test.describe('Queue Prompt - Auto-Send Checkbox', () => {
     await page.locator('textarea').fill('My prompt');
 
     await expect(page.locator('.auto-send-row')).toBeVisible();
-    await expect(page.locator('.auto-send-text')).toContainText('Send automatically when Claude finishes');
+    await expect(page.locator('.auto-send-text')).toContainText('Send automatically when the agent finishes');
   });
 
   test('auto-send checkbox is hidden when textarea is empty during running', async ({ page }) => {

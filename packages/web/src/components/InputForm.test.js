@@ -342,7 +342,7 @@ describe('InputForm', () => {
         autoSendPendingPrompt: false,
       });
       expect(wrapper.find('.auto-send-row').exists()).toBe(true);
-      expect(wrapper.find('.auto-send-text').text()).toBe('Send automatically when Claude finishes');
+      expect(wrapper.find('.auto-send-text').text()).toBe('Send automatically when the agent finishes');
     });
 
     it('should hide auto-send checkbox when running without content', () => {
