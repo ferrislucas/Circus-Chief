@@ -58,7 +58,7 @@ describe('TemplateSelector', () => {
     it('renders help text when no template is selected', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('.selector-help').exists()).toBe(true);
-      expect(wrapper.find('.selector-help').text()).toContain('When Claude finishes responding');
+      expect(wrapper.find('.selector-help').text()).toContain('When the agent finishes responding');
     });
 
     it('renders the select dropdown', () => {

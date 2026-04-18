@@ -63,7 +63,7 @@
           id="prompt"
           ref="textareaRef"
           class="form-input form-textarea"
-          placeholder="What would you like Claude to help you with?"
+          placeholder="What would you like the agent to help you with?"
           :min-height="textareaMinHeight"
           required
           @input="handleInput"

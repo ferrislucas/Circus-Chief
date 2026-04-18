@@ -33,7 +33,7 @@
           class="auto-send-checkbox"
           @change="$emit('autoSendToggle', $event.target.checked)"
         >
-        <span class="auto-send-text">Send automatically when Claude finishes</span>
+        <span class="auto-send-text">Send automatically when the agent finishes</span>
       </label>
     </div>
 

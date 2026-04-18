@@ -10,7 +10,7 @@
     </div>
 
     <p class="page-description">
-      Configure custom model providers to use Claude through alternative endpoints like AWS Bedrock,
+      Configure custom model providers to use the agent through alternative endpoints like AWS Bedrock,
       Google Vertex AI, or self-hosted proxies.
     </p>
 

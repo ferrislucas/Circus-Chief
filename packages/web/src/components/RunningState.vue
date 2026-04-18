@@ -42,7 +42,7 @@
       >
         {{ nextTemplate.name }}
       </a>
-      <span class="template-pending-description">will trigger when Claude finishes</span>
+      <span class="template-pending-description">will trigger when the agent finishes</span>
     </div>
   </div>
 </template>

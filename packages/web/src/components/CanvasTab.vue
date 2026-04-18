@@ -103,7 +103,7 @@
       >
         <p>No canvas items yet. Upload a file or drag and drop here.</p>
         <p class="empty-state-hint">
-          Claude can also add images, markdown, and JSON to the canvas.
+          The agent can also add images, markdown, and JSON to the canvas.
         </p>
       </div>
 
