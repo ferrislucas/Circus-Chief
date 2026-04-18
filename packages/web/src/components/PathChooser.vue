@@ -345,4 +345,14 @@ function joinPath(base, name) {
   background-color: var(--color-background-mute);
   border-radius: 0 0 var(--border-radius) var(--border-radius);
 }
+
+@media (max-width: 480px) {
+  .path-input-group {
+    flex-direction: column;
+  }
+
+  .path-input-group .btn {
+    width: 100%;
+  }
+}
 </style>

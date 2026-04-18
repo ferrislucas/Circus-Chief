@@ -197,10 +197,7 @@ test.describe('Path Chooser Selection', () => {
   test('can create project with browsed path', async ({ page }) => {
     await page.goto('/projects/new');
 
-    // Fill project name
-    await page.fill('input[id="name"]', 'Browser Test Project');
-
-    // Use path browser to select /tmp
+    // Use path browser to select /tmp (name auto-fills from path)
     await page.fill('.path-chooser input', '/tmp');
     await page.click('button:has-text("Browse")');
     await expect(page.locator('.browser-loading')).not.toBeVisible({ timeout: 5000 });
@@ -211,7 +208,7 @@ test.describe('Path Chooser Selection', () => {
     expect(inputValue).toBe('/tmp');
 
     // Submit form
-    await page.click('button:has-text("Create Project")');
+    await page.click('button:has-text("Add Repository")');
 
     // Should redirect to sessions page
     await expect(page).toHaveURL(/\/projects\/.*\/sessions/);
@@ -220,10 +217,9 @@ test.describe('Path Chooser Selection', () => {
   test('manual path entry still works', async ({ page }) => {
     await page.goto('/projects/new');
 
-    await page.fill('input[id="name"]', 'Manual Path Project');
     await page.fill('.path-chooser input', '/usr/local');
 
-    await page.click('button:has-text("Create Project")');
+    await page.click('button:has-text("Add Repository")');
 
     await expect(page).toHaveURL(/\/projects\/.*\/sessions/);
   });
