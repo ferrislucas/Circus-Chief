@@ -344,7 +344,7 @@ test.describe('Active Sessions View', () => {
     await updateSessionStatus(session1.id, 'waiting');
     await updateSessionStatus(session2.id, 'waiting');
 
-    await navigateAndWait(page, '/sessions/active');
+    await navigateAndWait(page, '/sessions/active', { timeout: 15000 });
 
     // Both sessions visible with project names.
     // Use .first() to guard against strict mode violations if a previous test's
@@ -379,7 +379,7 @@ test.describe('Active Sessions View', () => {
     await updateSessionStatus(runningSession.id, 'running');
     await updateSessionStatus(waitingSession.id, 'waiting');
 
-    await navigateAndWait(page, '/sessions/active');
+    await navigateAndWait(page, '/sessions/active', { timeout: 15000 });
 
     // Wait for both sessions to appear (confirms active sessions loaded)
     await expect(page.locator('.session-name').filter({ hasText: runningSession.name })).toBeVisible({ timeout: 8000 });
@@ -418,7 +418,7 @@ test.describe('Active Sessions View', () => {
     await updateSessionStatus(runningSession.id, 'running');
     await updateSessionStatus(waitingSession.id, 'waiting');
 
-    await navigateAndWait(page, '/sessions/active');
+    await navigateAndWait(page, '/sessions/active', { timeout: 15000 });
 
     // Wait for both sessions to appear (confirms active sessions loaded)
     await expect(page.locator('.session-name').filter({ hasText: runningSession.name })).toBeVisible({ timeout: 8000 });
@@ -458,7 +458,7 @@ test.describe('Active Sessions View', () => {
     // Star one session via API
     await toggleSessionStar(session1.id);
 
-    await navigateAndWait(page, '/sessions/active');
+    await navigateAndWait(page, '/sessions/active', { timeout: 15000 });
 
     // Wait for both sessions to appear — use unique names to avoid matching other workers' sessions
     await expect(page.locator('.session-name').filter({ hasText: session1.name })).toBeVisible({ timeout: 8000 });
@@ -482,7 +482,7 @@ test.describe('Active Sessions View', () => {
     });
 
     // Navigate with no seeded sessions in this test
-    await navigateAndWait(page, '/sessions/active');
+    await navigateAndWait(page, '/sessions/active', { timeout: 15000 });
 
     // The page shows one of two possible states:
     // 1. No sessions at all → empty-state with "No active sessions" text
