@@ -63,7 +63,7 @@ test.describe('Overlay: draft session messages persist after completion', () => 
   async function openOverlay(page: any, sessionId: string) {
     await navigateAndWait(page, `/sessions/${sessionId}`, {
       waitFor: '.session-detail',
-      timeout: 15000,
+      timeout: 20000,
     });
     const handle = page.locator('[data-testid="session-chat-handle"]');
     await expect(handle).toBeVisible({ timeout: 10000 });

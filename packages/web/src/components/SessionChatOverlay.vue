@@ -7,6 +7,7 @@
     >
       <div
         v-if="visible"
+        ref="overlayBackdropRef"
         class="overlay-backdrop"
         data-testid="session-chat-overlay"
         @click.self="close"
@@ -58,7 +59,6 @@
           <div class="overlay-content session-chat-overlay">
             <!-- Header (no padding constraints) -->
             <div
-              ref="overlayHeaderRef"
               class="overlay-header"
               :class="{ 'header-compact': inputFocused && isMobile && !isEditingName }"
               @touchmove="handleHeaderTouchmove"
@@ -424,14 +424,10 @@ const switchingSession = ref(true);
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
 
-// Overlay header ref for viewport visibility checks
-const overlayHeaderRef = ref(null);
-
-// Interval ID for post-mount header visibility re-checks (iPad Safari safety net).
-// Declared at module scope so the existing onUnmounted can clear it — lifecycle
-// hooks must be registered synchronously during setup, not after an await.
-let headerCheckIntervalId = null;
-let headerCheckRafId = null;
+// Overlay backdrop ref — we apply inline geometry from window.visualViewport
+// to anchor the overlay to the user's visible viewport on iPadOS Safari
+// (whose visual viewport can diverge from the layout viewport).
+const overlayBackdropRef = ref(null);
 
 // Track whether the prompt textarea is focused (for compact header on mobile)
 const inputFocused = ref(false);
@@ -687,10 +683,6 @@ async function switchToSession(newSessionId) {
   } finally {
     // Always hide spinner — even if something unexpected throws
     switchingSession.value = false;
-    // Ensure header is visible after session switch re-render
-    nextTick(() => {
-      ensureHeaderVisible();
-    });
   }
 }
 
@@ -852,48 +844,33 @@ function handleHeaderTouchmove(event) {
 }
 
 /**
- * Ensure the overlay header is visible within the viewport.
+ * Anchor the overlay backdrop to the user's visible viewport.
  *
- * On iPad Safari the header can end up above the fold when the overlay
- * opens. Detection via getBoundingClientRect is unreliable because Safari
- * can report rect.top >= 0 (layout viewport) while the element is visually
- * displaced (visual viewport). So we skip detection entirely and
- * unconditionally apply every correction we know of:
+ * iOS/iPadOS Safari has two viewports: the *layout viewport* (stable) and
+ * the *visual viewport* (shifted by URL-bar retraction, the keyboard,
+ * pinch-zoom, rubber-band scroll). `position: fixed` anchors to the layout
+ * viewport — but the user sees the visual viewport. When these diverge
+ * (e.g. after the user scrolls SessionDetailView so the URL bar retracts
+ * and then opens the overlay), `position: fixed; inset: 0` renders the
+ * backdrop at the layout-viewport top, which can sit above the visible
+ * area. The first flex child (the sticky header) then appears cut off.
  *
- * 1. Reset scrollTop on every ancestor up to <html>
- * 2. Reset window scroll to 0
- * 3. After the browser paints (rAF), call scrollIntoView as a final
- *    backstop — this lets the browser itself figure out how to make the
- *    element visible regardless of what caused the displacement.
+ * This function pins the backdrop to `window.visualViewport` explicitly.
+ * Kept in sync via `visualViewport` `resize` / `scroll` events, the
+ * backdrop always tracks what the user actually sees, regardless of
+ * URL-bar state, keyboard animation, or pinch-zoom.
+ *
+ * No-op on engines that do not expose `window.visualViewport`; the
+ * backdrop's CSS `inset: 0` fallback remains authoritative in that case.
  */
-function ensureHeaderVisible() {
-  // Don't fight with keyboard-aware scroll when the user is typing
-  if (inputFocused.value) return;
-
-  const header = overlayHeaderRef.value;
-  if (!header) return;
-
-  // Reset scroll on every ancestor — including body and documentElement.
-  let el = header.parentElement;
-  while (el) {
-    if (el.scrollTop !== 0) el.scrollTop = 0;
-    el = el.parentElement;
-  }
-  window.scrollTo(0, 0);
-
-  // After the browser has painted, use scrollIntoView as the definitive
-  // fix. requestAnimationFrame fires after layout but before paint on the
-  // NEXT frame, so the browser has fully resolved positions by then.
-  // We use a double-rAF to guarantee we're past the current paint.
-  headerCheckRafId = requestAnimationFrame(() => {
-    headerCheckRafId = requestAnimationFrame(() => {
-      headerCheckRafId = null;
-      const h = overlayHeaderRef.value;
-      if (h && typeof h.scrollIntoView === 'function') {
-        h.scrollIntoView({ block: 'start', behavior: 'auto' });
-      }
-    });
-  });
+function syncToVisualViewport() {
+  const vv = window.visualViewport;
+  const backdrop = overlayBackdropRef.value;
+  if (!vv || !backdrop) return;
+  backdrop.style.top = `${vv.offsetTop}px`;
+  backdrop.style.left = `${vv.offsetLeft}px`;
+  backdrop.style.width = `${vv.width}px`;
+  backdrop.style.height = `${vv.height}px`;
 }
 
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
@@ -962,6 +939,16 @@ onMounted(async () => {
   window.addEventListener('resize', checkMobile);
   checkMobile();
 
+  // Anchor the overlay to the visual viewport synchronously, before the
+  // first paint and before any `await` below. This guarantees the backdrop
+  // is already positioned in visual-viewport space when the slide-left
+  // enter transition starts.
+  if (window.visualViewport) {
+    syncToVisualViewport();
+    window.visualViewport.addEventListener('resize', syncToVisualViewport);
+    window.visualViewport.addEventListener('scroll', syncToVisualViewport);
+  }
+
   // Register focusin/focusout BEFORE the await so they're ready immediately.
   // overlayBodyRef is a template ref on .overlay-body which is always rendered
   // (it does not depend on switchingSession), so it is available at mount time.
@@ -980,23 +967,6 @@ onMounted(async () => {
   } finally {
     switchingSession.value = false;
   }
-
-  // After the overlay is fully rendered, ensure the header is visible.
-  // On iPad Safari the header can end up above the viewport due to residual
-  // scroll offsets that survive the body-scroll-lock.
-  nextTick(() => {
-    ensureHeaderVisible();
-  });
-
-  // Safety net: re-check header visibility a few times after mount.
-  // iPad Safari can trigger delayed layout shifts after the initial paint.
-  let checks = 0;
-  const maxChecks = 5;
-  headerCheckIntervalId = setInterval(() => {
-    ensureHeaderVisible();
-    checks++;
-    if (checks >= maxChecks) clearInterval(headerCheckIntervalId);
-  }, 500);
 });
 
 onUnmounted(() => {
@@ -1004,6 +974,10 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', syncToVisualViewport);
+    window.visualViewport.removeEventListener('scroll', syncToVisualViewport);
+  }
   const body = overlayBodyRef.value;
   if (body) {
     body.removeEventListener('focusin', handleOverlayFocusin);
@@ -1011,8 +985,6 @@ onUnmounted(() => {
   }
   if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
   cleanupSubscription();
-  if (headerCheckIntervalId) clearInterval(headerCheckIntervalId);
-  if (headerCheckRafId) cancelAnimationFrame(headerCheckRafId);
   // Clean up overlay stores: dispose subscriptions AND remove from Pinia registry
   // to prevent state leaks on every overlay open/close cycle.
   overlaySessionsStore.$cleanup();
@@ -1043,7 +1015,7 @@ defineExpose({
   switchingSession,
   pickerOpen,
   handlePickerSelect,
-  ensureHeaderVisible,
+  syncToVisualViewport,
   inputFocused,
 });
 </script>
@@ -1130,8 +1102,7 @@ defineExpose({
 .overlay-panel-wrapper {
   position: relative;
   display: flex;
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
   max-width: 900px;
   width: 100%;
   overflow: visible;
@@ -1198,7 +1169,11 @@ defineExpose({
   width: 100%;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* `overflow: clip` (not `hidden`) disables programmatic scrolling as
+     well as visual clipping. This prevents any descendant `scrollIntoView`
+     call from shifting the flex-child header above the viewport — which
+     was a historical failure mode when `overflow: hidden` was used here. */
+  overflow: clip;
   padding: 0;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
   position: relative;
