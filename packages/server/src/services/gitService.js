@@ -1,5 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import path from 'path';
+import { realpath } from 'fs/promises';
 
 const execAsync = promisify(exec);
 
@@ -517,4 +519,40 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
   await git(worktreePath, `config --worktree user.email "${author.email}"`);
 
   return true;
+}
+
+/**
+ * Detect the worktree path for a directory by inspecting existing worktrees.
+ * If external worktrees exist, uses the parent directory of the first one.
+ * Otherwise, falls back to {directory}/.worktrees.
+ * @param {string} directory - The git repository directory
+ * @returns {Promise<{worktreePath: string, source: 'detected' | 'default'}>}
+ */
+export async function detectWorktreePath(directory) {
+  const isRepo = await isGitRepo(directory);
+  if (!isRepo) {
+    return { worktreePath: path.join(directory, '.worktrees'), source: 'default' };
+  }
+
+  // Resolve symlinks for consistent path comparison (e.g., /var -> /private/var on macOS)
+  let resolvedDir;
+  try {
+    resolvedDir = await realpath(directory);
+  } catch {
+    resolvedDir = path.resolve(directory);
+  }
+
+  const worktrees = await getWorktrees(directory);
+  // Filter out the main worktree (its path === directory or resolves to it)
+  const externalWorktrees = worktrees.filter(wt => {
+    return path.resolve(wt.path) !== resolvedDir;
+  });
+
+  if (externalWorktrees.length > 0) {
+    // Use the parent directory of the first external worktree
+    const parentDir = path.dirname(externalWorktrees[0].path);
+    return { worktreePath: parentDir, source: 'detected' };
+  }
+
+  return { worktreePath: path.join(resolvedDir, '.worktrees'), source: 'default' };
 }

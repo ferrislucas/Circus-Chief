@@ -26,6 +26,15 @@ export function MiscApi(ApiClient) {
       return this._get(`/git/projects/${projectId}/worktrees`);
     },
 
+    /**
+     * Detect the worktree path for a directory
+     * @param {string} directory - Working directory path
+     * @returns {Promise<{worktreePath: string, source: 'detected' | 'default'}>}
+     */
+    async detectWorktreePath(directory) {
+      return this._get(this._buildQueryPath('/git/detect-worktree-path', { directory }));
+    },
+
     // Todos
 
     /**

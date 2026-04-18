@@ -98,6 +98,7 @@ async function resolveWorkingDirectory(parentSession, project, settings, newSess
     gitMode: settings.gitMode,
     gitBranch: settings.gitBranch,
     sessionId: newSessionId,
+    worktreeBasePath: project.worktreePath || null,
   });
   return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
 }

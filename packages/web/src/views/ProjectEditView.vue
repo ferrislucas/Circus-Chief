@@ -40,6 +40,33 @@
       <div class="form-group">
         <label
           class="form-label"
+          for="worktreePath"
+        >Worktree Path</label>
+        <div class="input-with-button">
+          <input
+            id="worktreePath"
+            v-model="worktreePath"
+            type="text"
+            class="form-input"
+            :placeholder="workingDirectory + '/.worktrees'"
+          >
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm"
+            :disabled="!workingDirectory || detectingWorktreePath"
+            @click="detectWorktreePath"
+          >
+            Detect
+          </button>
+        </div>
+        <p class="form-help">
+          Where git worktrees are created for sessions. Changing this only affects new sessions.
+        </p>
+      </div>
+
+      <div class="form-group">
+        <label
+          class="form-label"
           for="repoUrl"
         >Repository URL</label>
         <input
@@ -364,6 +391,7 @@ import PathChooser from '../components/PathChooser.vue';
 import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 import ModelSelector from '../components/ModelSelector.vue';
 import { DEFAULT_SYSTEM_PROMPT, DEFAULT_SESSION_TITLE_PROMPT } from '@circuschief/shared/constants';
+import { api } from '../api/index.js';
 
 const defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT;
 const defaultSessionTitlePrompt = DEFAULT_SESSION_TITLE_PROMPT;
@@ -377,11 +405,13 @@ const uiStore = useUiStore();
 
 const name = ref('');
 const workingDirectory = ref('');
+const worktreePath = ref('');
 const repoUrl = ref('');
 const systemPrompt = ref('');
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
 const kanbanEnabled = ref(false);
+const detectingWorktreePath = ref(false);
 
 // Session defaults refs
 const defaultMode = ref('');
@@ -407,6 +437,7 @@ watch(() => projectsStore.currentProject, (project) => {
   if (project) {
     name.value = project.name;
     workingDirectory.value = project.workingDirectory;
+    worktreePath.value = project.worktreePath || '';
     repoUrl.value = project.repoUrl || '';
     systemPrompt.value = project.systemPrompt || defaultSystemPrompt;
     onSessionCreated.value = project.onSessionCreated || '';
@@ -426,6 +457,19 @@ watch(() => defaultsStore.getDefaultsForProject(route.params.id), (defaults) => 
     defaultModel.value = defaults.model || '';
   }
 }, { immediate: true });
+
+async function detectWorktreePath() {
+  if (!workingDirectory.value) return;
+  detectingWorktreePath.value = true;
+  try {
+    const result = await api.detectWorktreePath(workingDirectory.value);
+    worktreePath.value = result.worktreePath;
+  } catch {
+    // Silently fail — user can manually enter the path
+  } finally {
+    detectingWorktreePath.value = false;
+  }
+}
 
 function collectNonDefaultValues() {
   const data = {};
@@ -449,6 +493,7 @@ async function handleSubmit() {
     await projectsStore.updateProject(route.params.id, {
       name: name.value,
       workingDirectory: workingDirectory.value,
+      worktreePath: worktreePath.value || null,
       repoUrl: repoUrl.value || null,
       systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || null,
@@ -539,6 +584,20 @@ h1 {
 .error-message {
   color: var(--color-error);
   margin-bottom: 1rem;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.input-with-button .form-input {
+  flex: 1;
+}
+
+.input-with-button .btn {
+  flex-shrink: 0;
 }
 
 .form-textarea {

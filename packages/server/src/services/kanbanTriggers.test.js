@@ -120,6 +120,7 @@ describe('kanbanTriggers', () => {
         gitMode: 'worktree',
         gitBranch: 'feature-branch',
         sessionId: 'new-session-1',
+        worktreeBasePath: null,
       });
       expect(result).toEqual({
         workingDirectory: '/tmp/git-setup-dir',
@@ -142,6 +143,7 @@ describe('kanbanTriggers', () => {
         gitMode: null,
         gitBranch: null,
         sessionId: 'sess-1',
+        worktreeBasePath: null,
       });
     });
 

@@ -1233,6 +1233,7 @@ describe('Projects API', () => {
         gitMode: 'worktree',
         gitBranch: 'test-branch',
         sessionId: res.body.id,
+        worktreeBasePath: null,
       });
     });
 
@@ -1251,6 +1252,7 @@ describe('Projects API', () => {
         gitMode: 'worktree',
         gitBranch: 'test-branch',
         sessionId: res.body.id,
+        worktreeBasePath: null,
       });
     });
 

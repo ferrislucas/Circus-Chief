@@ -9,6 +9,7 @@ export const CreateProjectRequest = z.object({
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
   repoUrl: z.string().url().nullable().optional(),
   kanbanEnabled: z.boolean().optional(), // Default true
+  worktreePath: z.string().nullable().optional(),
 });
 
 export const UpdateProjectRequest = z.object({
@@ -20,6 +21,7 @@ export const UpdateProjectRequest = z.object({
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
   repoUrl: z.string().url().nullable().optional(),
   kanbanEnabled: z.boolean().optional(),
+  worktreePath: z.string().nullable().optional(),
 });
 
 export const ProjectResponse = z.object({
@@ -32,6 +34,7 @@ export const ProjectResponse = z.object({
   prPollInterval: z.number().int(),
   repoUrl: z.string().url().nullable().optional(),
   kanbanEnabled: z.boolean(),
+  worktreePath: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

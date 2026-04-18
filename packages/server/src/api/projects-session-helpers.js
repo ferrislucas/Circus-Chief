@@ -246,6 +246,7 @@ export async function setupAndStartSession({ session, config, project, projectId
       gitMode: config.gitMode || null,
       gitBranch: config.gitBranch || null,
       sessionId: session.id,
+      worktreeBasePath: project.worktreePath || null,
     });
     workingDirectory = gitSetup.workingDirectory;
     gitWorktree = gitSetup.gitWorktree;

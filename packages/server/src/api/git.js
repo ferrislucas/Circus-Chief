@@ -4,6 +4,21 @@ import * as gitService from '../services/gitService.js';
 
 const router = Router();
 
+// GET /api/git/detect-worktree-path?directory=/path/to/repo
+router.get('/detect-worktree-path', async (req, res) => {
+  const { directory } = req.query;
+  if (!directory) {
+    return res.status(400).json({ error: 'directory query parameter is required' });
+  }
+
+  try {
+    const result = await gitService.detectWorktreePath(directory);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/projects/:id/git/status - Check if git repo, get branches
 router.get('/projects/:id/status', async (req, res) => {
   const project = projects.getById(req.params.id);

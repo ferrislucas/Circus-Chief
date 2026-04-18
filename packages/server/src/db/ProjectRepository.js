@@ -19,6 +19,7 @@ export class ProjectRepository extends BaseRepository {
       onSessionDeleted: row.on_session_deleted,
       prPollInterval: row.pr_poll_interval,
       repoUrl: row.repo_url,
+      worktreePath: row.worktree_path,
       kanbanEnabled: row.kanban_enabled === undefined ? true : Boolean(row.kanban_enabled),
       sessionCount: row.session_count ?? 0,
       lastActivityAt: row.last_activity_at ?? null,
@@ -36,11 +37,12 @@ export class ProjectRepository extends BaseRepository {
       prPollInterval = 60000,
       repoUrl = null,
       kanbanEnabled = true,
+      worktreePath = null,
     } = options;
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, kanban_enabled, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, kanban_enabled, worktree_path, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -52,6 +54,7 @@ export class ProjectRepository extends BaseRepository {
         prPollInterval,
         repoUrl,
         kanbanEnabled ? 1 : 0,
+        worktreePath,
         now,
         now
       );
@@ -83,6 +86,7 @@ export class ProjectRepository extends BaseRepository {
     onSessionDeleted: { column: 'on_session_deleted' },
     prPollInterval: { column: 'pr_poll_interval' },
     repoUrl: { column: 'repo_url' },
+    worktreePath: { column: 'worktree_path' },
     kanbanEnabled: { column: 'kanban_enabled', transform: (v) => v ? 1 : 0 },
   };
 

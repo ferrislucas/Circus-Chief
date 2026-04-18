@@ -308,8 +308,8 @@ describe('ProjectEditView with Session Defaults', () => {
         }
       });
 
-      const resetButton = wrapper.find('button[class*="btn-secondary"]');
-      if (resetButton.exists()) {
+      const resetButton = wrapper.findAll('button[class*="btn-secondary"]').find(b => b.text().includes('Reset to System Defaults'));
+      if (resetButton) {
         await resetButton.trigger('click');
         await wrapper.vm.$nextTick();
 
@@ -333,8 +333,8 @@ describe('ProjectEditView with Session Defaults', () => {
         }
       });
 
-      const resetButton = wrapper.find('button[class*="btn-secondary"]');
-      if (resetButton.exists()) {
+      const resetButton = wrapper.findAll('button[class*="btn-secondary"]').find(b => b.text().includes('Reset to System Defaults'));
+      if (resetButton) {
         await resetButton.trigger('click');
 
         expect(defaultsStore.resetDefaults).not.toHaveBeenCalled();

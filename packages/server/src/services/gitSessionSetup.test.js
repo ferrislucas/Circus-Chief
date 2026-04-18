@@ -154,6 +154,51 @@ describe('setupGitForSession', () => {
         gitWorktree: '/project/.worktrees/session-1',
       });
     });
+
+    it('uses custom worktreeBasePath when provided', async () => {
+      gitService.createWorktreeForBranch.mockResolvedValue({
+        path: '/custom/worktrees/session-1',
+        branch: 'feature-x',
+      });
+
+      const result = await setupGitForSession({
+        projectDir: '/project',
+        gitMode: 'worktree',
+        gitBranch: 'feature-x',
+        sessionId: 'session-1',
+        worktreeBasePath: '/custom/worktrees',
+      });
+
+      expect(gitService.createWorktreeForBranch).toHaveBeenCalledWith(
+        '/project',
+        'feature-x',
+        '/custom/worktrees/session-1'
+      );
+      expect(result).toEqual({
+        workingDirectory: '/custom/worktrees/session-1',
+        gitWorktree: '/custom/worktrees/session-1',
+      });
+    });
+
+    it('uses default .worktrees when worktreeBasePath is null', async () => {
+      const result = await setupGitForSession({
+        projectDir: '/project',
+        gitMode: 'worktree',
+        gitBranch: 'feature-x',
+        sessionId: 'session-1',
+        worktreeBasePath: null,
+      });
+
+      expect(gitService.createWorktreeForBranch).toHaveBeenCalledWith(
+        '/project',
+        'feature-x',
+        '/project/.worktrees/session-1'
+      );
+      expect(result).toEqual({
+        workingDirectory: '/project/.worktrees/session-1',
+        gitWorktree: '/project/.worktrees/session-1',
+      });
+    });
   });
 
   describe('unknown git mode', () => {

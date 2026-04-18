@@ -44,6 +44,10 @@ export const projectsMigrations = [
     up(db) { addColumnIfMissing(db, 'projects', 'repo_url', 'TEXT'); },
   },
   {
+    name: 'projects-add-worktree_path',
+    up(db) { addColumnIfMissing(db, 'projects', 'worktree_path', 'TEXT'); },
+  },
+  {
     name: 'projects-drop-summary-columns',
     up(db) { migrateProjectsDropSummaryColumns(db); },
   },

@@ -18,9 +18,36 @@ import {
   setupAndStartSession,
 } from './projects-session-helpers.js';
 import { validateGitSettings, buildRunsBySession } from './projects-helpers.js';
+import { access, constants } from 'fs/promises';
+import { dirname, isAbsolute } from 'path';
 
 // Error message constants
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
+
+/**
+ * Validate a worktree path value.
+ * Returns null if valid, or an error message string if invalid.
+ * @param {string|null|undefined} worktreePath
+ * @returns {Promise<string|null>}
+ */
+export async function validateWorktreePath(worktreePath) {
+  if (worktreePath === null || worktreePath === undefined || worktreePath === '') {
+    return null; // null/empty is valid (means use default)
+  }
+
+  if (!isAbsolute(worktreePath)) {
+    return 'Worktree path must be an absolute path';
+  }
+
+  const parent = dirname(worktreePath);
+  try {
+    await access(parent, constants.W_OK);
+  } catch {
+    return `Parent directory does not exist or is not writable: ${parent}`;
+  }
+
+  return null; // valid
+}
 
 const router = Router();
 
@@ -31,16 +58,23 @@ router.get('/', (_req, res) => {
 });
 
 // POST /api/projects - Create project
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const result = CreateProjectRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted } = result.data;
+  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath } = result.data;
+
+  const pathError = await validateWorktreePath(worktreePath);
+  if (pathError) {
+    return res.status(400).json({ error: pathError });
+  }
+
   const project = projects.create(name, workingDirectory, systemPrompt || null, {
     onSessionCreated: onSessionCreated || null,
     onSessionDeleted: onSessionDeleted || null,
+    worktreePath: worktreePath || null,
   });
   res.status(201).json(project);
 });
@@ -55,7 +89,7 @@ router.get('/:id', (req, res) => {
 });
 
 // PUT /api/projects/:id - Update project
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
     return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
@@ -64,6 +98,13 @@ router.put('/:id', (req, res) => {
   const result = UpdateProjectRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
+  }
+
+  if (result.data.worktreePath !== undefined) {
+    const pathError = await validateWorktreePath(result.data.worktreePath);
+    if (pathError) {
+      return res.status(400).json({ error: pathError });
+    }
   }
 
   const updated = projects.update(req.params.id, result.data);
