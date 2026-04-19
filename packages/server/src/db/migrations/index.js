@@ -65,6 +65,7 @@ export const allMigrations = validateMigrations([
   p.get('projects-add-on_session_created'),
   p.get('projects-add-on_session_deleted'),
   p.get('projects-add-repo_url'),
+  p.get('projects-add-worktree_path'),
   p.get('projects-drop-summary-columns'),
 
   // --- Sessions scheduling columns ---
