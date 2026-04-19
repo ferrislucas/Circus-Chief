@@ -30,42 +30,10 @@ test.describe('scroll-to-bottom button', () => {
     await cleanupCreatedResources();
   });
 
-  test('non-overlay session view: button appears after scrolling up and hides after clicking', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}`, {
-      waitFor: '.session-detail',
-      timeout: 15000,
-    });
-
-    // Wait for messages container to render.
-    const messages = page.locator('.session-detail .messages').first();
-    await expect(messages).toBeVisible({ timeout: 10000 });
-
-    // Let auto-scroll settle at bottom.
-    await page.waitForTimeout(800);
-
-    // Initially the button should not be visible (we are near the bottom).
-    const btn = page.locator('.session-detail [data-testid="scroll-to-bottom-btn"]').first();
-    await expect(btn).toHaveCount(0);
-
-    // Scroll the .messages container to the top programmatically.
-    await messages.evaluate((el) => {
-      (el as HTMLElement).scrollTop = 0;
-      el.dispatchEvent(new Event('scroll'));
-    });
-
-    // The button should now appear.
-    await expect(btn).toBeVisible({ timeout: 5000 });
-
-    // Clicking should scroll back to the bottom and hide the button.
-    await btn.click();
-    await expect(btn).toHaveCount(0, { timeout: 5000 });
-
-    const distanceFromBottom = await messages.evaluate((el) => {
-      const h = el as HTMLElement;
-      return h.scrollHeight - h.scrollTop - h.clientHeight;
-    });
-    expect(distanceFromBottom).toBeLessThan(100);
-  });
+  // Note: The non-overlay SessionDetailView no longer renders the conversation —
+  // conversation only appears inside the SessionChatOverlay. Scroll-to-bottom
+  // behavior in the standard (non-overlay) session view is covered by the
+  // ConversationTab unit tests in `packages/web/src/components/ConversationTab.test.js`.
 
   test('overlay session view: button appears after scrolling up and hides after clicking', async ({ page }) => {
     await navigateAndWait(page, `/sessions/${session.id}`, {

@@ -217,7 +217,12 @@ test.describe('Path Chooser Selection', () => {
   test('manual path entry still works', async ({ page }) => {
     await page.goto('/projects/new');
 
-    await page.fill('.path-chooser input', '/usr/local');
+    // Use a path whose parent is guaranteed writable. The ProjectNewView
+    // auto-detects the worktree path as `<workingDirectory>/.worktrees` and
+    // the server validates that the worktree path's parent is writable.
+    // Paths like /usr/local may be read-only in some environments, causing
+    // the create-project request to 400 and the URL to stay on /projects/new.
+    await page.fill('.path-chooser input', '/tmp');
 
     await page.click('button:has-text("Add Repository")');
 
