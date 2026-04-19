@@ -169,6 +169,7 @@ describe('Projects Contracts', () => {
       onSessionDeleted: null,
       prPollInterval: 60000,
       kanbanEnabled: true,
+      worktreePath: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -205,6 +206,38 @@ describe('Projects Contracts', () => {
         ...validProject,
         kanbanEnabled: 'yes',
       });
+      expect(result.success).toBe(false);
+    });
+
+    it('validates project with worktreePath as string', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        worktreePath: '/custom/worktree/path',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.worktreePath).toBe('/custom/worktree/path');
+    });
+
+    it('validates project with worktreePath as null', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        worktreePath: null,
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.worktreePath).toBeNull();
+    });
+
+    it('rejects non-string, non-null worktreePath', () => {
+      const result = ProjectResponse.safeParse({
+        ...validProject,
+        worktreePath: 123,
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects project missing worktreePath field', () => {
+      const { worktreePath: _worktreePath, ...withoutWorktreePath } = validProject;
+      const result = ProjectResponse.safeParse(withoutWorktreePath);
       expect(result.success).toBe(false);
     });
   });

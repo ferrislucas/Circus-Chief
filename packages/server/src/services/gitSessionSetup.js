@@ -8,9 +8,10 @@ import * as gitService from './gitService.js';
  * @param {string|null} options.gitMode - 'branch', 'worktree', or null
  * @param {string|null} options.gitBranch - Branch name
  * @param {string} options.sessionId - Session ID
+ * @param {string|null} [options.worktreeBasePath] - Custom base path for worktrees (overrides default .worktrees)
  * @returns {Promise<{workingDirectory: string, gitWorktree: string|null}>}
  */
-export async function setupGitForSession({ projectDir, gitMode, gitBranch, sessionId }) {
+export async function setupGitForSession({ projectDir, gitMode, gitBranch, sessionId, worktreeBasePath }) {
   // No git operations if gitMode is not specified
   if (!gitMode || !gitBranch) {
     return {
@@ -29,8 +30,8 @@ export async function setupGitForSession({ projectDir, gitMode, gitBranch, sessi
   }
 
   if (gitMode === 'worktree') {
-    // Create a worktree in .worktrees/{sessionId}
-    const worktreePath = join(projectDir, '.worktrees', sessionId);
+    // Create a worktree in the configured base path or .worktrees/{sessionId}
+    const worktreePath = join(worktreeBasePath || join(projectDir, '.worktrees'), sessionId);
     await gitService.createWorktreeForBranch(projectDir, gitBranch, worktreePath);
     // Pin the human developer's git identity so they are the commit Author
     await gitService.pinAuthorInWorktree(worktreePath, projectDir);

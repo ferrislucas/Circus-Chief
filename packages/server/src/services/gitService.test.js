@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'fs/promises';
+import { mkdtemp, rm, writeFile, realpath } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -10,6 +10,7 @@ import {
   clearDefaultBranchCache,
   createWorktree,
   createWorktreeForBranch,
+  detectWorktreePath,
   getCacheSize,
   getCurrentBranch,
   getGitAuthor,
@@ -840,6 +841,40 @@ describe('gitService', () => {
 
       const author = execSync('git log -1 --format="%an <%ae>"', { cwd: worktreePath }).toString().trim();
       expect(author).toBe('Human <human@example.com>');
+    });
+  });
+
+  describe('detectWorktreePath', () => {
+    it('returns default path for a git repo with no external worktrees', async () => {
+      const resolvedTestDir = await realpath(testDir);
+      const result = await detectWorktreePath(testDir);
+      expect(result.worktreePath).toBe(join(resolvedTestDir, '.worktrees'));
+      expect(result.source).toBe('default');
+    });
+
+    it('detects parent of existing external worktrees', async () => {
+      const resolvedTestDir = await realpath(testDir);
+      // Create a worktree first
+      const worktreeDir = join(testDir, '.worktrees', 'detect-test');
+      await createWorktreeForBranch(testDir, 'detect-test-branch', worktreeDir, { skipFetch: true });
+
+      const result = await detectWorktreePath(testDir);
+      expect(result.worktreePath).toBe(join(resolvedTestDir, '.worktrees'));
+      expect(result.source).toBe('detected');
+
+      // Cleanup worktree
+      execSync(`git worktree remove --force "${worktreeDir}"`, { cwd: testDir });
+    });
+
+    it('returns default path for non-git directory', async () => {
+      const nonGitDir = await mkdtemp(join(tmpdir(), 'non-git-'));
+      try {
+        const result = await detectWorktreePath(nonGitDir);
+        expect(result.worktreePath).toBe(join(nonGitDir, '.worktrees'));
+        expect(result.source).toBe('default');
+      } finally {
+        await rm(nonGitDir, { recursive: true, force: true });
+      }
     });
   });
 });

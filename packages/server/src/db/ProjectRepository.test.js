@@ -95,6 +95,20 @@ describe('ProjectRepository', () => {
       expect(project.prPollInterval).toBe(30000);
     });
 
+    it('creates project with worktreePath in options', () => {
+      const project = repo.create('Test Project', '/tmp/test', null, {
+        worktreePath: '/custom/worktrees',
+      });
+
+      expect(project.worktreePath).toBe('/custom/worktrees');
+    });
+
+    it('creates project with null worktreePath by default', () => {
+      const project = repo.create('Test Project', '/tmp/test');
+
+      expect(project.worktreePath).toBeNull();
+    });
+
   });
 
   describe('getById', () => {
@@ -316,6 +330,27 @@ describe('ProjectRepository', () => {
         repoUrl: null,
       });
       expect(cleared.repoUrl).toBeNull();
+    });
+
+    it('updates worktreePath', () => {
+      const project = repo.create('Test', '/tmp/test');
+      const updated = repo.update(project.id, {
+        worktreePath: '/custom/worktrees',
+      });
+
+      expect(updated.worktreePath).toBe('/custom/worktrees');
+    });
+
+    it('clears worktreePath when set to null', () => {
+      const project = repo.create('Test', '/tmp/test', null, {
+        worktreePath: '/custom/worktrees',
+      });
+      expect(project.worktreePath).toBe('/custom/worktrees');
+
+      const updated = repo.update(project.id, {
+        worktreePath: null,
+      });
+      expect(updated.worktreePath).toBeNull();
     });
 
   });

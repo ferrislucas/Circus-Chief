@@ -54,6 +54,7 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       gitMode: gitOptions.gitMode || null,
       gitBranch: gitOptions.gitBranch || null,
       sessionId: gitOptions.sessionId,
+      worktreeBasePath: project.worktreePath || null,
     });
     return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
   }

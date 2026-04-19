@@ -38,6 +38,34 @@
         <div class="form-group">
           <label
             class="form-label"
+            for="worktreePath"
+          >Worktree Path</label>
+          <div class="input-with-button">
+            <input
+              id="worktreePath"
+              v-model="worktreePath"
+              type="text"
+              class="form-input"
+              placeholder="/path/to/.worktrees"
+              @input="onWorktreePathInput"
+            >
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="!workingDirectory || detectingWorktreePath"
+              @click="detectWorktreePath"
+            >
+              Detect
+            </button>
+          </div>
+          <p class="form-help">
+            Directory where git worktrees will be created for sessions. Leave empty to use the default.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label
+            class="form-label"
             for="systemPrompt"
           >
             System Prompt
@@ -133,6 +161,8 @@ import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
 import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared/constants';
+import { api } from '../api/index.js';
+import '../components/InputWithButton.css';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
@@ -142,19 +172,27 @@ const defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT;
 
 const name = ref('');
 const workingDirectory = ref('');
+const worktreePath = ref('');
 const systemPrompt = ref(DEFAULT_SYSTEM_PROMPT);
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
 const loading = ref(false);
 const error = ref(null);
+const detectingWorktreePath = ref(false);
 
 // Track whether name was auto-filled (vs manually typed)
 const nameAutoFilled = ref(true);
+// Track whether worktree path was auto-filled (vs manually typed)
+const worktreePathAutoFilled = ref(true);
 
 watch(workingDirectory, (newPath) => {
   if (newPath && nameAutoFilled.value) {
     const segments = newPath.replace(/\/+$/, '').split('/');
     name.value = segments[segments.length - 1] || '';
+  }
+  // Auto-detect worktree path when working directory changes (only if not manually edited)
+  if (newPath && worktreePathAutoFilled.value) {
+    detectWorktreePath();
   }
 });
 
@@ -163,8 +201,27 @@ function onNameInput() {
   nameAutoFilled.value = false;
 }
 
+// When user manually edits worktree path, stop auto-filling
+function onWorktreePathInput() {
+  worktreePathAutoFilled.value = false;
+}
+
+async function detectWorktreePath() {
+  if (!workingDirectory.value) return;
+  detectingWorktreePath.value = true;
+  try {
+    const result = await api.detectWorktreePath(workingDirectory.value);
+    worktreePath.value = result.worktreePath;
+    worktreePathAutoFilled.value = true;
+  } catch {
+    // Silently fail — user can manually enter the path
+  } finally {
+    detectingWorktreePath.value = false;
+  }
+}
+
 // Expose for testing
-defineExpose({ name, workingDirectory, onNameInput });
+defineExpose({ name, workingDirectory, worktreePath, onNameInput, onWorktreePathInput });
 
 async function handleSubmit() {
   loading.value = true;
@@ -178,6 +235,7 @@ async function handleSubmit() {
       systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || undefined,
       onSessionDeleted: onSessionDeleted.value || undefined,
+      worktreePath: worktreePath.value || null,
     });
     uiStore.success('Repository added');
     router.push(`/projects/${project.id}/sessions`);

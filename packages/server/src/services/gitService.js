@@ -1,5 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import path from 'path';
+import { realpath } from 'fs/promises';
 
 const execAsync = promisify(exec);
 
@@ -239,12 +241,12 @@ export async function getCurrentBranch(directory) {
  * Create a new worktree
  * @param {string} directory
  * @param {string} branch
- * @param {string} path
+ * @param {string} worktreePath
  * @param {Object} options
  * @param {boolean} options.skipFetch - Skip fetching from origin (default: false)
  * @returns {Promise<{path: string, branch: string}>}
  */
-export async function createWorktree(directory, branch, path, options = {}) {
+export async function createWorktree(directory, branch, worktreePath, options = {}) {
   const { skipFetch = false } = options;
 
   // Fetch latest from origin to ensure we have up-to-date default branch
@@ -256,8 +258,8 @@ export async function createWorktree(directory, branch, path, options = {}) {
   const defaultBranch = await getOriginDefaultBranch(directory);
   // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
   // Use --no-track to prevent the new branch from tracking the start-point (main/master)
-  await git(directory, `worktree add --no-track "${path}" -b "${branch}" ${defaultBranch}`);
-  return { path, branch };
+  await git(directory, `worktree add --no-track "${worktreePath}" -b "${branch}" ${defaultBranch}`);
+  return { path: worktreePath, branch };
 }
 
 /**
@@ -266,9 +268,9 @@ export async function createWorktree(directory, branch, path, options = {}) {
  * @param {string} path
  * @param {boolean} force - Force removal even if worktree has uncommitted changes
  */
-export async function removeWorktree(directory, path, force = false) {
+export async function removeWorktree(directory, worktreePath, force = false) {
   const forceFlag = force ? '--force' : '';
-  await git(directory, `worktree remove ${forceFlag} "${path}"`);
+  await git(directory, `worktree remove ${forceFlag} "${worktreePath}"`);
 }
 
 /**
@@ -517,4 +519,38 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
   await git(worktreePath, `config --worktree user.email "${author.email}"`);
 
   return true;
+}
+
+/**
+ * Detect the worktree path for a directory by inspecting existing worktrees.
+ * If external worktrees exist, uses the parent directory of the first one.
+ * Otherwise, falls back to {directory}/.worktrees.
+ * @param {string} directory - The git repository directory
+ * @returns {Promise<{worktreePath: string, source: 'detected' | 'default'}>}
+ */
+export async function detectWorktreePath(directory) {
+  const isRepo = await isGitRepo(directory);
+  if (!isRepo) {
+    return { worktreePath: path.join(directory, '.worktrees'), source: 'default' };
+  }
+
+  // Resolve symlinks for consistent path comparison (e.g., /var -> /private/var on macOS)
+  let resolvedDir;
+  try {
+    resolvedDir = await realpath(directory);
+  } catch {
+    resolvedDir = path.resolve(directory);
+  }
+
+  const worktrees = await getWorktrees(directory);
+  // Filter out the main worktree (its path === directory or resolves to it)
+  const externalWorktrees = worktrees.filter(wt => path.resolve(wt.path) !== resolvedDir);
+
+  if (externalWorktrees.length > 0) {
+    // Use the parent directory of the first external worktree
+    const parentDir = path.dirname(path.resolve(externalWorktrees[0].path));
+    return { worktreePath: parentDir, source: 'detected' };
+  }
+
+  return { worktreePath: path.join(resolvedDir, '.worktrees'), source: 'default' };
 }
