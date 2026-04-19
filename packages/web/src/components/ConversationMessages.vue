@@ -24,16 +24,43 @@
   <div class="conversation-controls-row">
     <TokenCostPanel :session-id="sessionId" />
 
-    <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
-    <button
-      v-if="hasAssistantMessages && isUsersTurn"
-      class="scroll-to-claude-btn"
-      title="Jump to the agent's response"
-      aria-label="Scroll to the agent's latest response"
-      @click="scrollToClaudesTurn"
-    >
-      💬
-    </button>
+    <div class="conversation-scroll-actions">
+      <!-- Scroll-to-bottom button - shows when user has scrolled away from bottom -->
+      <button
+        v-if="!isNearBottom"
+        class="scroll-to-bottom-btn"
+        title="Scroll to the bottom of the conversation"
+        aria-label="Scroll to the bottom of the conversation"
+        data-testid="scroll-to-bottom-btn"
+        @click="scrollToBottom(true)"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
+      <button
+        v-if="hasAssistantMessages && isUsersTurn"
+        class="scroll-to-claude-btn"
+        title="Jump to the agent's response"
+        aria-label="Scroll to the agent's latest response"
+        @click="scrollToClaudesTurn"
+      >
+        💬
+      </button>
+    </div>
   </div>
 </template>
 
@@ -98,6 +125,39 @@ defineExpose({ scrollToBottom });
   min-height: 32px;
 }
 
+.conversation-scroll-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scroll-to-bottom-btn {
+  padding: 0.5rem 0.75rem;
+  background: rgba(31, 41, 55, 0.85);
+  border: 1px solid rgba(75, 85, 99, 0.5);
+  border-radius: 6px;
+  color: rgba(156, 163, 175, 0.9);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  line-height: 1;
+}
+
+.scroll-to-bottom-btn:hover {
+  background: rgba(55, 65, 81, 0.95);
+  color: rgba(209, 213, 219, 1);
+}
+
+.scroll-to-bottom-btn:active {
+  transform: scale(0.95);
+}
+
 .scroll-to-claude-btn {
   padding: 0.5rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
@@ -153,6 +213,12 @@ defineExpose({ scrollToBottom });
   .scroll-to-claude-btn {
     padding: 0.5rem 0.75rem;
     font-size: 1rem;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .scroll-to-bottom-btn {
+    padding: 0.5rem 0.75rem;
     min-width: 44px;
     min-height: 44px;
   }
