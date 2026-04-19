@@ -52,31 +52,43 @@ test.describe('Session Lifecycle Hooks', () => {
   });
 
   test('onSessionDeleted hook executes on session deletion for worktree sessions', async () => {
-    // Create a project with onSessionDeleted hook configured
+    // Create a project with onSessionDeleted hook configured.
+    // The hook uses env vars (CIRCUSCHIEF_SESSION_ID) and an absolute marker
+    // path, so it doesn't depend on any specific contents or existence of the
+    // worktree cwd at execution time.
     const project = await seedProject('hook-test-deleted', process.cwd(), {
       onSessionDeleted: `touch ${markerDir}/session-deleted-\${CIRCUSCHIEF_SESSION_ID}.txt`,
     });
 
-    // Create a session in the project with a gitWorktree (required for hook to fire)
+    // Create a session in the project with a gitWorktree (required for hook to fire).
+    // The hook's cwd is the worktree path, which must exist on disk for exec()
+    // to spawn. We create a real temp directory to stand in for the worktree.
+    const fakeWorktree = await mkdtemp(join(tmpdir(), 'circuschief-test-wt-'));
     const session = await seedSession(project.id, {
       prompt: 'Test session for onSessionDeleted hook',
       name: 'Hook Test Session Delete',
       startImmediately: false,
     });
-    await updateSessionFields(session.id, { gitWorktree: `/tmp/fake-wt-${session.id}` });
+    await updateSessionFields(session.id, { gitWorktree: fakeWorktree });
 
-    // Delete the session
-    const response = await fetch(`${API_URL}/api/sessions/${session.id}`, {
-      method: 'DELETE',
-    });
-    expect(response.ok).toBe(true);
+    try {
+      // Delete the session
+      const response = await fetch(`${API_URL}/api/sessions/${session.id}`, {
+        method: 'DELETE',
+      });
+      expect(response.ok).toBe(true);
 
-    // Wait for the marker file to exist (hook executes asynchronously)
-    const markerFile = join(markerDir, `session-deleted-${session.id}.txt`);
-    const fileExists = await waitForFile(markerFile, 5000);
+      // Wait for the marker file to exist (hook executes asynchronously)
+      const markerFile = join(markerDir, `session-deleted-${session.id}.txt`);
+      const fileExists = await waitForFile(markerFile, 5000);
 
-    // Assert marker file exists
-    expect(fileExists).toBe(true);
+      // Assert marker file exists
+      expect(fileExists).toBe(true);
+    } finally {
+      // Cleanup the stand-in worktree directory (gitService.removeWorktree
+      // may have failed silently since this isn't a real git worktree)
+      await rm(fakeWorktree, { recursive: true, force: true });
+    }
   });
 
   test('onSessionDeleted hook does not execute for non-worktree sessions', async () => {
