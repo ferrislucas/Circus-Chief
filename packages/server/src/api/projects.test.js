@@ -24,6 +24,7 @@ vi.mock('../services/gitSessionSetup.js', () => ({
 
 // Import after mocks are set up
 import projectsRouter from './projects.js';
+import { validateWorktreePath } from './projects.js';
 import { broadcastToProject } from '../websocket.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
@@ -1461,5 +1462,36 @@ describe('Projects API', () => {
       expect(res.body[0].latestCommandRuns).toBeDefined();
       expect(res.body[0].latestCommandRuns.length).toBe(1);
     });
+  });
+});
+
+describe('validateWorktreePath', () => {
+  it('returns null for null', async () => {
+    expect(await validateWorktreePath(null)).toBeNull();
+  });
+
+  it('returns null for undefined', async () => {
+    expect(await validateWorktreePath(undefined)).toBeNull();
+  });
+
+  it('returns null for empty string', async () => {
+    expect(await validateWorktreePath('')).toBeNull();
+  });
+
+  it('returns error for relative path', async () => {
+    const result = await validateWorktreePath('relative/path');
+    expect(result).toBe('Worktree path must be an absolute path');
+  });
+
+  it('returns error for non-existent parent directory', async () => {
+    const result = await validateWorktreePath('/nonexistent/dir/that/does/not/exist');
+    expect(result).toMatch(/Parent directory does not exist or is not writable/);
+  });
+
+  it('returns null for valid absolute path with writable parent', async () => {
+    // tmpdir() always exists and is writable
+    const validPath = join(tmpdir(), 'some-worktree-dir');
+    const result = await validateWorktreePath(validPath);
+    expect(result).toBeNull();
   });
 });

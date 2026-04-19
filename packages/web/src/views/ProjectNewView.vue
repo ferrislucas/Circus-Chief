@@ -162,6 +162,7 @@ import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
 import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared/constants';
 import { api } from '../api/index.js';
+import '../components/InputWithButton.css';
 
 const router = useRouter();
 const projectsStore = useProjectsStore();
@@ -287,20 +288,6 @@ h1 {
   font-family: monospace;
   font-size: 0.875rem;
   line-height: 1.5;
-}
-
-.input-with-button {
-  display: flex;
-  gap: 0.5rem;
-  align-items: stretch;
-}
-
-.input-with-button .form-input {
-  flex: 1;
-}
-
-.input-with-button .btn {
-  flex-shrink: 0;
 }
 
 .form-help {

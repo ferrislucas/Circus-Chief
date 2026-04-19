@@ -392,6 +392,7 @@ import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 import ModelSelector from '../components/ModelSelector.vue';
 import { DEFAULT_SYSTEM_PROMPT, DEFAULT_SESSION_TITLE_PROMPT } from '@circuschief/shared/constants';
 import { api } from '../api/index.js';
+import '../components/InputWithButton.css';
 
 const defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT;
 const defaultSessionTitlePrompt = DEFAULT_SESSION_TITLE_PROMPT;
@@ -584,20 +585,6 @@ h1 {
 .error-message {
   color: var(--color-error);
   margin-bottom: 1rem;
-}
-
-.input-with-button {
-  display: flex;
-  gap: 0.5rem;
-  align-items: stretch;
-}
-
-.input-with-button .form-input {
-  flex: 1;
-}
-
-.input-with-button .btn {
-  flex-shrink: 0;
 }
 
 .form-textarea {

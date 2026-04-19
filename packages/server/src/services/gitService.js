@@ -550,7 +550,7 @@ export async function detectWorktreePath(directory) {
 
   if (externalWorktrees.length > 0) {
     // Use the parent directory of the first external worktree
-    const parentDir = path.dirname(externalWorktrees[0].path);
+    const parentDir = path.dirname(path.resolve(externalWorktrees[0].path));
     return { worktreePath: parentDir, source: 'detected' };
   }
 
