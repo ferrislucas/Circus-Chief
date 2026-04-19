@@ -115,11 +115,24 @@ describe('Sessions Archive API', () => {
     });
 
     it('does not execute onSessionDeleted hook when cleanup is false', async () => {
+      sessions.update(session.id, { gitWorktree: '/path/to/wt' });
       projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
 
       const res = await request(app)
         .post(`/api/sessions/${session.id}/archive`)
         .send({ cleanup: false });
+
+      expect(res.status).toBe(200);
+      expect(executeHookAsync).not.toHaveBeenCalled();
+    });
+
+    it('does not execute onSessionDeleted hook for non-worktree sessions with cleanup true', async () => {
+      // Session has no gitWorktree (branch mode or no git) — hook should NOT fire
+      projects.update(project.id, { onSessionDeleted: './cleanup.sh' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/archive`)
+        .send({ cleanup: true });
 
       expect(res.status).toBe(200);
       expect(executeHookAsync).not.toHaveBeenCalled();
