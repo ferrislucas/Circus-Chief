@@ -23,8 +23,7 @@ vi.mock('../services/gitSessionSetup.js', () => ({
 }));
 
 // Import after mocks are set up
-import projectsRouter from './projects.js';
-import { validateWorktreePath } from './projects.js';
+import projectsRouter, { validateWorktreePath } from './projects.js';
 import { broadcastToProject } from '../websocket.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';

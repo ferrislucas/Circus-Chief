@@ -221,6 +221,52 @@ export function buildSchedulingUpdate(config, initialStatus) {
 }
 
 /**
+ * Resolve working directory and optional worktree for a new session.
+ * Inherits the parent's worktree when applicable.
+ * @param {object} params
+ * @returns {Promise<{ workingDirectory: string, gitWorktree: string|null }>}
+ */
+async function resolveSessionWorkingDirectory({ session, config, project }) {
+  const parentSession = config.parentSessionId ? sessions.getById(config.parentSessionId) : null;
+  if (parentSession?.gitWorktree) {
+    return {
+      workingDirectory: parentSession.gitWorktree,
+      gitWorktree: parentSession.gitWorktree,
+    };
+  }
+
+  const gitSetup = await setupGitForSession({
+    projectDir: project.workingDirectory,
+    gitMode: config.gitMode || null,
+    gitBranch: config.gitBranch || null,
+    sessionId: session.id,
+    worktreeBasePath: project.worktreePath || null,
+  });
+  return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
+}
+
+/**
+ * Start a session immediately via sessionManager, recording failures on the session.
+ */
+async function startSessionImmediately({ session, config, project, workingDirectory, sessionAttachments }) {
+  const resolved = await slashCommandService.resolvePromptSkillOrCommand(
+    workingDirectory, config.prompt, project.systemPrompt
+  );
+  const finalPrompt = resolved ? resolved.userMessage : config.prompt;
+  const finalSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
+
+  const { runSession } = await import('../services/sessionManager.js');
+  runSession(session.id, finalPrompt, workingDirectory, {
+    systemPrompt: finalSystemPrompt,
+    fileAttachments: sessionAttachments,
+    model: config.model,
+  }).catch((error) => {
+    console.error('Session error:', error);
+    sessions.update(session.id, { status: 'error', error: error.message });
+  });
+}
+
+/**
  * Handle git setup, session start, broadcasts, and hooks after session creation.
  * @param {object} params
  * @param {object} params.session - The created session record
@@ -231,26 +277,9 @@ export function buildSchedulingUpdate(config, initialStatus) {
  * @returns {Promise<{ updatedSession: object }>}
  */
 export async function setupAndStartSession({ session, config, project, projectId, files }) {
-  let workingDirectory;
-  let gitWorktree = null;
-
-  // If this is a child session and the parent has a worktree, inherit it
-  // (mirrors templateTriggerService behavior)
-  const parentSession = config.parentSessionId ? sessions.getById(config.parentSessionId) : null;
-  if (parentSession?.gitWorktree) {
-    workingDirectory = parentSession.gitWorktree;
-    gitWorktree = parentSession.gitWorktree;
-  } else {
-    const gitSetup = await setupGitForSession({
-      projectDir: project.workingDirectory,
-      gitMode: config.gitMode || null,
-      gitBranch: config.gitBranch || null,
-      sessionId: session.id,
-      worktreeBasePath: project.worktreePath || null,
-    });
-    workingDirectory = gitSetup.workingDirectory;
-    gitWorktree = gitSetup.gitWorktree;
-  }
+  const { workingDirectory, gitWorktree } = await resolveSessionWorkingDirectory({
+    session, config, project,
+  });
 
   if (gitWorktree) {
     sessions.update(session.id, { gitWorktree });
@@ -260,20 +289,8 @@ export async function setupAndStartSession({ session, config, project, projectId
 
   const isScheduled = config.scheduledAt && config.scheduledAt > Date.now();
   if (config.startImmediately && !isScheduled) {
-    const resolved = await slashCommandService.resolvePromptSkillOrCommand(
-      workingDirectory, config.prompt, project.systemPrompt
-    );
-    const finalPrompt = resolved ? resolved.userMessage : config.prompt;
-    const finalSystemPrompt = resolved ? resolved.systemPrompt : project.systemPrompt;
-
-    const { runSession } = await import('../services/sessionManager.js');
-    runSession(session.id, finalPrompt, workingDirectory, {
-      systemPrompt: finalSystemPrompt,
-      fileAttachments: sessionAttachments,
-      model: config.model,
-    }).catch((error) => {
-      console.error('Session error:', error);
-      sessions.update(session.id, { status: 'error', error: error.message });
+    await startSessionImmediately({
+      session, config, project, workingDirectory, sessionAttachments,
     });
   }
 

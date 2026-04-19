@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { projects, sessions, sessionTemplates, commandButtons, projectDefaults, commandRuns } from '../database.js';
+import { projects, sessions, sessionTemplates, projectDefaults, commandRuns } from '../database.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsRequest } from '@circuschief/shared/contracts/projects';
 import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { CreateSessionTemplateRequest } from '@circuschief/shared/contracts/templates';
-import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@circuschief/shared/contracts/commandButtons';
 import { broadcastToProject } from '../websocket.js';
+import projectCommandButtonsRouter from './projects-commandButtons.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
 import {
@@ -310,90 +310,8 @@ router.post('/:id/templates', (req, res) => {
   res.status(201).json(template);
 });
 
-// GET /api/projects/:id/command-buttons - List all command buttons for project
-router.get('/:id/command-buttons', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const buttons = commandButtons.getByProjectId(req.params.id);
-  res.json(buttons);
-});
-
-// POST /api/projects/:id/command-buttons - Create new command button
-router.post('/:id/command-buttons', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const result = CreateCommandButtonRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const button = commandButtons.create({
-    projectId: req.params.id,
-    label: result.data.label,
-    command: result.data.command,
-    sortOrder: result.data.sortOrder,
-    showOnList: result.data.showOnList,
-  });
-
-  res.status(201).json(button);
-});
-
-// GET /api/projects/:id/command-buttons/:buttonId - Get single button
-router.get('/:id/command-buttons/:buttonId', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
-  }
-  res.json(button);
-});
-
-// PATCH /api/projects/:id/command-buttons/:buttonId - Update button
-router.patch('/:id/command-buttons/:buttonId', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
-  }
-
-  const result = UpdateCommandButtonRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const updated = commandButtons.update(req.params.buttonId, result.data);
-  res.json(updated);
-});
-
-// DELETE /api/projects/:id/command-buttons/:buttonId - Delete button
-router.delete('/:id/command-buttons/:buttonId', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
-  }
-
-  commandButtons.delete(req.params.buttonId);
-  res.status(204).send();
-});
+// Command button routes are mounted as a sub-router
+router.use('/:id/command-buttons', projectCommandButtonsRouter);
 
 // GET /api/projects/:id/session-defaults - Get session defaults for project
 router.get('/:id/session-defaults', (req, res) => {
