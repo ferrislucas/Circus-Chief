@@ -4,12 +4,18 @@ import request from 'supertest';
 import projectsRouter from '../src/api/projects.js';
 import sessionsRouter from '../src/api/sessions.js';
 import { projects, sessions, sessionTemplates } from '../src/database.js';
+import { getDatabase } from '../src/db/index.js';
 
 describe('Session Templates Integration', () => {
   let app;
   let project;
 
   beforeEach(() => {
+    // Remove the default seeded global templates so these tests see a clean
+    // session_templates table. Those defaults are covered by
+    // miscMigrations.test.js ('session_templates-seed-defaults migration').
+    getDatabase().prepare('DELETE FROM session_templates').run();
+
     app = express();
     app.use(express.json());
     app.use('/api/projects', projectsRouter);

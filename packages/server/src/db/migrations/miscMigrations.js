@@ -63,6 +63,55 @@ function updateBuiltInModels(db) {
 }
 
 /**
+ * Prompt strings for the default global session templates.
+ * Exported so tests can assert verbatim equality.
+ */
+export const DEFAULT_SESSION_TEMPLATE_PROMPTS = {
+  REVIEW: `Review the plan on the canvas. If there's more than one plan then review the most recently updated plan. if there are no plans on the canvas then look for the most recently updated plan on the root session canvas.
+
+Make sure there are tests explicitly called out for all changes. Make sure that all context necessary to hand off the task is included in the plan.
+
+Are there any gaps in the plan? Is test coverage spelled out explicitly? Does the code match the assumptions in the plan?
+
+Update the plan according to your review recommendations.`,
+  IMPLEMENT: `Implement the plan on the canvas. If there's more than one plan on the canvas then use the most recently updated plan. If you don't see a plan on the canvas then look at the parent session's canvas.`,
+  PR: `Ensure all relevant changes are committed and pushed. Then determine the session's goals. You can typically find details about the goals of the session by looking at the most recently modified markdown documents on the root session's canvas - these are typically plans that were implemented during the session. You can also look at the root session's summary, but don't trigger a new summary to be created if the summary is missing.
+
+Create a draft pr and ensure all changes are committed and pushed.`,
+};
+
+/**
+ * Seed default global session templates when no global template exists.
+ * Idempotent: if any global session template already exists, does nothing.
+ */
+function seedDefaultSessionTemplates(db) {
+  const count = db.prepare(
+    'SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL'
+  ).get().cnt;
+  if (count > 0) return;
+
+  const defaults = [
+    { name: 'Review the plan', prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.REVIEW },
+    { name: 'Implement the plan on the canvas', prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.IMPLEMENT },
+    { name: 'Create/update PR', prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.PR },
+  ];
+
+  const stmt = db.prepare(`
+    INSERT INTO session_templates (
+      id, project_id, name, prompt,
+      next_template_id, thinking_enabled,
+      git_branch, git_mode, model, mode, effort_level, target_lane_id,
+      created_at, updated_at
+    ) VALUES (?, NULL, ?, ?, NULL, 1, NULL, NULL, NULL, 'yolo', NULL, NULL, ?, ?)
+  `);
+
+  const now = Date.now();
+  for (const item of defaults) {
+    stmt.run(randomUUID(), item.name, item.prompt, now, now);
+  }
+}
+
+/**
  * Seed default global quick responses when the table is empty.
  */
 function seedDefaultQuickResponses(db) {
@@ -239,6 +288,12 @@ export const miscMigrations = [
   {
     name: 'quick_responses-seed-defaults',
     up(db) { seedDefaultQuickResponses(db); },
+  },
+
+  // --- Seed default global session templates ---
+  {
+    name: 'session_templates-seed-defaults',
+    up(db) { seedDefaultSessionTemplates(db); },
   },
 
   // --- Add Opus 4.7 as a new built-in model (keep Opus 4.6 for existing sessions) ---
