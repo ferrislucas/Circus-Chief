@@ -227,56 +227,77 @@ async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, pro
 // POST /api/projects/:id/sessions - Create session
 // Supports both JSON and multipart/form-data (for file attachments)
 router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const prepared = await validateAndPrepareSessionConfig(req.body, req.files, req.params.id, project);
-  if (prepared.error) {
-    return res.status(prepared.status).json({ error: prepared.error });
-  }
-
-  const { config, nextTemplateId } = prepared;
-  const initialStatus = determineInitialStatus(config);
-
-  const sessionName = config.name || generateInitialName(config.prompt);
-  const session = sessions.create(req.params.id, sessionName, config.prompt, {
-    mode: config.mode,
-    thinkingEnabled: config.thinkingEnabled,
-    gitBranch: config.gitBranch,
-    parentSessionId: config.parentSessionId,
-    status: initialStatus,
-    model: config.model,
-    effortLevel: config.effortLevel,
-  });
-
-  // Apply optional post-create updates (next template + scheduling) in one pass
-  const postCreateUpdate = {
-    ...(nextTemplateId ? { nextTemplateId } : {}),
-    ...buildSchedulingUpdate(config, initialStatus),
-  };
-  if (Object.keys(postCreateUpdate).length > 0) {
-    sessions.update(session.id, postCreateUpdate);
-  }
-
-  // Setup git environment, start session, and broadcast
+  // Outer try/catch so any synchronous or asynchronous throw produces an HTTP
+  // response rather than leaving the socket hanging (which manifests as
+  // "socket hang up" on the client side). Without this, an unhandled rejection
+  // from validation, DB repositories, or template resolution could cause the
+  // intermittent flake observed in file-attachments.test.js.
+  let session = null;
   try {
-    const { updatedSession } = await setupAndStartSession({
-      session, config, project, projectId: req.params.id, files: config.files,
+    const project = projects.getById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
+    }
+
+    const prepared = await validateAndPrepareSessionConfig(req.body, req.files, req.params.id, project);
+    if (prepared.error) {
+      return res.status(prepared.status).json({ error: prepared.error });
+    }
+
+    const { config, nextTemplateId } = prepared;
+    const initialStatus = determineInitialStatus(config);
+
+    const sessionName = config.name || generateInitialName(config.prompt);
+    session = sessions.create(req.params.id, sessionName, config.prompt, {
+      mode: config.mode,
+      thinkingEnabled: config.thinkingEnabled,
+      gitBranch: config.gitBranch,
+      parentSessionId: config.parentSessionId,
+      status: initialStatus,
+      model: config.model,
+      effortLevel: config.effortLevel,
     });
-    res.status(201).json(updatedSession);
+
+    // Apply optional post-create updates (next template + scheduling) in one pass
+    const postCreateUpdate = {
+      ...(nextTemplateId ? { nextTemplateId } : {}),
+      ...buildSchedulingUpdate(config, initialStatus),
+    };
+    if (Object.keys(postCreateUpdate).length > 0) {
+      sessions.update(session.id, postCreateUpdate);
+    }
+
+    // Setup git environment, start session, and broadcast
+    try {
+      const { updatedSession } = await setupAndStartSession({
+        session, config, project, projectId: req.params.id, files: config.files,
+      });
+      return res.status(201).json(updatedSession);
+    } catch (error) {
+      console.error('Git setup error:', error);
+      const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
+
+      broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: req.params.id,
+        sessionId: session.id,
+        session: updatedSession,
+      });
+
+      return res.status(500).json({ error: `Git setup failed: ${error.message}` });
+    }
   } catch (error) {
-    console.error('Git setup error:', error);
-    const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
+    console.error('Session creation error:', error);
 
-    broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: req.params.id,
-      sessionId: session.id,
-      session: updatedSession,
-    });
+    // If the session row was already created, mark it as errored so it isn't left dangling.
+    if (session && session.id) {
+      try {
+        sessions.update(session.id, { status: 'error', error: error.message });
+      } catch (updateError) {
+        console.error('Failed to mark session as errored:', updateError);
+      }
+    }
 
-    res.status(500).json({ error: `Git setup failed: ${error.message}` });
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
