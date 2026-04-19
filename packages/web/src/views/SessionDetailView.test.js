@@ -4029,7 +4029,7 @@ describe('SessionDetailView', () => {
 
     it('passes hasCleanupScript=true when project has onSessionDeleted and session is not a child', async () => {
       projectsStore.currentProject = { id: 'proj-1', onSessionDeleted: './cleanup.sh' };
-      const wrapper = await mountWithSession();
+      const wrapper = await mountWithSession({ gitWorktree: '.worktrees/session-1' });
 
       const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
       await headerPanel.vm.$emit('archive');

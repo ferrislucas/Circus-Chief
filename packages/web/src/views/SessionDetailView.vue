@@ -99,7 +99,7 @@
       <ArchiveConfirmModal
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
-        :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && !sessionsStore.currentSession?.parentSessionId)"
+        :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
         :loading="archiving"
         @confirm="confirmArchive"
         @cancel="cancelArchive"

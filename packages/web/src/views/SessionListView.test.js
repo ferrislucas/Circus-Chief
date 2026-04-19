@@ -2613,7 +2613,7 @@ describe('SessionListView batch summary fetching', () => {
     it('passes hasCleanupScript=true when project has onSessionDeleted and session is not a child', async () => {
       mockProjectsStore.currentProject = { id: 'test-project-id', name: 'Test Project', workingDirectory: '/test/path', onSessionDeleted: './cleanup.sh' };
       mockSessionsStore = createSessionsStoreMock([
-        { id: 'session-1', name: 'Session 1', status: 'completed' },
+        { id: 'session-1', name: 'Session 1', status: 'completed', gitWorktree: '.worktrees/session-1' },
       ]);
       useSessionsStore.mockReturnValue(mockSessionsStore);
 
