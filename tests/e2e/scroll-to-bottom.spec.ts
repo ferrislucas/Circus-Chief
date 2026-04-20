@@ -6,8 +6,10 @@ import {
   cleanupCreatedResources,
   navigateAndWait,
   waitForSessionToExist,
+  waitForSessionStatus,
   updateSessionStatus,
 } from './helpers';
+import { API_READY } from './timeouts';
 
 test.describe('scroll-to-bottom button', () => {
   test.describe.configure({ timeout: 60000 });
@@ -78,6 +80,7 @@ test.describe('scroll-to-bottom button', () => {
   test('both scroll-to-bottom and scroll-to-claude buttons can render together in the overlay', async ({ page }) => {
     // Make it the user's turn so scroll-to-claude is eligible.
     await updateSessionStatus(session.id, 'waiting');
+    await waitForSessionStatus(session.id, 'waiting', API_READY);
 
     await navigateAndWait(page, `/sessions/${session.id}`, {
       waitFor: '.session-detail',

@@ -820,6 +820,133 @@ describe('ActiveSessionsView polling fallback', () => {
   });
 });
 
+// ============================================================================
+// data-state contract — tests that the view's root element exposes a single
+// deterministic data-state attribute so E2E tests can key off it instead of
+// juggling four sibling v-if branches (skeleton / error / empty / results).
+// ============================================================================
+describe('ActiveSessionsView data-state contract', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    setActivePinia(createPinia());
+
+    onSessionCreatedCallback = null;
+    onSessionUpdatedCallback = null;
+    onSessionDeletedCallback = null;
+    onSessionSummaryUpdatedCallback = null;
+
+    mockGetSessionSummary.mockReset();
+    mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
+
+    mockSessionsStore.loading = false;
+    mockSessionsStore.error = null;
+    mockSessionsStore.statusFilter = null;
+    mockSessionsStore.starredFilter = null;
+    mockSessionsStore.activeSessions = [];
+    mockSessionsStore.fetchActiveSessions.mockClear();
+    mockSessionsStore.fetchActiveSessions.mockResolvedValue();
+    mockSessionsStore.restoreStatusFilter.mockClear();
+    mockSessionsStore.restoreStarredFilter.mockClear();
+
+    mockCommandButtonsStore.fetchButtons.mockClear();
+    mockCommandButtonsStore.fetchButtons.mockResolvedValue();
+    mockCommandButtonsStore.buttons = [];
+    mockCommandButtonsStore.loading = false;
+    mockCommandButtonsStore.error = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('exposes data-state="loading" while sessionsStore.loading is true', async () => {
+    mockSessionsStore.loading = true;
+    const wrapper = mount(ActiveSessionsView);
+    await nextTick();
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.exists()).toBe(true);
+    expect(root.attributes('data-state')).toBe('loading');
+  });
+
+  it('exposes data-state="error" when sessionsStore.error is truthy', async () => {
+    mockSessionsStore.error = 'Failed to load';
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.attributes('data-state')).toBe('error');
+  });
+
+  it('exposes data-state="empty-all" when there are no active sessions', async () => {
+    mockSessionsStore.activeSessions = [];
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.attributes('data-state')).toBe('empty-all');
+
+    // The global-empty variant also renders an empty-state with the correct testid
+    const empty = wrapper.find('[data-testid="active-sessions-empty"]');
+    expect(empty.exists()).toBe(true);
+    expect(empty.text()).toContain('No active sessions');
+  });
+
+  it('exposes data-state="empty-filtered" when all sessions are filtered out', async () => {
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
+    ];
+    // Active sessions exist, but the idle filter matches none of them.
+    mockSessionsStore.statusFilter = 'idle';
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.attributes('data-state')).toBe('empty-filtered');
+
+    const empty = wrapper.find('[data-testid="active-sessions-empty"]');
+    expect(empty.exists()).toBe(true);
+    expect(empty.text()).toContain('No sessions match the current filter');
+  });
+
+  it('exposes data-state="results" when at least one card renders', async () => {
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
+    ];
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.attributes('data-state')).toBe('results');
+
+    const cards = wrapper.findAll('.session-card');
+    expect(cards.length).toBe(1);
+  });
+
+  it('transitions data-state from loading to terminal state as the store settles', async () => {
+    mockSessionsStore.loading = true;
+    const wrapper = mount(ActiveSessionsView);
+    await nextTick();
+
+    expect(
+      wrapper.find('[data-testid="active-sessions-view"]').attributes('data-state'),
+    ).toBe('loading');
+
+    // Store finishes loading with no sessions
+    mockSessionsStore.loading = false;
+    mockSessionsStore.activeSessions = [];
+    await flushAll(wrapper);
+
+    expect(
+      wrapper.find('[data-testid="active-sessions-view"]').attributes('data-state'),
+    ).toBe('empty-all');
+  });
+});
+
 describe('ActiveSessionsView batch summary fetching', () => {
   beforeEach(() => {
     vi.useFakeTimers();
