@@ -28,11 +28,11 @@
       <!-- Scroll-to-bottom button - shows when user has scrolled away from bottom -->
       <button
         v-if="!isNearBottom"
-        class="scroll-to-bottom-btn"
+        class="conversation-scroll-btn scroll-to-bottom-btn"
         title="Scroll to the bottom of the conversation"
         aria-label="Scroll to the bottom of the conversation"
         data-testid="scroll-to-bottom-btn"
-        @click="scrollToBottom(true)"
+        @click="forceScrollToBottom"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -53,7 +53,7 @@
       <!-- Jump to Claude's turn button - shows when at bottom and it's user's turn -->
       <button
         v-if="hasAssistantMessages && isUsersTurn"
-        class="scroll-to-claude-btn"
+        class="conversation-scroll-btn scroll-to-claude-btn"
         title="Jump to the agent's response"
         aria-label="Scroll to the agent's latest response"
         @click="scrollToClaudesTurn"
@@ -98,6 +98,14 @@ const isUsersTurn = computed(() => props.sessionStatus === 'waiting' || props.se
 
 const hasAssistantMessages = computed(() => sessionsStore.messages.some(msg => msg.role === 'assistant'));
 
+/**
+ * Named wrapper around scrollToBottom(force=true). Avoids a bare boolean at
+ * the click-handler call site and gives the intent a searchable name.
+ */
+function forceScrollToBottom() {
+  scrollToBottom(true);
+}
+
 function getWorkLogsForMessage(messageId) {
   return sessionsStore.getWorkLogsForMessage(messageId);
 }
@@ -131,7 +139,9 @@ defineExpose({ scrollToBottom });
   gap: 0.5rem;
 }
 
-.scroll-to-bottom-btn {
+/* Shared base for the two scroll-action buttons. Visual variations live on the
+   specific classes below. */
+.conversation-scroll-btn {
   padding: 0.5rem 0.75rem;
   background: rgba(31, 41, 55, 0.85);
   border: 1px solid rgba(75, 85, 99, 0.5);
@@ -149,43 +159,22 @@ defineExpose({ scrollToBottom });
   line-height: 1;
 }
 
-.scroll-to-bottom-btn:hover {
+.conversation-scroll-btn:hover {
   background: rgba(55, 65, 81, 0.95);
   color: rgba(209, 213, 219, 1);
 }
 
-.scroll-to-bottom-btn:active {
+.conversation-scroll-btn:active {
   transform: scale(0.95);
 }
 
+/* scroll-to-bottom-btn uses only the shared base. */
+
+/* scroll-to-claude-btn overlays emoji-specific typography on top of the base. */
 .scroll-to-claude-btn {
-  padding: 0.5rem 0.75rem;
-  background: rgba(31, 41, 55, 0.85);
-  border: 1px solid rgba(75, 85, 99, 0.5);
-  border-radius: 6px;
-  color: rgba(156, 163, 175, 0.9);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  backdrop-filter: blur(4px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   font-size: 1rem;
   white-space: nowrap;
-  line-height: 1;
   font-weight: 500;
-  min-width: 44px;
-  min-height: 44px;
-}
-
-.scroll-to-claude-btn:hover {
-  background: rgba(55, 65, 81, 0.95);
-  color: rgba(209, 213, 219, 1);
-}
-
-.scroll-to-claude-btn:active {
-  transform: scale(0.95);
 }
 
 /* Responsive messages container height */
@@ -207,17 +196,10 @@ defineExpose({ scrollToBottom });
   }
 }
 
-/* Mobile adjustments — preserve the 44×44 tap target so the button
-   remains tappable on small/phone-sized viewports. */
+/* Mobile adjustments — preserve the 44×44 tap target so both buttons
+   remain tappable on small/phone-sized viewports. */
 @media (max-width: 600px) {
-  .scroll-to-claude-btn {
-    padding: 0.5rem 0.75rem;
-    font-size: 1rem;
-    min-width: 44px;
-    min-height: 44px;
-  }
-
-  .scroll-to-bottom-btn {
+  .conversation-scroll-btn {
     padding: 0.5rem 0.75rem;
     min-width: 44px;
     min-height: 44px;

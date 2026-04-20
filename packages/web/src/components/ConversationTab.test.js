@@ -3092,6 +3092,36 @@ describe('ConversationTab - Scroll container behavior', () => {
       expect(btn.attributes('aria-label')).toBe('Scroll to the bottom of the conversation');
       expect(btn.attributes('title')).toBe('Scroll to the bottom of the conversation');
     });
+
+    it('renders inside .conversation-scroll-actions wrapper as the sole child when scroll-to-claude is not eligible', async () => {
+      // No assistant messages → hasAssistantMessages = false → scroll-to-claude
+      // hidden even if it were the user's turn. This pins the layout guarantee
+      // that the wrapper still renders cleanly with a single child.
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const messagesEl = wrapper.find('.messages').element;
+      stubScrollMetrics(messagesEl, { scrollHeight: 1000, clientHeight: 500, scrollTop: 100 });
+      messagesEl.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      await flushAll(wrapper);
+
+      const wrapperEl = wrapper.find('.conversation-scroll-actions');
+      expect(wrapperEl.exists()).toBe(true);
+
+      const scrollToBottom = wrapperEl.find('[data-testid="scroll-to-bottom-btn"]');
+      const scrollToClaude = wrapperEl.find('.scroll-to-claude-btn');
+      expect(scrollToBottom.exists()).toBe(true);
+      expect(scrollToClaude.exists()).toBe(false);
+
+      // Exactly one child button when only scroll-to-bottom is eligible.
+      const buttons = wrapperEl.findAll('button');
+      expect(buttons.length).toBe(1);
+    });
   });
 
   describe('Jump-to-latest button', () => {

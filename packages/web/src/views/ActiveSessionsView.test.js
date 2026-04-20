@@ -236,25 +236,48 @@ describe('ActiveSessionsView', () => {
     });
 
     it('clears loading state when summary update is received', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      // Trigger a batch call that never resolves so loadingSummaries[session-1]
+      // stays true until the WebSocket update arrives.
+      let resolveBatch;
+      mockGetSessionSummariesBatch.mockReturnValueOnce(new Promise((resolve) => {
+        resolveBatch = resolve;
+      }));
 
-      const newSummary = { shortSummary: 'Test' };
-      onSessionSummaryUpdatedCallback('session-1', newSummary, 'project-1');
+      const wrapper = mount(ActiveSessionsView);
+      await flushPromises();
       await nextTick();
 
-      // Loading state should be cleared
+      // Now send a summary update for session-1 via WebSocket.
+      const newSummary = { shortSummary: 'From WS' };
+      onSessionSummaryUpdatedCallback('session-1', newSummary, 'project-1');
+      await flushAll(wrapper);
+
+      // The card prop reflects the new summary — proves loading was cleared
+      // and the summary was set.
+      const card = wrapper.find('[data-session-id="session-1"]');
+      expect(card.attributes('data-summary')).toBe(JSON.stringify(newSummary));
+
+      // Resolve the pending batch to clean up the test (avoid unhandled promise).
+      resolveBatch({});
     });
 
     it('clears error state when summary update is received', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      // Make the initial batch fail — that sets summaryErrors[session-1] = true.
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockGetSessionSummariesBatch.mockRejectedValueOnce(new Error('Network fail'));
 
-      const newSummary = { shortSummary: 'Test' };
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      // Now a summary update should clear the error and set the summary.
+      const newSummary = { shortSummary: 'Recovered' };
       onSessionSummaryUpdatedCallback('session-1', newSummary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
-      // Error state should be cleared
+      const card = wrapper.find('[data-session-id="session-1"]');
+      expect(card.attributes('data-summary')).toBe(JSON.stringify(newSummary));
+
+      consoleWarnSpy.mockRestore();
     });
 
     it('handles summary updates for sessions from different projects', async () => {
@@ -298,29 +321,35 @@ describe('ActiveSessionsView', () => {
 
   describe('Session lifecycle events', () => {
     it('cleans up summary data when session is deleted', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
 
       // First add a summary
       const summary = { shortSummary: 'Test' };
       onSessionSummaryUpdatedCallback('session-1', summary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
+
+      // Sanity: card exists with the summary.
+      expect(wrapper.find('[data-session-id="session-1"]').exists()).toBe(true);
 
       // Then delete the session (simulate onSessionDeleted)
       onSessionDeletedCallback('session-1', 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
-      // Summary data should be cleaned up
+      // Session-1 card should be gone from the DOM entirely.
+      expect(wrapper.find('[data-session-id="session-1"]').exists()).toBe(false);
     });
 
     it('cleans up summary when session becomes inactive', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
 
       // Add a summary
       const summary = { shortSummary: 'Test' };
       onSessionSummaryUpdatedCallback('session-1', summary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-session-id="session-1"]').exists()).toBe(true);
 
       // Session status changes to stopped (no longer active)
       const updatedSession = {
@@ -329,26 +358,27 @@ describe('ActiveSessionsView', () => {
         projectId: 'project-1',
       };
       onSessionUpdatedCallback(updatedSession, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
-      // Session should be removed from active list and summary cleaned up
+      // Session should be removed from active list → card no longer rendered.
+      expect(wrapper.find('[data-session-id="session-1"]').exists()).toBe(false);
     });
   });
 
   describe('Global subscription behavior', () => {
     it('receives updates without filtering by project', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
 
-      // Global subscription should receive updates from any project
-      // The callback should be called with (sessionId, summary, projectId)
+      // Global subscription should receive updates from any project.
+      // The callback signature is (sessionId, summary, projectId), and the
+      // handler must apply the summary regardless of the projectId passed.
       const summary = { shortSummary: 'From any project' };
-
-      // This should work regardless of projectId
       onSessionSummaryUpdatedCallback('session-1', summary, 'any-project-id');
-      await nextTick();
+      await flushAll(wrapper);
 
-      // The summary should be applied
+      const card = wrapper.find('[data-session-id="session-1"]');
+      expect(card.attributes('data-summary')).toBe(JSON.stringify(summary));
     });
   });
 });

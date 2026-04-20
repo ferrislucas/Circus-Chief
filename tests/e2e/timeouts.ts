@@ -18,15 +18,29 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires -- dynamic require keeps this file usable from tests without pulling the Playwright runner into compile units that only need the constants
 const playwrightConfig = require('../../playwright.config').default;
 
-function detectWorkers(): number {
+/**
+ * Pure detection logic — exposed for unit testing. Accepts explicit env,
+ * argv, and config-worker values so tests can cover every branch without
+ * monkey-patching process globals.
+ *
+ * Precedence:
+ *   1) PW_WORKERS env override
+ *   2) `--workers N` / `--workers=N` in argv
+ *   3) config `workers` value
+ *   4) default of 4
+ */
+export function detectWorkersFrom(
+  env: NodeJS.ProcessEnv,
+  argv: string[],
+  configWorkers: unknown,
+): number {
   // 1) Honor explicit env override (CI can set this)
-  if (process.env.PW_WORKERS) {
-    const n = Number(process.env.PW_WORKERS);
+  if (env.PW_WORKERS) {
+    const n = Number(env.PW_WORKERS);
     if (!Number.isNaN(n) && n > 0) return n;
   }
 
   // 2) Sniff --workers from argv when run via npx playwright
-  const argv = process.argv;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--workers' && argv[i + 1]) {
@@ -40,9 +54,13 @@ function detectWorkers(): number {
   }
 
   // 3) Fall back to config
-  const configured = Number(playwrightConfig?.workers);
+  const configured = Number(configWorkers);
   if (!Number.isNaN(configured) && configured > 0) return configured;
   return 4;
+}
+
+function detectWorkers(): number {
+  return detectWorkersFrom(process.env, process.argv, playwrightConfig?.workers);
 }
 
 export const WORKERS = detectWorkers();

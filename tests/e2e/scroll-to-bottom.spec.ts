@@ -4,7 +4,7 @@ import {
   seedSession,
   seedConversationHistory,
   cleanupCreatedResources,
-  navigateAndWait,
+  navigateAndOpenOverlay,
   waitForSessionToExist,
   waitForSessionStatus,
   updateSessionStatus,
@@ -24,7 +24,7 @@ test.describe('scroll-to-bottom button', () => {
       name: 'Scroll Bottom Session',
     });
     await waitForSessionToExist(session.id);
-    // Seed enough messages to force scrolling in both overlay and non-overlay.
+    // Seed enough messages to force scrolling in the overlay.
     seedConversationHistory(session.id, 30);
   });
 
@@ -34,26 +34,30 @@ test.describe('scroll-to-bottom button', () => {
 
   // Note: The non-overlay SessionDetailView no longer renders the conversation —
   // conversation only appears inside the SessionChatOverlay. Scroll-to-bottom
-  // behavior in the standard (non-overlay) session view is covered by the
-  // ConversationTab unit tests in `packages/web/src/components/ConversationTab.test.js`.
+  // behavior for the conversation is exercised by the ConversationTab unit tests
+  // in `packages/web/src/components/ConversationTab.test.js`.
 
   test('overlay session view: button appears after scrolling up and hides after clicking', async ({ page }) => {
-    await navigateAndWait(page, `/sessions/${session.id}`, {
-      waitFor: '.session-detail',
-      timeout: 15000,
-    });
-
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    // Wait for slide-in animation to complete and auto-scroll to settle.
-    await page.waitForTimeout(1000);
+    // navigateAndOpenOverlay waits for [data-ready="true"] and .overlay-header
+    // visibility — no arbitrary sleeps needed for the slide-in animation.
+    const overlay = await navigateAndOpenOverlay(page, `/sessions/${session.id}`);
 
     const body = overlay.locator('.overlay-body');
     const btn = overlay.locator('[data-testid="scroll-to-bottom-btn"]');
+
+    // Wait for auto-scroll to settle at the bottom (useMessageScroll runs on
+    // mount with the seeded history). Polling the DOM for the terminal
+    // condition is our deterministic "animation/auto-scroll complete" signal.
+    await expect
+      .poll(
+        async () =>
+          body.evaluate((el) => {
+            const h = el as HTMLElement;
+            return h.scrollHeight - h.scrollTop - h.clientHeight;
+          }),
+        { timeout: 10000 },
+      )
+      .toBeLessThan(100);
 
     // Near bottom → button hidden.
     await expect(btn).toHaveCount(0);
@@ -82,20 +86,22 @@ test.describe('scroll-to-bottom button', () => {
     await updateSessionStatus(session.id, 'waiting');
     await waitForSessionStatus(session.id, 'waiting', API_READY);
 
-    await navigateAndWait(page, `/sessions/${session.id}`, {
-      waitFor: '.session-detail',
-      timeout: 15000,
-    });
-
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    await page.waitForTimeout(1000);
+    const overlay = await navigateAndOpenOverlay(page, `/sessions/${session.id}`);
 
     const body = overlay.locator('.overlay-body');
+
+    // Wait for auto-scroll-to-bottom to settle before forcing our own scroll,
+    // otherwise our scrollTop=0 could race the composable's scrollTo.
+    await expect
+      .poll(
+        async () =>
+          body.evaluate((el) => {
+            const h = el as HTMLElement;
+            return h.scrollHeight - h.scrollTop - h.clientHeight;
+          }),
+        { timeout: 10000 },
+      )
+      .toBeLessThan(100);
 
     // Scroll up so the scroll-to-bottom button appears.
     await body.evaluate((el) => {
