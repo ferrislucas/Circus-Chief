@@ -224,6 +224,54 @@ async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, pro
   return { config, nextTemplateId };
 }
 
+/**
+ * Create the session row and apply any post-create updates.
+ * Returns the created session (already persisted in DB).
+ */
+function createSessionRow(projectId, config, nextTemplateId, initialStatus) {
+  const sessionName = config.name || generateInitialName(config.prompt);
+  const session = sessions.create(projectId, sessionName, config.prompt, {
+    mode: config.mode,
+    thinkingEnabled: config.thinkingEnabled,
+    gitBranch: config.gitBranch,
+    parentSessionId: config.parentSessionId,
+    status: initialStatus,
+    model: config.model,
+    effortLevel: config.effortLevel,
+  });
+
+  const postCreateUpdate = {
+    ...(nextTemplateId ? { nextTemplateId } : {}),
+    ...buildSchedulingUpdate(config, initialStatus),
+  };
+  if (Object.keys(postCreateUpdate).length > 0) {
+    sessions.update(session.id, postCreateUpdate);
+  }
+  return session;
+}
+
+/**
+ * Run setupAndStartSession and translate any failure into an error response,
+ * marking the session as errored and broadcasting the update.
+ */
+async function startSessionOrFail(req, res, { session, config, project }) {
+  try {
+    const { updatedSession } = await setupAndStartSession({
+      session, config, project, projectId: req.params.id, files: config.files,
+    });
+    return res.status(201).json(updatedSession);
+  } catch (error) {
+    console.error('Git setup error:', error);
+    const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
+    broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: req.params.id,
+      sessionId: session.id,
+      session: updatedSession,
+    });
+    return res.status(500).json({ error: `Git setup failed: ${error.message}` });
+  }
+}
+
 // POST /api/projects/:id/sessions - Create session
 // Supports both JSON and multipart/form-data (for file attachments)
 router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
@@ -246,45 +294,8 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
 
     const { config, nextTemplateId } = prepared;
     const initialStatus = determineInitialStatus(config);
-
-    const sessionName = config.name || generateInitialName(config.prompt);
-    session = sessions.create(req.params.id, sessionName, config.prompt, {
-      mode: config.mode,
-      thinkingEnabled: config.thinkingEnabled,
-      gitBranch: config.gitBranch,
-      parentSessionId: config.parentSessionId,
-      status: initialStatus,
-      model: config.model,
-      effortLevel: config.effortLevel,
-    });
-
-    // Apply optional post-create updates (next template + scheduling) in one pass
-    const postCreateUpdate = {
-      ...(nextTemplateId ? { nextTemplateId } : {}),
-      ...buildSchedulingUpdate(config, initialStatus),
-    };
-    if (Object.keys(postCreateUpdate).length > 0) {
-      sessions.update(session.id, postCreateUpdate);
-    }
-
-    // Setup git environment, start session, and broadcast
-    try {
-      const { updatedSession } = await setupAndStartSession({
-        session, config, project, projectId: req.params.id, files: config.files,
-      });
-      return res.status(201).json(updatedSession);
-    } catch (error) {
-      console.error('Git setup error:', error);
-      const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
-
-      broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-        projectId: req.params.id,
-        sessionId: session.id,
-        session: updatedSession,
-      });
-
-      return res.status(500).json({ error: `Git setup failed: ${error.message}` });
-    }
+    session = createSessionRow(req.params.id, config, nextTemplateId, initialStatus);
+    return await startSessionOrFail(req, res, { session, config, project });
   } catch (error) {
     console.error('Session creation error:', error);
 
