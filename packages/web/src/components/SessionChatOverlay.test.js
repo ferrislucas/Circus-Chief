@@ -4,8 +4,16 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { h, defineComponent, nextTick } from 'vue';
 import SessionChatOverlay from './SessionChatOverlay.vue';
+import sessionChatOverlaySource from './SessionChatOverlay.vue?raw';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@circuschief/shared';
+
+// jsdom has no scrollIntoView. Several overlay code paths call it after
+// focus transitions fire; stub it globally so blur-recovery tests can
+// exercise the real focusin/focusout listeners without throwing.
+if (!HTMLElement.prototype.scrollIntoView) {
+  HTMLElement.prototype.scrollIntoView = function scrollIntoViewStub() {};
+}
 
 // Mock @circuschief/shared
 vi.mock('@circuschief/shared', () => ({
@@ -1559,9 +1567,10 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       await new Promise(r => setTimeout(r, 10));
 
-      // Capture the handler passed to addEventListener so we can prove the
-      // same reference was passed to removeEventListener (otherwise the
-      // listener would leak).
+      // Capture the handler passed to addEventListener (currently `onVVChange`,
+      // which wraps syncToVisualViewport with a trailing re-sync timer) so we
+      // can prove the same reference was passed to removeEventListener —
+      // otherwise the listener would leak.
       const resizeAdd = vv.addEventListener.mock.calls.find(
         c => c[0] === 'resize'
       );
@@ -1650,6 +1659,349 @@ describe('SessionChatOverlay', () => {
       expect(typeof wrapper.vm.syncToVisualViewport).toBe('function');
 
       wrapper.unmount();
+    });
+  });
+
+  describe('visualViewport blur recovery + clamp', () => {
+    // Preserve the original window.visualViewport descriptor so each test
+    // can install its own mock and then restore.
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      'visualViewport'
+    );
+
+    function installMockVisualViewport(props = {}) {
+      const addEventListener = vi.fn();
+      const removeEventListener = vi.fn();
+      const vv = {
+        offsetTop: 0,
+        offsetLeft: 0,
+        width: 400,
+        height: 800,
+        addEventListener,
+        removeEventListener,
+        ...props,
+      };
+      Object.defineProperty(window, 'visualViewport', {
+        configurable: true,
+        value: vv,
+      });
+      return vv;
+    }
+
+    function restoreVisualViewport() {
+      if (originalDescriptor) {
+        Object.defineProperty(window, 'visualViewport', originalDescriptor);
+      } else {
+        delete window.visualViewport;
+      }
+    }
+
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+
+    function setInnerSize(w, innerH) {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: innerH });
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({
+        toFake: [
+          'setTimeout', 'clearTimeout',
+          'setInterval', 'clearInterval',
+          'requestAnimationFrame', 'cancelAnimationFrame',
+          'Date',
+        ],
+      });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      restoreVisualViewport();
+      setInnerSize(originalInnerWidth, originalInnerHeight);
+    });
+
+    // Helper: mount the overlay, flush enough to register listeners and refs.
+    async function mountAndFlush() {
+      const wrapper = mountOverlay();
+      await nextTick();
+      await vi.advanceTimersByTimeAsync(10);
+      return wrapper;
+    }
+
+    it('onVVChange syncs immediately and coalesces trailing re-syncs into one at 400 ms', async () => {
+      const vv = installMockVisualViewport({
+        offsetTop: 10, offsetLeft: 0, width: 400, height: 800,
+      });
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
+      const setSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      const resizeHandler = vv.addEventListener.mock.calls.find(
+        c => c[0] === 'resize'
+      )[1];
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+
+      // Fire the handler three times with mutating vv values.
+      vv.offsetTop = 20; vv.height = 790;
+      resizeHandler();
+      expect(backdrop.style.top).toBe('20px');
+      expect(backdrop.style.height).toBe('790px');
+
+      vv.offsetTop = 30; vv.height = 780;
+      resizeHandler();
+      expect(backdrop.style.top).toBe('30px');
+      expect(backdrop.style.height).toBe('780px');
+
+      vv.offsetTop = 40; vv.height = 770;
+      resizeHandler();
+      expect(backdrop.style.top).toBe('40px');
+      expect(backdrop.style.height).toBe('770px');
+
+      // Each subsequent onVVChange cancels the previous trailing timer.
+      // The first call had no previous timer to clear, so only two clears.
+      // Filter to the trailing-timer clears (onVVChange passes the stored id,
+      // which is always a numeric handle; we can simply count calls on the
+      // spy since nothing else in this test clears timers).
+      expect(clearSpy).toHaveBeenCalledTimes(2);
+
+      // Exactly three trailing timers were scheduled (one per call) at 400 ms.
+      const trailing400 = setSpy.mock.calls.filter(c => c[1] === 400);
+      expect(trailing400.length).toBe(3);
+
+      // Advance time; the single surviving trailing timer should fire once.
+      await vi.advanceTimersByTimeAsync(400);
+
+      // Backdrop still reflects the last vv values.
+      expect(backdrop.style.top).toBe('40px');
+      expect(backdrop.style.height).toBe('770px');
+
+      wrapper.unmount();
+    });
+
+    it('trailing timer is cleared on unmount', async () => {
+      const vv = installMockVisualViewport();
+
+      const wrapper = await mountAndFlush();
+
+      const resizeHandler = vv.addEventListener.mock.calls.find(
+        c => c[0] === 'resize'
+      )[1];
+      resizeHandler(); // schedule a trailing timer
+
+      wrapper.unmount();
+
+      // Advance well past the trailing-timer deadline — no errors should be
+      // thrown (the cleared timer does not fire against a stale backdrop).
+      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+
+      // Backdrop removed by teleport cleanup.
+      expect(document.querySelector('.overlay-backdrop')).toBeNull();
+    });
+
+    it('clamp fires after blur when vv.height is stale', async () => {
+      const vv = installMockVisualViewport({
+        offsetTop: 200, offsetLeft: 0, width: 400, height: 300,
+      });
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      const body = document.querySelector('.overlay-body');
+      expect(body).toBeTruthy();
+      const ta = document.createElement('textarea');
+      body.appendChild(ta);
+
+      // Dispatch real focus/focusout to let handleOverlayFocusout run.
+      ta.focus();
+      ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+
+      // Flush the rAF inside handleOverlayFocusout (which calls markRecentBlur).
+      // vitest's fake-timer rAF is scheduled with ~16 ms; advance past that.
+      await vi.advanceTimersByTimeAsync(20);
+
+      // Advance to the first blur-recovery timer (350 ms).
+      await vi.advanceTimersByTimeAsync(350);
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      // Clamp path: layout-viewport geometry.
+      expect(backdrop.style.top).toBe('0px');
+      expect(backdrop.style.left).toBe('0px');
+      expect(backdrop.style.width).toBe('400px');
+      expect(backdrop.style.height).toBe('800px');
+
+      // Also keep vv values stale so the 700 ms recovery honors clamp too.
+      await vi.advanceTimersByTimeAsync(350);
+      expect(backdrop.style.top).toBe('0px');
+      expect(backdrop.style.height).toBe('800px');
+
+      wrapper.unmount();
+    });
+
+    it('clamp does NOT fire outside the recent-blur window (iPad URL-bar case preserved)', async () => {
+      installMockVisualViewport({
+        offsetTop: 60, offsetLeft: 0, width: 400, height: 720,
+      });
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      // No blur occurs. Manually call the sync.
+      wrapper.vm.syncToVisualViewport();
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop.style.top).toBe('60px');
+      expect(backdrop.style.height).toBe('720px');
+
+      wrapper.unmount();
+    });
+
+    it('clamp does NOT fire when gap is below threshold', async () => {
+      const vv = installMockVisualViewport({
+        offsetTop: 40, offsetLeft: 0, width: 400, height: 750,
+      });
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      // height gap = 50 px (< 100), offsetTop = 40 (< 60). Both sub-threshold.
+      wrapper.vm.markRecentBlur();
+      wrapper.vm.syncToVisualViewport();
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop.style.top).toBe(`${vv.offsetTop}px`);
+      expect(backdrop.style.height).toBe(`${vv.height}px`);
+
+      wrapper.unmount();
+    });
+
+    it('clamp fires on large offsetTop alone (height fully rebounded)', async () => {
+      installMockVisualViewport({
+        offsetTop: 150, offsetLeft: 0, width: 400, height: 800,
+      });
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      wrapper.vm.markRecentBlur();
+      wrapper.vm.syncToVisualViewport();
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop.style.top).toBe('0px');
+      expect(backdrop.style.left).toBe('0px');
+      expect(backdrop.style.width).toBe('400px');
+      expect(backdrop.style.height).toBe('800px');
+
+      wrapper.unmount();
+    });
+
+    it('handleOverlayFocusout TEXTAREA schedules two recovery timers (350 ms, 700 ms)', async () => {
+      installMockVisualViewport();
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      const body = document.querySelector('.overlay-body');
+      const ta = document.createElement('textarea');
+      body.appendChild(ta);
+      ta.focus();
+      ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(20);
+
+      const called350 = setTimeoutSpy.mock.calls.some(c => c[1] === 350);
+      const called700 = setTimeoutSpy.mock.calls.some(c => c[1] === 700);
+      expect(called350).toBe(true);
+      expect(called700).toBe(true);
+
+      wrapper.unmount();
+    });
+
+    it('handleOverlayFocusout INPUT type=text also triggers recovery', async () => {
+      installMockVisualViewport();
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      const body = document.querySelector('.overlay-body');
+      const input = document.createElement('input');
+      input.type = 'text';
+      body.appendChild(input);
+      input.focus();
+      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(20);
+
+      const called350 = setTimeoutSpy.mock.calls.some(c => c[1] === 350);
+      const called700 = setTimeoutSpy.mock.calls.some(c => c[1] === 700);
+      expect(called350).toBe(true);
+      expect(called700).toBe(true);
+
+      wrapper.unmount();
+    });
+
+    it('handleOverlayFocusout INPUT type=checkbox does NOT trigger recovery', async () => {
+      installMockVisualViewport();
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      const body = document.querySelector('.overlay-body');
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      body.appendChild(input);
+      input.focus();
+      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(20);
+
+      const called350 = setTimeoutSpy.mock.calls.some(c => c[1] === 350);
+      const called700 = setTimeoutSpy.mock.calls.some(c => c[1] === 700);
+      expect(called350).toBe(false);
+      expect(called700).toBe(false);
+
+      wrapper.unmount();
+    });
+
+    it('blur recovery timers are cancelled on unmount', async () => {
+      installMockVisualViewport();
+      setInnerSize(400, 800);
+
+      const wrapper = await mountAndFlush();
+
+      const body = document.querySelector('.overlay-body');
+      const ta = document.createElement('textarea');
+      body.appendChild(ta);
+      ta.focus();
+      ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(20);
+
+      // Unmount before either 350 ms or 700 ms timer has fired.
+      wrapper.unmount();
+
+      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
+      expect(document.querySelector('.overlay-backdrop')).toBeNull();
+    });
+
+    it('.overlay-panel-wrapper has 100dvh min-height fallback in the stylesheet', () => {
+      // Assert against the SFC source text (imported as raw via Vite `?raw`).
+      // jsdom does not parse the `dvh` unit, and @vue/test-utils does not
+      // always inject `<style scoped>` blocks into document.styleSheets, so
+      // source-text inspection is the reliable check.
+      const blockMatch = sessionChatOverlaySource.match(/\.overlay-panel-wrapper\s*\{[^}]*\}/);
+      expect(blockMatch).toBeTruthy();
+      const block = blockMatch[0];
+
+      expect(block).toMatch(/min-height:\s*100vh/);
+      expect(block).toMatch(/min-height:\s*100dvh/);
     });
   });
 });

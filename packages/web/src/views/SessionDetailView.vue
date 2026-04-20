@@ -1,5 +1,8 @@
 <template>
-  <div class="container session-detail">
+  <div
+    class="container session-detail"
+    data-testid="session-detail-view-marker"
+  >
     <div
       v-if="sessionsStore.loading"
       class="loading-state"
