@@ -196,7 +196,7 @@ const hasDescendants = computed(() => sessionChain.value.length > 1);
 const sessionChainReady = ref(false);
 const isReady = computed(() =>
   !sessionsStore.loading &&
-  !!sessionsStore.currentSession &&
+  Boolean(sessionsStore.currentSession) &&
   sessionChainReady.value,
 );
 
