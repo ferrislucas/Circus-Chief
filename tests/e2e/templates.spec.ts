@@ -115,7 +115,7 @@ test.describe('Session Templates - Display', () => {
   test('truncates long prompts', async ({ page }) => {
     const longPrompt =
       'This is a very long prompt that exceeds the maximum display length and should be truncated with ellipsis to prevent the card from becoming too tall';
-    await seedProjectTemplate(project.id, {
+    const template = await seedProjectTemplate(project.id, {
       name: '[TEST] Long Prompt',
       prompt: longPrompt,
     });
@@ -124,12 +124,14 @@ test.describe('Session Templates - Display', () => {
     await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
 
-    // Should show truncated text with ellipsis
-    await expect(page.locator('.template-prompt:has-text("...")')).toBeVisible();
+    // Should show truncated text with ellipsis on THIS test's card
+    // (scoped by test id to avoid matching seeded global templates)
+    const card = page.getByTestId(`template-card-${template.id}`);
+    await expect(card.locator('.template-prompt')).toContainText('...');
   });
 
   test('displays template metadata badges', async ({ page }) => {
-    await seedProjectTemplate(project.id, {
+    const template = await seedProjectTemplate(project.id, {
       name: '[TEST] Full Featured',
       prompt: 'Template with all features',
       thinkingEnabled: true,
@@ -141,8 +143,11 @@ test.describe('Session Templates - Display', () => {
     await expect(page.locator('.templates-panel')).toBeVisible();
     await expect(page.getByText('[TEST] Full Featured')).toBeVisible();
 
-    await expect(page.locator('.meta-badge:has-text("Thinking")')).toBeVisible();
-    await expect(page.locator('.meta-badge:has-text("develop")')).toBeVisible();
+    // Scope to THIS test's card — other seeded global templates also show a
+    // "Thinking" badge, so an unscoped locator would be ambiguous.
+    const card = page.getByTestId(`template-card-${template.id}`);
+    await expect(card.locator('.meta-badge:has-text("Thinking")')).toBeVisible();
+    await expect(card.locator('.meta-badge:has-text("develop")')).toBeVisible();
   });
 });
 

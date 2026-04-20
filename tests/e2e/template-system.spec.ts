@@ -173,9 +173,12 @@ test.describe('Template Configuration Fields', () => {
     await expect(page.locator('.templates-panel')).toBeVisible();
     await expect(page.getByText('[TEST] Full Config')).toBeVisible({ timeout: 10000 });
 
-    // Verify metadata badges are displayed on the template card
-    await expect(page.locator('.meta-badge:has-text("Thinking")')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('.meta-badge:has-text("feature/ui")')).toBeVisible({ timeout: 10000 });
+    // Verify metadata badges are displayed on this test's template card.
+    // Scope by test id because seeded global templates also show a "Thinking"
+    // badge, which would otherwise make this a strict-mode violation.
+    const card = page.getByTestId(`template-card-${template.id}`);
+    await expect(card.locator('.meta-badge:has-text("Thinking")')).toBeVisible({ timeout: 10000 });
+    await expect(card.locator('.meta-badge:has-text("feature/ui")')).toBeVisible({ timeout: 10000 });
   });
 });
 
