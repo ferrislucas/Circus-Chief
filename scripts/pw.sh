@@ -42,6 +42,55 @@ fi
 # Default: test against dev server, not the built package
 USE_PACKAGE_SERVER=false
 
+# Parse a single top-level field out of /api/server-info.
+# Uses Node (which is already a hard dep) so we don't have to hand-roll JSON.
+# Args: $1 = port, $2 = field name
+# Prints the field value to stdout (empty string if null/missing).
+parse_server_info_field() {
+    local port="$1" field="$2"
+    curl -fs "http://localhost:$port/api/server-info" \
+        | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{try{const o=JSON.parse(s);const v=o[process.argv[1]];process.stdout.write(v==null?'':String(v));}catch{process.exit(2);}});" "$field"
+}
+
+# Verify the server on the given port is using the expected DB_PATH and has
+# the scheduler disabled. Intended to be called after detect_or_start_server.
+# Args: $1 = port
+# Returns 0 on success, 1 on mismatch.
+verify_server_isolation() {
+    local port="$1"
+
+    local actual_db
+    actual_db=$(parse_server_info_field "$port" dbPath)
+    if [ "$actual_db" != "$DB_PATH" ]; then
+        print_error "Server is using unexpected DB: $actual_db (expected $DB_PATH)"
+        return 1
+    fi
+
+    local actual_scheduler
+    actual_scheduler=$(parse_server_info_field "$port" schedulerRunning)
+    if [ "$actual_scheduler" = "true" ]; then
+        print_error "Scheduler is unexpectedly running under VCR_MODE; refusing to run tests"
+        return 1
+    fi
+
+    return 0
+}
+
+# Before we touch the server, set DB_PATH to a worktree-local file and wipe
+# any leftover DB from earlier runs so each pw.sh run starts clean. The rm
+# is guarded to files inside PROJECT_ROOT.
+setup_isolated_test_db() {
+    if [ -z "${DB_PATH:-}" ]; then
+        export DB_PATH="$PROJECT_ROOT/.circuschief-test.db"
+    fi
+
+    case "$DB_PATH" in
+        "$PROJECT_ROOT"/*)
+            rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm" "$DB_PATH-journal"
+            ;;
+    esac
+}
+
 # Wait for server to be ready
 # Polls the server on the given port until it responds or timeout
 # Args: $1 = port number, $2 = timeout in seconds (default: 30)
@@ -83,13 +132,46 @@ detect_or_start_server() {
             # Without this, a stale .server-port can cause us to reuse a server
             # from a different worktree that happens to be on the same port.
             local server_cwd
-            server_cwd=$(curl -s "http://localhost:$detected_port/api/server-info" 2>/dev/null | grep -o '"cwd":"[^"]*"' | sed 's/"cwd":"//;s/"$//')
+            server_cwd=$(parse_server_info_field "$detected_port" cwd)
+
+            # Also verify the DB path and scheduler state if we have expectations
+            # set (i.e. setup_isolated_test_db already ran). A worktree server
+            # started manually (without VCR_MODE) would reuse the home DB; the
+            # reuse path must refuse such a server and start a fresh one.
+            local db_mismatch=false
+            if [ -n "${DB_PATH:-}" ]; then
+                local server_db
+                server_db=$(parse_server_info_field "$detected_port" dbPath)
+                if [ -n "$server_db" ] && [ "$server_db" != "$DB_PATH" ]; then
+                    db_mismatch=true
+                    print_warning "Server on port $detected_port is using DB $server_db (expected $DB_PATH)"
+                fi
+                local server_scheduler
+                server_scheduler=$(parse_server_info_field "$detected_port" schedulerRunning)
+                if [ "$server_scheduler" = "true" ]; then
+                    db_mismatch=true
+                    print_warning "Server on port $detected_port has scheduler running — refusing to reuse under VCR_MODE"
+                fi
+            fi
 
             if [ -n "$server_cwd" ] && [ "$server_cwd" != "$PROJECT_ROOT" ]; then
                 print_warning "Server on port $detected_port belongs to a different worktree:"
                 print_warning "  server cwd:  $server_cwd"
                 print_warning "  our root:    $PROJECT_ROOT"
                 print_info "Removing stale .server-port and starting a new server..."
+                rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
+            elif [ "$db_mismatch" = true ]; then
+                print_info "Restarting server with correct DB/scheduler isolation..."
+                local bad_pid
+                bad_pid=$(lsof -t -i:"$detected_port" 2>/dev/null)
+                if [ -n "$bad_pid" ] && [ "$detected_port" != "5000" ]; then
+                    kill "$bad_pid" 2>/dev/null
+                    local wait_count=0
+                    while lsof -i:"$detected_port" >/dev/null 2>&1 && [ $wait_count -lt 5 ]; do
+                        sleep 1
+                        ((wait_count++))
+                    done
+                fi
                 rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
             else
                 # Server belongs to us - always restart it
@@ -252,6 +334,12 @@ cmd_test() {
     # Enable VCR mode for E2E tests (replay committed cassettes; use VCR_MODE=record to re-record)
     export VCR_MODE=${VCR_MODE:-replay}
 
+    # Ensure DB isolation *before* the server starts so seed scripts and
+    # Playwright helpers running in the current shell use the same DB the
+    # server will use. This also wipes any leftover test DB from prior runs.
+    setup_isolated_test_db
+    print_info "DB_PATH set to: $DB_PATH"
+
     # Ensure server is running
     local TEST_SERVER_PORT
     TEST_SERVER_PORT=$(detect_or_start_server)
@@ -263,16 +351,8 @@ cmd_test() {
     export API_URL="http://localhost:$TEST_SERVER_PORT"
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
 
-    # When testing the built package, export DB_PATH so seed scripts access
-    # the same database the package server uses (not the default cwd-relative one).
-    if [ "$USE_PACKAGE_SERVER" = true ]; then
-        local db_path_file="$PROJECT_ROOT/.db-path"
-        if [ -f "$db_path_file" ]; then
-            export DB_PATH="$(cat "$db_path_file")"
-            print_info "DB_PATH set to: $DB_PATH"
-        else
-            print_warning "No .db-path file found — seed scripts may use wrong database"
-        fi
+    if ! verify_server_isolation "$TEST_SERVER_PORT"; then
+        exit 1
     fi
 
     print_info "Running Playwright tests on port: $TEST_SERVER_PORT"
@@ -333,11 +413,21 @@ cmd_codegen() {
     # Clear provider environment variables before running codegen
     clear_provider_env_vars
 
+    # Enable VCR mode and DB isolation so codegen sees the same server state
+    # a real test run would see, and never touches the user's real DB.
+    export VCR_MODE=${VCR_MODE:-replay}
+    setup_isolated_test_db
+    print_info "DB_PATH set to: $DB_PATH"
+
     # Ensure server is running to provide a default URL
     local SERVER_PORT
     SERVER_PORT=$(detect_or_start_server)
     if [ -z "$SERVER_PORT" ]; then
         print_error "Failed to start or detect server. Cannot run codegen."
+        exit 1
+    fi
+
+    if ! verify_server_isolation "$SERVER_PORT"; then
         exit 1
     fi
 
@@ -389,6 +479,9 @@ cmd_debug() {
         print_warning "DISPLAY not set. Debug mode requires X11 for headed mode."
     fi
 
+    setup_isolated_test_db
+    print_info "DB_PATH set to: $DB_PATH"
+
     # Ensure server is running
     local TEST_SERVER_PORT
     TEST_SERVER_PORT=$(detect_or_start_server)
@@ -399,6 +492,11 @@ cmd_debug() {
 
     export API_URL="http://localhost:$TEST_SERVER_PORT"
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
+
+    if ! verify_server_isolation "$TEST_SERVER_PORT"; then
+        exit 1
+    fi
+
     print_info "Running tests in debug mode (headed browser) on port: $TEST_SERVER_PORT"
 
     local exit_code

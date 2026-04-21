@@ -108,6 +108,65 @@ describe('SchedulerService', () => {
     });
   });
 
+  describe('isRunning', () => {
+    it('is false before start()', () => {
+      expect(scheduler.isRunning()).toBe(false);
+    });
+
+    it('is true after start()', () => {
+      scheduler.initialize(mockSessionManager);
+      scheduler.start();
+      expect(scheduler.isRunning()).toBe(true);
+    });
+
+    it('is false after stop()', () => {
+      scheduler.initialize(mockSessionManager);
+      scheduler.start();
+      scheduler.stop();
+      expect(scheduler.isRunning()).toBe(false);
+    });
+  });
+
+  describe('startIfEnabled', () => {
+    it('returns false and does not start when VCR_MODE is set', () => {
+      const startSpy = vi.spyOn(scheduler, 'start');
+      const result = scheduler.startIfEnabled(mockSessionManager, { VCR_MODE: 'replay' });
+
+      expect(result).toBe(false);
+      expect(startSpy).not.toHaveBeenCalled();
+      expect(scheduler.isRunning()).toBe(false);
+    });
+
+    it('returns true and starts when VCR_MODE is unset', () => {
+      const result = scheduler.startIfEnabled(mockSessionManager, {});
+      expect(result).toBe(true);
+      expect(scheduler.sessionManager).toBe(mockSessionManager);
+      expect(scheduler.isRunning()).toBe(true);
+    });
+
+    it('treats empty VCR_MODE string the same as unset (matches /server-info contract)', () => {
+      const result = scheduler.startIfEnabled(mockSessionManager, { VCR_MODE: '' });
+      expect(result).toBe(true);
+      expect(scheduler.isRunning()).toBe(true);
+    });
+
+    it('defaults to process.env when no env arg is passed', () => {
+      const originalVcr = process.env.VCR_MODE;
+      process.env.VCR_MODE = 'replay';
+      try {
+        const result = scheduler.startIfEnabled(mockSessionManager);
+        expect(result).toBe(false);
+        expect(scheduler.isRunning()).toBe(false);
+      } finally {
+        if (originalVcr === undefined) {
+          delete process.env.VCR_MODE;
+        } else {
+          process.env.VCR_MODE = originalVcr;
+        }
+      }
+    });
+  });
+
   describe('checkScheduledSessions', () => {
     it('finds and starts due sessions', async () => {
       scheduler.initialize(mockSessionManager);
