@@ -411,13 +411,25 @@ test.describe('Canvas Markdown Editor', () => {
     const editor = page.locator('.canvas-md-editor textarea, .md-editor textarea, .cm-content').first();
     await expect(editor).toBeVisible({ timeout: 10000 });
 
+    // Helper: poll the server until it reports the expected version count
+    // (instead of sleeping through the debounce window).
+    async function waitForVersionCount(target: number) {
+      await expect.poll(
+        async () => {
+          const items = await getAllCanvasItems(session.id);
+          return items.filter((i: any) => i.filename === 'badge-count.md').length;
+        },
+        { timeout: 5000, message: `server should report ${target} versions of badge-count.md` }
+      ).toBe(target);
+    }
+
     // Three edits — server ends up with 4 versions (initial + 3 edits).
     await editor.fill('# v2');
-    await page.waitForTimeout(1200);
+    await waitForVersionCount(2);
     await editor.fill('# v3');
-    await page.waitForTimeout(1200);
+    await waitForVersionCount(3);
     await editor.fill('# v4');
-    await page.waitForTimeout(1200);
+    await waitForVersionCount(4);
 
     // Verify server-side version count
     const serverItems = await getAllCanvasItems(session.id);
@@ -426,7 +438,7 @@ test.describe('Canvas Markdown Editor', () => {
 
     // Exit edit mode so the version dropdown is rendered in the header
     await page.locator('.btn-edit-toggle').click();
-    await page.waitForTimeout(500);
+    await expect(page.locator('.version-dropdown summary')).toBeVisible({ timeout: 5000 });
 
     // DOM <li> count inside the collapsed <details> should equal server total.
     const liCount = await page.locator('.version-list li').count();
@@ -463,15 +475,13 @@ test.describe('Canvas Markdown Editor', () => {
 
     // Open the file — starts on latest (v3)
     await page.locator('.file-row').first().click();
-    await page.waitForTimeout(500);
-    await expect(page.locator('.version-badge')).toContainText('v3');
+    await expect(page.locator('.version-badge')).toContainText('v3', { timeout: 5000 });
 
     // Open the dropdown and select the oldest (v1) — the last <li>.
     await page.locator('.version-dropdown summary').click();
-    await page.waitForTimeout(200);
     const items = page.locator('.version-list li');
+    await expect(items.first()).toBeVisible({ timeout: 5000 });
     await items.last().click();
-    await page.waitForTimeout(500);
 
     // URL query reflects the oldest id, viewer shows V1, badge reads v1.
     const serverItems = await getAllCanvasItems(session.id);
@@ -480,18 +490,26 @@ test.describe('Canvas Markdown Editor', () => {
       .sort((a: any, b: any) => a.createdAt - b.createdAt);
     const oldestId = pinTestVersions[0].id;
 
-    await expect(page).toHaveURL(new RegExp(`item=${oldestId}`));
+    await expect(page).toHaveURL(new RegExp(`item=${oldestId}`), { timeout: 5000 });
     await expect(page.locator('.viewer-markdown')).toContainText('V1 body');
     await expect(page.locator('.version-badge')).toContainText('v1');
 
     // Now seed another version via the API — this triggers a CANVAS_ADD over WS.
-    // The pin must not be overridden.
+    // The pin must not be overridden. Poll the server so we know the new row
+    // was persisted (and the WS broadcast had a chance to fire), rather than
+    // sleeping blindly.
     await seedCanvasItem(session.id, {
       type: 'markdown',
       content: '# V4 body\n\nfourth',
       filename: 'pin-test.md',
     });
-    await page.waitForTimeout(1500);
+    await expect.poll(
+      async () => {
+        const all = await getAllCanvasItems(session.id);
+        return all.filter((i: any) => i.filename === 'pin-test.md').length;
+      },
+      { timeout: 5000, message: 'server should now hold 4 versions of pin-test.md' }
+    ).toBe(4);
 
     // Still pinned to the oldest version.
     await expect(page).toHaveURL(new RegExp(`item=${oldestId}`));
@@ -518,20 +536,19 @@ test.describe('Canvas Markdown Editor', () => {
     });
 
     await page.locator('.file-row').first().click();
-    await page.waitForTimeout(500);
+    await expect(page.locator('.version-dropdown summary')).toBeVisible({ timeout: 5000 });
 
     // Pin the older version
     await page.locator('.version-dropdown summary').click();
-    await page.waitForTimeout(200);
+    await expect(page.locator('.version-list li').first()).toBeVisible({ timeout: 5000 });
     await page.locator('.version-list li').last().click();
-    await page.waitForTimeout(500);
-    await expect(page.locator('.version-badge')).toContainText('v1');
+    await expect(page.locator('.version-badge')).toContainText('v1', { timeout: 5000 });
 
     // Back to list, then re-open — should show the latest.
     await page.locator('.breadcrumb-back').click();
-    await page.waitForTimeout(500);
+    await expect(page.locator('.file-row').first()).toBeVisible({ timeout: 5000 });
     await page.locator('.file-row').first().click();
-    await page.waitForTimeout(500);
+    await expect(page.locator('.version-dropdown summary')).toBeVisible({ timeout: 5000 });
 
     const serverItems = await getAllCanvasItems(session.id);
     const versions = serverItems
@@ -539,7 +556,7 @@ test.describe('Canvas Markdown Editor', () => {
       .sort((a: any, b: any) => b.createdAt - a.createdAt);
     const latestId = versions[0].id;
 
-    await expect(page).toHaveURL(new RegExp(`item=${latestId}`));
+    await expect(page).toHaveURL(new RegExp(`item=${latestId}`), { timeout: 5000 });
     await expect(page.locator('.version-badge')).toContainText(`v${versions.length}`);
   });
 
@@ -562,19 +579,18 @@ test.describe('Canvas Markdown Editor', () => {
     });
 
     await page.locator('.file-row').first().click();
-    await page.waitForTimeout(500);
-
     const details = page.locator('details.version-dropdown');
+    await expect(details).toBeVisible({ timeout: 5000 });
     await page.locator('.version-dropdown summary').click();
 
     // Confirm the details is open
     await expect(details).toHaveAttribute('open', '');
 
     await page.locator('.version-list li').first().click();
-    await page.waitForTimeout(300);
 
     // After the click, the details should NOT have the open attribute.
-    await expect(details).not.toHaveAttribute('open', '');
+    // expect...not.toHaveAttribute polls until the condition is true or timeout.
+    await expect(details).not.toHaveAttribute('open', '', { timeout: 5000 });
   });
 
   test('PUT update preserves version count (API-level)', async () => {

@@ -143,15 +143,29 @@ export const useCanvasStore = defineStore('canvas', {
      * Add an item to the store, or merge fields into an existing entry with the
      * same id. Idempotent so that both the post-response cache update and the
      * WebSocket CANVAS_ADD echo can safely call this without duplicating items.
+     *
+     * Merge semantics (defensive against partial payloads):
+     *   - Keys whose incoming value is `undefined` are skipped entirely.
+     *   - For `content` / `data` specifically, a `null` on the incoming payload
+     *     does NOT overwrite a populated (`!= null`) cached value. This prevents
+     *     a future metadata-only broadcast from blanking out a lazily-fetched
+     *     body. A `null` IS applied when the existing value is already null/
+     *     undefined (so the field is still populated as known-empty).
+     *   - All other keys overwrite normally, including meaningful falsy values
+     *     (`0`, `''`, `false`).
      */
     addItem(item) {
       if (!item || !item.id) return;
       const existing = this.items.find((i) => i.id === item.id);
-      if (existing) {
-        Object.assign(existing, item);
+      if (!existing) {
+        this.items.unshift(item);
         return;
       }
-      this.items.unshift(item);
+      for (const [k, v] of Object.entries(item)) {
+        if (v === undefined) continue;
+        if ((k === 'content' || k === 'data') && v === null && existing[k] != null) continue;
+        existing[k] = v;
+      }
     },
 
     removeItem(itemId) {
