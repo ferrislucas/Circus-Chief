@@ -1,9 +1,23 @@
-import { Page } from '@playwright/test';
+import { Page, Locator } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import * as os from 'os';
+import { OVERLAY_TIMEOUT } from './timeouts';
+
+/**
+ * ============================================================
+ * API-first precondition pattern (see hardening plan Step 7)
+ * ============================================================
+ * Several UI assertions race the backend. To keep specs deterministic:
+ *   1. seed or mutate state via the REST API.
+ *   2. confirm the desired state with a polling helper:
+ *        - waitForSessionToExist(id)        — new sessions
+ *        - waitForSessionStatus(id, status) — status transitions
+ *   3. THEN navigate/click in the page.
+ * Never let the DOM lead the API.
+ */
 
 export function getAPIURL(): string {
   if (process.env.API_URL) return process.env.API_URL;
@@ -136,9 +150,21 @@ export async function navigateAndWait(
  * Open the session tree overlay on the session detail page.
  * Clicks the tree handle and waits for the overlay to be fully rendered
  * (including the transition animation and overlay header).
+ *
+ * Before clicking, waits for `[data-testid="session-detail"][data-ready="true"]`
+ * — this ensures the store has hydrated AND the session chain has been
+ * built, which is the precondition for the chat handle to render.
+ *
  * Returns a Locator scoped to the overlay container.
  */
-export async function openSessionOverlay(page: Page, timeout = 10000) {
+export async function openSessionOverlay(page: Page, timeout = OVERLAY_TIMEOUT) {
+  // Wait for session detail readiness signal before doing anything else.
+  // This eliminates the race where the chat handle's `v-show` binding has
+  // not yet resolved because the session chain is still being built.
+  await page
+    .locator('[data-testid="session-detail"][data-ready="true"]')
+    .waitFor({ state: 'visible', timeout });
+
   const handle = page.locator('[data-testid="session-chat-handle"]');
   await handle.waitFor({ state: 'visible', timeout });
   await handle.click();
@@ -152,6 +178,23 @@ export async function openSessionOverlay(page: Page, timeout = 10000) {
 }
 
 /**
+ * Scoped locator for a session card on any listing view, filtered by the
+ * unique session name. Prefer this over bare `.session-card` to avoid
+ * cross-matching rows seeded by other workers under parallel execution.
+ */
+export function scopedSessionCard(page: Page, name: string): Locator {
+  return page.locator('.session-card').filter({ hasText: name });
+}
+
+/**
+ * Scoped locator for a `.session-name` element, filtered by the unique
+ * session name. Same rationale as scopedSessionCard.
+ */
+export function scopedSessionName(page: Page, name: string): Locator {
+  return page.locator('.session-name').filter({ hasText: name });
+}
+
+/**
  * Navigate to a session detail page and open the session tree overlay.
  * Combines navigateAndWait + openSessionOverlay for convenience.
  * Returns the overlay Locator.
@@ -162,7 +205,7 @@ export async function navigateAndOpenOverlay(
   options: { timeout?: number; waitFor?: string } = {},
 ) {
   await navigateAndWait(page, url, options);
-  return openSessionOverlay(page, options.timeout || 10000);
+  return openSessionOverlay(page, options.timeout ?? OVERLAY_TIMEOUT);
 }
 
 /**

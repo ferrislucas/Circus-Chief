@@ -8,8 +8,10 @@ import {
   cleanupCreatedResources,
   navigateAndWait,
   updateSessionStatus,
+  waitForSessionStatus,
   getAPIURL,
 } from './helpers';
+import { API_READY } from './timeouts';
 
 const API_URL = getAPIURL();
 
@@ -42,6 +44,7 @@ test.describe('Summary Tab Live Output', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
+    await waitForSessionStatus(session.id, 'running', API_READY);
 
     // Navigate directly to the summary tab
     await navigateAndWait(page, `/sessions/${session.id}/summary`, {
@@ -97,6 +100,7 @@ test.describe('Summary Tab Live Output', () => {
         startImmediately: false,
       });
       await updateSessionStatus(session.id, status);
+      await waitForSessionStatus(session.id, status, API_READY);
 
       await navigateAndWait(page, `/sessions/${session.id}/summary`, {
         waitFor: '.summary-tab',
@@ -114,6 +118,7 @@ test.describe('Summary Tab Live Output', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
+    await waitForSessionStatus(session.id, 'running', API_READY);
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`, {
       waitFor: '.summary-tab',
@@ -152,6 +157,7 @@ test.describe('Summary Tab Live Output', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
+    await waitForSessionStatus(session.id, 'running', API_READY);
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`, {
       waitFor: '.summary-tab',
@@ -176,6 +182,7 @@ test.describe('Summary Tab Live Output', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
+    await waitForSessionStatus(session.id, 'running', API_READY);
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`, {
       waitFor: '.summary-tab',
@@ -200,6 +207,7 @@ test.describe('Summary Tab Live Output', () => {
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
+    await waitForSessionStatus(session.id, 'running', API_READY);
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`, {
       waitFor: '.summary-tab',

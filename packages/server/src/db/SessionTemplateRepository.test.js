@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SessionTemplateRepository } from './SessionTemplateRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
+import { getDatabase } from './index.js';
 
 describe('SessionTemplateRepository', () => {
   // Uses global setup from test/setup.js
@@ -9,6 +10,11 @@ describe('SessionTemplateRepository', () => {
   let projectId;
 
   beforeEach(() => {
+    // Remove the default seeded global templates so these tests see a clean
+    // session_templates table. Those defaults are exercised by
+    // miscMigrations.test.js ('session_templates-seed-defaults migration').
+    getDatabase().prepare('DELETE FROM session_templates').run();
+
     projectRepo = new ProjectRepository();
     const project = projectRepo.create('Test Project', '/tmp/test');
     projectId = project.id;

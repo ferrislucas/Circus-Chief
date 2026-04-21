@@ -7,7 +7,10 @@ import {
   API_URL,
   TEST_PREFIX,
   getProviders,
+  waitForSessionToExist,
+  waitForSessionStatus,
 } from './helpers';
+import { API_READY, PAGE_READY_TIMEOUT } from './timeouts';
 
 /**
  * E2E tests for Claude Opus 4.7 model availability.
@@ -65,9 +68,15 @@ test.describe('Opus 4.7 Model Availability', () => {
       gitBranch: 'main',
     });
 
+    // API-first preconditions: ensure the session is persisted and in the
+    // expected status before touching the UI. This keeps the overlay ready
+    // path deterministic under parallel load.
+    await waitForSessionToExist(session.id, API_READY);
+    await waitForSessionStatus(session.id, 'waiting', API_READY);
+
     // Navigate to session and open the chat overlay
     await page.goto(`/sessions/${session.id}/summary`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await openSessionOverlay(page);
 
     // Wait for model selector to be visible
@@ -114,8 +123,12 @@ test.describe('Opus 4.7 Model Availability', () => {
       gitBranch: 'main',
     });
 
+    // API-first preconditions (see comment in previous test).
+    await waitForSessionToExist(session.id, API_READY);
+    await waitForSessionStatus(session.id, 'waiting', API_READY);
+
     await page.goto(`/sessions/${session.id}/summary`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await openSessionOverlay(page);
 
     const modelSelect = page.locator('#model-select');
@@ -152,8 +165,12 @@ test.describe('Opus 4.7 Model Availability', () => {
       gitBranch: 'main',
     });
 
+    // API-first preconditions (see comment in earlier test).
+    await waitForSessionToExist(session.id, API_READY);
+    await waitForSessionStatus(session.id, 'waiting', API_READY);
+
     await page.goto(`/sessions/${session.id}/summary`);
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await openSessionOverlay(page);
 
     const modelSelect = page.locator('#model-select');
