@@ -394,6 +394,7 @@ export async function seedProject(
   options?: {
     onSessionCreated?: string;
     onSessionDeleted?: string;
+    kanbanEnabled?: boolean;
   }
 ) {
   const testName = `${TEST_PREFIX}${name}`;
@@ -405,6 +406,9 @@ export async function seedProject(
   }
   if (options?.onSessionDeleted) {
     body.onSessionDeleted = options.onSessionDeleted;
+  }
+  if (options?.kanbanEnabled !== undefined) {
+    body.kanbanEnabled = options.kanbanEnabled;
   }
 
   const response = await fetch(`${API_URL}/api/projects`, {
