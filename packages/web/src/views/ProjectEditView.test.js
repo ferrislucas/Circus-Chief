@@ -1083,4 +1083,61 @@ describe('ProjectEditView with Session Defaults', () => {
       expect(text).toContain('project-specific or global responses');
     });
   });
+
+  describe('Kanban Experimental labeling', () => {
+    it('renders "Experimental" badge in the Kanban Board section summary', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      // Locate the Kanban details section
+      const kanbanDetails = wrapper.findAll('details').find(d =>
+        d.text().includes('Kanban Board')
+      );
+      expect(kanbanDetails).toBeDefined();
+
+      const summaryText = kanbanDetails.find('summary').text();
+      expect(summaryText).toContain('Experimental');
+    });
+
+    it('shows experimental warning copy inside the Kanban Board section', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      // Expand the Kanban details section
+      const kanbanDetails = wrapper.findAll('details').find(d =>
+        d.text().includes('Kanban Board')
+      );
+      expect(kanbanDetails).toBeDefined();
+      kanbanDetails.element.open = true;
+      await flushAll(wrapper);
+
+      const sectionText = kanbanDetails.text();
+      expect(sectionText).toContain('Experimental');
+      expect(sectionText).toContain('may change or be removed');
+    });
+  });
 });

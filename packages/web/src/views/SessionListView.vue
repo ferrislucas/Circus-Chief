@@ -100,6 +100,9 @@
             @click="router.push(`/projects/${route.params.id}/kanban`)"
           >
             Kanban
+            <span class="ml-1 rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300">
+              Experimental
+            </span>
           </button>
         </div>
         <router-link
@@ -138,7 +141,7 @@
             v-if="projectsStore.currentProject?.kanbanEnabled"
             value="kanban"
           >
-            Kanban
+            Kanban (experimental)
           </option>
         </select>
       </div>
@@ -448,6 +451,18 @@ watch(
       await loadArchivedSessions();
     } else if (newRouteName === 'ScheduledSessions') {
       await fetchScheduledSessions();
+    }
+  },
+  { immediate: true }
+);
+
+// Redirect away from the Kanban tab when the feature is experimentally disabled
+// for the current project. Covers direct navigation to /projects/:id/kanban.
+watch(
+  [activeTab, () => projectsStore.currentProject?.kanbanEnabled],
+  ([tab, kanbanEnabled]) => {
+    if (tab === 'kanban' && kanbanEnabled === false) {
+      router.replace(`/projects/${route.params.id}/sessions`);
     }
   },
   { immediate: true }
