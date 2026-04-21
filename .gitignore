@@ -63,4 +63,5 @@ temp/
 
 # Claude plans (generated during sessions)
 .claude/plans/
+.claude-plans/
 .plan/

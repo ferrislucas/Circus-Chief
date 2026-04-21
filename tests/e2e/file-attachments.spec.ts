@@ -11,9 +11,11 @@ import {
   navigateAndWait,
   openSessionOverlay,
   waitForSessionToExist,
+  waitForSessionStatus,
   waitForPageReady,
   getAPIURL,
 } from './helpers';
+import { API_READY } from './timeouts';
 
 const API_URL = getAPIURL();
 
@@ -28,10 +30,9 @@ async function prepareSessionForTest(page: any, sessionId: string) {
     await new Promise((r) => setTimeout(r, 500));
     retries++;
   }
-  // Force session to waiting status
+  // Force session to waiting status, then block until the API confirms it.
   await updateSessionStatus(sessionId, 'waiting');
-  // Wait for status to be reflected
-  await page.waitForTimeout(300);
+  await waitForSessionStatus(sessionId, 'waiting', API_READY);
 }
 
 test.describe('File Attachments - Session Creation', () => {

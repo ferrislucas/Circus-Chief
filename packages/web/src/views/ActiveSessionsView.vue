@@ -1,5 +1,9 @@
 <template>
-  <div class="container">
+  <div
+    class="container"
+    data-testid="active-sessions-view"
+    :data-state="viewState"
+  >
     <div class="page-header">
       <div>
         <p class="page-description">
@@ -68,6 +72,7 @@
     <div
       v-else-if="sessionsStore.activeSessions.length === 0"
       class="empty-state"
+      data-testid="active-sessions-empty"
     >
       <p>No active sessions. All sessions are completed or there are no sessions yet.</p>
       <router-link
@@ -81,6 +86,7 @@
     <div
       v-else-if="filteredSessions.length === 0"
       class="empty-state"
+      data-testid="active-sessions-empty"
     >
       <p>No sessions match the current filter.</p>
     </div>
@@ -182,6 +188,17 @@ const filteredSessions = computed(() => {
   }
 
   return sessions;
+});
+
+// Single source of truth for the view's terminal state. Tests key off
+// [data-testid="active-sessions-view"][data-state] and can simply wait
+// for data-state to be anything other than "loading".
+const viewState = computed(() => {
+  if (sessionsStore.loading) return 'loading';
+  if (sessionsStore.error) return 'error';
+  if (sessionsStore.activeSessions.length === 0) return 'empty-all';
+  if (filteredSessions.value.length === 0) return 'empty-filtered';
+  return 'results';
 });
 
 // Store summaries keyed by session ID

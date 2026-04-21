@@ -22,7 +22,10 @@ import {
   toggleSessionStar,
   getAPIURL,
   trackSession,
+  waitForSessionStatus,
+  scopedSessionName,
 } from './helpers';
+import { PAGE_READY_TIMEOUT, LIST_HYDRATION, API_READY } from './timeouts';
 
 test.describe('Duplicate Session', () => {
   let project: any;
@@ -343,6 +346,11 @@ test.describe('Active Sessions View', () => {
     // Set sessions to waiting so they appear in the active view
     await updateSessionStatus(session1.id, 'waiting');
     await updateSessionStatus(session2.id, 'waiting');
+    // Block navigation until the API confirms both are in the target status —
+    // otherwise the active-sessions list may render before the transition is
+    // visible and the test flakes under parallel load.
+    await waitForSessionStatus(session1.id, 'waiting', API_READY);
+    await waitForSessionStatus(session2.id, 'waiting', API_READY);
 
     await navigateAndWait(page, '/sessions/active', { loadState: 'domcontentloaded' });
 
@@ -375,9 +383,11 @@ test.describe('Active Sessions View', () => {
       startImmediately: false,
     });
 
-    // Set statuses explicitly
+    // Set statuses explicitly (API-confirmed before we navigate)
     await updateSessionStatus(runningSession.id, 'running');
     await updateSessionStatus(waitingSession.id, 'waiting');
+    await waitForSessionStatus(runningSession.id, 'running', API_READY);
+    await waitForSessionStatus(waitingSession.id, 'waiting', API_READY);
 
     await navigateAndWait(page, '/sessions/active', { loadState: 'domcontentloaded' });
 
@@ -414,9 +424,11 @@ test.describe('Active Sessions View', () => {
       startImmediately: false,
     });
 
-    // Set statuses explicitly
+    // Set statuses explicitly (API-confirmed before we navigate)
     await updateSessionStatus(runningSession.id, 'running');
     await updateSessionStatus(waitingSession.id, 'waiting');
+    await waitForSessionStatus(runningSession.id, 'running', API_READY);
+    await waitForSessionStatus(waitingSession.id, 'waiting', API_READY);
 
     await navigateAndWait(page, '/sessions/active', { loadState: 'domcontentloaded' });
 
@@ -451,27 +463,88 @@ test.describe('Active Sessions View', () => {
       startImmediately: false,
     });
 
-    // Set sessions to waiting so they appear in the active view
+    // Set sessions to waiting so they appear in the active view.
+    // waitForSessionStatus ensures the server has actually persisted the
+    // transition before we navigate — without it, the page could render a
+    // snapshot that does not yet contain either session.
     await updateSessionStatus(session1.id, 'waiting');
     await updateSessionStatus(session2.id, 'waiting');
+    await waitForSessionStatus(session1.id, 'waiting', API_READY);
+    await waitForSessionStatus(session2.id, 'waiting', API_READY);
 
-    // Star one session via API
+    // Star one session via API (and verify via getSession — not asserted here,
+    // but read-after-write is guaranteed by the API contract).
     await toggleSessionStar(session1.id);
 
     await navigateAndWait(page, '/sessions/active', { loadState: 'domcontentloaded' });
 
-    // Wait for both sessions to appear — use unique names to avoid matching other workers' sessions
-    await expect(page.locator('.session-name').filter({ hasText: session1.name })).toBeVisible({ timeout: 8000 });
-    await expect(page.locator('.session-name').filter({ hasText: session2.name })).toBeVisible({ timeout: 8000 });
+    // Wait for the view to leave "loading" before asserting anything.
+    const view = page.locator('[data-testid="active-sessions-view"]');
+    await expect(view).toBeVisible({ timeout: PAGE_READY_TIMEOUT });
+    await expect(view).toHaveAttribute('data-state', /^(results|empty-filtered|empty-all)$/, {
+      timeout: PAGE_READY_TIMEOUT,
+    });
 
-    // Click star filter button (cycles null → starred)
+    // Wait for both sessions to appear — use unique names to avoid matching other workers' sessions.
+    const nameA = scopedSessionName(page, session1.name);
+    const nameB = scopedSessionName(page, session2.name);
+    await expect(nameA).toHaveCount(1, { timeout: LIST_HYDRATION });
+    await expect(nameB).toHaveCount(1, { timeout: LIST_HYDRATION });
+
+    // Click star filter button (cycles null → starred).
     const starFilterBtn = page.locator('.filter-btn.star-btn').first();
     await starFilterBtn.click();
-    await page.waitForTimeout(500);
 
-    // Only starred session visible
-    await expect(page.locator('.session-name').filter({ hasText: session1.name })).toBeVisible();
-    await expect(page.locator('.session-name').filter({ hasText: session2.name })).not.toBeVisible();
+    // DOM-based wait: the button must reflect the active filter class before
+    // we assert the filtered result. This is the actual state we depend on
+    // (no network call to waitForResponse against — the filter is client-side).
+    await expect(starFilterBtn).toHaveClass(/star-filter-active/, {
+      timeout: API_READY,
+    });
+
+    // Only the starred session is visible. Use toHaveCount to assert the
+    // absence of the non-starred one deterministically (not just "invisible").
+    await expect(nameA).toHaveCount(1);
+    await expect(nameB).toHaveCount(0);
+  });
+
+  test('star filter button reflects state immediately (no network)', async ({ page }) => {
+    // Regression: the star filter is client-side only. If the test relies on
+    // waitForTimeout or networkidle, it will flake under load. This test pins
+    // the contract that the button class flips synchronously on click, and
+    // that toggling cycles null → starred → unstarred → null.
+    await page.addInitScript(() => {
+      localStorage.removeItem('sessionStatusFilter');
+      sessionStorage.removeItem('sessionStarredFilter');
+    });
+
+    await navigateAndWait(page, '/sessions/active', { loadState: 'domcontentloaded' });
+
+    const view = page.locator('[data-testid="active-sessions-view"]');
+    await expect(view).toBeVisible({ timeout: PAGE_READY_TIMEOUT });
+
+    const starFilterBtn = page.locator('.filter-btn.star-btn').first();
+    await expect(starFilterBtn).toBeVisible({ timeout: PAGE_READY_TIMEOUT });
+    // Initial: no active class.
+    await expect(starFilterBtn).not.toHaveClass(/star-filter-active/);
+
+    // Click 1 → starred (active class present).
+    await starFilterBtn.click();
+    await expect(starFilterBtn).toHaveClass(/star-filter-active/, {
+      timeout: API_READY,
+    });
+
+    // Click 2 → unstarred (no active class).
+    await starFilterBtn.click();
+    await expect(starFilterBtn).not.toHaveClass(/star-filter-active/, {
+      timeout: API_READY,
+    });
+
+    // Click 3 → cycles back to null (still no active class).
+    await starFilterBtn.click();
+    await expect(starFilterBtn).not.toHaveClass(/star-filter-active/, {
+      timeout: API_READY,
+    });
   });
 
   test('shows empty state when no active sessions', async ({ page }) => {
@@ -484,29 +557,84 @@ test.describe('Active Sessions View', () => {
     // Navigate with no seeded sessions in this test
     await navigateAndWait(page, '/sessions/active', { loadState: 'domcontentloaded' });
 
-    // The page shows one of two possible states:
-    // 1. No sessions at all → empty-state with "No active sessions" text
-    // 2. Sessions from parallel tests exist → session cards are visible
-    // Either way: page renders without errors and the structure is present.
-    // Wait for the page to finish loading data and render one of the two states.
-    const emptyState = page.locator('.empty-state');
-    const sessionCards = page.locator('.session-card');
+    // Step 1 of hardening plan: wait for the view to leave the loading state.
+    // The ActiveSessionsView root exposes data-state ∈
+    //   { loading, error, empty-all, empty-filtered, results }
+    // Waiting for any *terminal* state guarantees the skeleton list has
+    // detached and the store has settled before we assert anything else.
+    const viewRoot = page.locator('[data-testid="active-sessions-view"]');
+    await expect(viewRoot).toBeVisible({ timeout: PAGE_READY_TIMEOUT });
+    await expect(viewRoot).toHaveAttribute(
+      'data-state',
+      /^(error|empty-all|empty-filtered|results)$/,
+      { timeout: PAGE_READY_TIMEOUT },
+    );
 
-    await expect(emptyState.or(sessionCards).first()).toBeVisible({ timeout: 10000 });
-
-    const [emptyCount, cardCount] = await Promise.all([
-      emptyState.count(),
-      sessionCards.count(),
-    ]);
-
-    // At least one of empty-state or session-cards must be present
-    expect(emptyCount + cardCount).toBeGreaterThan(0);
-
-    // If an empty-state is shown, verify it contains the expected message
-    if (emptyCount > 0) {
-      await expect(emptyState.first()).toBeVisible();
-      await expect(emptyState.first()).toContainText('No active sessions');
+    // Step 2: fail fast if the backend surfaced an error — don't let it
+    // masquerade as a timeout against missing cards.
+    const errorMessage = page.locator('.error-message');
+    const errorCount = await errorMessage.count();
+    if (errorCount > 0) {
+      const errorText = await errorMessage.first().innerText();
+      throw new Error(`Active Sessions view rendered an error state: ${errorText}`);
     }
+
+    // Step 3: assert the page is in one of its expected terminal states.
+    // Under parallel execution other workers may have active sessions so
+    // any of three outcomes is valid: empty-all, empty-filtered, results.
+    const state = await viewRoot.getAttribute('data-state');
+    expect(state).toMatch(/^(empty-all|empty-filtered|results)$/);
+
+    if (state === 'empty-all') {
+      const empty = page.locator('[data-testid="active-sessions-empty"]');
+      await expect(empty).toBeVisible();
+      await expect(empty).toContainText('No active sessions');
+    } else if (state === 'empty-filtered') {
+      const empty = page.locator('[data-testid="active-sessions-empty"]');
+      await expect(empty).toBeVisible();
+      await expect(empty).toContainText('No sessions match the current filter');
+    } else {
+      // "results" — other workers seeded sessions. At least one card.
+      await expect(page.locator('.session-card').first()).toBeVisible();
+    }
+  });
+
+  test('renders page chrome even when loading takes long', async ({ page }) => {
+    // Regression guard for the hard failure we observed: if the underlying
+    // sessions API is slow, the view used to stay in the loading (skeleton)
+    // state past the previous 10s timeout. Here we intercept the request,
+    // delay it long enough to be noticeable, and assert the root renders
+    // and eventually transitions to a terminal state within PAGE_READY_TIMEOUT.
+    const delayMs = 3000;
+    await page.route('**/api/sessions/active**', async (route) => {
+      await new Promise((r) => setTimeout(r, delayMs));
+      await route.continue();
+    });
+
+    await page.addInitScript(() => {
+      localStorage.removeItem('sessionStatusFilter');
+      sessionStorage.removeItem('sessionStarredFilter');
+    });
+
+    await navigateAndWait(page, '/sessions/active', { loadState: 'domcontentloaded' });
+
+    // The view root (page chrome + data-state contract) must be visible
+    // immediately — even while the store is still fetching. This is the
+    // core regression: previously the root wouldn't render until after
+    // the response arrived, leaving tests stuck on pure skeleton selectors.
+    const viewRoot = page.locator('[data-testid="active-sessions-view"]');
+    await expect(viewRoot).toBeVisible({ timeout: PAGE_READY_TIMEOUT });
+    await expect(viewRoot).toHaveAttribute('data-state', /.+/, {
+      timeout: PAGE_READY_TIMEOUT,
+    });
+
+    // Eventually the request resolves and we reach a terminal state.
+    // Budget: the route delay + the normal page-ready budget.
+    await expect(viewRoot).toHaveAttribute(
+      'data-state',
+      /^(error|empty-all|empty-filtered|results)$/,
+      { timeout: PAGE_READY_TIMEOUT + delayMs },
+    );
   });
 });
 
@@ -534,8 +662,10 @@ test.describe('Session Status Badges', () => {
       startImmediately: false,
     });
 
-    // Set status to stopped (a valid terminal status)
+    // Set status to stopped (a valid terminal status) and block navigation
+    // until the API confirms the transition.
     await updateSessionStatus(session.id, 'stopped');
+    await waitForSessionStatus(session.id, 'stopped', API_READY);
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 

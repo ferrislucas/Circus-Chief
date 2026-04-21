@@ -2953,6 +2953,177 @@ describe('ConversationTab - Scroll container behavior', () => {
     });
   });
 
+  describe('scroll-to-bottom-btn', () => {
+    function stubScrollMetrics(el, { scrollHeight, clientHeight, scrollTop }) {
+      Object.defineProperty(el, 'scrollHeight', { value: scrollHeight, configurable: true, writable: true });
+      Object.defineProperty(el, 'clientHeight', { value: clientHeight, configurable: true, writable: true });
+      Object.defineProperty(el, 'scrollTop', { value: scrollTop, configurable: true, writable: true });
+    }
+
+    it('is not visible initially when isNearBottom is true (default)', async () => {
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+        { id: 'msg-2', role: 'assistant', content: 'Hi', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scroll-to-bottom-btn"]').exists()).toBe(false);
+    });
+
+    it('becomes visible after user scrolls away from bottom', async () => {
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+        { id: 'msg-2', role: 'assistant', content: 'Hi', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const messagesEl = wrapper.find('.messages').element;
+      // Distance from bottom = 1000 - (100 + 500) = 400 → well past threshold
+      stubScrollMetrics(messagesEl, { scrollHeight: 1000, clientHeight: 500, scrollTop: 100 });
+      messagesEl.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scroll-to-bottom-btn"]').exists()).toBe(true);
+    });
+
+    it('is still hidden at the 100px threshold boundary (distance = 99)', async () => {
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+        { id: 'msg-2', role: 'assistant', content: 'Hi', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const messagesEl = wrapper.find('.messages').element;
+      // distanceFromBottom = 1000 - (401 + 500) = 99 → still near bottom
+      stubScrollMetrics(messagesEl, { scrollHeight: 1000, clientHeight: 500, scrollTop: 401 });
+      messagesEl.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scroll-to-bottom-btn"]').exists()).toBe(false);
+    });
+
+    it('is visible just past the 100px threshold (distance = 101)', async () => {
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+        { id: 'msg-2', role: 'assistant', content: 'Hi', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const messagesEl = wrapper.find('.messages').element;
+      // distanceFromBottom = 1000 - (399 + 500) = 101 → past threshold
+      stubScrollMetrics(messagesEl, { scrollHeight: 1000, clientHeight: 500, scrollTop: 399 });
+      messagesEl.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scroll-to-bottom-btn"]').exists()).toBe(true);
+    });
+
+    it('clicking scrolls to bottom and hides itself', async () => {
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+        { id: 'msg-2', role: 'assistant', content: 'Hi', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const messagesEl = wrapper.find('.messages').element;
+      stubScrollMetrics(messagesEl, { scrollHeight: 1000, clientHeight: 500, scrollTop: 100 });
+      messagesEl.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      await flushAll(wrapper);
+
+      const btn = wrapper.find('[data-testid="scroll-to-bottom-btn"]');
+      expect(btn.exists()).toBe(true);
+
+      const scrollToSpy = vi.fn((opts) => {
+        // Simulate effect of scrollTo on the element
+        if (opts && typeof opts.top === 'number') {
+          Object.defineProperty(messagesEl, 'scrollTop', {
+            value: opts.top,
+            configurable: true,
+            writable: true,
+          });
+        }
+      });
+      messagesEl.scrollTo = scrollToSpy;
+
+      await btn.trigger('click');
+      expect(scrollToSpy).toHaveBeenCalledWith({ top: 1000, behavior: 'instant' });
+
+      // After click, simulate the scroll handler seeing the bottom position
+      Object.defineProperty(messagesEl, 'scrollTop', { value: 500, configurable: true, writable: true });
+      messagesEl.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scroll-to-bottom-btn"]').exists()).toBe(false);
+    });
+
+    it('is a native <button> with an accessible label', async () => {
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+        { id: 'msg-2', role: 'assistant', content: 'Hi', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const messagesEl = wrapper.find('.messages').element;
+      stubScrollMetrics(messagesEl, { scrollHeight: 1000, clientHeight: 500, scrollTop: 0 });
+      messagesEl.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      await flushAll(wrapper);
+
+      const btn = wrapper.find('[data-testid="scroll-to-bottom-btn"]');
+      expect(btn.exists()).toBe(true);
+      expect(btn.element.tagName).toBe('BUTTON');
+      expect(btn.attributes('aria-label')).toBe('Scroll to the bottom of the conversation');
+      expect(btn.attributes('title')).toBe('Scroll to the bottom of the conversation');
+    });
+
+    it('renders inside .conversation-scroll-actions wrapper as the sole child when scroll-to-claude is not eligible', async () => {
+      // No assistant messages → hasAssistantMessages = false → scroll-to-claude
+      // hidden even if it were the user's turn. This pins the layout guarantee
+      // that the wrapper still renders cleanly with a single child.
+      mockSessionsStore.messages = [
+        { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const messagesEl = wrapper.find('.messages').element;
+      stubScrollMetrics(messagesEl, { scrollHeight: 1000, clientHeight: 500, scrollTop: 100 });
+      messagesEl.dispatchEvent(new Event('scroll'));
+      await nextTick();
+      await flushAll(wrapper);
+
+      const wrapperEl = wrapper.find('.conversation-scroll-actions');
+      expect(wrapperEl.exists()).toBe(true);
+
+      const scrollToBottom = wrapperEl.find('[data-testid="scroll-to-bottom-btn"]');
+      const scrollToClaude = wrapperEl.find('.scroll-to-claude-btn');
+      expect(scrollToBottom.exists()).toBe(true);
+      expect(scrollToClaude.exists()).toBe(false);
+
+      // Exactly one child button when only scroll-to-bottom is eligible.
+      const buttons = wrapperEl.findAll('button');
+      expect(buttons.length).toBe(1);
+    });
+  });
+
   describe('Jump-to-latest button', () => {
     it('jump-to-latest button element exists in template', async () => {
       mockSessionsStore.messages = [

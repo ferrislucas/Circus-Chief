@@ -1,5 +1,9 @@
 <template>
-  <div class="container session-detail">
+  <div
+    class="container session-detail"
+    data-testid="session-detail"
+    :data-ready="isReady ? 'true' : 'false'"
+  >
     <div
       v-if="sessionsStore.loading"
       class="loading-state"
@@ -184,6 +188,17 @@ const overlaySessionId = ref(route.params.id);
 const sessionChain = ref([]);
 const summariesMap = ref({});
 const hasDescendants = computed(() => sessionChain.value.length > 1);
+
+// Readiness signal for E2E tests. Flips to true once the store has loaded
+// the current session AND the session-tree initial fetch has resolved.
+// Resets to false when the route id changes, so tests can wait on it after
+// navigation without racing the hydration lifecycle.
+const sessionChainReady = ref(false);
+const isReady = computed(() =>
+  !sessionsStore.loading &&
+  Boolean(sessionsStore.currentSession) &&
+  sessionChainReady.value,
+);
 
 /**
  * Merge project sessions into the store without triggering loading state.
@@ -489,6 +504,7 @@ onMounted(async () => {
 
   // Build session chain BEFORE resolving overlay target (resolveOverlayTarget reads sessionChain)
   await buildSessionChain();
+  sessionChainReady.value = true;
   resolveOverlayTarget();
 
   // Subscribe to project channel for SESSION_CREATED events
@@ -523,6 +539,9 @@ watch(
       // Set viewedSessionId BEFORE cleanup so that any in-flight fetchSession
       // from the old session's polling is discarded.
       sessionsStore.viewedSessionId = newSessionId;
+      // Reset readiness so tests (and any caller watching isReady) observe
+      // the hydration transition for the new session.
+      sessionChainReady.value = false;
       cleanup();
       currentSessionId.value = newSessionId;
       await initializeSession(newSessionId);
@@ -535,6 +554,7 @@ watch(
 
       // Build session chain BEFORE resolving overlay target (resolveOverlayTarget reads sessionChain)
       await buildSessionChain();
+      sessionChainReady.value = true;
       resolveOverlayTarget();
 
       // Update project subscription if project changed
