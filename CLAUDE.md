@@ -143,27 +143,6 @@ The `pw.sh` script ensures proper server isolation for E2E tests:
 - **Auto-detects the correct port** from `.server-port` file
 - **Protects port 5000** (main development server) from interference
 - **Worktrees get their own ports** (5001+) to avoid conflicts
-- **Uses a worktree-local test DB** (`$PROJECT_ROOT/.circuschief-test.db`)
-  so E2E tests never read or write the real user DB at
-  `~/.circuschief/circuschief.db`
-- **Disables the scheduler** in the test server (via `VCR_MODE`) so
-  scheduled sessions belonging to the main dev server cannot be
-  picked up and mutated by the test server
-
-### DB Isolation Details
-
-`pw.sh` sets `DB_PATH` to a worktree-local file before starting (or
-reusing) the test server, and wipes any prior `.circuschief-test.db`
-so each run starts clean. After the server is up, `pw.sh` calls
-`GET /api/server-info` and verifies that:
-- `dbPath` matches the expected worktree-local path
-- `schedulerRunning` is `false`
-
-If either check fails, `pw.sh` aborts with a descriptive error rather
-than risk polluting the user's real DB. The same verification runs on
-both the fresh-start and reuse branches of `detect_or_start_server`,
-so a stale server started without `VCR_MODE` will be detected and
-restarted correctly.
 
 ### Do NOT do this:
 ```bash
