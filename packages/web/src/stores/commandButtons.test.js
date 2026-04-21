@@ -279,6 +279,65 @@ describe('CommandButtons Store', () => {
       expect(latestRun).toBeNull();
     });
 
+    it('getLatestRunForButtonInProject returns null when no runs exist for button', () => {
+      const store = useCommandButtonsStore();
+      store.runs = {
+        'run-1': { runId: 'run-1', buttonId: 'btn-2', sessionId: 'sess-1', startedAt: Date.now() },
+      };
+      expect(store.getLatestRunForButtonInProject('btn-1')).toBeNull();
+    });
+
+    it('getLatestRunForButtonInProject returns most recent by startedAt across sessions', () => {
+      const store = useCommandButtonsStore();
+      const now = Date.now();
+      store.runs = {
+        'run-1': {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          sessionId: 'sess-1',
+          startedAt: now - 10_000,
+          status: 'success',
+        },
+        'run-2': {
+          runId: 'run-2',
+          buttonId: 'btn-1',
+          sessionId: 'sess-2',
+          startedAt: now - 3_000,
+          status: 'success',
+        },
+        'run-3': {
+          runId: 'run-3',
+          buttonId: 'btn-1',
+          sessionId: 'sess-3',
+          startedAt: now - 20_000,
+          status: 'error',
+        },
+      };
+      const latest = store.getLatestRunForButtonInProject('btn-1');
+      expect(latest.runId).toBe('run-2');
+    });
+
+    it('getLatestRunForButtonInProject ignores runs for other buttons', () => {
+      const store = useCommandButtonsStore();
+      const now = Date.now();
+      store.runs = {
+        'run-1': {
+          runId: 'run-1',
+          buttonId: 'btn-1',
+          sessionId: 'sess-1',
+          startedAt: now - 10_000,
+        },
+        'run-2': {
+          runId: 'run-2',
+          buttonId: 'btn-2',
+          sessionId: 'sess-1',
+          startedAt: now,
+        },
+      };
+      const latest = store.getLatestRunForButtonInProject('btn-1');
+      expect(latest.runId).toBe('run-1');
+    });
+
     it('getLatestRunForButton correctly filters by sessionId', () => {
       const store = useCommandButtonsStore();
       const now = Date.now();

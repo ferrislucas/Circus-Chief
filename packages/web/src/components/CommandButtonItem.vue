@@ -12,6 +12,10 @@
         <div class="button-command">
           {{ truncateCommand(button.command) }}
         </div>
+        <RunTimestamps
+          ref="timestampsRef"
+          :run="run"
+        />
       </div>
 
       <div class="button-actions">
@@ -112,19 +116,20 @@
       class="running-indicator"
     >
       <span class="spinner" />
-      Running <span class="elapsed-time">{{ elapsedTime }}</span>
+      Running <span class="elapsed-time">{{ timestampsRef?.elapsedTime ?? '0:00' }}</span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { defineProps, defineEmits, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+import { defineProps, defineEmits, ref, computed, watch, nextTick } from 'vue';
 import { ansiToHtml, stripAnsi } from '../utils/ansi.js';
 import { copyToClipboard } from '../utils/clipboard.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useUiStore } from '../stores/ui.js';
 import { getStatusIconSvg } from './statusIcons';
 import ActionMenu from './ActionMenu.vue';
+import RunTimestamps from './RunTimestamps.vue';
 
 /**
  * Debounce with leading edge - first call is immediate, subsequent calls are debounced
@@ -212,9 +217,11 @@ const menuItems = computed(() => [
 // Template ref for output container (used for auto-scroll)
 const outputContainerRef = ref(null);
 
-// NEW: Elapsed time for running commands
-const elapsedTime = ref('0:00');
-let timerInterval = null;
+// Template ref for the <RunTimestamps> child, which owns the single
+// 1-second interval that drives the live elapsed counter. The footer's
+// .running-indicator reads `timestampsRef.elapsedTime` so there is exactly
+// one source of truth for the ticking value.
+const timestampsRef = ref(null);
 
 const truncateCommand = (command) => {
   const maxLength = 80;
@@ -222,56 +229,6 @@ const truncateCommand = (command) => {
     return `${command.substring(0, maxLength)  }...`;
   }
   return command;
-};
-
-/**
- * Update the elapsed time display for running commands
- * Calculates time since startedAt and formats as MM:SS
- */
-const updateElapsedTime = () => {
-  if (!props.run || props.run.status !== 'running') {
-    return;
-  }
-
-  const elapsed = Date.now() - props.run.startedAt;
-  const seconds = Math.floor(elapsed / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const secs = seconds % 60;
-  elapsedTime.value = `${minutes}:${secs.toString().padStart(2, '0')}`;
-};
-
-/**
- * Start the timer for running commands
- * Updates elapsed time every 1 second
- */
-const startTimer = () => {
-  if (!props.run || props.run.status !== 'running') {
-    return;
-  }
-
-  // Clear any existing timer
-  if (timerInterval) {
-    clearInterval(timerInterval);
-  }
-
-  // Update immediately
-  updateElapsedTime();
-
-  // Update every 1 second
-  timerInterval = setInterval(() => {
-    updateElapsedTime();
-  }, 1000);
-};
-
-/**
- * Stop the timer and reset elapsed time
- */
-const stopTimer = () => {
-  if (timerInterval) {
-    clearInterval(timerInterval);
-    timerInterval = null;
-  }
-  elapsedTime.value = '0:00';
 };
 
 /**
@@ -392,24 +349,8 @@ watch(
   { immediate: false }
 );
 
-/**
- * Watch for run status changes to start/stop the timer
- *
- * When status changes to 'running', start the elapsed time timer.
- * When status changes away from 'running', stop the timer.
- * Note: Output pane remains collapsed by default; user can expand manually.
- */
-watch(
-  () => props.run?.status,
-  (newStatus) => {
-    if (newStatus === 'running') {
-      startTimer();
-    } else {
-      stopTimer();
-    }
-  },
-  { immediate: false } // Don't fire on component mount
-);
+// Note: the elapsed-time ticking is owned by the <RunTimestamps /> child
+// (single 1-second interval). See `timestampsRef` above.
 
 const statusIcon = computed(() => {
   if (!props.run) return '';
@@ -500,26 +441,6 @@ const handleCopyCommand = async () => {
   }
 };
 
-/**
- * Lifecycle hook: On component mount
- *
- * If a command is already running, start the timer.
- */
-onMounted(() => {
-  if (props.run?.status === 'running') {
-    startTimer();
-  }
-});
-
-/**
- * Lifecycle hook: Before component unmount
- *
- * Clean up the timer to prevent memory leaks.
- */
-onBeforeUnmount(() => {
-  stopTimer();
-});
-
 // Expose methods and state for testing
 defineExpose({
   handleRun,
@@ -531,6 +452,7 @@ defineExpose({
   formattedOutput,
   showOutput,
   outputIsTruncatedForDisplay,
+  timestampsRef,
 });
 
 </script>

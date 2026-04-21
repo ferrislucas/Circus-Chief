@@ -37,6 +37,17 @@ export const useCommandButtonsStore = defineStore('commandButtons', {
       // Return the first one (most recent)
       return runsForButton.length > 0 ? runsForButton[0] : null;
     },
+    /**
+     * Latest run for a button across ALL sessions, used by the admin
+     * `CommandButtonsPanel` to show "Last Started / Last Ended" columns.
+     * Returns null when the button has no runs in local state.
+     */
+    getLatestRunForButtonInProject: (state) => (buttonId) => {
+      const runsForButton = Object.values(state.runs)
+        .filter((r) => r.buttonId === buttonId)
+        .sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));
+      return runsForButton.length > 0 ? runsForButton[0] : null;
+    },
     isOutputCollapsed: (state) => (runId) => {
       // If user has set a preference, use it
       if (state.collapsedStates[runId] !== undefined) {

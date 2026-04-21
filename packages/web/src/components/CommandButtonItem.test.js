@@ -1,9 +1,10 @@
 /* global global */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import CommandButtonItem from './CommandButtonItem.vue';
+import RunTimestamps from './RunTimestamps.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
 describe('CommandButtonItem', () => {
@@ -824,6 +825,165 @@ describe('CommandButtonItem', () => {
 
       // handleSendToCanvas should not throw when output is available in store
       await expect(wrapper.vm.handleSendToCanvas()).resolves.not.toThrow();
+    });
+  });
+
+  describe('RunTimestamps integration', () => {
+    it('renders <RunTimestamps> as a child with the current run prop', () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun,
+        },
+      });
+
+      const ts = wrapper.findComponent(RunTimestamps);
+      expect(ts.exists()).toBe(true);
+      expect(ts.props('run')).toEqual(mockRun);
+    });
+
+    it('renders <RunTimestamps> even when there is no run yet', () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+        },
+      });
+
+      const ts = wrapper.findComponent(RunTimestamps);
+      expect(ts.exists()).toBe(true);
+      expect(ts.props('run')).toBe(null);
+    });
+
+    it('exposes timestampsRef via defineExpose (single source of truth)', () => {
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun,
+        },
+      });
+
+      // The template ref is exposed so the .running-indicator footer can mirror
+      // the child's reactive `elapsedTime`. If this ever disappears the footer
+      // will fall back to '0:00' forever, so keep this assertion.
+      expect('timestampsRef' in wrapper.vm).toBe(true);
+    });
+
+    it('the parent does NOT hold its own timer interval (single interval, owned by the child)', () => {
+      // If the parent still had `setInterval(...)` in onMounted/watch alongside
+      // the child's interval, we would see two intervals for a single running
+      // row. We pin the count at exactly 1 to catch regressions.
+      const setSpy = vi.spyOn(globalThis, 'setInterval');
+      const runningRun = {
+        ...mockRun,
+        status: 'running',
+        startedAt: Date.now(),
+        exitCode: null,
+      };
+
+      mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runningRun,
+        },
+      });
+
+      expect(setSpy).toHaveBeenCalledTimes(1);
+      setSpy.mockRestore();
+    });
+
+    it('does not create any interval when the run is not running', () => {
+      const setSpy = vi.spyOn(globalThis, 'setInterval');
+
+      mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: mockRun, // status: 'success'
+        },
+      });
+
+      expect(setSpy).not.toHaveBeenCalled();
+      setSpy.mockRestore();
+    });
+
+    it('the .running-indicator footer mirrors the child ref elapsedTime', async () => {
+      const runningRun = {
+        ...mockRun,
+        status: 'running',
+        startedAt: Date.now(),
+        exitCode: null,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runningRun,
+        },
+      });
+
+      const footer = wrapper.find('.running-indicator');
+      expect(footer.exists()).toBe(true);
+
+      const elapsed = footer.find('.elapsed-time');
+      expect(elapsed.exists()).toBe(true);
+
+      // Immediately after mount the child exposes '0:00'; the footer must
+      // read from `timestampsRef.elapsedTime`, not from any parent-owned ref.
+      await nextTick();
+      expect(elapsed.text()).toBe('0:00');
+
+      // The child's ref is the same instance the footer reads from.
+      expect(wrapper.vm.timestampsRef).toBeTruthy();
+      expect(wrapper.vm.timestampsRef.elapsedTime).toBe('0:00');
+    });
+
+    it('footer falls back to "0:00" when the child ref is not yet populated', async () => {
+      // Stubbing RunTimestamps guarantees its exposed API is not available,
+      // so the template's ?? fallback must render '0:00'.
+      const runningRun = {
+        ...mockRun,
+        status: 'running',
+        startedAt: Date.now(),
+        exitCode: null,
+      };
+
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: runningRun,
+        },
+        global: {
+          stubs: { RunTimestamps: true },
+        },
+      });
+
+      const elapsed = wrapper.find('.running-indicator .elapsed-time');
+      expect(elapsed.exists()).toBe(true);
+      expect(elapsed.text()).toBe('0:00');
+    });
+
+    it('does not expose a local timerInterval or local elapsedTime ref', () => {
+      // The legacy implementation had a local `timerInterval` and an
+      // `elapsedTime` ref on the component instance. Those were moved into
+      // <RunTimestamps> and must no longer exist on the parent.
+      const wrapper = mount(CommandButtonItem, {
+        props: {
+          button: mockButton,
+          sessionId: 'session-1',
+          run: { ...mockRun, status: 'running', startedAt: Date.now(), exitCode: null },
+        },
+      });
+
+      expect(wrapper.vm.timerInterval).toBeUndefined();
+      // `elapsedTime` must now live inside the child; the parent must not
+      // expose its own copy.
+      expect(wrapper.vm.elapsedTime).toBeUndefined();
     });
   });
 });

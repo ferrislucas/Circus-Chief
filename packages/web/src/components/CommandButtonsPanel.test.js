@@ -33,6 +33,25 @@ vi.mock('../stores/commandButtons.js', () => ({
 
 const { useCommandButtonsStore } = await import('../stores/commandButtons.js');
 
+/**
+ * Create a store mock with sensible defaults. Callers pass overrides
+ * (e.g. `buttons`, `loading`, `error`).
+ */
+function makeStore(overrides = {}) {
+  const { _runsByButton: runsByButton = {}, ...rest } = overrides;
+  return {
+    buttons: [],
+    runs: {},
+    loading: false,
+    error: null,
+    fetchButtons: vi.fn().mockResolvedValue(undefined),
+    fetchLatestRunsForProject: vi.fn().mockResolvedValue(undefined),
+    getLatestRunForButtonInProject: vi.fn((buttonId) => runsByButton[buttonId] ?? null),
+    deleteButton: vi.fn().mockResolvedValue(undefined),
+    ...rest,
+  };
+}
+
 describe('CommandButtonsPanel', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -40,21 +59,12 @@ describe('CommandButtonsPanel', () => {
   });
 
   it('renders loading state', async () => {
-    const mockStore = {
-      buttons: [],
-      loading: true,
-      error: null,
-      fetchButtons: vi.fn(),
-    };
+    const mockStore = makeStore({ loading: true });
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
     const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      global: { stubs: { RouterLink: true } },
     });
 
     expect(wrapper.text()).toContain('Loading command buttons');
@@ -62,76 +72,41 @@ describe('CommandButtonsPanel', () => {
   });
 
   it('renders error state', async () => {
-    const mockStore = {
-      buttons: [],
-      loading: false,
-      error: 'Failed to load buttons',
-      fetchButtons: vi.fn(),
-    };
+    const mockStore = makeStore({ error: 'Failed to load buttons' });
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
     const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      global: { stubs: { RouterLink: true } },
     });
 
     expect(wrapper.text()).toContain('Failed to load buttons');
   });
 
   it('renders empty state when no buttons', async () => {
-    const mockStore = {
-      buttons: [],
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-    };
+    const mockStore = makeStore({ buttons: [] });
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
     const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      global: { stubs: { RouterLink: true } },
     });
 
     expect(wrapper.text()).toContain('No command buttons configured yet');
   });
 
   it('renders buttons table with data', async () => {
-    const mockStore = {
+    const mockStore = makeStore({
       buttons: [
-        {
-          id: '1',
-          label: 'Run Tests',
-          command: 'npm test',
-          sortOrder: 0,
-        },
-        {
-          id: '2',
-          label: 'Build',
-          command: 'npm run build',
-          sortOrder: 1,
-        },
+        { id: '1', label: 'Run Tests', command: 'npm test', sortOrder: 0 },
+        { id: '2', label: 'Build', command: 'npm run build', sortOrder: 1 },
       ],
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-    };
+    });
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
     const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      global: { stubs: { RouterLink: true } },
     });
 
     expect(wrapper.text()).toContain('Run Tests');
@@ -141,31 +116,24 @@ describe('CommandButtonsPanel', () => {
   });
 
   it('truncates long commands', async () => {
-    const mockStore = {
+    const mockStore = makeStore({
       buttons: [
         {
           id: '1',
           label: 'Long Command',
-          command: 'this is a very long command that should be truncated because it exceeds the maximum length allowed for display',
+          command:
+            'this is a very long command that should be truncated because it exceeds the maximum length allowed for display',
           sortOrder: 0,
         },
       ],
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-    };
+    });
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
     const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      global: { stubs: { RouterLink: true } },
     });
 
-    // Find the data row (not the header)
     const tableRows = wrapper.findAll('.table-row');
     expect(tableRows.length).toBeGreaterThan(0);
     const commandCell = tableRows[0].find('.col-command');
@@ -173,164 +141,182 @@ describe('CommandButtonsPanel', () => {
   });
 
   it('shows delete confirmation dialog on delete click', async () => {
-    const mockStore = {
-      buttons: [
-        {
-          id: '1',
-          label: 'Run Tests',
-          command: 'npm test',
-          sortOrder: 0,
-        },
-      ],
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      deleteButton: vi.fn(),
-    };
+    const mockStore = makeStore({
+      buttons: [{ id: '1', label: 'Run Tests', command: 'npm test', sortOrder: 0 }],
+    });
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
     const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      global: { stubs: { RouterLink: true } },
     });
 
-    // No dialog initially
     expect(wrapper.find('.modal-overlay').exists()).toBe(false);
 
-    // Find and click delete button in the table row
     const deleteButton = wrapper.find('.table-row .btn-outline-danger');
     expect(deleteButton.exists()).toBe(true);
     await deleteButton.trigger('click');
     await flushAll(wrapper);
 
-    // Dialog appears
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
     expect(wrapper.text()).toContain('Delete Command Button');
     expect(wrapper.text()).toContain('Run Tests');
   });
 
   it('cancels delete when clicking cancel', async () => {
-    const mockStore = {
-      buttons: [
-        {
-          id: '1',
-          label: 'Run Tests',
-          command: 'npm test',
-          sortOrder: 0,
-        },
-      ],
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
-      deleteButton: vi.fn(),
-    };
+    const mockStore = makeStore({
+      buttons: [{ id: '1', label: 'Run Tests', command: 'npm test', sortOrder: 0 }],
+    });
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
     const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      global: { stubs: { RouterLink: true } },
     });
 
-    // Show dialog by clicking delete button in table row
     const deleteButton = wrapper.find('.table-row .btn-outline-danger');
     await deleteButton.trigger('click');
     await flushAll(wrapper);
 
-    // Modal should be visible
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
 
-    // Find and click cancel button in the modal
     const modalFooter = wrapper.find('.modal-footer');
     const cancelButton = modalFooter.findAll('button').find((btn) => btn.text() === 'Cancel');
     expect(cancelButton).toBeDefined();
     await cancelButton.trigger('click');
     await flushAll(wrapper);
 
-    // Dialog is gone
     expect(wrapper.find('.modal-overlay').exists()).toBe(false);
   });
 
   it('deletes button when confirmed', async () => {
     const deleteButtonFn = vi.fn().mockResolvedValue(undefined);
-    const mockStore = {
-      buttons: [
-        {
-          id: '1',
-          label: 'Run Tests',
-          command: 'npm test',
-          sortOrder: 0,
-        },
-      ],
-      loading: false,
-      error: null,
-      fetchButtons: vi.fn(),
+    const mockStore = makeStore({
+      buttons: [{ id: '1', label: 'Run Tests', command: 'npm test', sortOrder: 0 }],
       deleteButton: deleteButtonFn,
-    };
+    });
     vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
     const wrapper = mount(CommandButtonsPanel, {
       props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      global: { stubs: { RouterLink: true } },
     });
 
-    // Show dialog by clicking delete button in table row
     const deleteBtn = wrapper.find('.table-row .btn-outline-danger');
     await deleteBtn.trigger('click');
     await flushAll(wrapper);
 
-    // Modal should be visible
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
 
-    // Find and click confirm button in the modal
     const modalFooter = wrapper.find('.modal-footer');
     const confirmButton = modalFooter.findAll('button').find((btn) => btn.text() === 'Delete');
     expect(confirmButton).toBeDefined();
     await confirmButton.trigger('click');
     await flushAll(wrapper);
 
-    // Verify delete was called
     expect(deleteButtonFn).toHaveBeenCalledWith('test-project', '1');
   });
 
-  it('does not fetch buttons on mount (parent handles fetching)', async () => {
-    // The parent SessionListView handles fetching buttons, so the component
-    // should not fetch on mount. Instead, it should display data from the store.
-    const fetchButtons = vi.fn().mockResolvedValue(undefined);
-    const mockStore = {
-      buttons: [
-        { id: '1', label: 'Test', command: 'npm test', sortOrder: 1 },
-      ],
-      loading: false,
-      error: null,
-      fetchButtons,
-    };
-    vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+  describe('snapshot-on-mount fetching', () => {
+    it('calls fetchButtons and fetchLatestRunsForProject on mount', async () => {
+      const mockStore = makeStore({ buttons: [] });
+      vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
 
-    const wrapper = mount(CommandButtonsPanel, {
-      props: { projectId: 'test-project' },
-      global: {
-        stubs: {
-          RouterLink: true,
-        },
-      },
+      mount(CommandButtonsPanel, {
+        props: { projectId: 'test-project' },
+        global: { stubs: { RouterLink: true } },
+      });
+      await flushPromises();
+
+      expect(mockStore.fetchButtons).toHaveBeenCalledWith('test-project');
+      expect(mockStore.fetchLatestRunsForProject).toHaveBeenCalledWith('test-project');
+    });
+  });
+
+  describe('Last Started / Last Ended columns', () => {
+    it('renders the new header cells', async () => {
+      const mockStore = makeStore({
+        buttons: [{ id: '1', label: 'X', command: 'true', sortOrder: 0 }],
+      });
+      vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+
+      const wrapper = mount(CommandButtonsPanel, {
+        props: { projectId: 'test-project' },
+        global: { stubs: { RouterLink: true } },
+      });
+
+      const header = wrapper.find('.table-header');
+      expect(header.text()).toContain('Last Started');
+      expect(header.text()).toContain('Last Ended');
     });
 
-    await flushPromises();
-    // fetchButtons should NOT be called by the component
-    expect(fetchButtons).not.toHaveBeenCalled();
-    // But it should display the data from the store
-    expect(wrapper.text()).toContain('Test');
+    it('renders em-dash when the button has no matching run', async () => {
+      const mockStore = makeStore({
+        buttons: [{ id: 'b1', label: 'X', command: 'true', sortOrder: 0 }],
+        _runsByButton: {}, // no runs
+      });
+      vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+
+      const wrapper = mount(CommandButtonsPanel, {
+        props: { projectId: 'test-project' },
+        global: { stubs: { RouterLink: true } },
+      });
+
+      const row = wrapper.findAll('.table-row')[0];
+      expect(row.find('.col-started').text()).toBe('\u2014');
+      expect(row.find('.col-ended').text()).toBe('\u2014');
+    });
+
+    it('renders formatted times when a matching run exists', async () => {
+      const startedAt = new Date(2026, 0, 1, 14, 32, 5).getTime();
+      const completedAt = startedAt + 42_000;
+      const mockStore = makeStore({
+        buttons: [{ id: 'b1', label: 'X', command: 'true', sortOrder: 0 }],
+        _runsByButton: {
+          b1: {
+            runId: 'r1',
+            buttonId: 'b1',
+            sessionId: 's1',
+            status: 'success',
+            startedAt,
+            completedAt,
+            exitCode: 0,
+          },
+        },
+      });
+      vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+
+      const wrapper = mount(CommandButtonsPanel, {
+        props: { projectId: 'test-project' },
+        global: { stubs: { RouterLink: true } },
+      });
+
+      const row = wrapper.findAll('.table-row')[0];
+      // Match "HH:MM:SS" — locale-stable format.
+      expect(row.find('.col-started').text()).toMatch(/\d{2}:\d{2}:\d{2}/);
+      expect(row.find('.col-ended').text()).toMatch(/\d{2}:\d{2}:\d{2}/);
+      // <time> elements must carry accessibility attributes.
+      expect(row.find('.col-started time').attributes('datetime')).toBeTruthy();
+      expect(row.find('.col-started time').attributes('title')).toBeTruthy();
+      expect(row.find('.col-started time').attributes('aria-label')).toContain('Last started');
+      expect(row.find('.col-ended time').attributes('aria-label')).toContain('Last ended');
+    });
+
+    it('renders six cells per row (three original + two timestamp + actions)', async () => {
+      const mockStore = makeStore({
+        buttons: [{ id: 'b1', label: 'X', command: 'true', sortOrder: 0 }],
+      });
+      vi.mocked(useCommandButtonsStore).mockReturnValue(mockStore);
+
+      const wrapper = mount(CommandButtonsPanel, {
+        props: { projectId: 'test-project' },
+        global: { stubs: { RouterLink: true } },
+      });
+
+      const header = wrapper.find('.table-header');
+      expect(header.element.children.length).toBe(6);
+      const row = wrapper.find('.table-row');
+      expect(row.element.children.length).toBe(6);
+    });
   });
 });

@@ -1,3 +1,13 @@
+<!--
+  CommandButtonsPanel
+  -------------------
+  Admin grid showing every command button configured for a project.
+
+  Staleness policy: this component takes a **snapshot on mount** and does
+  NOT subscribe to WebSocket events (unlike `CommandsTab`). Users who want
+  up-to-the-second data should use `CommandsTab`; the admin table is
+  explicitly a historical summary.
+-->
 <template>
   <div class="command-buttons-panel">
     <!-- Header with New Button -->
@@ -57,6 +67,12 @@
         <div class="col-order">
           Sort Order
         </div>
+        <div class="col-started">
+          Last Started
+        </div>
+        <div class="col-ended">
+          Last Ended
+        </div>
         <div class="col-actions">
           Actions
         </div>
@@ -76,6 +92,24 @@
         </div>
         <div class="col-order">
           {{ button.sortOrder }}
+        </div>
+        <div class="col-started">
+          <time
+            v-if="lastStartedMs(button.id)"
+            :datetime="toIso(lastStartedMs(button.id))"
+            :title="absoluteTooltip(lastStartedMs(button.id))"
+            :aria-label="`Last started ${absoluteTooltip(lastStartedMs(button.id))}`"
+          >{{ formatTime(lastStartedMs(button.id)) }}</time>
+          <span v-else>{{ EM_DASH }}</span>
+        </div>
+        <div class="col-ended">
+          <time
+            v-if="lastEndedMs(button.id)"
+            :datetime="toIso(lastEndedMs(button.id))"
+            :title="absoluteTooltip(lastEndedMs(button.id))"
+            :aria-label="`Last ended ${absoluteTooltip(lastEndedMs(button.id))}`"
+          >{{ formatTime(lastEndedMs(button.id)) }}</time>
+          <span v-else>{{ EM_DASH }}</span>
         </div>
         <div
           class="col-actions"
@@ -127,9 +161,12 @@
 </template>
 
 <script setup>
-import { defineProps, ref } from 'vue';
+import { defineProps, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { formatTime, formatDateTime, formatRelative } from '../utils/time.js';
+
+const EM_DASH = '\u2014';
 
 const props = defineProps({
   projectId: {
@@ -142,6 +179,16 @@ const router = useRouter();
 const commandButtonsStore = useCommandButtonsStore();
 const selectedButton = ref(null);
 
+// snapshot-on-mount; no WS subscription
+onMounted(() => {
+  // Fire both requests in parallel. Use allSettled so a failure of one
+  // doesn't block the other.
+  Promise.allSettled([
+    commandButtonsStore.fetchButtons(props.projectId),
+    commandButtonsStore.fetchLatestRunsForProject(props.projectId),
+  ]);
+});
+
 const truncateCommand = (command) => {
   const maxLength = 50;
   if (command.length > maxLength) {
@@ -149,6 +196,28 @@ const truncateCommand = (command) => {
   }
   return command;
 };
+
+function lastStartedMs(buttonId) {
+  const run = commandButtonsStore.getLatestRunForButtonInProject(buttonId);
+  return run?.startedAt ?? null;
+}
+
+function lastEndedMs(buttonId) {
+  const run = commandButtonsStore.getLatestRunForButtonInProject(buttonId);
+  return run?.completedAt ?? null;
+}
+
+function toIso(ms) {
+  if (ms === null || ms === undefined || Number.isNaN(ms)) return undefined;
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return undefined;
+  return d.toISOString();
+}
+
+function absoluteTooltip(ms) {
+  if (ms === null || ms === undefined || Number.isNaN(ms)) return '';
+  return `${formatDateTime(ms)} (${formatRelative(ms)})`;
+}
 
 const onRowClick = (button) => {
   router.push(`/projects/${props.projectId}/command-buttons/${button.id}`);
@@ -230,7 +299,7 @@ const confirmDelete = async () => {
 
 .table-header {
   display: grid;
-  grid-template-columns: 200px 1fr 100px 100px;
+  grid-template-columns: 180px 1fr 70px 130px 130px 90px;
   gap: 1rem;
   padding: 1rem;
   background-color: var(--color-background-mute);
@@ -243,7 +312,7 @@ const confirmDelete = async () => {
 
 .table-row {
   display: grid;
-  grid-template-columns: 200px 1fr 100px 100px;
+  grid-template-columns: 180px 1fr 70px 130px 130px 90px;
   gap: 1rem;
   padding: 1rem;
   border-bottom: 1px solid var(--color-border);
@@ -283,6 +352,13 @@ const confirmDelete = async () => {
 .col-order {
   color: var(--color-text-soft);
   font-size: 0.875rem;
+}
+
+.col-started,
+.col-ended {
+  color: var(--color-text-soft);
+  font-size: 0.875rem;
+  font-family: var(--font-mono);
 }
 
 .col-actions {
@@ -347,11 +423,15 @@ const confirmDelete = async () => {
   .col-label::before { content: 'Label: '; font-weight: bold; color: var(--color-text-soft); }
   .col-command::before { content: 'Command: '; font-weight: bold; color: var(--color-text-soft); }
   .col-order::before { content: 'Order: '; font-weight: bold; color: var(--color-text-soft); }
+  .col-started::before { content: 'Last Started: '; font-weight: bold; color: var(--color-text-soft); }
+  .col-ended::before { content: 'Last Ended: '; font-weight: bold; color: var(--color-text-soft); }
   .col-actions::before { content: 'Actions: '; font-weight: bold; color: var(--color-text-soft); }
 
   .col-label,
   .col-command,
   .col-order,
+  .col-started,
+  .col-ended,
   .col-actions {
     display: block;
   }
