@@ -217,7 +217,11 @@ test.describe('Path Chooser Selection', () => {
   test('manual path entry still works', async ({ page }) => {
     await page.goto('/projects/new');
 
-    await page.fill('.path-chooser input', '/usr/local');
+    // Use a writable path. `/usr/local` is typically root-owned, so the
+    // project creation endpoint (which validates the auto-detected worktree
+    // parent is writable) rejects it with "Parent directory does not exist or
+    // is not writable". `/tmp` is always writable.
+    await page.fill('.path-chooser input', '/tmp');
 
     await page.click('button:has-text("Add Repository")');
 
