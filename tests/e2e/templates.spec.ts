@@ -124,8 +124,8 @@ test.describe('Session Templates - Display', () => {
     await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
 
-    // Should show truncated text with ellipsis on THIS test's card
-    // (scoped by test id to avoid matching seeded global templates)
+    // Should show truncated text with ellipsis — scope to the template we created
+    // so unrelated global/project templates don't cause strict-mode violations.
     const card = page.getByTestId(`template-card-${template.id}`);
     await expect(card.locator('.template-prompt')).toContainText('...');
   });
@@ -143,8 +143,8 @@ test.describe('Session Templates - Display', () => {
     await expect(page.locator('.templates-panel')).toBeVisible();
     await expect(page.getByText('[TEST] Full Featured')).toBeVisible();
 
-    // Scope to THIS test's card — other seeded global templates also show a
-    // "Thinking" badge, so an unscoped locator would be ambiguous.
+    // Scope badge assertions to this template's card so other templates in
+    // the database don't cause strict-mode violations.
     const card = page.getByTestId(`template-card-${template.id}`);
     await expect(card.locator('.meta-badge:has-text("Thinking")')).toBeVisible();
     await expect(card.locator('.meta-badge:has-text("develop")')).toBeVisible();

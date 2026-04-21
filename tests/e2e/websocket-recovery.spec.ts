@@ -8,9 +8,11 @@ import {
   navigateAndWait,
   waitForPageReady,
   waitForSessionToExist,
+  waitForSessionStatus,
   updateSessionStatus,
   openSessionOverlay,
 } from './helpers';
+import { API_READY } from './timeouts';
 
 test.describe('WebSocket wake-from-sleep recovery', () => {
   test.describe.configure({ timeout: 60000 });
@@ -32,6 +34,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     session = await seedSession(project.id, { prompt: 'test', startImmediately: false });
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
+    await waitForSessionStatus(session.id, 'running', API_READY);
     await seedUserMessage(session.id, 'hello');
     await seedAssistantMessage(session.id, 'hi there');
 
@@ -92,6 +95,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     session = await seedSession(project.id, { prompt: 'test reconnect', startImmediately: false });
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
+    await waitForSessionStatus(session.id, 'running', API_READY);
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await waitForPageReady(page);
@@ -139,6 +143,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     session = await seedSession(project.id, { prompt: 'test project sub', startImmediately: false });
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'waiting');
+    await waitForSessionStatus(session.id, 'waiting', API_READY);
 
     // Navigate to session list
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
@@ -190,6 +195,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     session = await seedSession(project.id, { prompt: 'test healthy', startImmediately: false });
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'waiting');
+    await waitForSessionStatus(session.id, 'waiting', API_READY);
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await waitForPageReady(page);
@@ -229,6 +235,7 @@ test.describe('WebSocket wake-from-sleep recovery', () => {
     session = await seedSession(project.id, { prompt: 'test cycles', startImmediately: false });
     await waitForSessionToExist(session.id);
     await updateSessionStatus(session.id, 'running');
+    await waitForSessionStatus(session.id, 'running', API_READY);
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await waitForPageReady(page);

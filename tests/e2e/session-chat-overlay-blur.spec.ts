@@ -199,7 +199,7 @@ test.describe('SessionChatOverlay blur recovery', () => {
 
     // The marker on SessionDetailView root must exist — confirming the
     // component that would bleed through is present in the DOM.
-    const background = page.locator('[data-testid="session-detail-view-marker"]');
+    const background = page.locator('[data-testid="session-detail"]');
     await expect(background).toBeAttached();
 
     // Bleed-through is only possible when the overlay is SMALLER than the

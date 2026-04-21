@@ -236,25 +236,48 @@ describe('ActiveSessionsView', () => {
     });
 
     it('clears loading state when summary update is received', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      // Trigger a batch call that never resolves so loadingSummaries[session-1]
+      // stays true until the WebSocket update arrives.
+      let resolveBatch;
+      mockGetSessionSummariesBatch.mockReturnValueOnce(new Promise((resolve) => {
+        resolveBatch = resolve;
+      }));
 
-      const newSummary = { shortSummary: 'Test' };
-      onSessionSummaryUpdatedCallback('session-1', newSummary, 'project-1');
+      const wrapper = mount(ActiveSessionsView);
+      await flushPromises();
       await nextTick();
 
-      // Loading state should be cleared
+      // Now send a summary update for session-1 via WebSocket.
+      const newSummary = { shortSummary: 'From WS' };
+      onSessionSummaryUpdatedCallback('session-1', newSummary, 'project-1');
+      await flushAll(wrapper);
+
+      // The card prop reflects the new summary — proves loading was cleared
+      // and the summary was set.
+      const card = wrapper.find('[data-session-id="session-1"]');
+      expect(card.attributes('data-summary')).toBe(JSON.stringify(newSummary));
+
+      // Resolve the pending batch to clean up the test (avoid unhandled promise).
+      resolveBatch({});
     });
 
     it('clears error state when summary update is received', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      // Make the initial batch fail — that sets summaryErrors[session-1] = true.
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      mockGetSessionSummariesBatch.mockRejectedValueOnce(new Error('Network fail'));
 
-      const newSummary = { shortSummary: 'Test' };
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
+
+      // Now a summary update should clear the error and set the summary.
+      const newSummary = { shortSummary: 'Recovered' };
       onSessionSummaryUpdatedCallback('session-1', newSummary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
-      // Error state should be cleared
+      const card = wrapper.find('[data-session-id="session-1"]');
+      expect(card.attributes('data-summary')).toBe(JSON.stringify(newSummary));
+
+      consoleWarnSpy.mockRestore();
     });
 
     it('handles summary updates for sessions from different projects', async () => {
@@ -298,29 +321,35 @@ describe('ActiveSessionsView', () => {
 
   describe('Session lifecycle events', () => {
     it('cleans up summary data when session is deleted', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
 
       // First add a summary
       const summary = { shortSummary: 'Test' };
       onSessionSummaryUpdatedCallback('session-1', summary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
+
+      // Sanity: card exists with the summary.
+      expect(wrapper.find('[data-session-id="session-1"]').exists()).toBe(true);
 
       // Then delete the session (simulate onSessionDeleted)
       onSessionDeletedCallback('session-1', 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
-      // Summary data should be cleaned up
+      // Session-1 card should be gone from the DOM entirely.
+      expect(wrapper.find('[data-session-id="session-1"]').exists()).toBe(false);
     });
 
     it('cleans up summary when session becomes inactive', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
 
       // Add a summary
       const summary = { shortSummary: 'Test' };
       onSessionSummaryUpdatedCallback('session-1', summary, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-session-id="session-1"]').exists()).toBe(true);
 
       // Session status changes to stopped (no longer active)
       const updatedSession = {
@@ -329,26 +358,27 @@ describe('ActiveSessionsView', () => {
         projectId: 'project-1',
       };
       onSessionUpdatedCallback(updatedSession, 'project-1');
-      await nextTick();
+      await flushAll(wrapper);
 
-      // Session should be removed from active list and summary cleaned up
+      // Session should be removed from active list → card no longer rendered.
+      expect(wrapper.find('[data-session-id="session-1"]').exists()).toBe(false);
     });
   });
 
   describe('Global subscription behavior', () => {
     it('receives updates without filtering by project', async () => {
-      mount(ActiveSessionsView);
-      await flushPromises();
+      const wrapper = mount(ActiveSessionsView);
+      await flushAll(wrapper);
 
-      // Global subscription should receive updates from any project
-      // The callback should be called with (sessionId, summary, projectId)
+      // Global subscription should receive updates from any project.
+      // The callback signature is (sessionId, summary, projectId), and the
+      // handler must apply the summary regardless of the projectId passed.
       const summary = { shortSummary: 'From any project' };
-
-      // This should work regardless of projectId
       onSessionSummaryUpdatedCallback('session-1', summary, 'any-project-id');
-      await nextTick();
+      await flushAll(wrapper);
 
-      // The summary should be applied
+      const card = wrapper.find('[data-session-id="session-1"]');
+      expect(card.attributes('data-summary')).toBe(JSON.stringify(summary));
     });
   });
 });
@@ -817,6 +847,133 @@ describe('ActiveSessionsView polling fallback', () => {
       const starButton = wrapper.find('.star-btn');
       expect(starButton.classes()).not.toContain('star-filter-active');
     });
+  });
+});
+
+// ============================================================================
+// data-state contract — tests that the view's root element exposes a single
+// deterministic data-state attribute so E2E tests can key off it instead of
+// juggling four sibling v-if branches (skeleton / error / empty / results).
+// ============================================================================
+describe('ActiveSessionsView data-state contract', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    setActivePinia(createPinia());
+
+    onSessionCreatedCallback = null;
+    onSessionUpdatedCallback = null;
+    onSessionDeletedCallback = null;
+    onSessionSummaryUpdatedCallback = null;
+
+    mockGetSessionSummary.mockReset();
+    mockGetSessionSummary.mockResolvedValue(null);
+    mockGetSessionSummariesBatch.mockReset();
+    mockGetSessionSummariesBatch.mockResolvedValue({});
+
+    mockSessionsStore.loading = false;
+    mockSessionsStore.error = null;
+    mockSessionsStore.statusFilter = null;
+    mockSessionsStore.starredFilter = null;
+    mockSessionsStore.activeSessions = [];
+    mockSessionsStore.fetchActiveSessions.mockClear();
+    mockSessionsStore.fetchActiveSessions.mockResolvedValue();
+    mockSessionsStore.restoreStatusFilter.mockClear();
+    mockSessionsStore.restoreStarredFilter.mockClear();
+
+    mockCommandButtonsStore.fetchButtons.mockClear();
+    mockCommandButtonsStore.fetchButtons.mockResolvedValue();
+    mockCommandButtonsStore.buttons = [];
+    mockCommandButtonsStore.loading = false;
+    mockCommandButtonsStore.error = null;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('exposes data-state="loading" while sessionsStore.loading is true', async () => {
+    mockSessionsStore.loading = true;
+    const wrapper = mount(ActiveSessionsView);
+    await nextTick();
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.exists()).toBe(true);
+    expect(root.attributes('data-state')).toBe('loading');
+  });
+
+  it('exposes data-state="error" when sessionsStore.error is truthy', async () => {
+    mockSessionsStore.error = 'Failed to load';
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.attributes('data-state')).toBe('error');
+  });
+
+  it('exposes data-state="empty-all" when there are no active sessions', async () => {
+    mockSessionsStore.activeSessions = [];
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.attributes('data-state')).toBe('empty-all');
+
+    // The global-empty variant also renders an empty-state with the correct testid
+    const empty = wrapper.find('[data-testid="active-sessions-empty"]');
+    expect(empty.exists()).toBe(true);
+    expect(empty.text()).toContain('No active sessions');
+  });
+
+  it('exposes data-state="empty-filtered" when all sessions are filtered out', async () => {
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
+    ];
+    // Active sessions exist, but the idle filter matches none of them.
+    mockSessionsStore.statusFilter = 'idle';
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.attributes('data-state')).toBe('empty-filtered');
+
+    const empty = wrapper.find('[data-testid="active-sessions-empty"]');
+    expect(empty.exists()).toBe(true);
+    expect(empty.text()).toContain('No sessions match the current filter');
+  });
+
+  it('exposes data-state="results" when at least one card renders', async () => {
+    mockSessionsStore.activeSessions = [
+      { id: 'session-1', name: 'Running Session', status: 'running', projectId: 'project-1' },
+    ];
+
+    const wrapper = mount(ActiveSessionsView);
+    await flushAll(wrapper);
+
+    const root = wrapper.find('[data-testid="active-sessions-view"]');
+    expect(root.attributes('data-state')).toBe('results');
+
+    const cards = wrapper.findAll('.session-card');
+    expect(cards.length).toBe(1);
+  });
+
+  it('transitions data-state from loading to terminal state as the store settles', async () => {
+    mockSessionsStore.loading = true;
+    const wrapper = mount(ActiveSessionsView);
+    await nextTick();
+
+    expect(
+      wrapper.find('[data-testid="active-sessions-view"]').attributes('data-state'),
+    ).toBe('loading');
+
+    // Store finishes loading with no sessions
+    mockSessionsStore.loading = false;
+    mockSessionsStore.activeSessions = [];
+    await flushAll(wrapper);
+
+    expect(
+      wrapper.find('[data-testid="active-sessions-view"]').attributes('data-state'),
+    ).toBe('empty-all');
   });
 });
 

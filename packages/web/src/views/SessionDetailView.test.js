@@ -4419,4 +4419,113 @@ describe('SessionDetailView', () => {
       expect(fetchProjectSpy).not.toHaveBeenCalled();
     });
   });
+
+  // ------------------------------------------------------------------
+  // data-ready contract — pins the readiness signal used by the
+  // openSessionOverlay E2E helper. The attribute must transition
+  // false → true on initial mount, and must also RESET to false when
+  // the route id changes so downstream waiters do not observe stale
+  // readiness from the previous session.
+  // ------------------------------------------------------------------
+  describe('data-ready contract', () => {
+    it('is "true" once the store has a currentSession and session chain is built', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Ready Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.loading = false;
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      // Flush onMounted → buildSessionChain → sessionChainReady = true.
+      await flushPromises();
+      await nextTick();
+
+      const root = wrapper.find('[data-testid="session-detail"]');
+      expect(root.exists()).toBe(true);
+      expect(root.attributes('data-ready')).toBe('true');
+    });
+
+    it('resets to "false" on route change and returns to "true" after rehydration', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Session One',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.loading = false;
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const root = wrapper.find('[data-testid="session-detail"]');
+      expect(root.attributes('data-ready')).toBe('true');
+
+      // Control buildSessionChain's settle point for the NEW session so the
+      // intermediate `sessionChainReady=false` state is observable. When
+      // api.getProjectSessions returns a still-pending promise, the route
+      // watcher cannot resolve and data-ready must remain "false".
+      let resolveProjectSessions;
+      api.getProjectSessions.mockImplementationOnce(
+        () => new Promise((resolve) => { resolveProjectSessions = resolve; }),
+      );
+
+      // Prepare the new session in the store so the watcher's
+      // initializeSession path finds it.
+      sessionsStore.currentSession = {
+        id: 'session-2',
+        name: 'Session Two',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+
+      await router.push('/sessions/session-2');
+      await nextTick();
+      await flushPromises();
+
+      // Pending state: reset line has run, buildSessionChain is blocked.
+      expect(root.attributes('data-ready')).toBe('false');
+
+      // Unblock and verify recovery.
+      resolveProjectSessions([]);
+      await flushPromises();
+      await nextTick();
+
+      expect(root.attributes('data-ready')).toBe('true');
+    });
+  });
 });
