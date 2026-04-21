@@ -5,6 +5,9 @@ import {
   formatRelative,
   formatDuration,
   formatElapsedMMSS,
+  toIso,
+  absoluteTooltip,
+  EM_DASH as EM_DASH_EXPORT,
 } from './time.js';
 
 const EM_DASH = '\u2014';
@@ -15,8 +18,15 @@ const EM_DASH = '\u2014';
 const FIXED = new Date(2026, 0, 1, 14, 32, 5).getTime();
 
 describe('time utilities', () => {
+  describe('EM_DASH export', () => {
+    it('is the U+2014 em-dash character', () => {
+      expect(EM_DASH_EXPORT).toBe(EM_DASH);
+    });
+  });
+
   describe('formatTime', () => {
-    it('formats an epoch as HH:MM:SS 24-hour local time', () => {
+    it('formats an epoch as HH:MM:SS 24-hour time (en-GB locale)', () => {
+      // Locale-pinned; CI locale does not affect output.
       expect(formatTime(FIXED)).toBe('14:32:05');
     });
 
@@ -28,11 +38,12 @@ describe('time utilities', () => {
   });
 
   describe('formatDateTime', () => {
-    it('renders a full localized absolute date-time', () => {
+    it('renders a full absolute date-time in en-GB style', () => {
       const result = formatDateTime(FIXED);
-      // Different runtimes produce slightly different formats for `short`
-      // month; assert on stable substrings instead of an exact literal.
-      expect(result).toMatch(/2026/);
+      // en-GB short-month emits `"1 Jan 2026, 14:32:05"`. Match on stable
+      // substrings rather than an exact literal to tolerate minor ICU
+      // punctuation differences across Node versions.
+      expect(result).toMatch(/1\s+Jan\s+2026/);
       expect(result).toMatch(/14:32:05/);
     });
 
@@ -56,11 +67,19 @@ describe('time utilities', () => {
       expect(formatRelative(now - 45 * 1000, now)).toMatch(/45 seconds ago/);
     });
 
-    it('rounds 90+ seconds to minutes', () => {
-      // 91s past the boundary should round to "2 minutes ago".
-      // (At exactly 90s, Math.round(-1.5) === -1 in JS so the phrase is
-      // "1 minute ago" — not a bug, just JS rounding.)
+    it('rounds symmetrically at the 90s minute boundary', () => {
+      // 89s past → 1 min ago; 90s past → 2 min ago; 91s past → 2 min ago.
+      // Symmetric rounding keeps past and future magnitudes aligned.
+      expect(formatRelative(now - 89 * 1000, now)).toMatch(/1 minute ago/);
+      expect(formatRelative(now - 90 * 1000, now)).toMatch(/2 minutes ago/);
       expect(formatRelative(now - 91 * 1000, now)).toMatch(/2 minutes ago/);
+    });
+
+    it('rounds 2-minute neighborhood correctly', () => {
+      // 119s past → 2 min; 121s past → 2 min; 150s past → 3 min.
+      expect(formatRelative(now - 119 * 1000, now)).toMatch(/2 minutes ago/);
+      expect(formatRelative(now - 121 * 1000, now)).toMatch(/2 minutes ago/);
+      expect(formatRelative(now - 150 * 1000, now)).toMatch(/3 minutes ago/);
     });
 
     it('formats future times', () => {
@@ -114,10 +133,20 @@ describe('time utilities', () => {
   });
 
   describe('formatElapsedMMSS', () => {
-    it('returns M:SS for live elapsed time', () => {
+    it('returns M:SS for sub-1h elapsed time', () => {
+      expect(formatElapsedMMSS(0, 0)).toBe('0:00');
       expect(formatElapsedMMSS(0, 12_000)).toBe('0:12');
+      expect(formatElapsedMMSS(0, 59_000)).toBe('0:59');
+      expect(formatElapsedMMSS(0, 60_000)).toBe('1:00');
       expect(formatElapsedMMSS(0, 74_000)).toBe('1:14');
       expect(formatElapsedMMSS(0, 754_000)).toBe('12:34');
+      expect(formatElapsedMMSS(0, 3_599_000)).toBe('59:59');
+    });
+
+    it('switches to H:MM:SS at the 1h boundary', () => {
+      expect(formatElapsedMMSS(0, 3_600_000)).toBe('1:00:00');
+      expect(formatElapsedMMSS(0, 5_025_000)).toBe('1:23:45');
+      expect(formatElapsedMMSS(0, 36_000_000)).toBe('10:00:00');
     });
 
     it('returns "0:00" when startMs is missing', () => {
@@ -128,6 +157,46 @@ describe('time utilities', () => {
 
     it('clamps negative deltas to zero', () => {
       expect(formatElapsedMMSS(1000, 500)).toBe('0:00');
+    });
+  });
+
+  describe('toIso', () => {
+    it('returns an ISO-8601 string for a valid epoch', () => {
+      const iso = toIso(FIXED);
+      expect(typeof iso).toBe('string');
+      expect(iso).toMatch(/2026/);
+      // ISO strings end with "Z" (UTC).
+      expect(iso.endsWith('Z')).toBe(true);
+    });
+
+    it('returns undefined for null/undefined/NaN', () => {
+      expect(toIso(null)).toBeUndefined();
+      expect(toIso(undefined)).toBeUndefined();
+      expect(toIso(Number.NaN)).toBeUndefined();
+    });
+  });
+
+  describe('absoluteTooltip', () => {
+    const now = new Date(2026, 0, 1, 14, 35, 0).getTime();
+
+    it('combines formatDateTime and formatRelative', () => {
+      const result = absoluteTooltip(FIXED, now);
+      expect(result).toMatch(/2026/);
+      // `FIXED` is ~175 s before `now` → "3 minutes ago" under symmetric rounding.
+      expect(result).toMatch(/3 minutes ago/);
+    });
+
+    it('falls back to Date.now() when nowMs is omitted', () => {
+      // No throw, non-empty string.
+      const result = absoluteTooltip(FIXED);
+      expect(typeof result).toBe('string');
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('returns empty string for null/undefined/NaN', () => {
+      expect(absoluteTooltip(null)).toBe('');
+      expect(absoluteTooltip(undefined)).toBe('');
+      expect(absoluteTooltip(Number.NaN)).toBe('');
     });
   });
 });

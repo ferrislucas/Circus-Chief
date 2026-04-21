@@ -621,7 +621,9 @@ defineExpose({
   font-size: 0.85rem;
   color: var(--color-text);
   font-weight: 500;
-  min-width: 2.5rem;
+  /* Wider min-width accommodates H:MM:SS output for runs ≥ 1 h without
+     causing layout shift when the counter crosses the 1 h boundary. */
+  min-width: 3.5rem;
 }
 
 .spinner {

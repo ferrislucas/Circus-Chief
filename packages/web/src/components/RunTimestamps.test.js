@@ -166,4 +166,138 @@ describe('RunTimestamps', () => {
 
     vi.useRealTimers();
   });
+
+  describe('reactive tooltip (Step 4)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(START);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('refreshes the Started <time> title while the interval ticks', async () => {
+      const run = {
+        runId: 'r1',
+        buttonId: 'b1',
+        status: 'running',
+        startedAt: START,
+        exitCode: null,
+      };
+      const wrapper = mount(RunTimestamps, { props: { run } });
+
+      const started = wrapper.find('time');
+      const initialTitle = started.attributes('title');
+      expect(initialTitle).toMatch(/just now/);
+
+      // Advance both the system clock and the interval; nowTick.value is
+      // mutated on each tick, which invalidates the :title computation.
+      vi.advanceTimersByTime(65_000);
+      await nextTick();
+
+      const updatedTitle = wrapper.find('time').attributes('title');
+      expect(updatedTitle).toMatch(/1 minute ago/);
+      expect(updatedTitle).not.toBe(initialTitle);
+    });
+
+    it('renders a past-relative tooltip for a completed run without ticking', () => {
+      // System clock is at START; startedAt is 2 minutes earlier.
+      const run = {
+        runId: 'r1',
+        buttonId: 'b1',
+        status: 'success',
+        startedAt: START - 120_000,
+        completedAt: START,
+        exitCode: 0,
+      };
+      const wrapper = mount(RunTimestamps, { props: { run } });
+
+      const startedTitle = wrapper.findAll('time')[0].attributes('title');
+      expect(startedTitle).toMatch(/2 minutes ago/);
+    });
+  });
+
+  describe('stopTicking preserves elapsedTime (Step 5)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(START);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('keeps the last-observed counter when transitioning to success', async () => {
+      const run = {
+        runId: 'r1',
+        buttonId: 'b1',
+        status: 'running',
+        startedAt: START,
+        exitCode: null,
+      };
+      const wrapper = mount(RunTimestamps, { props: { run } });
+
+      vi.advanceTimersByTime(12_000);
+      await nextTick();
+      expect(wrapper.vm.elapsedTime).toBe('0:12');
+
+      await wrapper.setProps({
+        run: { ...run, status: 'success', completedAt: START + 12_000, exitCode: 0 },
+      });
+      await nextTick();
+
+      // The exposed ref must NOT flick back to "0:00"; parent components
+      // that mirror it (CommandButtonItem footer) would otherwise show a
+      // stale zero immediately after completion.
+      expect(wrapper.vm.elapsedTime).toBe('0:12');
+    });
+
+    it('initializes elapsedTime to "0:00" for a non-running fresh mount', () => {
+      const run = {
+        runId: 'r1',
+        buttonId: 'b1',
+        status: 'success',
+        startedAt: START,
+        completedAt: START + 8000,
+        exitCode: 0,
+      };
+      const wrapper = mount(RunTimestamps, { props: { run } });
+      expect(wrapper.vm.elapsedTime).toBe('0:00');
+    });
+
+    it('resets elapsedTime to "0:00" on each entry into running state', async () => {
+      // Start idle with a stale "0:42" value in the exposed ref would be a
+      // problem IF stopTicking previously mutated it — it no longer does.
+      // This test locks the contract that startTicking resets before tick(),
+      // so even after a prior running-then-idle sequence the counter starts
+      // at 0:00 when re-entering running state.
+      const idleRun = {
+        runId: 'r0',
+        buttonId: 'b1',
+        status: 'success',
+        startedAt: START - 10_000,
+        completedAt: START,
+        exitCode: 0,
+      };
+      const wrapper = mount(RunTimestamps, { props: { run: idleRun } });
+      expect(wrapper.vm.elapsedTime).toBe('0:00');
+
+      // Transition into running with a fresh start timestamp.
+      await wrapper.setProps({
+        run: {
+          runId: 'r1',
+          buttonId: 'b1',
+          status: 'running',
+          startedAt: START,
+          exitCode: null,
+        },
+      });
+      await nextTick();
+
+      // tick() runs immediately inside startTicking; system time is exactly
+      // START so the elapsed is zero seconds.
+      expect(wrapper.vm.elapsedTime).toBe('0:00');
+    });
+  });
 });

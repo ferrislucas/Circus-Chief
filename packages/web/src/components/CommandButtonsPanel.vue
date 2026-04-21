@@ -164,9 +164,12 @@
 import { defineProps, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { formatTime, formatDateTime, formatRelative } from '../utils/time.js';
-
-const EM_DASH = '\u2014';
+import {
+  formatTime,
+  toIso,
+  absoluteTooltip,
+  EM_DASH,
+} from '../utils/time.js';
 
 const props = defineProps({
   projectId: {
@@ -205,18 +208,6 @@ function lastStartedMs(buttonId) {
 function lastEndedMs(buttonId) {
   const run = commandButtonsStore.getLatestRunForButtonInProject(buttonId);
   return run?.completedAt ?? null;
-}
-
-function toIso(ms) {
-  if (ms === null || ms === undefined || Number.isNaN(ms)) return undefined;
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return undefined;
-  return d.toISOString();
-}
-
-function absoluteTooltip(ms) {
-  if (ms === null || ms === undefined || Number.isNaN(ms)) return '';
-  return `${formatDateTime(ms)} (${formatRelative(ms)})`;
 }
 
 const onRowClick = (button) => {

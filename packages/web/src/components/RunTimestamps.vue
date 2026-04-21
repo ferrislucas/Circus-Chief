@@ -94,10 +94,10 @@
 import { computed, defineProps, defineExpose, onBeforeUnmount, ref, watch } from 'vue';
 import {
   formatTime,
-  formatDateTime,
-  formatRelative,
   formatDuration,
   formatElapsedMMSS,
+  toIso,
+  absoluteTooltip,
 } from '../utils/time.js';
 
 /**
@@ -118,17 +118,29 @@ const props = defineProps({
 });
 
 const elapsedTime = ref('0:00');
+
+// Reactive "now" timestamp that the 1-second interval mutates on every tick
+// while a run is live. `tooltipFor` reads `nowTick.value` in its body, so
+// Vue's dependency tracker picks up the read and re-evaluates the `:title`
+// and `:aria-label` bindings each tick — keeping the relative phrase
+// (e.g. "2 minutes ago") fresh without adding another interval.
+const nowTick = ref(Date.now());
 let intervalId = null;
 
 const isRunning = computed(() => props.run?.status === 'running');
 
 function tick() {
   if (!props.run || props.run.status !== 'running') return;
-  elapsedTime.value = formatElapsedMMSS(props.run.startedAt);
+  nowTick.value = Date.now();
+  elapsedTime.value = formatElapsedMMSS(props.run.startedAt, nowTick.value);
 }
 
 function startTicking() {
   stopTicking();
+  // Reset to a known value on every entry to running state so the counter
+  // is deterministic regardless of what the previous (non-running) state
+  // left behind.
+  elapsedTime.value = '0:00';
   tick();
   intervalId = setInterval(tick, 1000);
 }
@@ -138,21 +150,19 @@ function stopTicking() {
     clearInterval(intervalId);
     intervalId = null;
   }
-  elapsedTime.value = '0:00';
+  // Intentionally do NOT reset `elapsedTime` here: transitioning from
+  // running → completed should keep the last-observed counter value
+  // (e.g. "0:12") visible to any parent that reads the exposed ref,
+  // rather than flicking back to "0:00".
 }
 
 // Tooltip string combining absolute and relative time, used for both
 // `title` (mouse) and `aria-label` (keyboard / screen reader).
 function tooltipFor(ms) {
-  if (ms === null || ms === undefined || Number.isNaN(ms)) return '';
-  return `${formatDateTime(ms)} (${formatRelative(ms)})`;
-}
-
-function toIso(ms) {
-  if (ms === null || ms === undefined || Number.isNaN(ms)) return undefined;
-  const d = new Date(ms);
-  if (Number.isNaN(d.getTime())) return undefined;
-  return d.toISOString();
+  // Reading nowTick.value here is what makes the binding reactive while
+  // ticking; for idle rows the value is frozen at mount time, which is
+  // fine because the tooltip is evaluated synchronously on hover.
+  return absoluteTooltip(ms, nowTick.value);
 }
 
 // React to status transitions: start/stop the single interval as needed.
@@ -199,7 +209,9 @@ defineExpose({ elapsedTime });
 }
 
 .ts.elapsed {
-  min-width: 2.5rem;
+  /* Wider min-width accommodates H:MM:SS output for runs ≥ 1 h without
+     causing layout shift when the counter crosses the 1 h boundary. */
+  min-width: 3.5rem;
   display: inline-block;
 }
 
