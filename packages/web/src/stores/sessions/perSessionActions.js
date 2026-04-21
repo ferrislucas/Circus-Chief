@@ -59,6 +59,23 @@ export const perSessionActions = {
   addMessage(message) {
     if (this.currentSession && message.sessionId && message.sessionId !== this.currentSession.id) return;
     if (!this.messages.some(m => m.id === message.id)) this.messages.push(message);
+    this._bumpLastActivityAt(message);
+  },
+
+  /**
+   * Bump the `lastActivityAt` timestamp on the session lists so the session list
+   * view re-sorts and re-renders as new conversation turns arrive. Never moves
+   * the value backwards.
+   */
+  _bumpLastActivityAt(message) {
+    if (!message?.sessionId) return;
+    if (typeof this._updateSessionInAllLists !== 'function') return;
+    const ts = message.timestamp ?? Date.now();
+    const existing = this._findSessionById ? this._findSessionById(message.sessionId) : null;
+    const currentValue = existing?.lastActivityAt ?? 0;
+    if (!currentValue || ts > currentValue) {
+      this._updateSessionInAllLists(message.sessionId, { lastActivityAt: ts });
+    }
   },
 
   // ==================== WORK LOG ACTIONS ====================

@@ -4867,6 +4867,34 @@ describe('Sessions Store', () => {
 
         expect(store.messages).toHaveLength(1);
       });
+
+      it('bumps lastActivityAt on the session in the list when a new message arrives', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'session-1', name: 'S1', lastActivityAt: 1000 },
+          { id: 'session-2', name: 'S2', lastActivityAt: 2000 },
+        ];
+        store.currentSession = { id: 'session-1' };
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'hello', timestamp: 5000 });
+
+        const updated = store.sessions.find((s) => s.id === 'session-1');
+        expect(updated.lastActivityAt).toBe(5000);
+        // Unrelated sessions are not affected.
+        const other = store.sessions.find((s) => s.id === 'session-2');
+        expect(other.lastActivityAt).toBe(2000);
+      });
+
+      it('never moves lastActivityAt backwards', () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 5000 }];
+        store.currentSession = { id: 'session-1' };
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'stale', timestamp: 1000 });
+
+        const updated = store.sessions.find((s) => s.id === 'session-1');
+        expect(updated.lastActivityAt).toBe(5000);
+      });
     });
 
     describe('addWorkLog guard', () => {

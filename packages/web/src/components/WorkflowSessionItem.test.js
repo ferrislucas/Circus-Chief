@@ -254,7 +254,7 @@ describe('WorkflowSessionItem', () => {
       expect(dateText).toMatch(/[A-Z][a-z]{2} \d{1,2}/);
     });
 
-    it('returns empty string when timestamp is null', () => {
+    it('renders em-dash placeholder when no activity timestamp is available', () => {
       const wrapper = mountComponent({
         status: 'completed',
         createdAt: null,
@@ -262,8 +262,9 @@ describe('WorkflowSessionItem', () => {
         lastActivityAt: null,
       });
 
-      const dateText = wrapper.find('.workflow-session-date').text();
-      expect(dateText).toBe('');
+      const dateEl = wrapper.find('.workflow-session-date');
+      expect(dateEl.text()).toBe('—');
+      expect(dateEl.attributes('title')).toBe('No activity yet');
     });
   });
 

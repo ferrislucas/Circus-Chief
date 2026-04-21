@@ -985,7 +985,7 @@ describe('SessionRepository', () => {
       expect(updated.parentSessionId).toBe(parent.id);
     });
 
-    it('children are ordered by updatedAt DESC when fetched', async () => {
+    it('children are ordered by last_activity_at DESC when fetched', async () => {
       const parent = repo.create(projectId, 'Parent', 'Parent prompt');
       const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, parent.id);
 
@@ -994,11 +994,13 @@ describe('SessionRepository', () => {
 
       const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, parent.id);
 
-      // Wait again before update to ensure different timestamp
+      // Wait again to ensure later message timestamps
       await new Promise((resolve) => setTimeout(resolve, 2));
 
-      // Update child1 to be more recent (happens after child2 is created)
-      repo.update(child1.id, { status: 'stopped' });
+      // Simulate a new conversation turn on child1 so it becomes the most
+      // recently active session.
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(Date.now() + 10_000, child1.id);
 
       const children = repo.getChildSessions(parent.id);
 
@@ -1552,6 +1554,38 @@ describe('SessionRepository', () => {
       expect(sessions).toHaveLength(1);
       expect(sessions[0].lastActivityAt).toBeDefined();
       expect(sessions[0].lastActivityAt).toBeTypeOf('number');
+    });
+
+    it('orders getByProjectId by last_activity_at DESC (recent activity first)', () => {
+      // Three sessions, created in order. s1 is oldest, s3 is newest.
+      const s1 = repo.create(projectId, 'S1', 'Prompt 1');
+      const s2 = repo.create(projectId, 'S2', 'Prompt 2');
+      const s3 = repo.create(projectId, 'S3', 'Prompt 3');
+
+      // Manually stamp conversation message timestamps so s1 becomes the most
+      // recently active session (simulating a new turn on an older session).
+      const now = Date.now();
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 10_000, s1.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 5_000, s3.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now, s2.id);
+
+      const sessions = repo.getByProjectId(projectId);
+      const ids = sessions.map((s) => s.id);
+      expect(ids).toEqual([s1.id, s3.id, s2.id]);
+    });
+
+    it('includes sessions with no messages in getByProjectId via COALESCE fallback', () => {
+      // A session with no messages should still appear in the ordered list,
+      // falling back to updated_at / created_at via COALESCE.
+      const waiting = repo.create(projectId, 'Waiting', 'Prompt', 'standard', false, null, null, 'waiting');
+      const active = repo.create(projectId, 'Active', 'Prompt');
+
+      const sessions = repo.getByProjectId(projectId);
+      const ids = sessions.map((s) => s.id);
+      expect(ids).toContain(waiting.id);
+      expect(ids).toContain(active.id);
+      expect(sessions).toHaveLength(2);
     });
   });
 

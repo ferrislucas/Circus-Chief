@@ -103,6 +103,7 @@ export class SessionRepository extends BaseRepository {
 
     sql += ` ORDER BY
       starred DESC,
+      COALESCE(last_activity_at, updated_at, created_at) DESC,
       updated_at DESC,
       created_at DESC,
       rowid DESC`;
@@ -141,7 +142,7 @@ export class SessionRepository extends BaseRepository {
         `SELECT s.*, p.name as project_name, p.working_directory as project_working_directory, ${ACTIVITY_FIELDS_SQL}
          FROM sessions s JOIN projects p ON s.project_id = p.id
          WHERE s.status IN ('starting', 'running', 'waiting') AND s.archived = 0
-         ORDER BY s.starred DESC, s.updated_at DESC, s.created_at DESC, s.rowid DESC`
+         ORDER BY s.starred DESC, COALESCE(last_activity_at, s.updated_at, s.created_at) DESC, s.updated_at DESC, s.created_at DESC, s.rowid DESC`
       )
       .all();
     return rows.map(row => ({
@@ -157,7 +158,7 @@ export class SessionRepository extends BaseRepository {
       .prepare(
         `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
          WHERE parent_session_id = ?
-         ORDER BY updated_at DESC, created_at DESC, rowid DESC`
+         ORDER BY COALESCE(last_activity_at, updated_at, created_at) DESC, updated_at DESC, created_at DESC, rowid DESC`
       )
       .all(parentSessionId);
     return this.mapAll(rows);
@@ -261,7 +262,7 @@ export class SessionRepository extends BaseRepository {
     const rows = this.db
       .prepare(
         `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
-         WHERE pr_url IS NOT NULL ORDER BY updated_at DESC, created_at DESC, rowid DESC`
+         WHERE pr_url IS NOT NULL ORDER BY COALESCE(last_activity_at, updated_at, created_at) DESC, updated_at DESC, created_at DESC, rowid DESC`
       )
       .all();
     return this.mapAll(rows);
