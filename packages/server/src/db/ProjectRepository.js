@@ -36,7 +36,7 @@ export class ProjectRepository extends BaseRepository {
       onSessionDeleted = null,
       prPollInterval = 60000,
       repoUrl = null,
-      kanbanEnabled = true,
+      kanbanEnabled = false,
       worktreePath = null,
     } = options;
     this.db

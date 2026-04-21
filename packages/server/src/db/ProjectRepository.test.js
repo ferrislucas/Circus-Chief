@@ -109,6 +109,28 @@ describe('ProjectRepository', () => {
       expect(project.worktreePath).toBeNull();
     });
 
+    it('defaults kanbanEnabled to false when option omitted', () => {
+      const project = repo.create('Test Project', '/tmp/test');
+
+      expect(project.kanbanEnabled).toBe(false);
+    });
+
+    it('preserves kanbanEnabled=true when explicitly provided', () => {
+      const project = repo.create('Test Project', '/tmp/test', null, {
+        kanbanEnabled: true,
+      });
+
+      expect(project.kanbanEnabled).toBe(true);
+    });
+
+    it('preserves kanbanEnabled=false when explicitly provided', () => {
+      const project = repo.create('Test Project', '/tmp/test', null, {
+        kanbanEnabled: false,
+      });
+
+      expect(project.kanbanEnabled).toBe(false);
+    });
+
   });
 
   describe('getById', () => {
