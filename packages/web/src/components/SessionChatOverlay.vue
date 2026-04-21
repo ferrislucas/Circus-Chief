@@ -433,6 +433,31 @@ const overlayBackdropRef = ref(null);
 const inputFocused = ref(false);
 let focusOutRaf = null;
 
+// Debounced trailing re-sync after visualViewport resize/scroll.
+// iOS Safari can emit a "final" resize during the keyboard dismiss animation
+// whose values are stale; this trailing call gives iOS a chance to settle.
+let trailingResyncTimer = null;
+
+// Blur-recovery timers. We schedule a few delayed syncs after a textarea
+// loses focus because iOS's terminal visualViewport resize is unreliable
+// around keyboard dismissal.
+let blurResyncTimers = [];
+
+// Set transiently when a TEXTAREA/INPUT blur was just observed. This lets
+// syncToVisualViewport's clamp apply only in the genuine post-blur window,
+// so the clamp cannot fire on initial mount (where iPadOS may legitimately
+// report vv.height < innerHeight due to the URL bar) and undo the fix from
+// commit 6d61f905.
+let recentBlurUntilMs = 0;
+const RECENT_BLUR_WINDOW_MS = 900; // covers 2x setTimeout delay + slack
+
+function markRecentBlur() {
+  recentBlurUntilMs = Date.now() + RECENT_BLUR_WINDOW_MS;
+}
+function isRecentBlur() {
+  return Date.now() < recentBlurUntilMs;
+}
+
 // Template ref to the ConversationTab for flushing drafts before session switch
 const conversationTabRef = ref(null);
 
@@ -800,35 +825,65 @@ function handleEscape(event) {
  * InputForm → ResizableTextarea's <textarea>.
  */
 function handleOverlayFocusin(e) {
-  if (e.target.tagName === 'TEXTAREA') {
-    // Cancel any pending focusout that would have cleared inputFocused
-    if (focusOutRaf) {
-      cancelAnimationFrame(focusOutRaf);
-      focusOutRaf = null;
-    }
-    inputFocused.value = true;
+  // Symmetric with handleOverlayFocusout: both TEXTAREA and text-typed INPUT
+  // can open the iOS keyboard. Keeping scopes identical ensures inputFocused
+  // transitions are balanced (focus→blur pairs on text inputs toggle it
+  // consistently).
+  const tag = e.target.tagName;
+  const isText =
+    tag === 'TEXTAREA' ||
+    (tag === 'INPUT' && /^(text|search|url|email|number|tel|password)$/i
+      .test(e.target.type || 'text'));
+  if (!isText) return;
 
-    // After keyboard animation completes, scroll textarea into view
-    setTimeout(() => {
-      e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }, 350);
+  // Cancel any pending focusout that would have cleared inputFocused
+  if (focusOutRaf) {
+    cancelAnimationFrame(focusOutRaf);
+    focusOutRaf = null;
   }
+  inputFocused.value = true;
+
+  // After keyboard animation completes, scroll the focused element into view
+  setTimeout(() => {
+    e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, 350);
 }
 
 /**
- * Handle focusout on the overlay body — detect when the prompt textarea loses focus.
- * Uses requestAnimationFrame delay to avoid flashing the header when focus moves
- * from textarea to another element (e.g. Send button).
+ * Handle focusout on the overlay body — detect when the prompt textarea /
+ * text input loses focus. Uses requestAnimationFrame delay to avoid flashing
+ * the header when focus moves from textarea to another element (e.g. Send
+ * button). Also schedules two delayed `syncToVisualViewport` calls to
+ * recover from iOS Safari's unreliable terminal resize event during
+ * keyboard dismissal (see syncToVisualViewport clamp comment).
  */
 function handleOverlayFocusout(e) {
-  if (e.target.tagName === 'TEXTAREA') {
-    // Defer: if focus moves to another element in the overlay (e.g. Send button),
-    // focusin will fire on the next target and we skip collapsing.
-    focusOutRaf = requestAnimationFrame(() => {
-      focusOutRaf = null;
-      inputFocused.value = false;
-    });
-  }
+  // Expanded scope: both TEXTAREA and text INPUT elements can open the iOS
+  // keyboard. Exclude non-text inputs (checkbox, radio, button, etc.) since
+  // they don't trigger the keyboard.
+  const tag = e.target.tagName;
+  const isText =
+    tag === 'TEXTAREA' ||
+    (tag === 'INPUT' && /^(text|search|url|email|number|tel|password)$/i
+      .test(e.target.type || 'text'));
+  if (!isText) return;
+
+  if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
+  focusOutRaf = requestAnimationFrame(() => {
+    focusOutRaf = null;
+    inputFocused.value = false;
+    markRecentBlur();
+
+    // Cancel any prior blur-recovery timers still pending — we only want
+    // one active recovery chain at a time.
+    blurResyncTimers.forEach(clearTimeout);
+    blurResyncTimers = [
+      // 350 ms: after typical iOS keyboard dismiss animation (~250 ms) + slack
+      setTimeout(() => { syncToVisualViewport(); }, 350),
+      // 700 ms: slow devices + URL-bar animation tail
+      setTimeout(() => { syncToVisualViewport(); }, 700),
+    ];
+  });
 }
 
 /**
@@ -844,7 +899,7 @@ function handleHeaderTouchmove(event) {
 }
 
 /**
- * Anchor the overlay backdrop to the user's visible viewport.
+ * Pin the overlay backdrop to `window.visualViewport`.
  *
  * iOS/iPadOS Safari has two viewports: the *layout viewport* (stable) and
  * the *visual viewport* (shifted by URL-bar retraction, the keyboard,
@@ -860,6 +915,18 @@ function handleHeaderTouchmove(event) {
  * backdrop always tracks what the user actually sees, regardless of
  * URL-bar state, keyboard animation, or pinch-zoom.
  *
+ * Clamp behavior: in the short window after a TEXTAREA/INPUT blur, iOS
+ * Safari can leave visualViewport reporting stale keyboard-open values
+ * (shrunken height, non-zero offsetTop) even though the keyboard has
+ * dismissed. If we're in that window and either height is substantially
+ * shorter than the layout viewport or offsetTop is large, override with
+ * layout-viewport geometry so the backdrop fully covers the screen and
+ * background content cannot bleed through.
+ *
+ * Outside that window, always honor vv values — that is what preserves
+ * the iPadOS URL-bar fix from commit 6d61f905, where vv.offsetTop > 0
+ * legitimately reflects where the user can see.
+ *
  * No-op on engines that do not expose `window.visualViewport`; the
  * backdrop's CSS `inset: 0` fallback remains authoritative in that case.
  */
@@ -867,10 +934,41 @@ function syncToVisualViewport() {
   const vv = window.visualViewport;
   const backdrop = overlayBackdropRef.value;
   if (!vv || !backdrop) return;
+
+  if (isRecentBlur()) {
+    // Keyboard must be closed (or closing) in this window. Any claim that
+    // the visible area is much smaller than innerHeight, or that it starts
+    // far below the layout origin, is almost certainly stale.
+    const HEIGHT_GAP_THRESHOLD_PX = 100;   // smaller than any mobile keyboard
+    const OFFSET_TOP_THRESHOLD_PX = 60;    // larger than observed iPadOS URL-bar deltas (≤ ~50 px)
+    const heightIsStale = vv.height < window.innerHeight - HEIGHT_GAP_THRESHOLD_PX;
+    const offsetIsStale = vv.offsetTop > OFFSET_TOP_THRESHOLD_PX;
+    if (heightIsStale || offsetIsStale) {
+      backdrop.style.top = '0px';
+      backdrop.style.left = '0px';
+      backdrop.style.width = `${window.innerWidth}px`;
+      backdrop.style.height = `${window.innerHeight}px`;
+      return;
+    }
+  }
+
   backdrop.style.top = `${vv.offsetTop}px`;
   backdrop.style.left = `${vv.offsetLeft}px`;
   backdrop.style.width = `${vv.width}px`;
   backdrop.style.height = `${vv.height}px`;
+}
+
+/**
+ * Listener wrapper that syncs immediately and schedules a trailing
+ * re-sync to catch stale final events from iOS Safari.
+ */
+function onVVChange() {
+  syncToVisualViewport();
+  if (trailingResyncTimer) clearTimeout(trailingResyncTimer);
+  trailingResyncTimer = setTimeout(() => {
+    trailingResyncTimer = null;
+    syncToVisualViewport();
+  }, 400);
 }
 
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
@@ -944,9 +1042,9 @@ onMounted(async () => {
   // is already positioned in visual-viewport space when the slide-left
   // enter transition starts.
   if (window.visualViewport) {
-    syncToVisualViewport();
-    window.visualViewport.addEventListener('resize', syncToVisualViewport);
-    window.visualViewport.addEventListener('scroll', syncToVisualViewport);
+    syncToVisualViewport();                                  // initial sync stays direct
+    window.visualViewport.addEventListener('resize', onVVChange);
+    window.visualViewport.addEventListener('scroll', onVVChange);
   }
 
   // Register focusin/focusout BEFORE the await so they're ready immediately.
@@ -975,8 +1073,8 @@ onUnmounted(() => {
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
   if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', syncToVisualViewport);
-    window.visualViewport.removeEventListener('scroll', syncToVisualViewport);
+    window.visualViewport.removeEventListener('resize', onVVChange);
+    window.visualViewport.removeEventListener('scroll', onVVChange);
   }
   const body = overlayBodyRef.value;
   if (body) {
@@ -984,6 +1082,13 @@ onUnmounted(() => {
     body.removeEventListener('focusout', handleOverlayFocusout);
   }
   if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
+  if (trailingResyncTimer) {
+    clearTimeout(trailingResyncTimer);
+    trailingResyncTimer = null;
+  }
+  blurResyncTimers.forEach(clearTimeout);
+  blurResyncTimers = [];
+  recentBlurUntilMs = 0;
   cleanupSubscription();
   // Clean up overlay stores: dispose subscriptions AND remove from Pinia registry
   // to prevent state leaks on every overlay open/close cycle.
@@ -1015,8 +1120,14 @@ defineExpose({
   switchingSession,
   pickerOpen,
   handlePickerSelect,
-  syncToVisualViewport,
   inputFocused,
+  // viewport helpers:
+  syncToVisualViewport,
+  markRecentBlur,
+  isRecentBlur: () => isRecentBlur(),
+  // DOM refs needed by tests that append real elements (textarea/input)
+  // into the overlay body to exercise focusin/focusout flows:
+  overlayBodyRef,
 });
 </script>
 
@@ -1102,6 +1213,8 @@ defineExpose({
 .overlay-panel-wrapper {
   position: relative;
   display: flex;
+  min-height: 100vh;
+  min-height: 100dvh;
   height: 100%;
   max-width: 900px;
   width: 100%;
