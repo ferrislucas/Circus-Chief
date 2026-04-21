@@ -901,4 +901,66 @@ describe('Canvas Store', () => {
       expect(store.error).toContain('Failed to save markdown');
     });
   });
+
+  describe('addItem action (idempotent + WS-echo dedupe)', () => {
+    it('deduplicates when called twice with the same id', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      expect(store.items).toHaveLength(1);
+    });
+
+    it('merges new fields onto an existing entry instead of duplicating', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1, content: 'a' });
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1, content: 'b', extra: 1 });
+      expect(store.items).toHaveLength(1);
+      expect(store.items[0].content).toBe('b');
+      expect(store.items[0].extra).toBe(1);
+    });
+
+    it('saveMarkdownContent + WS echo does not duplicate', async () => {
+      const store = useCanvasStore();
+      const newItem = { id: 'new', filename: 'f.md', createdAt: 2, type: 'markdown' };
+      api.createCanvasItem.mockResolvedValue(newItem);
+
+      await store.saveMarkdownContent('session-1', 'f.md', 'hello');
+      // Simulate the WebSocket CANVAS_ADD echo re-adding the same item
+      store.addItem({ ...newItem });
+
+      expect(store.items.filter((i) => i.id === 'new')).toHaveLength(1);
+    });
+
+    it('uploadItem + WS echo does not duplicate', async () => {
+      const store = useCanvasStore();
+      const uploaded = { id: 'u', filename: 'pic.png', createdAt: 3, type: 'image' };
+      api.uploadCanvasItem.mockResolvedValue(uploaded);
+
+      await store.uploadItem('session-1', new File([], 'pic.png'));
+      // Simulate the WebSocket CANVAS_ADD echo re-adding the same item
+      store.addItem({ ...uploaded });
+
+      expect(store.items.filter((i) => i.id === 'u')).toHaveLength(1);
+    });
+
+    it('recoverItem + WS echo does not duplicate', async () => {
+      const store = useCanvasStore();
+      const recovered = { id: 'r', filename: 'was.md', createdAt: 4, deletedAt: null };
+      store.trashedItems = [{ id: 'r', filename: 'was.md', deletedAt: 100 }];
+      api.recoverCanvasItem.mockResolvedValue(recovered);
+
+      await store.recoverItem('session-1', 'r');
+      // Simulate the WebSocket CANVAS_ADD echo re-adding the same item
+      store.addItem({ ...recovered });
+
+      expect(store.items.filter((i) => i.id === 'r')).toHaveLength(1);
+    });
+
+    it('groupedItems.versionCount reflects dedupe', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      expect(store.groupedItems[0].versionCount).toBe(1);
+    });
+  });
 });

@@ -594,6 +594,168 @@ describe('CanvasTab', () => {
     });
   });
 
+  describe('version pin + dedupe', () => {
+    it('selectedVersions is deduped (via stub prop)', async () => {
+      // Seed the store with a duplicate item (same id) BEFORE fetch runs
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'x', filename: 'f.md', type: 'markdown', createdAt: 1000 },
+        { id: 'x', filename: 'f.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: 'x' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      expect(viewer.exists()).toBe(true);
+      expect(viewer.props('versions').length).toBe(1);
+    });
+
+    it('unrelated canvas adds do NOT trigger router.replace', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // Unrelated file arrives
+      canvasStore.addItem({ id: '2', filename: 'B.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('new version of the current file DOES trigger router.replace (no pin)', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      canvasStore.addItem({ id: '2', filename: 'A.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '2' } });
+    });
+
+    it('pinned version is NOT overridden by newer arrivals', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: '2' }; // start on latest
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Simulate the user picking the older version via the dropdown. The
+      // handler sets the pin because '1' !== latest id '2'. router.push is a
+      // mock so the route doesn't actually change, but that is irrelevant to
+      // this test — we only care about the pin's effect on the auto-nav
+      // watcher.
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer.vm.$emit('selectVersion', '1');
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A newer version arrives via WS while the pin is set.
+      canvasStore.addItem({ id: '3', filename: 'A.md', type: 'markdown', createdAt: 3000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('deep-linked older version survives initial fetch', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'old', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: 'new', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: 'old' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // The empty→populated transition should NOT trigger router.replace
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('re-selecting the latest version clears the pin', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: '2' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+
+      // Pin: pick the older version. The pin is set because '1' !== latest '2'.
+      await viewer.vm.$emit('selectVersion', '1');
+      await flushAll(wrapper);
+
+      // Unpin: pick the current latest (id '2'). Because '2' === latest, the
+      // handler clears userPinnedVersionId.
+      await viewer.vm.$emit('selectVersion', '2');
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // Now a newer version arrives — should auto-nav since the pin is null.
+      canvasStore.addItem({ id: '3', filename: 'A.md', type: 'markdown', createdAt: 3000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '3' } });
+    });
+
+    it('switching to a different file (fresh mount) starts with no pin', async () => {
+      // First mount: pin an older version of file A
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'a1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: 'a2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: 'a2' };
+
+      let wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer1 = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer1.vm.$emit('selectVersion', 'a1');
+      await flushAll(wrapper);
+
+      wrapper.unmount();
+
+      // A real router navigation to a different file remounts CanvasTab
+      // (same Pinia store). Simulate that.
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'b1', filename: 'B.md', type: 'markdown', createdAt: 1500 },
+      ]);
+      mockRoute.query = { item: 'b1' };
+
+      wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // New version of B arrives — should auto-nav because the freshly
+      // mounted component has no pin.
+      canvasStore.addItem({ id: 'b2', filename: 'B.md', type: 'markdown', createdAt: 2500 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: 'b2' } });
+    });
+  });
+
   describe('connection status styling', () => {
     it('connection-stale class is NOT applied when connected', async () => {
       api.getAllCanvasItems.mockResolvedValue([
