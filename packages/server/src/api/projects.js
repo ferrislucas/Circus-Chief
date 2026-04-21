@@ -224,24 +224,13 @@ async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, pro
   return { config, nextTemplateId };
 }
 
-// POST /api/projects/:id/sessions - Create session
-// Supports both JSON and multipart/form-data (for file attachments)
-router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const prepared = await validateAndPrepareSessionConfig(req.body, req.files, req.params.id, project);
-  if (prepared.error) {
-    return res.status(prepared.status).json({ error: prepared.error });
-  }
-
-  const { config, nextTemplateId } = prepared;
-  const initialStatus = determineInitialStatus(config);
-
+/**
+ * Create the session row and apply any post-create updates.
+ * Returns the created session (already persisted in DB).
+ */
+function createSessionRow(projectId, config, nextTemplateId, initialStatus) {
   const sessionName = config.name || generateInitialName(config.prompt);
-  const session = sessions.create(req.params.id, sessionName, config.prompt, {
+  const session = sessions.create(projectId, sessionName, config.prompt, {
     mode: config.mode,
     thinkingEnabled: config.thinkingEnabled,
     gitBranch: config.gitBranch,
@@ -251,7 +240,6 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     effortLevel: config.effortLevel,
   });
 
-  // Apply optional post-create updates (next template + scheduling) in one pass
   const postCreateUpdate = {
     ...(nextTemplateId ? { nextTemplateId } : {}),
     ...buildSchedulingUpdate(config, initialStatus),
@@ -259,24 +247,68 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
   if (Object.keys(postCreateUpdate).length > 0) {
     sessions.update(session.id, postCreateUpdate);
   }
+  return session;
+}
 
-  // Setup git environment, start session, and broadcast
+/**
+ * Run setupAndStartSession and translate any failure into an error response,
+ * marking the session as errored and broadcasting the update.
+ */
+async function startSessionOrFail(req, res, { session, config, project }) {
   try {
     const { updatedSession } = await setupAndStartSession({
       session, config, project, projectId: req.params.id, files: config.files,
     });
-    res.status(201).json(updatedSession);
+    return res.status(201).json(updatedSession);
   } catch (error) {
     console.error('Git setup error:', error);
     const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
-
     broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
       projectId: req.params.id,
       sessionId: session.id,
       session: updatedSession,
     });
+    return res.status(500).json({ error: `Git setup failed: ${error.message}` });
+  }
+}
 
-    res.status(500).json({ error: `Git setup failed: ${error.message}` });
+// POST /api/projects/:id/sessions - Create session
+// Supports both JSON and multipart/form-data (for file attachments)
+router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
+  // Outer try/catch so any synchronous or asynchronous throw produces an HTTP
+  // response rather than leaving the socket hanging (which manifests as
+  // "socket hang up" on the client side). Without this, an unhandled rejection
+  // from validation, DB repositories, or template resolution could cause the
+  // intermittent flake observed in file-attachments.test.js.
+  let session = null;
+  try {
+    const project = projects.getById(req.params.id);
+    if (!project) {
+      return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
+    }
+
+    const prepared = await validateAndPrepareSessionConfig(req.body, req.files, req.params.id, project);
+    if (prepared.error) {
+      return res.status(prepared.status).json({ error: prepared.error });
+    }
+
+    const { config, nextTemplateId } = prepared;
+    const initialStatus = determineInitialStatus(config);
+    session = createSessionRow(req.params.id, config, nextTemplateId, initialStatus);
+    return await startSessionOrFail(req, res, { session, config, project });
+  } catch (error) {
+    console.error('Session creation error:', error);
+
+    // If the session row was already created, mark it as errored so it isn't left dangling.
+    if (session && session.id) {
+      try {
+        sessions.update(session.id, { status: 'error', error: error.message });
+      } catch (updateError) {
+        console.error('Failed to mark session as errored:', updateError);
+      }
+    }
+
+    return res.status(500).json({ error: error.message || 'Internal server error' });
   }
 });
 
