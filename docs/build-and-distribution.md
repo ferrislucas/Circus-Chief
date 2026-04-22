@@ -94,7 +94,9 @@ Under the hood, `pw.sh test-package` sets `USE_PACKAGE_SERVER=true` and delegate
 
 Meanwhile `pw.sh test-package`:
 
-- Reads `.db-path` and re-exports `DB_PATH` so seed scripts (e.g. `scripts/seed-*.mjs`) write to the **same** database the package server is using — otherwise seeds would go to a default cwd-relative file and the server would see an empty DB.
+- Queries `GET /api/server-info` after the package server is ready, asserts the server's reported `dbPath` is **not** the user's home DB (`~/.circuschief/circuschief.db`), then re-exports that path as `DB_PATH` so seed scripts (e.g. `scripts/seed-*.mjs`) write to the **same** database the package server is using — otherwise seeds would go to a default cwd-relative file and the server would see an empty DB.
+- Also asserts the server's `schedulerRunning` is `false` (VCR_MODE propagates through `start-package-server.sh` to the server's `schedulerService.startIfEnabled()` gate). If either check fails, pw.sh exits non-zero before any test runs.
+- Does **not** overwrite `DB_PATH` before starting the package server — `setup_isolated_test_db` intentionally clears it so `start-package-server.sh` owns the DB location (an isolated mktemp dir). The dev-server path (`./scripts/pw.sh test`) uses a different worktree-local DB at `$PROJECT_ROOT/.circuschief-test.db`; see [E2E testing](./e2e-testing.md) for the full DB-path matrix.
 - Sets `BASE_URL` / `API_URL` to `http://localhost:<port>` and runs Playwright (Docker if available, `npx playwright` otherwise).
 - Uses a longer startup timeout (180s vs 120s) to cover the extra build + `npm install` steps.
 

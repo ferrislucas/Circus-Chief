@@ -23,6 +23,24 @@ import { API_URL, getAPIURL } from './helpers';
 // ---------------------------------------------------------------------------
 
 /**
+ * Extract the full body of a bash function from source text by brace-matching.
+ * Works for functions defined as `name() { ... }`.
+ */
+function extractFunctionBody(source: string, funcName: string): string {
+  const funcStart = source.indexOf(`${funcName}()`);
+  if (funcStart === -1) return '';
+  const openBrace = source.indexOf('{', funcStart);
+  let depth = 0;
+  let funcEnd = source.length;
+  for (let i = openBrace; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}') depth--;
+    if (depth === 0) { funcEnd = i + 1; break; }
+  }
+  return source.slice(funcStart, funcEnd);
+}
+
+/**
  * Execute a shell command and capture stdout/stderr/exitCode.
  * Uses execSync with try/catch to capture non-zero exit codes.
  */
@@ -278,11 +296,7 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     );
 
     // Find detect_or_start_server function
-    const funcStart = pwshSource.indexOf('detect_or_start_server()');
-    expect(funcStart).toBeGreaterThan(-1);
-
-    // Get the function body (up to the next top-level function or end)
-    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+    const funcBody = extractFunctionBody(pwshSource, 'detect_or_start_server');
 
     // (a) Curl check against the port from .server-port
     expect(funcBody).toMatch(/curl.*localhost.*\$.*port/i);
@@ -311,9 +325,7 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     );
 
     // Extract detect_or_start_server function body
-    const funcStart = pwshSource.indexOf('detect_or_start_server()');
-    expect(funcStart).toBeGreaterThan(-1);
-    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+    const funcBody = extractFunctionBody(pwshSource, 'detect_or_start_server');
 
     // The old reuse shortcut message should NOT exist in the function body
     expect(funcBody).not.toContain('Server is already running on port');
@@ -327,9 +339,7 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     );
 
     // Extract detect_or_start_server function body
-    const funcStart = pwshSource.indexOf('detect_or_start_server()');
-    expect(funcStart).toBeGreaterThan(-1);
-    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+    const funcBody = extractFunctionBody(pwshSource, 'detect_or_start_server');
 
     // Should contain the port 5000 safety check
     expect(funcBody).toContain('"5000"');
@@ -344,9 +354,7 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     );
 
     // Extract detect_or_start_server function body
-    const funcStart = pwshSource.indexOf('detect_or_start_server()');
-    expect(funcStart).toBeGreaterThan(-1);
-    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+    const funcBody = extractFunctionBody(pwshSource, 'detect_or_start_server');
 
     // Should contain 'Restarting server' message followed by kill command
     expect(funcBody).toContain('Restarting server');
@@ -364,9 +372,7 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     );
 
     // Extract detect_or_start_server function body
-    const funcStart = pwshSource.indexOf('detect_or_start_server()');
-    expect(funcStart).toBeGreaterThan(-1);
-    const funcBody = pwshSource.slice(funcStart, funcStart + 4000);
+    const funcBody = extractFunctionBody(pwshSource, 'detect_or_start_server');
 
     // The old VCR_MODE server-side comparison variables should be removed
     expect(funcBody).not.toContain('server_vcr_mode');
