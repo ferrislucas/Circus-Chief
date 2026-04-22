@@ -54,6 +54,7 @@ mkdirSync(dirname(dbPath), { recursive: true });
 // Initialize database
 initDatabase(dbPath);
 console.log(`Database initialized: ${dbPath}`);
+console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
 
 // Apply --no-analytics flag to persisted settings
 if (disableAnalytics) {
@@ -70,9 +71,8 @@ const server = createServer(app);
 // Initialize WebSocket for app
 initWebSocket(server);
 
-// Initialize and start scheduler service
-schedulerService.initialize(sessionManager);
-schedulerService.start();
+// Initialize and start scheduler service (gated off under VCR_MODE)
+schedulerService.startIfEnabled(sessionManager);
 
 // Start PR status polling service
 prStatusService.start();

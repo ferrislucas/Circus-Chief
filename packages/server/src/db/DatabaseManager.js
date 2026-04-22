@@ -13,6 +13,7 @@ const __dirname = dirname(__filename);
  */
 export class DatabaseManager {
   #db = null;
+  #dbPath = null;
 
   /**
    * Initialize database with WAL mode and foreign keys
@@ -20,6 +21,7 @@ export class DatabaseManager {
    * @returns {Database.Database}
    */
   init(dbPath) {
+    this.#dbPath = dbPath;
     this.#db = new Database(dbPath);
 
     // Enable WAL mode and foreign keys
@@ -34,6 +36,14 @@ export class DatabaseManager {
     this.#runMigrations();
 
     return this.#db;
+  }
+
+  /**
+   * Get the path the database was initialized with.
+   * @returns {string|null}
+   */
+  getPath() {
+    return this.#dbPath;
   }
 
   /**
@@ -66,6 +76,7 @@ export class DatabaseManager {
     if (this.#db) {
       this.#db.close();
       this.#db = null;
+      this.#dbPath = null;
     }
   }
 

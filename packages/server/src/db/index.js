@@ -91,6 +91,10 @@ export function closeDatabase() {
   return databaseManager.close();
 }
 
+export function getDbPath() {
+  return databaseManager.getPath();
+}
+
 export function generateId() {
   return databaseManager.generateId();
 }

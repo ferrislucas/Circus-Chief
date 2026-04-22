@@ -915,17 +915,32 @@ function handleHeaderTouchmove(event) {
  * backdrop always tracks what the user actually sees, regardless of
  * URL-bar state, keyboard animation, or pinch-zoom.
  *
- * Clamp behavior: in the short window after a TEXTAREA/INPUT blur, iOS
- * Safari can leave visualViewport reporting stale keyboard-open values
- * (shrunken height, non-zero offsetTop) even though the keyboard has
- * dismissed. If we're in that window and either height is substantially
- * shorter than the layout viewport or offsetTop is large, override with
- * layout-viewport geometry so the backdrop fully covers the screen and
- * background content cannot bleed through.
+ * Three branches (checked in order):
  *
- * Outside that window, always honor vv values — that is what preserves
- * the iPadOS URL-bar fix from commit 6d61f905, where vv.offsetTop > 0
- * legitimately reflects where the user can see.
+ * 1. Post-blur stale clamp: in the short window after a TEXTAREA/INPUT
+ *    blur, iOS Safari can leave visualViewport reporting stale
+ *    keyboard-open values (shrunken height, non-zero offsetTop) even
+ *    though the keyboard has dismissed. If we're in that window and
+ *    either height is substantially shorter than the layout viewport or
+ *    offsetTop is large, override with layout-viewport geometry so the
+ *    backdrop fully covers the screen and background content cannot
+ *    bleed through.
+ *
+ * 2. Browser-chrome-gap branch (added to fix iPad full-screen Safari):
+ *    when no text input is focused and not in the post-blur window, but
+ *    vv.height is meaningfully shorter than innerHeight, the gap is
+ *    browser chrome (iPad's persistent tab bar + URL bar), not a
+ *    keyboard. Honoring vv.height there would leave the SessionDetailView
+ *    visible below the overlay (SessionChatHandle / TodoDrawer /
+ *    InputForm bleed-through). Fall back to the layout viewport.
+ *    Gated on the existing `inputFocused` ref (tracked by
+ *    handleOverlayFocusin/out) rather than `document.activeElement`,
+ *    so there is one source of truth for "text input is focused" and
+ *    the rAF-debounced focus transitions are respected.
+ *
+ * 3. Default: honor vv values — that is what preserves the iPadOS
+ *    URL-bar fix from commit 6d61f905, where vv.offsetTop > 0
+ *    legitimately reflects where the user can see.
  *
  * No-op on engines that do not expose `window.visualViewport`; the
  * backdrop's CSS `inset: 0` fallback remains authoritative in that case.
@@ -935,27 +950,57 @@ function syncToVisualViewport() {
   const backdrop = overlayBackdropRef.value;
   if (!vv || !backdrop) return;
 
+  // Threshold calibration (shared by branches 1 and 2):
+  //   - exceeds the largest observed iPadOS URL-bar retraction delta (~50 px)
+  //   - smaller than any mobile soft keyboard (iPhone ≥ 260 px, iPad ≥ 300 px)
+  //   - comfortably catches the iPad full-screen tab bar + URL bar gap
+  //     (typically 100–200 px combined)
+  const HEIGHT_GAP_THRESHOLD_PX = 100;
+  const heightGap = window.innerHeight - vv.height;
+
+  // Branch 1: post-blur stale clamp.
   if (isRecentBlur()) {
     // Keyboard must be closed (or closing) in this window. Any claim that
     // the visible area is much smaller than innerHeight, or that it starts
     // far below the layout origin, is almost certainly stale.
-    const HEIGHT_GAP_THRESHOLD_PX = 100;   // smaller than any mobile keyboard
     const OFFSET_TOP_THRESHOLD_PX = 60;    // larger than observed iPadOS URL-bar deltas (≤ ~50 px)
-    const heightIsStale = vv.height < window.innerHeight - HEIGHT_GAP_THRESHOLD_PX;
+    const heightIsStale = heightGap > HEIGHT_GAP_THRESHOLD_PX;
     const offsetIsStale = vv.offsetTop > OFFSET_TOP_THRESHOLD_PX;
     if (heightIsStale || offsetIsStale) {
-      backdrop.style.top = '0px';
-      backdrop.style.left = '0px';
-      backdrop.style.width = `${window.innerWidth}px`;
-      backdrop.style.height = `${window.innerHeight}px`;
+      applyLayoutViewport();
       return;
     }
   }
 
+  // Branch 2: browser-chrome-gap (see JSDoc above). No keyboard is (or
+  // was just) open, but vv is meaningfully shorter than the layout
+  // viewport — the difference is persistent iPad browser chrome. Cover
+  // the layout viewport so the backdrop reaches the bottom of the screen.
+  if (!inputFocused.value && heightGap > HEIGHT_GAP_THRESHOLD_PX) {
+    applyLayoutViewport();
+    return;
+  }
+
+  // Branch 3 (default): honor visual viewport. Preserves commit 6d61f905 —
+  // vv.offsetTop > 0 legitimately reflects where the user can see during
+  // URL-bar state changes.
   backdrop.style.top = `${vv.offsetTop}px`;
   backdrop.style.left = `${vv.offsetLeft}px`;
   backdrop.style.width = `${vv.width}px`;
   backdrop.style.height = `${vv.height}px`;
+}
+
+/**
+ * Write layout-viewport geometry to the backdrop. Shared by the post-blur
+ * stale-clamp and the browser-chrome-gap branches of `syncToVisualViewport`.
+ */
+function applyLayoutViewport() {
+  const backdrop = overlayBackdropRef.value;
+  if (!backdrop) return;
+  backdrop.style.top = '0px';
+  backdrop.style.left = '0px';
+  backdrop.style.width = `${window.innerWidth}px`;
+  backdrop.style.height = `${window.innerHeight}px`;
 }
 
 /**
@@ -1123,6 +1168,7 @@ defineExpose({
   inputFocused,
   // viewport helpers:
   syncToVisualViewport,
+  applyLayoutViewport,
   markRecentBlur,
   isRecentBlur: () => isRecentBlur(),
   // DOM refs needed by tests that append real elements (textarea/input)

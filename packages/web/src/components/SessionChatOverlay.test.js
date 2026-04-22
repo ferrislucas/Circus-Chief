@@ -1487,6 +1487,13 @@ describe('SessionChatOverlay', () => {
       'visualViewport'
     );
 
+    // Preserve the original window.innerWidth/innerHeight so each test can
+    // align them with its vv mock (the browser-chrome-gap branch fires when
+    // innerHeight - vv.height exceeds the threshold, so tests that intend to
+    // exercise the default vv-honoring path must set matching innerHeight).
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+
     function installMockVisualViewport(props = {}) {
       const addEventListener = vi.fn();
       const removeEventListener = vi.fn();
@@ -1515,8 +1522,14 @@ describe('SessionChatOverlay', () => {
       }
     }
 
+    function setInnerSize(w, innerH) {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: innerH });
+    }
+
     afterEach(() => {
       restoreVisualViewport();
+      setInnerSize(originalInnerWidth, originalInnerHeight);
     });
 
     it('applies geometry from window.visualViewport on mount', async () => {
@@ -1526,6 +1539,9 @@ describe('SessionChatOverlay', () => {
         width: 390,
         height: 580,
       });
+      // Match innerHeight to vv.height so the new browser-chrome-gap branch
+      // does not fire — this test is about the default vv-honoring path.
+      setInnerSize(390, 580);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1543,6 +1559,7 @@ describe('SessionChatOverlay', () => {
 
     it('attaches resize and scroll listeners on mount', async () => {
       const vv = installMockVisualViewport();
+      setInnerSize(390, 580);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1562,6 +1579,7 @@ describe('SessionChatOverlay', () => {
 
     it('removes listeners on unmount using the same handler reference', async () => {
       const vv = installMockVisualViewport();
+      setInnerSize(390, 580);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1601,6 +1619,9 @@ describe('SessionChatOverlay', () => {
         width: 390,
         height: 580,
       });
+      // Initial innerHeight matches vv.height so the default branch writes
+      // vv geometry on mount.
+      setInnerSize(390, 580);
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1611,15 +1632,107 @@ describe('SessionChatOverlay', () => {
       expect(backdrop.style.height).toBe('580px');
 
       // Simulate URL bar retracting / keyboard dismissing: visual viewport
-      // shifts up and grows taller. Invoke the registered resize handler.
+      // shifts up and grows taller. Grow innerHeight in lockstep so the gap
+      // stays within the threshold and the default branch still fires.
       const resizeHandler = vv.addEventListener.mock.calls.find(
         c => c[0] === 'resize'
       )[1];
       vv.offsetTop = 40;
       vv.height = 620;
+      setInnerSize(390, 620);
       resizeHandler();
 
       expect(backdrop.style.top).toBe('40px');
+      expect(backdrop.style.height).toBe('620px');
+
+      wrapper.unmount();
+    });
+
+    it('falls back to layout viewport when vv is shorter than innerHeight and no input is focused', async () => {
+      // iPad full-screen Safari: persistent tab bar + URL bar keeps
+      // vv.height < innerHeight. No soft keyboard, no focused input →
+      // the browser-chrome-gap branch should apply the layout viewport so
+      // the overlay reaches the bottom of the screen.
+      installMockVisualViewport({ offsetTop: 0, offsetLeft: 0, width: 1024, height: 1200 });
+      setInnerSize(1024, 1366);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop.style.top).toBe('0px');
+      expect(backdrop.style.left).toBe('0px');
+      expect(backdrop.style.width).toBe('1024px');
+      expect(backdrop.style.height).toBe('1366px'); // innerHeight, not vv.height
+
+      wrapper.unmount();
+    });
+
+    it('honors vv.height when a text input is focused (keyboard-open path)', async () => {
+      // iPhone keyboard open: vv.height shrinks by more than the chrome
+      // threshold, but a text input inside the overlay body is focused,
+      // so the browser-chrome-gap branch must NOT fire. vv geometry wins.
+      installMockVisualViewport({ offsetTop: 0, offsetLeft: 0, width: 400, height: 500 });
+      setInnerSize(400, 800); // gap = 300 — keyboard-sized
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      // Append a real <textarea> into the overlay body and dispatch a
+      // bubbling focusin event — mirrors how handleOverlayFocusin is wired
+      // up via the body's event delegation.
+      const body = wrapper.vm.overlayBodyRef;
+      expect(body).toBeTruthy();
+      const ta = document.createElement('textarea');
+      body.appendChild(ta);
+      ta.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      await nextTick();
+
+      wrapper.vm.syncToVisualViewport();
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop.style.top).toBe('0px');
+      expect(backdrop.style.height).toBe('500px'); // vv.height, not innerHeight
+
+      wrapper.unmount();
+    });
+
+    it('honors vv.height when heightGap is within the chrome threshold', async () => {
+      // Split View / desktop / Android: vv.height is close enough to
+      // innerHeight that the browser-chrome-gap branch must NOT fire.
+      // Regression guard for every environment that works today.
+      installMockVisualViewport({ offsetTop: 0, offsetLeft: 0, width: 600, height: 770 });
+      setInnerSize(600, 800); // gap = 30, below threshold
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop.style.top).toBe('0px');
+      expect(backdrop.style.width).toBe('600px');
+      expect(backdrop.style.height).toBe('770px'); // vv.height
+
+      wrapper.unmount();
+    });
+
+    it('honors vv.offsetTop > 0 during URL-bar retraction (commit 6d61f905)', async () => {
+      // iPadOS URL-bar retraction: vv.offsetTop is non-zero and legitimately
+      // reflects where the user can see. Gap is within threshold, no input
+      // focused — default branch must honor vv including offsetTop.
+      installMockVisualViewport({ offsetTop: 40, offsetLeft: 0, width: 390, height: 620 });
+      setInnerSize(390, 660); // gap = 40, below threshold
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const backdrop = document.querySelector('.overlay-backdrop');
+      expect(backdrop.style.top).toBe('40px');
+      expect(backdrop.style.left).toBe('0px');
+      expect(backdrop.style.width).toBe('390px');
       expect(backdrop.style.height).toBe('620px');
 
       wrapper.unmount();
@@ -1989,6 +2102,20 @@ describe('SessionChatOverlay', () => {
 
       expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
       expect(document.querySelector('.overlay-backdrop')).toBeNull();
+    });
+
+    it('post-blur clamp runs before the chrome-gap branch', async () => {
+      installMockVisualViewport({ offsetTop: 0, width: 400, height: 500 });
+      setInnerSize(400, 800); // gap = 300, would otherwise trigger chrome-gap
+      const wrapper = await mountAndFlush();
+      wrapper.vm.markRecentBlur();
+      wrapper.vm.syncToVisualViewport();
+      const backdrop = document.querySelector('.overlay-backdrop');
+      // Both clamps would write the same geometry; asserting the backdrop is at
+      // layout viewport confirms we hit the existing (post-blur) path first.
+      expect(backdrop.style.height).toBe('800px');
+      expect(backdrop.style.top).toBe('0px');
+      wrapper.unmount();
     });
 
     it('.overlay-panel-wrapper has 100dvh min-height fallback in the stylesheet', () => {
