@@ -52,8 +52,18 @@ parse_server_info_field() {
         | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{try{const o=JSON.parse(s);const v=o[process.argv[1]];process.stdout.write(v==null?'':String(v));}catch{process.exit(2);}});" "$field"
 }
 
-# Verify the server on the given port is using the expected DB_PATH and has
-# the scheduler disabled. Intended to be called after detect_or_start_server.
+# Verify the server on the given port is isolated from the user's real DB
+# and has the scheduler disabled. Intended to be called after
+# detect_or_start_server.
+#
+# Two modes:
+#   - Dev-server path (USE_PACKAGE_SERVER=false): the server's dbPath must
+#     exactly match the DB_PATH we set in setup_isolated_test_db.
+#   - Package-server path (USE_PACKAGE_SERVER=true): start-package-server.sh
+#     owns the DB location (a mktemp'd INSTALL_DIR). We only require that
+#     dbPath is NOT the user's home DB, and we export it so seed scripts
+#     running in the current shell hit the same file.
+#
 # Args: $1 = port
 # Returns 0 on success, 1 on mismatch.
 verify_server_isolation() {
@@ -61,15 +71,35 @@ verify_server_isolation() {
 
     local actual_db
     actual_db=$(parse_server_info_field "$port" dbPath)
-    if [ "$actual_db" != "$DB_PATH" ]; then
-        print_error "Server is using unexpected DB: $actual_db (expected $DB_PATH)"
-        return 1
+
+    if [ "$USE_PACKAGE_SERVER" = true ]; then
+        # Package server picks its own DB path; we just need proof it isn't
+        # the home DB. Resolve $HOME/.circuschief/circuschief.db defensively
+        # (HOME could be unset in some CI environments).
+        local home_db="${HOME:-/nonexistent}/.circuschief/circuschief.db"
+        if [ -z "$actual_db" ]; then
+            print_error "Package server reported no dbPath; cannot verify isolation"
+            return 1
+        fi
+        if [ "$actual_db" = "$home_db" ]; then
+            print_error "Package server is using the user's home DB: $actual_db"
+            return 1
+        fi
+        # Export so seed scripts (running in the pw.sh shell) use the same DB
+        # the package server is writing to.
+        export DB_PATH="$actual_db"
+        print_info "DB_PATH set to: $DB_PATH"
+    else
+        if [ "$actual_db" != "$DB_PATH" ]; then
+            print_error "Server is using unexpected DB: $actual_db (expected $DB_PATH)"
+            return 1
+        fi
     fi
 
     local actual_scheduler
     actual_scheduler=$(parse_server_info_field "$port" schedulerRunning)
     if [ "$actual_scheduler" = "true" ]; then
-        print_error "Scheduler is unexpectedly running under VCR_MODE; refusing to run tests"
+        print_error "Scheduler is unexpectedly running (expected disabled under VCR_MODE); refusing to run tests"
         return 1
     fi
 
@@ -79,7 +109,20 @@ verify_server_isolation() {
 # Before we touch the server, set DB_PATH to a worktree-local file and wipe
 # any leftover DB from earlier runs so each pw.sh run starts clean. The rm
 # is guarded to files inside PROJECT_ROOT.
+#
+# Skipped when USE_PACKAGE_SERVER=true because start-package-server.sh
+# chooses its own DB path inside a mktemp'd directory (which is itself
+# isolated from the user's real DB). In that mode, DB_PATH will be exported
+# by verify_server_isolation after the server reports its chosen path.
 setup_isolated_test_db() {
+    if [ "$USE_PACKAGE_SERVER" = true ]; then
+        # Clear any stale DB_PATH inherited from the shell so the package
+        # server's .db-path (written by start-package-server.sh) is the
+        # source of truth.
+        unset DB_PATH
+        return 0
+    fi
+
     if [ -z "${DB_PATH:-}" ]; then
         export DB_PATH="$PROJECT_ROOT/.circuschief-test.db"
     fi
@@ -134,24 +177,29 @@ detect_or_start_server() {
             local server_cwd
             server_cwd=$(parse_server_info_field "$detected_port" cwd)
 
-            # Also verify the DB path and scheduler state if we have expectations
-            # set (i.e. setup_isolated_test_db already ran). A worktree server
-            # started manually (without VCR_MODE) would reuse the home DB; the
-            # reuse path must refuse such a server and start a fresh one.
+            # Also verify the DB path and scheduler state. A worktree server
+            # started manually (without VCR_MODE) would reuse the home DB and
+            # have its scheduler running; the reuse path must refuse such a
+            # server and start a fresh one.
+            #
+            # Scheduler check runs unconditionally — any running pw.sh command
+            # expects the scheduler disabled regardless of USE_PACKAGE_SERVER.
+            # DB check is skipped for USE_PACKAGE_SERVER because that path
+            # picks its own DB location (see setup_isolated_test_db).
             local db_mismatch=false
-            if [ -n "${DB_PATH:-}" ]; then
+            if [ "$USE_PACKAGE_SERVER" != true ] && [ -n "${DB_PATH:-}" ]; then
                 local server_db
                 server_db=$(parse_server_info_field "$detected_port" dbPath)
                 if [ -n "$server_db" ] && [ "$server_db" != "$DB_PATH" ]; then
                     db_mismatch=true
                     print_warning "Server on port $detected_port is using DB $server_db (expected $DB_PATH)"
                 fi
-                local server_scheduler
-                server_scheduler=$(parse_server_info_field "$detected_port" schedulerRunning)
-                if [ "$server_scheduler" = "true" ]; then
-                    db_mismatch=true
-                    print_warning "Server on port $detected_port has scheduler running — refusing to reuse under VCR_MODE"
-                fi
+            fi
+            local server_scheduler
+            server_scheduler=$(parse_server_info_field "$detected_port" schedulerRunning)
+            if [ "$server_scheduler" = "true" ]; then
+                db_mismatch=true
+                print_warning "Server on port $detected_port has scheduler running — refusing to reuse (expected disabled under VCR_MODE)"
             fi
 
             if [ -n "$server_cwd" ] && [ "$server_cwd" != "$PROJECT_ROOT" ]; then

@@ -33,9 +33,9 @@ describe('start-server.sh --dry-run DB_PATH resolution', () => {
     // Resolve /var -> /private/var etc. so we can compare paths reliably on macOS.
     const resolvedRoot = realpathSync(root);
     mkdirSync(join(resolvedRoot, 'scripts'));
-    const scriptPath = join(resolvedRoot, 'scripts', 'start-server.sh');
-    symlinkSync(REAL_SCRIPT, scriptPath);
-    return { root: resolvedRoot, scriptPath };
+    const fakeScript = join(resolvedRoot, 'scripts', 'start-server.sh');
+    symlinkSync(REAL_SCRIPT, fakeScript);
+    return { root: resolvedRoot, scriptPath: fakeScript };
   };
 
   beforeEach(() => {
