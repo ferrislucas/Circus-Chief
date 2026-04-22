@@ -319,12 +319,7 @@
       </details>
 
       <details class="advanced-settings">
-        <summary>
-          Kanban Board
-          <span class="inline-block rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300 ml-2">
-            Experimental
-          </span>
-        </summary>
+        <summary>Kanban Board <span class="inline-block rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300 ml-2">Experimental</span></summary>
         <div class="form-group">
           <label class="checkbox-label">
             <input

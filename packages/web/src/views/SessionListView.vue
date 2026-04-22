@@ -223,7 +223,7 @@
             :summary-loading="loadingSummaries[group.parent.id]"
             :summary-error="summaryErrors[group.parent.id]"
             :show-archive="true"
-            :kanban-enabled="projectsStore.currentProject?.kanbanEnabled ?? true"
+            :kanban-enabled="projectsStore.currentProject?.kanbanEnabled ?? false"
             :pr-url="group.parent.prUrl"
             :pr-summary="summaries[group.parent.id]"
             @retry-summary="retryFetchSummary"

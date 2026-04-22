@@ -133,6 +133,46 @@ describe('ProjectRepository', () => {
 
   });
 
+  describe('row mapping (#mapProject)', () => {
+    it('maps kanban_enabled=1 to kanbanEnabled=true', () => {
+      const mapped = repo.map({
+        id: 'x',
+        name: 'n',
+        working_directory: '/tmp',
+        kanban_enabled: 1,
+        created_at: 0,
+        updated_at: 0,
+      });
+      expect(mapped.kanbanEnabled).toBe(true);
+    });
+
+    it('maps kanban_enabled=0 to kanbanEnabled=false', () => {
+      const mapped = repo.map({
+        id: 'x',
+        name: 'n',
+        working_directory: '/tmp',
+        kanban_enabled: 0,
+        created_at: 0,
+        updated_at: 0,
+      });
+      expect(mapped.kanbanEnabled).toBe(false);
+    });
+
+    it('falls back to kanbanEnabled=false when the column is missing', () => {
+      // Simulates a row that somehow lacks the kanban_enabled column.
+      // With Kanban now an experimental opt-in feature, missing data should
+      // be treated as disabled (consistent with create()).
+      const mapped = repo.map({
+        id: 'x',
+        name: 'n',
+        working_directory: '/tmp',
+        created_at: 0,
+        updated_at: 0,
+      });
+      expect(mapped.kanbanEnabled).toBe(false);
+    });
+  });
+
   describe('getById', () => {
     it('retrieves project by ID', () => {
       const created = repo.create('Test', '/tmp/test');

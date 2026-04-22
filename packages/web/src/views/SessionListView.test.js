@@ -356,7 +356,7 @@ vi.mock('../composables/useApi.js', () => ({
 vi.mock('../components/SessionCard.vue', () => ({
   default: defineComponent({
     name: 'SessionCard',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'kanbanEnabled'],
     emits: ['retrySummary', 'archive', 'unarchive'],
     template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)" :data-pr-url="prUrl" :data-pr-summary="JSON.stringify(prSummary)"><slot /></div>',
   }),
@@ -3150,5 +3150,42 @@ describe('SessionListView Kanban Experimental behavior', () => {
     expect(mockRouterReplace).toHaveBeenCalledWith(
       '/projects/test-project-id/sessions'
     );
+  });
+
+  it('passes kanbanEnabled=false to SessionCard when project has Kanban disabled', async () => {
+    mockProjectsStore = {
+      currentProject: {
+        id: 'test-project-id',
+        name: 'Test Project',
+        workingDirectory: '/tmp',
+        kanbanEnabled: false,
+      },
+      fetchProject: vi.fn(),
+    };
+    useProjectsStore.mockReturnValue(mockProjectsStore);
+
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+    expect(sessionCard.exists()).toBe(true);
+    expect(sessionCard.props('kanbanEnabled')).toBe(false);
+  });
+
+  it('passes kanbanEnabled=false to SessionCard when currentProject is not yet loaded', async () => {
+    mockProjectsStore = {
+      currentProject: null,
+      fetchProject: vi.fn(),
+    };
+    useProjectsStore.mockReturnValue(mockProjectsStore);
+
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+    if (sessionCard.exists()) {
+      // Fallback should be false, not true, now that Kanban is experimental/opt-in.
+      expect(sessionCard.props('kanbanEnabled')).toBe(false);
+    }
   });
 });
