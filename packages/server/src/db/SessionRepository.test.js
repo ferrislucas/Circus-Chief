@@ -1488,28 +1488,24 @@ describe('SessionRepository', () => {
       expect(retrievedAfter.lastActivityAt).toBeGreaterThanOrEqual(newMessage.timestamp);
     });
 
-    it('falls back to updatedAt when there are no messages', () => {
+    it('returns null for lastActivityAt when there are no messages (waiting session)', () => {
       // Create a waiting session (which doesn't create initial message)
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'waiting');
 
       const retrieved = repo.getById(session.id);
 
-      expect(retrieved.lastActivityAt).toBeDefined();
-      expect(retrieved.lastActivityAt).toBeTypeOf('number');
-      // For a new session with no messages, lastActivityAt should equal updatedAt
-      expect(retrieved.lastActivityAt).toBe(retrieved.updatedAt);
+      // Option A: sessions with zero messages surface null so the UI can display
+      // a meaningful "No activity yet" placeholder.
+      expect(retrieved.lastActivityAt).toBeNull();
     });
 
-    it('falls back to createdAt when there are no messages and updatedAt equals createdAt', () => {
+    it('returns null for lastActivityAt when there are no messages (scheduled session)', () => {
       // Create a scheduled session (which doesn't create initial message)
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'scheduled');
 
       const retrieved = repo.getById(session.id);
 
-      expect(retrieved.lastActivityAt).toBeDefined();
-      expect(retrieved.lastActivityAt).toBeTypeOf('number');
-      // For a new session with no messages and no updates, lastActivityAt should equal createdAt
-      expect(retrieved.lastActivityAt).toBe(retrieved.createdAt);
+      expect(retrieved.lastActivityAt).toBeNull();
     });
 
     it('is included in getActiveAndWaiting results', () => {
@@ -1552,8 +1548,9 @@ describe('SessionRepository', () => {
       const sessions = repo.getScheduledSessions();
 
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].lastActivityAt).toBeDefined();
-      expect(sessions[0].lastActivityAt).toBeTypeOf('number');
+      // Scheduled sessions have no messages yet, so lastActivityAt is null.
+      expect(sessions[0]).toHaveProperty('lastActivityAt');
+      expect(sessions[0].lastActivityAt).toBeNull();
     });
 
     it('orders getByProjectId by last_activity_at DESC (recent activity first)', () => {
@@ -1586,6 +1583,49 @@ describe('SessionRepository', () => {
       expect(ids).toContain(waiting.id);
       expect(ids).toContain(active.id);
       expect(sessions).toHaveLength(2);
+    });
+
+    it('orders getActiveAndWaiting by last_activity_at DESC', () => {
+      // Three sessions in active/waiting statuses, created in order. s1 is oldest by
+      // creation but will have the most recent message activity.
+      const s1 = repo.create(projectId, 'S1', 'Prompt 1');
+      const s2 = repo.create(projectId, 'S2', 'Prompt 2');
+      const s3 = repo.create(projectId, 'S3', 'Prompt 3');
+
+      repo.update(s1.id, { status: 'starting' });
+      repo.update(s2.id, { status: 'running' });
+      repo.update(s3.id, { status: 'waiting' });
+
+      const now = Date.now();
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 10_000, s1.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 5_000, s3.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now, s2.id);
+
+      const sessions = repo.getActiveAndWaiting();
+      const ids = sessions.map((s) => s.id);
+      // Expected ordering by activity recency: s1 (most recent) → s3 → s2.
+      expect(ids).toEqual([s1.id, s3.id, s2.id]);
+    });
+
+    it('orders getSessionsWithPrUrls by last_activity_at DESC', () => {
+      const s1 = repo.create(projectId, 'S1', 'Prompt 1');
+      const s2 = repo.create(projectId, 'S2', 'Prompt 2');
+      const s3 = repo.create(projectId, 'S3', 'Prompt 3');
+
+      repo.update(s1.id, { prUrl: 'https://github.com/org/repo/pull/1' });
+      repo.update(s2.id, { prUrl: 'https://github.com/org/repo/pull/2' });
+      repo.update(s3.id, { prUrl: 'https://github.com/org/repo/pull/3' });
+
+      const now = Date.now();
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 10_000, s1.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 5_000, s3.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now, s2.id);
+
+      const sessions = repo.getSessionsWithPrUrls();
+      const ids = sessions.map((s) => s.id);
+      expect(ids).toEqual([s1.id, s3.id, s2.id]);
     });
   });
 

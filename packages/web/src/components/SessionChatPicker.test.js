@@ -324,6 +324,49 @@ describe('SessionChatPicker', () => {
         expect(dateText).toBeTruthy();
       });
     });
+
+    it('renders lastActivityAt when present with "Last activity" tooltip', () => {
+      const wrapper = mountComponent();
+      const firstItem = wrapper.findAll('.picker-item')[0];
+      const dateEl = firstItem.find('.picker-item-date');
+      expect(dateEl.attributes('title')).toBe('Last activity');
+      expect(dateEl.text()).not.toBe('—');
+      expect(dateEl.text().length).toBeGreaterThan(0);
+    });
+
+    it('renders "—" placeholder with "No activity yet" tooltip when lastActivityAt is null', () => {
+      const wrapper = mountComponent({
+        sessions: [{
+          session: {
+            id: 's-null',
+            name: 'No activity',
+            status: 'waiting',
+            createdAt: Date.now(),
+            lastActivityAt: null,
+          },
+          depth: 0,
+        }],
+        activeSessionId: 's-null',
+        summaries: {},
+      });
+      const dateEl = wrapper.find('.picker-item-date');
+      expect(dateEl.attributes('title')).toBe('No activity yet');
+      expect(dateEl.text()).toBe('—');
+    });
+
+    it('flips tooltip between "Last activity" and "No activity yet" based on value', () => {
+      const wrapper = mountComponent({
+        sessions: [
+          { session: { id: 'has', name: 'Has', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
+          { session: { id: 'none', name: 'None', status: 'waiting', createdAt: Date.now(), lastActivityAt: null }, depth: 0 },
+        ],
+        activeSessionId: 'has',
+        summaries: {},
+      });
+      const items = wrapper.findAll('.picker-item');
+      expect(items[0].find('.picker-item-date').attributes('title')).toBe('Last activity');
+      expect(items[1].find('.picker-item-date').attributes('title')).toBe('No activity yet');
+    });
   });
 
   describe('keyboard navigation', () => {

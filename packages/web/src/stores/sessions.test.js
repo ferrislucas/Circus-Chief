@@ -4895,6 +4895,34 @@ describe('Sessions Store', () => {
         const updated = store.sessions.find((s) => s.id === 'session-1');
         expect(updated.lastActivityAt).toBe(5000);
       });
+
+      it('bumps lastActivityAt for a different session than the current one', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'session-a', name: 'A', lastActivityAt: 1000 },
+          { id: 'session-b', name: 'B', lastActivityAt: 2000 },
+        ];
+        store.currentSession = { id: 'session-a' };
+
+        store.addMessage({ id: 'msg-b', sessionId: 'session-b', content: 'background', timestamp: 9000 });
+
+        // lastActivityAt on the background session is still updated for list re-sorting.
+        const b = store.sessions.find((s) => s.id === 'session-b');
+        expect(b.lastActivityAt).toBe(9000);
+        // The guard still prevents the message from being appended to the current session's messages.
+        expect(store.messages).toHaveLength(0);
+      });
+
+      it('bumps lastActivityAt when currentSession is null', () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 1000 }];
+        store.currentSession = null;
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'hi', timestamp: 4000 });
+
+        const updated = store.sessions.find((s) => s.id === 'session-1');
+        expect(updated.lastActivityAt).toBe(4000);
+      });
     });
 
     describe('addWorkLog guard', () => {

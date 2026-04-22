@@ -57,9 +57,11 @@ export const perSessionActions = {
   },
 
   addMessage(message) {
+    // Bump list ordering for ALL inbound messages so background sessions re-sort
+    // live in the project session list, not only the currently-open session.
+    this._bumpLastActivityAt(message);
     if (this.currentSession && message.sessionId && message.sessionId !== this.currentSession.id) return;
     if (!this.messages.some(m => m.id === message.id)) this.messages.push(message);
-    this._bumpLastActivityAt(message);
   },
 
   /**
