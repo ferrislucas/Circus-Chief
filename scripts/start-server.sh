@@ -25,9 +25,39 @@
 #
 # =============================================================================
 
+# Resolve the project root deterministically from this script's own path so
+# DB_PATH / port files always live in the worktree this script was launched
+# from, regardless of the caller's cwd.
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 PORT_FILE=".server-port"
 MAIN_PORT=5000
 WORKTREE_PORT_START=5001
+
+# Parse optional --dry-run flag early so we can exit before `yarn build`
+# (useful for shell-level unit tests that only want to inspect DB_PATH logic).
+DRY_RUN=false
+if [ "${1:-}" = "--dry-run" ]; then
+    DRY_RUN=true
+    shift
+fi
+
+# In --dry-run mode, do only DB_PATH resolution and exit. Doing it here (before
+# any port / lsof / yarn logic) keeps the test fully stateless — no port 5000
+# interaction, no side effects beyond writing the .db-path sidecar (which the
+# test's throwaway root owns anyway).
+if [ "$DRY_RUN" = true ]; then
+    if [ -z "${DB_PATH:-}" ] && [ -n "${VCR_MODE:-}" ]; then
+        DB_PATH="$PROJECT_ROOT/.circuschief-test.db"
+    fi
+    if [ -n "${DB_PATH:-}" ]; then
+        echo "$DB_PATH" > "$PROJECT_ROOT/.db-path"
+    else
+        rm -f "$PROJECT_ROOT/.db-path"
+    fi
+    echo "DB_PATH=${DB_PATH:-}"
+    exit 0
+fi
 
 # Clean up stale port file from previous runs
 rm -f "$PORT_FILE"
@@ -111,6 +141,30 @@ if lsof -i:${SELECTED_PORT} >/dev/null 2>&1; then
 fi
 
 # -----------------------------------------------------------------------------
+# Resolve DB_PATH.
+#
+# Priority:
+#   1. Caller-provided DB_PATH wins (never clobbered).
+#   2. If VCR_MODE is set (i.e. we were launched by pw.sh), isolate the DB
+#      to the worktree so E2E tests can never corrupt the user's real DB.
+#   3. Otherwise, leave DB_PATH unset so the server falls back to
+#      getDefaultDbPath() (~/.circuschief/circuschief.db).
+# -----------------------------------------------------------------------------
+if [ -z "${DB_PATH:-}" ] && [ -n "${VCR_MODE:-}" ]; then
+    DB_PATH="$PROJECT_ROOT/.circuschief-test.db"
+fi
+export DB_PATH
+
+# Persist the effective DB_PATH (or remove the sidecar file) so pw.sh /
+# seed scripts running in the same worktree can read it back. This preserves
+# the existing package-server workflow.
+if [ -n "${DB_PATH:-}" ]; then
+    echo "$DB_PATH" > "$PROJECT_ROOT/.db-path"
+else
+    rm -f "$PROJECT_ROOT/.db-path"
+fi
+
+# -----------------------------------------------------------------------------
 # Start the server
 #
 # Use VCR mode if VCR_MODE is set (for E2E tests)
@@ -131,4 +185,7 @@ echo "$SELECTED_PORT" > "$PORT_FILE"
 # Write VCR mode for pw.sh to detect mismatches
 echo "${VCR_MODE:-}" > ".vcr-mode"
 
-NODE_ENV=production VCR_MODE="${VCR_MODE}" node packages/server/src/index.js -p ${SELECTED_PORT}
+# Forward DB_PATH explicitly so inherited env can't be accidentally overridden
+# by something in the user's shell.
+NODE_ENV=production VCR_MODE="${VCR_MODE:-}" DB_PATH="${DB_PATH:-}" \
+    node packages/server/src/index.js -p ${SELECTED_PORT}

@@ -89,6 +89,27 @@ describe('DatabaseManager', () => {
     });
   });
 
+  describe('getPath', () => {
+    it('returns null before init', () => {
+      const newManager = new DatabaseManager();
+      expect(newManager.getPath()).toBeNull();
+    });
+
+    it('returns the exact path passed to init', () => {
+      const newManager = new DatabaseManager();
+      newManager.init(':memory:');
+      expect(newManager.getPath()).toBe(':memory:');
+      newManager.close();
+    });
+
+    it('returns null after close', () => {
+      const newManager = new DatabaseManager();
+      newManager.init(':memory:');
+      newManager.close();
+      expect(newManager.getPath()).toBeNull();
+    });
+  });
+
   describe('generateId', () => {
     it('generates valid UUID v4', () => {
       const id = manager.generateId();
