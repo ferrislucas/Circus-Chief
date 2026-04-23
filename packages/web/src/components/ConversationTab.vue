@@ -571,16 +571,18 @@ function handleSlashCommandInsert({ text }) {
   }
 
   // Focus + caret placement are legitimate imperative operations (there is
-  // no reactive equivalent). The textarea VALUE, however, is driven by the
-  // reactive `input` ref — we no longer write it directly. The synthetic
-  // 'input' event below re-triggers the parent's debounced save so the
-  // server persists the new text, mirroring user-typing behavior.
+  // no reactive equivalent). The textarea VALUE is driven by the reactive
+  // `input` ref — no imperative DOM write. We persist the new value by
+  // calling `savePendingPrompt` directly (mirroring `handleQuickResponseInsert`),
+  // avoiding the synthetic 'input' event indirection.
   nextTick(() => {
     const textareaRef = inputFormRef.value?.textareaRef;
     if (textareaRef) {
       textareaRef.focus();
       textareaRef.selectionStart = textareaRef.selectionEnd = input.value.length;
-      textareaRef.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (canSendMessage.value && input.value.trim()) {
+      savePendingPrompt(input.value);
     }
   });
 }

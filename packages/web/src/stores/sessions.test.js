@@ -5454,5 +5454,71 @@ describe('Sessions Store', () => {
       expect(store.hasRecentSend('sess-1')).toBe(false);
       expect(store.hasRecentSend('sess-2')).toBe(true);
     });
+
+    it('re-calling markRecentSend on the same session cancels the prior safety-net timer', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+
+      // Advance halfway through the TTL and re-mark — this extends the
+      // marker's lifetime and should cancel the in-flight timer so the
+      // original 5s expiry cannot clear the *fresher* timestamp early.
+      vi.setSystemTime(1_700_000_000_000 + 2_500);
+      vi.advanceTimersByTime(2_500);
+      store.markRecentSend('sess-1');
+
+      // Advance to the ORIGINAL mark's 5s expiry. The marker must NOT
+      // have been cleared — only the newer timer is authoritative.
+      vi.setSystemTime(1_700_000_000_000 + 5_001);
+      vi.advanceTimersByTime(2_501);
+
+      expect(store.hasRecentSend('sess-1')).toBe(true);
+
+      // Advance past the RE-MARK's 5s expiry.
+      vi.setSystemTime(1_700_000_000_000 + 7_600);
+      vi.advanceTimersByTime(2_599);
+
+      expect(store.recentSends['sess-1']).toBeUndefined();
+    });
+
+    it('clearRecentSend cancels the outstanding safety-net timer', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+      store.clearRecentSend('sess-1');
+
+      // If the timer fired, it could re-enter clearRecentSend and no-op
+      // (guarded). But after manual clear, the timer should be nulled.
+      expect(store._recentSendTimers['sess-1']).toBe(null);
+
+      // Advancing past the TTL must not re-surface the marker.
+      vi.setSystemTime(1_700_000_000_000 + 6_000);
+      vi.advanceTimersByTime(6_000);
+      expect(store.recentSends['sess-1']).toBeUndefined();
+    });
+
+    it('cancelAllRecentSendTimers tears down every outstanding safety-net timer', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+      store.markRecentSend('sess-2');
+      store.markRecentSend('sess-3');
+
+      store.cancelAllRecentSendTimers();
+
+      expect(store._recentSendTimers).toEqual({});
+
+      // The markers themselves are left in place (cancel targets timers,
+      // not state) but no fire can clear them after the TTL.
+      vi.setSystemTime(1_700_000_000_000 + 10_000);
+      vi.advanceTimersByTime(10_000);
+
+      expect(store.recentSends['sess-1']).toBeDefined();
+      expect(store.recentSends['sess-2']).toBeDefined();
+      expect(store.recentSends['sess-3']).toBeDefined();
+    });
   });
 });

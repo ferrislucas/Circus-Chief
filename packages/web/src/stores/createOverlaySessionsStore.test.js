@@ -700,5 +700,25 @@ describe('createOverlaySessionsStore', () => {
 
       expect(pinia.state.value[storeId]).toBeUndefined();
     });
+
+    it('$cleanup cancels outstanding recent-send safety-net timers', () => {
+      vi.useFakeTimers();
+      try {
+        const store = createOverlaySessionsStore();
+        const cancelSpy = vi.spyOn(store, 'cancelAllRecentSendTimers');
+
+        store.markRecentSend('sess-1');
+        store.markRecentSend('sess-2');
+
+        store.$cleanup();
+
+        expect(cancelSpy).toHaveBeenCalledTimes(1);
+
+        // Advancing past the TTL must not throw against the disposed store.
+        expect(() => vi.advanceTimersByTime(10_000)).not.toThrow();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

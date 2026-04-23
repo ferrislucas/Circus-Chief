@@ -1,3 +1,5 @@
+import { RECENT_SEND_TTL_MS } from './perSessionActions.js';
+
 /**
  * Per-session getters shared between the main sessions store and overlay stores.
  * These operate on the store's own local state (messages, conversations, workLogs, etc.)
@@ -48,13 +50,14 @@ export const perSessionGetters = {
 
   /**
    * Returns true when the given session had a Send/Start issued within the
-   * last 5 seconds. Used by `ConversationTab.onMounted` and the status
-   * watcher to suppress restoring a just-sent prompt back into the textarea.
+   * last `RECENT_SEND_TTL_MS` (5 s). Used by `ConversationTab.onMounted`
+   * and the status watcher to suppress restoring a just-sent prompt back
+   * into the textarea.
    */
   hasRecentSend: (state) => (sessionId) => {
     if (!sessionId || !state.recentSends) return false;
     const ts = state.recentSends[sessionId];
     if (!ts) return false;
-    return Date.now() - ts < 5000;
+    return Date.now() - ts < RECENT_SEND_TTL_MS;
   },
 };
