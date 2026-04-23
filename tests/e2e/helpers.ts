@@ -1,5 +1,5 @@
 import { Page, Locator } from '@playwright/test';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { execSync } from 'child_process';
@@ -397,6 +397,16 @@ export async function seedProject(
     kanbanEnabled?: boolean;
   }
 ) {
+  // Ensure the working directory exists on disk so that anything which uses it
+  // as a `cwd` (e.g. commandRunner spawning shells) doesn't fail with the
+  // confusing "spawn sh ENOENT" error that Node.js emits when cwd is missing.
+  try {
+    mkdirSync(workingDirectory, { recursive: true });
+  } catch {
+    // best-effort: if we can't create it (permissions, invalid path), let the
+    // server respond as it normally would.
+  }
+
   const testName = `${TEST_PREFIX}${name}`;
   const body: any = { name: testName, workingDirectory };
 
