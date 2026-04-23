@@ -64,18 +64,23 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath } = result.data;
+  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, kanbanEnabled } = result.data;
 
   const pathError = await validateWorktreePath(worktreePath);
   if (pathError) {
     return res.status(400).json({ error: pathError });
   }
 
-  const project = projects.create(name, workingDirectory, systemPrompt || null, {
+  const createOptions = {
     onSessionCreated: onSessionCreated || null,
     onSessionDeleted: onSessionDeleted || null,
     worktreePath: worktreePath || null,
-  });
+  };
+  if (kanbanEnabled !== undefined) {
+    createOptions.kanbanEnabled = kanbanEnabled;
+  }
+
+  const project = projects.create(name, workingDirectory, systemPrompt || null, createOptions);
   res.status(201).json(project);
 });
 

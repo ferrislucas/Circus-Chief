@@ -7,7 +7,6 @@
     >
       <div
         v-if="visible"
-        ref="overlayBackdropRef"
         class="overlay-backdrop"
         data-testid="session-chat-overlay"
         @click.self="close"
@@ -359,7 +358,7 @@
  * useTodosStore directly. Direct imports bypass the overlay's provide/inject layer
  * and would read/write to the global singleton, breaking store isolation.
  */
-import { ref, computed, provide, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, provide, onMounted, onUnmounted, nextTick } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
@@ -424,39 +423,9 @@ const switchingSession = ref(true);
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
 
-// Overlay backdrop ref — we apply inline geometry from window.visualViewport
-// to anchor the overlay to the user's visible viewport on iPadOS Safari
-// (whose visual viewport can diverge from the layout viewport).
-const overlayBackdropRef = ref(null);
-
 // Track whether the prompt textarea is focused (for compact header on mobile)
 const inputFocused = ref(false);
 let focusOutRaf = null;
-
-// Debounced trailing re-sync after visualViewport resize/scroll.
-// iOS Safari can emit a "final" resize during the keyboard dismiss animation
-// whose values are stale; this trailing call gives iOS a chance to settle.
-let trailingResyncTimer = null;
-
-// Blur-recovery timers. We schedule a few delayed syncs after a textarea
-// loses focus because iOS's terminal visualViewport resize is unreliable
-// around keyboard dismissal.
-let blurResyncTimers = [];
-
-// Set transiently when a TEXTAREA/INPUT blur was just observed. This lets
-// syncToVisualViewport's clamp apply only in the genuine post-blur window,
-// so the clamp cannot fire on initial mount (where iPadOS may legitimately
-// report vv.height < innerHeight due to the URL bar) and undo the fix from
-// commit 6d61f905.
-let recentBlurUntilMs = 0;
-const RECENT_BLUR_WINDOW_MS = 900; // covers 2x setTimeout delay + slack
-
-function markRecentBlur() {
-  recentBlurUntilMs = Date.now() + RECENT_BLUR_WINDOW_MS;
-}
-function isRecentBlur() {
-  return Date.now() < recentBlurUntilMs;
-}
 
 // Template ref to the ConversationTab for flushing drafts before session switch
 const conversationTabRef = ref(null);
@@ -822,7 +791,9 @@ function handleEscape(event) {
 /**
  * Handle focusin on the overlay body — detect when the prompt textarea gains focus.
  * Uses event delegation from .overlay-body so we catch the bubbling event from
- * InputForm → ResizableTextarea's <textarea>.
+ * InputForm → ResizableTextarea's <textarea>. Drives the `header-compact`
+ * class on mobile; browser-native scroll-on-focus handles bringing the
+ * focused field into the `.overlay-body` scroll viewport.
  */
 function handleOverlayFocusin(e) {
   // Symmetric with handleOverlayFocusout: both TEXTAREA and text-typed INPUT
@@ -842,20 +813,13 @@ function handleOverlayFocusin(e) {
     focusOutRaf = null;
   }
   inputFocused.value = true;
-
-  // After keyboard animation completes, scroll the focused element into view
-  setTimeout(() => {
-    e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  }, 350);
 }
 
 /**
  * Handle focusout on the overlay body — detect when the prompt textarea /
  * text input loses focus. Uses requestAnimationFrame delay to avoid flashing
  * the header when focus moves from textarea to another element (e.g. Send
- * button). Also schedules two delayed `syncToVisualViewport` calls to
- * recover from iOS Safari's unreliable terminal resize event during
- * keyboard dismissal (see syncToVisualViewport clamp comment).
+ * button).
  */
 function handleOverlayFocusout(e) {
   // Expanded scope: both TEXTAREA and text INPUT elements can open the iOS
@@ -872,17 +836,6 @@ function handleOverlayFocusout(e) {
   focusOutRaf = requestAnimationFrame(() => {
     focusOutRaf = null;
     inputFocused.value = false;
-    markRecentBlur();
-
-    // Cancel any prior blur-recovery timers still pending — we only want
-    // one active recovery chain at a time.
-    blurResyncTimers.forEach(clearTimeout);
-    blurResyncTimers = [
-      // 350 ms: after typical iOS keyboard dismiss animation (~250 ms) + slack
-      setTimeout(() => { syncToVisualViewport(); }, 350),
-      // 700 ms: slow devices + URL-bar animation tail
-      setTimeout(() => { syncToVisualViewport(); }, 700),
-    ];
   });
 }
 
@@ -896,124 +849,6 @@ function handleHeaderTouchmove(event) {
   if (event.target.closest('[data-testid="session-chat-picker"]')) return;
   if (event.target.closest('.name-edit-input')) return;
   event.preventDefault();
-}
-
-/**
- * Pin the overlay backdrop to `window.visualViewport`.
- *
- * iOS/iPadOS Safari has two viewports: the *layout viewport* (stable) and
- * the *visual viewport* (shifted by URL-bar retraction, the keyboard,
- * pinch-zoom, rubber-band scroll). `position: fixed` anchors to the layout
- * viewport — but the user sees the visual viewport. When these diverge
- * (e.g. after the user scrolls SessionDetailView so the URL bar retracts
- * and then opens the overlay), `position: fixed; inset: 0` renders the
- * backdrop at the layout-viewport top, which can sit above the visible
- * area. The first flex child (the sticky header) then appears cut off.
- *
- * This function pins the backdrop to `window.visualViewport` explicitly.
- * Kept in sync via `visualViewport` `resize` / `scroll` events, the
- * backdrop always tracks what the user actually sees, regardless of
- * URL-bar state, keyboard animation, or pinch-zoom.
- *
- * Three branches (checked in order):
- *
- * 1. Post-blur stale clamp: in the short window after a TEXTAREA/INPUT
- *    blur, iOS Safari can leave visualViewport reporting stale
- *    keyboard-open values (shrunken height, non-zero offsetTop) even
- *    though the keyboard has dismissed. If we're in that window and
- *    either height is substantially shorter than the layout viewport or
- *    offsetTop is large, override with layout-viewport geometry so the
- *    backdrop fully covers the screen and background content cannot
- *    bleed through.
- *
- * 2. Browser-chrome-gap branch (added to fix iPad full-screen Safari):
- *    when no text input is focused and not in the post-blur window, but
- *    vv.height is meaningfully shorter than innerHeight, the gap is
- *    browser chrome (iPad's persistent tab bar + URL bar), not a
- *    keyboard. Honoring vv.height there would leave the SessionDetailView
- *    visible below the overlay (SessionChatHandle / TodoDrawer /
- *    InputForm bleed-through). Fall back to the layout viewport.
- *    Gated on the existing `inputFocused` ref (tracked by
- *    handleOverlayFocusin/out) rather than `document.activeElement`,
- *    so there is one source of truth for "text input is focused" and
- *    the rAF-debounced focus transitions are respected.
- *
- * 3. Default: honor vv values — that is what preserves the iPadOS
- *    URL-bar fix from commit 6d61f905, where vv.offsetTop > 0
- *    legitimately reflects where the user can see.
- *
- * No-op on engines that do not expose `window.visualViewport`; the
- * backdrop's CSS `inset: 0` fallback remains authoritative in that case.
- */
-function syncToVisualViewport() {
-  const vv = window.visualViewport;
-  const backdrop = overlayBackdropRef.value;
-  if (!vv || !backdrop) return;
-
-  // Threshold calibration (shared by branches 1 and 2):
-  //   - exceeds the largest observed iPadOS URL-bar retraction delta (~50 px)
-  //   - smaller than any mobile soft keyboard (iPhone ≥ 260 px, iPad ≥ 300 px)
-  //   - comfortably catches the iPad full-screen tab bar + URL bar gap
-  //     (typically 100–200 px combined)
-  const HEIGHT_GAP_THRESHOLD_PX = 100;
-  const heightGap = window.innerHeight - vv.height;
-
-  // Branch 1: post-blur stale clamp.
-  if (isRecentBlur()) {
-    // Keyboard must be closed (or closing) in this window. Any claim that
-    // the visible area is much smaller than innerHeight, or that it starts
-    // far below the layout origin, is almost certainly stale.
-    const OFFSET_TOP_THRESHOLD_PX = 60;    // larger than observed iPadOS URL-bar deltas (≤ ~50 px)
-    const heightIsStale = heightGap > HEIGHT_GAP_THRESHOLD_PX;
-    const offsetIsStale = vv.offsetTop > OFFSET_TOP_THRESHOLD_PX;
-    if (heightIsStale || offsetIsStale) {
-      applyLayoutViewport();
-      return;
-    }
-  }
-
-  // Branch 2: browser-chrome-gap (see JSDoc above). No keyboard is (or
-  // was just) open, but vv is meaningfully shorter than the layout
-  // viewport — the difference is persistent iPad browser chrome. Cover
-  // the layout viewport so the backdrop reaches the bottom of the screen.
-  if (!inputFocused.value && heightGap > HEIGHT_GAP_THRESHOLD_PX) {
-    applyLayoutViewport();
-    return;
-  }
-
-  // Branch 3 (default): honor visual viewport. Preserves commit 6d61f905 —
-  // vv.offsetTop > 0 legitimately reflects where the user can see during
-  // URL-bar state changes.
-  backdrop.style.top = `${vv.offsetTop}px`;
-  backdrop.style.left = `${vv.offsetLeft}px`;
-  backdrop.style.width = `${vv.width}px`;
-  backdrop.style.height = `${vv.height}px`;
-}
-
-/**
- * Write layout-viewport geometry to the backdrop. Shared by the post-blur
- * stale-clamp and the browser-chrome-gap branches of `syncToVisualViewport`.
- */
-function applyLayoutViewport() {
-  const backdrop = overlayBackdropRef.value;
-  if (!backdrop) return;
-  backdrop.style.top = '0px';
-  backdrop.style.left = '0px';
-  backdrop.style.width = `${window.innerWidth}px`;
-  backdrop.style.height = `${window.innerHeight}px`;
-}
-
-/**
- * Listener wrapper that syncs immediately and schedules a trailing
- * re-sync to catch stale final events from iOS Safari.
- */
-function onVVChange() {
-  syncToVisualViewport();
-  if (trailingResyncTimer) clearTimeout(trailingResyncTimer);
-  trailingResyncTimer = setTimeout(() => {
-    trailingResyncTimer = null;
-    syncToVisualViewport();
-  }, 400);
 }
 
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
@@ -1051,14 +886,6 @@ function lockBodyScroll() {
   app.style.left = '0';
   app.style.right = '0';
   app.style.width = '100%';
-
-  // Reset the actual viewport scroll to 0. On iPad Safari, residual
-  // window.scrollY can displace position:fixed elements (like the overlay
-  // backdrop) even though they should be viewport-anchored. Since #app is
-  // already pinned with position:fixed, this scrollTo is visually invisible
-  // — fixed elements don't move with scroll — but it ensures the viewport
-  // origin is at 0 when the overlay first paints.
-  window.scrollTo(0, 0);
 }
 
 function unlockBodyScroll() {
@@ -1081,16 +908,6 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
-
-  // Anchor the overlay to the visual viewport synchronously, before the
-  // first paint and before any `await` below. This guarantees the backdrop
-  // is already positioned in visual-viewport space when the slide-left
-  // enter transition starts.
-  if (window.visualViewport) {
-    syncToVisualViewport();                                  // initial sync stays direct
-    window.visualViewport.addEventListener('resize', onVVChange);
-    window.visualViewport.addEventListener('scroll', onVVChange);
-  }
 
   // Register focusin/focusout BEFORE the await so they're ready immediately.
   // overlayBodyRef is a template ref on .overlay-body which is always rendered
@@ -1117,41 +934,17 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', onVVChange);
-    window.visualViewport.removeEventListener('scroll', onVVChange);
-  }
   const body = overlayBodyRef.value;
   if (body) {
     body.removeEventListener('focusin', handleOverlayFocusin);
     body.removeEventListener('focusout', handleOverlayFocusout);
   }
   if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
-  if (trailingResyncTimer) {
-    clearTimeout(trailingResyncTimer);
-    trailingResyncTimer = null;
-  }
-  blurResyncTimers.forEach(clearTimeout);
-  blurResyncTimers = [];
-  recentBlurUntilMs = 0;
   cleanupSubscription();
   // Clean up overlay stores: dispose subscriptions AND remove from Pinia registry
   // to prevent state leaks on every overlay open/close cycle.
   overlaySessionsStore.$cleanup();
   overlayTodosStore.$cleanup();
-});
-
-// Re-scroll textarea into view after the compact header transition frees space.
-watch(inputFocused, (focused) => {
-  if (focused && isMobile.value) {
-    // After the header collapse transition (200ms) + buffer, re-center the textarea
-    setTimeout(() => {
-      const activeEl = document.activeElement;
-      if (activeEl?.tagName === 'TEXTAREA') {
-        activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      }
-    }, 250);
-  }
 });
 
 // Expose for testing
@@ -1166,11 +959,6 @@ defineExpose({
   pickerOpen,
   handlePickerSelect,
   inputFocused,
-  // viewport helpers:
-  syncToVisualViewport,
-  applyLayoutViewport,
-  markRecentBlur,
-  isRecentBlur: () => isRecentBlur(),
   // DOM refs needed by tests that append real elements (textarea/input)
   // into the overlay body to exercise focusin/focusout flows:
   overlayBodyRef,
@@ -1250,7 +1038,11 @@ defineExpose({
   background: rgb(17, 24, 39);
   display: flex;
   justify-content: flex-end;
-  align-items: flex-start;
+  /* `stretch` lets the panel wrapper fill the full backdrop height
+     without viewport-unit min-heights; `inset: 0` is the sole size
+     source, so the browser tracks URL-bar / keyboard / orientation
+     changes automatically (no JS viewport sync). */
+  align-items: stretch;
   overflow: hidden;
   overflow-y: hidden;
   overscroll-behavior: none;
@@ -1259,9 +1051,10 @@ defineExpose({
 .overlay-panel-wrapper {
   position: relative;
   display: flex;
-  min-height: 100vh;
-  min-height: 100dvh;
-  height: 100%;
+  /* Cross-axis size comes from `align-items: stretch` on the backdrop.
+     `min-height: 0` allows the internal flex column to shrink without
+     overflowing. */
+  min-height: 0;
   max-width: 900px;
   width: 100%;
   overflow: visible;
@@ -1340,6 +1133,10 @@ defineExpose({
 
 .overlay-body {
   padding: 0 1rem;
+  /* Respect iOS home-indicator / bottom URL-bar gutter. Fall-back:
+     if Phase 6 QA reveals the gutter is not visible at the right
+     time, move the inset to `.input-form` or a dedicated wrapper. */
+  padding-bottom: max(0px, env(safe-area-inset-bottom));
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
@@ -1352,6 +1149,8 @@ defineExpose({
   flex-direction: column;
   gap: 0.375rem;
   padding: 0.75rem 1rem 0.375rem;
+  /* Raise top padding to clear the iPhone notch when present. */
+  padding-top: max(0.75rem, env(safe-area-inset-top));
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
@@ -1474,11 +1273,21 @@ defineExpose({
 
 @media (max-width: 768px) {
   .overlay-body {
-    padding: 0 0.5rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    /* padding-bottom intentionally inherited from the base rule so the
+       safe-area-inset-bottom gutter is preserved on mobile. */
   }
 
   .overlay-header {
-    padding: 1rem 0.5rem 0.375rem;
+    padding-right: 0.5rem;
+    padding-bottom: 0.375rem;
+    padding-left: 0.5rem;
+    /* padding-top: keep the larger base value (the 1rem visual intent
+       of the old shorthand is already covered by the base
+       `max(0.75rem, env(safe-area-inset-top))` on devices with an
+       inset; raise the floor here for mobile without a notch). */
+    padding-top: max(1rem, env(safe-area-inset-top));
   }
 }
 
