@@ -8,7 +8,7 @@ export const CreateProjectRequest = z.object({
   onSessionDeleted: z.string().nullable().optional(),
   prPollInterval: z.number().int().min(10000).optional(), // Min 10 seconds
   repoUrl: z.string().url().nullable().optional(),
-  kanbanEnabled: z.boolean().optional(), // Default true
+  kanbanEnabled: z.boolean().optional(), // Default false (experimental feature)
   worktreePath: z.string().nullable().optional(),
 });
 

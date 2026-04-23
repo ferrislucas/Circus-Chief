@@ -49,7 +49,7 @@ describe('kanbanService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    const project = projects.create('Test Project', '/tmp/test');
+    const project = projects.create('Test Project', '/tmp/test', null, { kanbanEnabled: true });
     projectId = project.id;
 
     const board = kanbanBoards.create(projectId);
@@ -89,7 +89,7 @@ describe('kanbanService', () => {
     });
 
     it('lazy-creates board if none exists', () => {
-      const project2 = projects.create('Project 2', '/tmp/test2');
+      const project2 = projects.create('Project 2', '/tmp/test2', null, { kanbanEnabled: true });
       const board = getFullBoard(project2.id);
 
       expect(board).not.toBeNull();

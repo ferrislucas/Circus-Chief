@@ -15,6 +15,46 @@ Always use `./scripts/pw.sh` — never run Playwright directly. This ensures ser
 
 See the main [CLAUDE.md](../CLAUDE.md) for details on port assignment and server isolation.
 
+## DB Isolation and `/api/server-info`
+
+E2E test servers must never touch the user's real SQLite DB at `~/.circuschief/circuschief.db`. A scheduled session firing while an E2E server is running with `VCR_MODE=replay` would otherwise be picked up by the test server's scheduler, fail with `VCR replay: no cassette found`, and eat the user's prompt.
+
+`pw.sh` defends against this with two independent mechanisms:
+
+### 1. Worktree-local test DB
+
+Before starting any server, `pw.sh` sets `DB_PATH` per the command:
+
+| Command | Effective `DB_PATH` | Chosen by |
+|---------|---------------------|-----------|
+| `pw.sh test` / `pw.sh debug` | `$PROJECT_ROOT/.circuschief-test.db` | `setup_isolated_test_db` in `pw.sh` (wipes it before each run) |
+| `pw.sh codegen` | `$PROJECT_ROOT/.circuschief-test.db` | same |
+| `pw.sh test-package` | `$INSTALL_DIR/circuschief.db` (a per-run `mktemp` dir) | `start-package-server.sh` |
+| Caller-provided `DB_PATH` (dev path only) | honored as-is | caller |
+
+Because `PROJECT_ROOT` resolves to the worktree this script was launched from, two worktrees running `pw.sh` concurrently get two different test DBs — no cross-worktree corruption.
+
+The main dev server (`yarn dev`) is unchanged: it still uses `~/.circuschief/circuschief.db`.
+
+### 2. `GET /api/server-info` sanity check
+
+After the server boots, `pw.sh` hits `/api/server-info` and refuses to run tests unless:
+
+- **Dev-server path**: the server's reported `dbPath` **exactly matches** the `DB_PATH` pw.sh set.
+- **Package-server path**: the server's reported `dbPath` is **not** the user's home DB, and pw.sh then re-exports that path as `DB_PATH` so seed scripts hit the same file the package server wrote to.
+- **Both paths**: the server's `schedulerRunning` is `false`. (`schedulerService.startIfEnabled()` refuses to start polling when `VCR_MODE` is set; this check is defence in depth.)
+
+The endpoint returns a stable JSON shape — `cwd`, `dbPath`, `vcrMode`, `schedulerRunning` — and consumers must tolerate additional fields added over time.
+
+### Why both mechanisms
+
+Either one alone would be insufficient:
+
+- If the scheduler gate silently regressed (e.g. a new call path forgot to use `startIfEnabled`), DB isolation would still protect the user's DB.
+- If the DB-path override silently regressed (e.g. an env var leaked through), the scheduler gate would still prevent a test server from acting on real scheduled sessions.
+
+Tests in `packages/server/test/pwshReuse.test.js` and `tests/e2e/server-isolation.spec.ts` lock in both contracts.
+
 ## Test Structure
 
 Tests live in `tests/e2e/*.spec.ts`. Shared helpers live in `tests/e2e/helpers.ts`.

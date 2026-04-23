@@ -50,6 +50,38 @@ class SchedulerService {
   }
 
   /**
+   * Check whether the scheduler is currently polling.
+   * @returns {boolean}
+   */
+  isRunning() {
+    return this.intervalId !== null;
+  }
+
+  /**
+   * Start the scheduler unless the environment opts out (e.g. VCR_MODE).
+   *
+   * This gate lives on the service so unit tests can exercise the decision
+   * without booting the whole server. The env parameter defaults to
+   * process.env but is injectable for tests.
+   *
+   * Note: an empty VCR_MODE string is treated the same as unset, matching
+   * the /api/server-info contract.
+   *
+   * @param {object} sessionManager - Session manager instance
+   * @param {object} [env=process.env] - Env-like object (for tests)
+   * @returns {boolean} true if started, false if gated off
+   */
+  startIfEnabled(sessionManager, env = process.env) {
+    if (env.VCR_MODE && env.VCR_MODE.length > 0) {
+      console.log('[SchedulerService] VCR_MODE set, scheduler disabled');
+      return false;
+    }
+    this.initialize(sessionManager);
+    this.start();
+    return true;
+  }
+
+  /**
    * Check for scheduled sessions that are due to start
    */
   async checkScheduledSessions() {

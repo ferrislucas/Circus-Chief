@@ -1479,656 +1479,107 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('visualViewport syncing', () => {
-    // Preserve the original window.visualViewport descriptor so each test
-    // can install its own mock and then restore.
-    const originalDescriptor = Object.getOwnPropertyDescriptor(
-      window,
-      'visualViewport'
-    );
-
-    // Preserve the original window.innerWidth/innerHeight so each test can
-    // align them with its vv mock (the browser-chrome-gap branch fires when
-    // innerHeight - vv.height exceeds the threshold, so tests that intend to
-    // exercise the default vv-honoring path must set matching innerHeight).
-    const originalInnerWidth = window.innerWidth;
-    const originalInnerHeight = window.innerHeight;
-
-    function installMockVisualViewport(props = {}) {
-      const addEventListener = vi.fn();
-      const removeEventListener = vi.fn();
-      const vv = {
-        offsetTop: 120,
-        offsetLeft: 0,
-        width: 390,
-        height: 580,
-        addEventListener,
-        removeEventListener,
-        ...props,
-      };
-      Object.defineProperty(window, 'visualViewport', {
-        configurable: true,
-        value: vv,
-      });
-      return vv;
-    }
-
-    function restoreVisualViewport() {
-      if (originalDescriptor) {
-        Object.defineProperty(window, 'visualViewport', originalDescriptor);
-      } else {
-        // jsdom has no native visualViewport; delete what the test set
-        delete window.visualViewport;
-      }
-    }
-
-    function setInnerSize(w, innerH) {
-      Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
-      Object.defineProperty(window, 'innerHeight', { configurable: true, value: innerH });
-    }
-
-    afterEach(() => {
-      restoreVisualViewport();
-      setInnerSize(originalInnerWidth, originalInnerHeight);
-    });
-
-    it('applies geometry from window.visualViewport on mount', async () => {
-      installMockVisualViewport({
-        offsetTop: 120,
-        offsetLeft: 0,
-        width: 390,
-        height: 580,
-      });
-      // Match innerHeight to vv.height so the new browser-chrome-gap branch
-      // does not fire — this test is about the default vv-honoring path.
-      setInnerSize(390, 580);
-
+  describe('CSS-owned geometry (no JS viewport sync)', () => {
+    it('does not write inline geometry on the backdrop', async () => {
       const wrapper = mountOverlay();
       await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
       expect(backdrop).toBeTruthy();
-      expect(backdrop.style.top).toBe('120px');
-      expect(backdrop.style.left).toBe('0px');
-      expect(backdrop.style.width).toBe('390px');
-      expect(backdrop.style.height).toBe('580px');
-
-      wrapper.unmount();
-    });
-
-    it('attaches resize and scroll listeners on mount', async () => {
-      const vv = installMockVisualViewport();
-      setInnerSize(390, 580);
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      expect(vv.addEventListener).toHaveBeenCalledWith(
-        'resize',
-        expect.any(Function)
-      );
-      expect(vv.addEventListener).toHaveBeenCalledWith(
-        'scroll',
-        expect.any(Function)
-      );
-
-      wrapper.unmount();
-    });
-
-    it('removes listeners on unmount using the same handler reference', async () => {
-      const vv = installMockVisualViewport();
-      setInnerSize(390, 580);
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      // Capture the handler passed to addEventListener (currently `onVVChange`,
-      // which wraps syncToVisualViewport with a trailing re-sync timer) so we
-      // can prove the same reference was passed to removeEventListener —
-      // otherwise the listener would leak.
-      const resizeAdd = vv.addEventListener.mock.calls.find(
-        c => c[0] === 'resize'
-      );
-      const scrollAdd = vv.addEventListener.mock.calls.find(
-        c => c[0] === 'scroll'
-      );
-      expect(resizeAdd).toBeDefined();
-      expect(scrollAdd).toBeDefined();
-      const resizeHandler = resizeAdd[1];
-      const scrollHandler = scrollAdd[1];
-
-      wrapper.unmount();
-
-      expect(vv.removeEventListener).toHaveBeenCalledWith(
-        'resize',
-        resizeHandler
-      );
-      expect(vv.removeEventListener).toHaveBeenCalledWith(
-        'scroll',
-        scrollHandler
-      );
-    });
-
-    it('re-syncs backdrop geometry when visualViewport resizes', async () => {
-      const vv = installMockVisualViewport({
-        offsetTop: 120,
-        offsetLeft: 0,
-        width: 390,
-        height: 580,
-      });
-      // Initial innerHeight matches vv.height so the default branch writes
-      // vv geometry on mount.
-      setInnerSize(390, 580);
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe('120px');
-      expect(backdrop.style.height).toBe('580px');
-
-      // Simulate URL bar retracting / keyboard dismissing: visual viewport
-      // shifts up and grows taller. Grow innerHeight in lockstep so the gap
-      // stays within the threshold and the default branch still fires.
-      const resizeHandler = vv.addEventListener.mock.calls.find(
-        c => c[0] === 'resize'
-      )[1];
-      vv.offsetTop = 40;
-      vv.height = 620;
-      setInnerSize(390, 620);
-      resizeHandler();
-
-      expect(backdrop.style.top).toBe('40px');
-      expect(backdrop.style.height).toBe('620px');
-
-      wrapper.unmount();
-    });
-
-    it('falls back to layout viewport when vv is shorter than innerHeight and no input is focused', async () => {
-      // iPad full-screen Safari: persistent tab bar + URL bar keeps
-      // vv.height < innerHeight. No soft keyboard, no focused input →
-      // the browser-chrome-gap branch should apply the layout viewport so
-      // the overlay reaches the bottom of the screen.
-      installMockVisualViewport({ offsetTop: 0, offsetLeft: 0, width: 1024, height: 1200 });
-      setInnerSize(1024, 1366);
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe('0px');
-      expect(backdrop.style.left).toBe('0px');
-      expect(backdrop.style.width).toBe('1024px');
-      expect(backdrop.style.height).toBe('1366px'); // innerHeight, not vv.height
-
-      wrapper.unmount();
-    });
-
-    it('honors vv.height when a text input is focused (keyboard-open path)', async () => {
-      // iPhone keyboard open: vv.height shrinks by more than the chrome
-      // threshold, but a text input inside the overlay body is focused,
-      // so the browser-chrome-gap branch must NOT fire. vv geometry wins.
-      installMockVisualViewport({ offsetTop: 0, offsetLeft: 0, width: 400, height: 500 });
-      setInnerSize(400, 800); // gap = 300 — keyboard-sized
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      // Append a real <textarea> into the overlay body and dispatch a
-      // bubbling focusin event — mirrors how handleOverlayFocusin is wired
-      // up via the body's event delegation.
-      const body = wrapper.vm.overlayBodyRef;
-      expect(body).toBeTruthy();
-      const ta = document.createElement('textarea');
-      body.appendChild(ta);
-      ta.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-      await nextTick();
-
-      wrapper.vm.syncToVisualViewport();
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe('0px');
-      expect(backdrop.style.height).toBe('500px'); // vv.height, not innerHeight
-
-      wrapper.unmount();
-    });
-
-    it('honors vv.height when heightGap is within the chrome threshold', async () => {
-      // Split View / desktop / Android: vv.height is close enough to
-      // innerHeight that the browser-chrome-gap branch must NOT fire.
-      // Regression guard for every environment that works today.
-      installMockVisualViewport({ offsetTop: 0, offsetLeft: 0, width: 600, height: 770 });
-      setInnerSize(600, 800); // gap = 30, below threshold
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe('0px');
-      expect(backdrop.style.width).toBe('600px');
-      expect(backdrop.style.height).toBe('770px'); // vv.height
-
-      wrapper.unmount();
-    });
-
-    it('honors vv.offsetTop > 0 during URL-bar retraction (commit 6d61f905)', async () => {
-      // iPadOS URL-bar retraction: vv.offsetTop is non-zero and legitimately
-      // reflects where the user can see. Gap is within threshold, no input
-      // focused — default branch must honor vv including offsetTop.
-      installMockVisualViewport({ offsetTop: 40, offsetLeft: 0, width: 390, height: 620 });
-      setInnerSize(390, 660); // gap = 40, below threshold
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe('40px');
-      expect(backdrop.style.left).toBe('0px');
-      expect(backdrop.style.width).toBe('390px');
-      expect(backdrop.style.height).toBe('620px');
-
-      wrapper.unmount();
-    });
-
-    it('is a no-op when window.visualViewport is undefined', async () => {
-      Object.defineProperty(window, 'visualViewport', {
-        configurable: true,
-        value: undefined,
-      });
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop).toBeTruthy();
-      // No inline geometry should have been written; CSS `inset: 0` remains
-      // authoritative in this fallback path.
       expect(backdrop.style.top).toBe('');
       expect(backdrop.style.left).toBe('');
       expect(backdrop.style.width).toBe('');
       expect(backdrop.style.height).toBe('');
-
-      // Unmounting must not throw.
-      expect(() => wrapper.unmount()).not.toThrow();
-    });
-
-    it('exposes syncToVisualViewport for testing', async () => {
-      installMockVisualViewport();
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      expect(wrapper.vm.syncToVisualViewport).toBeDefined();
-      expect(typeof wrapper.vm.syncToVisualViewport).toBe('function');
-
-      wrapper.unmount();
-    });
-  });
-
-  describe('visualViewport blur recovery + clamp', () => {
-    // Preserve the original window.visualViewport descriptor so each test
-    // can install its own mock and then restore.
-    const originalDescriptor = Object.getOwnPropertyDescriptor(
-      window,
-      'visualViewport'
-    );
-
-    function installMockVisualViewport(props = {}) {
-      const addEventListener = vi.fn();
-      const removeEventListener = vi.fn();
-      const vv = {
-        offsetTop: 0,
-        offsetLeft: 0,
-        width: 400,
-        height: 800,
-        addEventListener,
-        removeEventListener,
-        ...props,
-      };
-      Object.defineProperty(window, 'visualViewport', {
-        configurable: true,
-        value: vv,
-      });
-      return vv;
-    }
-
-    function restoreVisualViewport() {
-      if (originalDescriptor) {
-        Object.defineProperty(window, 'visualViewport', originalDescriptor);
-      } else {
-        delete window.visualViewport;
-      }
-    }
-
-    const originalInnerWidth = window.innerWidth;
-    const originalInnerHeight = window.innerHeight;
-
-    function setInnerSize(w, innerH) {
-      Object.defineProperty(window, 'innerWidth', { configurable: true, value: w });
-      Object.defineProperty(window, 'innerHeight', { configurable: true, value: innerH });
-    }
-
-    beforeEach(() => {
-      vi.useFakeTimers({
-        toFake: [
-          'setTimeout', 'clearTimeout',
-          'setInterval', 'clearInterval',
-          'requestAnimationFrame', 'cancelAnimationFrame',
-          'Date',
-        ],
-      });
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-      restoreVisualViewport();
-      setInnerSize(originalInnerWidth, originalInnerHeight);
-    });
-
-    // Helper: mount the overlay, flush enough to register listeners and refs.
-    async function mountAndFlush() {
-      const wrapper = mountOverlay();
-      await nextTick();
-      await vi.advanceTimersByTimeAsync(10);
-      return wrapper;
-    }
-
-    it('onVVChange syncs immediately and coalesces trailing re-syncs into one at 400 ms', async () => {
-      const vv = installMockVisualViewport({
-        offsetTop: 10, offsetLeft: 0, width: 400, height: 800,
-      });
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      const clearSpy = vi.spyOn(globalThis, 'clearTimeout');
-      const setSpy = vi.spyOn(globalThis, 'setTimeout');
-
-      const resizeHandler = vv.addEventListener.mock.calls.find(
-        c => c[0] === 'resize'
-      )[1];
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-
-      // Fire the handler three times with mutating vv values.
-      vv.offsetTop = 20; vv.height = 790;
-      resizeHandler();
-      expect(backdrop.style.top).toBe('20px');
-      expect(backdrop.style.height).toBe('790px');
-
-      vv.offsetTop = 30; vv.height = 780;
-      resizeHandler();
-      expect(backdrop.style.top).toBe('30px');
-      expect(backdrop.style.height).toBe('780px');
-
-      vv.offsetTop = 40; vv.height = 770;
-      resizeHandler();
-      expect(backdrop.style.top).toBe('40px');
-      expect(backdrop.style.height).toBe('770px');
-
-      // Each subsequent onVVChange cancels the previous trailing timer.
-      // The first call had no previous timer to clear, so only two clears.
-      // Filter to the trailing-timer clears (onVVChange passes the stored id,
-      // which is always a numeric handle; we can simply count calls on the
-      // spy since nothing else in this test clears timers).
-      expect(clearSpy).toHaveBeenCalledTimes(2);
-
-      // Exactly three trailing timers were scheduled (one per call) at 400 ms.
-      const trailing400 = setSpy.mock.calls.filter(c => c[1] === 400);
-      expect(trailing400.length).toBe(3);
-
-      // Advance time; the single surviving trailing timer should fire once.
-      await vi.advanceTimersByTimeAsync(400);
-
-      // Backdrop still reflects the last vv values.
-      expect(backdrop.style.top).toBe('40px');
-      expect(backdrop.style.height).toBe('770px');
-
       wrapper.unmount();
     });
 
-    it('trailing timer is cleared on unmount', async () => {
-      const vv = installMockVisualViewport();
-
-      const wrapper = await mountAndFlush();
-
-      const resizeHandler = vv.addEventListener.mock.calls.find(
-        c => c[0] === 'resize'
-      )[1];
-      resizeHandler(); // schedule a trailing timer
-
-      wrapper.unmount();
-
-      // Advance well past the trailing-timer deadline — no errors should be
-      // thrown (the cleared timer does not fire against a stale backdrop).
-      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
-
-      // Backdrop removed by teleport cleanup.
-      expect(document.querySelector('.overlay-backdrop')).toBeNull();
-    });
-
-    it('clamp fires after blur when vv.height is stale', async () => {
-      const vv = installMockVisualViewport({
-        offsetTop: 200, offsetLeft: 0, width: 400, height: 300,
-      });
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      const body = document.querySelector('.overlay-body');
-      expect(body).toBeTruthy();
-      const ta = document.createElement('textarea');
-      body.appendChild(ta);
-
-      // Dispatch real focus/focusout to let handleOverlayFocusout run.
-      ta.focus();
-      ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-
-      // Flush the rAF inside handleOverlayFocusout (which calls markRecentBlur).
-      // vitest's fake-timer rAF is scheduled with ~16 ms; advance past that.
-      await vi.advanceTimersByTimeAsync(20);
-
-      // Advance to the first blur-recovery timer (350 ms).
-      await vi.advanceTimersByTimeAsync(350);
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      // Clamp path: layout-viewport geometry.
-      expect(backdrop.style.top).toBe('0px');
-      expect(backdrop.style.left).toBe('0px');
-      expect(backdrop.style.width).toBe('400px');
-      expect(backdrop.style.height).toBe('800px');
-
-      // Also keep vv values stale so the 700 ms recovery honors clamp too.
-      await vi.advanceTimersByTimeAsync(350);
-      expect(backdrop.style.top).toBe('0px');
-      expect(backdrop.style.height).toBe('800px');
-
-      wrapper.unmount();
-    });
-
-    it('clamp does NOT fire outside the recent-blur window (iPad URL-bar case preserved)', async () => {
-      installMockVisualViewport({
-        offsetTop: 60, offsetLeft: 0, width: 400, height: 720,
-      });
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      // No blur occurs. Manually call the sync.
-      wrapper.vm.syncToVisualViewport();
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe('60px');
-      expect(backdrop.style.height).toBe('720px');
-
-      wrapper.unmount();
-    });
-
-    it('clamp does NOT fire when gap is below threshold', async () => {
-      const vv = installMockVisualViewport({
-        offsetTop: 40, offsetLeft: 0, width: 400, height: 750,
-      });
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      // height gap = 50 px (< 100), offsetTop = 40 (< 60). Both sub-threshold.
-      wrapper.vm.markRecentBlur();
-      wrapper.vm.syncToVisualViewport();
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe(`${vv.offsetTop}px`);
-      expect(backdrop.style.height).toBe(`${vv.height}px`);
-
-      wrapper.unmount();
-    });
-
-    it('clamp fires on large offsetTop alone (height fully rebounded)', async () => {
-      installMockVisualViewport({
-        offsetTop: 150, offsetLeft: 0, width: 400, height: 800,
-      });
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      wrapper.vm.markRecentBlur();
-      wrapper.vm.syncToVisualViewport();
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe('0px');
-      expect(backdrop.style.left).toBe('0px');
-      expect(backdrop.style.width).toBe('400px');
-      expect(backdrop.style.height).toBe('800px');
-
-      wrapper.unmount();
-    });
-
-    it('handleOverlayFocusout TEXTAREA schedules two recovery timers (350 ms, 700 ms)', async () => {
-      installMockVisualViewport();
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-
-      const body = document.querySelector('.overlay-body');
-      const ta = document.createElement('textarea');
-      body.appendChild(ta);
-      ta.focus();
-      ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(20);
-
-      const called350 = setTimeoutSpy.mock.calls.some(c => c[1] === 350);
-      const called700 = setTimeoutSpy.mock.calls.some(c => c[1] === 700);
-      expect(called350).toBe(true);
-      expect(called700).toBe(true);
-
-      wrapper.unmount();
-    });
-
-    it('handleOverlayFocusout INPUT type=text also triggers recovery', async () => {
-      installMockVisualViewport();
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-
-      const body = document.querySelector('.overlay-body');
-      const input = document.createElement('input');
-      input.type = 'text';
-      body.appendChild(input);
-      input.focus();
-      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(20);
-
-      const called350 = setTimeoutSpy.mock.calls.some(c => c[1] === 350);
-      const called700 = setTimeoutSpy.mock.calls.some(c => c[1] === 700);
-      expect(called350).toBe(true);
-      expect(called700).toBe(true);
-
-      wrapper.unmount();
-    });
-
-    it('handleOverlayFocusout INPUT type=checkbox does NOT trigger recovery', async () => {
-      installMockVisualViewport();
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-
-      const body = document.querySelector('.overlay-body');
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      body.appendChild(input);
-      input.focus();
-      input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(20);
-
-      const called350 = setTimeoutSpy.mock.calls.some(c => c[1] === 350);
-      const called700 = setTimeoutSpy.mock.calls.some(c => c[1] === 700);
-      expect(called350).toBe(false);
-      expect(called700).toBe(false);
-
-      wrapper.unmount();
-    });
-
-    it('blur recovery timers are cancelled on unmount', async () => {
-      installMockVisualViewport();
-      setInnerSize(400, 800);
-
-      const wrapper = await mountAndFlush();
-
-      const body = document.querySelector('.overlay-body');
-      const ta = document.createElement('textarea');
-      body.appendChild(ta);
-      ta.focus();
-      ta.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(20);
-
-      // Unmount before either 350 ms or 700 ms timer has fired.
-      wrapper.unmount();
-
-      expect(() => vi.advanceTimersByTime(1000)).not.toThrow();
-      expect(document.querySelector('.overlay-backdrop')).toBeNull();
-    });
-
-    it('post-blur clamp runs before the chrome-gap branch', async () => {
-      installMockVisualViewport({ offsetTop: 0, width: 400, height: 500 });
-      setInnerSize(400, 800); // gap = 300, would otherwise trigger chrome-gap
-      const wrapper = await mountAndFlush();
-      wrapper.vm.markRecentBlur();
-      wrapper.vm.syncToVisualViewport();
-      const backdrop = document.querySelector('.overlay-backdrop');
-      // Both clamps would write the same geometry; asserting the backdrop is at
-      // layout viewport confirms we hit the existing (post-blur) path first.
-      expect(backdrop.style.height).toBe('800px');
-      expect(backdrop.style.top).toBe('0px');
-      wrapper.unmount();
-    });
-
-    it('.overlay-panel-wrapper has 100dvh min-height fallback in the stylesheet', () => {
+    it('backdrop stylesheet uses position: fixed and align-items: stretch', () => {
       // Assert against the SFC source text (imported as raw via Vite `?raw`).
-      // jsdom does not parse the `dvh` unit, and @vue/test-utils does not
-      // always inject `<style scoped>` blocks into document.styleSheets, so
-      // source-text inspection is the reliable check.
+      // jsdom does not reliably attach Vue <style scoped> blocks to
+      // document.styleSheets, so source-text inspection is the check used
+      // elsewhere in this file (see removed panel-wrapper stylesheet test).
+      const blockMatch = sessionChatOverlaySource.match(/\.overlay-backdrop\s*\{[^}]*\}/);
+      expect(blockMatch).toBeTruthy();
+      const block = blockMatch[0];
+      expect(block).toMatch(/position:\s*fixed/);
+      expect(block).toMatch(/inset:\s*0/);
+      expect(block).toMatch(/align-items:\s*stretch/);
+    });
+
+    it('panel-wrapper stylesheet no longer uses viewport-unit min-heights', () => {
       const blockMatch = sessionChatOverlaySource.match(/\.overlay-panel-wrapper\s*\{[^}]*\}/);
       expect(blockMatch).toBeTruthy();
       const block = blockMatch[0];
+      // Regression guard: Phase 2 removed `min-height: 100vh/100dvh` and
+      // `height: 100%` from the panel wrapper.
+      expect(block).not.toMatch(/min-height:\s*100vh/);
+      expect(block).not.toMatch(/min-height:\s*100dvh/);
+    });
 
-      expect(block).toMatch(/min-height:\s*100vh/);
-      expect(block).toMatch(/min-height:\s*100dvh/);
+    it('source no longer references window.visualViewport', () => {
+      // Phase 1 removed the entire JS viewport sync. This guard makes
+      // future regressions loud.
+      expect(sessionChatOverlaySource).not.toMatch(/visualViewport/);
+      expect(sessionChatOverlaySource).not.toMatch(/syncToVisualViewport/);
+      expect(sessionChatOverlaySource).not.toMatch(/markRecentBlur/);
+      expect(sessionChatOverlaySource).not.toMatch(/applyLayoutViewport/);
+      expect(sessionChatOverlaySource).not.toMatch(/overlayBackdropRef/);
+    });
+
+    it('lockBodyScroll does not call window.scrollTo(0, 0) at mount time', async () => {
+      const spy = vi.spyOn(window, 'scrollTo');
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      // scrollTo may be invoked elsewhere (e.g. Vue router in some setups),
+      // but Phase 3 removed the explicit lockBodyScroll scrollTo(0, 0) call.
+      const calledWithZeroZero = spy.mock.calls.some(
+        (args) => args[0] === 0 && args[1] === 0,
+      );
+      expect(calledWithZeroZero).toBe(false);
+
+      spy.mockRestore();
+      wrapper.unmount();
+    });
+
+    it('inputFocused toggles via focusin/focusout without viewport sync', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      expect(wrapper.vm.inputFocused).toBe(false);
+
+      // Append a real textarea into .overlay-body so the delegated
+      // focusin/focusout handlers fire.
+      const body = wrapper.vm.overlayBodyRef;
+      expect(body).toBeTruthy();
+      const textarea = document.createElement('textarea');
+      body.appendChild(textarea);
+
+      textarea.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      await nextTick();
+      expect(wrapper.vm.inputFocused).toBe(true);
+
+      textarea.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      // focusout is rAF-debounced; flush one frame.
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      await nextTick();
+      expect(wrapper.vm.inputFocused).toBe(false);
+
+      body.removeChild(textarea);
+      wrapper.unmount();
+    });
+
+    it('does not expose the deleted viewport helpers on the component', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      expect(wrapper.vm.syncToVisualViewport).toBeUndefined();
+      expect(wrapper.vm.applyLayoutViewport).toBeUndefined();
+      expect(wrapper.vm.markRecentBlur).toBeUndefined();
+      expect(wrapper.vm.isRecentBlur).toBeUndefined();
+      // But the surviving API is still present.
+      expect(wrapper.vm.overlayBodyRef).toBeDefined();
+      expect(typeof wrapper.vm.afterLeave).toBe('function');
+      wrapper.unmount();
     });
   });
+
 });

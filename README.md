@@ -16,7 +16,7 @@
 ### Stay on top of your agents
 
 - **AI-generated session summaries** — scan what every session accomplished without reading the full conversation, with PRs automatically linked (requires GitHub CLI)
-- **Kanban board** — organize sessions into workflow stages with drag-and-drop and lane automation
+- **Kanban board (experimental)** — organize sessions into workflow stages with drag-and-drop and lane automation. Disabled by default for new projects; enable it per-project from the project settings page. Expect rough edges while this feature matures.
 - **Command buttons with live status** — kick off builds, tests, or CI tasks and see pass/fail indicators right on the session list
 - **Star, archive, and filter** to keep your session list manageable
 
@@ -31,8 +31,8 @@
 
 - **Session scheduling** — queue sessions to run at specific times
 - **Auto-retry on token exhaustion or provider downtime** — configurable delay, max retries, and proactive rescheduling before hitting limits
-- **Kanban lane automation** — trigger templates automatically as sessions move between lanes
-- **Ask the agent to orchestrate** — agents can create sessions and place them in kanban lanes via the API, so you can ask one agent to fan out work across files or folders and track it all on the board
+- **Kanban lane automation (experimental)** — trigger templates automatically as sessions move between lanes (requires enabling the Kanban board for the project)
+- **Ask the agent to orchestrate (experimental)** — agents can create sessions and place them in kanban lanes via the API, so you can ask one agent to fan out work across files or folders and track it all on the board (requires enabling the Kanban board for the project)
 
 ### Git-native workflow
 
