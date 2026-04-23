@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { mkdtempSync } from 'fs';
+import { mkdirSync, mkdtempSync } from 'fs';
 import { cleanupAll, getProject, seedProject, API_URL } from './helpers';
 
 test.describe('Project Management', () => {
@@ -12,6 +12,11 @@ test.describe('Project Management', () => {
   });
 
   test('can create a new project', async ({ page }) => {
+    // Ensure the working directory exists so worktree path validation
+    // (which requires the parent of the auto-detected worktree path to be
+    // writable) doesn't reject the form submission.
+    mkdirSync('/tmp/test-project', { recursive: true });
+
     await page.goto('/');
     await page.click('text=Add Repository');
 
@@ -144,6 +149,9 @@ test.describe('Project Management', () => {
   });
 
   test('can create project with custom system prompt', async ({ page }) => {
+    // Ensure the working directory exists so worktree path validation passes.
+    mkdirSync('/tmp/test-project', { recursive: true });
+
     await page.goto('/');
     await page.click('text=Add Repository');
 

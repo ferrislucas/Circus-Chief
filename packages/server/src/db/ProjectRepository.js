@@ -20,7 +20,10 @@ export class ProjectRepository extends BaseRepository {
       prPollInterval: row.pr_poll_interval,
       repoUrl: row.repo_url,
       worktreePath: row.worktree_path,
-      kanbanEnabled: row.kanban_enabled === undefined ? true : Boolean(row.kanban_enabled),
+      // Kanban is an experimental feature, disabled by default for new projects.
+      // Fallback to `false` when the column is absent so missing data is
+      // treated as opt-out (consistent with create()).
+      kanbanEnabled: row.kanban_enabled === undefined ? false : Boolean(row.kanban_enabled),
       sessionCount: row.session_count ?? 0,
       lastActivityAt: row.last_activity_at ?? null,
       createdAt: row.created_at,
@@ -36,7 +39,7 @@ export class ProjectRepository extends BaseRepository {
       onSessionDeleted = null,
       prPollInterval = 60000,
       repoUrl = null,
-      kanbanEnabled = true,
+      kanbanEnabled = false,
       worktreePath = null,
     } = options;
     this.db
