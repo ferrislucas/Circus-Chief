@@ -53,6 +53,7 @@ export {
   initDatabase,
   getDatabase,
   closeDatabase,
+  getDbPath,
   generateId,
   transaction,
 } from './db/index.js';

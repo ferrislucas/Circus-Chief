@@ -14,7 +14,9 @@ test.describe('Kanban Lane Settings - Position Changes', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban Position Test', '/tmp/test-kanban-pos');
+    project = await seedProject('Kanban Position Test', '/tmp/test-kanban-pos', {
+      kanbanEnabled: true,
+    });
   });
 
   test.afterEach(async () => {
