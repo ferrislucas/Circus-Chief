@@ -9,6 +9,7 @@
       class="form-input form-textarea"
       :placeholder="placeholderText"
       :min-height="80"
+      @update:model-value="$emit('update:modelValue', $event)"
       @input="$emit('input', $event)"
       @keydown="handleKeydown"
     />

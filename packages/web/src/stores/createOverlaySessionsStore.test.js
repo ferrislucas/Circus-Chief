@@ -643,4 +643,62 @@ describe('createOverlaySessionsStore', () => {
     expect(store2.messages[0].id).toBe('m2');
     expect(store3.messages[0].id).toBe('m3');
   });
+
+  describe('recentSends (ghost-prompt markers)', () => {
+    it('initializes recentSends to an empty object on each overlay', () => {
+      const store = createOverlaySessionsStore();
+      expect(store.recentSends).toEqual({});
+    });
+
+    it('markRecentSend records the timestamp and hasRecentSend reports true', () => {
+      const store = createOverlaySessionsStore();
+      store.markRecentSend('sess-1');
+
+      expect(store.recentSends['sess-1']).toBeTypeOf('number');
+      expect(store.hasRecentSend('sess-1')).toBe(true);
+    });
+
+    it('clearRecentSend removes the marker', () => {
+      const store = createOverlaySessionsStore();
+      store.markRecentSend('sess-1');
+      expect(store.hasRecentSend('sess-1')).toBe(true);
+
+      store.clearRecentSend('sess-1');
+
+      expect(store.hasRecentSend('sess-1')).toBe(false);
+    });
+
+    it('recentSends do not leak between overlay instances', () => {
+      const store1 = createOverlaySessionsStore();
+      const store2 = createOverlaySessionsStore();
+
+      store1.markRecentSend('sess-A');
+
+      expect(store1.hasRecentSend('sess-A')).toBe(true);
+      expect(store2.hasRecentSend('sess-A')).toBe(false);
+    });
+
+    it('recentSends do not leak from overlay to main store', () => {
+      const main = useSessionsStore();
+      const overlay = createOverlaySessionsStore();
+
+      overlay.markRecentSend('sess-1');
+
+      expect(overlay.hasRecentSend('sess-1')).toBe(true);
+      expect(main.hasRecentSend('sess-1')).toBe(false);
+    });
+
+    it('$cleanup removes the overlay store entry (including recentSends)', () => {
+      const store = createOverlaySessionsStore();
+      store.markRecentSend('sess-1');
+      const storeId = store.$id;
+
+      const pinia = getActivePinia();
+      expect(pinia.state.value[storeId]).toBeDefined();
+
+      store.$cleanup();
+
+      expect(pinia.state.value[storeId]).toBeUndefined();
+    });
+  });
 });

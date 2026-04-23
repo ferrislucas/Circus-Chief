@@ -198,4 +198,36 @@ export const perSessionActions = {
     this.runningUsage = null;
     this.clearPartialThinking();
   },
+
+  // ==================== RECENT-SEND MARKER ACTIONS ====================
+  //
+  // Per-session, in-memory marker set when the user issues a Send/Start,
+  // used to suppress the ConversationTab onMounted restore that would
+  // otherwise re-populate the textarea with the just-sent prompt on remount.
+  //
+  // Scoped to each store instance so the overlay (which uses its own store
+  // factory) and the main view don't cross-contaminate markers.
+
+  markRecentSend(sessionId) {
+    if (!sessionId) return;
+    if (!this.recentSends) this.recentSends = {};
+    this.recentSends = { ...this.recentSends, [sessionId]: Date.now() };
+    // Safety-net TTL removal in case the event-driven clear path (the
+    // running → non-running status watcher) never fires.
+    setTimeout(() => {
+      if (!this.recentSends) return;
+      const entry = this.recentSends[sessionId];
+      if (entry && Date.now() - entry >= 5000) {
+        this.clearRecentSend(sessionId);
+      }
+    }, 5000);
+  },
+
+  clearRecentSend(sessionId) {
+    if (!sessionId || !this.recentSends) return;
+    if (!(sessionId in this.recentSends)) return;
+    const next = { ...this.recentSends };
+    delete next[sessionId];
+    this.recentSends = next;
+  },
 };

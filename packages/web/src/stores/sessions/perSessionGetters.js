@@ -45,4 +45,16 @@ export const perSessionGetters = {
     if (!conv?.parentConversationId) return null;
     return state.conversations.find((c) => c.id === conv.parentConversationId);
   },
+
+  /**
+   * Returns true when the given session had a Send/Start issued within the
+   * last 5 seconds. Used by `ConversationTab.onMounted` and the status
+   * watcher to suppress restoring a just-sent prompt back into the textarea.
+   */
+  hasRecentSend: (state) => (sessionId) => {
+    if (!sessionId || !state.recentSends) return false;
+    const ts = state.recentSends[sessionId];
+    if (!ts) return false;
+    return Date.now() - ts < 5000;
+  },
 };

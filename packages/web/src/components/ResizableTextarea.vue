@@ -109,10 +109,17 @@ function startResize(event) {
   document.addEventListener('touchcancel', stopResize);
 }
 
-// Expose the textarea ref and common methods for parent components
-// This allows existing code that accesses textareaRef.value to continue working
+// Expose imperative DOM operations for parent components.
+//
+// NOTE ON `value` getter/setter: ConversationTab no longer writes to this
+// setter — imperative writes from the parent caused the "ghost prompt" bug
+// (see Fix 4 in the ghost-prompt-textarea plan). New code should update the
+// reactive `modelValue` binding and let `watch(modelValue)` above sync the
+// DOM. The getter/setter remains only as a backwards-compatibility shim
+// for NewSessionView / `useNewSessionForm`, which still treats the ref as
+// a DOM-ish handle. Remove once those callers migrate to the bound ref.
 defineExpose({
-  // Direct access to the textarea element
+  // DEPRECATED: prefer updating the reactive `modelValue` / bound ref.
   get value() {
     return textareaRef.value?.value || '';
   },
@@ -130,7 +137,7 @@ defineExpose({
   select() {
     textareaRef.value?.select();
   },
-  // Expose selection properties
+  // Expose selection properties (reading cursor position, placing caret)
   get selectionStart() {
     return textareaRef.value?.selectionStart || 0;
   },
@@ -147,7 +154,8 @@ defineExpose({
       textareaRef.value.selectionEnd = val;
     }
   },
-  // Allow dispatching events on the textarea
+  // Allow dispatching events on the textarea (e.g. synthetic 'input' for
+  // slash-command insert to re-trigger the parent's debounced save).
   dispatchEvent(event) {
     return textareaRef.value?.dispatchEvent(event);
   }

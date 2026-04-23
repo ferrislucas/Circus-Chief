@@ -63,9 +63,14 @@ export function useSessionControl({ getSessionId }) {
   async function handleStart(prompt, model) {
     if (restarting.value || !prompt?.trim()) return false;
 
+    const sessionId = getSessionId();
     restarting.value = true;
     try {
-      await sessionsStore.startSession(getSessionId(), prompt, model);
+      await sessionsStore.startSession(sessionId, prompt, model);
+      // Mark this session as having a recent send so `ConversationTab`'s
+      // onMounted restore path (and status watcher) knows not to re-populate
+      // the textarea with the just-sent prompt on remount.
+      sessionsStore.markRecentSend?.(sessionId);
       return true;
     } catch (err) {
       uiStore.error(err.message);
@@ -77,6 +82,19 @@ export function useSessionControl({ getSessionId }) {
 
   /**
    * Send a follow-up message.
+   *
+   * Order of operations (important for the "ghost prompt" fix):
+   *   1. Clear the server's `pendingPrompt` FIRST so any WebSocket
+   *      `session:updated` frame arriving mid-send cannot re-snapshot the
+   *      stale value into the local store.
+   *   2. Send the message.
+   *   3. Mark the session as having a recent send so the onMounted restore
+   *      in ConversationTab skips re-populating the textarea if the tab
+   *      is remounted within the TTL window.
+   *
+   * If sendMessage fails after the prompt was cleared, we best-effort
+   * restore the server's `pendingPrompt` so the user's draft isn't lost.
+   *
    * @param {string} message - The message text
    * @param {Array} attachedFiles - File attachments
    * @param {string} selectedModel - The model to use
@@ -87,13 +105,33 @@ export function useSessionControl({ getSessionId }) {
 
     console.log(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel}"`);
 
+    const sessionId = getSessionId();
     sending.value = true;
+
+    // Snapshot whether we've cleared the server draft so we know whether to
+    // restore it on failure.
+    let clearedServerDraft = false;
+
     try {
-      await sessionsStore.sendMessage(getSessionId(), message, attachedFiles, selectedModel);
-      // Clear pending prompt on server
-      await api.updateSessionPendingPrompt(getSessionId(), null);
+      // 1. Clear server pendingPrompt FIRST (closes the WS interleave window).
+      await api.updateSessionPendingPrompt(sessionId, null);
+      clearedServerDraft = true;
+
+      // 2. Send the message.
+      await sessionsStore.sendMessage(sessionId, message, attachedFiles, selectedModel);
+
+      // 3. Mark as recent-send so remounts don't restore the just-sent prompt.
+      sessionsStore.markRecentSend?.(sessionId);
       return true;
     } catch (err) {
+      // Best-effort restore so the user's draft isn't silently discarded.
+      if (clearedServerDraft) {
+        try {
+          await api.updateSessionPendingPrompt(sessionId, message);
+        } catch (_restoreErr) {
+          // Swallow restore failure — the primary error is more useful to surface.
+        }
+      }
       uiStore.error(err.message);
       return false;
     } finally {
