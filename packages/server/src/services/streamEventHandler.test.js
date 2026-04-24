@@ -5,6 +5,7 @@ vi.mock('../database.js', () => ({
     getById: vi.fn(),
     update: vi.fn(),
     updateUsage: vi.fn(),
+    touch: vi.fn(),
   },
   messages: {
     getBySessionId: vi.fn(),
@@ -59,7 +60,7 @@ vi.mock('./kanbanService.js', () => ({
   handleTurnCompletion: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { sessions, workLogs, conversations } from '../database.js';
+import { sessions, messages, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
@@ -71,6 +72,7 @@ import {
   broadcastSessionStatus,
   broadcastChangesUpdate,
   cleanupSessionState,
+  handleStreamEvent,
   handleTurnCompletion,
   handleSessionError,
   lastMessageIds,
@@ -960,6 +962,68 @@ describe('streamEventHandler', () => {
 
     it('exports loggedToolUseIds as a Map', () => {
       expect(loggedToolUseIds).toBeInstanceOf(Map);
+    });
+  });
+
+  // ── handleStreamEvent ─────────────────────────────────────────────────────
+
+  describe('handleStreamEvent', () => {
+    beforeEach(() => {
+      // Add session to activeSessions so events are processed
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+    });
+
+    it('calls sessions.touch when assistant event with text content is processed', async () => {
+      const mockMessage = { id: 'msg-1', content: 'Response' };
+      messages.create.mockReturnValue(mockMessage);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1', name: 'Test Conv' });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const assistantEvent = {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: 'Hello, this is assistant text' },
+          ],
+        },
+      };
+
+      await handleStreamEvent('sess-1', assistantEvent);
+
+      expect(sessions.touch).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('does not call sessions.touch when assistant event has no text content', async () => {
+      const assistantEvent = {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 'tu-1', name: 'Read', input: {} },
+          ],
+        },
+      };
+
+      await handleStreamEvent('sess-1', assistantEvent);
+
+      expect(sessions.touch).not.toHaveBeenCalled();
+    });
+
+    it('does not process events when session is not in activeSessions', async () => {
+      activeSessions.delete('sess-1');
+
+      const assistantEvent = {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'text', text: 'Should not be processed' },
+          ],
+        },
+      };
+
+      await handleStreamEvent('sess-1', assistantEvent);
+
+      expect(messages.create).not.toHaveBeenCalled();
+      expect(sessions.touch).not.toHaveBeenCalled();
     });
   });
 });
