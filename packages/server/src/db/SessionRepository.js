@@ -213,6 +213,18 @@ export class SessionRepository extends BaseRepository {
     return this.getById(id);
   }
 
+  /**
+   * Touch a session to update its updated_at timestamp without changing other fields.
+   * This is used to mark a session as recently active (e.g., when a message is added).
+   * @param {string} id - Session ID
+   * @returns {Object|null} The updated session or null if not found
+   */
+  touch(id) {
+    const now = Date.now();
+    this.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, id);
+    return this.getById(id);
+  }
+
   /** Duplicate a session with a new ID and reset state (does NOT handle git or conversation setup) */
   duplicate(sourceSessionId, { name } = {}) {
     const source = this.getById(sourceSessionId);
