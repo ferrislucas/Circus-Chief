@@ -230,10 +230,10 @@ describe('ProjectDefaultsRepository', () => {
     it('returns system default values', () => {
       const defaults = ProjectDefaultsRepository.getSystemDefaults();
 
-      expect(defaults.mode).toBe('standard');
-      expect(defaults.thinkingEnabled).toBe(false);
+      expect(defaults.mode).toBe('yolo');
+      expect(defaults.thinkingEnabled).toBe(true);
       expect(defaults.startImmediately).toBe(true);
-      expect(defaults.gitMode).toBeNull();
+      expect(defaults.gitMode).toBe('worktree');
       expect(defaults.gitBranch).toBeNull();
       expect(defaults.model).toBeNull();
       expect(defaults.effortLevel).toBeNull();

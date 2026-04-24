@@ -545,7 +545,7 @@ describe('Projects API', () => {
         const session = sessions.getById(res.body.id);
         expect(session.nextTemplateId).toBe(template.id);
         // Template settings should NOT be applied (no templateId was provided)
-        expect(session.thinkingEnabled).toBe(false); // system default
+        expect(session.thinkingEnabled).toBe(true); // system default
 
         // Clean up
         sessionTemplates.delete(template.id);
@@ -1115,7 +1115,7 @@ describe('Projects API', () => {
 
       const session = sessions.getById(res.body.id);
       expect(session.mode).toBe('plan'); // From project default
-      expect(session.thinkingEnabled).toBe(false); // From system default
+      expect(session.thinkingEnabled).toBe(true); // From system default
     });
 
     it('applies startImmediately default', async () => {
@@ -1175,8 +1175,8 @@ describe('Projects API', () => {
       expect(res.status).toBe(201);
 
       const session = sessions.getById(res.body.id);
-      expect(session.mode).toBe('standard'); // System default
-      expect(session.thinkingEnabled).toBe(false); // System default
+      expect(session.mode).toBe('yolo'); // System default
+      expect(session.thinkingEnabled).toBe(true); // System default
       expect(session.status).toBe('starting'); // startImmediately default is true
     });
 

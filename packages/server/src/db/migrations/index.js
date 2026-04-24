@@ -183,6 +183,9 @@ export const allMigrations = validateMigrations([
   // --- Sessions agent_type ---
   s.get('sessions-add-agent_type'),
 
+  // --- Update default mode and thinking_enabled ---
+  s.get('sessions-update-default-mode-and-thinking'),
+
   // --- Agent call logs table ---
   m.get('agent_call_logs-create-table'),
 

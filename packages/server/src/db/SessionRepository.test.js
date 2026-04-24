@@ -42,7 +42,7 @@ describe('SessionRepository', () => {
       expect(session.projectId).toBe(projectId);
       expect(session.name).toBe('Test Session');
       expect(session.status).toBe('starting');
-      expect(session.mode).toBe('standard');
+      expect(session.mode).toBe('yolo');
       expect(session.createdAt).toBeTypeOf('number');
       expect(session.updatedAt).toBeTypeOf('number');
     });
@@ -64,7 +64,7 @@ describe('SessionRepository', () => {
 
     it('creates session with thinkingEnabled false by default', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
-      expect(session.thinkingEnabled).toBe(false);
+      expect(session.thinkingEnabled).toBe(true);
     });
 
     it('creates session with effortLevel option', () => {
@@ -192,8 +192,8 @@ describe('SessionRepository', () => {
 
       it('creates session with empty options object', () => {
         const session = repo.create(projectId, 'Test', 'Prompt', {});
-        expect(session.mode).toBe('standard');
-        expect(session.thinkingEnabled).toBe(false);
+        expect(session.mode).toBe('yolo');
+        expect(session.thinkingEnabled).toBe(true);
         expect(session.status).toBe('starting');
       });
 
@@ -265,7 +265,7 @@ describe('SessionRepository', () => {
       it('supports legacy call with mode as 4th parameter', () => {
         const session = repo.create(projectId, 'Test', 'Prompt', 'plan');
         expect(session.mode).toBe('plan');
-        expect(session.thinkingEnabled).toBe(false);
+        expect(session.thinkingEnabled).toBe(true);
         expect(session.gitBranch).toBeNull();
       });
 

@@ -121,7 +121,7 @@ export function prepareSessionConfig(body, projectDefs, systemDefaults) {
     model: resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null),
     effortLevel,
     gitBranch: resolveDefault(body.gitBranch, projectDefs?.gitBranch, null),
-    gitMode: resolveDefault(body.gitMode, projectDefs?.gitMode, null),
+    gitMode: resolveDefault(body.gitMode, projectDefs?.gitMode, systemDefaults.gitMode),
     templateId: body.templateId,
     parentSessionId: body.parentSessionId || null,
     files: [],
