@@ -168,6 +168,7 @@ export const allMigrations = validateMigrations([
 
   // --- Providers + provider_models tables + seed ---
   m.get('providers-create-tables'),
+  m.get('providers-add-kind'),
   m.get('providers-seed-built-in'),
 
   // --- Sessions provider_id (from providers FK) ---

@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"codex-tool"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"r_0","type":"reasoning","content":[{"type":"text","text":"thinking..."}],"summary":[]}}
+{"type":"item.completed","item":{"id":"msg_0","type":"agentMessage","text":"Done"}}
+{"type":"turn.completed","usage":{"input_tokens":20,"cached_input_tokens":0,"output_tokens":5}}

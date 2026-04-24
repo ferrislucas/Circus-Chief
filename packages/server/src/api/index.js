@@ -11,6 +11,7 @@ import providersRouter from './providers.js';
 import commandsRouter from './commands.js';
 import metricsRouter from './metrics.js';
 import kanbanRouter from './kanban.js';
+import agentsRouter from './agents.js';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ router.use('/git', gitRouter);
 router.use('/filesystem', filesystemRouter);
 router.use('/settings', settingsRouter);
 router.use('/providers', providersRouter);
+router.use('/agents', agentsRouter);
 router.use('/commands', commandsRouter)
 
 // Canvas routes are nested under sessions

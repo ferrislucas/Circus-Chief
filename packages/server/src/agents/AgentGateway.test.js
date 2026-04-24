@@ -21,6 +21,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
 
 import { AgentGateway } from './AgentGateway.js';
 import { ClaudeCodeAdapter } from './adapters/ClaudeCodeAdapter.js';
+import { CodexAdapter } from './adapters/CodexAdapter.js';
 import { BaseAgent } from './BaseAgent.js';
 
 describe('AgentGateway', () => {
@@ -33,7 +34,7 @@ describe('AgentGateway', () => {
   it('throws descriptive error for unknown agent type', () => {
     const gateway = new AgentGateway();
     expect(() => gateway.createAgent('nonexistent')).toThrow(
-      'Unknown agent type: "nonexistent". Available: claude-code'
+      'Unknown agent type: "nonexistent". Available: claude-code, codex'
     );
   });
 
@@ -52,11 +53,11 @@ describe('AgentGateway', () => {
 
   it('lists all registered agent types', () => {
     const gateway = new AgentGateway();
-    expect(gateway.getAvailableAgents()).toEqual(['claude-code']);
+    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex']);
 
     class FakeAdapter extends BaseAgent {}
     gateway.registerAdapter('fake', FakeAdapter);
-    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'fake']);
+    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'fake']);
   });
 
   it('returns capabilities for registered agent types', () => {
@@ -79,5 +80,56 @@ describe('AgentGateway', () => {
     const gateway = new AgentGateway();
     const agent = gateway.createAgent('claude-code', { model: 'test-model' });
     expect(agent.config).toEqual({ model: 'test-model', agentType: 'claude-code' });
+  });
+
+  // ── Codex integration ───────────────────────────────────────────────────
+  describe('codex adapter integration', () => {
+    it('createAgent("codex") returns a CodexAdapter instance', () => {
+      const gateway = new AgentGateway();
+      const agent = gateway.createAgent('codex');
+      expect(agent).toBeInstanceOf(CodexAdapter);
+    });
+
+    it('createAgent("codex", config) forwards config to the adapter', () => {
+      const gateway = new AgentGateway();
+      const fakeSpawner = () => ({});
+      const agent = gateway.createAgent('codex', { spawnCodexProcess: fakeSpawner });
+      // The constructor pulls spawnCodexProcess into a private field
+      expect(agent._spawnCodex).toBe(fakeSpawner);
+    });
+
+    it('getAgentCapabilities("codex") returns codex capabilities WITHOUT calling constructor', () => {
+      const gateway = new AgentGateway();
+      // Spy on the constructor via a prototype method hook is awkward in JS;
+      // instead, rely on the contract that the static field is present and
+      // ensure the returned caps match the static field exactly (same reference
+      // content).
+      const caps = gateway.getAgentCapabilities('codex');
+      expect(caps).toEqual({
+        streaming: true,
+        thinking: false,
+        toolUse: false,
+        resume: false,
+      });
+      expect(caps).toEqual(CodexAdapter.capabilities);
+    });
+
+    it('getAllAgentCapabilities() returns entries for every registered adapter', () => {
+      const gateway = new AgentGateway();
+      const all = gateway.getAllAgentCapabilities();
+      expect(all).toHaveLength(2);
+      const byType = Object.fromEntries(all.map((e) => [e.agentType, e.capabilities]));
+      expect(byType['claude-code']).toEqual({
+        streaming: true, thinking: true, toolUse: true, resume: true,
+      });
+      expect(byType['codex']).toEqual({
+        streaming: true, thinking: false, toolUse: false, resume: false,
+      });
+    });
+
+    it('getAvailableAgents() includes both claude-code and codex', () => {
+      const gateway = new AgentGateway();
+      expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex']);
+    });
   });
 });

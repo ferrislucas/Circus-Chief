@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { useModelInfo } from './useModelInfo.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createPinia, setActivePinia } from 'pinia';
+import { useModelInfo, __resetCapabilityCache } from './useModelInfo.js';
+import { useProvidersStore } from '../stores/providers.js';
+import { CLAUDE_MODELS } from '@circuschief/shared';
+import { api } from './useApi.js';
 
 describe('useModelInfo', () => {
   describe('getModelDisplayName', () => {
@@ -82,9 +86,10 @@ describe('useModelInfo', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('claude-opus-4-6');
 
-      expect(info).toEqual({
+      expect(info).toMatchObject({
         name: 'Opus 4.6',
         description: 'Previous generation',
+        agentType: 'claude-code',
       });
     });
 
@@ -92,9 +97,10 @@ describe('useModelInfo', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('claude-opus-4-7');
 
-      expect(info).toEqual({
+      expect(info).toMatchObject({
         name: 'Opus 4.7',
         description: 'Most capable (default)',
+        agentType: 'claude-code',
       });
     });
 
@@ -102,9 +108,10 @@ describe('useModelInfo', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('claude-sonnet-4-6');
 
-      expect(info).toEqual({
+      expect(info).toMatchObject({
         name: 'Sonnet 4.6',
         description: 'Balanced',
+        agentType: 'claude-code',
       });
     });
 
@@ -112,9 +119,10 @@ describe('useModelInfo', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('claude-haiku-4-5-20251001');
 
-      expect(info).toEqual({
+      expect(info).toMatchObject({
         name: 'Haiku 4.5',
         description: 'Fast & lightweight',
+        agentType: 'claude-code',
       });
     });
 
@@ -122,9 +130,10 @@ describe('useModelInfo', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo(null);
 
-      expect(info).toEqual({
+      expect(info).toMatchObject({
         name: 'Default',
         description: 'Most capable (default)',
+        agentType: 'claude-code',
       });
     });
 
@@ -132,9 +141,10 @@ describe('useModelInfo', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('unknown-model-id');
 
-      expect(info).toEqual({
+      expect(info).toMatchObject({
         name: 'Unknown Model Id',
         description: 'unknown-model-id',
+        agentType: 'claude-code',
       });
     });
   });
@@ -196,6 +206,111 @@ describe('useModelInfo', () => {
 
       expect(fn1('claude-opus-4-6')).toBe(fn2('claude-opus-4-6'));
       expect(fn1(null)).toBe(fn2(null));
+    });
+  });
+
+  describe('agent-aware getModelInfo (Phase 6)', () => {
+    let getAgentsSpy;
+
+    beforeEach(() => {
+      setActivePinia(createPinia());
+      __resetCapabilityCache();
+
+      // Seed providers store with a mix of Anthropic and OpenAI providers.
+      const providersStore = useProvidersStore();
+      providersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          kind: 'anthropic',
+          models: [
+            { id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+          ],
+        },
+        {
+          id: 'openai-prov',
+          name: 'OpenAI',
+          isBuiltIn: false,
+          kind: 'openai',
+          models: [
+            { id: 'o-gpt4o', modelId: 'gpt-4o', displayName: 'GPT-4o' },
+          ],
+        },
+      ];
+
+      // Spy on the API so we can verify caching of /api/agents.
+      getAgentsSpy = vi.spyOn(api, 'getAgents').mockResolvedValue([
+        { agentType: 'claude-code', capabilities: { streaming: true, thinking: true, toolUse: true, resume: true } },
+        { agentType: 'codex', capabilities: { streaming: true, thinking: false, toolUse: false, resume: false } },
+      ]);
+    });
+
+    it('resolves Codex model ID to agentType="codex" with thinking disabled', async () => {
+      const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+
+      // Prime the capability cache synchronously before reading.
+      await fetchAgentCapabilities();
+
+      const info = getModelInfo('gpt-4o');
+      expect(info.agentType).toBe('codex');
+      expect(info.capabilities.thinking).toBe(false);
+      expect(info.providerId).toBe('openai-prov');
+      expect(info.providerName).toBe('OpenAI');
+    });
+
+    it('does NOT consult CLAUDE_MODELS for Codex model IDs', async () => {
+      const findSpy = vi.spyOn(CLAUDE_MODELS, 'find');
+      const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+      await fetchAgentCapabilities();
+
+      findSpy.mockClear();
+      const info = getModelInfo('gpt-4o');
+
+      // Name resolution falls through to providerModel.displayName; no lookups
+      // were performed against the Claude constants for this Codex model.
+      expect(info.name).toBe('GPT-4o');
+      expect(findSpy).not.toHaveBeenCalled();
+
+      findSpy.mockRestore();
+    });
+
+    it('resolves Anthropic model ID to agentType="claude-code" with thinking enabled', async () => {
+      const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+      await fetchAgentCapabilities();
+
+      const info = getModelInfo('claude-sonnet-4-6');
+      expect(info.agentType).toBe('claude-code');
+      expect(info.capabilities.thinking).toBe(true);
+      expect(info.providerId).toBe('anthropic-default');
+      expect(info.providerName).toBe('Anthropic (Official)');
+    });
+
+    it('unknown model IDs default to claude-code agent with graceful defaults', async () => {
+      const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+      await fetchAgentCapabilities();
+
+      const info = getModelInfo('never-heard-of-this-model');
+      expect(info.agentType).toBe('claude-code');
+      expect(info.providerId).toBeNull();
+      expect(info.providerName).toBeNull();
+      // Name falls back to formatModelId; does not crash.
+      expect(info.name).toBe('Never Heard Of This Model');
+    });
+
+    it('caches /api/agents across calls (second call does not refetch)', async () => {
+      const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+      await fetchAgentCapabilities();
+
+      expect(getAgentsSpy).toHaveBeenCalledTimes(1);
+
+      // Multiple subsequent getModelInfo calls must NOT trigger additional
+      // /api/agents fetches.
+      getModelInfo('gpt-4o');
+      getModelInfo('claude-sonnet-4-6');
+      await fetchAgentCapabilities();
+
+      expect(getAgentsSpy).toHaveBeenCalledTimes(1);
     });
   });
 });

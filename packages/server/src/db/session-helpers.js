@@ -59,6 +59,9 @@ const CONFIG_DEFAULTS = {
   status: 'starting',
   model: null,
   effortLevel: null,
+  // Agent runtime for the session: 'claude-code' (default) or 'codex'.
+  // Derived server-side from the selected model → provider → kind.
+  agentType: 'claude-code',
 };
 
 function buildConfig(src) {
@@ -109,6 +112,7 @@ export const DIRECT_FIELD_MAP = {
   effortLevel: 'effort_level',
   targetLaneId: 'target_lane_id',
   laneTriggerDepth: 'lane_trigger_depth',
+  agentType: 'agent_type',
 };
 
 /** camelCase -> snake_case column mapping for boolean fields (converted to 1/0) */

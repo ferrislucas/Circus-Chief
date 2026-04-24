@@ -17,15 +17,17 @@
         {{ emptyLabel }}
       </option>
       <optgroup
-        v-for="provider in providersStore.providers"
+        v-for="provider in sortedProviders"
         :key="provider.id"
-        :label="provider.name"
+        :label="`${agentLabelFor(provider)} · ${provider.name}`"
+        :data-agent-type="agentTypeFor(provider)"
       >
         <option
           v-for="model in provider.models"
           :key="model.id"
           :value="model.modelId"
           :data-provider-id="provider.id"
+          :data-agent-type="agentTypeFor(provider)"
         >
           {{ provider.isBuiltIn ? model.displayName : model.modelId }}
         </option>
@@ -88,18 +90,56 @@ function isValidModelId(modelId) {
   return modelId && validModelIds.value.has(modelId);
 }
 
-// Get default model from first available provider
+// Map a provider kind to an agent type. Default to 'claude-code' when `kind`
+// is absent so legacy providers (pre-Phase-1) keep their Claude Code grouping.
+function agentTypeFor(provider) {
+  if (provider?.kind === 'openai') return 'codex';
+  return 'claude-code';
+}
+
+// Human-readable agent heading for optgroup labels.
+function agentLabelFor(provider) {
+  return agentTypeFor(provider) === 'codex' ? 'Codex' : 'Claude Code';
+}
+
+// Sort providers by:
+//   1) Agent type: Claude Code first, then Codex
+//   2) Built-in before custom within the same agent
+//   3) Alphabetical by name among custom providers
+const sortedProviders = computed(() => {
+  const list = [...providersStore.providers];
+  list.sort((a, b) => {
+    const aType = agentTypeFor(a);
+    const bType = agentTypeFor(b);
+    if (aType !== bType) {
+      return aType === 'claude-code' ? -1 : 1;
+    }
+    if (a.isBuiltIn !== b.isBuiltIn) {
+      return a.isBuiltIn ? -1 : 1;
+    }
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  return list;
+});
+
+// Default model resolution honours Phase 6 rules:
+//   - Prefer the first built-in Anthropic provider's sonnet (or first) model.
+//   - If NO Anthropic providers exist at all, return null rather than silently
+//     selecting a Codex model (Codex has no "default" concept in the UI yet).
 const defaultModel = computed(() => {
-  // Prefer built-in Anthropic provider's sonnet model
-  const builtIn = providersStore.providers.find(p => p.isBuiltIn);
-  if (builtIn?.models?.length) {
-    // Find sonnet tier if available, otherwise first model
-    const sonnet = builtIn.models.find(m => m.tier === 'sonnet');
-    return sonnet?.modelId || builtIn.models[0].modelId;
+  const anthropicProviders = providersStore.providers.filter(
+    (p) => agentTypeFor(p) === 'claude-code'
+  );
+  if (anthropicProviders.length === 0) {
+    return null;
   }
-  // Fallback to first provider's first model
-  const firstProvider = providersStore.providers[0];
-  return firstProvider?.models?.[0]?.modelId || null;
+  const builtIn = anthropicProviders.find((p) => p.isBuiltIn);
+  const candidate = builtIn || anthropicProviders[0];
+  if (candidate?.models?.length) {
+    const sonnet = candidate.models.find((m) => m.tier === 'sonnet');
+    return sonnet?.modelId || candidate.models[0].modelId;
+  }
+  return null;
 });
 
 // Track if we've already initialized (to prevent default model from overriding after init)
@@ -128,7 +168,10 @@ function resolveModelId(modelValue) {
   }
 
   // It's a tier name like 'sonnet', 'opus', 'haiku' - find matching model
-  const builtIn = providersStore.providers.find(p => p.isBuiltIn);
+  // (only resolve against an Anthropic built-in; Codex has no tier map)
+  const builtIn = providersStore.providers.find(
+    (p) => p.isBuiltIn && agentTypeFor(p) === 'claude-code'
+  );
   if (builtIn?.models?.length) {
     const match = builtIn.models.find(m => m.tier === modelValue);
     if (match) {

@@ -18,6 +18,7 @@ import {
   setupAndStartSession,
 } from './projects-session-helpers.js';
 import { validateGitSettings, buildRunsBySession } from './projects-helpers.js';
+import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import { access, constants } from 'fs/promises';
 import { dirname, isAbsolute } from 'path';
 
@@ -238,6 +239,7 @@ function createSessionRow(projectId, config, nextTemplateId, initialStatus) {
     status: initialStatus,
     model: config.model,
     effortLevel: config.effortLevel,
+    agentType: config.agentType,
   });
 
   const postCreateUpdate = {
@@ -293,6 +295,11 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     }
 
     const { config, nextTemplateId } = prepared;
+    // Derive the agent type from the resolved model (after template overrides
+    // have been applied inside validateAndPrepareSessionConfig). Null/unknown
+    // model IDs fall back to 'claude-code'. This is the single source of truth
+    // for which adapter the session will use; sessions.create() persists it.
+    config.agentType = resolveAgentTypeFromModel(config.model);
     const initialStatus = determineInitialStatus(config);
     session = createSessionRow(req.params.id, config, nextTemplateId, initialStatus);
     return await startSessionOrFail(req, res, { session, config, project });

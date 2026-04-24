@@ -6,7 +6,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
-import { projects, sessions, sessionTemplates, commandButtons, commandRuns } from '../database.js';
+import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders } from '../database.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -1187,6 +1187,108 @@ describe('Projects API', () => {
       const session = sessions.getById(res.body.id);
       // System default for model is null - SDK decides
       expect(session.model).toBeNull();
+    });
+
+    describe('Phase 7: agentType derivation from model', () => {
+      let codexProvider;
+      let anthropicProvider;
+
+      beforeEach(() => {
+        // Register a third-party Codex (OpenAI-kind) provider + model so
+        // resolveAgentTypeFromModel returns 'codex' for 'gpt-4o-phase7'.
+        codexProvider = modelProviders.create({
+          name: 'Codex Phase7 Provider',
+          baseUrl: 'https://api.openai.example',
+          authToken: 'sk-codex-phase7',
+          kind: 'openai',
+        });
+        modelProviders.addModel(codexProvider.id, {
+          modelId: 'gpt-4o-phase7',
+          displayName: 'GPT-4o Phase7',
+          tier: 'custom',
+        });
+
+        // And an Anthropic-kind third-party provider for a same-kind baseline.
+        anthropicProvider = modelProviders.create({
+          name: 'Anthropic Phase7 Provider',
+          baseUrl: 'https://api.anthropic.example',
+          authToken: 'sk-anth-phase7',
+          kind: 'anthropic',
+        });
+        modelProviders.addModel(anthropicProvider.id, {
+          modelId: 'claude-sonnet-phase7',
+          displayName: 'Claude Sonnet Phase7',
+          tier: 'sonnet',
+        });
+      });
+
+      afterEach(() => {
+        try { modelProviders.delete(codexProvider.id); } catch { /* noop */ }
+        try { modelProviders.delete(anthropicProvider.id); } catch { /* noop */ }
+      });
+
+      it('creates a session with agentType="codex" when explicit model resolves to OpenAI-kind', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          model: 'gpt-4o-phase7',
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+        expect(res.status).toBe(201);
+        const session = sessions.getById(res.body.id);
+        expect(session.agentType).toBe('codex');
+        expect(session.model).toBe('gpt-4o-phase7');
+      });
+
+      it('creates a session with agentType="claude-code" when explicit model is a Claude model', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          model: 'claude-sonnet-phase7',
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+        expect(res.status).toBe(201);
+        const session = sessions.getById(res.body.id);
+        expect(session.agentType).toBe('claude-code');
+      });
+
+      it('creates a session with agentType="claude-code" when model is null (SDK default)', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+        expect(res.status).toBe(201);
+        const session = sessions.getById(res.body.id);
+        expect(session.agentType).toBe('claude-code');
+      });
+
+      it('template whose resolved model is a Codex model stores agentType="codex"', async () => {
+        // Template carries no model (templates don't set model directly today);
+        // the model comes from the request body. Phase 7 derives agentType
+        // from the final resolved config.model regardless of source.
+        const template = sessionTemplates.create({
+          name: 'Codex Template',
+          prompt: 'Template prompt',
+          projectId,
+          thinkingEnabled: false,
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test prompt',
+          templateId: template.id,
+          model: 'gpt-4o-phase7',
+          gitMode: 'worktree',
+          gitBranch: 'test-branch',
+        });
+        expect(res.status).toBe(201);
+
+        const session = sessions.getById(res.body.id);
+        expect(session.agentType).toBe('codex');
+        expect(session.model).toBe('gpt-4o-phase7');
+
+        sessionTemplates.delete(template.id);
+      });
     });
   });
 

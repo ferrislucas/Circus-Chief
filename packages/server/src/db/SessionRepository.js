@@ -42,6 +42,8 @@ export class SessionRepository extends BaseRepository {
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       slashCommands: row.slash_commands || null,
+      // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
+      agentType: row.agent_type || 'claude-code',
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields
@@ -62,7 +64,7 @@ export class SessionRepository extends BaseRepository {
     return this.map(row);
   }
 
-  /** Create a new session with optional config (mode, thinkingEnabled, gitBranch, parentSessionId, status, model, effortLevel) */
+  /** Create a new session with optional config (mode, thinkingEnabled, gitBranch, parentSessionId, status, model, effortLevel, agentType) */
   create(projectId, name, prompt, options = {}) {
     const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));
 
@@ -70,10 +72,24 @@ export class SessionRepository extends BaseRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, effort_level, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, effort_level, agent_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, config.status, config.mode, config.thinkingEnabled ? 1 : 0, config.gitBranch, config.parentSessionId, config.model, config.effortLevel, now, now);
+      .run(
+        id,
+        projectId,
+        name,
+        config.status,
+        config.mode,
+        config.thinkingEnabled ? 1 : 0,
+        config.gitBranch,
+        config.parentSessionId,
+        config.model,
+        config.effortLevel,
+        config.agentType || 'claude-code',
+        now,
+        now
+      );
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);
@@ -227,10 +243,10 @@ export class SessionRepository extends BaseRepository {
     // Insert new session with same settings but new ID and status
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, effort_level, context_window,
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, effort_level, agent_type, context_window,
                                input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                                web_search_requests, cost_usd, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -242,6 +258,7 @@ export class SessionRepository extends BaseRepository {
         source.gitBranch,  // Copy branch name (NOT worktree path)
         source.model,
         source.effortLevel,
+        source.agentType || 'claude-code',
         source.contextWindow,
         source.inputTokens,
         source.outputTokens,

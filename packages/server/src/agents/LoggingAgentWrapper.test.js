@@ -221,4 +221,41 @@ describe('LoggingAgentWrapper', () => {
     const wrapper = new LoggingAgentWrapper(createMockAgent([], caps));
     expect(wrapper.getCapabilities()).toEqual(caps);
   });
+
+  it('handles Codex-shaped events and extracts usage from the terminal result', async () => {
+    const codexEvents = [
+      { type: 'system', subtype: 'init', session_id: 'codex-abc', model: 'gpt-4o' },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } },
+      },
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'hi' }] } },
+      { type: 'result', subtype: 'success', usage: { input_tokens: 7, output_tokens: 3 } },
+    ];
+
+    const wrapper = new LoggingAgentWrapper(createMockAgent(codexEvents));
+
+    const collected = [];
+    for await (const event of wrapper.execute({ prompt: 'say hi' }, { ...meta, agentType: 'codex' })) {
+      collected.push(event);
+    }
+
+    // All events pass through in order
+    expect(collected).toEqual(codexEvents);
+
+    // updateUsage called exactly once with Codex-shaped usage
+    expect(agentCallLogger.updateUsage).toHaveBeenCalledTimes(1);
+    expect(agentCallLogger.updateUsage).toHaveBeenCalledWith('mock-call-id', {
+      inputTokens: 7,
+      outputTokens: 3,
+      thinkingTokens: 0,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+    });
+
+    // completeCall(success: true)
+    expect(agentCallLogger.completeCall).toHaveBeenCalledWith('mock-call-id', {
+      success: true,
+    });
+  });
 });

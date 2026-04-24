@@ -16,21 +16,36 @@
           @update:model-value="$emit('update:model', $event)"
           @update:provider-id="$emit('update:providerId', $event)"
         />
+        <span
+          v-if="isCodexModel"
+          class="agent-badge"
+          data-agent-badge="codex"
+        >Agent: Codex</span>
       </div>
 
-      <div class="effort-selector-wrapper">
+      <div
+        class="effort-selector-wrapper"
+        :class="{ 'option-disabled': isCodexModel }"
+        :title="isCodexModel ? 'Not supported for Codex sessions' : ''"
+      >
         <EffortLevelSelector
           :model-value="effortLevel"
+          :disabled="isCodexModel"
           @update:model-value="$emit('update:effortLevel', $event)"
         />
       </div>
 
-      <div class="thinking-toggle">
+      <div
+        class="thinking-toggle"
+        :class="{ 'option-disabled': isCodexModel }"
+        :title="isCodexModel ? 'Not supported for Codex sessions' : ''"
+      >
         <div class="field-with-badge">
           <label class="toggle-switch">
             <input
               type="checkbox"
               :checked="thinkingEnabled"
+              :disabled="isCodexModel"
               @change="$emit('update:thinkingEnabled', $event.target.checked)"
             >
             <span class="toggle-slider" />
@@ -60,11 +75,13 @@
 </template>
 
 <script setup>
+import { computed, onMounted } from 'vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
 import EffortLevelSelector from './EffortLevelSelector.vue';
+import { useModelInfo } from '../composables/useModelInfo.js';
 
-defineProps({
+const props = defineProps({
   mode: {
     type: String,
     default: 'yolo',
@@ -99,6 +116,22 @@ defineEmits([
   'update:thinkingEnabled',
   'update:startImmediately',
 ]);
+
+const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+
+// Ensure the /api/agents capability map is fetched once so `isCodexModel`
+// can reflect actual server-reported capabilities rather than an empty cache.
+onMounted(() => {
+  fetchAgentCapabilities();
+});
+
+// Derive agent-type of the currently-selected model. A true value here hides
+// thinking-specific controls (which Codex does not support).
+const isCodexModel = computed(() => {
+  if (!props.model) return false;
+  const info = getModelInfo(props.model);
+  return info.agentType === 'codex';
+});
 </script>
 
 <style scoped>
@@ -130,6 +163,22 @@ defineEmits([
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.agent-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-soft);
+  background-color: var(--color-background-mute);
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.375rem;
+  letter-spacing: 0.02em;
+}
+
+.option-disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .effort-selector-wrapper {

@@ -3,6 +3,7 @@ import {
   SessionsApi,
   CanvasApi,
   ProvidersApi,
+  AgentsApi,
   CommandButtonsApi,
   SettingsApi,
   ConversationsApi,
@@ -165,6 +166,7 @@ ProjectsApi(ApiClient);
 SessionsApi(ApiClient);
 CanvasApi(ApiClient);
 ProvidersApi(ApiClient);
+AgentsApi(ApiClient);
 CommandButtonsApi(ApiClient);
 SettingsApi(ApiClient);
 ConversationsApi(ApiClient);
