@@ -280,33 +280,4 @@ export const sessionsMigrations = [
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'agent_type', "TEXT DEFAULT 'claude-code'"); },
   },
 
-  // --- Update default mode and thinking_enabled ---
-  {
-    name: 'sessions-update-default-mode-and-thinking',
-    up(db) {
-      const tableSql = getTableSql(db, TABLE_SESSIONS);
-      // If the default is already 'yolo', migration already applied
-      if (tableSql?.includes("DEFAULT 'yolo'")) return;
-
-      const columnNames = getColumns(db, TABLE_SESSIONS);
-      const selectColumns = SESSIONS_ALL_COLUMNS
-        .filter((col) => columnNames.includes(col))
-        .join(', ');
-
-      db.exec(`
-        CREATE TABLE sessions_new (${SESSIONS_BASE_COLUMNS});
-        INSERT INTO sessions_new (${selectColumns})
-        SELECT ${selectColumns} FROM sessions;
-        DROP TABLE sessions;
-        ALTER TABLE sessions_new RENAME TO sessions;
-        CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
-        CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-        CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
-        CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred);
-        CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
-        CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
-        CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL;
-      `);
-    },
-  },
 ];
