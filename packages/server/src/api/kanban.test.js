@@ -37,7 +37,7 @@ describe('Kanban API', () => {
     app.use(express.json());
     app.use('/api/projects/:projectId/kanban', kanbanRouter);
 
-    const project = projects.create('Test Project', '/tmp/test');
+    const project = projects.create('Test Project', '/tmp/test', null, { kanbanEnabled: true });
     projectId = project.id;
   });
 

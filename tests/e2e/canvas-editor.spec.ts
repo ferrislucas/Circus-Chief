@@ -389,6 +389,210 @@ test.describe('Canvas Markdown Editor', () => {
     // weren't deleted or replaced.
   });
 
+  test('Version badge matches server totalVersions after multiple edits', async ({ page }) => {
+    // Seed v1. Editing 3 times should leave the server with 4 total versions
+    // and the DOM with 4 <li> entries — NOT doubled by WS-echo duplicates.
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# v1',
+      filename: 'badge-count.md',
+    });
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`, {
+      waitFor: '.file-row',
+      timeout: 15000,
+    });
+
+    await page.locator('.file-row').first().click();
+    await page.waitForTimeout(500);
+    await page.locator('.btn-edit-toggle').click();
+    await expect(page.locator('.viewer-content-editing')).toBeVisible({ timeout: 10000 });
+
+    const editor = page.locator('.canvas-md-editor textarea, .md-editor textarea, .cm-content').first();
+    await expect(editor).toBeVisible({ timeout: 10000 });
+
+    // Helper: poll the server until it reports the expected version count
+    // (instead of sleeping through the debounce window).
+    async function waitForVersionCount(target: number) {
+      await expect.poll(
+        async () => {
+          const items = await getAllCanvasItems(session.id);
+          return items.filter((i: any) => i.filename === 'badge-count.md').length;
+        },
+        { timeout: 5000, message: `server should report ${target} versions of badge-count.md` }
+      ).toBe(target);
+    }
+
+    // Three edits — server ends up with 4 versions (initial + 3 edits).
+    await editor.fill('# v2');
+    await waitForVersionCount(2);
+    await editor.fill('# v3');
+    await waitForVersionCount(3);
+    await editor.fill('# v4');
+    await waitForVersionCount(4);
+
+    // Verify server-side version count
+    const serverItems = await getAllCanvasItems(session.id);
+    const serverVersions = serverItems.filter((i: any) => i.filename === 'badge-count.md');
+    expect(serverVersions.length).toBe(4);
+
+    // Exit edit mode so the version dropdown is rendered in the header
+    await page.locator('.btn-edit-toggle').click();
+    await expect(page.locator('.version-dropdown summary')).toBeVisible({ timeout: 5000 });
+
+    // DOM <li> count inside the collapsed <details> should equal server total.
+    const liCount = await page.locator('.version-list li').count();
+    expect(liCount).toBe(serverVersions.length);
+
+    // Badge shows v{total} when viewing the latest.
+    await expect(page.locator('.version-badge')).toContainText(`v${serverVersions.length}`);
+  });
+
+  test('Selecting an older version sticks (pin survives WS arrivals)', async ({ page }) => {
+    // Seed 3 versions of the same file
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# V1 body\n\nfirst',
+      filename: 'pin-test.md',
+    });
+    await page.waitForTimeout(50);
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# V2 body\n\nsecond',
+      filename: 'pin-test.md',
+    });
+    await page.waitForTimeout(50);
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# V3 body\n\nthird',
+      filename: 'pin-test.md',
+    });
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`, {
+      waitFor: '.file-row',
+      timeout: 15000,
+    });
+
+    // Open the file — starts on latest (v3)
+    await page.locator('.file-row').first().click();
+    await expect(page.locator('.version-badge')).toContainText('v3', { timeout: 5000 });
+
+    // Open the dropdown and select the oldest (v1) — the last <li>.
+    await page.locator('.version-dropdown summary').click();
+    const items = page.locator('.version-list li');
+    await expect(items.first()).toBeVisible({ timeout: 5000 });
+    await items.last().click();
+
+    // URL query reflects the oldest id, viewer shows V1, badge reads v1.
+    const serverItems = await getAllCanvasItems(session.id);
+    const pinTestVersions = serverItems
+      .filter((i: any) => i.filename === 'pin-test.md')
+      .sort((a: any, b: any) => a.createdAt - b.createdAt);
+    const oldestId = pinTestVersions[0].id;
+
+    await expect(page).toHaveURL(new RegExp(`item=${oldestId}`), { timeout: 5000 });
+    await expect(page.locator('.viewer-markdown')).toContainText('V1 body');
+    await expect(page.locator('.version-badge')).toContainText('v1');
+
+    // Now seed another version via the API — this triggers a CANVAS_ADD over WS.
+    // The pin must not be overridden. Poll the server so we know the new row
+    // was persisted (and the WS broadcast had a chance to fire), rather than
+    // sleeping blindly.
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# V4 body\n\nfourth',
+      filename: 'pin-test.md',
+    });
+    await expect.poll(
+      async () => {
+        const all = await getAllCanvasItems(session.id);
+        return all.filter((i: any) => i.filename === 'pin-test.md').length;
+      },
+      { timeout: 5000, message: 'server should now hold 4 versions of pin-test.md' }
+    ).toBe(4);
+
+    // Still pinned to the oldest version.
+    await expect(page).toHaveURL(new RegExp(`item=${oldestId}`));
+    await expect(page.locator('.version-badge')).toContainText('v1');
+  });
+
+  test('List → re-open clears the pin (latest is shown)', async ({ page }) => {
+    // Seed 2 versions
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# A',
+      filename: 'list-reopen.md',
+    });
+    await page.waitForTimeout(50);
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# B',
+      filename: 'list-reopen.md',
+    });
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`, {
+      waitFor: '.file-row',
+      timeout: 15000,
+    });
+
+    await page.locator('.file-row').first().click();
+    await expect(page.locator('.version-dropdown summary')).toBeVisible({ timeout: 5000 });
+
+    // Pin the older version
+    await page.locator('.version-dropdown summary').click();
+    await expect(page.locator('.version-list li').first()).toBeVisible({ timeout: 5000 });
+    await page.locator('.version-list li').last().click();
+    await expect(page.locator('.version-badge')).toContainText('v1', { timeout: 5000 });
+
+    // Back to list, then re-open — should show the latest.
+    await page.locator('.breadcrumb-back').click();
+    await expect(page.locator('.file-row').first()).toBeVisible({ timeout: 5000 });
+    await page.locator('.file-row').first().click();
+    await expect(page.locator('.version-dropdown summary')).toBeVisible({ timeout: 5000 });
+
+    const serverItems = await getAllCanvasItems(session.id);
+    const versions = serverItems
+      .filter((i: any) => i.filename === 'list-reopen.md')
+      .sort((a: any, b: any) => b.createdAt - a.createdAt);
+    const latestId = versions[0].id;
+
+    await expect(page).toHaveURL(new RegExp(`item=${latestId}`), { timeout: 5000 });
+    await expect(page.locator('.version-badge')).toContainText(`v${versions.length}`);
+  });
+
+  test('Version dropdown closes on selection', async ({ page }) => {
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# A',
+      filename: 'dropdown-close.md',
+    });
+    await page.waitForTimeout(50);
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# B',
+      filename: 'dropdown-close.md',
+    });
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`, {
+      waitFor: '.file-row',
+      timeout: 15000,
+    });
+
+    await page.locator('.file-row').first().click();
+    const details = page.locator('details.version-dropdown');
+    await expect(details).toBeVisible({ timeout: 5000 });
+    await page.locator('.version-dropdown summary').click();
+
+    // Confirm the details is open
+    await expect(details).toHaveAttribute('open', '');
+
+    await page.locator('.version-list li').first().click();
+
+    // After the click, the details should NOT have the open attribute.
+    // expect...not.toHaveAttribute polls until the condition is true or timeout.
+    await expect(details).not.toHaveAttribute('open', '', { timeout: 5000 });
+  });
+
   test('PUT update preserves version count (API-level)', async () => {
     // Seed 2 versions of same markdown file via API
     const v1 = await seedCanvasItem(session.id, {

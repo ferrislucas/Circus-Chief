@@ -94,7 +94,9 @@ Under the hood, `pw.sh test-package` sets `USE_PACKAGE_SERVER=true` and delegate
 
 Meanwhile `pw.sh test-package`:
 
-- Reads `.db-path` and re-exports `DB_PATH` so seed scripts (e.g. `scripts/seed-*.mjs`) write to the **same** database the package server is using — otherwise seeds would go to a default cwd-relative file and the server would see an empty DB.
+- Queries `GET /api/server-info` after the package server is ready, asserts the server's reported `dbPath` is **not** the user's home DB (`~/.circuschief/circuschief.db`), then re-exports that path as `DB_PATH` so seed scripts (e.g. `scripts/seed-*.mjs`) write to the **same** database the package server is using — otherwise seeds would go to a default cwd-relative file and the server would see an empty DB.
+- Also asserts the server's `schedulerRunning` is `false` (VCR_MODE propagates through `start-package-server.sh` to the server's `schedulerService.startIfEnabled()` gate). If either check fails, pw.sh exits non-zero before any test runs.
+- Does **not** overwrite `DB_PATH` before starting the package server — `setup_isolated_test_db` intentionally clears it so `start-package-server.sh` owns the DB location (an isolated mktemp dir). The dev-server path (`./scripts/pw.sh test`) uses a different worktree-local DB at `$PROJECT_ROOT/.circuschief-test.db`; see [E2E testing](./e2e-testing.md) for the full DB-path matrix.
 - Sets `BASE_URL` / `API_URL` to `http://localhost:<port>` and runs Playwright (Docker if available, `npx playwright` otherwise).
 - Uses a longer startup timeout (180s vs 120s) to cover the extra build + `npm install` steps.
 
@@ -111,21 +113,30 @@ Regular `./scripts/pw.sh test` is still the fast path for normal development —
 Use `scripts/publish.sh`, which wraps the build and `npm publish`:
 
 ```bash
-# Usage: ./scripts/publish.sh <version> <otp>
-./scripts/publish.sh 0.2.0 123456
+# Usage: ./scripts/publish.sh [-y] [version] <otp>
+
+# Examples:
+./scripts/publish.sh 123456             # auto-bump minor, publish
+./scripts/publish.sh 0.2.0 123456       # publish exactly 0.2.0
+./scripts/publish.sh -y 123456          # auto-bump without prompt
 ```
+
+Options:
+
+- `-y, --yes` — Skip confirmation prompt when auto-bumping version.
 
 Arguments:
 
-- `version` — semver version to publish (e.g. `0.2.0`). Passed through to `build-package.js` as `--version=`.
-- `otp` — npm one-time password for 2FA. Passed to `npm publish --otp=`.
+- `version` — Optional semver version to publish (e.g. `0.2.0`). If omitted, the script bumps the minor version of the latest published npm version. Passed through to `build-package.js` as `--version=`.
+- `otp` — Required npm one-time password for 2FA (6 digits). Passed to `npm publish --otp=`.
 
 What the script does:
 
 1. Verifies you're logged in (`npm whoami`) and aborts with an error if not.
-2. Runs `node scripts/build-package.js --version=$VERSION`.
-3. Runs `npm publish --otp=$OTP` from inside `dist-package/`.
-4. Prints install/run hints (`npx circuschief`, `npx circuschief@<version>`).
+2. If `version` is omitted, queries npm for the latest published version and auto-bumps the minor version (e.g. `1.4.2` → `1.5.0`). Prompts for confirmation unless `-y` is passed.
+3. Runs `node scripts/build-package.js --version=$VERSION`.
+4. Runs `npm publish --otp=$OTP` from inside `dist-package/`.
+5. Prints install/run hints (`npx circuschief`, `npx circuschief@<version>`).
 
 Before publishing, make sure `VITE_POSTHOG_KEY` is available via one of the sources listed below so analytics actually ship in the bundle.
 

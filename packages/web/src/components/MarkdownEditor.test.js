@@ -45,8 +45,15 @@ function createTestableEditor() {
       let debounceTimer = null;
       let lastSavedContent = props.content || '';
 
+      // Mirror the real component's editorContent watcher effect, but executed
+      // synchronously on user input so tests do not need to await nextTick
+      // between typing and vi.runAllTimers(). Includes the no-op guard so that
+      // setting editorContent back to lastSavedContent does NOT schedule a
+      // save (this is what prevents a version-switch from writing the old
+      // content back as a new version).
       function onContentChange(newVal) {
         editorContent.value = newVal;
+        if (newVal === lastSavedContent) return;
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           lastSavedContent = newVal;
@@ -64,10 +71,18 @@ function createTestableEditor() {
         }
       }
 
+      // External content change (e.g. version switch). Update
+      // lastSavedContent BEFORE mutating editorContent.value so the
+      // editorContent watcher's next-tick run sees them equal and exits
+      // without emitting, and any concurrent flushPendingSave() also exits.
       watch(() => props.content, (newContent) => {
-        if (newContent !== editorContent.value) {
-          editorContent.value = newContent || '';
+        if (newContent === editorContent.value) return;
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+          debounceTimer = null;
         }
+        lastSavedContent = newContent || '';
+        editorContent.value = newContent || '';
       });
 
       // No startEditing on mount — the store's saveMarkdownContent handles it
@@ -249,5 +264,76 @@ describe('MarkdownEditor', () => {
     await nextTick();
 
     expect(wrapper.vm.editorContent).toBe('Updated externally');
+  });
+
+  it('does NOT emit save when the content prop changes externally (version switch)', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'a',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    await nextTick();
+
+    // Simulate a version switch: parent updates the content prop
+    await wrapper.setProps({ content: 'b' });
+    await nextTick();
+
+    // Advance past debounce — there should be NOTHING to fire
+    vi.advanceTimersByTime(2000);
+    await nextTick();
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('user edit still emits save after props-driven switch is wired up', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'a',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // User types a real edit
+    wrapper.vm.onContentChange('c');
+
+    // Advance past debounce
+    vi.advanceTimersByTime(1000);
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith('c');
+  });
+
+  it('flushPendingSave after a props-driven switch does NOT emit save', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'a',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    await nextTick();
+
+    await wrapper.setProps({ content: 'b' });
+    await nextTick();
+
+    // After the props-driven switch, editorContent === lastSavedContent === 'b'
+    // so flushPendingSave should be a no-op.
+    wrapper.vm.flushPendingSave();
+
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

@@ -642,6 +642,51 @@ describe('Projects API', () => {
     });
   });
 
+  describe('POST /api/projects kanbanEnabled default', () => {
+    it('defaults kanbanEnabled to false when creating project without option', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-default-kanban-'));
+      try {
+        const res = await request(app).post('/api/projects').send({
+          name: 'Default Kanban Project',
+          workingDirectory: newDir,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.kanbanEnabled).toBe(false);
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+
+    it('preserves kanbanEnabled=true when explicitly opted-in on POST', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-explicit-kanban-'));
+      try {
+        const res = await request(app).post('/api/projects').send({
+          name: 'Explicit Kanban Project',
+          workingDirectory: newDir,
+          kanbanEnabled: true,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.kanbanEnabled).toBe(true);
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+
+    it('returns kanbanEnabled=true for pre-existing projects with the DB flag set', async () => {
+      // Simulate an existing project created before the default flipped
+      const existingProject = projects.create('Pre-existing Kanban Project', tempDir, null, {
+        kanbanEnabled: true,
+      });
+
+      const res = await request(app).get(`/api/projects/${existingProject.id}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.kanbanEnabled).toBe(true);
+    });
+  });
+
   describe('GET /api/projects', () => {
     it('returns all projects', async () => {
       const res = await request(app).get('/api/projects');

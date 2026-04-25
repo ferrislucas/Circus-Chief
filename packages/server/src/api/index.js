@@ -12,13 +12,24 @@ import commandsRouter from './commands.js';
 import metricsRouter from './metrics.js';
 import kanbanRouter from './kanban.js';
 import agentsRouter from './agents.js';
+import { getDbPath } from '../database.js';
+import { schedulerService } from '../services/schedulerService.js';
 
 const router = Router();
 
 // Lightweight identity endpoint — lets tools (e.g. pw.sh) verify which
-// worktree / working directory this server instance belongs to.
+// worktree / working directory this server instance belongs to, which
+// DB file it is using, and whether VCR / scheduler are in the expected
+// state. This endpoint is additive-safe: consumers must ignore unknown
+// fields so new ones can be added freely.
 router.get('/server-info', (_req, res) => {
-  res.json({ cwd: process.cwd() });
+  const vcr = process.env.VCR_MODE;
+  res.json({
+    cwd: process.cwd(),
+    dbPath: getDbPath(),
+    vcrMode: vcr && vcr.length > 0 ? vcr : null,
+    schedulerRunning: schedulerService.isRunning(),
+  });
 });
 
 router.use('/projects', projectsRouter);

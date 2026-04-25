@@ -1883,4 +1883,78 @@ describe('SessionRepository', () => {
       expect(() => repo.duplicate(source.id, { name: 'Dup' })).not.toThrow();
     });
   });
+
+  describe('touch', () => {
+    it('updates the updated_at timestamp', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const originalUpdatedAt = session.updatedAt;
+
+      // Small delay to ensure different timestamp
+      const startTime = Date.now();
+      while (Date.now() <= startTime) {
+        // Wait for next millisecond
+      }
+
+      const touched = repo.touch(session.id);
+
+      expect(touched.updatedAt).toBeGreaterThan(originalUpdatedAt);
+    });
+
+    it('does not modify other fields', () => {
+      const session = repo.create(projectId, 'Test Session', 'Prompt', 'plan', true);
+      const originalName = session.name;
+      const originalStatus = session.status;
+      const originalMode = session.mode;
+      const originalThinkingEnabled = session.thinkingEnabled;
+
+      repo.touch(session.id);
+
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.name).toBe(originalName);
+      expect(retrieved.status).toBe(originalStatus);
+      expect(retrieved.mode).toBe(originalMode);
+      expect(retrieved.thinkingEnabled).toBe(originalThinkingEnabled);
+    });
+
+    it('returns the updated session', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const touched = repo.touch(session.id);
+
+      expect(touched.id).toBe(session.id);
+      expect(touched.name).toBe('Test');
+      expect(touched.projectId).toBe(projectId);
+    });
+
+    it('returns null for non-existent session', () => {
+      const result = repo.touch('non-existent-id');
+      expect(result).toBeNull();
+    });
+
+    it('can be called multiple times', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const firstTouch = repo.touch(session.id);
+
+      // Small delay
+      const startTime = Date.now();
+      while (Date.now() <= startTime) {
+        // Wait for next millisecond
+      }
+
+      const secondTouch = repo.touch(session.id);
+
+      expect(secondTouch.updatedAt).toBeGreaterThan(firstTouch.updatedAt);
+    });
+
+    it('updates updated_at to current time', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const beforeTouch = Date.now();
+
+      const touched = repo.touch(session.id);
+
+      const afterTouch = Date.now();
+
+      expect(touched.updatedAt).toBeGreaterThanOrEqual(beforeTouch);
+      expect(touched.updatedAt).toBeLessThanOrEqual(afterTouch);
+    });
+  });
 });

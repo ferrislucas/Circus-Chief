@@ -26,6 +26,7 @@ import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { MessageRepository } from '../db/MessageRepository.js';
 import { ConversationRepository } from '../db/ConversationRepository.js';
+import { sessions } from '../database.js';
 
 // ── buildQueryParams ────────────────────────────────────────────────────────
 
@@ -160,6 +161,17 @@ describe('continueSessionCore model fallback', () => {
     expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514');
     spy.mockRestore();
   });
+
+  it('calls sessions.touch when creating a user message', async () => {
+    conversationRepo.create(session.id, 'Test Conversation');
+
+    const touchSpy = vi.spyOn(sessions, 'touch');
+
+    await continueSession(session.id, 'Follow-up message', tempDir, { model: null });
+
+    expect(touchSpy).toHaveBeenCalledWith(session.id);
+    touchSpy.mockRestore();
+  });
 });
 
 // ── runSessionCore model fallback ───────────────────────────────────────────
@@ -206,6 +218,15 @@ describe('runSessionCore model fallback', () => {
     expect(mockQuery).toHaveBeenCalled();
     const queryParams = mockQuery.mock.calls[0][0];
     expect(queryParams.options.model).toBe('claude-opus-4-20250514');
+  });
+
+  it('calls sessions.touch when creating initial user message', async () => {
+    const touchSpy = vi.spyOn(sessions, 'touch');
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    expect(touchSpy).toHaveBeenCalledWith(session.id);
+    touchSpy.mockRestore();
   });
 });
 

@@ -13,6 +13,7 @@
     "test:integration": "vitest run --config tests/integration/vitest.config.js",
     "test:coverage": "yarn workspaces run test:coverage",
     "test:e2e": "./scripts/pw.sh test",
+    "test:publish-script": "bash scripts/publish.test.sh",
     "lint": "npx eslint packages/*/src"
   },
   "devDependencies": {

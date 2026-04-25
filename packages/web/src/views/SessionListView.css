@@ -155,7 +155,7 @@
   height: 1rem;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 700px) {
   .page-header {
     flex-direction: column;
     gap: 1rem;
@@ -193,14 +193,14 @@
 }
 
 /* Hide mobile-only elements on desktop */
-@media (min-width: 481px) {
+@media (min-width: 701px) {
   .mobile-only {
     display: none !important;
   }
 }
 
 /* Show desktop-only elements on desktop */
-@media (min-width: 481px) {
+@media (min-width: 701px) {
   .desktop-only {
     display: inline-flex !important;
   }

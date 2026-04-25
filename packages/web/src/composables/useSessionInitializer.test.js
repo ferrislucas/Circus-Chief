@@ -343,6 +343,49 @@ describe('useSessionInitializer', () => {
     });
   });
 
+  describe('WebSocket CANVAS_ADD dispatch', () => {
+    it('dispatches incoming CANVAS_ADD payloads through canvasStore.addItem', async () => {
+      // Arrange: spy on addItem so we can observe what the handler passes in.
+      const addItemSpy = vi.spyOn(canvasStore, 'addItem');
+      const { initializeSession } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+      await initializeSession('session-1');
+
+      // The handler registered with onCanvasAdd is the first argument to
+      // the mock. Invoke it directly, simulating a WS broadcast.
+      const canvasAddHandler = mockSubscription.onCanvasAdd.mock.calls[0][0];
+      const item = { id: 'ws-1', filename: 'note.md', type: 'markdown', createdAt: 1000, content: 'hi' };
+
+      // Act
+      canvasAddHandler(item);
+
+      // Assert
+      expect(addItemSpy).toHaveBeenCalledWith(item);
+    });
+
+    it('duplicate CANVAS_ADD payloads (self-echo) do not duplicate the store item', async () => {
+      // Arrange
+      const { initializeSession } = createInitializer();
+      sessionsStore.currentSession = { id: 'session-1', status: 'waiting' };
+
+      await initializeSession('session-1');
+
+      const canvasAddHandler = mockSubscription.onCanvasAdd.mock.calls[0][0];
+      const item = { id: 'echo-1', filename: 'e.md', type: 'markdown', createdAt: 1000, content: 'one' };
+
+      // Act: first dispatch inserts.
+      canvasAddHandler(item);
+      // Second dispatch is the WS echo of the same id — must not duplicate.
+      canvasAddHandler({ ...item, content: 'two' });
+
+      // Assert: exactly one entry, and the merged content is the latest value.
+      const matches = canvasStore.items.filter((i) => i.id === 'echo-1');
+      expect(matches).toHaveLength(1);
+      expect(matches[0].content).toBe('two');
+    });
+  });
+
   describe('re-initialization', () => {
     it('cleans up old session before initializing new one', async () => {
       const { initializeSession, cleanup } = createInitializer();
