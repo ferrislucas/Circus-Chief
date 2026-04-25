@@ -3,7 +3,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
-import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
+import { resolveProviderFromModel, buildSessionEnv, resolveAgentTypeFromModel } from './sessionProvider.js';
 import {
   shouldRescheduleOnError,
   _checkProactiveReschedule,
@@ -220,6 +220,13 @@ function validateAndFetchContinueContext(sessionId, conversationId) {
 /**
  * Resolve the effective model, provider, and session env from a model override.
  * Detects model changes and updates the session record when needed.
+ *
+ * Defense in depth: when a new model arrives and the session has no assistant
+ * messages yet (i.e. it is still effectively a draft), re-derive agent_type
+ * and persist it together with model. Once the session has produced at least
+ * one assistant message we MUST NOT mutate agent_type — that would corrupt
+ * resume/context state across kinds.
+ *
  * @param {Object} session - Current session object
  * @param {string} sessionId - Session ID
  * @param {string|null} model - Requested model (null to keep current)
@@ -233,11 +240,33 @@ function buildModelAndProvider(session, sessionId, model) {
 
   let updatedSession = session;
   if (model) {
-    sessions.update(sessionId, { model });
+    const update = { model };
+
+    // Defense in depth: if this is still a draft (no assistant messages),
+    // also re-derive agent_type so it stays in sync with the chosen model.
+    // After the first assistant turn this is locked.
+    if (sessionHasNoAssistantMessages(sessionId)) {
+      const derivedAgentType = resolveAgentTypeFromModel(model);
+      if (derivedAgentType && derivedAgentType !== session.agentType) {
+        update.agentType = derivedAgentType;
+      }
+    }
+
+    sessions.update(sessionId, update);
     updatedSession = sessions.getById(sessionId);
   }
 
   return { effectiveModel, sessionEnv, modelChanged, session: updatedSession };
+}
+
+/**
+ * Check whether a session has no assistant messages (i.e. is still a draft).
+ * @param {string} sessionId
+ * @returns {boolean}
+ */
+function sessionHasNoAssistantMessages(sessionId) {
+  const allMessages = messages.getBySessionId(sessionId);
+  return !allMessages.some(m => m.role === 'assistant');
 }
 
 /**

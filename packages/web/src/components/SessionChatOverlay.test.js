@@ -1095,6 +1095,55 @@ describe('SessionChatOverlay', () => {
       });
       wrapper.unmount();
     });
+
+    it('propagates parent model to child session when parent has a model', async () => {
+      const codexSession = { ...rootSession, projectId: 'proj-123', model: 'gpt-5.4', gitBranch: null, gitWorktree: null };
+      mockSessionsStore.getSessionById.mockReturnValue(codexSession);
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+        prompt: ' ',
+        name: 'New Session',
+        parentSessionId: 'sess-root',
+        startImmediately: false,
+        model: 'gpt-5.4',
+      });
+      wrapper.unmount();
+    });
+
+    it('does not include model field when parent has no model', async () => {
+      const noModelSession = { ...rootSession, projectId: 'proj-123', gitBranch: null, gitWorktree: null };
+      // Ensure no 'model' key is present at all
+      delete noModelSession.model;
+      mockSessionsStore.getSessionById.mockReturnValue(noModelSession);
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+        prompt: ' ',
+        name: 'New Session',
+        parentSessionId: 'sess-root',
+        startImmediately: false,
+      });
+      wrapper.unmount();
+    });
   });
 
   describe('session switch loading state', () => {

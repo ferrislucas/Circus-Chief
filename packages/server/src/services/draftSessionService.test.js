@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { validateDraftSession, startDraft, DraftSessionError } from './draftSessionService.js';
 import { sessions, messages, projects, conversations, attachments } from '../database.js';
+import { checkCrossKindSwitch } from './sessionAgentGuard.js';
 
 // Mock database
 vi.mock('../database.js', () => ({
@@ -38,6 +39,11 @@ vi.mock('./slashCommandService.js', () => ({
 // Mock sessionManager
 vi.mock('./sessionManager.js', () => ({
   runSession: vi.fn().mockResolvedValue(undefined),
+}));
+
+// Mock sessionAgentGuard
+vi.mock('./sessionAgentGuard.js', () => ({
+  checkCrossKindSwitch: vi.fn().mockReturnValue(null),
 }));
 
 describe('draftSessionService', () => {
@@ -263,6 +269,56 @@ describe('draftSessionService', () => {
       const result = await startDraft(mockSession);
 
       expect(result).toEqual({ ...mockSession, status: 'starting' });
+    });
+
+    it('throws DraftSessionError with 400 when cross-kind model switch is detected', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+      const crossKindResult = {
+        error: 'CROSS_KIND_MODEL_SWITCH',
+        message: 'Cannot switch agent kind mid-session (Claude Code → Codex)',
+      };
+      checkCrossKindSwitch.mockReturnValue(crossKindResult);
+
+      const claudeSession = { ...mockSession, agentType: 'claude-code', model: 'claude-opus' };
+
+      await expect(startDraft(claudeSession, { model: 'gpt-5.4' }))
+        .rejects.toThrow(DraftSessionError);
+
+      try {
+        await startDraft(claudeSession, { model: 'gpt-5.4' });
+      } catch (error) {
+        expect(error.statusCode).toBe(400);
+        expect(error.message).toBe('Cannot switch agent kind mid-session (Claude Code → Codex)');
+      }
+
+      // runSession should NOT have been called
+      const { runSession } = await import('./sessionManager.js');
+      expect(runSession).not.toHaveBeenCalled();
+    });
+
+    it('allows same-kind model switch (e.g. claude-opus → claude-sonnet)', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+      checkCrossKindSwitch.mockReturnValue(null);
+
+      const claudeSession = { ...mockSession, agentType: 'claude-code', model: 'claude-opus' };
+
+      await startDraft(claudeSession, { model: 'claude-sonnet' });
+
+      const { runSession } = await import('./sessionManager.js');
+      expect(runSession).toHaveBeenCalled();
+    });
+
+    it('calls checkCrossKindSwitch with session and resolved model', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+      checkCrossKindSwitch.mockReturnValue(null);
+
+      const sessionWithModel = { ...mockSession, agentType: 'codex', model: 'gpt-4o' };
+      await startDraft(sessionWithModel, { model: 'o1-mini' });
+
+      expect(checkCrossKindSwitch).toHaveBeenCalledWith(
+        expect.objectContaining({ agentType: 'codex', model: 'gpt-4o' }),
+        'o1-mini'
+      );
     });
   });
 

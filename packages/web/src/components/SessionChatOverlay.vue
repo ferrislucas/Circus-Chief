@@ -618,6 +618,7 @@ async function addChildSession() {
       name: 'New Session',
       parentSessionId: activeSessionId.value,
       startImmediately: false,
+      ...(currentSession.model ? { model: currentSession.model } : {}),
       ...(gitMode && gitBranch ? { gitMode, gitBranch } : {}),
     });
 

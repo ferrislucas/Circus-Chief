@@ -2,6 +2,7 @@ import { sessions, messages, projects, conversations, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
+import { checkCrossKindSwitch } from './sessionAgentGuard.js';
 
 /**
  * Validates that a session is a draft (waiting status with no assistant messages).
@@ -124,6 +125,13 @@ export async function startDraft(session, options = {}) {
 
   // Model to use for this session (optional - SDK will use default if not provided)
   const model = options.model || session.pendingModel || session.model || null;
+
+  // Guard: reject cross-kind model switches (e.g. claude-code session with gpt model).
+  // This prevents sending an OpenAI model name to the Anthropic API (404).
+  const crossKindError = checkCrossKindSwitch(session, model);
+  if (crossKindError) {
+    throw new DraftSessionError(crossKindError.message, 400);
+  }
 
   // Get or create the initial user message
   const initialMessage = getOrCreateInitialMessage(session, options);
