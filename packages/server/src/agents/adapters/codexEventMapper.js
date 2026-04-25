@@ -140,7 +140,7 @@ function handleItemCompleted(evt, _state, warnedTypes) {
   const item = evt.item;
   if (!item || typeof item !== 'object') return [];
 
-  if (item.type === 'agent_message') {
+  if (isAgentMessageItem(item)) {
     const text = typeof item.text === 'string' ? item.text : '';
     return [
       {
@@ -166,6 +166,10 @@ function handleItemCompleted(evt, _state, warnedTypes) {
     console.warn(`[codexEventMapper] Ignoring unsupported item.type "${item.type}" (deferred to a later phase)`);
   }
   return [];
+}
+
+function isAgentMessageItem(item) {
+  return item.type === 'agent_message' || item.type === 'agentMessage';
 }
 
 function handleTurnFailed(evt) {

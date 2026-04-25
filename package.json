@@ -9,9 +9,9 @@
     "dev": "yarn build && NODE_ENV=production node packages/server/src/index.js -p 5000",
     "build": "yarn workspace @circuschief/web build && yarn workspace @circuschief/server build",
     "start": "NODE_ENV=production node packages/server/src/index.js -p 5000",
-    "test": "yarn workspaces foreach -A run test",
+    "test": "yarn workspaces run test",
     "test:integration": "vitest run --config tests/integration/vitest.config.js",
-    "test:coverage": "yarn workspaces foreach -A run test:coverage",
+    "test:coverage": "yarn workspaces run test:coverage",
     "test:e2e": "./scripts/pw.sh test",
     "lint": "npx eslint packages/*/src"
   },

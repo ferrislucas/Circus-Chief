@@ -83,71 +83,64 @@ async function testAnthropicConnection(config) {
  * @private
  */
 async function testOpenAIConnection(config) {
-  const { baseUrl, authToken, defaultSonnetModel, apiTimeoutMs } = config;
+  try {
+    const client = createOpenAIClient(config);
+    return await testOpenAIClient(client, config);
+  } catch (error) {
+    return failureResponse(error);
+  }
+}
 
-  const clientOptions = {};
+function createOpenAIClient(config) {
+  const { baseUrl, authToken, apiTimeoutMs } = config;
+  const clientOptions = { apiKey: authToken || 'missing' };
   if (baseUrl) clientOptions.baseURL = baseUrl;
-  // The openai SDK requires a truthy apiKey; use a dummy if none provided so we
-  // at least surface a 401 rather than a client-side "Missing API key" throw.
-  clientOptions.apiKey = authToken || 'missing';
   if (apiTimeoutMs) clientOptions.timeout = apiTimeoutMs;
+  return new OpenAI(clientOptions);
+}
 
-  let client;
+async function testOpenAIClient(client, config) {
   try {
-    client = new OpenAI(clientOptions);
+    return await testOpenAIModelsEndpoint(client, config);
   } catch (error) {
-    return {
-      success: false,
-      message: getErrorMessage(error),
-      details: { code: error.status || error.code, type: error.type || error.name },
-    };
+    if (error?.status !== 404) throw error;
+    return testOpenAIChatEndpoint(client, config);
   }
+}
 
-  // 1) Try models.list()
-  try {
-    const listResult = await client.models.list();
-    // listResult can be a ListResponse or an iterable; be defensive about shape.
-    const first = pickFirstModel(listResult) || defaultSonnetModel || null;
-    return {
-      success: true,
-      message: 'Connection successful',
-      details: first ? { model: first } : {},
-    };
-  } catch (error) {
-    // If models.list is explicitly a 404 (endpoint not implemented), fall back
-    // to chat.completions with max_tokens=1. Any other error bubbles out.
-    if (error?.status !== 404) {
-      return {
-        success: false,
-        message: getErrorMessage(error),
-        details: { code: error.status || error.code, type: error.type || error.name },
-      };
-    }
-  }
+async function testOpenAIModelsEndpoint(client, config) {
+  const listResult = await client.models.list();
+  const first = pickFirstModel(listResult) || config.defaultSonnetModel || null;
+  return connectionSuccess(first ? { model: first } : {});
+}
 
-  // 2) Fallback: minimal chat.completions.create
-  try {
-    const testModel = defaultSonnetModel || 'gpt-4o-mini';
-    const response = await client.chat.completions.create({
-      model: testModel,
-      max_tokens: 1,
-      messages: [{ role: 'user', content: 'Hi' }],
-    });
-    return {
-      success: true,
-      message: 'Connection successful',
-      details: {
-        model: response?.model || testModel,
-        ...(response?.usage ? { usage: response.usage } : {}),
-      },
-    };
-  } catch (error) {
-    return {
-      success: false,
-      message: getErrorMessage(error),
-      details: { code: error.status || error.code, type: error.type || error.name },
-    };
-  }
+async function testOpenAIChatEndpoint(client, config) {
+  const testModel = config.defaultSonnetModel || 'gpt-4o-mini';
+  const response = await client.chat.completions.create({
+    model: testModel,
+    max_tokens: 1,
+    messages: [{ role: 'user', content: 'Hi' }],
+  });
+  return connectionSuccess({
+    model: response?.model || testModel,
+    ...(response?.usage ? { usage: response.usage } : {}),
+  });
+}
+
+function connectionSuccess(details) {
+  return {
+    success: true,
+    message: 'Connection successful',
+    details,
+  };
+}
+
+function failureResponse(error) {
+  return {
+    success: false,
+    message: getErrorMessage(error),
+    details: { code: error.status || error.code, type: error.type || error.name },
+  };
 }
 
 /**

@@ -1,6 +1,5 @@
-import readline from 'readline';
 import { BaseAgent } from '../BaseAgent.js';
-import { createCodexEventMapper } from './codexEventMapper.js';
+import { executeCodexCli } from './codexCliRunner.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
 
 /**
@@ -104,20 +103,7 @@ export class CodexAdapter extends BaseAgent {
    */
   async *_executeCli(queryParams, options) {
     const child = this._spawnCodexChild(queryParams, options);
-    const cliState = createCliState(options.model);
-
-    attachAbortHandling(child, options.abortController, cliState);
-    const stdinPrompt = composeCliPrompt(options.systemPrompt, queryParams.prompt);
-    writePromptToStdin(child, stdinPrompt);
-    attachStdoutReader(child, cliState);
-    attachStderrReader(child, cliState);
-    attachProcessLifecycleHandlers(child, cliState);
-
-    try {
-      yield* drainCliEvents(cliState);
-    } finally {
-      cleanupCli(options.abortController, cliState);
-    }
+    yield* executeCodexCli(child, queryParams, options, markCodexCliUnavailable);
   }
 
   _spawnCodexChild(queryParams, options) {
@@ -239,180 +225,11 @@ export function _resetCodexCliUnavailableForTests() {
   codexCliUnavailable = false;
 }
 
-// --- CLI helpers -----------------------------------------------------------
-
-function createCliState(model) {
-  return new CliState(model);
-}
-
-class CliState {
-  constructor(model) {
-    this.pending = [];
-    this.error = null;
-    this.ended = false;
-    this.resolveNext = null;
-    this.rejectAll = null;
-    this.mapper = createCodexEventMapper({ model });
-    this.rl = null;
-    this.killTimer = null;
-    this.onAbort = null;
-    this.stderrBuffer = '';
-  }
-
-  assign(patch) {
-    Object.assign(this, patch);
-  }
-
-  pushEvents(arr) {
-    for (const e of arr) this.pending.push(e);
-    this.tickWaiter();
-  }
-
-  tickWaiter() {
-    if (this.resolveNext) {
-      const r = this.resolveNext;
-      this.resolveNext = null;
-      r();
-    }
-  }
-
-  failWith(err) {
-    this.error = err;
-    if (this.rejectAll) this.rejectAll(err);
-  }
-
-  markEnded() {
-    this.ended = true;
-  }
-}
-
-function attachAbortHandling(child, abortController, state) {
-  const onAbort = () => {
-    try { child.kill('SIGTERM'); } catch { /* ignore */ }
-    const timer = setTimeout(() => {
-      try { child.kill('SIGKILL'); } catch { /* ignore */ }
-    }, 2000);
-    state.assign({ killTimer: timer });
-  };
-  state.assign({ onAbort });
-  abortController?.signal?.addEventListener('abort', onAbort);
-}
-
-function writePromptToStdin(child, prompt) {
-  try {
-    if (child.stdin) child.stdin.end(prompt ?? '');
-  } catch { /* ignore */ }
-}
-
-/**
- * Compose the final stdin text for the Codex CLI.
- *
- * Codex has no `--system` flag; system prompts are normally routed via
- * `~/.codex/config.toml` or `-c user_instructions=...`. For v1 we take the
- * simpler path of prepending the system prompt onto the user prompt with
- * clearly-labeled sections — this matches the shape the direct-API path
- * already feeds into chat messages.
- * @param {string|null|undefined} systemPrompt
- * @param {string|null|undefined} prompt
- * @returns {string}
- */
-export function composeCliPrompt(systemPrompt, prompt) {
-  const user = prompt ?? '';
-  if (typeof systemPrompt === 'string' && systemPrompt.length > 0) {
-    return `SYSTEM PROMPT:\n${systemPrompt}\n\nUSER:\n${user}`;
-  }
-  return user;
-}
-
-function attachStdoutReader(child, state) {
-  const rl = readline.createInterface({ input: child.stdout });
-  state.assign({ rl });
-  rl.on('line', (line) => handleCliStdoutLine(line, state));
-}
-
-function handleCliStdoutLine(line, state) {
-  const trimmed = line.trim();
-  if (!trimmed) return;
-  let parsed;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return; // tolerate non-JSON status lines
-  }
-  try {
-    const mapped = state.mapper.map(parsed);
-    if (mapped.length > 0) state.pushEvents(mapped);
-  } catch (err) {
-    state.failWith(err);
-  }
-}
-
-function attachStderrReader(child, state) {
-  if (!child.stderr) return;
-  child.stderr.on('data', (chunk) => {
-    if (state.error || state.ended) return;
-    state.assign({ stderrBuffer: state.stderrBuffer + chunk.toString() });
-  });
-}
-
-function attachProcessLifecycleHandlers(child, state) {
-  child.on('error', (err) => {
-    if (err && err.code === 'ENOENT') {
-      codexCliUnavailable = true;
-      const notFound = new Error('Codex CLI not found');
-      notFound.code = 'CODEX_CLI_NOT_FOUND';
-      state.failWith(notFound);
-    } else {
-      state.failWith(err);
-    }
-  });
-
-  child.on('exit', (code) => handleChildExit(code, state));
-}
-
-function handleChildExit(code, state) {
-  state.markEnded();
-  if (code !== 0 && !state.error) {
-    const stderrTrimmed = state.stderrBuffer.trim();
-    const err = stderrTrimmed.length > 0
-      ? new Error(stderrTrimmed)
-      : new Error(`Codex CLI exited with code ${code}`);
-    err.code = 'CODEX_CLI_EXIT';
-    err.exitCode = code;
-    state.failWith(err);
-  } else if (!state.error) {
-    try {
-      const fin = state.mapper.finalize();
-      if (fin.length > 0) state.pushEvents(fin);
-    } catch { /* ignore */ }
-  }
-  state.tickWaiter();
-}
-
-async function *drainCliEvents(state) {
-  while (true) {
-    if (state.error) throw state.error;
-    if (state.pending.length > 0) {
-      yield state.pending.shift();
-      continue;
-    }
-    if (state.ended) break;
-    await new Promise((resolve, reject) => {
-      state.assign({ resolveNext: resolve, rejectAll: reject });
-    });
-  }
-  if (state.error) throw state.error;
-}
-
-function cleanupCli(abortController, state) {
-  if (state.onAbort) {
-    abortController?.signal?.removeEventListener('abort', state.onAbort);
-  }
-  if (state.killTimer) clearTimeout(state.killTimer);
-  try { state.rl?.close(); } catch { /* ignore */ }
-}
-
 // --- Direct-API helpers ----------------------------------------------------
+
+function markCodexCliUnavailable() {
+  codexCliUnavailable = true;
+}
 
 function resolveDirectApiInputs(options) {
   return {

@@ -9,6 +9,8 @@ import {
   buildUpdateClauses,
 } from './session-helpers.js';
 
+const DEFAULT_AGENT_TYPE = 'claude-code';
+
 /**
  * Resolve the agent type ('claude-code' or 'codex') from a model ID by looking
  * up which provider owns the model. This is the same logic as
@@ -19,12 +21,12 @@ import {
  * @returns {'claude-code'|'codex'}
  */
 function resolveAgentTypeFromModel(modelId) {
-  if (!modelId) return 'claude-code';
+  if (!modelId) return DEFAULT_AGENT_TYPE;
   const provider = modelProviders.getProviderByModelId(modelId);
-  if (!provider) return 'claude-code';
+  if (!provider) return DEFAULT_AGENT_TYPE;
   // ProviderRepository.getAgentTypeForProvider maps kind → agent adapter
   const agentType = modelProviders.getAgentTypeForProvider(provider.id);
-  return agentType || 'claude-code';
+  return agentType || DEFAULT_AGENT_TYPE;
 }
 
 /**
@@ -61,7 +63,7 @@ export class SessionRepository extends BaseRepository {
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       slashCommands: row.slash_commands || null,
       // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
-      agentType: row.agent_type || 'claude-code',
+      agentType: row.agent_type || DEFAULT_AGENT_TYPE,
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields
@@ -90,7 +92,7 @@ export class SessionRepository extends BaseRepository {
     const agentType =
       config.agentType
       ?? (config.model ? resolveAgentTypeFromModel(config.model) : null)
-      ?? 'claude-code';
+      ?? DEFAULT_AGENT_TYPE;
 
     const id = databaseManager.generateId();
     const now = Date.now();
@@ -282,7 +284,7 @@ export class SessionRepository extends BaseRepository {
         source.gitBranch,  // Copy branch name (NOT worktree path)
         source.model,
         source.effortLevel,
-        source.agentType || 'claude-code',
+        source.agentType || DEFAULT_AGENT_TYPE,
         source.contextWindow,
         source.inputTokens,
         source.outputTokens,

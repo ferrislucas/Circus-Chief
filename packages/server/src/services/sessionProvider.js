@@ -50,42 +50,9 @@ export function buildProviderEnv(provider) {
   }
 
   const kind = provider.kind || 'anthropic';
-  const env = {};
-
-  if (kind === 'openai') {
-    if (provider.baseUrl) {
-      env.OPENAI_BASE_URL = provider.baseUrl;
-    }
-    if (provider.authToken) {
-      env.OPENAI_API_KEY = provider.authToken;
-    }
-    // No tier → model env var convention for OpenAI. Users can express
-    // per-role model overrides via additionalEnvVars if needed.
-  } else {
-    // 'anthropic' (default)
-    if (provider.baseUrl) {
-      env.ANTHROPIC_BASE_URL = provider.baseUrl;
-    }
-    if (provider.authToken) {
-      // Set BOTH ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN
-      // The SDK prioritizes ANTHROPIC_API_KEY, so we must set it to override
-      // any user's existing ANTHROPIC_API_KEY in their environment
-      env.ANTHROPIC_API_KEY = provider.authToken;
-      env.ANTHROPIC_AUTH_TOKEN = provider.authToken;
-    }
-
-    // Derive default model env vars from provider_models by tier
-    if (Array.isArray(provider.models)) {
-      const opusModel = provider.models.find((m) => m.tier === 'opus');
-      if (opusModel) env.ANTHROPIC_DEFAULT_OPUS_MODEL = opusModel.modelId;
-
-      const sonnetModel = provider.models.find((m) => m.tier === 'sonnet');
-      if (sonnetModel) env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnetModel.modelId;
-
-      const haikuModel = provider.models.find((m) => m.tier === 'haiku');
-      if (haikuModel) env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haikuModel.modelId;
-    }
-  }
+  const env = kind === 'openai'
+    ? buildOpenAIProviderEnv(provider)
+    : buildAnthropicProviderEnv(provider);
 
   if (provider.apiTimeoutMs) {
     env.API_TIMEOUT_MS = String(provider.apiTimeoutMs);
@@ -96,24 +63,61 @@ export function buildProviderEnv(provider) {
     Object.assign(env, provider.additionalEnvVars);
   }
 
+  logProviderEnv(provider, kind, env);
+
+  return env;
+}
+
+function buildOpenAIProviderEnv(provider) {
+  const env = {};
+  if (provider.baseUrl) env.OPENAI_BASE_URL = provider.baseUrl;
+  if (provider.authToken) env.OPENAI_API_KEY = provider.authToken;
+  return env;
+}
+
+function buildAnthropicProviderEnv(provider) {
+  const env = {};
+  if (provider.baseUrl) env.ANTHROPIC_BASE_URL = provider.baseUrl;
+  if (provider.authToken) {
+    env.ANTHROPIC_API_KEY = provider.authToken;
+    env.ANTHROPIC_AUTH_TOKEN = provider.authToken;
+  }
+  addAnthropicModelEnv(env, provider.models);
+  return env;
+}
+
+function addAnthropicModelEnv(env, models) {
+  if (!Array.isArray(models)) return;
+  const target = env;
+  const tiers = {
+    opus: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    sonnet: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    haiku: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  };
+  for (const [tier, envKey] of Object.entries(tiers)) {
+    const model = models.find((entry) => entry.tier === tier);
+    if (model) target[envKey] = model.modelId;
+  }
+}
+
+function logProviderEnv(provider, kind, env) {
   if (kind === 'openai') {
     console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (openai) env vars:`, {
       OPENAI_BASE_URL: env.OPENAI_BASE_URL,
       OPENAI_API_KEY: env.OPENAI_API_KEY ? '[SET]' : '[NOT SET]',
       API_TIMEOUT_MS: env.API_TIMEOUT_MS,
     });
-  } else {
-    console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (anthropic) env vars:`, {
-      ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
-      ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY ? '[SET]' : '[NOT SET]',
-      ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN ? '[SET]' : '[NOT SET]',
-      ANTHROPIC_DEFAULT_SONNET_MODEL: env.ANTHROPIC_DEFAULT_SONNET_MODEL,
-      ANTHROPIC_DEFAULT_OPUS_MODEL: env.ANTHROPIC_DEFAULT_OPUS_MODEL,
-      ANTHROPIC_DEFAULT_HAIKU_MODEL: env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
-    });
+    return;
   }
 
-  return env;
+  console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (anthropic) env vars:`, {
+    ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL,
+    ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY ? '[SET]' : '[NOT SET]',
+    ANTHROPIC_AUTH_TOKEN: env.ANTHROPIC_AUTH_TOKEN ? '[SET]' : '[NOT SET]',
+    ANTHROPIC_DEFAULT_SONNET_MODEL: env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+  });
 }
 
 /**
@@ -147,54 +151,11 @@ export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel =
   const kind = provider?.kind || (provider ? 'anthropic' : null);
 
   if (!provider) {
-    // No custom provider: strip BOTH kinds' auth/base-url vars from the
-    // composed env so host env vars can't bleed into the SDK defaults.
-    delete sessionEnv.ANTHROPIC_API_KEY;
-    delete sessionEnv.ANTHROPIC_AUTH_TOKEN;
-    delete sessionEnv.ANTHROPIC_BASE_URL;
-    delete sessionEnv.OPENAI_API_KEY;
-    delete sessionEnv.OPENAI_BASE_URL;
+    stripProviderRuntimeEnv(sessionEnv);
   } else if (kind === 'openai') {
-    // OpenAI-kind provider: don't let any host ANTHROPIC_* leak through.
-    // (providerEnv for openai kind never sets ANTHROPIC_*, so anything
-    // present here came from process.env via createRobustEnv.)
-    delete sessionEnv.ANTHROPIC_API_KEY;
-    delete sessionEnv.ANTHROPIC_AUTH_TOKEN;
-    delete sessionEnv.ANTHROPIC_BASE_URL;
-
-    // The provider database is the single source of truth for auth.
-    // When the provider doesn't set OPENAI_API_KEY, the Codex CLI should
-    // use its own auth (e.g. ChatGPT OAuth from ~/.codex/auth.json).
-    // Rather than trying to blacklist individual OPENAI_* vars (which
-    // risks missing current or future vars the CLI inspects), we whitelist
-    // only the essential vars — mirroring the working `env -i HOME=$HOME
-    // PATH=$PATH codex exec ...` invocation.
-    if (!providerEnv.OPENAI_API_KEY) {
-      const allowed = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'TMPDIR'];
-      const cleaned = {};
-      for (const key of allowed) {
-        if (sessionEnv[key] !== undefined) cleaned[key] = sessionEnv[key];
-      }
-      // Carry through anything providerEnv explicitly set (additionalEnvVars, etc.)
-      Object.assign(cleaned, providerEnv);
-      // Replace sessionEnv with the whitelisted version
-      for (const key of Object.keys(sessionEnv)) {
-        delete sessionEnv[key];
-      }
-      Object.assign(sessionEnv, cleaned);
-    } else {
-      // Provider explicitly set an API key — still strip stray base URL
-      // vars from host env if provider didn't set them.
-      if (!providerEnv.OPENAI_BASE_URL && !providerEnv.OPENAI_API_BASE) {
-        delete sessionEnv.OPENAI_BASE_URL;
-        delete sessionEnv.OPENAI_API_BASE;
-      }
-    }
+    applyOpenAISessionEnv(sessionEnv, providerEnv);
   } else {
-    // Anthropic-kind provider: symmetrically strip any stray OPENAI_* from host
-    // env so they can't confuse the Claude SDK or downstream tooling.
-    delete sessionEnv.OPENAI_API_KEY;
-    delete sessionEnv.OPENAI_BASE_URL;
+    stripOpenAIHostEnv(sessionEnv);
   }
 
   // Claude-only session env vars. Only set for Anthropic-kind providers
@@ -214,4 +175,54 @@ export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel =
   }
 
   return sessionEnv;
+}
+
+function stripProviderRuntimeEnv(env) {
+  const target = env;
+  delete target.ANTHROPIC_API_KEY;
+  delete target.ANTHROPIC_AUTH_TOKEN;
+  delete target.ANTHROPIC_BASE_URL;
+  delete target.OPENAI_API_KEY;
+  delete target.OPENAI_BASE_URL;
+}
+
+function applyOpenAISessionEnv(sessionEnv, providerEnv) {
+  stripAnthropicHostEnv(sessionEnv);
+  if (!providerEnv.OPENAI_API_KEY) {
+    replaceWithCodexCliEnv(sessionEnv, providerEnv);
+    return;
+  }
+  stripOpenAIBaseUrlUnlessProvided(sessionEnv, providerEnv);
+}
+
+function stripAnthropicHostEnv(env) {
+  const target = env;
+  delete target.ANTHROPIC_API_KEY;
+  delete target.ANTHROPIC_AUTH_TOKEN;
+  delete target.ANTHROPIC_BASE_URL;
+}
+
+function replaceWithCodexCliEnv(sessionEnv, providerEnv) {
+  const target = sessionEnv;
+  const allowed = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'TMPDIR'];
+  const cleaned = {};
+  for (const key of allowed) {
+    if (target[key] !== undefined) cleaned[key] = target[key];
+  }
+  Object.assign(cleaned, providerEnv);
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, cleaned);
+}
+
+function stripOpenAIBaseUrlUnlessProvided(sessionEnv, providerEnv) {
+  if (providerEnv.OPENAI_BASE_URL || providerEnv.OPENAI_API_BASE) return;
+  const target = sessionEnv;
+  delete target.OPENAI_BASE_URL;
+  delete target.OPENAI_API_BASE;
+}
+
+function stripOpenAIHostEnv(env) {
+  const target = env;
+  delete target.OPENAI_API_KEY;
+  delete target.OPENAI_BASE_URL;
 }

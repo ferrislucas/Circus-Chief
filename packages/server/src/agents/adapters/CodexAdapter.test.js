@@ -29,6 +29,7 @@ const fixturePath = path.resolve(
  */
 function createFakeChild({ stdoutLines = [], stderr = '', exitCode = 0, emitError = null, captureStdin = null } = {}) {
   const child = new EventEmitter();
+  const stdinCapture = captureStdin;
 
   // Readable stdout that emits each line (with newline) as its own chunk, then ends.
   child.stdout = new Readable({ read() {} });
@@ -36,11 +37,11 @@ function createFakeChild({ stdoutLines = [], stderr = '', exitCode = 0, emitErro
   // Writable stdin that either swallows data or captures it for later assertions
   child.stdin = new Writable({
     write(chunk, _enc, cb) {
-      if (captureStdin) captureStdin.chunks.push(chunk.toString('utf-8'));
+      if (stdinCapture) stdinCapture.chunks.push(chunk.toString('utf-8'));
       cb();
     },
     final(cb) {
-      if (captureStdin) captureStdin.ended = true;
+      if (stdinCapture) stdinCapture.ended = true;
       cb();
     },
   });

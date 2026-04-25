@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { checkCrossKindSwitch, agentLabel, AGENT_TYPE_LABELS } from './sessionAgentGuard.js';
-import { projects, sessions, modelProviders } from '../database.js';
+import { projects, modelProviders } from '../database.js';
 
 describe('sessionAgentGuard', () => {
   describe('agentLabel', () => {
