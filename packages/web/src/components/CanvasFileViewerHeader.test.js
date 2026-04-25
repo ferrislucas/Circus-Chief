@@ -325,6 +325,98 @@ describe('CanvasFileViewerHeader', () => {
     });
   });
 
+  describe('version dropdown', () => {
+    const twoVersions = [
+      { id: 'v2-id', createdAt: 2000 },
+      { id: 'v1-id', createdAt: 1000 },
+    ];
+
+    it('badge text is v{versions.length - currentVersionIndex} for each version', () => {
+      // Viewing v2 (index 0) → badge reads v2
+      const w1 = mountComponent({
+        item: {
+          id: 'v2-id',
+          filename: 'test.md',
+          type: 'markdown',
+          updatedAt: Date.now(),
+        },
+        versions: twoVersions,
+      });
+      expect(w1.find('.version-badge').text()).toContain('v2');
+
+      // Viewing v1 (index 1) → badge reads v1
+      const w2 = mountComponent({
+        item: {
+          id: 'v1-id',
+          filename: 'test.md',
+          type: 'markdown',
+          updatedAt: Date.now(),
+        },
+        versions: twoVersions,
+      });
+      expect(w2.find('.version-badge').text()).toContain('v1');
+    });
+
+    it('clicking an <li> emits selectVersion with the correct id', async () => {
+      const onSelectVersion = vi.fn();
+      const wrapper = mount(CanvasFileViewerHeader, {
+        props: {
+          item: {
+            id: 'v2-id',
+            filename: 'test.md',
+            type: 'markdown',
+            updatedAt: Date.now(),
+          },
+          versions: twoVersions,
+          showBackButton: true,
+          isEditing: false,
+          onSelectVersion,
+        },
+        attachTo: document.body,
+      });
+
+      // Open the <details> so children are interactive in JSDOM.
+      const details = wrapper.find('details.version-dropdown').element;
+      details.open = true;
+      await nextTick();
+
+      const items = wrapper.findAll('.version-list li');
+      expect(items.length).toBe(2);
+
+      // Click the older version (index 1 → 'v1-id')
+      await items[1].trigger('click');
+      await flushAll(wrapper);
+
+      expect(onSelectVersion).toHaveBeenCalledWith('v1-id');
+
+      wrapper.unmount();
+    });
+
+    it('clicking an <li> closes the <details> element', async () => {
+      const wrapper = mountComponent({
+        item: {
+          id: 'v2-id',
+          filename: 'test.md',
+          type: 'markdown',
+          updatedAt: Date.now(),
+        },
+        versions: twoVersions,
+      });
+
+      // Programmatically open the details so the "it closes" assertion is meaningful
+      const details = wrapper.find('details.version-dropdown').element;
+      details.open = true;
+      expect(details.open).toBe(true);
+
+      // Click a version item
+      const items = wrapper.findAll('.version-list li');
+      await items[0].trigger('click');
+      await flushAll(wrapper);
+
+      expect(details.open).toBe(false);
+    });
+  });
+
   describe('layout', () => {
     it('uses column flex direction for header', () => {
       const wrapper = mountComponent();

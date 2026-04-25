@@ -901,4 +901,136 @@ describe('Canvas Store', () => {
       expect(store.error).toContain('Failed to save markdown');
     });
   });
+
+  describe('addItem action (idempotent + WS-echo dedupe)', () => {
+    it('deduplicates when called twice with the same id', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      expect(store.items).toHaveLength(1);
+    });
+
+    it('merges new fields onto an existing entry instead of duplicating', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1, content: 'a' });
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1, content: 'b', extra: 1 });
+      expect(store.items).toHaveLength(1);
+      expect(store.items[0].content).toBe('b');
+      expect(store.items[0].extra).toBe(1);
+    });
+
+    it('saveMarkdownContent + WS echo does not duplicate', async () => {
+      const store = useCanvasStore();
+      const newItem = { id: 'new', filename: 'f.md', createdAt: 2, type: 'markdown' };
+      api.createCanvasItem.mockResolvedValue(newItem);
+
+      await store.saveMarkdownContent('session-1', 'f.md', 'hello');
+      // Simulate the WebSocket CANVAS_ADD echo re-adding the same item
+      store.addItem({ ...newItem });
+
+      expect(store.items.filter((i) => i.id === 'new')).toHaveLength(1);
+    });
+
+    it('uploadItem + WS echo does not duplicate', async () => {
+      const store = useCanvasStore();
+      const uploaded = { id: 'u', filename: 'pic.png', createdAt: 3, type: 'image' };
+      api.uploadCanvasItem.mockResolvedValue(uploaded);
+
+      await store.uploadItem('session-1', new File([], 'pic.png'));
+      // Simulate the WebSocket CANVAS_ADD echo re-adding the same item
+      store.addItem({ ...uploaded });
+
+      expect(store.items.filter((i) => i.id === 'u')).toHaveLength(1);
+    });
+
+    it('recoverItem + WS echo does not duplicate', async () => {
+      const store = useCanvasStore();
+      const recovered = { id: 'r', filename: 'was.md', createdAt: 4, deletedAt: null };
+      store.trashedItems = [{ id: 'r', filename: 'was.md', deletedAt: 100 }];
+      api.recoverCanvasItem.mockResolvedValue(recovered);
+
+      await store.recoverItem('session-1', 'r');
+      // Simulate the WebSocket CANVAS_ADD echo re-adding the same item
+      store.addItem({ ...recovered });
+
+      expect(store.items.filter((i) => i.id === 'r')).toHaveLength(1);
+    });
+
+    it('groupedItems.versionCount reflects dedupe', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      expect(store.groupedItems[0].versionCount).toBe(1);
+    });
+
+    // --- Merge-semantics hardening (guard against clobbering lazy-loaded
+    // content/data via partial payloads — defensive for future broadcasters). ---
+
+    it('skips `undefined` values on the incoming payload', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', content: 'cached', createdAt: 1 });
+      store.addItem({ id: 'x', content: undefined });
+      expect(store.items[0].content).toBe('cached');
+    });
+
+    it('`content: null` does NOT overwrite a populated string', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', content: 'cached', createdAt: 1 });
+      store.addItem({ id: 'x', content: null });
+      expect(store.items[0].content).toBe('cached');
+    });
+
+    it('`data: null` does NOT overwrite a populated Buffer/string', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'img.png', data: 'base64-blob', createdAt: 1 });
+      store.addItem({ id: 'x', data: null });
+      expect(store.items[0].data).toBe('base64-blob');
+    });
+
+    it('non-null `content` DOES update a populated entry', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', content: 'old', createdAt: 1 });
+      store.addItem({ id: 'x', content: 'new' });
+      expect(store.items[0].content).toBe('new');
+    });
+
+    it('`null` content IS applied to an entry with no previously-populated content', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'f.md', createdAt: 1 });
+      store.addItem({ id: 'x', content: null });
+      expect(store.items[0].content).toBeNull();
+    });
+
+    it('non-content/data keys always overwrite, including meaningful falsy values', () => {
+      const store = useCanvasStore();
+      store.addItem({ id: 'x', filename: 'old.md', createdAt: 5, updatedAt: 10 });
+      store.addItem({ id: 'x', filename: 'new.md', updatedAt: 0 });
+      expect(store.items[0].filename).toBe('new.md');
+      expect(store.items[0].updatedAt).toBe(0);
+    });
+
+    // --- Task 2: bulkRecoverItems + WS-echo dedupe ---
+
+    it('bulkRecoverItems + WS echo does not duplicate', async () => {
+      const store = useCanvasStore();
+      store.trashedItems = [
+        { id: 'r1', filename: 'a.md', deletedAt: 100 },
+        { id: 'r2', filename: 'a.md', deletedAt: 101 },
+      ];
+      api.bulkRecoverCanvasItems.mockResolvedValue({
+        recoveredCount: 2,
+        recoveredIds: ['r1', 'r2'],
+      });
+
+      await store.bulkRecoverItems('session-1', ['r1', 'r2']);
+
+      // Simulate the WebSocket CANVAS_ADD echoes for each recovered item
+      store.addItem({ id: 'r1', filename: 'a.md', deletedAt: null });
+      store.addItem({ id: 'r2', filename: 'a.md', deletedAt: null });
+
+      expect(store.items.filter((i) => i.id === 'r1')).toHaveLength(1);
+      expect(store.items.filter((i) => i.id === 'r2')).toHaveLength(1);
+      expect(store.trashedItems).toHaveLength(0);
+    });
+  });
 });

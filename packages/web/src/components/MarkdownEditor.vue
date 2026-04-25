@@ -62,6 +62,10 @@ let debounceTimer = null;
 let lastSavedContent = props.content || '';
 
 watch(editorContent, (newVal) => {
+  // Skip no-op assignments and externally-driven updates (version switch) —
+  // otherwise a programmatic editorContent.value = props.content would trigger
+  // a spurious save that creates a new version of the old content.
+  if (newVal === lastSavedContent) return;
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     lastSavedContent = newVal;
@@ -86,11 +90,18 @@ function flushPendingSave() {
 
 defineExpose({ flushPendingSave });
 
-// Watch for external content changes (e.g., version switch)
+// Watch for external content changes (e.g., version switch). We update
+// lastSavedContent BEFORE mutating editorContent.value so both the
+// editorContent watcher's next-tick run and any concurrent flushPendingSave
+// call see editorContent.value === lastSavedContent and exit without emitting.
 watch(() => props.content, (newContent) => {
-  if (newContent !== editorContent.value) {
-    editorContent.value = newContent || '';
+  if (newContent === editorContent.value) return;
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
   }
+  lastSavedContent = newContent || '';
+  editorContent.value = newContent || '';
 });
 
 // No startEditing on mount — the store's saveMarkdownContent handles registering
