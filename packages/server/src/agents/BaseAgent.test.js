@@ -33,4 +33,17 @@ describe('BaseAgent', () => {
     const agent = new BaseAgent();
     expect(agent.config).toEqual({});
   });
+
+  it('needsConversationContext() returns true by default (BaseAgent)', () => {
+    const agent = new BaseAgent();
+    expect(agent.needsConversationContext()).toBe(true);
+  });
+
+  it('needsConversationContext() returns false when supportsResume() returns true', () => {
+    class ResumableAgent extends BaseAgent {
+      supportsResume() { return true; }
+    }
+    const agent = new ResumableAgent();
+    expect(agent.needsConversationContext()).toBe(false);
+  });
 });

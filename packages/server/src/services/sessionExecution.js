@@ -22,7 +22,7 @@ import {
 } from './streamEventHandler.js';
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { schedulerService } from './schedulerService.js';
-import { buildConversationContextForModelSwitch } from './conversationContext.js';
+import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
@@ -219,17 +219,26 @@ export async function _executeSession({
 }
 
 /**
- * Build prompt with conversation context when switching models.
+ * Build prompt with conversation context for a continuation.
  * When the model changes, we can't resume the previous session, so we include
  * conversation history as context so the new model can continue naturally.
- * @param {boolean} modelChanged
- * @param {string} conversationId
- * @param {string} promptWithAttachments
+ * When the adapter cannot resume, we include conversation history so the
+ * model has context of previous turns.
+ * @param {Object} opts
+ * @param {boolean} opts.modelChanged
+ * @param {Object} opts.agent - Agent instance
+ * @param {string} opts.conversationId
+ * @param {string} opts.prompt
  * @returns {Promise<string>}
  */
-async function buildPromptForContinue(modelChanged, conversationId, promptWithAttachments) {
-  if (!modelChanged) return promptWithAttachments;
-  return buildConversationContextForModelSwitch(conversationId) + promptWithAttachments;
+async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt }) {
+  if (modelChanged) {
+    return buildConversationContextForModelSwitch(conversationId) + prompt;
+  }
+  if (agent.needsConversationContext()) {
+    return buildConversationContextForContinuation(conversationId) + prompt;
+  }
+  return prompt;
 }
 
 /**
@@ -274,14 +283,16 @@ function buildContinueModelAndEnv(session, sessionId, model) {
 async function buildContinueParams({
   sessionId, session, model, systemPrompt, effectiveModel, sessionEnv,
   modelChanged, activeConversation, promptWithAttachments,
-  workingDirectory, controller, agentType,
+  workingDirectory, controller, agentType, agent,
 }) {
   // Only resume if we have a session ID AND model hasn't changed AND the
-  // agent supports resume (Codex doesn't).
-  const canResume = activeConversation.claudeSessionId && !modelChanged && agentType !== 'codex';
+  // agent supports resume.
+  const canResume = activeConversation.claudeSessionId && !modelChanged && agent.supportsResume();
 
-  // Build prompt with conversation context when model changes
-  const promptWithContext = await buildPromptForContinue(modelChanged, activeConversation.id, promptWithAttachments);
+  // Build prompt with conversation context when model changes or adapter needs it
+  const promptWithContext = await buildPromptForContinue({
+    modelChanged, agent, conversationId: activeConversation.id, prompt: promptWithAttachments,
+  });
 
   const queryParams = buildQueryParams({
     prompt: promptWithContext,
@@ -382,7 +393,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     sessionId, session, model, systemPrompt,
     effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
-    workingDirectory, controller, agentType,
+    workingDirectory, controller, agentType, agent,
   });
 
   await _executeSession({

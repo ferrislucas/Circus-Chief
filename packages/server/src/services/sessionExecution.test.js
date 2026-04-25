@@ -425,6 +425,7 @@ describe('Phase 7: sessionExecution agent-type dispatch', () => {
         yield { type: 'result', success: true };
       }),
       supportsResume: () => false,
+      needsConversationContext: () => true,
     };
     const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
 
@@ -454,6 +455,7 @@ describe('Phase 7: sessionExecution agent-type dispatch', () => {
         yield { type: 'result', success: true };
       }),
       supportsResume: () => false,
+      needsConversationContext: () => true,
     };
     const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
 
@@ -478,6 +480,80 @@ describe('Phase 7: sessionExecution agent-type dispatch', () => {
     // Codex query params must not carry a resume field, regardless of any
     // prior claudeSessionId on the session row.
     expect(capturedQueryParams.options.resume).toBeUndefined();
+
+    createAgentSpy.mockRestore();
+  });
+
+  it('continueSession for Codex agent includes conversation context in prompt', async () => {
+    let capturedQueryParams = null;
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams) {
+        capturedQueryParams = queryParams;
+        yield { type: 'assistant', text: 'codex reply' };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    const messageRepo = new MessageRepository();
+    const project = projectRepo.create('Codex Context Project', tempDir);
+    const session = sessionRepo.create(project.id, 'Codex Session', 'initial prompt', {
+      agentType: 'codex',
+      model: 'gpt-4o-test',
+    });
+    sessionRepo.update(session.id, { claudeSessionId: 'prior-id' });
+    const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+    // Add prior messages so there's history to include
+    messageRepo.create(session.id, 'user', 'First question', { conversationId: conversation.id });
+    messageRepo.create(session.id, 'assistant', 'First answer', null, conversation.id);
+
+    // Send a follow-up — this should prepend conversation context
+    await continueSession(session.id, 'follow up', tempDir, { model: 'gpt-4o-test' });
+
+    expect(capturedQueryParams).not.toBeNull();
+    expect(capturedQueryParams.prompt).toContain('<conversation_history>');
+    expect(capturedQueryParams.prompt).toContain('First question');
+    expect(capturedQueryParams.prompt).toContain('follow up');
+
+    createAgentSpy.mockRestore();
+  });
+
+  it('continueSession for Claude Code agent does NOT include context when resuming', async () => {
+    let capturedQueryParams = null;
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams) {
+        capturedQueryParams = queryParams;
+        yield { type: 'system', subtype: 'init', session_id: 'mock-session-id' };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    const messageRepo = new MessageRepository();
+    const project = projectRepo.create('Claude Resume Project', tempDir);
+    const session = sessionRepo.create(project.id, 'Claude Session', 'initial prompt', 'standard');
+    sessionRepo.update(session.id, { claudeSessionId: 'prior-claude-id' });
+    // The active conversation needs claudeSessionId set for canResume to be true
+    const conversation = conversationRepo.create(session.id, 'Test Conversation');
+    conversationRepo.update(conversation.id, { claudeSessionId: 'prior-claude-id' });
+
+    messageRepo.create(session.id, 'user', 'First question', { conversationId: conversation.id });
+    messageRepo.create(session.id, 'assistant', 'First answer', null, conversation.id);
+
+    await continueSession(session.id, 'follow up', tempDir);
+
+    expect(capturedQueryParams).not.toBeNull();
+    // Claude Code supports resume → no conversation context prepended
+    expect(capturedQueryParams.prompt).not.toContain('<conversation_history>');
+    expect(capturedQueryParams.prompt).toBe('follow up');
+    // Should have resume set
+    expect(capturedQueryParams.options.resume).toBe('prior-claude-id');
 
     createAgentSpy.mockRestore();
   });

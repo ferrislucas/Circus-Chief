@@ -18,7 +18,7 @@ import {
   buildPromptWithAttachments,
   getApiBaseUrl,
 } from './sessionPrompts.js';
-import { buildConversationContextForModelSwitch, buildConversationContextForBranch } from './conversationContext.js';
+import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildConversationContextForContinuation } from './conversationContext.js';
 import {
   activeSessions,
   activeConversationIds,
@@ -277,18 +277,26 @@ function sessionHasNoAssistantMessages(sessionId) {
 function buildExistingMessageQueryParams({
   sessionId, conversationId, session, model, systemPrompt,
   effectiveModel, sessionEnv, modelChanged, conversation,
-  lastUserMessage, workingDirectory, controller, agentType,
+  lastUserMessage, workingDirectory, controller, agentType, agent,
 }) {
   // Determine context needs and build context
   const { needsContext, contextType } = determineContextNeed(conversation, modelChanged);
   if (needsContext) {
     console.log(`[SESSION] ${contextType === 'modelSwitch' ? 'Model changed' : 'Branched conversation'} - including context`);
   }
-  const conversationContext = buildContextForType(conversationId, contextType);
+  let conversationContext = buildContextForType(conversationId, contextType);
+
+  // Fallback: if no specific context was built but the adapter needs
+  // conversation context (i.e. it can't resume), inject continuation history.
+  if (!conversationContext && agent.needsConversationContext()) {
+    conversationContext = buildConversationContextForContinuation(conversationId);
+  }
+
   const promptWithContext = conversationContext + lastUserMessage.content;
 
-  // Only resume if we have a session ID AND model hasn't changed
-  const canResume = conversation.claudeSessionId && !modelChanged;
+  // Only resume if we have a session ID AND model hasn't changed AND the
+  // agent supports resume.
+  const canResume = conversation.claudeSessionId && !modelChanged && agent.supportsResume();
 
   const queryParams = buildQueryParams({
     prompt: promptWithContext,
@@ -348,7 +356,7 @@ export async function continueSessionWithExistingMessage(sessionId, conversation
     sessionId, conversationId, session, model, systemPrompt,
     effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
     modelChanged: modelEnv.modelChanged, conversation,
-    lastUserMessage, workingDirectory, controller, agentType,
+    lastUserMessage, workingDirectory, controller, agentType, agent,
   });
 
   await _executeSession({
