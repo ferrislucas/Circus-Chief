@@ -18,6 +18,14 @@ const fixturePath = path.resolve(
 /**
  * Create a fake child process that emits the given stdout text (possibly over
  * multiple chunks), optional stderr, and an exit code.
+ *
+ * @param {Object} opts
+ * @param {string[]} [opts.stdoutLines]
+ * @param {string|string[]} [opts.stderr] - Single string or array of chunks to
+ *   push separately (useful for testing multi-chunk buffering).
+ * @param {number} [opts.exitCode]
+ * @param {Error|null} [opts.emitError]
+ * @param {Object|null} [opts.captureStdin]
  */
 function createFakeChild({ stdoutLines = [], stderr = '', exitCode = 0, emitError = null, captureStdin = null } = {}) {
   const child = new EventEmitter();
@@ -49,8 +57,10 @@ function createFakeChild({ stdoutLines = [], stderr = '', exitCode = 0, emitErro
     }
     child.stdout.push(null);
 
-    if (stderr) {
-      child.stderr.push(stderr);
+    // stderr may be a string or an array of chunks
+    const stderrChunks = Array.isArray(stderr) ? stderr : (stderr ? [stderr] : []);
+    for (const chunk of stderrChunks) {
+      child.stderr.push(chunk);
     }
     child.stderr.push(null);
 
@@ -178,6 +188,50 @@ describe('CodexAdapter', () => {
     expect(spawnArgs.args[sandboxIdx + 1]).toBe('read-only');
   });
 
+  it('CLI path: appends -c preferred_auth_method=chatgpt when no OPENAI_API_KEY in env', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-c"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { HOME: '/tmp', PATH: '/usr/bin' },
+        abortController: new AbortController(),
+      },
+    }));
+
+    const spawnArgs = fakeSpawn.mock.calls[0][0];
+    const cIdx = spawnArgs.args.indexOf('-c');
+    expect(cIdx).toBeGreaterThan(-1);
+    expect(spawnArgs.args[cIdx + 1]).toBe('preferred_auth_method=chatgpt');
+  });
+
+  it('CLI path: does NOT append -c preferred_auth_method=chatgpt when OPENAI_API_KEY is in env', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-d"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test-key' },
+        abortController: new AbortController(),
+      },
+    }));
+
+    const spawnArgs = fakeSpawn.mock.calls[0][0];
+    expect(spawnArgs.args).not.toContain('-c');
+  });
+
   it('CLI path: prepends systemPrompt onto stdin prompt', async () => {
     const capture = { chunks: [], ended: false };
     const fakeSpawn = vi.fn(() => createFakeChild({
@@ -242,6 +296,118 @@ describe('CodexAdapter', () => {
     }
     expect(caught).not.toBeNull();
     expect(caught.message).toContain('boom');
+    expect(caught.code).toBe('CODEX_CLI_EXIT');
+    expect(caught.exitCode).toBe(1);
+  });
+
+  it('CLI path: stderr trimming — trailing newline is stripped from error message', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: [],
+      stderr: 'error: model not found\n',
+      exitCode: 1,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    let caught = null;
+    try {
+      await collect(adapter.execute({
+        prompt: 'hi',
+        options: { model: 'gpt-4o', cwd: process.cwd(), env: {}, abortController: new AbortController() },
+      }));
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught.message).toBe('error: model not found');
+    expect(caught.code).toBe('CODEX_CLI_EXIT');
+    expect(caught.exitCode).toBe(1);
+  });
+
+  it('CLI path: multi-chunk stderr is concatenated before being surfaced', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: [],
+      stderr: ['first part ', 'second part'],
+      exitCode: 1,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    let caught = null;
+    try {
+      await collect(adapter.execute({
+        prompt: 'hi',
+        options: { model: 'gpt-4o', cwd: process.cwd(), env: {}, abortController: new AbortController() },
+      }));
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught.message).toBe('first part second part');
+    expect(caught.code).toBe('CODEX_CLI_EXIT');
+  });
+
+  it('CLI path: informational stderr + valid stdout + exit 0 → session succeeds normally', async () => {
+    const lines = loadFixture();
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: lines,
+      stderr: 'Reading prompt from stdin...\n',
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    let caught = null;
+    let events = [];
+    try {
+      events = await collect(adapter.execute({
+        prompt: 'hi',
+        options: { model: 'gpt-4o', cwd: process.cwd(), env: {}, abortController: new AbortController() },
+      }));
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeNull();
+    expect(events[0]).toMatchObject({ type: 'system', subtype: 'init', session_id: 'codex-xyz', model: 'gpt-4o' });
+    expect(events[1]).toMatchObject({
+      type: 'stream_event',
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello, world' } },
+    });
+    expect(events[2]).toMatchObject({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'Hello, world' }] },
+    });
+    expect(events[3]).toMatchObject({
+      type: 'result',
+      subtype: 'success',
+      usage: { input_tokens: 12, output_tokens: 4 },
+    });
+    expect(events).toHaveLength(4);
+    expect(events.some(e => e.subtype === 'error')).toBe(false);
+  });
+
+  it('CLI path: informational stderr + no stdout + exit 0 → session completes without error', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: [],
+      stderr: 'Reading prompt from stdin...\n',
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    let caught = null;
+    let events = [];
+    try {
+      events = await collect(adapter.execute({
+        prompt: 'hi',
+        options: { model: 'gpt-4o', cwd: process.cwd(), env: {}, abortController: new AbortController() },
+      }));
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeNull();
+    // The mapper's finalize() emits a result(success) even with no stdout;
+    // the important thing is no error was thrown and no result(error) was emitted.
+    expect(events.some(e => e.subtype === 'error')).toBe(false);
+    expect(events.every(e => e.type !== undefined)).toBe(true);
   });
 
   it('CLI path: abort triggers SIGTERM then (after 2s) SIGKILL', async () => {

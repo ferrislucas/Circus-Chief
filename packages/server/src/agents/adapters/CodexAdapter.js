@@ -132,6 +132,14 @@ export class CodexAdapter extends BaseAgent {
       '-m', model,
     ];
 
+    // Defense in depth: when no API key is in the env, force ChatGPT auth
+    // so the CLI uses its own OAuth flow even if some env var leaks through.
+    if (!env?.OPENAI_API_KEY) {
+      args.push('-c', 'preferred_auth_method=chatgpt');
+    }
+
+    console.log('[CodexAdapter] auth_mode_hint =', env?.OPENAI_API_KEY ? 'apikey' : 'chatgpt');
+
     try {
       return spawnFn({
         command: 'codex',
@@ -248,6 +256,7 @@ class CliState {
     this.rl = null;
     this.killTimer = null;
     this.onAbort = null;
+    this.stderrBuffer = '';
   }
 
   assign(patch) {
@@ -341,14 +350,8 @@ function handleCliStdoutLine(line, state) {
 function attachStderrReader(child, state) {
   if (!child.stderr) return;
   child.stderr.on('data', (chunk) => {
-    const text = chunk.toString();
-    if (!text || state.error) return;
-    const err = new Error(text);
-    err.code = 'CODEX_CLI_STDERR';
-    err.stderr = text;
-    // Emit an error result event so downstream logging/UI sees it before throw
-    state.pushEvents([{ type: 'result', subtype: 'error', error: { message: text } }]);
-    state.failWith(err);
+    if (state.error || state.ended) return;
+    state.assign({ stderrBuffer: state.stderrBuffer + chunk.toString() });
   });
 }
 
@@ -370,11 +373,14 @@ function attachProcessLifecycleHandlers(child, state) {
 function handleChildExit(code, state) {
   state.markEnded();
   if (code !== 0 && !state.error) {
-    const err = new Error(`Codex CLI exited with code ${code}`);
+    const stderrTrimmed = state.stderrBuffer.trim();
+    const err = stderrTrimmed.length > 0
+      ? new Error(stderrTrimmed)
+      : new Error(`Codex CLI exited with code ${code}`);
     err.code = 'CODEX_CLI_EXIT';
     err.exitCode = code;
     state.failWith(err);
-  } else {
+  } else if (!state.error) {
     try {
       const fin = state.mapper.finalize();
       if (fin.length > 0) state.pushEvents(fin);

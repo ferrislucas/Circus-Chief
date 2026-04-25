@@ -161,6 +161,35 @@ export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel =
     delete sessionEnv.ANTHROPIC_API_KEY;
     delete sessionEnv.ANTHROPIC_AUTH_TOKEN;
     delete sessionEnv.ANTHROPIC_BASE_URL;
+
+    // The provider database is the single source of truth for auth.
+    // When the provider doesn't set OPENAI_API_KEY, the Codex CLI should
+    // use its own auth (e.g. ChatGPT OAuth from ~/.codex/auth.json).
+    // Rather than trying to blacklist individual OPENAI_* vars (which
+    // risks missing current or future vars the CLI inspects), we whitelist
+    // only the essential vars — mirroring the working `env -i HOME=$HOME
+    // PATH=$PATH codex exec ...` invocation.
+    if (!providerEnv.OPENAI_API_KEY) {
+      const allowed = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'TMPDIR'];
+      const cleaned = {};
+      for (const key of allowed) {
+        if (sessionEnv[key] !== undefined) cleaned[key] = sessionEnv[key];
+      }
+      // Carry through anything providerEnv explicitly set (additionalEnvVars, etc.)
+      Object.assign(cleaned, providerEnv);
+      // Replace sessionEnv with the whitelisted version
+      for (const key of Object.keys(sessionEnv)) {
+        delete sessionEnv[key];
+      }
+      Object.assign(sessionEnv, cleaned);
+    } else {
+      // Provider explicitly set an API key — still strip stray base URL
+      // vars from host env if provider didn't set them.
+      if (!providerEnv.OPENAI_BASE_URL && !providerEnv.OPENAI_API_BASE) {
+        delete sessionEnv.OPENAI_BASE_URL;
+        delete sessionEnv.OPENAI_API_BASE;
+      }
+    }
   } else {
     // Anthropic-kind provider: symmetrically strip any stray OPENAI_* from host
     // env so they can't confuse the Claude SDK or downstream tooling.

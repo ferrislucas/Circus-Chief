@@ -383,6 +383,9 @@ describe('sessionProvider', () => {
     const savedAnthBase = process.env.ANTHROPIC_BASE_URL;
     const savedOaiKey = process.env.OPENAI_API_KEY;
     const savedOaiBase = process.env.OPENAI_BASE_URL;
+    const savedOaiApiBase = process.env.OPENAI_API_BASE;
+    const savedOaiOrgId = process.env.OPENAI_ORG_ID;
+    const savedOaiProject = process.env.OPENAI_PROJECT;
 
     afterEach(() => {
       // Restore any env vars we may have toggled in these tests
@@ -395,6 +398,9 @@ describe('sessionProvider', () => {
       restore('ANTHROPIC_BASE_URL', savedAnthBase);
       restore('OPENAI_API_KEY', savedOaiKey);
       restore('OPENAI_BASE_URL', savedOaiBase);
+      restore('OPENAI_API_BASE', savedOaiApiBase);
+      restore('OPENAI_ORG_ID', savedOaiOrgId);
+      restore('OPENAI_PROJECT', savedOaiProject);
     });
 
     it('openai provider: does not set MAX_THINKING_TOKENS even when thinkingEnabled=true', () => {
@@ -416,6 +422,9 @@ describe('sessionProvider', () => {
       expect(env.ANTHROPIC_API_KEY).toBeUndefined();
       expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
       expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+      // Provider's own OPENAI vars should still be present
+      expect(env.OPENAI_API_KEY).toBe('k');
+      expect(env.OPENAI_BASE_URL).toBe('u');
     });
 
     it('anthropic provider: unchanged Claude-only behavior (regression)', () => {
@@ -449,6 +458,83 @@ describe('sessionProvider', () => {
       expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
       expect(env.OPENAI_API_KEY).toBeUndefined();
       expect(env.OPENAI_BASE_URL).toBeUndefined();
+    });
+
+    // ── OpenAI auth leak fix: strip host OPENAI_* when provider doesn't set them ──
+
+    it('openai provider with no authToken: strips host OPENAI_API_KEY so CLI uses own auth', () => {
+      process.env.OPENAI_API_KEY = 'host-key-should-be-stripped';
+      process.env.OPENAI_BASE_URL = 'https://host-base-should-be-stripped';
+      process.env.OPENAI_ORG_ID = 'org-should-be-stripped';
+      process.env.OPENAI_PROJECT = 'proj-should-be-stripped';
+      const provider = { name: 'O', kind: 'openai' };
+      const env = buildSessionEnv(provider, false, null);
+      // Whitelist strips all OPENAI_* vars
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(env.OPENAI_BASE_URL).toBeUndefined();
+      expect(env.OPENAI_ORG_ID).toBeUndefined();
+      expect(env.OPENAI_PROJECT).toBeUndefined();
+    });
+
+    it('openai provider with no authToken: whitelist preserves HOME and PATH', () => {
+      const provider = { name: 'O', kind: 'openai' };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.HOME).toBeDefined();
+      expect(env.PATH).toBeDefined();
+      expect(env.PATH).toContain('/mock-node-bin');
+    });
+
+    it('openai provider with no authToken: whitelist strips ANTHROPIC_* too', () => {
+      process.env.ANTHROPIC_API_KEY = 'should-be-stripped';
+      process.env.ANTHROPIC_BASE_URL = 'https://should-be-stripped';
+      const provider = { name: 'O', kind: 'openai' };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    });
+
+    it('openai provider with no authToken: additionalEnvVars are preserved', () => {
+      const provider = {
+        name: 'O',
+        kind: 'openai',
+        additionalEnvVars: { OPENAI_API_KEY: 'custom-key-via-additional' },
+      };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.OPENAI_API_KEY).toBe('custom-key-via-additional');
+    });
+
+    it('openai provider with authToken: provider token wins over host OPENAI_API_KEY', () => {
+      process.env.OPENAI_API_KEY = 'host-key';
+      const provider = { name: 'O', kind: 'openai', authToken: 'provider-key' };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.OPENAI_API_KEY).toBe('provider-key');
+    });
+
+    it('openai provider with baseUrl: provider URL wins over host OPENAI_BASE_URL', () => {
+      process.env.OPENAI_BASE_URL = 'https://host-url';
+      const provider = { name: 'O', kind: 'openai', baseUrl: 'https://provider-url', authToken: 'sk-key' };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.OPENAI_BASE_URL).toBe('https://provider-url');
+    });
+
+    it('openai provider: OPENAI_API_KEY set via additionalEnvVars is preserved', () => {
+      // This is now covered by the whitelist test above, but keep as an explicit regression test
+      process.env.OPENAI_API_KEY = 'host-key';
+      const provider = {
+        name: 'O',
+        kind: 'openai',
+        additionalEnvVars: { OPENAI_API_KEY: 'custom-key-via-additional' },
+      };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.OPENAI_API_KEY).toBe('custom-key-via-additional');
+    });
+
+    it('openai provider with no config: strips host OPENAI_API_BASE (older alias)', () => {
+      // Whitelist strips everything except safe vars
+      process.env.OPENAI_API_BASE = 'https://host-api-base';
+      const provider = { name: 'O', kind: 'openai' };
+      const env = buildSessionEnv(provider, false, null);
+      expect(env.OPENAI_API_BASE).toBeUndefined();
     });
   });
 });

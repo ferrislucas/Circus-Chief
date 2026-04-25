@@ -307,6 +307,35 @@ describe('SessionRepository', () => {
         expect(messages).toHaveLength(0);
       });
     });
+
+    // ============================================================
+    // Regression: agentType derived from model in SessionRepository
+    // ============================================================
+    describe('agentType resolution', () => {
+      it('defaults to claude-code when no model and no agentType specified', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt');
+        expect(session.agentType).toBe('claude-code');
+      });
+
+      it('defaults to claude-code when model is null and no agentType specified', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { model: null });
+        expect(session.agentType).toBe('claude-code');
+      });
+
+      it('uses explicit agentType when provided', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { agentType: 'codex' });
+        expect(session.agentType).toBe('codex');
+      });
+
+      it('explicit agentType wins over model-based resolution', () => {
+        // Even with a claude model, explicit codex agentType should win
+        const session = repo.create(projectId, 'Test', 'Prompt', {
+          model: 'claude-sonnet-4-20250514',
+          agentType: 'codex',
+        });
+        expect(session.agentType).toBe('codex');
+      });
+    });
   });
 
   describe('getById', () => {

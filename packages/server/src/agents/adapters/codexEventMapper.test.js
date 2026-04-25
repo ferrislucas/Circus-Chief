@@ -21,14 +21,14 @@ describe('codexEventMapper', () => {
   it('turn.started and item.started are no-ops', () => {
     const m = createCodexEventMapper();
     expect(m.map({ type: 'turn.started' })).toEqual([]);
-    expect(m.map({ type: 'item.started', item: { id: 'i', type: 'agentMessage', text: '' } })).toEqual([]);
+    expect(m.map({ type: 'item.started', item: { id: 'i', type: 'agent_message', text: '' } })).toEqual([]);
   });
 
-  it('item.completed(agentMessage) emits stream_event(text_delta) + assistant', () => {
+  it('item.completed(agent_message) emits stream_event(text_delta) + assistant', () => {
     const m = createCodexEventMapper();
     const out = m.map({
       type: 'item.completed',
-      item: { id: 'msg-1', type: 'agentMessage', text: 'Hello, world' },
+      item: { id: 'msg-1', type: 'agent_message', text: 'Hello, world' },
     });
     expect(out).toEqual([
       {
@@ -42,7 +42,7 @@ describe('codexEventMapper', () => {
     ]);
   });
 
-  it('item.completed with non-agentMessage types returns [] and warns once per type', () => {
+  it('item.completed with non-agent_message types returns [] and warns once per type', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const m = createCodexEventMapper();
 
@@ -64,7 +64,7 @@ describe('codexEventMapper', () => {
     // A different unsupported type warns again
     const cmd = m.map({
       type: 'item.completed',
-      item: { id: 'c1', type: 'commandExecution' },
+      item: { id: 'c1', type: 'command_execution' },
     });
     expect(cmd).toEqual([]);
     expect(warnSpy).toHaveBeenCalledTimes(2);
@@ -147,6 +147,28 @@ describe('codexEventMapper', () => {
     const m = createCodexEventMapper();
     m.map({ type: 'turn.completed' });
     expect(m.finalize()).toEqual([]);
+  });
+
+  it('handles real CLI v0.124.0 wire format (agent_message)', () => {
+    const m = createCodexEventMapper({ model: 'gpt-5.2' });
+    expect(m.map({ type: 'thread.started', thread_id: 't1' })).toHaveLength(1);
+    expect(m.map({ type: 'turn.started' })).toEqual([]);
+    const out = m.map({
+      type: 'item.completed',
+      item: { id: 'item_0', type: 'agent_message', text: 'Hi!' },
+    });
+    expect(out).toEqual([
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hi!' } },
+      },
+      { type: 'assistant', message: { content: [{ type: 'text', text: 'Hi!' }] } },
+    ]);
+    const fin = m.map({
+      type: 'turn.completed',
+      usage: { input_tokens: 15105, cached_input_tokens: 13696, output_tokens: 25 },
+    });
+    expect(fin[0]).toMatchObject({ type: 'result', subtype: 'success', usage: { input_tokens: 15105, output_tokens: 25 } });
   });
 
   it('ignores non-object inputs gracefully', () => {

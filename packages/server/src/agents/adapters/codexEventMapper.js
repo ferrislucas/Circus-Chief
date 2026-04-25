@@ -22,12 +22,12 @@
  *   - {@code error}            — { message } (transient, treated as fatal)
  *
  * ThreadItem.type variants handled in v1:
- *   - {@code agentMessage} — { id, text, ... }  → emitted as text_delta + assistant
+ *   - {@code agent_message} — { id, text, ... }  → emitted as text_delta + assistant
  *
- * All other variants (reasoning, commandExecution, fileChange, mcpToolCall,
- * dynamicToolCall, collabAgentToolCall, webSearch, imageView, imageGeneration,
- * plan, contextCompaction, hookPrompt, enteredReviewMode, exitedReviewMode,
- * userMessage) are currently ignored. Tool-use plumbing is deferred to a
+ * All other variants (reasoning, command_execution, file_change, mcp_tool_call,
+ * dynamic_tool_call, collab_agent_tool_call, web_search, image_view, image_generation,
+ * plan, context_compaction, hook_prompt, entered_review_mode, exited_review_mode,
+ * user_message) are currently ignored. Tool-use plumbing is deferred to a
  * later phase.
  *
  * The mapper is stateful across calls so it can accumulate agent message
@@ -140,7 +140,7 @@ function handleItemCompleted(evt, _state, warnedTypes) {
   const item = evt.item;
   if (!item || typeof item !== 'object') return [];
 
-  if (item.type === 'agentMessage') {
+  if (item.type === 'agent_message') {
     const text = typeof item.text === 'string' ? item.text : '';
     return [
       {
@@ -157,10 +157,10 @@ function handleItemCompleted(evt, _state, warnedTypes) {
     ];
   }
 
-  // Variants deferred to a later phase: reasoning, commandExecution,
-  // fileChange, mcpToolCall, dynamicToolCall, collabAgentToolCall,
-  // webSearch, imageView, imageGeneration, plan, contextCompaction,
-  // hookPrompt, enteredReviewMode, exitedReviewMode, userMessage.
+  // Variants deferred to a later phase: reasoning, command_execution,
+  // file_change, mcp_tool_call, dynamic_tool_call, collab_agent_tool_call,
+  // web_search, image_view, image_generation, plan, context_compaction,
+  // hook_prompt, entered_review_mode, exited_review_mode, user_message.
   if (item.type && !warnedTypes.has(item.type)) {
     warnedTypes.add(item.type);
     console.warn(`[codexEventMapper] Ignoring unsupported item.type "${item.type}" (deferred to a later phase)`);

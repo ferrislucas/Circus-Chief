@@ -1,6 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
-import { messages, conversations } from './index.js';
+import { messages, conversations, modelProviders } from './index.js';
 import {
   ACTIVITY_FIELDS_SQL,
   mapTokenUsage,
@@ -8,6 +8,24 @@ import {
   parseCreateConfig,
   buildUpdateClauses,
 } from './session-helpers.js';
+
+/**
+ * Resolve the agent type ('claude-code' or 'codex') from a model ID by looking
+ * up which provider owns the model. This is the same logic as
+ * sessionProvider.resolveAgentTypeFromModel but inlined here to avoid a
+ * circular dependency:
+ *   database.js (index) → SessionRepository → sessionProvider → database.js
+ * @param {string|null} modelId
+ * @returns {'claude-code'|'codex'}
+ */
+function resolveAgentTypeFromModel(modelId) {
+  if (!modelId) return 'claude-code';
+  const provider = modelProviders.getProviderByModelId(modelId);
+  if (!provider) return 'claude-code';
+  // ProviderRepository.getAgentTypeForProvider maps kind → agent adapter
+  const agentType = modelProviders.getAgentTypeForProvider(provider.id);
+  return agentType || 'claude-code';
+}
 
 /**
  * Session repository class
@@ -68,6 +86,12 @@ export class SessionRepository extends BaseRepository {
   create(projectId, name, prompt, options = {}) {
     const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));
 
+    // Resolve agentType: explicit override → model-based derivation → fallback
+    const agentType =
+      config.agentType
+      ?? (config.model ? resolveAgentTypeFromModel(config.model) : null)
+      ?? 'claude-code';
+
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
@@ -86,7 +110,7 @@ export class SessionRepository extends BaseRepository {
         config.parentSessionId,
         config.model,
         config.effortLevel,
-        config.agentType || 'claude-code',
+        agentType,
         now,
         now
       );

@@ -60,8 +60,9 @@ const CONFIG_DEFAULTS = {
   model: null,
   effortLevel: null,
   // Agent runtime for the session: 'claude-code' (default) or 'codex'.
-  // Derived server-side from the selected model → provider → kind.
-  agentType: 'claude-code',
+  // Defaults to null so SessionRepository.create() can resolve it from the model.
+  // Explicit values from callers are preserved as-is.
+  agentType: null,
 };
 
 function buildConfig(src) {
