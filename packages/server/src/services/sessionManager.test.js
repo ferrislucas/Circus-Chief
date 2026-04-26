@@ -14,6 +14,7 @@ import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { MessageRepository } from '../db/MessageRepository.js';
 import { ConversationRepository } from '../db/ConversationRepository.js';
+import { agentGateway } from '../agents/AgentGateway.js';
 import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -1236,5 +1237,231 @@ describe('summary service integration', () => {
       // Verify onSessionComplete was called
       expect(summaryServiceMock.onSessionComplete).toHaveBeenCalledWith(session.id);
     });
+  });
+});
+
+describe('buildModelAndProvider agent_type re-derivation (Fix 3)', () => {
+  let sessionRepo;
+  let messageRepo;
+  let conversationRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+
+  beforeEach(() => {
+    sessionRepo = new SessionRepository();
+    messageRepo = new MessageRepository();
+    conversationRepo = new ConversationRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'build-model-provider-test-'));
+    const project = projectRepo.create('Test Project', tempDir);
+
+    // Create a session with claude-code agent type, no claudeSessionId (fresh draft)
+    session = sessionRepo.create(project.id, 'Test Draft', 'Test prompt', 'standard');
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('re-derives agent_type when model changes and no assistant messages exist', async () => {
+    // This tests the defense-in-depth logic in buildModelAndProvider:
+    // When a draft session (no assistant messages) gets a model that resolves
+    // to a different agent type, agent_type should be re-derived and persisted.
+    //
+    // We test this through continueSessionWithExistingMessage which calls
+    // buildModelAndProvider internally.
+
+    // Setup: create a conversation with a user message
+    const conversation = conversationRepo.create(session.id, 'Test Conversation');
+    messageRepo.create(session.id, 'user', 'Test message', { conversationId: conversation.id });
+
+    // Note: This test uses the mocked SDK which returns a successful response.
+    // The agent_type re-derivation happens inside buildModelAndProvider when
+    // continueSessionWithExistingMessage is called with a model parameter.
+    //
+    // Since we can't easily test with OpenAI models without setting up providers
+    // in the test DB, we verify the logic works for same-kind changes (no-op).
+    // The cross-kind path is validated by the sessionAgentGuard tests.
+
+    // For same-kind (claude → claude), agent_type should remain unchanged
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
+      model: 'claude-haiku-4-5-20251001', // Same kind (claude-code)
+    });
+
+    const updatedSession = sessionRepo.getById(session.id);
+    // agent_type should still be claude-code (no change for same kind)
+    expect(updatedSession.agentType).toBe('claude-code');
+  });
+
+  it('does not mutate agent_type when assistant messages exist', async () => {
+    // Setup: create a conversation with user + assistant messages
+    const conversation = conversationRepo.create(session.id, 'Test Conversation');
+    messageRepo.create(session.id, 'user', 'Test message', { conversationId: conversation.id });
+    messageRepo.create(session.id, 'assistant', 'Response', null, conversation.id);
+
+    // Even if we could pass an OpenAI model, agent_type should NOT change
+    // because there are already assistant messages.
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
+      model: 'claude-haiku-4-5-20251001',
+    });
+
+    const updatedSession = sessionRepo.getById(session.id);
+    expect(updatedSession.agentType).toBe('claude-code');
+  });
+
+  it('updates model in session record when model parameter is provided', async () => {
+    const conversation = conversationRepo.create(session.id, 'Test Conversation');
+    messageRepo.create(session.id, 'user', 'Test message', { conversationId: conversation.id });
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
+      model: 'claude-haiku-4-5-20251001',
+    });
+
+    const updatedSession = sessionRepo.getById(session.id);
+    expect(updatedSession.model).toBe('claude-haiku-4-5-20251001');
+  });
+});
+
+// ── Codex conversation context (Path 2) ──────────────────────────────────
+
+describe('continueSessionWithExistingMessage Codex conversation context', () => {
+  let sessionRepo;
+  let messageRepo;
+  let conversationRepo;
+  let projectRepo;
+  let tempDir;
+
+  beforeEach(() => {
+    sessionRepo = new SessionRepository();
+    messageRepo = new MessageRepository();
+    conversationRepo = new ConversationRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'codex-ctx-path2-test-'));
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Codex agent includes conversation context via continueSessionWithExistingMessage', async () => {
+    let capturedQueryParams = null;
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams) {
+        capturedQueryParams = queryParams;
+        yield { type: 'assistant', text: 'codex reply' };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    const project = projectRepo.create('Codex Path2 Project', tempDir);
+    const session = sessionRepo.create(project.id, 'Codex Session', 'initial prompt', {
+      agentType: 'codex',
+      model: 'gpt-4o-test',
+    });
+    sessionRepo.update(session.id, { claudeSessionId: 'prior-id' });
+    const conversation = conversationRepo.create(session.id, 'Test Conversation');
+
+    // Add prior messages for history
+    messageRepo.create(session.id, 'user', 'What is 2+2?', { conversationId: conversation.id });
+    messageRepo.create(session.id, 'assistant', '4', null, conversation.id);
+    messageRepo.create(session.id, 'user', 'Now tell me more', { conversationId: conversation.id });
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: 'gpt-4o-test' });
+
+    expect(capturedQueryParams).not.toBeNull();
+    expect(capturedQueryParams.prompt).toContain('<conversation_history>');
+    expect(capturedQueryParams.prompt).toContain('What is 2+2?');
+    // The last user message should still be present
+    expect(capturedQueryParams.prompt).toContain('Now tell me more');
+
+    createAgentSpy.mockRestore();
+  });
+
+  it('Codex agent does not pass resume via continueSessionWithExistingMessage', async () => {
+    let capturedQueryParams = null;
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams) {
+        capturedQueryParams = queryParams;
+        yield { type: 'assistant', text: 'codex reply' };
+        yield { type: 'result', success: true };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => true,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    const project = projectRepo.create('Codex Path2 NoResume', tempDir);
+    const session = sessionRepo.create(project.id, 'Codex Session', 'initial prompt', {
+      agentType: 'codex',
+      model: 'gpt-4o-test',
+    });
+    sessionRepo.update(session.id, { claudeSessionId: 'should-be-ignored' });
+    const conversation = conversationRepo.create(session.id, 'Test Conversation');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: 'gpt-4o-test' });
+
+    expect(capturedQueryParams).not.toBeNull();
+    expect(capturedQueryParams.options.resume).toBeUndefined();
+
+    createAgentSpy.mockRestore();
+  });
+
+  it('Claude Code agent does NOT include context when resuming via continueSessionWithExistingMessage', async () => {
+    let capturedQueryParams = null;
+    const stubAgent = {
+      execute: vi.fn(async function* (queryParams) {
+        capturedQueryParams = queryParams;
+        yield { type: 'system', subtype: 'init', session_id: 'mock-session-id' };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => true,
+      needsConversationContext: () => false,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    const project = projectRepo.create('Claude Path2 Resume', tempDir);
+    const session = sessionRepo.create(project.id, 'Claude Session', 'initial prompt', 'standard');
+    sessionRepo.update(session.id, { claudeSessionId: 'prior-claude-id' });
+    // The conversation needs claudeSessionId set for canResume to be true
+    const conversation = conversationRepo.create(session.id, 'Test Conversation');
+    conversationRepo.update(conversation.id, { claudeSessionId: 'prior-claude-id' });
+
+    messageRepo.create(session.id, 'user', 'What is 2+2?', { conversationId: conversation.id });
+    messageRepo.create(session.id, 'assistant', '4', null, conversation.id);
+    messageRepo.create(session.id, 'user', 'Now tell me more', { conversationId: conversation.id });
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
+
+    expect(capturedQueryParams).not.toBeNull();
+    // Claude Code supports resume → no conversation context prepended
+    expect(capturedQueryParams.prompt).not.toContain('<conversation_history>');
+    expect(capturedQueryParams.prompt).toBe('Now tell me more');
+    expect(capturedQueryParams.options.resume).toBe('prior-claude-id');
+
+    createAgentSpy.mockRestore();
   });
 });

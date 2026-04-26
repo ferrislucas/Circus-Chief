@@ -1,6 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
-import { messages, conversations } from './index.js';
+import { messages, conversations, modelProviders } from './index.js';
 import {
   ACTIVITY_FIELDS_SQL,
   mapTokenUsage,
@@ -8,6 +8,26 @@ import {
   parseCreateConfig,
   buildUpdateClauses,
 } from './session-helpers.js';
+
+const DEFAULT_AGENT_TYPE = 'claude-code';
+
+/**
+ * Resolve the agent type ('claude-code' or 'codex') from a model ID by looking
+ * up which provider owns the model. This is the same logic as
+ * sessionProvider.resolveAgentTypeFromModel but inlined here to avoid a
+ * circular dependency:
+ *   database.js (index) → SessionRepository → sessionProvider → database.js
+ * @param {string|null} modelId
+ * @returns {'claude-code'|'codex'}
+ */
+function resolveAgentTypeFromModel(modelId) {
+  if (!modelId) return DEFAULT_AGENT_TYPE;
+  const provider = modelProviders.getProviderByModelId(modelId);
+  if (!provider) return DEFAULT_AGENT_TYPE;
+  // ProviderRepository.getAgentTypeForProvider maps kind → agent adapter
+  const agentType = modelProviders.getAgentTypeForProvider(provider.id);
+  return agentType || DEFAULT_AGENT_TYPE;
+}
 
 /**
  * Session repository class
@@ -42,6 +62,8 @@ export class SessionRepository extends BaseRepository {
       effortLevel: row.effort_level || null,
       autoSendPendingPrompt: Boolean(row.auto_send_pending_prompt),
       slashCommands: row.slash_commands || null,
+      // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
+      agentType: row.agent_type || DEFAULT_AGENT_TYPE,
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields
@@ -62,18 +84,38 @@ export class SessionRepository extends BaseRepository {
     return this.map(row);
   }
 
-  /** Create a new session with optional config (mode, thinkingEnabled, gitBranch, parentSessionId, status, model, effortLevel) */
+  /** Create a new session with optional config (mode, thinkingEnabled, gitBranch, parentSessionId, status, model, effortLevel, agentType) */
   create(projectId, name, prompt, options = {}) {
     const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));
+
+    // Resolve agentType: explicit override → model-based derivation → fallback
+    const agentType =
+      config.agentType
+      ?? (config.model ? resolveAgentTypeFromModel(config.model) : null)
+      ?? DEFAULT_AGENT_TYPE;
 
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, effort_level, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, effort_level, agent_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, projectId, name, config.status, config.mode, config.thinkingEnabled ? 1 : 0, config.gitBranch, config.parentSessionId, config.model, config.effortLevel, now, now);
+      .run(
+        id,
+        projectId,
+        name,
+        config.status,
+        config.mode,
+        config.thinkingEnabled ? 1 : 0,
+        config.gitBranch,
+        config.parentSessionId,
+        config.model,
+        config.effortLevel,
+        agentType,
+        now,
+        now
+      );
 
     // Create initial conversation
     const conversation = conversations.create(id, 'Initial', true);
@@ -240,10 +282,10 @@ export class SessionRepository extends BaseRepository {
     // Insert new session with same settings but new ID and status
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, effort_level, context_window,
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, effort_level, agent_type, context_window,
                                input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                                web_search_requests, cost_usd, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -255,6 +297,7 @@ export class SessionRepository extends BaseRepository {
         source.gitBranch,  // Copy branch name (NOT worktree path)
         source.model,
         source.effortLevel,
+        source.agentType || DEFAULT_AGENT_TYPE,
         source.contextWindow,
         source.inputTokens,
         source.outputTokens,
