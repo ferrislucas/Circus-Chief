@@ -1148,6 +1148,7 @@ export async function waitForCommandCompletion(
  */
 export async function createProvider(data: {
   name: string;
+  kind?: 'anthropic' | 'openai';
   baseUrl?: string;
   authToken?: string;
   apiTimeoutMs?: number;
@@ -1155,9 +1156,12 @@ export async function createProvider(data: {
   const response = await fetch(`${API_URL}/api/providers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ kind: 'anthropic', ...data }),
   });
-  if (!response.ok) throw new Error('Failed to create provider');
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Failed to create provider (${response.status}): ${body}`);
+  }
   const provider = await response.json();
   // Track for scoped cleanup
   createdResources.providers.add(provider.id);

@@ -304,6 +304,18 @@ describe('prepareSessionConfig', () => {
     );
     expect(config.scheduledAt).toBe(1700000000000);
   });
+
+  // Phase 7 regression: agent-type derivation happens in the route
+  // (projects.js) after prepareSessionConfig, not inside prepareSessionConfig
+  // itself. Keeping prepareSessionConfig pure avoids DB lookups here.
+  it('does NOT add agentType to the config (derivation happens in the route)', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test', model: 'some-model' },
+      null,
+      systemDefaults
+    );
+    expect(config).not.toHaveProperty('agentType');
+  });
 });
 
 // ── applyTemplateOverrides ───────────────────────────────────────────────

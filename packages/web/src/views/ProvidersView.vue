@@ -98,7 +98,7 @@
             v-if="!provider.baseUrl && provider.isBuiltIn"
             class="provider-detail"
           >
-            <span class="detail-value">Uses official Anthropic API</span>
+            <span class="detail-value">{{ getBuiltInProviderDescription(provider) }}</span>
           </div>
         </div>
       </div>
@@ -194,6 +194,14 @@ function closeFormModal() {
 function handleProviderSaved() {
   closeFormModal();
   providersStore.fetchProviders();
+}
+
+function getBuiltInProviderDescription(provider) {
+  if (provider.kind === 'openai') {
+    return 'Uses official OpenAI API';
+  }
+
+  return 'Uses official Anthropic API';
 }
 
 async function testProvider(providerId) {

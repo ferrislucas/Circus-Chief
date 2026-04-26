@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ProviderRepository } from './ProviderRepository.js';
+import {
+  ProviderRepository,
+  PROVIDER_KINDS,
+  AGENT_TYPE_BY_KIND,
+} from './ProviderRepository.js';
+import { OPENAI_MODELS } from '@circuschief/shared';
 
 describe('ProviderRepository', () => {
   let repo;
@@ -663,6 +668,211 @@ describe('ProviderRepository', () => {
 
       // Cleanup
       repo.delete(provider.id);
+    });
+  });
+
+  // --- Phase 1: providers.kind ---
+
+  describe('kind column', () => {
+    it('exports the allowed kinds and agent mapping', () => {
+      expect(PROVIDER_KINDS).toEqual(['anthropic', 'openai']);
+      expect(AGENT_TYPE_BY_KIND).toEqual({
+        anthropic: 'claude-code',
+        openai: 'codex',
+      });
+    });
+
+    it('defaults to kind="anthropic" when kind is omitted on create', () => {
+      const provider = repo.create({
+        name: 'Default Kind',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      expect(provider.kind).toBe('anthropic');
+      repo.delete(provider.id);
+    });
+
+    it('persists kind="anthropic" explicitly', () => {
+      const provider = repo.create({
+        name: 'Anthropic Kind',
+        kind: 'anthropic',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      expect(provider.kind).toBe('anthropic');
+      const reread = repo.getById(provider.id);
+      expect(reread.kind).toBe('anthropic');
+      repo.delete(provider.id);
+    });
+
+    it('persists kind="openai"', () => {
+      const provider = repo.create({
+        name: 'OpenAI Kind',
+        kind: 'openai',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      expect(provider.kind).toBe('openai');
+      const reread = repo.getById(provider.id);
+      expect(reread.kind).toBe('openai');
+      repo.delete(provider.id);
+    });
+
+    it('application-layer validation rejects invalid kind at create', () => {
+      expect(() =>
+        repo.create({ name: 'Bad Kind', kind: 'gemini' })
+      ).toThrow(/Invalid provider kind "gemini"/);
+    });
+
+    it('DB CHECK constraint rejects invalid kind on raw insert (backstop)', () => {
+      expect(() => {
+        repo.db
+          .prepare(
+            `INSERT INTO providers (id, name, kind, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?)`
+          )
+          .run('check-test', 'Bad', 'gemini', Date.now(), Date.now());
+      }).toThrow();
+    });
+
+    it('update() rejects changes to kind (immutability)', () => {
+      const provider = repo.create({
+        name: 'Immutable Kind',
+        kind: 'openai',
+        authToken: 'token',
+      });
+
+      expect(() => repo.update(provider.id, { kind: 'anthropic' })).toThrow(
+        /immutable/i
+      );
+
+      // Regression: normal updates still work
+      const updated = repo.update(provider.id, { name: 'Renamed' });
+      expect(updated.name).toBe('Renamed');
+      expect(updated.kind).toBe('openai');
+
+      repo.delete(provider.id);
+    });
+
+    it('getAgentTypeForProvider returns correct agent per kind', () => {
+      const anthropic = repo.create({ name: 'A', kind: 'anthropic', authToken: 't' });
+      const openai = repo.create({ name: 'O', kind: 'openai', authToken: 't' });
+
+      expect(repo.getAgentTypeForProvider(anthropic.id)).toBe('claude-code');
+      expect(repo.getAgentTypeForProvider(openai.id)).toBe('codex');
+
+      repo.delete(anthropic.id);
+      repo.delete(openai.id);
+    });
+
+    it('getAgentTypeForProvider returns null for unknown / falsy id', () => {
+      expect(repo.getAgentTypeForProvider('not-a-real-id')).toBeNull();
+      expect(repo.getAgentTypeForProvider(null)).toBeNull();
+      expect(repo.getAgentTypeForProvider(undefined)).toBeNull();
+      expect(repo.getAgentTypeForProvider('')).toBeNull();
+    });
+
+    it('additionalEnvVars round-trips across both kinds', () => {
+      const anth = repo.create({
+        name: 'Anth Env',
+        kind: 'anthropic',
+        additionalEnvVars: { HTTP_PROXY: 'http://proxy:8080' },
+      });
+      const openai = repo.create({
+        name: 'OpenAI Env',
+        kind: 'openai',
+        additionalEnvVars: { HTTP_PROXY: 'http://proxy:8080', SSL_CERT_FILE: '/ca.pem' },
+      });
+
+      expect(repo.getById(anth.id).additionalEnvVars).toEqual({
+        HTTP_PROXY: 'http://proxy:8080',
+      });
+      expect(repo.getById(openai.id).additionalEnvVars).toEqual({
+        HTTP_PROXY: 'http://proxy:8080',
+        SSL_CERT_FILE: '/ca.pem',
+      });
+
+      repo.delete(anth.id);
+      repo.delete(openai.id);
+    });
+
+    it('getProviderByModelId still returns null for built-in Anthropic (regression)', () => {
+      const providers = repo.getAll();
+      const builtIn = providers.find((p) => p.isBuiltIn && p.kind === 'anthropic');
+      if (!builtIn) return; // skip if fixture seed changes
+      const models = repo.getModels(builtIn.id);
+      if (models.length > 0) {
+        expect(repo.getProviderByModelId(models[0].modelId)).toBeNull();
+      }
+    });
+
+    it('getProviderByModelId returns a non-Anthropic built-in when one exists', () => {
+      const now = Date.now();
+      // Synthesize a built-in openai provider directly for this test.
+      const id = 'test-builtin-openai';
+      repo.db
+        .prepare(
+          `INSERT INTO providers (id, name, kind, is_built_in, created_at, updated_at)
+           VALUES (?, ?, ?, 1, ?, ?)`
+        )
+        .run(id, 'Built-in OpenAI (test)', 'openai', now, now);
+      repo.db
+        .prepare(
+          `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('test-builtin-openai-gpt4o', id, 'gpt-4o', 'GPT-4o', null, 'custom', now);
+
+      try {
+        const result = repo.getProviderByModelId('gpt-4o');
+        expect(result).not.toBeNull();
+        expect(result.id).toBe(id);
+        expect(result.kind).toBe('openai');
+        expect(result.isBuiltIn).toBe(true);
+      } finally {
+        // Direct delete because repo.delete rejects built-ins
+        repo.db.prepare('DELETE FROM provider_models WHERE provider_id = ?').run(id);
+        repo.db.prepare('DELETE FROM providers WHERE id = ?').run(id);
+      }
+    });
+
+    it('getProviderByModelId returns built-in OpenAI for official seeded models', () => {
+      const result = repo.getProviderByModelId('gpt-5.5');
+      expect(result).not.toBeNull();
+      expect(result.id).toBe('openai-default');
+      expect(result.kind).toBe('openai');
+      expect(result.isBuiltIn).toBe(true);
+      expect(result.models.map((model) => model.modelId).sort()).toEqual(
+        OPENAI_MODELS.map((model) => model.id).sort()
+      );
+    });
+
+    it('getProviderByModelId prefers a custom provider over built-in OpenAI for duplicate model IDs', () => {
+      const provider = repo.create({
+        name: 'Custom OpenAI',
+        kind: 'openai',
+        baseUrl: 'https://proxy.example.com/v1',
+        authToken: 'custom-token',
+      });
+      repo.addModel(provider.id, {
+        modelId: 'gpt-5.5',
+        displayName: 'Custom GPT-5.5',
+        tier: 'custom',
+      });
+
+      const result = repo.getProviderByModelId('gpt-5.5');
+      expect(result.id).toBe(provider.id);
+      expect(result.baseUrl).toBe('https://proxy.example.com/v1');
+      expect(result.authToken).toBe('custom-token');
+
+      repo.delete(provider.id);
+    });
+
+    it('getAgentTypeForProvider returns codex for built-in OpenAI', () => {
+      expect(repo.getAgentTypeForProvider('openai-default')).toBe('codex');
     });
   });
 });

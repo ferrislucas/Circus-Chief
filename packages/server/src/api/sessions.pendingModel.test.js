@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, modelProviders } from '../database.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -359,6 +359,69 @@ describe('Sessions API - pendingModel Field', () => {
 
       const updated = sessions.getById(session.id);
       expect(updated.pendingModel).toBeNull();
+    });
+  });
+
+  describe('POST /api/sessions/:id/start - cross-kind draft start regression', () => {
+    let openaiProvider;
+
+    beforeEach(() => {
+      vi.mocked(runSession).mockClear();
+      vi.mocked(runSession).mockResolvedValue(undefined);
+
+      // Register an OpenAI-kind provider + model so resolveAgentTypeFromModel
+      // can resolve 'gpt-4o-draft-start' to agentType 'codex'.
+      openaiProvider = modelProviders.create({
+        name: 'OpenAI Draft Start Provider',
+        baseUrl: 'https://api.openai.example',
+        authToken: 'key-o',
+        kind: 'openai',
+      });
+      modelProviders.addModel(openaiProvider.id, {
+        modelId: 'gpt-4o-draft-start',
+        displayName: 'GPT 4o Draft Start',
+        tier: 'custom',
+      });
+    });
+
+    afterEach(() => {
+      try {
+        modelProviders.delete(openaiProvider.id);
+      } catch {
+        /* noop */
+      }
+    });
+
+    it('allows claude-code draft to start with codex model and persists agentType', async () => {
+      // Create a waiting draft session with claude-code agentType and Claude model
+      const claudeDraft = sessions.create(project.id, 'Claude Draft', 'hi', {
+        agentType: 'claude-code',
+        model: 'claude-sonnet',
+      });
+      sessions.update(claudeDraft.id, { status: 'waiting' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${claudeDraft.id}/start`)
+        .send({ model: 'gpt-4o-draft-start' })
+        .expect(200);
+
+      // Should succeed (no CROSS_KIND_MODEL_SWITCH error)
+      expect(res.body.error).toBeUndefined();
+      expect(res.body.success).toBe(true);
+
+      // runSession should have been called with the codex model
+      expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
+      const optionsArg = vi.mocked(runSession).mock.calls[0][3];
+      expect(optionsArg.model).toBe('gpt-4o-draft-start');
+
+      // Persisted session should have the codex model, codex agentType, and cleared pendingModel
+      const updated = sessions.getById(claudeDraft.id);
+      expect(updated.model).toBe('gpt-4o-draft-start');
+      expect(updated.agentType).toBe('codex');
+      expect(updated.pendingModel).toBeNull();
+
+      // Clean up
+      try { sessions.delete(claudeDraft.id); } catch { /* noop */ }
     });
   });
 });

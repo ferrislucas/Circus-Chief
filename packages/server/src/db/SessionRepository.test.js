@@ -307,6 +307,35 @@ describe('SessionRepository', () => {
         expect(messages).toHaveLength(0);
       });
     });
+
+    // ============================================================
+    // Regression: agentType derived from model in SessionRepository
+    // ============================================================
+    describe('agentType resolution', () => {
+      it('defaults to claude-code when no model and no agentType specified', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt');
+        expect(session.agentType).toBe('claude-code');
+      });
+
+      it('defaults to claude-code when model is null and no agentType specified', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { model: null });
+        expect(session.agentType).toBe('claude-code');
+      });
+
+      it('uses explicit agentType when provided', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { agentType: 'codex' });
+        expect(session.agentType).toBe('codex');
+      });
+
+      it('explicit agentType wins over model-based resolution', () => {
+        // Even with a claude model, explicit codex agentType should win
+        const session = repo.create(projectId, 'Test', 'Prompt', {
+          model: 'claude-sonnet-4-20250514',
+          agentType: 'codex',
+        });
+        expect(session.agentType).toBe('codex');
+      });
+    });
   });
 
   describe('getById', () => {
@@ -1773,6 +1802,85 @@ describe('SessionRepository', () => {
       repo.update(session.id, { autoSendPendingPrompt: false });
       const retrieved = repo.getById(session.id);
       expect(retrieved.autoSendPendingPrompt).toBe(false);
+    });
+  });
+
+  // --- Phase 2: sessions.agent_type ---
+
+  describe('agentType', () => {
+    it('defaults to "claude-code" when not specified', () => {
+      const session = repo.create(projectId, 'Default Agent', 'Prompt');
+      expect(session.agentType).toBe('claude-code');
+    });
+
+    it('persists agentType="codex" when provided via options object', () => {
+      const session = repo.create(projectId, 'Codex', 'Prompt', {
+        mode: 'standard',
+        agentType: 'codex',
+      });
+      expect(session.agentType).toBe('codex');
+
+      // Reread from DB to confirm it was actually persisted, not just echoed
+      const reread = repo.getById(session.id);
+      expect(reread.agentType).toBe('codex');
+    });
+
+    it('getById surfaces agent_type via agentType on the mapped object', () => {
+      const session = repo.create(projectId, 'Surface Test', 'Prompt', {
+        mode: 'standard',
+        agentType: 'codex',
+      });
+      const got = repo.getById(session.id);
+      expect(got.agentType).toBe('codex');
+    });
+
+    it('legacy rows lacking agent_type default to "claude-code" at read time', () => {
+      // Manually insert a row without agent_type (simulating an older DB that
+      // somehow skipped the default). Use a raw INSERT that intentionally
+      // leaves agent_type unset → SQLite will apply the DEFAULT.
+      const now = Date.now();
+      const id = 'legacy-session-test';
+      repo.db
+        .prepare(
+          `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(id, projectId, 'Legacy', 'starting', 'standard', 0, now, now);
+
+      const got = repo.getById(id);
+      expect(got.agentType).toBe('claude-code');
+    });
+
+    it('update({ agentType }) persists the new agent', () => {
+      const session = repo.create(projectId, 'Switch', 'Prompt');
+      expect(session.agentType).toBe('claude-code');
+
+      repo.update(session.id, { agentType: 'codex' });
+
+      const reread = repo.getById(session.id);
+      expect(reread.agentType).toBe('codex');
+    });
+
+    it('duplicate() copies agentType', () => {
+      const source = repo.create(projectId, 'Source', 'Prompt', {
+        mode: 'standard',
+        agentType: 'codex',
+      });
+      const copy = repo.duplicate(source.id, { name: 'Copy' });
+      expect(copy.agentType).toBe('codex');
+    });
+
+    it('INSERT column count matches parameter count (drift guard - create)', () => {
+      // If the INSERT column list and placeholders drift apart, SQLite throws.
+      // This is a smoke test that the hardcoded INSERT in create() is balanced.
+      expect(() =>
+        repo.create(projectId, 'Drift', 'Prompt', { mode: 'standard', agentType: 'codex' })
+      ).not.toThrow();
+    });
+
+    it('INSERT column count matches parameter count (drift guard - duplicate)', () => {
+      const source = repo.create(projectId, 'Source', 'Prompt');
+      expect(() => repo.duplicate(source.id, { name: 'Dup' })).not.toThrow();
     });
   });
 

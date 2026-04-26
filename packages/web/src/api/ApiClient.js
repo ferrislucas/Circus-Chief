@@ -3,6 +3,7 @@ import {
   SessionsApi,
   CanvasApi,
   ProvidersApi,
+  AgentsApi,
   CommandButtonsApi,
   SettingsApi,
   ConversationsApi,
@@ -61,7 +62,7 @@ export class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
     }
 
     if (response.status === 204) {
@@ -86,7 +87,7 @@ export class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
     }
 
     return response.json();
@@ -165,6 +166,7 @@ ProjectsApi(ApiClient);
 SessionsApi(ApiClient);
 CanvasApi(ApiClient);
 ProvidersApi(ApiClient);
+AgentsApi(ApiClient);
 CommandButtonsApi(ApiClient);
 SettingsApi(ApiClient);
 ConversationsApi(ApiClient);
