@@ -44,9 +44,16 @@ export function useDraftSaving({ input: inputRef, canSendMessage, isRunning, get
     if (draftSaveTimer) clearTimeout(draftSaveTimer);
 
     inputSyncTimer = setTimeout(() => {
+      // Bail if input has been superseded (e.g. cleared on Send) between
+      // the debounce scheduling and the timer firing. This prevents the
+      // "ghost prompt" bug where a stale value gets written back to the
+      // server after the user has already sent the message.
+      if (input.value !== value) return;
       // Auto-save to server (for all waiting/stopped/error sessions, or running state)
       if (canSendMessage.value || isRunning?.value) {
-        savePendingPrompt(value);
+        // Read the current input.value rather than the captured closure value
+        // to guarantee the freshest text is persisted.
+        savePendingPrompt(input.value);
       }
     }, 500); // Debounce 500ms for server save
   }
@@ -101,6 +108,28 @@ export function useDraftSaving({ input: inputRef, canSendMessage, isRunning, get
   }
 
   /**
+   * Cancel any pending debounced draft save WITHOUT hitting the server.
+   *
+   * Call this from Send/Start flows so a debounce scheduled just before the
+   * user clicked Send cannot fire and re-write the old prompt back to the
+   * server's `pendingPrompt` after we've already cleared it.
+   *
+   * Unlike `flush()`, this never calls the API — it just discards the
+   * pending work and marks the draft as saved (there's nothing to save).
+   */
+  function cancel() {
+    if (inputSyncTimer) {
+      clearTimeout(inputSyncTimer);
+      inputSyncTimer = null;
+    }
+    if (draftSaveTimer) {
+      clearTimeout(draftSaveTimer);
+      draftSaveTimer = null;
+    }
+    saveStatus.value = 'saved';
+  }
+
+  /**
    * Clean up timers. Should be called on component unmount.
    */
   function cleanup() {
@@ -116,6 +145,7 @@ export function useDraftSaving({ input: inputRef, canSendMessage, isRunning, get
     handleInput,
     savePendingPrompt,
     flush,
+    cancel,
     cleanup,
   };
 }
