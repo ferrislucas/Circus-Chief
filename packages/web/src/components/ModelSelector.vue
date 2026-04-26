@@ -134,13 +134,17 @@ const visibleProviders = computed(() => {
   return sortedProviders.value
     .map((provider) => {
       if (!provider.isBuiltIn || agentTypeFor(provider) !== 'codex') return provider;
-      return {
-        ...provider,
-        models: (provider.models || []).filter((model) => !customModelIds.has(model.modelId)),
-      };
+      return withCustomCodexModelsHidden(provider, customModelIds);
     })
     .filter((provider) => provider.models?.length);
 });
+
+function withCustomCodexModelsHidden(provider, customModelIds) {
+  return {
+    ...provider,
+    models: (provider.models || []).filter((model) => !customModelIds.has(model.modelId)),
+  };
+}
 
 // Default model resolution honours Phase 6 rules:
 //   - Prefer the first built-in Anthropic provider's sonnet (or first) model.
