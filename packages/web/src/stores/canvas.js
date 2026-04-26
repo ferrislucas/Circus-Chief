@@ -81,24 +81,28 @@ export const useCanvasStore = defineStore('canvas', {
       }
     },
 
-    async fetchItemContent(sessionId, filename) {
+    async fetchItemContent(sessionId, filename, itemId = null) {
       // Check if already fetched (cache hit).
       // Use === undefined (NOT falsy check) because:
       //   - null is a valid fetched value (e.g., content is null for image items)
       //   - '' is a valid fetched value (empty text files)
       //   - undefined means the field was stripped by the list endpoint (not yet fetched)
-      const existing = this.items.find(i => i.filename === filename);
+      const existing = itemId
+        ? this.items.find(i => i.id === itemId)
+        : this.items.find(i => i.filename === filename);
       if (existing && (existing.content !== undefined || existing.data !== undefined)) {
         return { content: existing.content, data: existing.data };
       }
 
-      const result = await api.getCanvasFileContent(sessionId, filename);
-      // Patch the content/data into ALL matching items in the store (all versions of this file)
-      for (const item of this.items) {
-        if (item.filename === filename) {
-          item.content = result.content;
-          item.data = result.data;
-        }
+      const result = itemId
+        ? await api.getCanvasItemContent(sessionId, itemId)
+        : await api.getCanvasFileContent(sessionId, filename);
+      const item = itemId
+        ? this.items.find(i => i.id === itemId)
+        : this.items.find(i => i.filename === filename);
+      if (item) {
+        item.content = result.content;
+        item.data = result.data;
       }
       return result;
     },

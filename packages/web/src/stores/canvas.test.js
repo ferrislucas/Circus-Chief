@@ -7,6 +7,7 @@ vi.mock('../composables/useApi.js', () => ({
     getCanvasItems: vi.fn(),
     getAllCanvasItems: vi.fn(),
     getCanvasFileContent: vi.fn(),
+    getCanvasItemContent: vi.fn(),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn(),
@@ -458,7 +459,7 @@ describe('Canvas Store', () => {
       expect(store.items[0].content).toBe('Fetched');
     });
 
-    it('patches all versions of the same filename in the store', async () => {
+    it('patches only the requested version when item id is provided', async () => {
       const store = useCanvasStore();
       store.items = [
         { id: '1', filename: 'doc.md', type: 'markdown' },
@@ -466,19 +467,20 @@ describe('Canvas Store', () => {
         { id: '3', filename: 'other.txt', type: 'text' },
       ];
 
-      api.getCanvasFileContent.mockResolvedValue({
-        content: '# Fetched content',
+      api.getCanvasItemContent.mockResolvedValue({
+        content: '# Version 1 content',
         data: null,
         type: 'markdown',
         mimeType: 'text/markdown',
         filename: 'doc.md',
       });
 
-      await store.fetchItemContent('session-1', 'doc.md');
+      await store.fetchItemContent('session-1', 'doc.md', '1');
 
-      // Both doc.md items should be patched
-      expect(store.items[0].content).toBe('# Fetched content');
-      expect(store.items[1].content).toBe('# Fetched content');
+      expect(api.getCanvasItemContent).toHaveBeenCalledWith('session-1', '1');
+      expect(api.getCanvasFileContent).not.toHaveBeenCalled();
+      expect(store.items[0].content).toBe('# Version 1 content');
+      expect(store.items[1].content).toBeUndefined();
       // other.txt should be untouched
       expect(store.items[2].content).toBeUndefined();
     });
