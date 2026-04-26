@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { validateDraftSession, startDraft, DraftSessionError } from './draftSessionService.js';
 import { sessions, messages, projects, conversations, attachments } from '../database.js';
-import { checkCrossKindSwitch } from './sessionAgentGuard.js';
 
 // Mock database
 vi.mock('../database.js', () => ({
@@ -41,10 +40,14 @@ vi.mock('./sessionManager.js', () => ({
   runSession: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock sessionAgentGuard
-vi.mock('./sessionAgentGuard.js', () => ({
-  checkCrossKindSwitch: vi.fn().mockReturnValue(null),
+// Mock sessionProvider for resolveAgentTypeFromModel
+vi.mock('./sessionProvider.js', () => ({
+  resolveAgentTypeFromModel: vi.fn((model) => (
+    model?.startsWith('gpt') || model?.startsWith('o1') ? 'codex' : 'claude-code'
+  )),
 }));
+
+import { resolveAgentTypeFromModel } from './sessionProvider.js';
 
 describe('draftSessionService', () => {
   beforeEach(() => {
@@ -246,6 +249,9 @@ describe('draftSessionService', () => {
       const { runSession } = await import('./sessionManager.js');
       const lastCallArgs = runSession.mock.calls[runSession.mock.calls.length - 1];
       expect(lastCallArgs[3].model).toBe('claude-3-opus');
+
+      // resolveAgentTypeFromModel should be called with the final resolved model
+      expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-3-opus');
     });
 
     it('uses gitWorktree as working directory when set', async () => {
@@ -271,54 +277,92 @@ describe('draftSessionService', () => {
       expect(result).toEqual({ ...mockSession, status: 'starting' });
     });
 
-    it('throws DraftSessionError with 400 when cross-kind model switch is detected', async () => {
+    it('resolves and persists agentType from selected model (claude-code draft → codex model)', async () => {
       messages.getBySessionId.mockReturnValue([mockMessage]);
-      const crossKindResult = {
-        error: 'CROSS_KIND_MODEL_SWITCH',
-        message: 'Cannot switch agent kind mid-session (Claude Code → Codex)',
-      };
-      checkCrossKindSwitch.mockReturnValue(crossKindResult);
 
       const claudeSession = { ...mockSession, agentType: 'claude-code', model: 'claude-opus' };
 
-      await expect(startDraft(claudeSession, { model: 'gpt-5.4' }))
-        .rejects.toThrow(DraftSessionError);
+      await startDraft(claudeSession, { model: 'gpt-5.4' });
 
-      try {
-        await startDraft(claudeSession, { model: 'gpt-5.4' });
-      } catch (error) {
-        expect(error.statusCode).toBe(400);
-        expect(error.message).toBe('Cannot switch agent kind mid-session (Claude Code → Codex)');
-      }
-
-      // runSession should NOT have been called
-      const { runSession } = await import('./sessionManager.js');
-      expect(runSession).not.toHaveBeenCalled();
-    });
-
-    it('allows same-kind model switch (e.g. claude-opus → claude-sonnet)', async () => {
-      messages.getBySessionId.mockReturnValue([mockMessage]);
-      checkCrossKindSwitch.mockReturnValue(null);
-
-      const claudeSession = { ...mockSession, agentType: 'claude-code', model: 'claude-opus' };
-
-      await startDraft(claudeSession, { model: 'claude-sonnet' });
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+        model: 'gpt-5.4',
+        agentType: 'codex',
+      });
 
       const { runSession } = await import('./sessionManager.js');
       expect(runSession).toHaveBeenCalled();
     });
 
-    it('calls checkCrossKindSwitch with session and resolved model', async () => {
+    it('resolves and persists agentType from selected model (codex draft → claude-code model)', async () => {
       messages.getBySessionId.mockReturnValue([mockMessage]);
-      checkCrossKindSwitch.mockReturnValue(null);
 
-      const sessionWithModel = { ...mockSession, agentType: 'codex', model: 'gpt-4o' };
-      await startDraft(sessionWithModel, { model: 'o1-mini' });
+      const codexSession = { ...mockSession, agentType: 'codex', model: 'gpt-4o' };
 
-      expect(checkCrossKindSwitch).toHaveBeenCalledWith(
-        expect.objectContaining({ agentType: 'codex', model: 'gpt-4o' }),
-        'o1-mini'
-      );
+      await startDraft(codexSession, { model: 'claude-sonnet-test' });
+
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+        model: 'claude-sonnet-test',
+        agentType: 'claude-code',
+      });
+
+      const { runSession } = await import('./sessionManager.js');
+      expect(runSession).toHaveBeenCalled();
+    });
+
+    it('binds agentType from pendingModel when no request model is provided', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      const sessionWithPending = { ...mockSession, agentType: 'claude-code', pendingModel: 'gpt-4o-test' };
+
+      await startDraft(sessionWithPending);
+
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+        model: 'gpt-4o-test',
+        agentType: 'codex',
+      });
+
+      const { runSession } = await import('./sessionManager.js');
+      const lastCallArgs = runSession.mock.calls[runSession.mock.calls.length - 1];
+      expect(lastCallArgs[3].model).toBe('gpt-4o-test');
+    });
+
+    it('request body model wins over pendingModel for agentType resolution', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      const sessionWithPending = {
+        ...mockSession,
+        agentType: 'codex',
+        pendingModel: 'gpt-4o-test',
+        model: 'gpt-4o',
+      };
+
+      await startDraft(sessionWithPending, { model: 'claude-sonnet' });
+
+      // options.model ('claude-sonnet') should win over pendingModel ('gpt-4o-test')
+      expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-sonnet');
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+        model: 'claude-sonnet',
+        agentType: 'claude-code',
+      });
+    });
+
+    it('updates only status and pendingModel when no resolved model exists', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      await startDraft(mockSession);
+
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+      });
     });
   });
 
