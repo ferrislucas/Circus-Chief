@@ -42,34 +42,145 @@ describe('codexEventMapper', () => {
     ]);
   });
 
-  it('item.completed with non-agent_message types returns [] and warns once per type', () => {
+  it('item.completed with unknown item types returns [] and warns once per type', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const m = createCodexEventMapper();
 
-    const reasoning = m.map({
+    const mcp = m.map({
       type: 'item.completed',
-      item: { id: 'r1', type: 'reasoning', content: [{ type: 'text', text: 'think' }], summary: [] },
+      item: { id: 'm1', type: 'mcp_tool_call' },
     });
-    expect(reasoning).toEqual([]);
+    expect(mcp).toEqual([]);
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
-    // Second reasoning event does not re-warn
-    const reasoning2 = m.map({
+    // Second mcp_tool_call does not re-warn
+    const mcp2 = m.map({
       type: 'item.completed',
-      item: { id: 'r2', type: 'reasoning', content: [], summary: [] },
+      item: { id: 'm2', type: 'mcp_tool_call' },
     });
-    expect(reasoning2).toEqual([]);
+    expect(mcp2).toEqual([]);
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
     // A different unsupported type warns again
-    const cmd = m.map({
+    const web = m.map({
       type: 'item.completed',
-      item: { id: 'c1', type: 'command_execution' },
+      item: { id: 'w1', type: 'web_search' },
     });
-    expect(cmd).toEqual([]);
+    expect(web).toEqual([]);
     expect(warnSpy).toHaveBeenCalledTimes(2);
 
     warnSpy.mockRestore();
+  });
+
+  it('item.completed(command_execution) emits tool_result with command and output', () => {
+    const m = createCodexEventMapper({ model: 'o4-mini' });
+    const out = m.map({
+      type: 'item.completed',
+      item: {
+        id: 'item_0',
+        type: 'command_execution',
+        command: '/bin/zsh -lc "sed -n \'1,220p\' file1.txt"',
+        aggregated_output: 'hello world\n',
+        exit_code: 0,
+        status: 'completed',
+      },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      type: 'tool_result',
+      tool_name: 'command_execution',
+    });
+    expect(out[0].content).toContain('sed');
+    expect(out[0].content).toContain('hello world');
+  });
+
+  it('item.completed(file_change) emits tool_result with change list', () => {
+    const m = createCodexEventMapper({ model: 'o4-mini' });
+    const out = m.map({
+      type: 'item.completed',
+      item: {
+        id: 'item_3',
+        type: 'file_change',
+        changes: [{ path: '/tmp/codex-test-dir/file1.txt', kind: 'update' }],
+        status: 'completed',
+      },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      type: 'tool_result',
+      tool_name: 'file_change',
+    });
+    expect(out[0].content).toContain('/tmp/codex-test-dir/file1.txt');
+    expect(out[0].content).toContain('update');
+  });
+
+  it('item.completed(file_change) with multiple changes lists all files', () => {
+    const m = createCodexEventMapper({ model: 'o4-mini' });
+    const out = m.map({
+      type: 'item.completed',
+      item: {
+        id: 'item_4',
+        type: 'file_change',
+        changes: [
+          { path: '/tmp/a.js', kind: 'update' },
+          { path: '/tmp/b.js', kind: 'add' },
+        ],
+        status: 'completed',
+      },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].content).toContain('/tmp/a.js');
+    expect(out[0].content).toContain('/tmp/b.js');
+  });
+
+  it('item.completed(reasoning) emits tool_result with thinking text (v0.124.0 shape: plain text field)', () => {
+    const m = createCodexEventMapper({ model: 'gpt-5.2' });
+    const out = m.map({
+      type: 'item.completed',
+      item: {
+        id: 'item_4',
+        type: 'reasoning',
+        text: '**Crafting analysis report**\n\nI need to analyze two files and compare their contents.',
+      },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      type: 'tool_result',
+      tool_name: 'reasoning',
+    });
+    expect(out[0].content).toContain('Crafting analysis report');
+  });
+
+  it('item.completed(reasoning) handles legacy content array shape', () => {
+    const m = createCodexEventMapper({ model: 'gpt-5.2' });
+    const out = m.map({
+      type: 'item.completed',
+      item: {
+        id: 'r_0',
+        type: 'reasoning',
+        content: [{ type: 'text', text: 'I should check the file first...' }],
+        summary: [],
+      },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0].content).toContain('I should check the file first');
+  });
+
+  it('command_execution with non-zero exit code includes output and exit code', () => {
+    const m = createCodexEventMapper({ model: 'o4-mini' });
+    const out = m.map({
+      type: 'item.completed',
+      item: {
+        id: 'item_0',
+        type: 'command_execution',
+        command: '/bin/zsh -lc "sed -n \'1,120p\' /tmp/nonexistent.txt"',
+        aggregated_output: 'sed: /tmp/nonexistent.txt: No such file or directory\n',
+        exit_code: 1,
+        status: 'failed',
+      },
+    });
+    expect(out[0].content).toContain('No such file or directory');
+    expect(out[0].content).toContain('exit code: 1');
   });
 
   it('turn.completed with usage → result(success) with mapped usage', () => {

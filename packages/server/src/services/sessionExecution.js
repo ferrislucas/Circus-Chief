@@ -108,7 +108,7 @@ function buildClaudeCodeQueryParams({
  * @returns {Object}
  */
 function buildCodexQueryParams({
-  prompt, workingDirectory, controller, session, systemPrompt, model, sessionEnv,
+  prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   // In VCR mode, force the cheapest commonly-cassetted OpenAI model.
@@ -121,7 +121,7 @@ function buildCodexQueryParams({
       abortController: controller,
       env: sessionEnv,
       model: effectiveModel,
-      systemPrompt: typeof systemPrompt === 'string' ? systemPrompt : null,
+      systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sandboxMode: getSandboxModeForSession(session?.mode),
     },
   };

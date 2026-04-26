@@ -107,7 +107,7 @@ describe('CodexAdapter', () => {
     expect(adapter.getCapabilities()).toEqual({
       streaming: true,
       thinking: false,
-      toolUse: false,
+      toolUse: true,
       resume: false,
     });
   });
@@ -551,5 +551,78 @@ describe('CodexAdapter', () => {
 
     expect(caught).not.toBeNull();
     expect(caught.code).toBe('OPENAI_API_KEY_MISSING');
+  });
+
+  it('CLI path: command_execution and file_change events produce tool_result events', async () => {
+    const fixturePathTool = path.resolve(__dirname, '..', '..', '..', 'tests', 'fixtures', 'codex', 'tool-call.jsonl');
+    const lines = fs.readFileSync(fixturePathTool, 'utf-8').trim().split('\n').filter(Boolean);
+    const fakeSpawn = vi.fn(() => createFakeChild({ stdoutLines: lines, exitCode: 0 }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    const events = await collect(adapter.execute({
+      prompt: 'list files and create summary',
+      options: { model: 'o4-mini', cwd: process.cwd(), env: {}, abortController: new AbortController() },
+    }));
+
+    const toolResults = events.filter((e) => e.type === 'tool_result');
+    // Exact count: 2 command_executions + 1 file_change = 3 tool_result events
+    expect(toolResults).toHaveLength(3);
+
+    const cmdResults = toolResults.filter((e) => e.tool_name === 'command_execution');
+    expect(cmdResults).toHaveLength(2);
+    expect(cmdResults.some((r) => r.content.includes('file1.txt'))).toBe(true);
+
+    const fileResult = toolResults.find((e) => e.tool_name === 'file_change');
+    expect(fileResult).toBeDefined();
+    expect(fileResult.content).toContain('summary.txt');
+    expect(fileResult.content).toContain('add');
+  });
+
+  it('CLI path: reasoning events produce tool_result events', async () => {
+    const lines = [
+      '{"type":"thread.started","thread_id":"codex-reason"}',
+      '{"type":"turn.started"}',
+      '{"type":"item.completed","item":{"id":"r_0","type":"reasoning","text":"I need to check the files first."}}',
+      '{"type":"item.completed","item":{"id":"msg_0","type":"agent_message","text":"Done checking."}}',
+      '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":0,"output_tokens":10}}',
+    ];
+    const fakeSpawn = vi.fn(() => createFakeChild({ stdoutLines: lines, exitCode: 0 }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    const events = await collect(adapter.execute({
+      prompt: 'check files',
+      options: { model: 'gpt-5.2', cwd: process.cwd(), env: {}, abortController: new AbortController() },
+    }));
+
+    const reasoningResults = events.filter((e) => e.type === 'tool_result' && e.tool_name === 'reasoning');
+    expect(reasoningResults).toHaveLength(1);
+    expect(reasoningResults[0].content).toContain('check the files first');
+  });
+
+  it('CLI path: composed system prompt is passed through to stdin', async () => {
+    const capture = { chunks: [], ended: false };
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-sys"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+      captureStdin: capture,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'do stuff',
+      options: {
+        model: 'gpt-4o',
+        systemPrompt: 'You are helpful.\n\nPOST http://localhost:5000/api/sessions/test/canvas\nBody: {"filePath": "/path/to/file"}',
+        cwd: process.cwd(),
+        env: {},
+        abortController: new AbortController(),
+      },
+    }));
+
+    const joined = capture.chunks.join('');
+    expect(joined).toContain('SYSTEM PROMPT:');
+    expect(joined).toContain('POST http://localhost:5000/api/sessions/test/canvas');
+    expect(joined).toContain('USER:');
+    expect(joined).toContain('do stuff');
   });
 });

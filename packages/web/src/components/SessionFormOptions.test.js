@@ -44,7 +44,7 @@ describe('SessionFormOptions', () => {
 
     vi.spyOn(api, 'getAgents').mockResolvedValue([
       { agentType: 'claude-code', capabilities: { streaming: true, thinking: true, toolUse: true, resume: true } },
-      { agentType: 'codex', capabilities: { streaming: true, thinking: false, toolUse: false, resume: false } },
+      { agentType: 'codex', capabilities: { streaming: true, thinking: false, toolUse: true, resume: false } },
     ]);
   });
 

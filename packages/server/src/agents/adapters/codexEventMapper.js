@@ -23,12 +23,14 @@
  *
  * ThreadItem.type variants handled in v1:
  *   - {@code agent_message} — { id, text, ... }  → emitted as text_delta + assistant
+ *   - {@code command_execution} — { id, command, aggregated_output, exit_code, status } → tool_result
+ *   - {@code file_change} — { id, changes: [{path, kind}] } → tool_result
+ *   - {@code reasoning} — { id, text } or legacy { content: [{type, text}] } → tool_result
  *
- * All other variants (reasoning, command_execution, file_change, mcp_tool_call,
+ * All other variants (mcp_tool_call,
  * dynamic_tool_call, collab_agent_tool_call, web_search, image_view, image_generation,
  * plan, context_compaction, hook_prompt, entered_review_mode, exited_review_mode,
- * user_message) are currently ignored. Tool-use plumbing is deferred to a
- * later phase.
+ * user_message) are currently ignored.
  *
  * The mapper is stateful across calls so it can accumulate agent message
  * text across multiple `item.completed` events within a turn and stash
@@ -157,13 +159,22 @@ function handleItemCompleted(evt, _state, warnedTypes) {
     ];
   }
 
-  // Variants deferred to a later phase: reasoning, command_execution,
-  // file_change, mcp_tool_call, dynamic_tool_call, collab_agent_tool_call,
-  // web_search, image_view, image_generation, plan, context_compaction,
-  // hook_prompt, entered_review_mode, exited_review_mode, user_message.
+  if (item.type === 'command_execution') {
+    return [mapCommandExecution(item)];
+  }
+
+  if (item.type === 'file_change') {
+    return [mapFileChange(item)];
+  }
+
+  if (item.type === 'reasoning') {
+    return [mapReasoning(item)];
+  }
+
+  // Unknown types — warn once per type
   if (item.type && !warnedTypes.has(item.type)) {
     warnedTypes.add(item.type);
-    console.warn(`[codexEventMapper] Ignoring unsupported item.type "${item.type}" (deferred to a later phase)`);
+    console.warn(`[codexEventMapper] Ignoring unsupported item.type "${item.type}"`);
   }
   return [];
 }
@@ -180,4 +191,45 @@ function handleTurnFailed(evt) {
 function handleError(evt) {
   const message = evt?.message || 'Codex error';
   throw new Error(message);
+}
+
+// --- Tool-use mapping helpers -----------------------------------------------
+
+function mapCommandExecution(item) {
+  const cmd = item.command || '';
+  const parts = [`$ ${cmd}`];
+  if (item.exit_code !== undefined && item.exit_code !== 0) {
+    parts.push(`exit code: ${item.exit_code}`);
+  }
+  if (item.aggregated_output) parts.push(item.aggregated_output);
+  return {
+    type: 'tool_result',
+    tool_name: 'command_execution',
+    content: parts.join('\n'),
+  };
+}
+
+function mapFileChange(item) {
+  const changes = Array.isArray(item.changes)
+    ? item.changes.map((c) => `${c.kind || 'change'}: ${c.path || 'unknown'}`).join('\n')
+    : 'unknown file change';
+  return {
+    type: 'tool_result',
+    tool_name: 'file_change',
+    content: changes,
+  };
+}
+
+function mapReasoning(item) {
+  // v0.124.0 shape: plain `text` string (e.g. gpt-5.2)
+  // Legacy shape: `content` array of {type, text} objects
+  const text = item.text
+    || (Array.isArray(item.content)
+      ? item.content.map((c) => c.text || '').join('\n')
+      : '');
+  return {
+    type: 'tool_result',
+    tool_name: 'reasoning',
+    content: text,
+  };
 }

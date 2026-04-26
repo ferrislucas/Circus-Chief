@@ -38,7 +38,7 @@ export class CodexAdapter extends BaseAgent {
   static capabilities = Object.freeze({
     streaming: true,
     thinking: false,
-    toolUse: false,
+    toolUse: true,
     resume: false,
   });
 

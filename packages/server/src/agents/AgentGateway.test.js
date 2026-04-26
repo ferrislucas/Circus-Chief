@@ -108,7 +108,7 @@ describe('AgentGateway', () => {
       expect(caps).toEqual({
         streaming: true,
         thinking: false,
-        toolUse: false,
+        toolUse: true,
         resume: false,
       });
       expect(caps).toEqual(CodexAdapter.capabilities);
@@ -123,7 +123,7 @@ describe('AgentGateway', () => {
         streaming: true, thinking: true, toolUse: true, resume: true,
       });
       expect(byType['codex']).toEqual({
-        streaming: true, thinking: false, toolUse: false, resume: false,
+        streaming: true, thinking: false, toolUse: true, resume: false,
       });
     });
 

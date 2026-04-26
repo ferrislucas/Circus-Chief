@@ -17,6 +17,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: mockQuery,
 }));
 
+
 import { buildQueryParams, createAgentForSession } from './sessionExecution.js';
 import { continueSession, runSession, continueSessionWithExistingMessage } from './sessionManager.js';
 import * as sessionProvider from './sessionProvider.js';
@@ -26,7 +27,7 @@ import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { MessageRepository } from '../db/MessageRepository.js';
 import { ConversationRepository } from '../db/ConversationRepository.js';
-import { sessions } from '../database.js';
+import { sessions, attachments, projects } from '../database.js';
 
 // ── buildQueryParams ────────────────────────────────────────────────────────
 
@@ -304,7 +305,16 @@ describe('continueSessionWithExistingMessage model fallback', () => {
 describe('buildQueryParams agent-aware', () => {
   const savedVCR = process.env.VCR_MODE;
 
+  beforeEach(() => {
+    // Use vi.spyOn so restoreAllMocks works in afterEach
+    vi.spyOn(sessions, 'getById').mockReturnValue({ id: 'sess-1', parentSessionId: null, gitWorktree: null, gitBranch: null });
+    vi.spyOn(sessions, 'getRootSessionId').mockReturnValue('sess-1');
+    vi.spyOn(attachments, 'getBySessionId').mockReturnValue([]);
+    vi.spyOn(projects, 'getById').mockReturnValue(null);
+  });
+
   afterEach(() => {
+    vi.restoreAllMocks();
     if (savedVCR !== undefined) process.env.VCR_MODE = savedVCR;
     else delete process.env.VCR_MODE;
   });
@@ -340,7 +350,9 @@ describe('buildQueryParams agent-aware', () => {
     expect(result.options.abortController).toBeInstanceOf(AbortController);
     expect(result.options.env).toEqual({ OPENAI_API_KEY: 'sk-test' });
     expect(result.options.model).toBe('gpt-4o');
-    expect(result.options.systemPrompt).toBeNull();
+    expect(typeof result.options.systemPrompt).toBe('string');
+    expect(result.options.systemPrompt.length).toBeGreaterThan(0);
+    expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
     // standard session.mode → workspace-write sandbox
     expect(result.options.sandboxMode).toBe('workspace-write');
 
@@ -386,10 +398,38 @@ describe('buildQueryParams agent-aware', () => {
     expect(result.options.model).toBe('gpt-4o-mini');
   });
 
-  it('codex: propagates string systemPrompt', () => {
+  it('codex: propagates string systemPrompt as part of composed prompt', () => {
     const args = { ...baseArgs(), agentType: 'codex', systemPrompt: 'be helpful' };
     const result = buildQueryParams(args);
-    expect(result.options.systemPrompt).toBe('be helpful');
+    expect(result.options.systemPrompt).toContain('be helpful');
+  });
+
+  it('codex: systemPrompt is a composed prompt (not null or raw) when systemPrompt is null', () => {
+    const args = { ...baseArgs(), agentType: 'codex', systemPrompt: null };
+    const result = buildQueryParams(args);
+    // Should use DEFAULT_SYSTEM_PROMPT as the base, not null
+    expect(result.options.systemPrompt).toContain('AI coding assistant');
+    // Should include canvas write instructions (with the session ID from mock)
+    expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
+    // Should include session API instructions
+    expect(result.options.systemPrompt).toContain('Session Management API');
+  });
+
+  it('codex: systemPrompt is composed with custom prompt as base', () => {
+    const args = { ...baseArgs(), agentType: 'codex', systemPrompt: 'be helpful' };
+    const result = buildQueryParams(args);
+    expect(result.options.systemPrompt).toContain('be helpful');
+    expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
+  });
+
+  it('codex: composed systemPrompt includes plan mode when session.mode is plan', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'codex',
+      session: { mode: 'plan', projectId: 'proj-1' },
+    };
+    const result = buildQueryParams(args);
+    expect(result.options.systemPrompt).toContain('Plan Mode Active');
   });
 });
 
