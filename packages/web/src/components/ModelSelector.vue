@@ -17,7 +17,7 @@
         {{ emptyLabel }}
       </option>
       <optgroup
-        v-for="provider in sortedProviders"
+        v-for="provider in visibleProviders"
         :key="provider.id"
         :label="`${agentLabelFor(provider)} · ${provider.name}`"
         :data-agent-type="agentTypeFor(provider)"
@@ -120,6 +120,26 @@ const sortedProviders = computed(() => {
     return (a.name || '').localeCompare(b.name || '');
   });
   return list;
+});
+
+const visibleProviders = computed(() => {
+  const customModelIds = new Set();
+  for (const provider of providersStore.providers) {
+    if (provider.isBuiltIn || !provider.models) continue;
+    for (const model of provider.models) {
+      customModelIds.add(model.modelId);
+    }
+  }
+
+  return sortedProviders.value
+    .map((provider) => {
+      if (!provider.isBuiltIn || agentTypeFor(provider) !== 'codex') return provider;
+      return {
+        ...provider,
+        models: (provider.models || []).filter((model) => !customModelIds.has(model.modelId)),
+      };
+    })
+    .filter((provider) => provider.models?.length);
 });
 
 // Default model resolution honours Phase 6 rules:

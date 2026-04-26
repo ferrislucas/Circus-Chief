@@ -4,6 +4,7 @@ import {
   PROVIDER_KINDS,
   AGENT_TYPE_BY_KIND,
 } from './ProviderRepository.js';
+import { OPENAI_MODELS } from '@circuschief/shared';
 
 describe('ProviderRepository', () => {
   let repo;
@@ -836,6 +837,42 @@ describe('ProviderRepository', () => {
         repo.db.prepare('DELETE FROM provider_models WHERE provider_id = ?').run(id);
         repo.db.prepare('DELETE FROM providers WHERE id = ?').run(id);
       }
+    });
+
+    it('getProviderByModelId returns built-in OpenAI for official seeded models', () => {
+      const result = repo.getProviderByModelId('gpt-5.5');
+      expect(result).not.toBeNull();
+      expect(result.id).toBe('openai-default');
+      expect(result.kind).toBe('openai');
+      expect(result.isBuiltIn).toBe(true);
+      expect(result.models.map((model) => model.modelId).sort()).toEqual(
+        OPENAI_MODELS.map((model) => model.id).sort()
+      );
+    });
+
+    it('getProviderByModelId prefers a custom provider over built-in OpenAI for duplicate model IDs', () => {
+      const provider = repo.create({
+        name: 'Custom OpenAI',
+        kind: 'openai',
+        baseUrl: 'https://proxy.example.com/v1',
+        authToken: 'custom-token',
+      });
+      repo.addModel(provider.id, {
+        modelId: 'gpt-5.5',
+        displayName: 'Custom GPT-5.5',
+        tier: 'custom',
+      });
+
+      const result = repo.getProviderByModelId('gpt-5.5');
+      expect(result.id).toBe(provider.id);
+      expect(result.baseUrl).toBe('https://proxy.example.com/v1');
+      expect(result.authToken).toBe('custom-token');
+
+      repo.delete(provider.id);
+    });
+
+    it('getAgentTypeForProvider returns codex for built-in OpenAI', () => {
+      expect(repo.getAgentTypeForProvider('openai-default')).toBe('codex');
     });
   });
 });

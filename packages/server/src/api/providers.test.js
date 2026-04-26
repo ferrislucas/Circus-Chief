@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { modelProviders } from '../database.js';
 import { testProviderConnection } from '../services/providerTestService.js';
+import { OPENAI_MODELS } from '@circuschief/shared';
 
 // Mock providerTestService so we can spy on kind forwarding without hitting
 // external APIs.
@@ -36,6 +37,32 @@ describe('Providers API', () => {
       }
       testProviderId = null;
     }
+  });
+
+  describe('GET /api/providers', () => {
+    it('returns both built-in Anthropic and OpenAI providers', async () => {
+      const response = await request(app)
+        .get('/api/providers')
+        .expect(200);
+
+      const anthropic = response.body.find((provider) => provider.id === 'anthropic-default');
+      const openai = response.body.find((provider) => provider.id === 'openai-default');
+
+      expect(anthropic).toMatchObject({
+        kind: 'anthropic',
+        isBuiltIn: true,
+      });
+      expect(openai).toMatchObject({
+        name: 'OpenAI (Official)',
+        kind: 'openai',
+        isBuiltIn: true,
+        authToken: null,
+        baseUrl: null,
+      });
+      expect(openai.models.map((model) => model.modelId).sort()).toEqual(
+        OPENAI_MODELS.map((model) => model.id).sort()
+      );
+    });
   });
 
   describe('PATCH /api/providers/:id/models/:modelId', () => {

@@ -281,10 +281,44 @@ describe('sessionProvider', () => {
       expect(resolveAgentTypeFromModel('gpt-4o')).toBe('codex');
     });
 
+    it("returns 'codex' for a seeded built-in OpenAI model", () => {
+      modelProviders.getProviderByModelId.mockReturnValue({ id: 'openai-default', kind: 'openai' });
+      modelProviders.getAgentTypeForProvider.mockReturnValue('codex');
+      expect(resolveAgentTypeFromModel('gpt-5.5')).toBe('codex');
+      expect(modelProviders.getAgentTypeForProvider).toHaveBeenCalledWith('openai-default');
+    });
+
     it("falls back to 'claude-code' when getAgentTypeForProvider returns null", () => {
       modelProviders.getProviderByModelId.mockReturnValue({ id: 'p3', kind: 'anthropic' });
       modelProviders.getAgentTypeForProvider.mockReturnValue(null);
       expect(resolveAgentTypeFromModel('weird-model')).toBe('claude-code');
+    });
+  });
+
+  describe('built-in OpenAI model resolution', () => {
+    it('resolveProviderFromModel returns openai-default for seeded OpenAI models', () => {
+      const provider = {
+        id: 'openai-default',
+        name: 'OpenAI (Official)',
+        kind: 'openai',
+        isBuiltIn: true,
+      };
+      modelProviders.getProviderByModelId.mockReturnValue(provider);
+
+      expect(resolveProviderFromModel('gpt-5.5')).toBe(provider);
+    });
+
+    it('resolveProviderFromModel returns a duplicate custom provider when repository resolves one', () => {
+      const provider = {
+        id: 'custom-openai',
+        name: 'Custom OpenAI',
+        kind: 'openai',
+        baseUrl: 'https://proxy.example.com/v1',
+        authToken: 'custom-token',
+      };
+      modelProviders.getProviderByModelId.mockReturnValue(provider);
+
+      expect(resolveProviderFromModel('gpt-5.5')).toBe(provider);
     });
   });
 
@@ -353,6 +387,21 @@ describe('sessionProvider', () => {
       const env = buildProviderEnv(provider);
       expect(env.OPENAI_BASE_URL).toBe('https://api.openai.com/v1');
       expect(env.OPENAI_API_KEY).toBeUndefined();
+    });
+
+    it('built-in OpenAI provider does not invent OPENAI_API_KEY or ANTHROPIC_* vars', () => {
+      const provider = {
+        id: 'openai-default',
+        name: 'OpenAI (Official)',
+        kind: 'openai',
+        isBuiltIn: true,
+      };
+      const env = buildProviderEnv(provider);
+      expect(env.OPENAI_API_KEY).toBeUndefined();
+      expect(env.OPENAI_BASE_URL).toBeUndefined();
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+      expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
     });
 
     it("additionalEnvVars passes through unchanged for both kinds (HTTP_PROXY, SSL_CERT_FILE regression)", () => {

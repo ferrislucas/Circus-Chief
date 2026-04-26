@@ -1,4 +1,4 @@
-import { CLAUDE_MODELS, DEFAULT_MODEL } from '@circuschief/shared';
+import { CLAUDE_MODELS, DEFAULT_MODEL, OPENAI_MODELS } from '@circuschief/shared';
 import { useProvidersStore } from '../stores/providers.js';
 import { api } from './useApi.js';
 
@@ -88,6 +88,16 @@ function agentTypeForProvider(provider) {
   return 'claude-code';
 }
 
+function resolveCatalogModel(modelId, provider) {
+  if (provider?.kind === 'openai') {
+    return OPENAI_MODELS.find((m) => m.id === modelId) || null;
+  }
+  if (!provider || agentTypeForProvider(provider) === 'claude-code') {
+    return CLAUDE_MODELS.find((m) => m.id === modelId) || null;
+  }
+  return null;
+}
+
 /**
  * Resolve the provider-model record (with provider metadata) that owns a
  * given modelId. Returns null if none.
@@ -98,7 +108,17 @@ function agentTypeForProvider(provider) {
 function resolveProviderModel(modelId) {
   try {
     const providersStore = useProvidersStore();
-    return providersStore.allModels.find((m) => m.modelId === modelId) || null;
+    const matches = providersStore.allModels.filter((m) => m.modelId === modelId);
+    if (matches.length <= 1) return matches[0] || null;
+
+    return matches.sort((a, b) => {
+      const providerA = resolveProvider(a.providerId);
+      const providerB = resolveProvider(b.providerId);
+      if (providerA?.isBuiltIn !== providerB?.isBuiltIn) {
+        return providerA?.isBuiltIn ? 1 : -1;
+      }
+      return (providerA?.name || '').localeCompare(providerB?.name || '');
+    })[0] || null;
   } catch (_error) {
     return null;
   }
@@ -173,15 +193,8 @@ export function useModelInfo() {
     const providerModel = resolveProviderModel(modelId);
     const provider = providerModel ? resolveProvider(providerModel.providerId) : null;
 
-    // Only consult the Anthropic CLAUDE_MODELS constants for Claude Code
-    // providers, or when no provider match exists at all (back-compat for
-    // callers that look up unknown Claude IDs before providers are loaded).
-    const canUseClaudeConstants = !provider || agentTypeForProvider(provider) === 'claude-code';
-
-    if (canUseClaudeConstants) {
-      const known = CLAUDE_MODELS.find((m) => m.id === modelId);
-      if (known) return known.name;
-    }
+    const known = resolveCatalogModel(modelId, provider);
+    if (known) return known.name;
 
     if (providerModel?.displayName) return providerModel.displayName;
 
@@ -202,12 +215,11 @@ export function useModelInfo() {
 
     const providerModel = resolveProviderModel(modelId);
     const provider = providerModel ? resolveProvider(providerModel.providerId) : null;
-    const canUseClaudeConstants = !provider || agentTypeForProvider(provider) === 'claude-code';
 
-    if (canUseClaudeConstants) {
-      const model = CLAUDE_MODELS.find((m) => m.id === modelId);
-      if (model) return model.description;
-    }
+    const model = resolveCatalogModel(modelId, provider);
+    if (model) return model.description;
+
+    if (providerModel?.description) return providerModel.description;
 
     // For unknown/non-Anthropic models, return the raw model ID so users can
     // see the exact identifier.

@@ -170,6 +170,7 @@ export const allMigrations = validateMigrations([
   m.get('providers-create-tables'),
   m.get('providers-add-kind'),
   m.get('providers-seed-built-in'),
+  m.get('providers-seed-built-in-openai'),
 
   // --- Sessions provider_id (from providers FK) ---
   s.get('sessions-add-provider_id-from-providers'),

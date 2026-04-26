@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { miscMigrations, DEFAULT_SESSION_TEMPLATE_PROMPTS } from './miscMigrations.js';
 import { getDatabase, ProjectRepository } from '../index.js';
 import { allMigrations } from './index.js';
+import { OPENAI_MODELS } from '@circuschief/shared';
 
 const seedMigration = miscMigrations.find(m => m.name === 'quick_responses-seed-defaults');
 const seedTemplatesMigration = miscMigrations.find(m => m.name === 'session_templates-seed-defaults');
@@ -294,6 +295,7 @@ describe('session_templates-seed-defaults migration', () => {
 });
 
 const addKindMigration = miscMigrations.find(m => m.name === 'providers-add-kind');
+const seedOpenAIMigration = miscMigrations.find(m => m.name === 'providers-seed-built-in-openai');
 
 describe('providers-add-kind migration', () => {
   it('exists in the migrations module', () => {
@@ -354,5 +356,70 @@ describe('providers-add-kind migration', () => {
       .get();
     expect(builtIn).toBeDefined();
     expect(builtIn.kind).toBe('anthropic');
+  });
+});
+
+describe('providers-seed-built-in-openai migration', () => {
+  it('fresh DB has one built-in OpenAI provider with null auth/base URL', () => {
+    const db = getDatabase();
+    const rows = db
+      .prepare('SELECT * FROM providers WHERE id = ?')
+      .all('openai-default');
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      name: 'OpenAI (Official)',
+      kind: 'openai',
+      is_built_in: 1,
+      base_url: null,
+      auth_token: null,
+    });
+  });
+
+  it('fresh DB has one model row per OPENAI_MODELS entry', () => {
+    const db = getDatabase();
+    const rows = db
+      .prepare('SELECT * FROM provider_models WHERE provider_id = ? ORDER BY model_id')
+      .all('openai-default');
+
+    expect(rows).toHaveLength(OPENAI_MODELS.length);
+    expect(rows.map((row) => row.model_id).sort()).toEqual(
+      OPENAI_MODELS.map((model) => model.id).sort()
+    );
+
+    for (const model of OPENAI_MODELS) {
+      const row = rows.find((entry) => entry.model_id === model.id);
+      expect(row).toMatchObject({
+        id: model.seedId,
+        display_name: model.name,
+        description: model.description,
+        tier: 'custom',
+      });
+    }
+  });
+
+  it('is idempotent when re-run on an already-seeded DB', () => {
+    const db = getDatabase();
+    seedOpenAIMigration.up(db);
+
+    const providerCount = db
+      .prepare('SELECT COUNT(*) AS cnt FROM providers WHERE id = ?')
+      .get('openai-default').cnt;
+    const modelCount = db
+      .prepare('SELECT COUNT(*) AS cnt FROM provider_models WHERE provider_id = ?')
+      .get('openai-default').cnt;
+
+    expect(providerCount).toBe(1);
+    expect(modelCount).toBe(OPENAI_MODELS.length);
+  });
+
+  it('is registered after providers-add-kind and providers-seed-built-in', () => {
+    const names = allMigrations.map(m => m.name);
+    const kindIdx = names.indexOf('providers-add-kind');
+    const historicalSeedIdx = names.indexOf('providers-seed-built-in');
+    const openAISeedIdx = names.indexOf('providers-seed-built-in-openai');
+
+    expect(openAISeedIdx).toBeGreaterThan(kindIdx);
+    expect(openAISeedIdx).toBeGreaterThan(historicalSeedIdx);
   });
 });

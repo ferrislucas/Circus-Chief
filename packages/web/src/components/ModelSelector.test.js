@@ -4,7 +4,7 @@ import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ModelSelector from './ModelSelector.vue';
 import { useProvidersStore } from '../stores/providers.js';
-import { CLAUDE_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 
 // Use actual model data from the shared package
 const [haiku, sonnet, opusLegacy, opus] = CLAUDE_MODELS;
@@ -529,6 +529,35 @@ describe('ModelSelector', () => {
       ]);
     });
 
+    it('renders built-in OpenAI provider as "Codex · OpenAI (Official)" with curated names', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: OPENAI_MODELS.map((model) => ({
+            id: model.seedId,
+            modelId: model.id,
+            displayName: model.name,
+            tier: 'custom',
+          })),
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: null });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      expect(optgroups).toHaveLength(1);
+      expect(optgroups[0].attributes('label')).toBe('Codex · OpenAI (Official)');
+      expect(optgroups[0].attributes('data-agent-type')).toBe('codex');
+      expect(wrapper.findAll('option').map((option) => option.text())).toEqual(
+        OPENAI_MODELS.map((model) => model.name)
+      );
+    });
+
     it('orders built-in Anthropic before custom within the Claude Code group', async () => {
       const localProvidersStore = useProvidersStore();
       localProvidersStore.providers = [
@@ -587,6 +616,38 @@ describe('ModelSelector', () => {
 
       const select = wrapper.find('select');
       expect(select.element.value).toBe('claude-sonnet-4-6');
+    });
+
+    it('keeps Anthropic as the default when both official providers exist', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          kind: 'anthropic',
+          models: [
+            { id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+          ],
+        },
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: OPENAI_MODELS.map((model) => ({
+            id: model.seedId,
+            modelId: model.id,
+            displayName: model.name,
+            tier: 'custom',
+          })),
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: null });
+      await flushAll(wrapper);
+
+      expect(wrapper.find('select').element.value).toBe('claude-sonnet-4-6');
     });
 
     it('leaves defaultModel empty when only Codex providers exist', async () => {
@@ -649,6 +710,39 @@ describe('ModelSelector', () => {
       expect(codexValues).toEqual(['gpt-4o']);
       expect(claudeValues).not.toContain('gpt-4o');
       expect(codexValues).not.toContain('claude-sonnet-4-6');
+    });
+
+    it('hides duplicate built-in OpenAI options when a custom provider owns the same model ID', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+          ],
+        },
+        {
+          id: 'custom-openai',
+          name: 'Custom OpenAI',
+          isBuiltIn: false,
+          kind: 'openai',
+          models: [
+            { id: 'custom-gpt-5-5', modelId: 'gpt-5.5', displayName: 'Custom GPT-5.5', tier: 'custom' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5' });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      expect(optgroups).toHaveLength(1);
+      expect(optgroups[0].attributes('label')).toBe('Codex · Custom OpenAI');
+      expect(wrapper.findAll('option')).toHaveLength(1);
+      expect(wrapper.find('option').element.value).toBe('gpt-5.5');
     });
   });
 });

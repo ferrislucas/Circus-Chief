@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useModelInfo, __resetCapabilityCache } from './useModelInfo.js';
 import { useProvidersStore } from '../stores/providers.js';
-import { CLAUDE_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 import { api } from './useApi.js';
 
 describe('useModelInfo', () => {
@@ -229,11 +229,18 @@ describe('useModelInfo', () => {
           ],
         },
         {
-          id: 'openai-prov',
-          name: 'OpenAI',
-          isBuiltIn: false,
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
           kind: 'openai',
           models: [
+            ...OPENAI_MODELS.map((model) => ({
+              id: model.seedId,
+              modelId: model.id,
+              displayName: model.name,
+              description: model.description,
+              tier: 'custom',
+            })),
             { id: 'o-gpt4o', modelId: 'gpt-4o', displayName: 'GPT-4o' },
           ],
         },
@@ -252,11 +259,29 @@ describe('useModelInfo', () => {
       // Prime the capability cache synchronously before reading.
       await fetchAgentCapabilities();
 
-      const info = getModelInfo('gpt-4o');
+      const info = getModelInfo('gpt-5.5');
       expect(info.agentType).toBe('codex');
       expect(info.capabilities.thinking).toBe(false);
-      expect(info.providerId).toBe('openai-prov');
-      expect(info.providerName).toBe('OpenAI');
+      expect(info.providerId).toBe('openai-default');
+      expect(info.providerName).toBe('OpenAI (Official)');
+      expect(info.name).toBe('GPT-5.5');
+      expect(info.description).toBe('Flagship coding and professional work');
+    });
+
+    it('resolves every OPENAI_MODELS entry to curated metadata for OpenAI providers', async () => {
+      const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+      await fetchAgentCapabilities();
+
+      for (const model of OPENAI_MODELS) {
+        const info = getModelInfo(model.id);
+        expect(info).toMatchObject({
+          name: model.name,
+          description: model.description,
+          providerId: 'openai-default',
+          providerName: 'OpenAI (Official)',
+          agentType: 'codex',
+        });
+      }
     });
 
     it('does NOT consult CLAUDE_MODELS for Codex model IDs', async () => {
@@ -273,6 +298,16 @@ describe('useModelInfo', () => {
       expect(findSpy).not.toHaveBeenCalled();
 
       findSpy.mockRestore();
+    });
+
+    it('unknown OpenAI provider-owned model IDs fall back to provider metadata', async () => {
+      const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+      await fetchAgentCapabilities();
+
+      const info = getModelInfo('gpt-4o');
+      expect(info.name).toBe('GPT-4o');
+      expect(info.description).toBe('gpt-4o');
+      expect(info.agentType).toBe('codex');
     });
 
     it('resolves Anthropic model ID to agentType="claude-code" with thinking enabled', async () => {

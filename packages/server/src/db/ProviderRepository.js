@@ -316,12 +316,15 @@ export class ProviderRepository extends BaseRepository {
       return null;
     }
 
-    // Find which provider owns this model ID
+    // Prefer custom providers over built-ins for duplicate model IDs. This
+    // preserves user-managed OpenAI providers (alternate base URLs, keys, or
+    // env vars) even when official OpenAI models are also seeded built-ins.
     const row = this.db
       .prepare(
         `SELECT p.id FROM providers p
          JOIN provider_models pm ON p.id = pm.provider_id
-         WHERE pm.model_id = ?`
+         WHERE pm.model_id = ?
+         ORDER BY p.is_built_in ASC, p.name ASC`
       )
       .get(modelId);
 
