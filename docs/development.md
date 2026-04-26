@@ -98,6 +98,8 @@ These variables are resolved during `yarn build` (specifically `vite build`). Th
 ```
 ├── packages/
 │   ├── server/          # Express backend
+│   │   └── src/
+│   │       └── agents/  # Agent adapters (Claude Code, Codex)
 │   ├── web/             # Vue.js frontend
 │   └── shared/          # Shared types and constants
 ├── tests/
@@ -107,3 +109,31 @@ These variables are resolved during `yarn build` (specifically `vite build`). Th
 └── scripts/
     └── pw.sh            # Playwright CLI wrapper
 ```
+
+## Supported Agent Types
+
+Circus Chief supports multiple agent backends through an adapter pattern:
+
+| Agent Type | Adapter | Required Dependency | Provider Kind |
+|------------|---------|---------------------|---------------|
+| Claude Code | `ClaudeCodeAdapter` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `anthropic` |
+| OpenAI Codex | `CodexAdapter` | [Codex CLI](https://github.com/openai/codex) | `openai` |
+
+Each agent type is registered in `packages/server/src/agents/AgentGateway.js` and implements the `BaseAgent` interface. Providers are configured per-project and can be Anthropic-compatible endpoints or OpenAI-compatible endpoints.
+
+### Codex Agent Details
+
+The Codex adapter (`packages/server/src/agents/adapters/CodexAdapter.js`) supports two execution paths:
+
+1. **CLI path (default)** — spawns `codex --json` and parses line-delimited JSON output
+2. **Direct API path** — activated via `USE_CODEX_DIRECT_API=1`, uses the OpenAI SDK with Chat Completions streaming
+
+| Capability | Supported |
+|------------|-----------|
+| Streaming | ✅ |
+| Reasoning effort | ✅ |
+| Tool use | ✅ |
+| Thinking | ❌ |
+| Resume | ❌ |
+
+Supported OpenAI models: GPT-5.5 (default), GPT-5.4, GPT-5.4 mini, GPT-5.3-Codex.
