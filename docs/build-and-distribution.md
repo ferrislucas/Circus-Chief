@@ -113,21 +113,30 @@ Regular `./scripts/pw.sh test` is still the fast path for normal development —
 Use `scripts/publish.sh`, which wraps the build and `npm publish`:
 
 ```bash
-# Usage: ./scripts/publish.sh <version> <otp>
-./scripts/publish.sh 0.2.0 123456
+# Usage: ./scripts/publish.sh [-y] [version] <otp>
+
+# Examples:
+./scripts/publish.sh 123456             # auto-bump minor, publish
+./scripts/publish.sh 0.2.0 123456       # publish exactly 0.2.0
+./scripts/publish.sh -y 123456          # auto-bump without prompt
 ```
+
+Options:
+
+- `-y, --yes` — Skip confirmation prompt when auto-bumping version.
 
 Arguments:
 
-- `version` — semver version to publish (e.g. `0.2.0`). Passed through to `build-package.js` as `--version=`.
-- `otp` — npm one-time password for 2FA. Passed to `npm publish --otp=`.
+- `version` — Optional semver version to publish (e.g. `0.2.0`). If omitted, the script bumps the minor version of the latest published npm version. Passed through to `build-package.js` as `--version=`.
+- `otp` — Required npm one-time password for 2FA (6 digits). Passed to `npm publish --otp=`.
 
 What the script does:
 
 1. Verifies you're logged in (`npm whoami`) and aborts with an error if not.
-2. Runs `node scripts/build-package.js --version=$VERSION`.
-3. Runs `npm publish --otp=$OTP` from inside `dist-package/`.
-4. Prints install/run hints (`npx circuschief`, `npx circuschief@<version>`).
+2. If `version` is omitted, queries npm for the latest published version and auto-bumps the minor version (e.g. `1.4.2` → `1.5.0`). Prompts for confirmation unless `-y` is passed.
+3. Runs `node scripts/build-package.js --version=$VERSION`.
+4. Runs `npm publish --otp=$OTP` from inside `dist-package/`.
+5. Prints install/run hints (`npx circuschief`, `npx circuschief@<version>`).
 
 Before publishing, make sure `VITE_POSTHOG_KEY` is available via one of the sources listed below so analytics actually ship in the bundle.
 

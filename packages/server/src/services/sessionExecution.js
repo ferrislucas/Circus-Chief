@@ -246,6 +246,10 @@ async function setupConversationAndMessage(sessionId, content, fileAttachments) 
   activeConversationIds.set(sessionId, activeConversation.id);
 
   const message = messages.create(sessionId, 'user', content, { toolUse: null, conversationId: activeConversation.id });
+
+  // Touch the session to update its updated_at timestamp so it sorts to the top
+  sessions.touch(sessionId);
+
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
     message,
     conversationId: activeConversation.id,

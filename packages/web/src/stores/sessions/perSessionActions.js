@@ -1,6 +1,14 @@
 import { api } from '../../composables/useApi.js';
 
 /**
+ * TTL, in milliseconds, after which a `recentSends[sessionId]` marker is
+ * considered expired. Used by both the `hasRecentSend` getter and the
+ * safety-net `setTimeout` in `markRecentSend`. Extracted here so the value
+ * is defined in exactly one place.
+ */
+export const RECENT_SEND_TTL_MS = 5000;
+
+/**
  * Per-session actions shared between the main sessions store and overlay stores.
  * These operate on the store's own local state (messages, workLogs, partialText, etc.)
  * and are spread directly into the Pinia store actions, so `this` refers to the store instance.
@@ -216,5 +224,70 @@ export const perSessionActions = {
   clearRunningUsage() {
     this.runningUsage = null;
     this.clearPartialThinking();
+  },
+
+  // ==================== RECENT-SEND MARKER ACTIONS ====================
+  //
+  // Per-session, in-memory marker set when the user issues a Send/Start,
+  // used to suppress the ConversationTab onMounted restore that would
+  // otherwise re-populate the textarea with the just-sent prompt on remount.
+  //
+  // Scoped to each store instance so the overlay (which uses its own store
+  // factory) and the main view don't cross-contaminate markers.
+
+  markRecentSend(sessionId) {
+    if (!sessionId) return;
+    if (!this.recentSends) this.recentSends = {};
+    if (!this._recentSendTimers) this._recentSendTimers = {};
+    this.recentSends = { ...this.recentSends, [sessionId]: Date.now() };
+
+    // Cancel any previously-scheduled safety-net for this session so a
+    // rapid re-send doesn't leave a stale timer that might clear the
+    // fresher marker early.
+    if (this._recentSendTimers[sessionId]) {
+      clearTimeout(this._recentSendTimers[sessionId]);
+    }
+
+    // Safety-net TTL removal in case the event-driven clear path (the
+    // running → non-running status watcher) never fires. The handle is
+    // tracked so `clearRecentSend` / `cancelAllRecentSendTimers` can
+    // tear it down.
+    this._recentSendTimers[sessionId] = setTimeout(() => {
+      this._recentSendTimers[sessionId] = null;
+      if (!this.recentSends) return;
+      const entry = this.recentSends[sessionId];
+      if (entry && Date.now() - entry >= RECENT_SEND_TTL_MS) {
+        this.clearRecentSend(sessionId);
+      }
+    }, RECENT_SEND_TTL_MS);
+  },
+
+  clearRecentSend(sessionId) {
+    if (!sessionId) return;
+    if (this._recentSendTimers && this._recentSendTimers[sessionId]) {
+      clearTimeout(this._recentSendTimers[sessionId]);
+      this._recentSendTimers[sessionId] = null;
+    }
+    if (!this.recentSends) return;
+    if (!(sessionId in this.recentSends)) return;
+    const next = { ...this.recentSends };
+    delete next[sessionId];
+    this.recentSends = next;
+  },
+
+  /**
+   * Tear down every outstanding safety-net timer. Call on store cleanup
+   * (e.g. overlay `$cleanup`) to avoid leaking timers whose store
+   * instance is gone.
+   */
+  cancelAllRecentSendTimers() {
+    if (!this._recentSendTimers) return;
+    for (const id of Object.keys(this._recentSendTimers)) {
+      if (this._recentSendTimers[id]) {
+        clearTimeout(this._recentSendTimers[id]);
+        this._recentSendTimers[id] = null;
+      }
+    }
+    this._recentSendTimers = {};
   },
 };
