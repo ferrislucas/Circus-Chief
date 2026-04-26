@@ -142,9 +142,16 @@ export function useSessionFiltering() {
 
   /**
    * Computed filtered grouped sessions, applying status, starred, and scheduled filters.
+   * The original order from groupedSessions is preserved through all filter operations.
    */
   const filteredGroupedSessions = computed(() => {
-    let groups = sessionsStore.groupedSessions;
+    // Capture the original order at the start to avoid reactivity issues
+    const originalGroups = sessionsStore.groupedSessions;
+    const originalOrderMap = new Map(
+      originalGroups.map((g, index) => [g.parent.id, index])
+    );
+
+    let groups = originalGroups;
 
     // Apply workflow-aware status filter if set
     if (sessionsStore.statusFilter) {
@@ -185,7 +192,15 @@ export function useSessionFiltering() {
       });
     }
 
-    return groups;
+    // Ensure the filtered groups maintain the same order as the original groupedSessions
+    // This guarantees that sessions appear in the same order regardless of which filters are applied.
+    // Array.filter() preserves order, but we explicitly sort here to make the intent clear
+    // and to handle any edge cases where the order might not be preserved.
+    return groups.slice().sort((a, b) => {
+      const aIndex = originalOrderMap.get(a.parent.id) ?? 999999;
+      const bIndex = originalOrderMap.get(b.parent.id) ?? 999999;
+      return aIndex - bIndex;
+    });
   });
 
   return {

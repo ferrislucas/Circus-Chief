@@ -7,7 +7,6 @@
     >
       <div
         v-if="visible"
-        ref="overlayBackdropRef"
         class="overlay-backdrop"
         data-testid="session-chat-overlay"
         @click.self="close"
@@ -359,7 +358,7 @@
  * useTodosStore directly. Direct imports bypass the overlay's provide/inject layer
  * and would read/write to the global singleton, breaking store isolation.
  */
-import { ref, computed, provide, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, computed, provide, onMounted, onUnmounted, nextTick } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
@@ -423,11 +422,6 @@ const switchingSession = ref(true);
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
-
-// Overlay backdrop ref — we apply inline geometry from window.visualViewport
-// to anchor the overlay to the user's visible viewport on iPadOS Safari
-// (whose visual viewport can diverge from the layout viewport).
-const overlayBackdropRef = ref(null);
 
 // Track whether the prompt textarea is focused (for compact header on mobile)
 const inputFocused = ref(false);
@@ -797,38 +791,52 @@ function handleEscape(event) {
 /**
  * Handle focusin on the overlay body — detect when the prompt textarea gains focus.
  * Uses event delegation from .overlay-body so we catch the bubbling event from
- * InputForm → ResizableTextarea's <textarea>.
+ * InputForm → ResizableTextarea's <textarea>. Drives the `header-compact`
+ * class on mobile; browser-native scroll-on-focus handles bringing the
+ * focused field into the `.overlay-body` scroll viewport.
  */
 function handleOverlayFocusin(e) {
-  if (e.target.tagName === 'TEXTAREA') {
-    // Cancel any pending focusout that would have cleared inputFocused
-    if (focusOutRaf) {
-      cancelAnimationFrame(focusOutRaf);
-      focusOutRaf = null;
-    }
-    inputFocused.value = true;
+  // Symmetric with handleOverlayFocusout: both TEXTAREA and text-typed INPUT
+  // can open the iOS keyboard. Keeping scopes identical ensures inputFocused
+  // transitions are balanced (focus→blur pairs on text inputs toggle it
+  // consistently).
+  const tag = e.target.tagName;
+  const isText =
+    tag === 'TEXTAREA' ||
+    (tag === 'INPUT' && /^(text|search|url|email|number|tel|password)$/i
+      .test(e.target.type || 'text'));
+  if (!isText) return;
 
-    // After keyboard animation completes, scroll textarea into view
-    setTimeout(() => {
-      e.target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    }, 350);
+  // Cancel any pending focusout that would have cleared inputFocused
+  if (focusOutRaf) {
+    cancelAnimationFrame(focusOutRaf);
+    focusOutRaf = null;
   }
+  inputFocused.value = true;
 }
 
 /**
- * Handle focusout on the overlay body — detect when the prompt textarea loses focus.
- * Uses requestAnimationFrame delay to avoid flashing the header when focus moves
- * from textarea to another element (e.g. Send button).
+ * Handle focusout on the overlay body — detect when the prompt textarea /
+ * text input loses focus. Uses requestAnimationFrame delay to avoid flashing
+ * the header when focus moves from textarea to another element (e.g. Send
+ * button).
  */
 function handleOverlayFocusout(e) {
-  if (e.target.tagName === 'TEXTAREA') {
-    // Defer: if focus moves to another element in the overlay (e.g. Send button),
-    // focusin will fire on the next target and we skip collapsing.
-    focusOutRaf = requestAnimationFrame(() => {
-      focusOutRaf = null;
-      inputFocused.value = false;
-    });
-  }
+  // Expanded scope: both TEXTAREA and text INPUT elements can open the iOS
+  // keyboard. Exclude non-text inputs (checkbox, radio, button, etc.) since
+  // they don't trigger the keyboard.
+  const tag = e.target.tagName;
+  const isText =
+    tag === 'TEXTAREA' ||
+    (tag === 'INPUT' && /^(text|search|url|email|number|tel|password)$/i
+      .test(e.target.type || 'text'));
+  if (!isText) return;
+
+  if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
+  focusOutRaf = requestAnimationFrame(() => {
+    focusOutRaf = null;
+    inputFocused.value = false;
+  });
 }
 
 /**
@@ -841,36 +849,6 @@ function handleHeaderTouchmove(event) {
   if (event.target.closest('[data-testid="session-chat-picker"]')) return;
   if (event.target.closest('.name-edit-input')) return;
   event.preventDefault();
-}
-
-/**
- * Anchor the overlay backdrop to the user's visible viewport.
- *
- * iOS/iPadOS Safari has two viewports: the *layout viewport* (stable) and
- * the *visual viewport* (shifted by URL-bar retraction, the keyboard,
- * pinch-zoom, rubber-band scroll). `position: fixed` anchors to the layout
- * viewport — but the user sees the visual viewport. When these diverge
- * (e.g. after the user scrolls SessionDetailView so the URL bar retracts
- * and then opens the overlay), `position: fixed; inset: 0` renders the
- * backdrop at the layout-viewport top, which can sit above the visible
- * area. The first flex child (the sticky header) then appears cut off.
- *
- * This function pins the backdrop to `window.visualViewport` explicitly.
- * Kept in sync via `visualViewport` `resize` / `scroll` events, the
- * backdrop always tracks what the user actually sees, regardless of
- * URL-bar state, keyboard animation, or pinch-zoom.
- *
- * No-op on engines that do not expose `window.visualViewport`; the
- * backdrop's CSS `inset: 0` fallback remains authoritative in that case.
- */
-function syncToVisualViewport() {
-  const vv = window.visualViewport;
-  const backdrop = overlayBackdropRef.value;
-  if (!vv || !backdrop) return;
-  backdrop.style.top = `${vv.offsetTop}px`;
-  backdrop.style.left = `${vv.offsetLeft}px`;
-  backdrop.style.width = `${vv.width}px`;
-  backdrop.style.height = `${vv.height}px`;
 }
 
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
@@ -908,14 +886,6 @@ function lockBodyScroll() {
   app.style.left = '0';
   app.style.right = '0';
   app.style.width = '100%';
-
-  // Reset the actual viewport scroll to 0. On iPad Safari, residual
-  // window.scrollY can displace position:fixed elements (like the overlay
-  // backdrop) even though they should be viewport-anchored. Since #app is
-  // already pinned with position:fixed, this scrollTo is visually invisible
-  // — fixed elements don't move with scroll — but it ensures the viewport
-  // origin is at 0 when the overlay first paints.
-  window.scrollTo(0, 0);
 }
 
 function unlockBodyScroll() {
@@ -938,16 +908,6 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
-
-  // Anchor the overlay to the visual viewport synchronously, before the
-  // first paint and before any `await` below. This guarantees the backdrop
-  // is already positioned in visual-viewport space when the slide-left
-  // enter transition starts.
-  if (window.visualViewport) {
-    syncToVisualViewport();
-    window.visualViewport.addEventListener('resize', syncToVisualViewport);
-    window.visualViewport.addEventListener('scroll', syncToVisualViewport);
-  }
 
   // Register focusin/focusout BEFORE the await so they're ready immediately.
   // overlayBodyRef is a template ref on .overlay-body which is always rendered
@@ -974,10 +934,6 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
-  if (window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', syncToVisualViewport);
-    window.visualViewport.removeEventListener('scroll', syncToVisualViewport);
-  }
   const body = overlayBodyRef.value;
   if (body) {
     body.removeEventListener('focusin', handleOverlayFocusin);
@@ -991,19 +947,6 @@ onUnmounted(() => {
   overlayTodosStore.$cleanup();
 });
 
-// Re-scroll textarea into view after the compact header transition frees space.
-watch(inputFocused, (focused) => {
-  if (focused && isMobile.value) {
-    // After the header collapse transition (200ms) + buffer, re-center the textarea
-    setTimeout(() => {
-      const activeEl = document.activeElement;
-      if (activeEl?.tagName === 'TEXTAREA') {
-        activeEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      }
-    }, 250);
-  }
-});
-
 // Expose for testing
 defineExpose({
   activeSessionId,
@@ -1015,8 +958,10 @@ defineExpose({
   switchingSession,
   pickerOpen,
   handlePickerSelect,
-  syncToVisualViewport,
   inputFocused,
+  // DOM refs needed by tests that append real elements (textarea/input)
+  // into the overlay body to exercise focusin/focusout flows:
+  overlayBodyRef,
 });
 </script>
 
@@ -1093,7 +1038,11 @@ defineExpose({
   background: rgb(17, 24, 39);
   display: flex;
   justify-content: flex-end;
-  align-items: flex-start;
+  /* `stretch` lets the panel wrapper fill the full backdrop height
+     without viewport-unit min-heights; `inset: 0` is the sole size
+     source, so the browser tracks URL-bar / keyboard / orientation
+     changes automatically (no JS viewport sync). */
+  align-items: stretch;
   overflow: hidden;
   overflow-y: hidden;
   overscroll-behavior: none;
@@ -1102,7 +1051,10 @@ defineExpose({
 .overlay-panel-wrapper {
   position: relative;
   display: flex;
-  height: 100%;
+  /* Cross-axis size comes from `align-items: stretch` on the backdrop.
+     `min-height: 0` allows the internal flex column to shrink without
+     overflowing. */
+  min-height: 0;
   max-width: 900px;
   width: 100%;
   overflow: visible;
@@ -1181,6 +1133,10 @@ defineExpose({
 
 .overlay-body {
   padding: 0 1rem;
+  /* Respect iOS home-indicator / bottom URL-bar gutter. Fall-back:
+     if Phase 6 QA reveals the gutter is not visible at the right
+     time, move the inset to `.input-form` or a dedicated wrapper. */
+  padding-bottom: max(0px, env(safe-area-inset-bottom));
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
@@ -1193,6 +1149,8 @@ defineExpose({
   flex-direction: column;
   gap: 0.375rem;
   padding: 0.75rem 1rem 0.375rem;
+  /* Raise top padding to clear the iPhone notch when present. */
+  padding-top: max(0.75rem, env(safe-area-inset-top));
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
@@ -1315,11 +1273,21 @@ defineExpose({
 
 @media (max-width: 768px) {
   .overlay-body {
-    padding: 0 0.5rem;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    /* padding-bottom intentionally inherited from the base rule so the
+       safe-area-inset-bottom gutter is preserved on mobile. */
   }
 
   .overlay-header {
-    padding: 1rem 0.5rem 0.375rem;
+    padding-right: 0.5rem;
+    padding-bottom: 0.375rem;
+    padding-left: 0.5rem;
+    /* padding-top: keep the larger base value (the 1rem visual intent
+       of the old shorthand is already covered by the base
+       `max(0.75rem, env(safe-area-inset-top))` on devices with an
+       inset; raise the floor here for mobile without a notch). */
+    padding-top: max(1rem, env(safe-area-inset-top));
   }
 }
 

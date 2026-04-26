@@ -206,6 +206,9 @@ function handleAssistantTextContent(sessionId, textContent, toolUseBlocks) {
   const currentModel = currentModels.get(sessionId) || null;
   const message = messages.create(sessionId, 'assistant', textContent, { toolUse, conversationId, model: currentModel });
 
+  // Touch the session to update its updated_at timestamp so it sorts to the top
+  sessions.touch(sessionId);
+
   // Associate pending work logs with this message immediately
   // This ensures work logs are attached to the correct message, not just the last one
   associateAndBroadcastWorkLogs(sessionId, message.id);

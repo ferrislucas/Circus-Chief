@@ -8,6 +8,8 @@ dist-package/
 .package-test/
 
 # Database
+# Includes the per-worktree isolated test DB (.circuschief-test.db)
+# used by scripts/pw.sh so E2E tests never touch the real user DB.
 *.db
 *.db-journal
 *.db-wal

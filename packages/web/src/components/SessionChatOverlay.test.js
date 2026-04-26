@@ -4,8 +4,16 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { h, defineComponent, nextTick } from 'vue';
 import SessionChatOverlay from './SessionChatOverlay.vue';
+import sessionChatOverlaySource from './SessionChatOverlay.vue?raw';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@circuschief/shared';
+
+// jsdom has no scrollIntoView. Several overlay code paths call it after
+// focus transitions fire; stub it globally so blur-recovery tests can
+// exercise the real focusin/focusout listeners without throwing.
+if (!HTMLElement.prototype.scrollIntoView) {
+  HTMLElement.prototype.scrollIntoView = function scrollIntoViewStub() {};
+}
 
 // Mock @circuschief/shared
 vi.mock('@circuschief/shared', () => ({
@@ -1471,185 +1479,107 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('visualViewport syncing', () => {
-    // Preserve the original window.visualViewport descriptor so each test
-    // can install its own mock and then restore.
-    const originalDescriptor = Object.getOwnPropertyDescriptor(
-      window,
-      'visualViewport'
-    );
-
-    function installMockVisualViewport(props = {}) {
-      const addEventListener = vi.fn();
-      const removeEventListener = vi.fn();
-      const vv = {
-        offsetTop: 120,
-        offsetLeft: 0,
-        width: 390,
-        height: 580,
-        addEventListener,
-        removeEventListener,
-        ...props,
-      };
-      Object.defineProperty(window, 'visualViewport', {
-        configurable: true,
-        value: vv,
-      });
-      return vv;
-    }
-
-    function restoreVisualViewport() {
-      if (originalDescriptor) {
-        Object.defineProperty(window, 'visualViewport', originalDescriptor);
-      } else {
-        // jsdom has no native visualViewport; delete what the test set
-        delete window.visualViewport;
-      }
-    }
-
-    afterEach(() => {
-      restoreVisualViewport();
-    });
-
-    it('applies geometry from window.visualViewport on mount', async () => {
-      installMockVisualViewport({
-        offsetTop: 120,
-        offsetLeft: 0,
-        width: 390,
-        height: 580,
-      });
-
+  describe('CSS-owned geometry (no JS viewport sync)', () => {
+    it('does not write inline geometry on the backdrop', async () => {
       const wrapper = mountOverlay();
       await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
       expect(backdrop).toBeTruthy();
-      expect(backdrop.style.top).toBe('120px');
-      expect(backdrop.style.left).toBe('0px');
-      expect(backdrop.style.width).toBe('390px');
-      expect(backdrop.style.height).toBe('580px');
-
-      wrapper.unmount();
-    });
-
-    it('attaches resize and scroll listeners on mount', async () => {
-      const vv = installMockVisualViewport();
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      expect(vv.addEventListener).toHaveBeenCalledWith(
-        'resize',
-        expect.any(Function)
-      );
-      expect(vv.addEventListener).toHaveBeenCalledWith(
-        'scroll',
-        expect.any(Function)
-      );
-
-      wrapper.unmount();
-    });
-
-    it('removes listeners on unmount using the same handler reference', async () => {
-      const vv = installMockVisualViewport();
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      // Capture the handler passed to addEventListener so we can prove the
-      // same reference was passed to removeEventListener (otherwise the
-      // listener would leak).
-      const resizeAdd = vv.addEventListener.mock.calls.find(
-        c => c[0] === 'resize'
-      );
-      const scrollAdd = vv.addEventListener.mock.calls.find(
-        c => c[0] === 'scroll'
-      );
-      expect(resizeAdd).toBeDefined();
-      expect(scrollAdd).toBeDefined();
-      const resizeHandler = resizeAdd[1];
-      const scrollHandler = scrollAdd[1];
-
-      wrapper.unmount();
-
-      expect(vv.removeEventListener).toHaveBeenCalledWith(
-        'resize',
-        resizeHandler
-      );
-      expect(vv.removeEventListener).toHaveBeenCalledWith(
-        'scroll',
-        scrollHandler
-      );
-    });
-
-    it('re-syncs backdrop geometry when visualViewport resizes', async () => {
-      const vv = installMockVisualViewport({
-        offsetTop: 120,
-        offsetLeft: 0,
-        width: 390,
-        height: 580,
-      });
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop.style.top).toBe('120px');
-      expect(backdrop.style.height).toBe('580px');
-
-      // Simulate URL bar retracting / keyboard dismissing: visual viewport
-      // shifts up and grows taller. Invoke the registered resize handler.
-      const resizeHandler = vv.addEventListener.mock.calls.find(
-        c => c[0] === 'resize'
-      )[1];
-      vv.offsetTop = 40;
-      vv.height = 620;
-      resizeHandler();
-
-      expect(backdrop.style.top).toBe('40px');
-      expect(backdrop.style.height).toBe('620px');
-
-      wrapper.unmount();
-    });
-
-    it('is a no-op when window.visualViewport is undefined', async () => {
-      Object.defineProperty(window, 'visualViewport', {
-        configurable: true,
-        value: undefined,
-      });
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      const backdrop = document.querySelector('.overlay-backdrop');
-      expect(backdrop).toBeTruthy();
-      // No inline geometry should have been written; CSS `inset: 0` remains
-      // authoritative in this fallback path.
       expect(backdrop.style.top).toBe('');
       expect(backdrop.style.left).toBe('');
       expect(backdrop.style.width).toBe('');
       expect(backdrop.style.height).toBe('');
-
-      // Unmounting must not throw.
-      expect(() => wrapper.unmount()).not.toThrow();
+      wrapper.unmount();
     });
 
-    it('exposes syncToVisualViewport for testing', async () => {
-      installMockVisualViewport();
+    it('backdrop stylesheet uses position: fixed and align-items: stretch', () => {
+      // Assert against the SFC source text (imported as raw via Vite `?raw`).
+      // jsdom does not reliably attach Vue <style scoped> blocks to
+      // document.styleSheets, so source-text inspection is the check used
+      // elsewhere in this file (see removed panel-wrapper stylesheet test).
+      const blockMatch = sessionChatOverlaySource.match(/\.overlay-backdrop\s*\{[^}]*\}/);
+      expect(blockMatch).toBeTruthy();
+      const block = blockMatch[0];
+      expect(block).toMatch(/position:\s*fixed/);
+      expect(block).toMatch(/inset:\s*0/);
+      expect(block).toMatch(/align-items:\s*stretch/);
+    });
 
+    it('panel-wrapper stylesheet no longer uses viewport-unit min-heights', () => {
+      const blockMatch = sessionChatOverlaySource.match(/\.overlay-panel-wrapper\s*\{[^}]*\}/);
+      expect(blockMatch).toBeTruthy();
+      const block = blockMatch[0];
+      // Regression guard: Phase 2 removed `min-height: 100vh/100dvh` and
+      // `height: 100%` from the panel wrapper.
+      expect(block).not.toMatch(/min-height:\s*100vh/);
+      expect(block).not.toMatch(/min-height:\s*100dvh/);
+    });
+
+    it('source no longer references window.visualViewport', () => {
+      // Phase 1 removed the entire JS viewport sync. This guard makes
+      // future regressions loud.
+      expect(sessionChatOverlaySource).not.toMatch(/visualViewport/);
+      expect(sessionChatOverlaySource).not.toMatch(/syncToVisualViewport/);
+      expect(sessionChatOverlaySource).not.toMatch(/markRecentBlur/);
+      expect(sessionChatOverlaySource).not.toMatch(/applyLayoutViewport/);
+      expect(sessionChatOverlaySource).not.toMatch(/overlayBackdropRef/);
+    });
+
+    it('lockBodyScroll does not call window.scrollTo(0, 0) at mount time', async () => {
+      const spy = vi.spyOn(window, 'scrollTo');
       const wrapper = mountOverlay();
       await nextTick();
-      await new Promise(r => setTimeout(r, 10));
 
-      expect(wrapper.vm.syncToVisualViewport).toBeDefined();
-      expect(typeof wrapper.vm.syncToVisualViewport).toBe('function');
+      // scrollTo may be invoked elsewhere (e.g. Vue router in some setups),
+      // but Phase 3 removed the explicit lockBodyScroll scrollTo(0, 0) call.
+      const calledWithZeroZero = spy.mock.calls.some(
+        (args) => args[0] === 0 && args[1] === 0,
+      );
+      expect(calledWithZeroZero).toBe(false);
 
+      spy.mockRestore();
+      wrapper.unmount();
+    });
+
+    it('inputFocused toggles via focusin/focusout without viewport sync', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      expect(wrapper.vm.inputFocused).toBe(false);
+
+      // Append a real textarea into .overlay-body so the delegated
+      // focusin/focusout handlers fire.
+      const body = wrapper.vm.overlayBodyRef;
+      expect(body).toBeTruthy();
+      const textarea = document.createElement('textarea');
+      body.appendChild(textarea);
+
+      textarea.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      await nextTick();
+      expect(wrapper.vm.inputFocused).toBe(true);
+
+      textarea.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      // focusout is rAF-debounced; flush one frame.
+      await new Promise((r) => requestAnimationFrame(() => r()));
+      await nextTick();
+      expect(wrapper.vm.inputFocused).toBe(false);
+
+      body.removeChild(textarea);
+      wrapper.unmount();
+    });
+
+    it('does not expose the deleted viewport helpers on the component', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      expect(wrapper.vm.syncToVisualViewport).toBeUndefined();
+      expect(wrapper.vm.applyLayoutViewport).toBeUndefined();
+      expect(wrapper.vm.markRecentBlur).toBeUndefined();
+      expect(wrapper.vm.isRecentBlur).toBeUndefined();
+      // But the surviving API is still present.
+      expect(wrapper.vm.overlayBodyRef).toBeDefined();
+      expect(typeof wrapper.vm.afterLeave).toBe('function');
       wrapper.unmount();
     });
   });
+
 });

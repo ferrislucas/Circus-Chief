@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import { readFileSync, existsSync } from 'fs';
 
 function getBaseURL(): string {
@@ -34,6 +34,23 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { browserName: 'chromium' },
+    },
+    // Mobile projects are chromium under the hood. Playwright does not
+    // emulate Safari WebKit or iOS URL-bar / visual-viewport divergence
+    // — these projects only change viewport size + user-agent string.
+    // True iOS validation lives in manual device QA; these are a smoke
+    // test against narrow-viewport CSS layout.
+    // Scoped to the overlay layout spec so existing specs still run
+    // only under desktop chromium.
+    {
+      name: 'iphone-14',
+      use: { browserName: 'chromium', ...devices['iPhone 14'] },
+      testMatch: /session-chat-overlay-layout\.spec\.ts$/,
+    },
+    {
+      name: 'ipad-pro',
+      use: { browserName: 'chromium', ...devices['iPad Pro 11'] },
+      testMatch: /session-chat-overlay-layout\.spec\.ts$/,
     },
   ],
   globalSetup: require.resolve('./tests/e2e/global-setup'),
