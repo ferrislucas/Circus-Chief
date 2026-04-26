@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
 import { mount } from '@vue/test-utils';
 import CommandGrid from './CommandGrid.vue';
+import commandGridSource from './CommandGrid.vue?raw';
 
 describe('CommandGrid.vue', () => {
   describe('skill sections rendering', () => {
@@ -553,7 +553,7 @@ describe('CommandGrid.vue', () => {
 
   describe('style tokens', () => {
     it('uses defined theme tokens for command grid styling', () => {
-      const source = readFileSync('src/components/slash-commands/CommandGrid.vue', 'utf8');
+      const source = commandGridSource;
 
       expect(source).not.toMatch(/--color-(accent|accent-rgb|bg-hover|border-hover|primary-hover)\b/);
       expect(source).toContain('--color-primary');

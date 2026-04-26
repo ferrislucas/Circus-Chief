@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
 import { mount } from '@vue/test-utils';
 import ArgumentsForm from './ArgumentsForm.vue';
+import argumentsFormSource from './ArgumentsForm.vue?raw';
 
 describe('ArgumentsForm.vue', () => {
   describe('skill rendering', () => {
@@ -285,7 +285,7 @@ describe('ArgumentsForm.vue', () => {
 
   describe('style tokens', () => {
     it('uses defined theme tokens for argument form styling', () => {
-      const source = readFileSync('src/components/slash-commands/ArgumentsForm.vue', 'utf8');
+      const source = argumentsFormSource;
 
       expect(source).not.toMatch(/--color-(accent|accent-rgb|bg-hover|border-hover|primary-hover)\b/);
       expect(source).toContain('--color-primary');
