@@ -279,7 +279,7 @@ const workingDirectory = computed(() => {
 });
 
 // Statuses that legitimately expect a standing draft on mount.
-const RESTORE_ALLOWED_STATUSES = new Set(['waiting', 'scheduled', 'stopped', 'error']);
+const RESTORE_ALLOWED_STATUSES = new Set(['waiting', 'scheduled', 'stopped', 'error', 'running']);
 
 /**
  * Compute the initial `input.value` on mount.

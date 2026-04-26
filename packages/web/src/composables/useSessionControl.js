@@ -83,17 +83,12 @@ export function useSessionControl({ getSessionId }) {
   /**
    * Send a follow-up message.
    *
-   * Order of operations (important for the "ghost prompt" fix):
-   *   1. Clear the server's `pendingPrompt` FIRST so any WebSocket
-   *      `session:updated` frame arriving mid-send cannot re-snapshot the
-   *      stale value into the local store.
-   *   2. Send the message.
-   *   3. Mark the session as having a recent send so the onMounted restore
-   *      in ConversationTab skips re-populating the textarea if the tab
-   *      is remounted within the TTL window.
-   *
-   * If sendMessage fails after the prompt was cleared, we best-effort
-   * restore the server's `pendingPrompt` so the user's draft isn't lost.
+   * Order of operations:
+   *   1. Send the message (creates user msg in DB synchronously on server).
+   *   2. Mark as recent-send so ghost-prompt defense is active even if the
+   *      draft clear below fails.
+   *   3. Clear the server's `pendingPrompt` (non-fatal — `markRecentSend`
+   *      already prevents ghost-prompt restoration).
    *
    * @param {string} message - The message text
    * @param {Array} attachedFiles - File attachments
@@ -108,30 +103,26 @@ export function useSessionControl({ getSessionId }) {
     const sessionId = getSessionId();
     sending.value = true;
 
-    // Snapshot whether we've cleared the server draft so we know whether to
-    // restore it on failure.
-    let clearedServerDraft = false;
-
     try {
-      // 1. Clear server pendingPrompt FIRST (closes the WS interleave window).
-      await api.updateSessionPendingPrompt(sessionId, null);
-      clearedServerDraft = true;
-
-      // 2. Send the message.
+      // 1. Send the message (creates user msg in DB synchronously on server).
       await sessionsStore.sendMessage(sessionId, message, attachedFiles, selectedModel);
 
-      // 3. Mark as recent-send so remounts don't restore the just-sent prompt.
+      // 2. Mark recent-send immediately so ghost-prompt defense is active
+      //    even if the draft clear below fails.
       sessionsStore.markRecentSend?.(sessionId);
+
+      // 3. Clear server pendingPrompt (non-fatal if this fails —
+      //    markRecentSend already prevents ghost-prompt restoration).
+      try {
+        await api.updateSessionPendingPrompt(sessionId, null);
+      } catch (_clearErr) { /* non-fatal */ }
+
       return true;
     } catch (err) {
-      // Best-effort restore so the user's draft isn't silently discarded.
-      if (clearedServerDraft) {
-        try {
-          await api.updateSessionPendingPrompt(sessionId, message);
-        } catch (_restoreErr) {
-          // Swallow restore failure — the primary error is more useful to surface.
-        }
-      }
+      // Proactively save the draft to the server so a page reload preserves it.
+      try {
+        await api.updateSessionPendingPrompt(sessionId, message);
+      } catch (_saveErr) { /* best-effort */ }
       uiStore.error(err.message);
       return false;
     } finally {
