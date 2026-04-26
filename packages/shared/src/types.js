@@ -122,6 +122,34 @@ export const CLAUDE_MODELS = [
 ];
 export const DEFAULT_MODEL = 'claude-opus-4-7';
 
+export const OPENAI_MODELS = [
+  {
+    id: 'gpt-5.5',
+    name: 'GPT-5.5',
+    description: 'Flagship coding and professional work',
+    seedId: 'openai-gpt-5-5',
+  },
+  {
+    id: 'gpt-5.4',
+    name: 'GPT-5.4',
+    description: 'High capability professional work',
+    seedId: 'openai-gpt-5-4',
+  },
+  {
+    id: 'gpt-5.4-mini',
+    name: 'GPT-5.4 mini',
+    description: 'Fast lower-cost coding and subagent work',
+    seedId: 'openai-gpt-5-4-mini',
+  },
+  {
+    id: 'gpt-5.3-codex',
+    name: 'GPT-5.3-Codex',
+    description: 'Coding-optimized agentic model',
+    seedId: 'openai-gpt-5-3-codex',
+  },
+];
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.5';
+
 /**
  * @typedef {Object} KanbanBoard
  * @property {string} id
