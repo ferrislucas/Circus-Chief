@@ -41,12 +41,13 @@ export class BaseAgent {
 
   /**
    * Get agent capabilities
-   * @returns {{ streaming: boolean, thinking: boolean, toolUse: boolean, resume: boolean }}
+   * @returns {{ streaming: boolean, thinking: boolean, reasoningEffort: boolean, toolUse: boolean, resume: boolean }}
    */
   getCapabilities() {
     return {
       streaming: false,
       thinking: false,
+      reasoningEffort: false,
       toolUse: false,
       resume: false,
     };

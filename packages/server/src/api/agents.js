@@ -11,8 +11,8 @@ const router = Router();
  *
  * Response shape:
  *   [
- *     { agentType: 'claude-code', capabilities: { streaming, thinking, toolUse, resume } },
- *     { agentType: 'codex',       capabilities: { streaming, thinking, toolUse, resume } },
+ *     { agentType: 'claude-code', capabilities: { streaming, thinking, reasoningEffort, toolUse, resume } },
+ *     { agentType: 'codex',       capabilities: { streaming, thinking, reasoningEffort, toolUse, resume } },
  *   ]
  */
 router.get('/', (_req, res) => {

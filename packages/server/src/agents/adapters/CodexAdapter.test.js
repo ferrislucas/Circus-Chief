@@ -107,6 +107,7 @@ describe('CodexAdapter', () => {
     expect(adapter.getCapabilities()).toEqual({
       streaming: true,
       thinking: false,
+      reasoningEffort: true,
       toolUse: true,
       resume: false,
     });
@@ -231,6 +232,83 @@ describe('CodexAdapter', () => {
 
     const spawnArgs = fakeSpawn.mock.calls[0][0];
     expect(spawnArgs.args).not.toContain('-c');
+  });
+
+  it.each([
+    ['low', 'low'],
+    ['medium', 'medium'],
+    ['high', 'high'],
+    ['max', 'xhigh'],
+  ])('CLI path: maps effortLevel=%s to Codex reasoning config %s', async (effortLevel, expected) => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-effort"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test-key' },
+        abortController: new AbortController(),
+        effortLevel,
+      },
+    }));
+
+    const spawnArgs = fakeSpawn.mock.calls[0][0];
+    expect(spawnArgs.args).toContain(`model_reasoning_effort=${expected}`);
+    expect(spawnArgs.args).toContain(`plan_mode_reasoning_effort=${expected}`);
+  });
+
+  it.each([null, 'auto', 'unknown'])('CLI path: omits reasoning config for effortLevel=%s', async (effortLevel) => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-no-effort"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test-key' },
+        abortController: new AbortController(),
+        effortLevel,
+      },
+    }));
+
+    const spawnArgs = fakeSpawn.mock.calls[0][0];
+    expect(spawnArgs.args).not.toContain('model_reasoning_effort=');
+    expect(spawnArgs.args).not.toContain('plan_mode_reasoning_effort=');
+    expect(spawnArgs.args.some((arg) => arg.startsWith('model_reasoning_effort='))).toBe(false);
+    expect(spawnArgs.args.some((arg) => arg.startsWith('plan_mode_reasoning_effort='))).toBe(false);
+  });
+
+  it('CLI path: reasoning config composes with ChatGPT auth config', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-auth-effort"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { HOME: '/tmp', PATH: '/usr/bin' },
+        abortController: new AbortController(),
+        effortLevel: 'high',
+      },
+    }));
+
+    const spawnArgs = fakeSpawn.mock.calls[0][0];
+    expect(spawnArgs.args).toContain('model_reasoning_effort=high');
+    expect(spawnArgs.args).toContain('plan_mode_reasoning_effort=high');
+    expect(spawnArgs.args).toContain('preferred_auth_method=chatgpt');
   });
 
   it('CLI path: prepends systemPrompt onto stdin prompt', async () => {
@@ -494,7 +572,8 @@ describe('CodexAdapter', () => {
       }
     }
 
-    const openaiClientFactory = () => new FakeClient();
+    const client = new FakeClient();
+    const openaiClientFactory = () => client;
 
     const adapter = new CodexAdapter({ openaiClientFactory });
     const events = await collect(adapter.execute({
@@ -503,6 +582,7 @@ describe('CodexAdapter', () => {
         model: 'gpt-4o-mini',
         env: { OPENAI_API_KEY: 'sk-test', OPENAI_BASE_URL: 'https://api.openai.com/v1' },
         abortController: new AbortController(),
+        effortLevel: 'high',
       },
     }));
 
@@ -523,6 +603,11 @@ describe('CodexAdapter', () => {
       type: 'result',
       subtype: 'success',
       usage: { input_tokens: 5, output_tokens: 2 },
+    });
+    expect(client.chat.completions.create).toHaveBeenCalledWith({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: 'say hi' }],
+      stream: true,
     });
   });
 

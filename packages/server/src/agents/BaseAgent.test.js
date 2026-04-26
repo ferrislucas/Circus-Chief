@@ -18,6 +18,7 @@ describe('BaseAgent', () => {
     expect(agent.getCapabilities()).toEqual({
       streaming: false,
       thinking: false,
+      reasoningEffort: false,
       toolUse: false,
       resume: false,
     });

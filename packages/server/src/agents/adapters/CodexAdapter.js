@@ -28,7 +28,8 @@ let codexCliUnavailable = false;
  * Capabilities in v1:
  *   - streaming:   true
  *   - thinking:    false
- *   - toolUse:     false  (tool-use plumbing deferred)
+ *   - reasoningEffort: true
+ *   - toolUse:     true
  *   - resume:      false  (Codex CLI v0.124.0 supports `codex resume` and
  *                          `codex exec resume`, but Circus Chief defers
  *                          wiring to a later phase — see
@@ -38,6 +39,7 @@ export class CodexAdapter extends BaseAgent {
   static capabilities = Object.freeze({
     streaming: true,
     thinking: false,
+    reasoningEffort: true,
     toolUse: true,
     resume: false,
   });
@@ -108,8 +110,9 @@ export class CodexAdapter extends BaseAgent {
 
   _spawnCodexChild(queryParams, options) {
     const spawnFn = this._spawnCodex ?? createCodexSpawner();
-    const { cwd, env, abortController, model, sandboxMode } = options;
+    const { cwd, env, abortController, model, sandboxMode, effortLevel } = options;
     const effectiveSandbox = sandboxMode || 'workspace-write';
+    const codexReasoningEffort = resolveCodexReasoningEffort(effortLevel);
     const args = [
       'exec',
       '--json',
@@ -117,6 +120,13 @@ export class CodexAdapter extends BaseAgent {
       '--sandbox', effectiveSandbox,
       '-m', model,
     ];
+
+    if (codexReasoningEffort) {
+      args.push(
+        '-c', `model_reasoning_effort=${codexReasoningEffort}`,
+        '-c', `plan_mode_reasoning_effort=${codexReasoningEffort}`
+      );
+    }
 
     // Defense in depth: when no API key is in the env, force ChatGPT auth
     // so the CLI uses its own OAuth flow even if some env var leaks through.
@@ -237,6 +247,13 @@ function resolveDirectApiInputs(options) {
     systemPrompt: typeof options.systemPrompt === 'string' ? options.systemPrompt : null,
     abortController: options.abortController,
   };
+}
+
+function resolveCodexReasoningEffort(effortLevel) {
+  if (!effortLevel || effortLevel === 'auto') return null;
+  if (effortLevel === 'max') return 'xhigh';
+  if (['low', 'medium', 'high'].includes(effortLevel)) return effortLevel;
+  return null;
 }
 
 function buildChatMessages(prompt, systemPrompt) {

@@ -25,27 +25,27 @@
 
       <div
         class="effort-selector-wrapper"
-        :class="{ 'option-disabled': isCodexModel }"
-        :title="isCodexModel ? 'Not supported for Codex sessions' : ''"
+        :class="{ 'option-disabled': isEffortSelectorDisabled }"
+        :title="effortSelectorTitle"
       >
         <EffortLevelSelector
           :model-value="effortLevel"
-          :disabled="isCodexModel"
+          :disabled="isEffortSelectorDisabled"
           @update:model-value="$emit('update:effortLevel', $event)"
         />
       </div>
 
       <div
         class="thinking-toggle"
-        :class="{ 'option-disabled': isCodexModel }"
-        :title="isCodexModel ? 'Not supported for Codex sessions' : ''"
+        :class="{ 'option-disabled': isThinkingToggleDisabled }"
+        :title="thinkingToggleTitle"
       >
         <div class="field-with-badge">
           <label class="toggle-switch">
             <input
               type="checkbox"
               :checked="thinkingEnabled"
-              :disabled="isCodexModel"
+              :disabled="isThinkingToggleDisabled"
               @change="$emit('update:thinkingEnabled', $event.target.checked)"
             >
             <span class="toggle-slider" />
@@ -75,7 +75,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
 import EffortLevelSelector from './EffortLevelSelector.vue';
@@ -118,20 +118,49 @@ defineEmits([
 ]);
 
 const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+const capabilitiesLoaded = ref(false);
+const capabilityVersion = ref(0);
 
 // Ensure the /api/agents capability map is fetched once so `isCodexModel`
 // can reflect actual server-reported capabilities rather than an empty cache.
-onMounted(() => {
-  fetchAgentCapabilities();
+onMounted(async () => {
+  await fetchAgentCapabilities();
+  capabilitiesLoaded.value = true;
+  capabilityVersion.value += 1;
+});
+
+const selectedModelInfo = computed(() => {
+  if (capabilityVersion.value < 0) return getModelInfo(props.model);
+  return getModelInfo(props.model);
 });
 
 // Derive agent-type of the currently-selected model. A true value here hides
 // thinking-specific controls (which Codex does not support).
 const isCodexModel = computed(() => {
   if (!props.model) return false;
-  const info = getModelInfo(props.model);
-  return info.agentType === 'codex';
+  return selectedModelInfo.value.agentType === 'codex';
 });
+
+const supportsThinkingToggle = computed(() => {
+  if (!capabilitiesLoaded.value) return false;
+  return selectedModelInfo.value.capabilities?.thinking === true;
+});
+
+const supportsReasoningEffort = computed(() => {
+  if (!capabilitiesLoaded.value) return false;
+  return selectedModelInfo.value.capabilities?.reasoningEffort === true;
+});
+
+const isThinkingToggleDisabled = computed(() => isCodexModel.value || !supportsThinkingToggle.value);
+const isEffortSelectorDisabled = computed(() => !supportsReasoningEffort.value);
+
+const thinkingToggleTitle = computed(() => (
+  isThinkingToggleDisabled.value ? 'Thinking toggle is not supported for this agent' : ''
+));
+
+const effortSelectorTitle = computed(() => (
+  isEffortSelectorDisabled.value ? 'Reasoning effort is not supported for this agent' : ''
+));
 </script>
 
 <style scoped>

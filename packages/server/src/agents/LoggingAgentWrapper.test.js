@@ -217,7 +217,7 @@ describe('LoggingAgentWrapper', () => {
   });
 
   it('delegates getCapabilities() to inner agent', () => {
-    const caps = { streaming: true, thinking: false, toolUse: true, resume: false };
+    const caps = { streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false };
     const wrapper = new LoggingAgentWrapper(createMockAgent([], caps));
     expect(wrapper.getCapabilities()).toEqual(caps);
   });

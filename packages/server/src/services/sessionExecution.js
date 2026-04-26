@@ -121,6 +121,7 @@ function buildCodexQueryParams({
       abortController: controller,
       env: sessionEnv,
       model: effectiveModel,
+      effortLevel: session?.effortLevel ?? null,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sandboxMode: getSandboxModeForSession(session?.mode),
     },

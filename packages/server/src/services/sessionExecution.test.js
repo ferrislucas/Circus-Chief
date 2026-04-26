@@ -83,6 +83,38 @@ describe('buildQueryParams', () => {
     const result = buildQueryParams(args);
     expect(result.options.resume).toBeUndefined();
   });
+
+  it('propagates effortLevel into Codex query options', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'codex',
+      model: 'gpt-5.5',
+      session: { mode: 'standard', projectId: 'proj-1', effortLevel: 'high', thinkingEnabled: false },
+    };
+
+    const result = buildQueryParams(args);
+
+    expect(result.options.effortLevel).toBe('high');
+    expect(result.options.model).toBe('gpt-5.5');
+    expect(result.options.permissionMode).toBeUndefined();
+    expect(result.options.settingSources).toBeUndefined();
+    expect(result.options.includePartialMessages).toBeUndefined();
+    expect(result.options.resume).toBeUndefined();
+    expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
+  });
+
+  it('passes null effortLevel into Codex query options when no override is set', () => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'codex',
+      model: 'gpt-5.5',
+      session: { mode: 'standard', projectId: 'proj-1', effortLevel: null, thinkingEnabled: true },
+    };
+
+    const result = buildQueryParams(args);
+
+    expect(result.options.effortLevel).toBeNull();
+  });
 });
 
 // ── continueSessionCore model fallback ──────────────────────────────────────

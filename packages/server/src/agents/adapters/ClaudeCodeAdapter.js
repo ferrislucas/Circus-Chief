@@ -12,6 +12,7 @@ export class ClaudeCodeAdapter extends BaseAgent {
   static capabilities = Object.freeze({
     streaming: true,
     thinking: true,
+    reasoningEffort: true,
     toolUse: true,
     resume: true,
   });

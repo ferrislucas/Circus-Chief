@@ -43,8 +43,8 @@ describe('SessionFormOptions', () => {
     vi.spyOn(providersStore, 'fetchProviders').mockResolvedValue();
 
     vi.spyOn(api, 'getAgents').mockResolvedValue([
-      { agentType: 'claude-code', capabilities: { streaming: true, thinking: true, toolUse: true, resume: true } },
-      { agentType: 'codex', capabilities: { streaming: true, thinking: false, toolUse: true, resume: false } },
+      { agentType: 'claude-code', capabilities: { streaming: true, thinking: true, reasoningEffort: true, toolUse: true, resume: true } },
+      { agentType: 'codex', capabilities: { streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false } },
     ]);
   });
 
@@ -61,23 +61,65 @@ describe('SessionFormOptions', () => {
     });
   }
 
-  it('enables the thinking toggle for Anthropic (Claude Code) models', async () => {
+  it('enables thinking and effort controls for Anthropic (Claude Code) models after capabilities load', async () => {
     const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
     await flushAll(wrapper);
 
     const thinkingInput = wrapper.find('input[type="checkbox"]');
     expect(thinkingInput.element.disabled).toBe(false);
+
+    const effortSelect = wrapper.find('select.effort-select, .effort-selector-wrapper select');
+    expect(effortSelect.element.disabled).toBe(false);
   });
 
-  it('disables the thinking toggle and effort selector when a Codex model is selected', async () => {
+  it('keeps thinking disabled but enables effort when a Codex model is selected after capabilities load', async () => {
     const wrapper = mountForm({ model: 'gpt-4o' });
     await flushAll(wrapper);
 
     const thinkingInput = wrapper.find('input[type="checkbox"]');
     expect(thinkingInput.element.disabled).toBe(true);
 
-    // Effort selector is disabled via its own `disabled` prop.
     const effortSelect = wrapper.find('select.effort-select, .effort-selector-wrapper select');
+    expect(effortSelect.element.disabled).toBe(false);
+  });
+
+  it('keeps Codex controls conservative before capability fetch resolves', async () => {
+    __resetCapabilityCache();
+    let resolveAgents;
+    api.getAgents.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveAgents = resolve;
+    }));
+
+    const wrapper = mountForm({ model: 'gpt-4o' });
+    await nextTick();
+
+    let thinkingInput = wrapper.find('input[type="checkbox"]');
+    let effortSelect = wrapper.find('select.effort-select, .effort-selector-wrapper select');
+    expect(thinkingInput.element.disabled).toBe(true);
+    expect(effortSelect.element.disabled).toBe(true);
+
+    resolveAgents([
+      { agentType: 'claude-code', capabilities: { streaming: true, thinking: true, reasoningEffort: true, toolUse: true, resume: true } },
+      { agentType: 'codex', capabilities: { streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false } },
+    ]);
+    await flushAll(wrapper);
+
+    thinkingInput = wrapper.find('input[type="checkbox"]');
+    effortSelect = wrapper.find('select.effort-select, .effort-selector-wrapper select');
+    expect(thinkingInput.element.disabled).toBe(true);
+    expect(effortSelect.element.disabled).toBe(false);
+  });
+
+  it('keeps both controls disabled when capabilities fail to load', async () => {
+    __resetCapabilityCache();
+    api.getAgents.mockRejectedValueOnce(new Error('network down'));
+
+    const wrapper = mountForm({ model: 'gpt-4o' });
+    await flushAll(wrapper);
+
+    const thinkingInput = wrapper.find('input[type="checkbox"]');
+    const effortSelect = wrapper.find('select.effort-select, .effort-selector-wrapper select');
+    expect(thinkingInput.element.disabled).toBe(true);
     expect(effortSelect.element.disabled).toBe(true);
   });
 
@@ -93,6 +135,35 @@ describe('SessionFormOptions', () => {
 
     thinkingInput = wrapper.find('input[type="checkbox"]');
     expect(thinkingInput.element.disabled).toBe(false);
+  });
+
+  it('keeps effort enabled and disables only thinking when switching from Claude to Codex', async () => {
+    const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
+    await flushAll(wrapper);
+
+    await wrapper.setProps({ model: 'gpt-4o' });
+    await flushAll(wrapper);
+
+    const thinkingInput = wrapper.find('input[type="checkbox"]');
+    const effortSelect = wrapper.find('select.effort-select, .effort-selector-wrapper select');
+    expect(thinkingInput.element.disabled).toBe(true);
+    expect(effortSelect.element.disabled).toBe(false);
+  });
+
+  it('disables thinking and effort independently for agents without either capability', async () => {
+    __resetCapabilityCache();
+    api.getAgents.mockResolvedValueOnce([
+      { agentType: 'claude-code', capabilities: { streaming: true, thinking: false, reasoningEffort: false, toolUse: true, resume: true } },
+      { agentType: 'codex', capabilities: { streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false } },
+    ]);
+
+    const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
+    await flushAll(wrapper);
+
+    const thinkingInput = wrapper.find('input[type="checkbox"]');
+    const effortSelect = wrapper.find('select.effort-select, .effort-selector-wrapper select');
+    expect(thinkingInput.element.disabled).toBe(true);
+    expect(effortSelect.element.disabled).toBe(true);
   });
 
   it('shows an "Agent: Codex" badge only when a Codex model is selected', async () => {

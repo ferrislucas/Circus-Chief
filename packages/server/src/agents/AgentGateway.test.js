@@ -66,6 +66,7 @@ describe('AgentGateway', () => {
     expect(capabilities).toEqual({
       streaming: true,
       thinking: true,
+      reasoningEffort: true,
       toolUse: true,
       resume: true,
     });
@@ -108,6 +109,7 @@ describe('AgentGateway', () => {
       expect(caps).toEqual({
         streaming: true,
         thinking: false,
+        reasoningEffort: true,
         toolUse: true,
         resume: false,
       });
@@ -120,10 +122,10 @@ describe('AgentGateway', () => {
       expect(all).toHaveLength(2);
       const byType = Object.fromEntries(all.map((e) => [e.agentType, e.capabilities]));
       expect(byType['claude-code']).toEqual({
-        streaming: true, thinking: true, toolUse: true, resume: true,
+        streaming: true, thinking: true, reasoningEffort: true, toolUse: true, resume: true,
       });
       expect(byType['codex']).toEqual({
-        streaming: true, thinking: false, toolUse: true, resume: false,
+        streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false,
       });
     });
 

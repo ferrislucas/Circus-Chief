@@ -32,6 +32,7 @@ describe('Agents API', () => {
       expect(claude.capabilities).toEqual({
         streaming: true,
         thinking: true,
+        reasoningEffort: true,
         toolUse: true,
         resume: true,
       });
@@ -39,6 +40,7 @@ describe('Agents API', () => {
       expect(codex.capabilities).toEqual({
         streaming: true,
         thinking: false,
+        reasoningEffort: true,
         toolUse: true,
         resume: false,
       });

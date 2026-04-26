@@ -9,6 +9,7 @@ import { api } from './useApi.js';
 const UNKNOWN_CAPABILITIES = Object.freeze({
   streaming: false,
   thinking: false,
+  reasoningEffort: false,
   toolUse: false,
   resume: false,
 });

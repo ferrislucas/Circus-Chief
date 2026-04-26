@@ -248,8 +248,8 @@ describe('useModelInfo', () => {
 
       // Spy on the API so we can verify caching of /api/agents.
       getAgentsSpy = vi.spyOn(api, 'getAgents').mockResolvedValue([
-        { agentType: 'claude-code', capabilities: { streaming: true, thinking: true, toolUse: true, resume: true } },
-        { agentType: 'codex', capabilities: { streaming: true, thinking: false, toolUse: true, resume: false } },
+        { agentType: 'claude-code', capabilities: { streaming: true, thinking: true, reasoningEffort: true, toolUse: true, resume: true } },
+        { agentType: 'codex', capabilities: { streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false } },
       ]);
     });
 
@@ -262,6 +262,7 @@ describe('useModelInfo', () => {
       const info = getModelInfo('gpt-5.5');
       expect(info.agentType).toBe('codex');
       expect(info.capabilities.thinking).toBe(false);
+      expect(info.capabilities.reasoningEffort).toBe(true);
       expect(info.providerId).toBe('openai-default');
       expect(info.providerName).toBe('OpenAI (Official)');
       expect(info.name).toBe('GPT-5.5');
@@ -317,6 +318,7 @@ describe('useModelInfo', () => {
       const info = getModelInfo('claude-sonnet-4-6');
       expect(info.agentType).toBe('claude-code');
       expect(info.capabilities.thinking).toBe(true);
+      expect(info.capabilities.reasoningEffort).toBe(true);
       expect(info.providerId).toBe('anthropic-default');
       expect(info.providerName).toBe('Anthropic (Official)');
     });
@@ -327,6 +329,7 @@ describe('useModelInfo', () => {
 
       const info = getModelInfo('never-heard-of-this-model');
       expect(info.agentType).toBe('claude-code');
+      expect(info.capabilities.reasoningEffort).toBe(true);
       expect(info.providerId).toBeNull();
       expect(info.providerName).toBeNull();
       // Name falls back to formatModelId; does not crash.
