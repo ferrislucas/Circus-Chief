@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync } from 'fs';
 import { mount } from '@vue/test-utils';
 import ArgumentsForm from './ArgumentsForm.vue';
 
