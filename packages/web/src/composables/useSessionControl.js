@@ -84,11 +84,11 @@ export function useSessionControl({ getSessionId }) {
    * Send a follow-up message.
    *
    * Order of operations:
-   *   1. Send the message (creates user msg in DB synchronously on server).
-   *   2. Mark as recent-send so ghost-prompt defense is active even if the
-   *      draft clear below fails.
-   *   3. Clear the server's `pendingPrompt` (non-fatal — `markRecentSend`
-   *      already prevents ghost-prompt restoration).
+   *   1. Clear the server's `pendingPrompt` so stale draft restores cannot
+   *      race with the send.
+   *   2. Send the message (creates user msg in DB synchronously on server).
+   *   3. Mark as recent-send so mount/status restore paths suppress stale
+   *      prompt restoration while the session transitions.
    *
    * @param {string} message - The message text
    * @param {Array} attachedFiles - File attachments
@@ -102,27 +102,22 @@ export function useSessionControl({ getSessionId }) {
 
     const sessionId = getSessionId();
     sending.value = true;
+    let pendingPromptCleared = false;
 
     try {
-      // 1. Send the message (creates user msg in DB synchronously on server).
+      await api.updateSessionPendingPrompt(sessionId, null);
+      pendingPromptCleared = true;
       await sessionsStore.sendMessage(sessionId, message, attachedFiles, selectedModel);
-
-      // 2. Mark recent-send immediately so ghost-prompt defense is active
-      //    even if the draft clear below fails.
       sessionsStore.markRecentSend?.(sessionId);
-
-      // 3. Clear server pendingPrompt (non-fatal if this fails —
-      //    markRecentSend already prevents ghost-prompt restoration).
-      try {
-        await api.updateSessionPendingPrompt(sessionId, null);
-      } catch (_clearErr) { /* non-fatal */ }
 
       return true;
     } catch (err) {
       // Proactively save the draft to the server so a page reload preserves it.
-      try {
-        await api.updateSessionPendingPrompt(sessionId, message);
-      } catch (_saveErr) { /* best-effort */ }
+      if (pendingPromptCleared) {
+        try {
+          await api.updateSessionPendingPrompt(sessionId, message);
+        } catch (_saveErr) { /* best-effort */ }
+      }
       uiStore.error(err.message);
       return false;
     } finally {

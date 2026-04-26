@@ -61,6 +61,7 @@
       :send-button-disabled-reason="sendButtonDisabledReason"
       :is-send-disabled="isSendDisabled"
       :auto-send-pending-prompt="sessionsStore.currentSession?.autoSendPendingPrompt ?? false"
+      @update:model-value="input = $event"
       @update:selected-model="selectedModel = $event"
       @submit="handleFormSubmit"
       @auto-send-toggle="handleAutoSendToggle"
@@ -481,6 +482,18 @@ watch(selectedModel, async (newModel, oldModel) => {
 });
 
 // Form submission handler
+function getSubmittedInputValue(textareaRef) {
+  if (input.value) return input.value;
+  return textareaRef?.value || '';
+}
+
+function clearSubmittedInput(textareaRef) {
+  input.value = '';
+  if (textareaRef && textareaRef.value !== '') {
+    textareaRef.value = '';
+  }
+}
+
 async function handleFormSubmit() {
   if (isRunning.value) return;
 
@@ -490,21 +503,22 @@ async function handleFormSubmit() {
   // the "ghost prompt" race.
   cancelDraft();
 
-  const currentValue = input.value;
+  const textareaRef = inputFormRef.value?.textareaRef;
+  const currentValue = getSubmittedInputValue(textareaRef);
   if (isDraft.value || isScheduledDraft.value) {
     const sessionModel = selectedModel.value
       || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
     const success = await handleStart(currentValue, sessionModel);
     if (success) {
-      input.value = '';
+      clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
       inputFormRef.value?.clearFiles();
     }
   } else {
     const success = await handleSend(currentValue, attachedFiles.value, selectedModel.value);
     if (success) {
-      input.value = '';
+      clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
       inputFormRef.value?.clearFiles();
     }
