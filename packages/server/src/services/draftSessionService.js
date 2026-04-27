@@ -2,6 +2,7 @@ import { sessions, messages, projects, conversations, attachments } from '../dat
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
+import { resolveAgentTypeFromModel } from './sessionProvider.js';
 
 /**
  * Validates that a session is a draft (waiting status with no assistant messages).
@@ -125,6 +126,11 @@ export async function startDraft(session, options = {}) {
   // Model to use for this session (optional - SDK will use default if not provided)
   const model = options.model || session.pendingModel || session.model || null;
 
+  // Resolve the agent type from the selected model before launching.
+  // Draft sessions have no assistant messages yet, so the session is still
+  // choosing its initial runtime – the selected model determines agentType.
+  const agentType = model ? resolveAgentTypeFromModel(model) : session.agentType;
+
   // Get or create the initial user message
   const initialMessage = getOrCreateInitialMessage(session, options);
   const finalPrompt = initialMessage.content;
@@ -132,8 +138,13 @@ export async function startDraft(session, options = {}) {
   // Get session attachments for context
   const sessionAttachments = attachments.getBySessionId(session.id);
 
-  // Update session status to starting and clear pendingModel (mirrors pendingPrompt cleanup above)
-  sessions.update(session.id, { status: 'starting', pendingModel: null });
+  // Update session status to starting, clear pendingModel, and persist the
+  // resolved model + agentType BEFORE runSession() reads them from storage.
+  sessions.update(session.id, {
+    status: 'starting',
+    pendingModel: null,
+    ...(model ? { model, agentType } : {}),
+  });
 
   // Resolve skill/command invocations so skill body goes into system prompt
   const resolved = await slashCommandService.resolvePromptSkillOrCommand(

@@ -1,0 +1,351 @@
+{
+  "prompt": "Reply with exactly: \"Draft started successfully.\" Nothing else.",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "cwd": "/Users/ferrislucas/claudetools.io/.worktrees/52a19c74-d56d-4b9b-b936-3cbf3747175e",
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "tools": [
+        "Task",
+        "TaskOutput",
+        "Bash",
+        "Glob",
+        "Grep",
+        "ExitPlanMode",
+        "Read",
+        "Edit",
+        "Write",
+        "NotebookEdit",
+        "WebFetch",
+        "TodoWrite",
+        "WebSearch",
+        "KillShell",
+        "AskUserQuestion",
+        "Skill",
+        "EnterPlanMode",
+        "LSP"
+      ],
+      "mcp_servers": [],
+      "model": "claude-haiku-4-5-20251001",
+      "permissionMode": "default",
+      "slash_commands": [
+        "frontend-design",
+        "compact",
+        "context",
+        "cost",
+        "init",
+        "pr-comments",
+        "release-notes",
+        "review",
+        "security-review"
+      ],
+      "apiKeySource": "none",
+      "claude_code_version": "2.0.77",
+      "output_style": "default",
+      "agents": [
+        "Bash",
+        "general-purpose",
+        "statusline-setup",
+        "Explore",
+        "Plan",
+        "playwright-e2e-runner"
+      ],
+      "skills": [
+        "frontend-design"
+      ],
+      "plugins": [],
+      "uuid": "f2e933cf-cd09-4a8c-83b0-d87b03b525ec"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_start",
+        "message": {
+          "model": "claude-haiku-4-5-20251001",
+          "id": "msg_01AdmJ21hsLfDNSfZWLPUWYj",
+          "type": "message",
+          "role": "assistant",
+          "content": [],
+          "stop_reason": null,
+          "stop_sequence": null,
+          "stop_details": null,
+          "usage": {
+            "input_tokens": 10,
+            "cache_creation_input_tokens": 22730,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {
+              "ephemeral_5m_input_tokens": 22730,
+              "ephemeral_1h_input_tokens": 0
+            },
+            "output_tokens": 7,
+            "service_tier": "standard",
+            "inference_geo": "not_available"
+          }
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "656d83c5-d00f-4c0b-b9b4-d6087fd57578"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "thinking",
+          "thinking": "",
+          "signature": ""
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "15cfc888-93ae-4b67-8b1b-5edb22214fc3"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": "The user is asking me to reply"
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "5a019c3e-323a-4543-8bd5-ebb8884c7b00"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " with exactly \"Draft started successfully.\" and nothing else. This is a straightforward request with specific formatting requirements.\n\nI should"
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "c32f1916-2d80-46a0-89d2-2be5dac2dc5e"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "thinking_delta",
+          "thinking": " respond with exactly that phrase."
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "65f106c4-0d65-4e5b-abc1-a1a555f8c394"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "signature_delta",
+          "signature": "EpYDCmMIDRgCKkB0vQiGC+atnof6OHYkWZYUd9G5v8ftTdzMnm+RMdq7lcaChR+GgQyz6r75pSZqNmO77JHPwTM1tTmw8lsBWghQMhljbGF1ZGUtaGFpa3UtNC01LTIwMjUxMDAxOAASDMtrTbBNNOtKrj1+SRoMFAoE/4m4KYN0YPSnIjCQLnTD5cK/jFz+D6zn0bw3jUYzDlVAqZQlNaVMfv/AC5uQarEevCfVFbD+gm+zb1Iq4AG238VP6lLOYuVGAIknr2r0fbL+/dKkT2c/Q4yU5nyxJXz/V+FsWA3IrafaLkE10cE396851qg8u3jSPh7yBj9gRWhGrx2ipb/MA19ljvcc9p07R6OVF2DUaNZXftia1h/1hC6jQ8FB8c2RfDn/cQ21UX4wp170S3J9Qo4YfHVwyMGya2mhj1UFDZxzaATck1MYoJFZ9YWgEr5L+QDovr+s5e02TdcDuEFVWSKkiyyra+V+3SgWiT80nEDaRFtIyrR7WbwgylKmJ8tLinJQHEVvvojO/uMKwtt2rRFJveYHPRgB"
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "cf08ba23-1b01-42d1-a010-18f0741689ca"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01AdmJ21hsLfDNSfZWLPUWYj",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "The user is asking me to reply with exactly \"Draft started successfully.\" and nothing else. This is a straightforward request with specific formatting requirements.\n\nI should respond with exactly that phrase.",
+            "signature": "EpYDCmMIDRgCKkB0vQiGC+atnof6OHYkWZYUd9G5v8ftTdzMnm+RMdq7lcaChR+GgQyz6r75pSZqNmO77JHPwTM1tTmw8lsBWghQMhljbGF1ZGUtaGFpa3UtNC01LTIwMjUxMDAxOAASDMtrTbBNNOtKrj1+SRoMFAoE/4m4KYN0YPSnIjCQLnTD5cK/jFz+D6zn0bw3jUYzDlVAqZQlNaVMfv/AC5uQarEevCfVFbD+gm+zb1Iq4AG238VP6lLOYuVGAIknr2r0fbL+/dKkT2c/Q4yU5nyxJXz/V+FsWA3IrafaLkE10cE396851qg8u3jSPh7yBj9gRWhGrx2ipb/MA19ljvcc9p07R6OVF2DUaNZXftia1h/1hC6jQ8FB8c2RfDn/cQ21UX4wp170S3J9Qo4YfHVwyMGya2mhj1UFDZxzaATck1MYoJFZ9YWgEr5L+QDovr+s5e02TdcDuEFVWSKkiyyra+V+3SgWiT80nEDaRFtIyrR7WbwgylKmJ8tLinJQHEVvvojO/uMKwtt2rRFJveYHPRgB"
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "stop_details": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 22730,
+          "cache_read_input_tokens": 0,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 22730,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 7,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "uuid": "71b216b1-102c-4f40-9b82-4a1832f15eb6"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "702af63a-952b-4396-a5ab-17b4532486ac"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "09a52f8c-e017-437e-9924-3e255123d8ae"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "Draft started successfully."
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "252c3638-afa6-4df4-b23f-c232bd694980"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "model": "claude-haiku-4-5-20251001",
+        "id": "msg_01AdmJ21hsLfDNSfZWLPUWYj",
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Draft started successfully."
+          }
+        ],
+        "stop_reason": null,
+        "stop_sequence": null,
+        "stop_details": null,
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 22730,
+          "cache_read_input_tokens": 0,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 22730,
+            "ephemeral_1h_input_tokens": 0
+          },
+          "output_tokens": 53,
+          "service_tier": "standard",
+          "inference_geo": "not_available"
+        },
+        "context_management": null
+      },
+      "parent_tool_use_id": null,
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "uuid": "d5c317b8-0534-4724-9724-3628141bf77b"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "ae20038c-286c-4d36-94c4-402a6014c3d2"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "stop_details": null
+        },
+        "usage": {
+          "input_tokens": 10,
+          "cache_creation_input_tokens": 22730,
+          "cache_read_input_tokens": 0,
+          "output_tokens": 53
+        }
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "d8f304e4-c742-464a-8e36-7dce04bd0596"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "message_stop"
+      },
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "parent_tool_use_id": null,
+      "uuid": "55848e87-f032-4d19-91e4-2a133a57852a"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "duration_ms": 1251,
+      "duration_api_ms": 1228,
+      "num_turns": 1,
+      "result": "Draft started successfully.",
+      "session_id": "87890c44-8db8-4f39-a0f2-2ee18e5dd361",
+      "total_cost_usd": 0.0286875,
+      "usage": {
+        "input_tokens": 10,
+        "cache_creation_input_tokens": 22730,
+        "cache_read_input_tokens": 0,
+        "output_tokens": 53,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 0,
+          "ephemeral_5m_input_tokens": 22730
+        }
+      },
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 10,
+          "outputTokens": 53,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 22730,
+          "webSearchRequests": 0,
+          "costUSD": 0.0286875,
+          "contextWindow": 200000
+        }
+      },
+      "permission_denials": [],
+      "uuid": "8ad10ff3-20d1-4774-8389-490171c48e58"
+    }
+  ],
+  "key": "runSession-2db6de9d0b39f6ec",
+  "recordedAt": "2026-04-25T21:13:29.608Z"
+}

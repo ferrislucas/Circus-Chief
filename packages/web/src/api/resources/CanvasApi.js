@@ -25,6 +25,16 @@ export function CanvasApi(ApiClient) {
     },
 
     /**
+     * Get canvas item content inline (content/data fields) for a specific item/version
+     * @param {string} sessionId - Session ID
+     * @param {string} itemId - Canvas item ID
+     * @returns {Promise<{content: string|null, data: string|null, type: string, mimeType: string, filename: string}>}
+     */
+    async getCanvasItemContent(sessionId, itemId) {
+      return this._get(`/sessions/${sessionId}/canvas/${itemId}/content`);
+    },
+
+    /**
      * Get all canvas items for a session (including all versions)
      * @param {string} sessionId - Session ID
      * @returns {Promise<Array>}

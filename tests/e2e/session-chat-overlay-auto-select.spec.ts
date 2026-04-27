@@ -174,7 +174,7 @@ test.describe('Session Chat Overlay - Auto-select by most recent conversation ac
     // Get updated session
     const after = await getSession(childSession2.id);
 
-    // lastActivityAt should have increased
-    expect(after.lastActivityAt).toBeGreaterThan(initialActivity);
+    // lastActivityAt should have increased (use 0 as baseline when previously null)
+    expect(after.lastActivityAt).toBeGreaterThan(initialActivity ?? 0);
   });
 });

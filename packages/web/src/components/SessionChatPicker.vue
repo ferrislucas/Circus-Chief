@@ -40,7 +40,10 @@
       </div>
       <div class="picker-item-meta">
         <span class="picker-item-summary">{{ getSummaryText(entry.session.id) }}</span>
-        <span class="picker-item-date">{{ formatDate(entry.session.lastActivityAt || entry.session.updatedAt || entry.session.createdAt) }}</span>
+        <span
+          class="picker-item-date"
+          :title="entry.session.lastActivityAt ? 'Last activity' : 'No activity yet'"
+        >{{ entry.session.lastActivityAt ? formatDate(entry.session.lastActivityAt) : '—' }}</span>
       </div>
     </div>
   </div>

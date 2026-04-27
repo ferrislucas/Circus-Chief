@@ -3,6 +3,22 @@ import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
 
 /**
+ * Valid values for `providers.kind`. Maps 1:1 to an agent adapter:
+ *   - 'anthropic' → 'claude-code'
+ *   - 'openai'    → 'codex'
+ */
+export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
+
+/**
+ * Mapping from provider kind to the agent adapter that should drive sessions
+ * backed by that provider.
+ */
+export const AGENT_TYPE_BY_KIND = Object.freeze({
+  anthropic: 'claude-code',
+  openai: 'codex',
+});
+
+/**
  * Provider repository class (replaces ModelProviderRepository).
  *
  * Key differences from the old ModelProviderRepository:
@@ -11,6 +27,8 @@ import { encrypt, decrypt } from '../services/encryption.js';
  * - No auto-sync logic (#syncDefaultModels removed)
  * - Auth tokens are encrypted at rest (AES-256-GCM via encryption service)
  * - `getProviderByModelId` includes models (needed for buildProviderEnv)
+ * - Providers carry a `kind` (`'anthropic'` | `'openai'`) that selects the
+ *   agent adapter and env-var convention. `kind` is **immutable** after create.
  */
 export class ProviderRepository extends BaseRepository {
   constructor() {
@@ -27,6 +45,7 @@ export class ProviderRepository extends BaseRepository {
       apiTimeoutMs: row.api_timeout_ms,
       additionalEnvVars: row.additional_env_vars ? JSON.parse(row.additional_env_vars) : null,
       isBuiltIn: row.is_built_in === 1,
+      kind: row.kind || 'anthropic',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -64,12 +83,20 @@ export class ProviderRepository extends BaseRepository {
       authToken = null,
       apiTimeoutMs = null,
       additionalEnvVars = null,
+      kind = 'anthropic',
     } = data;
+
+    // Application-layer validation: give a clear error ahead of the DB CHECK.
+    if (!PROVIDER_KINDS.includes(kind)) {
+      throw new Error(
+        `Invalid provider kind "${kind}". Must be one of: ${PROVIDER_KINDS.join(', ')}.`
+      );
+    }
 
     this.db
       .prepare(
-        `INSERT INTO providers (id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO providers (id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, kind, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -78,6 +105,7 @@ export class ProviderRepository extends BaseRepository {
         encrypt(authToken),
         apiTimeoutMs,
         additionalEnvVars ? JSON.stringify(additionalEnvVars) : null,
+        kind,
         now,
         now
       );
@@ -115,6 +143,15 @@ export class ProviderRepository extends BaseRepository {
    * @returns {Object} Updated provider (with models array)
    */
   update(id, data) {
+    // `kind` is immutable after create. Existing models + env wiring depend on it,
+    // so changing it in place would silently corrupt sessions already attached to
+    // this provider.
+    if (data && Object.prototype.hasOwnProperty.call(data, 'kind')) {
+      throw new Error(
+        "Provider kind is immutable after create. Delete and recreate the provider to change kind."
+      );
+    }
+
     const updates = [];
     const values = [];
 
@@ -279,12 +316,15 @@ export class ProviderRepository extends BaseRepository {
       return null;
     }
 
-    // Find which provider owns this model ID
+    // Prefer custom providers over built-ins for duplicate model IDs. This
+    // preserves user-managed OpenAI providers (alternate base URLs, keys, or
+    // env vars) even when official OpenAI models are also seeded built-ins.
     const row = this.db
       .prepare(
         `SELECT p.id FROM providers p
          JOIN provider_models pm ON p.id = pm.provider_id
-         WHERE pm.model_id = ?`
+         WHERE pm.model_id = ?
+         ORDER BY p.is_built_in ASC, p.name ASC`
       )
       .get(modelId);
 
@@ -297,11 +337,27 @@ export class ProviderRepository extends BaseRepository {
     const provider = this.getById(row.id);
     if (!provider) return null;
 
-    // Built-in Anthropic provider falls through to SDK defaults
-    if (provider.isBuiltIn) {
+    // Built-in **Anthropic** provider falls through to SDK defaults (keeps
+    // historical behavior of letting @anthropic-ai/claude-agent-sdk pick its
+    // own env). Built-in OpenAI (or any future non-Anthropic built-in) still
+    // needs its env vars to flow, so we return the provider object.
+    if (provider.isBuiltIn && provider.kind === 'anthropic') {
       return null;
     }
 
     return provider;
+  }
+
+  /**
+   * Resolve a provider's agent type from its id.
+   * @param {string|null|undefined} providerId
+   * @returns {string|null} 'claude-code' for anthropic-kind, 'codex' for openai-kind,
+   *   or null if the provider is unknown.
+   */
+  getAgentTypeForProvider(providerId) {
+    if (!providerId) return null;
+    const provider = this.getById(providerId);
+    if (!provider) return null;
+    return AGENT_TYPE_BY_KIND[provider.kind] || null;
   }
 }

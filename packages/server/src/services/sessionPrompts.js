@@ -108,6 +108,31 @@ export function getPermissionModeForSession(mode) {
   }
 }
 
+/**
+ * Map session mode to the Codex CLI --sandbox flag value.
+ *
+ *   plan     → read-only           (parity with Claude plan mode's read-mostly posture)
+ *   standard → workspace-write     (default; Codex can edit files in cwd)
+ *   yolo     → danger-full-access  (parallels Claude's bypassPermissions)
+ *
+ * Note: `--full-auto` is intentionally NOT used — it is a shorthand that also
+ * overrides approval policies, which would conflate two orthogonal concerns.
+ *
+ * @param {string} mode - Session mode ('plan', 'standard', 'yolo')
+ * @returns {string} Codex sandbox mode
+ */
+export function getSandboxModeForSession(mode) {
+  switch (mode) {
+    case 'plan':
+      return 'read-only';
+    case 'yolo':
+      return 'danger-full-access';
+    case 'standard':
+    default:
+      return 'workspace-write';
+  }
+}
+
 /** Plan mode system prompt instructions */
 export const PLAN_MODE_PROMPT = `## Plan Mode Active
 

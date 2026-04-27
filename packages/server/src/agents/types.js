@@ -24,6 +24,7 @@
  * @property {Object} env - Environment variables
  * @property {Function} spawnClaudeCodeProcess - Process spawner function
  * @property {string} [model] - Model to use
+ * @property {string|null} [effortLevel] - Reasoning effort override, or null/auto for provider default
  * @property {string} systemPrompt - System prompt string
  */
 

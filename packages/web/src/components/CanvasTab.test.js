@@ -36,6 +36,7 @@ vi.mock('../composables/useApi.js', () => ({
     getCanvasItems: vi.fn().mockResolvedValue([]),
     getAllCanvasItems: vi.fn().mockResolvedValue([]),
     getCanvasFileContent: vi.fn().mockResolvedValue({ content: null, data: null }),
+    getCanvasItemContent: vi.fn().mockResolvedValue({ content: null, data: null }),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn().mockResolvedValue([]),

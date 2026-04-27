@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DatabaseManager } from '../../src/db/DatabaseManager.js';
 import { ProjectRepository } from '../../src/db/ProjectRepository.js';
+import { OPENAI_MODELS } from '@circuschief/shared';
 import fs from 'fs';
 import os from 'os';
 
@@ -117,6 +118,18 @@ describe('Providers Migration Integration', () => {
     expect(tables).toContain('provider_models');
     expect(tables).not.toContain('model_providers');
 
+    const openai = db.prepare('SELECT * FROM providers WHERE id = ?').get('openai-default');
+    expect(openai).toMatchObject({
+      name: 'OpenAI (Official)',
+      kind: 'openai',
+      is_built_in: 1,
+      base_url: null,
+      auth_token: null,
+    });
+    expect(db
+      .prepare('SELECT COUNT(*) AS cnt FROM provider_models WHERE provider_id = ?')
+      .get('openai-default').cnt).toBe(OPENAI_MODELS.length);
+
     // Project deletion should work
     const projects = new ProjectRepository();
     expect(() => {
@@ -138,5 +151,53 @@ describe('Providers Migration Integration', () => {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name);
     expect(tables).toContain('providers');
     expect(tables).not.toContain('model_providers');
+  });
+
+  it('migrates providers tables that already have Anthropic but no OpenAI built-in', () => {
+    const Database = require('better-sqlite3');
+    const oldDb = new Database(dbPath);
+    const now = Date.now();
+    oldDb.exec(`
+      CREATE TABLE providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        base_url TEXT,
+        auth_token TEXT,
+        api_timeout_ms INTEGER,
+        additional_env_vars TEXT,
+        is_built_in INTEGER NOT NULL DEFAULT 0,
+        kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai')),
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE TABLE provider_models (
+        id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+        model_id TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        description TEXT,
+        tier TEXT CHECK(tier IN ('opus', 'sonnet', 'haiku', 'custom')),
+        created_at INTEGER NOT NULL
+      );
+
+      INSERT INTO providers (id, name, is_built_in, kind, created_at, updated_at)
+      VALUES ('anthropic-default', 'Anthropic (Official)', 1, 'anthropic', ${now}, ${now});
+    `);
+    oldDb.close();
+
+    manager = new DatabaseManager();
+    manager.init(dbPath);
+
+    const db = manager.get();
+    const openai = db.prepare('SELECT * FROM providers WHERE id = ?').get('openai-default');
+    expect(openai).toMatchObject({
+      name: 'OpenAI (Official)',
+      kind: 'openai',
+      is_built_in: 1,
+    });
+    expect(db
+      .prepare('SELECT COUNT(*) AS cnt FROM provider_models WHERE provider_id = ?')
+      .get('openai-default').cnt).toBe(OPENAI_MODELS.length);
   });
 });

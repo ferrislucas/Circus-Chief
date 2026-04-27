@@ -83,7 +83,10 @@ export const useProvidersStore = defineStore('providers', {
       this.loading = true;
       this.error = null;
       try {
-        const updated = await api.updateProvider(id, updates);
+        // `kind` is immutable server-side. Strip it client-side as defense-in-depth
+        // so stray form state can't trigger a backend rejection.
+        const { kind: _strippedKind, ...sanitized } = updates || {};
+        const updated = await api.updateProvider(id, sanitized);
         const index = this.providers.findIndex((p) => p.id === id);
         if (index !== -1) {
           this.providers[index] = updated;
