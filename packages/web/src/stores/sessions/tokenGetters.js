@@ -1,5 +1,4 @@
-import { calculateBillableTokens, formatTokenCount } from '@circuschief/shared';
-import { useSettingsStore } from '../settings.js';
+import { calculateTokenTotal, formatTokenCount } from '@circuschief/shared';
 
 /**
  * Format a token count for display.
@@ -14,11 +13,19 @@ function formatToken(n) {
 /**
  * Build formatted token object from raw token counts.
  */
-function buildFormattedTokens(input, output, cacheRead, cacheCreation) {
+function buildFormattedTokens(input, output, thinking, cacheRead, cacheCreation) {
+  const usage = {
+    inputTokens: input,
+    outputTokens: output,
+    thinkingTokens: thinking,
+    cacheReadInputTokens: cacheRead,
+    cacheCreationInputTokens: cacheCreation,
+  };
   return {
     input: formatToken(input),
     output: formatToken(output),
-    total: formatToken((input || 0) + (output || 0)),
+    thinking: formatToken(thinking),
+    total: formatToken(calculateTokenTotal(usage)),
     cacheRead: formatToken(cacheRead),
     cacheCreation: formatToken(cacheCreation),
   };
@@ -46,6 +53,7 @@ function mergeConvAndRunningUsage(conv, runningUsage) {
   return {
     inputTokens: (conv?.inputTokens || 0) + (runningUsage.inputTokens || 0),
     outputTokens: (conv?.outputTokens || 0) + (runningUsage.outputTokens || 0),
+    thinkingTokens: (conv?.thinkingTokens || 0) + (runningUsage.thinkingTokens || 0),
     cacheReadInputTokens: (conv?.cacheReadInputTokens || 0) + (runningUsage.cacheReadInputTokens || 0),
     cacheCreationInputTokens: (conv?.cacheCreationInputTokens || 0) + (runningUsage.cacheCreationInputTokens || 0),
   };
@@ -58,6 +66,7 @@ function convUsage(conv) {
   return {
     inputTokens: conv.inputTokens,
     outputTokens: conv.outputTokens,
+    thinkingTokens: conv.thinkingTokens,
     cacheReadInputTokens: conv.cacheReadInputTokens,
     cacheCreationInputTokens: conv.cacheCreationInputTokens,
   };
@@ -73,6 +82,7 @@ export const tokenGetters = {
     return conv
       ? {
           inputTokens: conv.inputTokens || 0, outputTokens: conv.outputTokens || 0,
+          thinkingTokens: conv.thinkingTokens || 0,
           cacheReadInputTokens: conv.cacheReadInputTokens || 0,
           cacheCreationInputTokens: conv.cacheCreationInputTokens || 0,
           webSearchRequests: conv.webSearchRequests || 0, contextWindow: conv.contextWindow || 200000,
@@ -81,35 +91,35 @@ export const tokenGetters = {
   },
   totalTokens: (state) => {
     const conv = state.conversations.find((c) => c.id === state.activeConversationId);
-    if (conv) return (conv.inputTokens || 0) + (conv.outputTokens || 0);
+    if (conv) return calculateTokenTotal(conv);
     if (!state.currentSession) return 0;
-    return (state.currentSession.inputTokens || 0) + (state.currentSession.outputTokens || 0);
+    return calculateTokenTotal(state.currentSession);
   },
   formattedTokens: (state) => {
     if (isRunningUsageRelevant(state)) {
       const merged = mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage);
-      return buildFormattedTokens(merged.inputTokens, merged.outputTokens, merged.cacheReadInputTokens, merged.cacheCreationInputTokens);
+      return buildFormattedTokens(merged.inputTokens, merged.outputTokens, merged.thinkingTokens, merged.cacheReadInputTokens, merged.cacheCreationInputTokens);
     }
     if (state.activeConversationId && state.conversations.length > 0) {
       const conv = findActiveConversation(state);
       if (conv) {
-        return buildFormattedTokens(conv.inputTokens, conv.outputTokens, conv.cacheReadInputTokens, conv.cacheCreationInputTokens);
+        return buildFormattedTokens(conv.inputTokens, conv.outputTokens, conv.thinkingTokens, conv.cacheReadInputTokens, conv.cacheCreationInputTokens);
       }
     }
-    return { input: '-', output: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
+    return { input: '-', output: '-', thinking: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
   },
   contextPercentage: (state) => {
     if (isRunningUsageRelevant(state)) {
       const conv = findActiveConversation(state);
       const merged = mergeConvAndRunningUsage(conv, state.runningUsage);
-      const total = merged.inputTokens + merged.outputTokens;
+      const total = calculateTokenTotal(merged);
       const contextWindow = state.runningUsage.contextWindow || conv?.contextWindow || 200000;
       return Math.min(100, Math.round((total / contextWindow) * 100));
     }
     const conv = findActiveConversation(state);
     const source = conv || state.currentSession;
     if (!source) return 0;
-    const totalTokens = (source.inputTokens || 0) + (source.outputTokens || 0);
+    const totalTokens = calculateTokenTotal(source);
     return Math.min(100, Math.round((totalTokens / (source.contextWindow || 200000)) * 100));
   },
   isUsageUpdating: (state) => {
@@ -119,97 +129,62 @@ export const tokenGetters = {
   },
   getConversationDisplayTokens: (state) => (conversationId) => {
     const conv = state.conversations.find((c) => c.id === conversationId);
-    if (!conv) return { inputTokens: 0, outputTokens: 0, total: 0 };
+    if (!conv) return { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, total: 0 };
     if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
-      const totalInput = (conv.inputTokens || 0) + (state.runningUsage.inputTokens || 0);
-      const totalOutput = (conv.outputTokens || 0) + (state.runningUsage.outputTokens || 0);
-      return { inputTokens: totalInput, outputTokens: totalOutput, total: totalInput + totalOutput };
+      const usage = mergeConvAndRunningUsage(conv, state.runningUsage);
+      return { ...usage, total: calculateTokenTotal(usage) };
     }
     return {
-      inputTokens: conv.inputTokens || 0, outputTokens: conv.outputTokens || 0,
-      total: (conv.inputTokens || 0) + (conv.outputTokens || 0),
+      inputTokens: conv.inputTokens || 0,
+      outputTokens: conv.outputTokens || 0,
+      thinkingTokens: conv.thinkingTokens || 0,
+      total: calculateTokenTotal(conv),
     };
   },
-  billableTokens: (state) => {
-    const settingsStore = useSettingsStore();
-    const weights = settingsStore.tokenCostWeights;
+  tokenTotal: (state) => {
     if (isRunningUsageRelevant(state)) {
-      return calculateBillableTokens(mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage), weights);
+      return calculateTokenTotal(mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage));
     }
     if (state.activeConversationId && state.conversations.length > 0) {
       const conv = findActiveConversation(state);
-      if (conv) return calculateBillableTokens(convUsage(conv), weights);
+      if (conv) return calculateTokenTotal(convUsage(conv));
     }
     return 0;
   },
-  formattedBillableTokens: (state) => {
-    const settingsStore = useSettingsStore();
-    const weights = settingsStore.tokenCostWeights;
+  formattedTokenTotal: (state) => {
     if (isRunningUsageRelevant(state)) {
-      return formatTokenCount(calculateBillableTokens(mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage), weights));
+      return formatTokenCount(calculateTokenTotal(mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage)));
     }
     if (state.activeConversationId && state.conversations.length > 0) {
       const conv = findActiveConversation(state);
-      if (conv) return formatTokenCount(calculateBillableTokens(convUsage(conv), weights));
+      if (conv) return formatTokenCount(calculateTokenTotal(convUsage(conv)));
     }
     return '-';
   },
-  getConversationBillableTokens: (state) => (conversationId) => {
-    const settingsStore = useSettingsStore();
-    const weights = settingsStore.tokenCostWeights;
+  getConversationTokenTotal: (state) => (conversationId) => {
     const conv = state.conversations.find(c => c.id === conversationId);
     if (!conv) return 0;
     if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
-      return calculateBillableTokens({
-        inputTokens: (conv.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
-        outputTokens: (conv.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
-        cacheReadInputTokens: (conv.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
-        cacheCreationInputTokens: (conv.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
-      }, weights);
+      return calculateTokenTotal(mergeConvAndRunningUsage(conv, state.runningUsage));
     }
-    return calculateBillableTokens({
-      inputTokens: conv.inputTokens, outputTokens: conv.outputTokens,
-      cacheReadInputTokens: conv.cacheReadInputTokens, cacheCreationInputTokens: conv.cacheCreationInputTokens,
-    }, weights);
+    return calculateTokenTotal(convUsage(conv));
   },
-  getFormattedConversationBillableTokens: (state) => (conversationId) => {
-    const settingsStore = useSettingsStore();
-    const weights = settingsStore.tokenCostWeights;
+  getFormattedConversationTokenTotal: (state) => (conversationId) => {
     const conv = state.conversations.find(c => c.id === conversationId);
     if (!conv) return '-';
-    let usage;
-    if (state.runningUsage && state.runningUsage.conversationId === conversationId) {
-      usage = {
-        inputTokens: (conv.inputTokens || 0) + (state.runningUsage.inputTokens || 0),
-        outputTokens: (conv.outputTokens || 0) + (state.runningUsage.outputTokens || 0),
-        cacheReadInputTokens: (conv.cacheReadInputTokens || 0) + (state.runningUsage.cacheReadInputTokens || 0),
-        cacheCreationInputTokens: (conv.cacheCreationInputTokens || 0) + (state.runningUsage.cacheCreationInputTokens || 0),
-      };
-    } else {
-      usage = {
-        inputTokens: conv.inputTokens, outputTokens: conv.outputTokens,
-        cacheReadInputTokens: conv.cacheReadInputTokens, cacheCreationInputTokens: conv.cacheCreationInputTokens,
-      };
-    }
-    return formatTokenCount(calculateBillableTokens(usage, weights));
+    const usage = state.runningUsage && state.runningUsage.conversationId === conversationId
+      ? mergeConvAndRunningUsage(conv, state.runningUsage)
+      : convUsage(conv);
+    return formatTokenCount(calculateTokenTotal(usage));
   },
   /**
-   * Calculate session-level BTE for a given session (not conversation-scoped).
+   * Calculate session-level raw tokens for a given session (not conversation-scoped).
    * Aggregates across the session and all its descendants.
-   * Returns a number (raw BTE count).
    */
-  getSessionBillableTokens: (state) => (sessionId) => {
-    const settingsStore = useSettingsStore();
-    const weights = settingsStore.tokenCostWeights;
-
+  getSessionTokenTotal: (state) => (sessionId) => {
     const calcForSession = (session) => {
       if (!session) return 0;
-      return calculateBillableTokens({
-        inputTokens: session.inputTokens || 0,
-        outputTokens: session.outputTokens || 0,
-        cacheReadInputTokens: session.cacheReadInputTokens || 0,
-        cacheCreationInputTokens: session.cacheCreationInputTokens || 0,
-      }, weights);
+      return calculateTokenTotal(session);
     };
 
     // Look up the session — check both the sessions array and currentSession
@@ -235,4 +210,7 @@ export const tokenGetters = {
 
     return total;
   },
+  getFormattedSessionTokenTotal: (state) => (sessionId) => (
+    formatTokenCount(tokenGetters.getSessionTokenTotal(state)(sessionId))
+  ),
 };

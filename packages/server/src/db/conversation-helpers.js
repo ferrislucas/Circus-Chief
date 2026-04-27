@@ -22,6 +22,7 @@ export function mapConversationRow(row) {
     // Token usage fields
     inputTokens: row.input_tokens || 0,
     outputTokens: row.output_tokens || 0,
+    thinkingTokens: row.thinking_tokens || 0,
     cacheReadInputTokens: row.cache_read_input_tokens || 0,
     cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
     webSearchRequests: row.web_search_requests || 0,

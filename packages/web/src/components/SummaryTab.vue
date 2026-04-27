@@ -17,8 +17,8 @@
       :has-metrics="hasMetrics"
       :is-scheduled="isScheduled"
       :session-count="sessionCount"
-      :has-non-zero-cost="hasNonZeroCost"
-      :formatted-cost="formattedCost"
+      :has-non-zero-tokens="hasNonZeroTokens"
+      :formatted-tokens="formattedTokens"
       :formatted-duration="formattedDuration"
       :files-count="filesCount"
       :pr-url="prUrl"
@@ -172,11 +172,11 @@ const sessionCount = computed(() => {
   return descendants.length + 1;
 });
 
-const hasNonZeroCost = computed(() => sessionsStore.getSessionBillableTokens(props.sessionId) > 0);
+const hasNonZeroTokens = computed(() => sessionsStore.getSessionTokenTotal(props.sessionId) > 0);
 
-const formattedCost = computed(() => {
-  const bte = sessionsStore.getSessionBillableTokens(props.sessionId);
-  return formatTokenCount(bte);
+const formattedTokens = computed(() => {
+  const tokens = sessionsStore.getSessionTokenTotal(props.sessionId);
+  return formatTokenCount(tokens);
 });
 
 const workTimeMs = computed(() => {
@@ -186,13 +186,13 @@ const workTimeMs = computed(() => {
   if (s.status === 'running' || s.status === 'starting') {
     return computeActiveSessionTime(s);
   }
-  return computeIdleSessionTime(s, (id) => sessionsStore.getSessionBillableTokens(id));
+  return computeIdleSessionTime(s, (id) => sessionsStore.getSessionTokenTotal(id));
 });
 
 const formattedDuration = computed(() => formatDuration(workTimeMs.value));
 
 const hasMetrics = computed(() =>
-  sessionCount.value > 1 || hasNonZeroCost.value || formattedDuration.value || filesCount.value > 0
+  sessionCount.value > 1 || hasNonZeroTokens.value || formattedDuration.value || filesCount.value > 0
 );
 
 onMounted(async () => {

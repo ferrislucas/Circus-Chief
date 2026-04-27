@@ -36,7 +36,6 @@
               :depth="0"
               :all-conversations="conversations"
               :active-conversation-id="activeConversationId"
-              :show-bte="true"
               @select="selectConversation"
               @delete="handleDelete"
             />
@@ -322,19 +321,19 @@ defineExpose({
   border-top: 1px solid var(--color-border);
 }
 
-.bte-header {
+.token-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
 }
 
-.bte-label {
+.token-label {
   font-size: 0.875rem;
   color: var(--color-text-soft);
 }
 
-.bte-value {
+.token-value {
   font-family: var(--font-mono);
   font-size: 1.125rem;
   font-weight: 700;

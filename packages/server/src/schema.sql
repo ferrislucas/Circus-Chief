@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   claude_session_id TEXT,
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
   parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  thinking_tokens INTEGER DEFAULT 0,
+  cache_read_input_tokens INTEGER DEFAULT 0,
+  cache_creation_input_tokens INTEGER DEFAULT 0,
+  web_search_requests INTEGER DEFAULT 0,
+  context_window INTEGER DEFAULT 200000,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -64,6 +71,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   -- Token usage fields (per-conversation tracking)
   input_tokens INTEGER DEFAULT 0,
   output_tokens INTEGER DEFAULT 0,
+  thinking_tokens INTEGER DEFAULT 0,
   cache_read_input_tokens INTEGER DEFAULT 0,
   cache_creation_input_tokens INTEGER DEFAULT 0,
   web_search_requests INTEGER DEFAULT 0,

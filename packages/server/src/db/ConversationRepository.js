@@ -237,6 +237,7 @@ export class ConversationRepository extends BaseRepository {
    * @param {Object} usage - Usage data
    * @param {number} usage.inputTokens
    * @param {number} usage.outputTokens
+   * @param {number} usage.thinkingTokens
    * @param {number} usage.cacheReadInputTokens
    * @param {number} usage.cacheCreationInputTokens
    * @param {number} usage.webSearchRequests
@@ -255,6 +256,7 @@ export class ConversationRepository extends BaseRepository {
         `UPDATE conversations SET
           input_tokens = ?,
           output_tokens = ?,
+          thinking_tokens = ?,
           cache_read_input_tokens = ?,
           cache_creation_input_tokens = ?,
           web_search_requests = ?,
@@ -265,6 +267,7 @@ export class ConversationRepository extends BaseRepository {
       .run(
         usage.inputTokens,
         usage.outputTokens,
+        usage.thinkingTokens || 0,
         usage.cacheReadInputTokens,
         usage.cacheCreationInputTokens,
         usage.webSearchRequests,
@@ -290,9 +293,12 @@ export class ConversationRepository extends BaseRepository {
       const now = Date.now();
 
       this.db
-        .prepare(
-          `INSERT INTO conversations (id, session_id, name, summary, is_active, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+      .prepare(
+          `INSERT INTO conversations (id, session_id, name, summary, is_active,
+                                      input_tokens, output_tokens, thinking_tokens,
+                                      cache_read_input_tokens, cache_creation_input_tokens,
+                                      web_search_requests, context_window, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -300,6 +306,13 @@ export class ConversationRepository extends BaseRepository {
           conv.name,
           conv.summary,
           conv.isActive ? 1 : 0,
+          conv.inputTokens,
+          conv.outputTokens,
+          conv.thinkingTokens,
+          conv.cacheReadInputTokens,
+          conv.cacheCreationInputTokens,
+          conv.webSearchRequests,
+          conv.contextWindow,
           now,
           now
         );

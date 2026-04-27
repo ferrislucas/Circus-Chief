@@ -171,6 +171,7 @@ export const perSessionActions = {
         this.conversations.splice(index, 1, {
           ...this.conversations[index],
           inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
+          thinkingTokens: usage.thinkingTokens,
           cacheReadInputTokens: usage.cacheReadInputTokens,
           cacheCreationInputTokens: usage.cacheCreationInputTokens,
           webSearchRequests: usage.webSearchRequests, contextWindow: usage.contextWindow, model: usage.model,
@@ -181,6 +182,7 @@ export const perSessionActions = {
       this.currentSession = {
         ...this.currentSession,
         inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
+        thinkingTokens: usage.thinkingTokens,
         cacheReadInputTokens: usage.cacheReadInputTokens,
         cacheCreationInputTokens: usage.cacheCreationInputTokens,
         webSearchRequests: usage.webSearchRequests, contextWindow: usage.contextWindow,
@@ -195,6 +197,7 @@ export const perSessionActions = {
       this.conversations.splice(index, 1, {
         ...this.conversations[index],
         inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
+        thinkingTokens: usage.thinkingTokens,
         cacheReadInputTokens: usage.cacheReadInputTokens,
         cacheCreationInputTokens: usage.cacheCreationInputTokens,
         webSearchRequests: usage.webSearchRequests, contextWindow: usage.contextWindow, model: usage.model,

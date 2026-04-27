@@ -9,13 +9,14 @@
  *   sessionId: string,                // session ID
  *   inputTokens?: number,             // input token count
  *   outputTokens?: number,            // output token count
+ *   thinkingTokens?: number,          // thinking token count
  *   cacheReadInputTokens?: number,    // cache read input token count
  *   cacheCreationInputTokens?: number,// cache creation input token count
  * }
  *
  * Behavior:
  * - Opens the SQLite database
- * - Updates input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens columns
+ * - Updates input_tokens, output_tokens, thinking_tokens, cache_read_input_tokens, cache_creation_input_tokens columns
  * - Outputs the updated session row as JSON on stdout
  */
 import Database from 'better-sqlite3';
@@ -31,6 +32,7 @@ const {
   sessionId,
   inputTokens,
   outputTokens,
+  thinkingTokens,
   cacheReadInputTokens,
   cacheCreationInputTokens,
 } = JSON.parse(raw);
@@ -44,6 +46,7 @@ db.prepare(
   `UPDATE sessions SET
     input_tokens = ?,
     output_tokens = ?,
+    thinking_tokens = ?,
     cache_read_input_tokens = ?,
     cache_creation_input_tokens = ?,
     updated_at = ?
@@ -51,6 +54,7 @@ db.prepare(
 ).run(
   inputTokens ?? 0,
   outputTokens ?? 0,
+  thinkingTokens ?? 0,
   cacheReadInputTokens ?? 0,
   cacheCreationInputTokens ?? 0,
   now,
@@ -67,6 +71,7 @@ const session = {
   name: row.name,
   inputTokens: row.input_tokens || 0,
   outputTokens: row.output_tokens || 0,
+  thinkingTokens: row.thinking_tokens || 0,
   cacheReadInputTokens: row.cache_read_input_tokens || 0,
   cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
   createdAt: row.created_at,

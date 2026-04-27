@@ -6,7 +6,7 @@
     <!-- Stale content badge -->
     <StaleBadge :is-stale="isStale" />
 
-    <!-- Unified Conversation Panel - selector + BTE cost display -->
+    <!-- Unified Conversation Panel - selector + token display -->
     <ConversationPanel
       v-if="!isScheduledForFuture"
       :session-id="sessionId"

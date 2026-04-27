@@ -2228,20 +2228,21 @@ export async function getTodos(
 }
 
 // ============================================================
-// Token Usage & Cost Helpers (for token-usage-cost tests)
+// Token Usage Helpers
 // ============================================================
 
 /**
  * Seed token usage directly into the DB for a session row.
  * Uses scripts/seed-session-tokens.mjs for direct DB write.
  * Updates the session-level token fields (inputTokens, outputTokens, etc.)
- * used by the overview metrics cost display.
+ * used by overview token metrics.
  */
 export function seedSessionTokens(
   sessionId: string,
   tokens: {
     inputTokens?: number;
     outputTokens?: number;
+    thinkingTokens?: number;
     cacheReadInputTokens?: number;
     cacheCreationInputTokens?: number;
   }
@@ -2272,6 +2273,7 @@ export function seedConversationTokens(
   tokens: {
     inputTokens?: number;
     outputTokens?: number;
+    thinkingTokens?: number;
     cacheReadInputTokens?: number;
     cacheCreationInputTokens?: number;
     contextWindow?: number;

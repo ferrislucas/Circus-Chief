@@ -4,8 +4,7 @@ export const API_PREFIX = '/api';
 export const WS_PATH = '/ws';
 
 /**
- * Default token cost weights for calculating Billable Token Equivalent (BTE)
- * These weights represent relative costs compared to input tokens (1.0 = base rate)
+ * Legacy token cost weights kept for settings API compatibility.
  */
 export const DEFAULT_TOKEN_COST_WEIGHTS = {
   input: 1.0,        // Base rate
