@@ -96,7 +96,7 @@ test.describe('SessionChatOverlay layout', () => {
     expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
   });
 
-  test('backdrop uses position: fixed and align-items: stretch', async ({ page }) => {
+  test('backdrop uses position: fixed and viewport-offset top', async ({ page }) => {
     await navigateToSession(page);
     await openOverlay(page);
 
@@ -107,16 +107,46 @@ test.describe('SessionChatOverlay layout', () => {
       const c = getComputedStyle(el);
       return {
         position: c.position,
-        alignItems: c.alignItems,
         top: c.top,
         left: c.left,
       };
     });
 
     expect(computed.position).toBe('fixed');
-    expect(computed.alignItems).toBe('stretch');
     expect(computed.top).toBe('0px');
     expect(computed.left).toBe('0px');
+  });
+
+  test('panel honors visual viewport top offset', async ({ page }) => {
+    await navigateToSession(page);
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--viewport-offset-top', '48px');
+    });
+    await openOverlay(page);
+
+    const result = await page.evaluate(() => {
+      const backdrop = document.querySelector(
+        '[data-testid="session-chat-overlay"]'
+      ) as HTMLElement;
+      const panel = document.querySelector('.overlay-panel-wrapper') as HTMLElement;
+      const header = document.querySelector('.overlay-header') as HTMLElement;
+      return {
+        backdropTop: backdrop.getBoundingClientRect().top,
+        panelTop: panel.getBoundingClientRect().top,
+        headerTop: header.getBoundingClientRect().top,
+      };
+    });
+
+    expect(result.backdropTop).toBeGreaterThanOrEqual(47);
+    expect(result.backdropTop).toBeLessThanOrEqual(49);
+    expect(result.panelTop).toBeGreaterThanOrEqual(47);
+    expect(result.panelTop).toBeLessThanOrEqual(49);
+    expect(result.headerTop).toBeGreaterThanOrEqual(47);
+    expect(result.headerTop).toBeLessThanOrEqual(49);
+
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--viewport-offset-top', '0px');
+    });
   });
 
   test('covers viewport after SessionDetailView scroll', async ({ page }) => {
