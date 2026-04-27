@@ -67,6 +67,10 @@ export class LoggingAgentWrapper {
     return this.agent.supportsResume();
   }
 
+  needsConversationContext() {
+    return this.agent.needsConversationContext();
+  }
+
   getCapabilities() {
     return this.agent.getCapabilities();
   }

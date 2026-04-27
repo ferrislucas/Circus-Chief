@@ -27,13 +27,27 @@ export class BaseAgent {
   }
 
   /**
+   * Whether the adapter needs conversation history explicitly prepended
+   * to the prompt on continuation. Adapters that support resume (like
+   * Claude Code) maintain their own server-side context and return false.
+   * Adapters without resume capability return true — the execution layer
+   * must inject history as text so the model has context.
+   *
+   * @returns {boolean}
+   */
+  needsConversationContext() {
+    return !this.supportsResume();
+  }
+
+  /**
    * Get agent capabilities
-   * @returns {{ streaming: boolean, thinking: boolean, toolUse: boolean, resume: boolean }}
+   * @returns {{ streaming: boolean, thinking: boolean, reasoningEffort: boolean, toolUse: boolean, resume: boolean }}
    */
   getCapabilities() {
     return {
       streaming: false,
       thinking: false,
+      reasoningEffort: false,
       toolUse: false,
       resume: false,
     };

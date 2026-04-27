@@ -87,6 +87,7 @@ describe('ClaudeCodeAdapter', () => {
     expect(adapter.getCapabilities()).toEqual({
       streaming: true,
       thinking: true,
+      reasoningEffort: true,
       toolUse: true,
       resume: true,
     });

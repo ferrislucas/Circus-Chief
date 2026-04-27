@@ -307,6 +307,35 @@ describe('SessionRepository', () => {
         expect(messages).toHaveLength(0);
       });
     });
+
+    // ============================================================
+    // Regression: agentType derived from model in SessionRepository
+    // ============================================================
+    describe('agentType resolution', () => {
+      it('defaults to claude-code when no model and no agentType specified', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt');
+        expect(session.agentType).toBe('claude-code');
+      });
+
+      it('defaults to claude-code when model is null and no agentType specified', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { model: null });
+        expect(session.agentType).toBe('claude-code');
+      });
+
+      it('uses explicit agentType when provided', () => {
+        const session = repo.create(projectId, 'Test', 'Prompt', { agentType: 'codex' });
+        expect(session.agentType).toBe('codex');
+      });
+
+      it('explicit agentType wins over model-based resolution', () => {
+        // Even with a claude model, explicit codex agentType should win
+        const session = repo.create(projectId, 'Test', 'Prompt', {
+          model: 'claude-sonnet-4-20250514',
+          agentType: 'codex',
+        });
+        expect(session.agentType).toBe('codex');
+      });
+    });
   });
 
   describe('getById', () => {
@@ -985,7 +1014,7 @@ describe('SessionRepository', () => {
       expect(updated.parentSessionId).toBe(parent.id);
     });
 
-    it('children are ordered by updatedAt DESC when fetched', async () => {
+    it('children are ordered by last_activity_at DESC when fetched', async () => {
       const parent = repo.create(projectId, 'Parent', 'Parent prompt');
       const child1 = repo.create(projectId, 'Child 1', 'Prompt 1', 'standard', false, null, parent.id);
 
@@ -994,11 +1023,13 @@ describe('SessionRepository', () => {
 
       const child2 = repo.create(projectId, 'Child 2', 'Prompt 2', 'standard', false, null, parent.id);
 
-      // Wait again before update to ensure different timestamp
+      // Wait again to ensure later message timestamps
       await new Promise((resolve) => setTimeout(resolve, 2));
 
-      // Update child1 to be more recent (happens after child2 is created)
-      repo.update(child1.id, { status: 'stopped' });
+      // Simulate a new conversation turn on child1 so it becomes the most
+      // recently active session.
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(Date.now() + 10_000, child1.id);
 
       const children = repo.getChildSessions(parent.id);
 
@@ -1486,28 +1517,24 @@ describe('SessionRepository', () => {
       expect(retrievedAfter.lastActivityAt).toBeGreaterThanOrEqual(newMessage.timestamp);
     });
 
-    it('falls back to updatedAt when there are no messages', () => {
+    it('returns null for lastActivityAt when there are no messages (waiting session)', () => {
       // Create a waiting session (which doesn't create initial message)
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'waiting');
 
       const retrieved = repo.getById(session.id);
 
-      expect(retrieved.lastActivityAt).toBeDefined();
-      expect(retrieved.lastActivityAt).toBeTypeOf('number');
-      // For a new session with no messages, lastActivityAt should equal updatedAt
-      expect(retrieved.lastActivityAt).toBe(retrieved.updatedAt);
+      // Option A: sessions with zero messages surface null so the UI can display
+      // a meaningful "No activity yet" placeholder.
+      expect(retrieved.lastActivityAt).toBeNull();
     });
 
-    it('falls back to createdAt when there are no messages and updatedAt equals createdAt', () => {
+    it('returns null for lastActivityAt when there are no messages (scheduled session)', () => {
       // Create a scheduled session (which doesn't create initial message)
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'scheduled');
 
       const retrieved = repo.getById(session.id);
 
-      expect(retrieved.lastActivityAt).toBeDefined();
-      expect(retrieved.lastActivityAt).toBeTypeOf('number');
-      // For a new session with no messages and no updates, lastActivityAt should equal createdAt
-      expect(retrieved.lastActivityAt).toBe(retrieved.createdAt);
+      expect(retrieved.lastActivityAt).toBeNull();
     });
 
     it('is included in getActiveAndWaiting results', () => {
@@ -1550,8 +1577,84 @@ describe('SessionRepository', () => {
       const sessions = repo.getScheduledSessions();
 
       expect(sessions).toHaveLength(1);
-      expect(sessions[0].lastActivityAt).toBeDefined();
-      expect(sessions[0].lastActivityAt).toBeTypeOf('number');
+      // Scheduled sessions have no messages yet, so lastActivityAt is null.
+      expect(sessions[0]).toHaveProperty('lastActivityAt');
+      expect(sessions[0].lastActivityAt).toBeNull();
+    });
+
+    it('orders getByProjectId by last_activity_at DESC (recent activity first)', () => {
+      // Three sessions, created in order. s1 is oldest, s3 is newest.
+      const s1 = repo.create(projectId, 'S1', 'Prompt 1');
+      const s2 = repo.create(projectId, 'S2', 'Prompt 2');
+      const s3 = repo.create(projectId, 'S3', 'Prompt 3');
+
+      // Manually stamp conversation message timestamps so s1 becomes the most
+      // recently active session (simulating a new turn on an older session).
+      const now = Date.now();
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 10_000, s1.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 5_000, s3.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now, s2.id);
+
+      const sessions = repo.getByProjectId(projectId);
+      const ids = sessions.map((s) => s.id);
+      expect(ids).toEqual([s1.id, s3.id, s2.id]);
+    });
+
+    it('includes sessions with no messages in getByProjectId via COALESCE fallback', () => {
+      // A session with no messages should still appear in the ordered list,
+      // falling back to updated_at / created_at via COALESCE.
+      const waiting = repo.create(projectId, 'Waiting', 'Prompt', 'standard', false, null, null, 'waiting');
+      const active = repo.create(projectId, 'Active', 'Prompt');
+
+      const sessions = repo.getByProjectId(projectId);
+      const ids = sessions.map((s) => s.id);
+      expect(ids).toContain(waiting.id);
+      expect(ids).toContain(active.id);
+      expect(sessions).toHaveLength(2);
+    });
+
+    it('orders getActiveAndWaiting by last_activity_at DESC', () => {
+      // Three sessions in active/waiting statuses, created in order. s1 is oldest by
+      // creation but will have the most recent message activity.
+      const s1 = repo.create(projectId, 'S1', 'Prompt 1');
+      const s2 = repo.create(projectId, 'S2', 'Prompt 2');
+      const s3 = repo.create(projectId, 'S3', 'Prompt 3');
+
+      repo.update(s1.id, { status: 'starting' });
+      repo.update(s2.id, { status: 'running' });
+      repo.update(s3.id, { status: 'waiting' });
+
+      const now = Date.now();
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 10_000, s1.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 5_000, s3.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now, s2.id);
+
+      const sessions = repo.getActiveAndWaiting();
+      const ids = sessions.map((s) => s.id);
+      // Expected ordering by activity recency: s1 (most recent) → s3 → s2.
+      expect(ids).toEqual([s1.id, s3.id, s2.id]);
+    });
+
+    it('orders getSessionsWithPrUrls by last_activity_at DESC', () => {
+      const s1 = repo.create(projectId, 'S1', 'Prompt 1');
+      const s2 = repo.create(projectId, 'S2', 'Prompt 2');
+      const s3 = repo.create(projectId, 'S3', 'Prompt 3');
+
+      repo.update(s1.id, { prUrl: 'https://github.com/org/repo/pull/1' });
+      repo.update(s2.id, { prUrl: 'https://github.com/org/repo/pull/2' });
+      repo.update(s3.id, { prUrl: 'https://github.com/org/repo/pull/3' });
+
+      const now = Date.now();
+      const db = repo.db;
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 10_000, s1.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now + 5_000, s3.id);
+      db.prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?').run(now, s2.id);
+
+      const sessions = repo.getSessionsWithPrUrls();
+      const ids = sessions.map((s) => s.id);
+      expect(ids).toEqual([s1.id, s3.id, s2.id]);
     });
   });
 
@@ -1773,6 +1876,159 @@ describe('SessionRepository', () => {
       repo.update(session.id, { autoSendPendingPrompt: false });
       const retrieved = repo.getById(session.id);
       expect(retrieved.autoSendPendingPrompt).toBe(false);
+    });
+  });
+
+  // --- Phase 2: sessions.agent_type ---
+
+  describe('agentType', () => {
+    it('defaults to "claude-code" when not specified', () => {
+      const session = repo.create(projectId, 'Default Agent', 'Prompt');
+      expect(session.agentType).toBe('claude-code');
+    });
+
+    it('persists agentType="codex" when provided via options object', () => {
+      const session = repo.create(projectId, 'Codex', 'Prompt', {
+        mode: 'standard',
+        agentType: 'codex',
+      });
+      expect(session.agentType).toBe('codex');
+
+      // Reread from DB to confirm it was actually persisted, not just echoed
+      const reread = repo.getById(session.id);
+      expect(reread.agentType).toBe('codex');
+    });
+
+    it('getById surfaces agent_type via agentType on the mapped object', () => {
+      const session = repo.create(projectId, 'Surface Test', 'Prompt', {
+        mode: 'standard',
+        agentType: 'codex',
+      });
+      const got = repo.getById(session.id);
+      expect(got.agentType).toBe('codex');
+    });
+
+    it('legacy rows lacking agent_type default to "claude-code" at read time', () => {
+      // Manually insert a row without agent_type (simulating an older DB that
+      // somehow skipped the default). Use a raw INSERT that intentionally
+      // leaves agent_type unset → SQLite will apply the DEFAULT.
+      const now = Date.now();
+      const id = 'legacy-session-test';
+      repo.db
+        .prepare(
+          `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(id, projectId, 'Legacy', 'starting', 'standard', 0, now, now);
+
+      const got = repo.getById(id);
+      expect(got.agentType).toBe('claude-code');
+    });
+
+    it('update({ agentType }) persists the new agent', () => {
+      const session = repo.create(projectId, 'Switch', 'Prompt');
+      expect(session.agentType).toBe('claude-code');
+
+      repo.update(session.id, { agentType: 'codex' });
+
+      const reread = repo.getById(session.id);
+      expect(reread.agentType).toBe('codex');
+    });
+
+    it('duplicate() copies agentType', () => {
+      const source = repo.create(projectId, 'Source', 'Prompt', {
+        mode: 'standard',
+        agentType: 'codex',
+      });
+      const copy = repo.duplicate(source.id, { name: 'Copy' });
+      expect(copy.agentType).toBe('codex');
+    });
+
+    it('INSERT column count matches parameter count (drift guard - create)', () => {
+      // If the INSERT column list and placeholders drift apart, SQLite throws.
+      // This is a smoke test that the hardcoded INSERT in create() is balanced.
+      expect(() =>
+        repo.create(projectId, 'Drift', 'Prompt', { mode: 'standard', agentType: 'codex' })
+      ).not.toThrow();
+    });
+
+    it('INSERT column count matches parameter count (drift guard - duplicate)', () => {
+      const source = repo.create(projectId, 'Source', 'Prompt');
+      expect(() => repo.duplicate(source.id, { name: 'Dup' })).not.toThrow();
+    });
+  });
+
+  describe('touch', () => {
+    it('updates the updated_at timestamp', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const originalUpdatedAt = session.updatedAt;
+
+      // Small delay to ensure different timestamp
+      const startTime = Date.now();
+      while (Date.now() <= startTime) {
+        // Wait for next millisecond
+      }
+
+      const touched = repo.touch(session.id);
+
+      expect(touched.updatedAt).toBeGreaterThan(originalUpdatedAt);
+    });
+
+    it('does not modify other fields', () => {
+      const session = repo.create(projectId, 'Test Session', 'Prompt', 'plan', true);
+      const originalName = session.name;
+      const originalStatus = session.status;
+      const originalMode = session.mode;
+      const originalThinkingEnabled = session.thinkingEnabled;
+
+      repo.touch(session.id);
+
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.name).toBe(originalName);
+      expect(retrieved.status).toBe(originalStatus);
+      expect(retrieved.mode).toBe(originalMode);
+      expect(retrieved.thinkingEnabled).toBe(originalThinkingEnabled);
+    });
+
+    it('returns the updated session', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const touched = repo.touch(session.id);
+
+      expect(touched.id).toBe(session.id);
+      expect(touched.name).toBe('Test');
+      expect(touched.projectId).toBe(projectId);
+    });
+
+    it('returns null for non-existent session', () => {
+      const result = repo.touch('non-existent-id');
+      expect(result).toBeNull();
+    });
+
+    it('can be called multiple times', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const firstTouch = repo.touch(session.id);
+
+      // Small delay
+      const startTime = Date.now();
+      while (Date.now() <= startTime) {
+        // Wait for next millisecond
+      }
+
+      const secondTouch = repo.touch(session.id);
+
+      expect(secondTouch.updatedAt).toBeGreaterThan(firstTouch.updatedAt);
+    });
+
+    it('updates updated_at to current time', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const beforeTouch = Date.now();
+
+      const touched = repo.touch(session.id);
+
+      const afterTouch = Date.now();
+
+      expect(touched.updatedAt).toBeGreaterThanOrEqual(beforeTouch);
+      expect(touched.updatedAt).toBeLessThanOrEqual(afterTouch);
     });
   });
 });

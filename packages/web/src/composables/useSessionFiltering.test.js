@@ -245,6 +245,73 @@ describe('useSessionFiltering', () => {
       expect(filteredGroupedSessions.value).toHaveLength(1);
       expect(filteredGroupedSessions.value[0].parent.id).toBe('1');
     });
+
+    it('preserves original order when scheduled filter is applied', () => {
+      // Setup: create sessions in a specific order
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: 'session-a', starred: false }, children: [] },
+        { parent: { id: 'session-b', starred: false }, children: [] },
+        { parent: { id: 'session-c', starred: false }, children: [] },
+        { parent: { id: 'session-d', starred: false }, children: [] },
+      ];
+      mockSessionsStore.scheduledFilter = 'scheduled';
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: 'idle',
+        // session-b and session-d have scheduled children
+        scheduledCount: (id === 'session-b' || id === 'session-d') ? 1 : 0,
+      }));
+
+      const { filteredGroupedSessions } = useSessionFiltering();
+      const result = filteredGroupedSessions.value;
+
+      // Should only include session-b and session-d
+      expect(result).toHaveLength(2);
+      expect(result[0].parent.id).toBe('session-b');
+      expect(result[1].parent.id).toBe('session-d');
+    });
+
+    it('preserves original order when starred filter is applied', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: 'first', starred: true }, children: [] },
+        { parent: { id: 'second', starred: false }, children: [] },
+        { parent: { id: 'third', starred: true }, children: [] },
+        { parent: { id: 'fourth', starred: true }, children: [] },
+      ];
+      mockSessionsStore.starredFilter = 'starred';
+
+      const { filteredGroupedSessions } = useSessionFiltering();
+      const result = filteredGroupedSessions.value;
+
+      // Should include first, third, and fourth in that order
+      expect(result).toHaveLength(3);
+      expect(result[0].parent.id).toBe('first');
+      expect(result[1].parent.id).toBe('third');
+      expect(result[2].parent.id).toBe('fourth');
+    });
+
+    it('preserves original order when multiple filters are combined', () => {
+      mockSessionsStore.groupedSessions = [
+        { parent: { id: '1', starred: true }, children: [] },
+        { parent: { id: '2', starred: true }, children: [] },
+        { parent: { id: '3', starred: true }, children: [] },
+        { parent: { id: '4', starred: true }, children: [] },
+        { parent: { id: '5', starred: true }, children: [] },
+      ];
+      mockSessionsStore.starredFilter = 'starred';
+      mockSessionsStore.statusFilter = 'running';
+      mockSessionsStore.scheduledFilter = 'scheduled';
+      mockSessionsStore.getWorkflowAggregatedStatus.mockImplementation((id) => ({
+        effectiveStatus: (id === '2' || id === '4') ? 'running' : 'idle',
+        scheduledCount: (id === '2' || id === '3') ? 1 : 0,
+      }));
+
+      const { filteredGroupedSessions } = useSessionFiltering();
+      const result = filteredGroupedSessions.value;
+
+      // Only session-2 matches all filters (starred, running, has scheduled)
+      expect(result).toHaveLength(1);
+      expect(result[0].parent.id).toBe('2');
+    });
   });
 
   describe('statusFilterCounts', () => {

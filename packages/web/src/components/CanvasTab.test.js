@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick, defineComponent } from 'vue';
+import { nextTick, defineComponent, reactive } from 'vue';
 import { setActivePinia, createPinia } from 'pinia';
 
 // Global helper to flush all async updates and force DOM re-render
@@ -36,6 +36,7 @@ vi.mock('../composables/useApi.js', () => ({
     getCanvasItems: vi.fn().mockResolvedValue([]),
     getAllCanvasItems: vi.fn().mockResolvedValue([]),
     getCanvasFileContent: vi.fn().mockResolvedValue({ content: null, data: null }),
+    getCanvasItemContent: vi.fn().mockResolvedValue({ content: null, data: null }),
     uploadCanvasItem: vi.fn(),
     deleteCanvasItem: vi.fn(),
     getCanvasTrash: vi.fn().mockResolvedValue([]),
@@ -49,7 +50,7 @@ vi.mock('../composables/useApi.js', () => ({
 const mockPush = vi.fn();
 const mockReplace = vi.fn();
 const mockRoute = {
-  query: {},
+  query: reactive({}),
 };
 vi.mock('vue-router', () => ({
   useRoute: () => mockRoute,
@@ -99,7 +100,12 @@ describe('CanvasTab', () => {
     setActivePinia(createPinia());
     canvasStore = useCanvasStore();
     uiStore = useUiStore();
-    // Reset mock route
+    // Reset mock route. NOTE: some tests replace `mockRoute.query` with a
+    // plain `{ ... }` object literal before mount — that's fine because Vue
+    // re-reads `route.query.item` on each render. Tests that need to mutate
+    // `route.query.item` *after* mount (e.g. pin-clearing watcher tests)
+    // must use a reactive object (`reactive({ item: '...' })`) so the
+    // watcher observes the change.
     mockRoute.query = {};
     mockPush.mockClear();
     mockReplace.mockClear();
@@ -591,6 +597,270 @@ describe('CanvasTab', () => {
       expect(mockReplace).toHaveBeenCalledWith({
         query: { item: '3' }
       });
+    });
+  });
+
+  describe('version pin + dedupe', () => {
+    it('selectedVersions is deduped (via stub prop)', async () => {
+      // Seed the store with a duplicate item (same id) BEFORE fetch runs
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'x', filename: 'f.md', type: 'markdown', createdAt: 1000 },
+        { id: 'x', filename: 'f.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: 'x' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      expect(viewer.exists()).toBe(true);
+      expect(viewer.props('versions').length).toBe(1);
+    });
+
+    it('unrelated canvas adds do NOT trigger router.replace', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // Unrelated file arrives
+      canvasStore.addItem({ id: '2', filename: 'B.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('new version of the current file DOES trigger router.replace (no pin)', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      canvasStore.addItem({ id: '2', filename: 'A.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '2' } });
+    });
+
+    it('pinned version is NOT overridden by newer arrivals', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: '2' }; // start on latest
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Simulate the user picking the older version via the dropdown. The
+      // handler sets the pin because '1' !== latest id '2'. router.push is a
+      // mock so the route doesn't actually change, but that is irrelevant to
+      // this test — we only care about the pin's effect on the auto-nav
+      // watcher.
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer.vm.$emit('selectVersion', '1');
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A newer version arrives via WS while the pin is set.
+      canvasStore.addItem({ id: '3', filename: 'A.md', type: 'markdown', createdAt: 3000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('deep-linked older version survives initial fetch', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'old', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: 'new', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: 'old' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // The empty→populated transition should NOT trigger router.replace
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('re-selecting the latest version clears the pin', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: '2' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+
+      // Pin: pick the older version. The pin is set because '1' !== latest '2'.
+      await viewer.vm.$emit('selectVersion', '1');
+      await flushAll(wrapper);
+
+      // Unpin: pick the current latest (id '2'). Because '2' === latest, the
+      // handler clears userPinnedVersionId.
+      await viewer.vm.$emit('selectVersion', '2');
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // Now a newer version arrives — should auto-nav since the pin is null.
+      canvasStore.addItem({ id: '3', filename: 'A.md', type: 'markdown', createdAt: 3000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '3' } });
+    });
+
+    it('pin clears when the user switches to a different file (live route change)', async () => {
+      // Arrange: seed store with versions of two files and pin an older
+      // version of file A. Use a reactive query so the watcher observes
+      // later mutations to route.query.item.
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'a1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: 'a2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+        { id: 'b1', filename: 'B.md', type: 'markdown', createdAt: 1500 },
+      ]);
+      mockRoute.query = reactive({ item: 'a2' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Pin the older version of A.
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer.vm.$emit('selectVersion', 'a1');
+      await flushAll(wrapper);
+
+      // Act: live route change to a DIFFERENT file (no remount).
+      mockRoute.query.item = 'b1';
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A newer version of file B arrives. If the pin-clearing watcher
+      // fired on the filename change, the pin is null and auto-nav fires.
+      canvasStore.addItem({ id: 'b2', filename: 'B.md', type: 'markdown', createdAt: 2500 });
+      await flushAll(wrapper);
+
+      // Assert: auto-nav fired, proving the pin was cleared by the file switch.
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: 'b2' } });
+    });
+
+    it('pin clears when the user goes back to the list view (route.query.item becomes undefined)', async () => {
+      // Arrange: pin an older version of A.
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = reactive({ item: '2' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer.vm.$emit('selectVersion', '1');
+      await flushAll(wrapper);
+
+      // Act: leave the detail view by clearing route.query.item (list view).
+      delete mockRoute.query.item;
+      await flushAll(wrapper);
+
+      // Return to the same file — pin should have been cleared on exit.
+      mockRoute.query.item = '2';
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A newer version of A arrives. If the null-branch of the
+      // pin-clearing watcher ran when the user went back to the list, the
+      // pin is now null and auto-nav fires.
+      canvasStore.addItem({ id: '3', filename: 'A.md', type: 'markdown', createdAt: 3000 });
+      await flushAll(wrapper);
+
+      // Assert.
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '3' } });
+    });
+
+    it('pin is preserved when navigating between versions of the SAME file (live route change)', async () => {
+      // Arrange: pin the older version of A.
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = reactive({ item: '2' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer.vm.$emit('selectVersion', '1');
+      await flushAll(wrapper);
+
+      // Act: live route change between versions of the SAME file.
+      mockRoute.query.item = '2';
+      await flushAll(wrapper);
+      mockRoute.query.item = '1';
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A newer version of A arrives. The pin-clearing watcher should NOT
+      // have fired (same filename across version hops), so the pin is
+      // still set and auto-nav is suppressed.
+      canvasStore.addItem({ id: '3', filename: 'A.md', type: 'markdown', createdAt: 3000 });
+      await flushAll(wrapper);
+
+      // Assert.
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('switching to a different file (fresh mount) starts with no pin', async () => {
+      // First mount: pin an older version of file A
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'a1', filename: 'A.md', type: 'markdown', createdAt: 1000 },
+        { id: 'a2', filename: 'A.md', type: 'markdown', createdAt: 2000 },
+      ]);
+      mockRoute.query = { item: 'a2' };
+
+      let wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer1 = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer1.vm.$emit('selectVersion', 'a1');
+      await flushAll(wrapper);
+
+      wrapper.unmount();
+
+      // A real router navigation to a different file remounts CanvasTab
+      // (same Pinia store). Simulate that.
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: 'b1', filename: 'B.md', type: 'markdown', createdAt: 1500 },
+      ]);
+      mockRoute.query = { item: 'b1' };
+
+      wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // New version of B arrives — should auto-nav because the freshly
+      // mounted component has no pin.
+      canvasStore.addItem({ id: 'b2', filename: 'B.md', type: 'markdown', createdAt: 2500 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: 'b2' } });
     });
   });
 

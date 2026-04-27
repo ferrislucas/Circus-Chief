@@ -25,11 +25,16 @@ vi.mock('./sessionManager.js', () => ({
   runSession: vi.fn(),
 }));
 
+vi.mock('./sessionProvider.js', () => ({
+  resolveAgentTypeFromModel: vi.fn().mockReturnValue('claude-code'),
+}));
+
 import { sessions, sessionTemplates, sessionSummaries, projects } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
+import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
   MAX_LANE_TRIGGER_DEPTH,
@@ -672,6 +677,87 @@ describe('kanbanTriggers', () => {
       await triggerOnEnterPrompt('s1', lane);
 
       expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', { gitWorktree: '/tmp/parent-worktree' });
+    });
+  });
+
+  // ============================================================
+  // Regression: agentType resolution from model
+  // ============================================================
+
+  describe('agentType resolution', () => {
+    const baseSession = { id: 's1', projectId: 'p1', name: 'Test Session', model: 'opus', mode: 'code', thinkingEnabled: false, gitBranch: null, gitWorktree: null };
+    const baseProject = { id: 'p1', workingDirectory: '/tmp/project', systemPrompt: 'You are helpful.' };
+    const baseTemplate = { id: 't1', name: 'Review Template', prompt: 'Review: {{parentSession.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null, targetLaneId: null };
+    const baseLane = { id: 'lane-1', name: 'Review', onEnterTemplateId: 't1' };
+
+    it('triggerOnEnterTemplate passes agentType resolved from model to sessions.create', async () => {
+      const codexSession = { ...baseSession, model: 'gpt-5.2' };
+      sessions.getById.mockReturnValue(codexSession);
+      projects.getById.mockReturnValue(baseProject);
+      sessionTemplates.getById.mockReturnValue(baseTemplate);
+      sessionSummaries.getBySessionId.mockReturnValue(null);
+      getRootSession.mockReturnValue(codexSession);
+      renderTemplatePrompt.mockResolvedValue('Review: done');
+      sessions.create.mockReturnValue({ id: 'codex-child-1', projectId: 'p1' });
+      sessions.update.mockReturnValue({});
+      runSession.mockResolvedValue(undefined);
+      resolveAgentTypeFromModel.mockReturnValue('codex');
+
+      await triggerOnEnterTemplate('s1', baseLane);
+
+      expect(sessions.create).toHaveBeenCalledWith(
+        'p1',
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ agentType: 'codex', model: 'gpt-5.2' })
+      );
+    });
+
+    it('triggerOnEnterPrompt passes agentType resolved from model to sessions.create', async () => {
+      const codexSession = { ...baseSession, model: 'gpt-5.2' };
+      sessions.getById.mockReturnValue(codexSession);
+      projects.getById.mockReturnValue(baseProject);
+      sessionSummaries.getBySessionId.mockReturnValue(null);
+      getRootSession.mockReturnValue(codexSession);
+      renderTemplatePrompt.mockResolvedValue('Work on something');
+      sessions.create.mockReturnValue({ id: 'codex-prompt-1', projectId: 'p1' });
+      sessions.update.mockReturnValue({});
+      runSession.mockResolvedValue(undefined);
+      resolveAgentTypeFromModel.mockReturnValue('codex');
+
+      const codexLane = { id: 'lane-2', name: 'In Progress', onEnterPrompt: 'Work on: {{parentSession.name}}', onEnterModel: 'gpt-5.2', onEnterThinkingEnabled: undefined, onEnterMode: null, onEnterEffortLevel: null, onEnterAutoRescheduleEnabled: false };
+
+      await triggerOnEnterPrompt('s1', codexLane);
+
+      expect(sessions.create).toHaveBeenCalledWith(
+        'p1',
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ agentType: 'codex', model: 'gpt-5.2' })
+      );
+    });
+
+    it('defaults to claude-code for Anthropic models', async () => {
+      const anthropicSession = { ...baseSession, model: 'claude-sonnet-4-20250514' };
+      sessions.getById.mockReturnValue(anthropicSession);
+      projects.getById.mockReturnValue(baseProject);
+      sessionTemplates.getById.mockReturnValue(baseTemplate);
+      sessionSummaries.getBySessionId.mockReturnValue(null);
+      getRootSession.mockReturnValue(anthropicSession);
+      renderTemplatePrompt.mockResolvedValue('Review: done');
+      sessions.create.mockReturnValue({ id: 'claude-child-1', projectId: 'p1' });
+      sessions.update.mockReturnValue({});
+      runSession.mockResolvedValue(undefined);
+      resolveAgentTypeFromModel.mockReturnValue('claude-code');
+
+      await triggerOnEnterTemplate('s1', baseLane);
+
+      expect(sessions.create).toHaveBeenCalledWith(
+        'p1',
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ agentType: 'claude-code' })
+      );
     });
   });
 });

@@ -44,12 +44,12 @@ export default defineConfig({
     // only under desktop chromium.
     {
       name: 'iphone-14',
-      use: { ...devices['iPhone 14'] },
+      use: { browserName: 'chromium', ...devices['iPhone 14'] },
       testMatch: /session-chat-overlay-layout\.spec\.ts$/,
     },
     {
       name: 'ipad-pro',
-      use: { ...devices['iPad Pro 11'] },
+      use: { browserName: 'chromium', ...devices['iPad Pro 11'] },
       testMatch: /session-chat-overlay-layout\.spec\.ts$/,
     },
   ],

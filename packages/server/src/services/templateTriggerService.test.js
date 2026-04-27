@@ -1079,5 +1079,47 @@ Please review the above work.
       // C's template overrides root A's effortLevel
       expect(sessionC.effortLevel).toBe('max');
     });
+
+    // ============================================================
+    // Regression: agentType derived from model for child sessions
+    // ============================================================
+
+    describe('agentType resolution from model', () => {
+      it('child session gets agent_type=codex when parent model is an OpenAI model', async () => {
+        // Import modelProviders to set up the test provider
+        const { modelProviders } = await import('../database.js');
+
+        // Create an OpenAI provider
+        const provider = modelProviders.create({ name: 'Test OpenAI', kind: 'openai' });
+        modelProviders.addModel(provider.id, { modelId: 'gpt-test-regression', displayName: 'GPT Test' });
+
+        // Update parent session to use the OpenAI model
+        sessions.update(parentSessionId, { model: 'gpt-test-regression' });
+
+        await checkAndTriggerNextTemplate(parentSessionId);
+
+        const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+          (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+        );
+
+        expect(sessionCreatedCalls.length).toBe(1);
+        const childSession = sessionCreatedCalls[0][2].session;
+        expect(childSession.model).toBe('gpt-test-regression');
+        expect(childSession.agentType).toBe('codex');
+      });
+
+      it('child session gets agent_type=claude-code when model is an Anthropic model', async () => {
+        // Parent session already has a Claude model set in beforeEach
+        await checkAndTriggerNextTemplate(parentSessionId);
+
+        const sessionCreatedCalls = broadcastToProject.mock.calls.filter(
+          (call) => call[1] === WS_MESSAGE_TYPES.SESSION_CREATED
+        );
+
+        expect(sessionCreatedCalls.length).toBe(1);
+        const childSession = sessionCreatedCalls[0][2].session;
+        expect(childSession.agentType).toBe('claude-code');
+      });
+    });
   });
 });
