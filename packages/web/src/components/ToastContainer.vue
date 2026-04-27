@@ -1,27 +1,29 @@
 <template>
-  <div class="toast-container">
-    <TransitionGroup name="toast">
-      <div
-        v-for="toast in toasts"
-        :key="toast.id"
-        :class="['toast', `toast-${toast.type}`]"
-      >
-        <span class="toast-icon">
-          <span v-if="toast.type === 'success'">&#10003;</span>
-          <span v-else-if="toast.type === 'error'">&#10007;</span>
-          <span v-else-if="toast.type === 'warning'">&#9888;</span>
-          <span v-else>&#8505;</span>
-        </span>
-        <span class="toast-message">{{ toast.message }}</span>
-        <button
-          class="toast-close"
-          @click="uiStore.removeToast(toast.id)"
+  <Teleport to="body">
+    <div class="toast-container">
+      <TransitionGroup name="toast">
+        <div
+          v-for="toast in toasts"
+          :key="toast.id"
+          :class="['toast', `toast-${toast.type}`]"
         >
-          &times;
-        </button>
-      </div>
-    </TransitionGroup>
-  </div>
+          <span class="toast-icon">
+            <span v-if="toast.type === 'success'">&#10003;</span>
+            <span v-else-if="toast.type === 'error'">&#10007;</span>
+            <span v-else-if="toast.type === 'warning'">&#9888;</span>
+            <span v-else>&#8505;</span>
+          </span>
+          <span class="toast-message">{{ toast.message }}</span>
+          <button
+            class="toast-close"
+            @click="uiStore.removeToast(toast.id)"
+          >
+            &times;
+          </button>
+        </div>
+      </TransitionGroup>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
