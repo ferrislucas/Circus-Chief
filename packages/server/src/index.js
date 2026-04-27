@@ -32,7 +32,7 @@ function validateNodeEnvironment() {
   }
 }
 
-const { port, disableAnalytics } = parseCliOptions();
+const { port, disableAnalytics, auth } = parseCliOptions();
 process.env.PORT = String(port);
 const production = process.env.NODE_ENV === 'production';
 const dbPath = process.env.DB_PATH || getDefaultDbPath();
@@ -63,13 +63,18 @@ if (disableAnalytics) {
 }
 
 // Create Express app
-const app = createApp({ production });
+const app = createApp({ production, auth });
 
 // Create HTTP server
 const server = createServer(app);
 
 // Initialize WebSocket for app
-initWebSocket(server);
+initWebSocket(server, auth);
+
+// Log auth status
+if (auth) {
+  console.log(`Basic authentication enabled (user: ${auth.username})`);
+}
 
 // Initialize and start scheduler service (gated off under VCR_MODE)
 schedulerService.startIfEnabled(sessionManager);

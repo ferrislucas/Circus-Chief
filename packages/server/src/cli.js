@@ -12,6 +12,7 @@ function showHelp() {
 
 Options:
   -p, --port <number>  Port to listen on (env: PORT, default: ${DEFAULT_SERVER_PORT})
+  --auth <user:pass>   Enable HTTP Basic Auth (env: CC_AUTH)
   --no-analytics       Disable anonymous usage analytics
   -h, --help           Show this help message
   -V, --version        Show version number`);
@@ -54,6 +55,10 @@ export function parseCliOptions(argv = process.argv) {
           type: 'boolean',
           default: false,
         },
+        auth: {
+          type: 'string',
+          default: process.env.CC_AUTH || '',
+        },
       },
     }));
   } catch (err) {
@@ -78,5 +83,27 @@ export function parseCliOptions(argv = process.argv) {
     process.exit(1);
   }
 
-  return { port, disableAnalytics: values['no-analytics'] };
+  // Parse auth credentials if provided
+  let auth = null;
+  const authValue = values.auth;
+  if (authValue) {
+    const colonIndex = authValue.indexOf(':');
+    if (colonIndex === -1) {
+      console.error('Error: --auth format must be <user:pass>');
+      process.exit(1);
+    }
+    const username = authValue.slice(0, colonIndex);
+    const password = authValue.slice(colonIndex + 1);
+    if (!username) {
+      console.error('Error: --auth username must not be empty');
+      process.exit(1);
+    }
+    if (!password) {
+      console.error('Error: --auth password must not be empty');
+      process.exit(1);
+    }
+    auth = { username, password };
+  }
+
+  return { port, disableAnalytics: values['no-analytics'], auth };
 }

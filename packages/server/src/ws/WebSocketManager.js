@@ -23,12 +23,28 @@ export class WebSocketManager {
   /**
    * Initialize WebSocket server
    * @param {import('http').Server} server - HTTP server to attach to
+   * @param {{ username: string, password: string }|null} [authCredentials] - Optional auth credentials
    * @returns {WebSocketServer}
    */
-  init(server) {
+  init(server, authCredentials = null) {
     this.#wss = new WebSocketServer({ server, path: '/ws' });
 
-    this.#wss.on('connection', (ws) => {
+    // Pre-compute expected auth token if credentials are configured
+    const expectedAuthToken = authCredentials
+      ? Buffer.from(`${authCredentials.username}:${authCredentials.password}`).toString('base64')
+      : null;
+
+    this.#wss.on('connection', (ws, req) => {
+      // Validate WebSocket auth if credentials are configured
+      if (expectedAuthToken) {
+        const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+        const token = url.searchParams.get('token');
+        if (token !== expectedAuthToken) {
+          ws.close(4001, 'Authentication required');
+          return;
+        }
+      }
+
       this.#clients.add(ws);
 
       ws.on('message', (data) => {

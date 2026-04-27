@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import { WS_RECONNECT_BASE_DELAY, WS_RECONNECT_MAX_DELAY, parseMessage, createMessage, WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { sessionSubscriptionCounts } from './useSessionSubscription.js';
 import { projectSubscriptionIds } from './useProjectSubscription.js';
+import { getAuthToken } from '../api/fetchWithAuth.js';
 
 let socket = null;
 let reconnectTimeout = null;
@@ -21,7 +22,9 @@ const reconnectCallbacks = new Set();
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/ws`;
+  const baseUrl = `${protocol}//${window.location.host}/ws`;
+  const token = getAuthToken();
+  return token ? `${baseUrl}?token=${token}` : baseUrl;
 }
 
 function connect() {
@@ -93,6 +96,22 @@ function connect() {
     console.log('WebSocket closed', event.code);
     isConnected.value = false;
     socket = null;
+
+    // Auth failure — don't reconnect, redirect to login
+    if (event.code === 4001) {
+      connectionStatus.value = 'disconnected';
+      // Import and use auth store to mark required and redirect
+      import('../stores/auth.js').then(({ useAuthStore }) => {
+        // Use the existing pinia instance — this works because pinia
+        // is already installed on the app
+        const authStore = useAuthStore();
+        authStore.markRequired();
+      });
+      import('../router.js').then(({ default: router }) => {
+        router.push('/login');
+      });
+      return;
+    }
 
     // Don't reconnect on clean close
     if (event.code === 1000) {
@@ -212,6 +231,25 @@ function off(type, callback) {
   if (typeListeners) {
     typeListeners.delete(callback);
   }
+}
+
+/**
+ * Reconnect the WebSocket (e.g., after login to pick up new auth token).
+ * Kills any existing socket and creates a fresh connection.
+ */
+export function reconnectWithAuth() {
+  if (socket) {
+    socket.onclose = null; // prevent reconnect loop
+    socket.close();
+    socket = null;
+  }
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+    reconnectTimeout = null;
+  }
+  connectionStatus.value = 'reconnecting';
+  reconnectAttempt.value++;
+  connect();
 }
 
 /**

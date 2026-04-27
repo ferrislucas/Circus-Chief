@@ -2,6 +2,12 @@ import { createRouter, createWebHistory } from 'vue-router';
 
 const routes = [
   {
+    path: '/login',
+    name: 'Login',
+    component: () => import('./views/LoginView.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     name: 'ProjectList',
     component: () => import('./views/ProjectListView.vue'),

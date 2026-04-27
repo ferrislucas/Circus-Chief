@@ -22,6 +22,7 @@ describe('parseCliOptions', () => {
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     process.env = { ...originalEnv };
     delete process.env.PORT;
+    delete process.env.CC_AUTH;
   });
 
   afterEach(() => {
@@ -31,17 +32,17 @@ describe('parseCliOptions', () => {
 
   it('returns default port when no arguments provided', () => {
     const result = parseCliOptions(['node', 'cli.js']);
-    expect(result).toEqual({ port: 5000, disableAnalytics: false });
+    expect(result).toEqual({ port: 5000, disableAnalytics: false, auth: null });
   });
 
   it('parses custom port with -p flag', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '8080']);
-    expect(result).toEqual({ port: 8080, disableAnalytics: false });
+    expect(result).toEqual({ port: 8080, disableAnalytics: false, auth: null });
   });
 
   it('parses custom port with --port flag', () => {
     const result = parseCliOptions(['node', 'cli.js', '--port', '3000']);
-    expect(result).toEqual({ port: 3000, disableAnalytics: false });
+    expect(result).toEqual({ port: 3000, disableAnalytics: false, auth: null });
   });
 
   it('exits with error for non-numeric port', () => {
@@ -116,25 +117,25 @@ describe('parseCliOptions', () => {
 
   it('accepts minimum valid port (1)', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '1']);
-    expect(result).toEqual({ port: 1, disableAnalytics: false });
+    expect(result).toEqual({ port: 1, disableAnalytics: false, auth: null });
   });
 
   it('accepts maximum valid port (65535)', () => {
     const result = parseCliOptions(['node', 'cli.js', '-p', '65535']);
-    expect(result).toEqual({ port: 65535, disableAnalytics: false });
+    expect(result).toEqual({ port: 65535, disableAnalytics: false, auth: null });
   });
 
   describe('PORT environment variable', () => {
     it('respects PORT env var when no CLI flag is given', () => {
       process.env.PORT = '8080';
       const result = parseCliOptions(['node', 'cli.js']);
-      expect(result).toEqual({ port: 8080, disableAnalytics: false });
+      expect(result).toEqual({ port: 8080, disableAnalytics: false, auth: null });
     });
 
     it('CLI --port flag takes precedence over PORT env var', () => {
       process.env.PORT = '8080';
       const result = parseCliOptions(['node', 'cli.js', '--port', '3000']);
-      expect(result).toEqual({ port: 3000, disableAnalytics: false });
+      expect(result).toEqual({ port: 3000, disableAnalytics: false, auth: null });
     });
 
     it('exits with error for invalid PORT env var', () => {
@@ -160,7 +161,7 @@ describe('parseCliOptions', () => {
 
     it('can combine --no-analytics with --port', () => {
       const result = parseCliOptions(['node', 'cli.js', '-p', '8080', '--no-analytics']);
-      expect(result).toEqual({ port: 8080, disableAnalytics: true });
+      expect(result).toEqual({ port: 8080, disableAnalytics: true, auth: null });
     });
   });
 
@@ -175,6 +176,68 @@ describe('parseCliOptions', () => {
       expect(logSpy).toHaveBeenCalledWith('unknown');
 
       readFileSync.mockRestore();
+    });
+  });
+
+  describe('--auth flag', () => {
+    it('returns auth null by default', () => {
+      const result = parseCliOptions(['node', 'cli.js']);
+      expect(result.auth).toBeNull();
+    });
+
+    it('parses valid --auth user:pass', () => {
+      const result = parseCliOptions(['node', 'cli.js', '--auth', 'admin:secret123']);
+      expect(result.auth).toEqual({ username: 'admin', password: 'secret123' });
+    });
+
+    it('handles passwords containing colons', () => {
+      const result = parseCliOptions(['node', 'cli.js', '--auth', 'admin:pass:word']);
+      expect(result.auth).toEqual({ username: 'admin', password: 'pass:word' });
+    });
+
+    it('reads from CC_AUTH env var', () => {
+      process.env.CC_AUTH = 'user:pass';
+      const result = parseCliOptions(['node', 'cli.js']);
+      expect(result.auth).toEqual({ username: 'user', password: 'pass' });
+    });
+
+    it('CLI --auth takes precedence over CC_AUTH env var', () => {
+      process.env.CC_AUTH = 'envuser:envpass';
+      const result = parseCliOptions(['node', 'cli.js', '--auth', 'cliuser:clipass']);
+      expect(result.auth).toEqual({ username: 'cliuser', password: 'clipass' });
+    });
+
+    it('exits with error for --auth with no colon', () => {
+      expect(() => parseCliOptions(['node', 'cli.js', '--auth', 'nocolon'])).toThrow('process.exit');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('--auth format must be <user:pass>')
+      );
+    });
+
+    it('exits with error for empty username', () => {
+      expect(() => parseCliOptions(['node', 'cli.js', '--auth', ':password'])).toThrow('process.exit');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('username must not be empty')
+      );
+    });
+
+    it('exits with error for empty password', () => {
+      expect(() => parseCliOptions(['node', 'cli.js', '--auth', 'user:'])).toThrow('process.exit');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('password must not be empty')
+      );
+    });
+
+    it('can combine --auth with --port and --no-analytics', () => {
+      const result = parseCliOptions(['node', 'cli.js', '-p', '8080', '--no-analytics', '--auth', 'admin:secret']);
+      expect(result).toEqual({
+        port: 8080,
+        disableAnalytics: true,
+        auth: { username: 'admin', password: 'secret' },
+      });
     });
   });
 });

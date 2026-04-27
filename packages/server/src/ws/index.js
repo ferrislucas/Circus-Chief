@@ -6,10 +6,11 @@ import { webSocketManager } from './WebSocketManager.js';
 /**
  * Initialize WebSocket server
  * @param {import('http').Server} server
+ * @param {{ username: string, password: string }|null} [authCredentials] - Optional auth credentials
  * @returns {import('ws').WebSocketServer}
  */
-export function initWebSocket(server) {
-  return webSocketManager.init(server);
+export function initWebSocket(server, authCredentials = null) {
+  return webSocketManager.init(server, authCredentials);
 }
 
 /**
