@@ -18,6 +18,7 @@ vi.mock('../database.js', () => ({
   },
   conversations: {
     getActiveBySessionId: vi.fn(),
+    ensureActiveConversation: vi.fn(),
     getById: vi.fn(),
     update: vi.fn(),
     updateUsage: vi.fn(),
@@ -95,6 +96,14 @@ describe('streamEventHandler', () => {
     activeConversationIds.clear();
     currentModels.clear();
     loggedToolUseIds.clear();
+    messages.getByConversationId.mockReturnValue([]);
+    messages.create.mockImplementation((sessionId, role, content, options = {}) => ({
+      id: `msg-${role}`,
+      sessionId,
+      conversationId: options.conversationId ?? null,
+      role,
+      content,
+    }));
   });
 
   // ── createWorkLog ─────────────────────────────────────────────────────
@@ -352,7 +361,21 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('clears stale error when transitioning to waiting status', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
     it('checks proactive reschedule', async () => {
@@ -594,8 +617,12 @@ describe('streamEventHandler', () => {
     it('falls through to error handling when reschedule fails', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('token limit exceeded');
-      const mockSession = { autoRescheduleEnabled: true, rescheduleOnTokenLimit: true };
+      const mockSession = { agentType: 'codex', autoRescheduleEnabled: true, rescheduleOnTokenLimit: true };
       sessions.getById.mockReturnValue(mockSession);
+      activeConversationIds.set('sess-1', 'conv-1');
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
+      ]);
 
       const mockShouldReschedule = vi.fn().mockReturnValue(true);
       const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(false) };
@@ -604,6 +631,12 @@ describe('streamEventHandler', () => {
 
       expect(result).toBe(false);
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: error.message });
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1',
+        'assistant',
+        expect.stringContaining('Codex failed before completing this turn'),
+        { conversationId: 'conv-1' }
+      );
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_ERROR,
@@ -614,7 +647,11 @@ describe('streamEventHandler', () => {
     it('sets error status when not reschedulable', async () => {
       const controller = { signal: { aborted: false } };
       const error = new Error('Unexpected error');
-      sessions.getById.mockReturnValue({ autoRescheduleEnabled: false });
+      sessions.getById.mockReturnValue({ agentType: 'codex', autoRescheduleEnabled: false });
+      activeConversationIds.set('sess-1', 'conv-1');
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'start' },
+      ]);
 
       const mockShouldReschedule = vi.fn().mockReturnValue(false);
       const mockScheduler = { rescheduleSession: vi.fn() };
@@ -622,10 +659,77 @@ describe('streamEventHandler', () => {
       await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
 
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Unexpected error' });
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1',
+        'assistant',
+        expect.stringContaining('Unexpected error'),
+        { conversationId: 'conv-1' }
+      );
       expect(broadcastToSession).toHaveBeenCalledWith(
         'sess-1',
         WS_MESSAGE_TYPES.SESSION_ERROR,
         { sessionId: 'sess-1', error: 'Unexpected error' }
+      );
+    });
+
+    it('creates and broadcasts Codex final error messages before SESSION_ERROR', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('usage limit reached');
+      sessions.getById.mockReturnValue({ agentType: 'codex', autoRescheduleEnabled: false });
+      activeConversationIds.set('sess-1', 'conv-1');
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'Implement the plan' },
+      ]);
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
+
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1',
+        'assistant',
+        expect.stringContaining('Codex failed before completing this turn'),
+        { conversationId: 'conv-1' }
+      );
+      expect(messages.create.mock.calls[0][2]).toContain('usage limit reached');
+
+      const sessionMessageCallIndex = broadcastToSession.mock.calls.findIndex(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_MESSAGE
+      );
+      const sessionErrorCallIndex = broadcastToSession.mock.calls.findIndex(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_ERROR
+      );
+      expect(sessionMessageCallIndex).toBeGreaterThanOrEqual(0);
+      expect(sessionErrorCallIndex).toBeGreaterThanOrEqual(0);
+      expect(sessionMessageCallIndex).toBeLessThan(sessionErrorCallIndex);
+    });
+
+    it('creates final error messages with an ensured conversation when no active conversation ID exists', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('adapter startup failed');
+      sessions.getById.mockReturnValue({ agentType: 'codex', autoRescheduleEnabled: false });
+      conversations.ensureActiveConversation.mockReturnValue({ id: 'conv-created' });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
+
+      expect(conversations.ensureActiveConversation).toHaveBeenCalledWith('sess-1');
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1',
+        'assistant',
+        expect.stringContaining('Codex failed before completing this turn'),
+        { conversationId: 'conv-created' }
+      );
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_MESSAGE,
+        {
+          message: expect.objectContaining({ conversationId: 'conv-created', role: 'assistant' }),
+          conversationId: 'conv-created',
+        }
       );
     });
 
@@ -639,7 +743,98 @@ describe('streamEventHandler', () => {
 
       expect(result).toBe(false);
       expect(sessions.update).not.toHaveBeenCalled();
+      expect(messages.create).not.toHaveBeenCalled();
       expect(broadcastToSession).not.toHaveBeenCalled();
+    });
+
+    it('does not create or broadcast visible messages for rescheduled errors', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('token limit exceeded');
+      const mockSession = { agentType: 'codex', autoRescheduleEnabled: true, rescheduleOnTokenLimit: true };
+      sessions.getById.mockReturnValue(mockSession);
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(true);
+      const mockScheduler = { rescheduleSession: vi.fn().mockResolvedValue(true) };
+
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
+
+      expect(messages.create).not.toHaveBeenCalled();
+      expect(broadcastToSession.mock.calls.some((call) => call[1] === WS_MESSAGE_TYPES.SESSION_MESSAGE)).toBe(false);
+      expect(broadcastToSession.mock.calls.some((call) => call[1] === WS_MESSAGE_TYPES.SESSION_ERROR)).toBe(false);
+    });
+
+    it('does not duplicate the same generated assistant failure message', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('usage limit reached');
+      const generatedContent = 'Codex failed before completing this turn:\n\nusage limit reached';
+      sessions.getById.mockReturnValue({ agentType: 'codex', autoRescheduleEnabled: false });
+      activeConversationIds.set('sess-1', 'conv-1');
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
+        { id: 'msg-assistant', sessionId: 'sess-1', conversationId: 'conv-1', role: 'assistant', content: generatedContent },
+      ]);
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
+
+      expect(messages.create).not.toHaveBeenCalled();
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_ERROR,
+        { sessionId: 'sess-1', error: 'usage limit reached' }
+      );
+    });
+
+    it('does not duplicate an assistant failure after the latest user when it contains the raw error', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('context window exceeded');
+      sessions.getById.mockReturnValue({ agentType: 'codex', autoRescheduleEnabled: false });
+      activeConversationIds.set('sess-1', 'conv-1');
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
+        { id: 'msg-assistant', sessionId: 'sess-1', conversationId: 'conv-1', role: 'assistant', content: 'Run failed: context window exceeded' },
+      ]);
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
+
+      expect(messages.create).not.toHaveBeenCalled();
+    });
+
+    it('does not duplicate a Claude Code visible error containing the raw error', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('process exited with code 1');
+      sessions.getById.mockReturnValue({ agentType: 'claude-code', autoRescheduleEnabled: false });
+      activeConversationIds.set('sess-1', 'conv-1');
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
+        { id: 'msg-assistant', sessionId: 'sess-1', conversationId: 'conv-1', role: 'assistant', content: 'Claude reported: process exited with code 1' },
+      ]);
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
+
+      expect(messages.create).not.toHaveBeenCalled();
+    });
+
+    it('uses fallback wording for unknown adapter types', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('adapter failed');
+      sessions.getById.mockReturnValue({ agentType: 'other-agent', autoRescheduleEnabled: false });
+      activeConversationIds.set('sess-1', 'conv-1');
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      await handleSessionError('sess-1', error, { controller, shouldRescheduleOnError: mockShouldReschedule, schedulerService: mockScheduler });
+
+      expect(messages.create.mock.calls[0][2]).toMatch(/^The agent failed before completing this turn/);
     });
 
     it('broadcasts conversation state when broadcastConversationState option is true', async () => {
