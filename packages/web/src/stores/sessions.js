@@ -114,23 +114,6 @@ export const useSessionsStore = defineStore('sessions', {
       };
     },
 
-    getSessionPath() {
-      return (sessionId) => {
-        const path = [];
-        const findSession = (id) => {
-          if (this.currentSession?.id === id) return this.currentSession;
-          return this._findSessionById(id);
-        };
-        let current = findSession(sessionId);
-        while (current) {
-          path.unshift(current);
-          if (!current.parentSessionId) break;
-          current = findSession(current.parentSessionId);
-        }
-        return path;
-      };
-    },
-
     getRootSession() {
       return (sessionId) => {
         let current = this._findSessionById(sessionId);
