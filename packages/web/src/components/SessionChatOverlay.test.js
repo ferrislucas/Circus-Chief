@@ -1541,7 +1541,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('backdrop stylesheet uses position: fixed and align-items: stretch', () => {
+    it('backdrop stylesheet uses fixed viewport-offset geometry', () => {
       // Assert against the SFC source text (imported as raw via Vite `?raw`).
       // jsdom does not reliably attach Vue <style scoped> blocks to
       // document.styleSheets, so source-text inspection is the check used
@@ -1550,8 +1550,10 @@ describe('SessionChatOverlay', () => {
       expect(blockMatch).toBeTruthy();
       const block = blockMatch[0];
       expect(block).toMatch(/position:\s*fixed/);
-      expect(block).toMatch(/inset:\s*0/);
-      expect(block).toMatch(/align-items:\s*stretch/);
+      expect(block).toMatch(/top:\s*var\(--viewport-offset-top,\s*0px\)/);
+      expect(block).toMatch(/right:\s*0/);
+      expect(block).toMatch(/bottom:\s*0/);
+      expect(block).toMatch(/left:\s*0/);
     });
 
     it('panel-wrapper stylesheet no longer uses viewport-unit min-heights', () => {
