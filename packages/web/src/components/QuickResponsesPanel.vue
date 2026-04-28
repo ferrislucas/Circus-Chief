@@ -297,7 +297,7 @@ function handleClick(response) {
 .responses-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.375rem;
+  gap: 0.5rem;
   overflow-x: auto;
 }
 
@@ -305,7 +305,8 @@ function handleClick(response) {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.375rem 0.625rem;
+  min-height: 44px;
+  padding: 0.625rem 0.875rem;
   border-radius: 6px;
   font-size: 0.8125rem;
   font-weight: 500;
@@ -374,7 +375,7 @@ function handleClick(response) {
   }
 
   .response-button {
-    padding: 0.5rem 0.75rem;
+    padding: 0.625rem 0.875rem;
   }
 }
 </style>
