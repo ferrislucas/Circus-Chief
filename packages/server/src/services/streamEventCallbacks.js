@@ -1,12 +1,14 @@
-import { sessions, conversations, messages } from '../database.js';
+import { sessions, conversations } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import * as kanbanService from './kanbanService.js';
+import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import {
   lastMessageIds,
   activeSessions,
   activeConversationIds,
+  finalErrorSessionIds,
   associateAndBroadcastWorkLogs,
   broadcastSessionStatus,
   broadcastChangesUpdate,
@@ -26,6 +28,11 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
   if (lastMessageId) {
     associateAndBroadcastWorkLogs(sessionId, lastMessageId);
     lastMessageIds.delete(sessionId);
+  }
+
+  if (finalErrorSessionIds.has(sessionId)) {
+    finalErrorSessionIds.delete(sessionId);
+    return false;
   }
 
   // Session ready for follow-up - set to waiting instead of completed
@@ -124,89 +131,6 @@ async function safeTriggerTemplate(sessionId, handleTemplateTriggerIfNeeded) {
   }
 }
 
-function normalizeMessageContent(content) {
-  return (content || '').trim().replace(/\s+/g, ' ');
-}
-
-function buildVisibleErrorContent(agentType, errorMessage) {
-  if (agentType === 'codex') {
-    return `Codex failed before completing this turn:\n\n${errorMessage}`;
-  }
-  if (agentType === 'claude-code') {
-    return `Claude Code failed before completing this turn:\n\n${errorMessage}`;
-  }
-  return `The agent failed before completing this turn:\n\n${errorMessage}`;
-}
-
-function hasExistingVisibleFailure(conversationMessages, generatedContent, rawErrorMessage) {
-  const normalizedGenerated = normalizeMessageContent(generatedContent);
-  const normalizedError = normalizeMessageContent(rawErrorMessage);
-  const latestMessage = conversationMessages[conversationMessages.length - 1];
-
-  if (
-    latestMessage?.role === 'assistant' &&
-    normalizeMessageContent(latestMessage.content) === normalizedGenerated
-  ) {
-    return true;
-  }
-
-  let latestUserIndex = -1;
-  for (let i = conversationMessages.length - 1; i >= 0; i -= 1) {
-    if (conversationMessages[i].role === 'user') {
-      latestUserIndex = i;
-      break;
-    }
-  }
-
-  return conversationMessages
-    .slice(latestUserIndex + 1)
-    .some((message) => {
-      if (message.role !== 'assistant') {
-        return false;
-      }
-      const normalizedContent = normalizeMessageContent(message.content);
-      return normalizedContent === normalizedGenerated ||
-        (normalizedError && normalizedContent.includes(normalizedError));
-    });
-}
-
-function resolveErrorConversationId(sessionId) {
-  const activeConversationId = activeConversationIds.get(sessionId);
-  if (activeConversationId) {
-    return activeConversationId;
-  }
-  const activeConversation = conversations.ensureActiveConversation(sessionId);
-  if (activeConversation?.id) {
-    activeConversationIds.set(sessionId, activeConversation.id);
-    return activeConversation.id;
-  }
-  return null;
-}
-
-function createVisibleSessionErrorMessage(sessionId, error) {
-  const conversationId = resolveErrorConversationId(sessionId);
-  if (!conversationId) {
-    return null;
-  }
-
-  const session = sessions.getById(sessionId);
-  const errorMessage = error?.message || String(error);
-  const content = buildVisibleErrorContent(session?.agentType, errorMessage);
-  const conversationMessages = messages.getByConversationId(conversationId) || [];
-
-  if (hasExistingVisibleFailure(conversationMessages, content, errorMessage)) {
-    return null;
-  }
-
-  const message = messages.create(sessionId, 'assistant', content, { conversationId });
-  sessions.touch(sessionId);
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_MESSAGE, {
-    message,
-    conversationId,
-  });
-  return message;
-}
-
 /**
  * Handle session error with optional rescheduling
  * Encapsulates the duplicated error handling block from runSession/continueSession/continueSessionWithExistingMessage
@@ -232,7 +156,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
 
   // Normal error handling (no reschedule or reschedule limits reached)
   sessions.update(sessionId, { status: 'error', error: error.message });
-  createVisibleSessionErrorMessage(sessionId, error);
+  createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
 
   // Optionally broadcast final conversation state (continueSession does this)

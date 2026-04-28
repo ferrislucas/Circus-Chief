@@ -83,6 +83,7 @@ import {
   activeConversationIds,
   currentModels,
   loggedToolUseIds,
+  finalErrorSessionIds,
 } from './streamEventHandler.js';
 
 describe('streamEventHandler', () => {
@@ -96,6 +97,7 @@ describe('streamEventHandler', () => {
     activeConversationIds.clear();
     currentModels.clear();
     loggedToolUseIds.clear();
+    finalErrorSessionIds.clear();
     messages.getByConversationId.mockReturnValue([]);
     messages.create.mockImplementation((sessionId, role, content, options = {}) => ({
       id: `msg-${role}`,
@@ -292,6 +294,7 @@ describe('streamEventHandler', () => {
       currentModels.set('sess-1', 'claude-3');
       loggedToolUseIds.set('sess-1', new Set(['tu-1']));
       activeSessions.set('sess-1', { controller: new AbortController() });
+      finalErrorSessionIds.add('sess-1');
 
       cleanupSessionState('sess-1');
 
@@ -299,6 +302,7 @@ describe('streamEventHandler', () => {
       expect(thinkingAccumulators.has('sess-1')).toBe(false);
       expect(currentModels.has('sess-1')).toBe(false);
       expect(loggedToolUseIds.has('sess-1')).toBe(false);
+      expect(finalErrorSessionIds.has('sess-1')).toBe(false);
       expect(activeSessions.has('sess-1')).toBe(false);
     });
 
@@ -592,6 +596,53 @@ describe('streamEventHandler', () => {
 
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('preserves error state after a final result error', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      activeConversationIds.set('sess-1', 'conv-1');
+      lastMessageIds.set('sess-1', 'msg-last');
+      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
+      ]);
+      workLogs.associatePendingLogs.mockReturnValue(1);
+
+      await handleStreamEvent('sess-1', {
+        type: 'result',
+        subtype: 'error',
+        error: 'usage limit reached',
+      });
+
+      vi.clearAllMocks();
+      workLogs.associatePendingLogs.mockReturnValue(1);
+      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(false);
+      expect(workLogs.associatePendingLogs).toHaveBeenCalledWith('sess-1', 'msg-last');
+      expect(lastMessageIds.has('sess-1')).toBe(false);
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(broadcastToSession.mock.calls.some(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_STATUS && call[2]?.status === 'waiting'
+      )).toBe(false);
+      expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
+      expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
+      expect(diffService.getChanges).not.toHaveBeenCalled();
+      expect(kanbanService.handleTurnCompletion).not.toHaveBeenCalled();
+      expect(mockCheckReschedule).not.toHaveBeenCalled();
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+      expect(finalErrorSessionIds.has('sess-1')).toBe(false);
     });
   });
 
@@ -1158,6 +1209,10 @@ describe('streamEventHandler', () => {
     it('exports loggedToolUseIds as a Map', () => {
       expect(loggedToolUseIds).toBeInstanceOf(Map);
     });
+
+    it('exports finalErrorSessionIds as a Set', () => {
+      expect(finalErrorSessionIds).toBeInstanceOf(Set);
+    });
   });
 
   // ── handleStreamEvent ─────────────────────────────────────────────────────
@@ -1219,6 +1274,102 @@ describe('streamEventHandler', () => {
 
       expect(messages.create).not.toHaveBeenCalled();
       expect(sessions.touch).not.toHaveBeenCalled();
+    });
+
+    it('creates and broadcasts visible assistant messages for final result errors', async () => {
+      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      activeConversationIds.set('sess-1', 'conv-1');
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
+      ]);
+
+      await handleStreamEvent('sess-1', {
+        type: 'result',
+        subtype: 'error',
+        error: 'usage limit reached',
+      });
+
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'usage limit reached' });
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1',
+        'assistant',
+        expect.stringContaining('Codex failed before completing this turn'),
+        { conversationId: 'conv-1' }
+      );
+      expect(messages.create.mock.calls[0][2]).toContain('usage limit reached');
+
+      const sessionMessageCallIndex = broadcastToSession.mock.calls.findIndex(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_MESSAGE
+      );
+      const sessionErrorCallIndex = broadcastToSession.mock.calls.findIndex(
+        (call) => call[1] === WS_MESSAGE_TYPES.SESSION_ERROR
+      );
+      expect(sessionMessageCallIndex).toBeGreaterThanOrEqual(0);
+      expect(sessionErrorCallIndex).toBeGreaterThanOrEqual(0);
+      expect(sessionMessageCallIndex).toBeLessThan(sessionErrorCallIndex);
+      expect(finalErrorSessionIds.has('sess-1')).toBe(true);
+    });
+
+    it('uses an ensured conversation for final result errors when none is active', async () => {
+      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      conversations.ensureActiveConversation.mockReturnValue({ id: 'conv-created' });
+
+      await handleStreamEvent('sess-1', {
+        type: 'result',
+        subtype: 'error',
+        error: 'adapter failed',
+      });
+
+      expect(conversations.ensureActiveConversation).toHaveBeenCalledWith('sess-1');
+      expect(messages.create).toHaveBeenCalledWith(
+        'sess-1',
+        'assistant',
+        expect.stringContaining('adapter failed'),
+        { conversationId: 'conv-created' }
+      );
+      expect(activeConversationIds.get('sess-1')).toBe('conv-created');
+    });
+
+    it('normalizes object-shaped final result errors', async () => {
+      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      activeConversationIds.set('sess-1', 'conv-1');
+
+      await handleStreamEvent('sess-1', {
+        type: 'result',
+        subtype: 'error',
+        error: { message: 'object shaped failure' },
+      });
+
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'object shaped failure' });
+      expect(messages.create.mock.calls[0][2]).toContain('object shaped failure');
+      expect(messages.create.mock.calls[0][2]).not.toContain('[object Object]');
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_ERROR,
+        { sessionId: 'sess-1', error: 'object shaped failure' }
+      );
+    });
+
+    it('does not duplicate final result error messages containing the raw error after the latest user', async () => {
+      sessions.getById.mockReturnValue({ agentType: 'codex', projectId: 'proj-1' });
+      activeConversationIds.set('sess-1', 'conv-1');
+      messages.getByConversationId.mockReturnValue([
+        { id: 'msg-user', sessionId: 'sess-1', conversationId: 'conv-1', role: 'user', content: 'continue' },
+        { id: 'msg-assistant', sessionId: 'sess-1', conversationId: 'conv-1', role: 'assistant', content: 'Run failed: usage limit reached' },
+      ]);
+
+      await handleStreamEvent('sess-1', {
+        type: 'result',
+        subtype: 'error',
+        error: 'usage limit reached',
+      });
+
+      expect(messages.create).not.toHaveBeenCalled();
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_ERROR,
+        { sessionId: 'sess-1', error: 'usage limit reached' }
+      );
     });
   });
 });

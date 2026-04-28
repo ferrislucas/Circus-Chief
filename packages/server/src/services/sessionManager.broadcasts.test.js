@@ -1010,10 +1010,7 @@ describe('sessionManager broadcasts', () => {
       expect(clearedTemplateCall).toBeDefined();
     });
 
-    it('still triggers template after error result (session goes to waiting after loop)', async () => {
-      // Note: The current implementation triggers templates even after error results
-      // because the error is handled inside the event loop, but the template trigger
-      // happens after the loop completes (when status becomes 'waiting')
+    it('does not trigger template after error result', async () => {
       sessions.update(sessionId, { nextTemplateId: templateId });
 
       query.mockImplementation(async function* () {
@@ -1023,8 +1020,11 @@ describe('sessionManager broadcasts', () => {
 
       await runSession(sessionId, 'Test prompt', tempDir);
 
-      // Template IS triggered even on error because session transitions to 'waiting'
-      expect(checkAndTriggerNextTemplate).toHaveBeenCalledWith(sessionId);
+      expect(checkAndTriggerNextTemplate).not.toHaveBeenCalled();
+      expect(sessions.getById(sessionId)).toMatchObject({
+        status: 'error',
+        error: 'Something went wrong',
+      });
     });
   });
 
