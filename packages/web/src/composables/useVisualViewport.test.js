@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ref, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
-import { useVisualViewport } from './useVisualViewport.js';
+import {
+  requestVisualViewportSettle,
+  requestVisualViewportUpdate,
+  useVisualViewport,
+} from './useVisualViewport.js';
 
 /**
  * Tests for useVisualViewport composable
@@ -52,14 +56,33 @@ describe('useVisualViewport', () => {
     const TestComponent = {
       template: '<div>Test</div>',
       setup() {
-        const { updateViewportOffset } = useVisualViewport();
-        return { updateViewportOffset };
+        const {
+          requestVisualViewportSettle,
+          requestVisualViewportUpdate,
+          updateViewportOffset,
+        } = useVisualViewport();
+        return {
+          requestVisualViewportSettle,
+          requestVisualViewportUpdate,
+          updateViewportOffset,
+        };
       },
     };
 
     return mount(TestComponent, {
       attachTo: document.body,
     });
+  }
+
+  function expectViewportVariables(offsetTop, height) {
+    expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
+      '--viewport-offset-top',
+      offsetTop
+    );
+    expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
+      '--visual-viewport-height',
+      height
+    );
   }
 
   describe('Browser support detection', () => {
@@ -87,6 +110,7 @@ describe('useVisualViewport', () => {
       // Mock visualViewport API
       mockVisualViewport = {
         offsetTop: 100,
+        height: 700,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
       };
@@ -100,13 +124,10 @@ describe('useVisualViewport', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
       await nextTick();
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-        '--viewport-offset-top',
-        '100px'
-      );
+      expectViewportVariables('100px', '700px');
     });
 
-    it('updates CSS variable when offsetTop changes', async () => {
+    it('updates CSS variables when visual viewport changes', async () => {
       const wrapper = createTestComponent();
 
       await nextTick();
@@ -116,6 +137,7 @@ describe('useVisualViewport', () => {
 
       // Simulate offsetTop change
       mockVisualViewport.offsetTop = 200;
+      mockVisualViewport.height = 500;
 
       // Call updateViewportOffset directly
       wrapper.vm.updateViewportOffset();
@@ -123,16 +145,14 @@ describe('useVisualViewport', () => {
       // Wait for requestAnimationFrame to complete
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-        '--viewport-offset-top',
-        '200px'
-      );
+      expectViewportVariables('200px', '500px');
 
       wrapper.unmount();
     });
 
     it('handles offsetTop of 0', async () => {
       mockVisualViewport.offsetTop = 0;
+      mockVisualViewport.height = 0;
 
       createTestComponent();
 
@@ -140,10 +160,7 @@ describe('useVisualViewport', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
       await nextTick();
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-        '--viewport-offset-top',
-        '0px'
-      );
+      expectViewportVariables('0px', '0px');
     });
   });
 
@@ -151,6 +168,7 @@ describe('useVisualViewport', () => {
     beforeEach(() => {
       mockVisualViewport = {
         offsetTop: 50,
+        height: 600,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
       };
@@ -198,6 +216,7 @@ describe('useVisualViewport', () => {
 
       mockVisualViewport = {
         offsetTop: 0,
+        height: 700,
         addEventListener: vi.fn((event, handler) => {
           if (event === 'scroll') scrollHandler = handler;
           if (event === 'resize') resizeHandler = handler;
@@ -225,15 +244,13 @@ describe('useVisualViewport', () => {
 
       // Simulate scroll event with new offset
       mockVisualViewport.offsetTop = 150;
+      mockVisualViewport.height = 450;
       scrollHandler();
 
       // Wait for requestAnimationFrame
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-        '--viewport-offset-top',
-        '150px'
-      );
+      expectViewportVariables('150px', '450px');
 
       wrapper.unmount();
     });
@@ -253,15 +270,13 @@ describe('useVisualViewport', () => {
 
       // Simulate resize event with new offset
       mockVisualViewport.offsetTop = 80;
+      mockVisualViewport.height = 550;
       resizeHandler();
 
       // Wait for requestAnimationFrame
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-        '--viewport-offset-top',
-        '80px'
-      );
+      expectViewportVariables('80px', '550px');
 
       wrapper.unmount();
     });
@@ -271,6 +286,7 @@ describe('useVisualViewport', () => {
     beforeEach(() => {
       mockVisualViewport = {
         offsetTop: 0,
+        height: 700,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
       };
@@ -313,10 +329,62 @@ describe('useVisualViewport', () => {
     });
   });
 
+  describe('Viewport settling', () => {
+    beforeEach(() => {
+      mockVisualViewport = {
+        offsetTop: 280,
+        height: 420,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+    });
+
+    it('continues sampling until delayed keyboard-dismiss viewport values arrive', async () => {
+      requestVisualViewportSettle({
+        maxDurationMs: 120,
+        intervalMs: 10,
+        stableSampleCount: 10,
+        minDurationMs: 0,
+      });
+
+      setTimeout(() => {
+        mockVisualViewport.offsetTop = 0;
+        mockVisualViewport.height = 812;
+      }, 25);
+
+      await new Promise(resolve => setTimeout(resolve, 150));
+
+      expectViewportVariables('280px', '420px');
+      expectViewportVariables('0px', '812px');
+      expect(document.documentElement.style.getPropertyValue('--viewport-offset-top')).toBe('0px');
+      expect(document.documentElement.style.getPropertyValue('--visual-viewport-height')).toBe('812px');
+    });
+
+    it('requestVisualViewportSettle no-ops without visualViewport support', () => {
+      delete window.visualViewport;
+
+      requestVisualViewportSettle();
+
+      expect(rafSpy).not.toHaveBeenCalled();
+      expect(document.documentElement.style.setProperty).not.toHaveBeenCalled();
+    });
+
+    it('starting a second settle replaces the pending settle loop', async () => {
+      requestVisualViewportSettle({ maxDurationMs: 120, intervalMs: 20 });
+      requestVisualViewportSettle({ maxDurationMs: 120, intervalMs: 20 });
+
+      expect(cancelRafSpy).toHaveBeenCalled();
+
+      await new Promise(resolve => setTimeout(resolve, 150));
+    });
+  });
+
   describe('Return value', () => {
     beforeEach(() => {
       mockVisualViewport = {
         offsetTop: 75,
+        height: 675,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
       };
@@ -327,6 +395,8 @@ describe('useVisualViewport', () => {
       const wrapper = createTestComponent();
 
       expect(typeof wrapper.vm.updateViewportOffset).toBe('function');
+      expect(typeof wrapper.vm.requestVisualViewportUpdate).toBe('function');
+      expect(typeof wrapper.vm.requestVisualViewportSettle).toBe('function');
 
       wrapper.unmount();
     });
@@ -345,9 +415,24 @@ describe('useVisualViewport', () => {
       // Wait for RAF
       await new Promise(resolve => setTimeout(resolve, 10));
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalled();
+      expectViewportVariables('75px', '675px');
 
       wrapper.unmount();
+    });
+
+    it('exported requestVisualViewportUpdate can be called manually', async () => {
+      createTestComponent();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+      vi.mocked(document.documentElement.style.setProperty).mockClear();
+
+      mockVisualViewport.offsetTop = 125;
+      mockVisualViewport.height = 525;
+      requestVisualViewportUpdate();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expectViewportVariables('125px', '525px');
     });
   });
 
@@ -355,6 +440,7 @@ describe('useVisualViewport', () => {
     beforeEach(() => {
       mockVisualViewport = {
         offsetTop: 0,
+        height: 700,
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
       };
@@ -370,10 +456,7 @@ describe('useVisualViewport', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
       await nextTick();
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-        '--viewport-offset-top',
-        '0px'
-      );
+      expectViewportVariables('0px', '700px');
     });
 
     it('handles null offsetTop (treats as 0)', async () => {
@@ -385,10 +468,7 @@ describe('useVisualViewport', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
       await nextTick();
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-        '--viewport-offset-top',
-        '0px'
-      );
+      expectViewportVariables('0px', '700px');
     });
 
     it('handles very large offsetTop values', async () => {
@@ -400,10 +480,40 @@ describe('useVisualViewport', () => {
       await new Promise(resolve => setTimeout(resolve, 10));
       await nextTick();
 
-      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-        '--viewport-offset-top',
-        '5000px'
-      );
+      expectViewportVariables('5000px', '700px');
+    });
+
+    it('handles undefined height (uses CSS dynamic viewport fallback)', async () => {
+      mockVisualViewport.height = undefined;
+
+      createTestComponent();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await nextTick();
+
+      expectViewportVariables('0px', '100dvh');
+    });
+
+    it('handles null height (uses CSS dynamic viewport fallback)', async () => {
+      mockVisualViewport.height = null;
+
+      createTestComponent();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await nextTick();
+
+      expectViewportVariables('0px', '100dvh');
+    });
+
+    it('handles very large height values', async () => {
+      mockVisualViewport.height = 5000;
+
+      createTestComponent();
+
+      await new Promise(resolve => setTimeout(resolve, 10));
+      await nextTick();
+
+      expectViewportVariables('0px', '5000px');
     });
   });
 });

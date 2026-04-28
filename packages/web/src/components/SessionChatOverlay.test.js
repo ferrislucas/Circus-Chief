@@ -8,6 +8,14 @@ import sessionChatOverlaySource from './SessionChatOverlay.vue?raw';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@circuschief/shared';
 
+const mockRequestVisualViewportUpdate = vi.hoisted(() => vi.fn());
+const mockRequestVisualViewportSettle = vi.hoisted(() => vi.fn());
+
+vi.mock('../composables/useVisualViewport.js', () => ({
+  requestVisualViewportSettle: mockRequestVisualViewportSettle,
+  requestVisualViewportUpdate: mockRequestVisualViewportUpdate,
+}));
+
 // jsdom has no scrollIntoView. Several overlay code paths call it after
 // focus transitions fire; stub it globally so blur-recovery tests can
 // exercise the real focusin/focusout listeners without throwing.
@@ -1552,24 +1560,27 @@ describe('SessionChatOverlay', () => {
       expect(block).toMatch(/position:\s*fixed/);
       expect(block).toMatch(/top:\s*var\(--viewport-offset-top,\s*0px\)/);
       expect(block).toMatch(/right:\s*0/);
-      expect(block).toMatch(/bottom:\s*0/);
       expect(block).toMatch(/left:\s*0/);
+      expect(block).toMatch(/height:\s*var\(--visual-viewport-height,\s*100dvh\)/);
+      expect(block).not.toMatch(/bottom:\s*0/);
     });
 
-    it('panel-wrapper stylesheet no longer uses viewport-unit min-heights', () => {
+    it('panel-wrapper stylesheet uses fixed visual viewport geometry', () => {
       const blockMatch = sessionChatOverlaySource.match(/\.overlay-panel-wrapper\s*\{[^}]*\}/);
       expect(blockMatch).toBeTruthy();
       const block = blockMatch[0];
-      // Regression guard: Phase 2 removed `min-height: 100vh/100dvh` and
-      // `height: 100%` from the panel wrapper.
+      expect(block).toMatch(/position:\s*fixed/);
+      expect(block).toMatch(/top:\s*var\(--viewport-offset-top,\s*0px\)/);
+      expect(block).toMatch(/right:\s*0/);
+      expect(block).toMatch(/height:\s*var\(--visual-viewport-height,\s*100dvh\)/);
+      expect(block).not.toMatch(/bottom:\s*0/);
       expect(block).not.toMatch(/min-height:\s*100vh/);
       expect(block).not.toMatch(/min-height:\s*100dvh/);
     });
 
     it('source no longer references window.visualViewport', () => {
-      // Phase 1 removed the entire JS viewport sync. This guard makes
-      // future regressions loud.
-      expect(sessionChatOverlaySource).not.toMatch(/visualViewport/);
+      // Viewport reads stay centralized in useVisualViewport.js.
+      expect(sessionChatOverlaySource).not.toMatch(/window\.visualViewport/);
       expect(sessionChatOverlaySource).not.toMatch(/syncToVisualViewport/);
       expect(sessionChatOverlaySource).not.toMatch(/markRecentBlur/);
       expect(sessionChatOverlaySource).not.toMatch(/applyLayoutViewport/);
@@ -1592,7 +1603,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('inputFocused toggles via focusin/focusout without viewport sync', async () => {
+    it('inputFocused toggles via focusin/focusout and requests viewport settle on blur', async () => {
       const wrapper = mountOverlay();
       await nextTick();
 
@@ -1608,11 +1619,16 @@ describe('SessionChatOverlay', () => {
       textarea.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
       await nextTick();
       expect(wrapper.vm.inputFocused).toBe(true);
+      expect(document.querySelector('.overlay-header')?.classList.contains('header-compact')).toBe(false);
 
+      mockRequestVisualViewportSettle.mockClear();
       textarea.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      expect(mockRequestVisualViewportSettle).toHaveBeenCalledTimes(1);
       // focusout is rAF-debounced; flush one frame.
       await new Promise((r) => requestAnimationFrame(() => r()));
       await nextTick();
+      expect(mockRequestVisualViewportSettle).toHaveBeenCalledTimes(1);
+      expect(mockRequestVisualViewportUpdate).not.toHaveBeenCalled();
       expect(wrapper.vm.inputFocused).toBe(false);
 
       body.removeChild(textarea);
