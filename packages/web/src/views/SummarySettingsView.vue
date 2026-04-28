@@ -28,6 +28,24 @@
     <div class="form-group">
       <label
         class="form-label"
+        for="model-select"
+      >Summary Model</label>
+      <ModelSelector
+        v-model="summaryModel"
+        :provider-id="summaryProviderId"
+        allow-empty
+        empty-label="Use default summary model"
+        select-class="form-input"
+        @model-selected="handleModelSelected"
+      />
+      <p class="form-help">
+        Choose the model used when summaries are generated.
+      </p>
+    </div>
+
+    <div class="form-group">
+      <label
+        class="form-label"
         for="sessionTitlePrompt"
       >Custom Session Title Prompt</label>
       <ResizableTextarea
@@ -78,12 +96,15 @@ import { ref, onMounted, watch } from 'vue';
 import { useSettingsStore } from '../stores/settings.js';
 import { useUiStore } from '../stores/ui.js';
 import ResizableTextarea from '../components/ResizableTextarea.vue';
+import ModelSelector from '../components/ModelSelector.vue';
 
 const settingsStore = useSettingsStore();
 const uiStore = useUiStore();
 
 const disableSessionSummaries = ref(false);
 const sessionTitlePrompt = ref('');
+const summaryModel = ref('');
+const summaryProviderId = ref(null);
 const saving = ref(false);
 const error = ref(null);
 
@@ -95,10 +116,17 @@ onMounted(() => {
 watch(() => settingsStore.summarySettings, (settings) => {
   if (settings) {
     disableSessionSummaries.value = settings.disableSessionSummaries;
+    summaryModel.value = settings.summaryModel || '';
+    summaryProviderId.value = settings.summaryProviderId || null;
     // Use saved prompt, or fall back to default for editing
     sessionTitlePrompt.value = settings.sessionTitlePrompt || settings.defaultSessionTitlePrompt || '';
   }
 }, { immediate: true });
+
+function handleModelSelected(selection) {
+  summaryModel.value = selection.modelId || '';
+  summaryProviderId.value = selection.providerId || null;
+}
 
 async function handleSave() {
   saving.value = true;
@@ -108,6 +136,8 @@ async function handleSave() {
     await settingsStore.updateSummarySettings({
       disableSessionSummaries: disableSessionSummaries.value,
       sessionTitlePrompt: sessionTitlePrompt.value,
+      summaryModel: summaryModel.value || '',
+      summaryProviderId: summaryModel.value ? summaryProviderId.value : null,
     });
     uiStore.success('Summary settings saved successfully');
   } catch (err) {

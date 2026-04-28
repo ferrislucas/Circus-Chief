@@ -5,6 +5,13 @@ const TOKEN_WEIGHTS_KEY = 'token_cost_weights';
 const SUMMARY_SETTINGS_KEY = 'summary_settings';
 const GENERAL_SETTINGS_KEY = 'general_settings';
 
+const DEFAULT_SUMMARY_SETTINGS = Object.freeze({
+  disableSessionSummaries: false,
+  sessionTitlePrompt: '',
+  summaryModel: '',
+  summaryProviderId: null,
+});
+
 /**
  * Settings repository for managing application-wide settings
  */
@@ -114,22 +121,18 @@ export class SettingsRepository {
   getSummarySettings() {
     const value = this.get(SUMMARY_SETTINGS_KEY);
     if (!value) {
-      return {
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
-      };
+      return { ...DEFAULT_SUMMARY_SETTINGS };
     }
     try {
       const parsed = JSON.parse(value);
       return {
         disableSessionSummaries: parsed.disableSessionSummaries || false,
         sessionTitlePrompt: parsed.sessionTitlePrompt || '',
+        summaryModel: typeof parsed.summaryModel === 'string' ? parsed.summaryModel : '',
+        summaryProviderId: typeof parsed.summaryProviderId === 'string' ? parsed.summaryProviderId : null,
       };
     } catch {
-      return {
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
-      };
+      return { ...DEFAULT_SUMMARY_SETTINGS };
     }
   }
 
@@ -138,11 +141,18 @@ export class SettingsRepository {
    * @param {Object} settings - Summary settings
    * @param {boolean} settings.disableSessionSummaries - Disable session summaries
    * @param {string} settings.sessionTitlePrompt - Custom session title prompt
+   * @param {string} [settings.summaryModel] - Summary model id; empty string means auto
+   * @param {string|null} [settings.summaryProviderId] - Provider id owning summaryModel
    */
   setSummarySettings(settings) {
+    const summaryModel = String(settings.summaryModel || '');
     const validated = {
       disableSessionSummaries: Boolean(settings.disableSessionSummaries),
       sessionTitlePrompt: String(settings.sessionTitlePrompt || ''),
+      summaryModel,
+      summaryProviderId: summaryModel && typeof settings.summaryProviderId === 'string'
+        ? settings.summaryProviderId
+        : null,
     };
     this.set(SUMMARY_SETTINGS_KEY, JSON.stringify(validated));
     return validated;
@@ -154,10 +164,7 @@ export class SettingsRepository {
    */
   resetSummarySettings() {
     this.delete(SUMMARY_SETTINGS_KEY);
-    return {
-      disableSessionSummaries: false,
-      sessionTitlePrompt: '',
-    };
+    return { ...DEFAULT_SUMMARY_SETTINGS };
   }
 
   // General Settings

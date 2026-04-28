@@ -118,6 +118,23 @@ describe('ModelSelector', () => {
       expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
     });
 
+    it('emits provider metadata when selection changes', async () => {
+      const onModelSelected = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: sonnet.id },
+        { onModelSelected }
+      );
+
+      await wrapper.find('select').setValue(opus.id);
+      await flushAll(wrapper);
+
+      expect(onModelSelected).toHaveBeenCalledWith({
+        modelId: opus.id,
+        providerId: 'anthropic',
+        kind: 'anthropic',
+      });
+    });
+
     it('emits correct model id for each option', async () => {
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(

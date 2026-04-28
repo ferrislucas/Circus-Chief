@@ -2,6 +2,13 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SettingsRepository } from './SettingsRepository.js';
 import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
 
+const DEFAULT_SUMMARY_SETTINGS = {
+  disableSessionSummaries: false,
+  sessionTitlePrompt: '',
+  summaryModel: '',
+  summaryProviderId: null,
+};
+
 describe('SettingsRepository', () => {
   // Uses global setup from test/setup.js
   let repo;
@@ -252,8 +259,7 @@ describe('SettingsRepository', () => {
       const settings = repo.getSummarySettings();
 
       expect(settings).toEqual({
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
+        ...DEFAULT_SUMMARY_SETTINGS,
       });
     });
 
@@ -261,6 +267,8 @@ describe('SettingsRepository', () => {
       const customSettings = {
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Custom prompt',
+        summaryModel: '',
+        summaryProviderId: null,
       };
       repo.setSummarySettings(customSettings);
 
@@ -281,8 +289,7 @@ describe('SettingsRepository', () => {
       repo.set('summary_settings', 'invalid-json{');
       const settings = repo.getSummarySettings();
       expect(settings).toEqual({
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
+        ...DEFAULT_SUMMARY_SETTINGS,
       });
     });
 
@@ -312,6 +319,8 @@ describe('SettingsRepository', () => {
       const customSettings = {
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Test prompt',
+        summaryModel: '',
+        summaryProviderId: null,
       };
       const saved = repo.setSummarySettings(customSettings);
 
@@ -354,6 +363,8 @@ describe('SettingsRepository', () => {
       const customSettings = {
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Cross-instance test',
+        summaryModel: '',
+        summaryProviderId: null,
       };
       repo.setSummarySettings(customSettings);
 
@@ -391,8 +402,7 @@ describe('SettingsRepository', () => {
       const defaults = repo.resetSummarySettings();
 
       expect(defaults).toEqual({
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
+        ...DEFAULT_SUMMARY_SETTINGS,
       });
       expect(repo.getSummarySettings()).toEqual(defaults);
     });
@@ -400,8 +410,7 @@ describe('SettingsRepository', () => {
     it('returns defaults even if no custom settings were set', () => {
       const defaults = repo.resetSummarySettings();
       expect(defaults).toEqual({
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
+        ...DEFAULT_SUMMARY_SETTINGS,
       });
     });
 

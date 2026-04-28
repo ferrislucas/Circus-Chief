@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
-import { settings } from '../db/index.js';
+import { modelProviders, settings } from '../db/index.js';
 import settingsRouter from './settings.js';
 
 // Use a generous timeout to avoid flakiness during full-suite runs
@@ -19,10 +19,77 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
     // Reset token weights to defaults before each test
     settings.resetTokenCostWeights();
+    settings.resetSummarySettings();
   });
 
   afterEach(async () => {
     await new Promise((resolve) => server.close(resolve));
+  });
+
+  describe('Summary settings', () => {
+    it('returns expanded summary defaults', async () => {
+      const res = await request(server).get('/api/settings/summary');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        disableSessionSummaries: false,
+        sessionTitlePrompt: '',
+        summaryModel: '',
+        summaryProviderId: null,
+      });
+      expect(res.body.defaultSessionTitlePrompt).toBeTypeOf('string');
+    });
+
+    it('accepts legacy summary body without model fields', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: true,
+          sessionTitlePrompt: 'Title prompt',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        disableSessionSummaries: true,
+        sessionTitlePrompt: 'Title prompt',
+        summaryModel: '',
+        summaryProviderId: null,
+      });
+    });
+
+    it('accepts a valid provider/model pair', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: model,
+        summaryProviderId: provider.id,
+      });
+    });
+
+    it('rejects provider/model ownership mismatches', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: 'not-owned-by-openai',
+          summaryProviderId: 'openai-default',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('does not own');
+    });
   });
 
   describe('GET /api/settings/token-weights', () => {

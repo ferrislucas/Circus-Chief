@@ -8,7 +8,7 @@
       :value="effectiveSelectedModel"
       :disabled="disabled"
       :class="selectClass || 'model-select'"
-      @change="handleModelChange($event.target.value)"
+      @change="handleModelChange($event)"
     >
       <option
         v-if="allowEmpty"
@@ -61,9 +61,13 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  providerId: {
+    type: String,
+    default: null,
+  },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'model-selected', 'update:providerId']);
 
 const providersStore = useProvidersStore();
 
@@ -133,13 +137,13 @@ const visibleProviders = computed(() => {
 
   return sortedProviders.value
     .map((provider) => {
-      if (!provider.isBuiltIn || agentTypeFor(provider) !== 'codex') return provider;
-      return withCustomCodexModelsHidden(provider, customModelIds);
+      if (!provider.isBuiltIn) return provider;
+      return withCustomModelsHidden(provider, customModelIds);
     })
     .filter((provider) => provider.models?.length);
 });
 
-function withCustomCodexModelsHidden(provider, customModelIds) {
+function withCustomModelsHidden(provider, customModelIds) {
   return {
     ...provider,
     models: (provider.models || []).filter((model) => !customModelIds.has(model.modelId)),
@@ -274,14 +278,33 @@ watch(() => providersStore.providers, () => {
 // NOTE: Removed defaultModel watcher - it should not override after initialization
 // The default is now only applied once during onMounted (see above)
 
-function handleModelChange(modelId) {
-  if (effectiveSelectedModel.value === modelId) return;
+function handleModelChange(event) {
+  const option = event.target.selectedOptions?.[0] || null;
+  const optionValue = event.target.value;
+  const metadata = optionValue
+    ? {
+        modelId: optionValue,
+        providerId: option?.dataset?.providerId || null,
+        kind: providerKindForId(option?.dataset?.providerId),
+      }
+    : { modelId: '', providerId: null, kind: null };
+  const modelId = metadata.modelId;
+
+  if (effectiveSelectedModel.value === modelId && (!props.providerId || props.providerId === metadata.providerId)) return;
 
   // Immediate visual feedback - update UI right away
   selectedModel.value = modelId;
 
   // Emit for v-model (empty string when allowEmpty option is selected)
   emit('update:modelValue', modelId);
+  emit('update:providerId', metadata.providerId);
+  emit('model-selected', metadata);
+}
+
+function providerKindForId(providerId) {
+  if (!providerId) return null;
+  const provider = providersStore.providers.find((entry) => entry.id === providerId);
+  return provider?.kind || 'anthropic';
 }
 </script>
 

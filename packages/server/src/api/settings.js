@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { settings } from '../db/index.js';
+import { modelProviders, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
+import { isKnownBuiltInAnthropicModel } from '../services/summaryModelResolver.js';
 
 const router = Router();
 
@@ -93,7 +94,12 @@ router.get('/summary', (req, res) => {
  */
 router.put('/summary', (req, res) => {
   try {
-    const { disableSessionSummaries, sessionTitlePrompt } = req.body;
+    const {
+      disableSessionSummaries,
+      sessionTitlePrompt,
+      summaryModel = '',
+      summaryProviderId = null,
+    } = req.body;
 
     // Validate that all required fields are present
     if (typeof disableSessionSummaries !== 'boolean' ||
@@ -103,9 +109,26 @@ router.put('/summary', (req, res) => {
       });
     }
 
+    if (summaryModel !== undefined && typeof summaryModel !== 'string') {
+      return res.status(400).json({ error: 'summaryModel must be a string' });
+    }
+
+    if (summaryProviderId !== null && summaryProviderId !== undefined && typeof summaryProviderId !== 'string') {
+      return res.status(400).json({ error: 'summaryProviderId must be a string or null' });
+    }
+
+    const model = summaryModel || '';
+    const providerId = model ? summaryProviderId : null;
+    const validationError = validateSummaryModelSelection(model, providerId);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
     const updatedSettings = settings.setSummarySettings({
       disableSessionSummaries,
       sessionTitlePrompt,
+      summaryModel: model,
+      summaryProviderId: providerId,
     });
 
     // Include the default prompt for UI display/editing
@@ -118,6 +141,34 @@ router.put('/summary', (req, res) => {
     res.status(500).json({ error: 'Failed to update summary settings' });
   }
 });
+
+function validateSummaryModelSelection(summaryModel, summaryProviderId) {
+  if (!summaryModel) return null;
+
+  if (summaryProviderId) {
+    const provider = modelProviders.getById(summaryProviderId);
+    if (!provider) return `Unknown summary provider: ${summaryProviderId}`;
+    if (!['anthropic', 'openai'].includes(provider.kind || 'anthropic')) {
+      return `Unsupported summary provider kind: ${provider.kind}`;
+    }
+    const ownsModel = provider.models?.some((model) => model.modelId === summaryModel);
+    if (!ownsModel) {
+      return `Provider ${summaryProviderId} does not own summary model ${summaryModel}`;
+    }
+    return null;
+  }
+
+  const provider = modelProviders.getProviderByModelId(summaryModel);
+  if (provider) {
+    if (!['anthropic', 'openai'].includes(provider.kind || 'anthropic')) {
+      return `Unsupported summary provider kind: ${provider.kind}`;
+    }
+    return null;
+  }
+
+  if (isKnownBuiltInAnthropicModel(summaryModel)) return null;
+  return `Unknown summary model: ${summaryModel}`;
+}
 
 /**
  * DELETE /api/settings/summary
