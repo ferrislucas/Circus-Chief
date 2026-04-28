@@ -106,6 +106,32 @@ describe('SessionHeaderPanel', () => {
       const wrapper = mountPanel();
       expect(wrapper.find('.name-edit-form').exists()).toBe(false);
     });
+
+    it('does not render archived badge for active sessions', () => {
+      const wrapper = mountPanel();
+      expect(wrapper.find('.archived-badge').exists()).toBe(false);
+      expect(wrapper.find('.session-header').classes()).not.toContain('is-archived');
+    });
+
+    it('renders archived badge for archived sessions', () => {
+      const wrapper = mountPanel({
+        session: {
+          id: 'session-1',
+          name: 'Archived Session',
+          status: 'completed',
+          projectId: 'proj-1',
+          starred: false,
+          prUrl: null,
+          archived: true,
+        },
+      });
+
+      const badge = wrapper.find('.archived-badge');
+      expect(badge.exists()).toBe(true);
+      expect(badge.text()).toBe('Archived');
+      expect(badge.attributes('aria-label')).toBe('Archived session');
+      expect(wrapper.find('.session-header').classes()).toContain('is-archived');
+    });
   });
 
   describe('name editing', () => {
