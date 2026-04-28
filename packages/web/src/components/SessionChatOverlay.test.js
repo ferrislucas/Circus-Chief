@@ -236,7 +236,20 @@ describe('SessionChatOverlay', () => {
   afterEach(() => {
     // Clean up teleported content
     document.querySelectorAll('[data-testid="session-chat-overlay"]').forEach(el => el.remove());
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1024,
+    });
   });
+
+  function setViewportWidth(width) {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: width,
+    });
+  }
 
   function mountOverlay(propsOverrides = {}) {
     return mount(SessionChatOverlay, {
@@ -1604,6 +1617,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('inputFocused toggles via focusin/focusout and requests viewport settle on blur', async () => {
+      setViewportWidth(390);
       const wrapper = mountOverlay();
       await nextTick();
 
