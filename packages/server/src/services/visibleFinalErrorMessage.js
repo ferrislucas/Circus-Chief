@@ -29,11 +29,33 @@ function buildVisibleErrorContent(agentType, errorMessage) {
   return `The agent failed before completing this turn:\n\n${errorMessage}`;
 }
 
+/**
+ * Check if a visible error message already exists to prevent duplicates.
+ *
+ * Uses two strategies to detect existing failures:
+ *
+ * Strategy 1: Exact match with generated content
+ * - Checks if the latest message is an assistant message with content exactly matching
+ *   what we would generate (e.g., "Codex failed before completing this turn:\n\nerror")
+ * - This catches cases where we already created the formatted error message
+ *
+ * Strategy 2: Raw error in messages after latest user message
+ * - Finds the latest user message, then checks all subsequent assistant messages
+ * - Returns true if any assistant message contains the raw error text
+ * - This catches cases where the agent itself already reported the error
+ *   (e.g., "Run failed: usage limit reached" contains "usage limit reached")
+ *
+ * @param {Array} conversationMessages - All messages in the conversation
+ * @param {string} generatedContent - The formatted error content we would create
+ * @param {string} rawErrorMessage - The raw error message text
+ * @returns {boolean} True if a duplicate error message already exists
+ */
 function hasExistingVisibleFailure(conversationMessages, generatedContent, rawErrorMessage) {
   const normalizedGenerated = normalizeMessageContent(generatedContent);
   const normalizedError = normalizeMessageContent(rawErrorMessage);
   const latestMessage = conversationMessages[conversationMessages.length - 1];
 
+  // Strategy 1: Check if the latest message is an exact match with our generated content
   if (
     latestMessage?.role === 'assistant' &&
     normalizeMessageContent(latestMessage.content) === normalizedGenerated
@@ -41,6 +63,7 @@ function hasExistingVisibleFailure(conversationMessages, generatedContent, rawEr
     return true;
   }
 
+  // Find the index of the latest user message
   let latestUserIndex = -1;
   for (let i = conversationMessages.length - 1; i >= 0; i -= 1) {
     if (conversationMessages[i].role === 'user') {
@@ -49,6 +72,7 @@ function hasExistingVisibleFailure(conversationMessages, generatedContent, rawEr
     }
   }
 
+  // Strategy 2: Check if any assistant message after the latest user message contains the raw error
   return conversationMessages
     .slice(latestUserIndex + 1)
     .some((message) => {
