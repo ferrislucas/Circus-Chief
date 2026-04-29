@@ -3,14 +3,78 @@ import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import * as kanbanService from './kanbanService.js';
+import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
 import {
   lastMessageIds,
   activeSessions,
   activeConversationIds,
+  finalErrorSessionIds,
   associateAndBroadcastWorkLogs,
   broadcastSessionStatus,
   broadcastChangesUpdate,
 } from './streamEventHandler.js';
+
+/**
+ * Associate work logs with the last message and clean up tracking state.
+ * @param {string} sessionId
+ */
+function associateAndCleanupWorkLogs(sessionId) {
+  const lastMessageId = lastMessageIds.get(sessionId);
+  if (lastMessageId) {
+    associateAndBroadcastWorkLogs(sessionId, lastMessageId);
+    lastMessageIds.delete(sessionId);
+  }
+}
+
+/**
+ * Handle post-turn activities for a session that's ready for follow-up.
+ * @param {string} sessionId
+ * @param {string} workingDirectory
+ * @param {{ checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function, handleTemplateTriggerIfNeeded?: Function }} callbacks
+ * @returns {Promise<boolean>} True if rescheduled, false otherwise
+ */
+async function handleActiveSessionCompletion(sessionId, workingDirectory, callbacks) {
+  sessions.update(sessionId, { status: 'waiting', error: null });
+  broadcastSessionStatus(sessionId, 'waiting');
+
+  // Check if session should be proactively rescheduled based on token threshold
+  const { checkProactiveReschedule } = callbacks;
+  if (checkProactiveReschedule) {
+    const wasRescheduled = await checkProactiveReschedule(sessionId);
+    if (wasRescheduled) {
+      return true; // Session was rescheduled, don't continue with normal completion
+    }
+  }
+
+  // Extract PR URL immediately (lightweight, no API call)
+  summaryService.extractPrUrlIfNeeded(sessionId);
+  // Trigger debounced summary generation on turn completion (not complete yet)
+  summaryService.onSessionActivity(sessionId);
+
+  // Broadcast changes update when turn completes (real-time indicator)
+  const currentSession = sessions.getById(sessionId);
+  if (currentSession) {
+    await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
+  }
+
+  // Handle kanban lane movements based on targetLaneId
+  await kanbanService.handleTurnCompletion(sessionId);
+
+  // Auto-send queued prompt if enabled (runs BEFORE template trigger)
+  const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
+  let autoSendFired = false;
+  if (handleAutoSendIfNeeded) {
+    autoSendFired = await handleAutoSendIfNeeded(sessionId);
+  }
+
+  // Only trigger next template if auto-send did NOT fire
+  // (if auto-send fired, template will trigger after that turn completes)
+  if (!autoSendFired && handleTemplateTriggerIfNeeded) {
+    await handleTemplateTriggerIfNeeded(sessionId);
+  }
+
+  return false;
+}
 
 /**
  * Handle post-turn completion logic (after stream loop ends successfully)
@@ -20,54 +84,21 @@ import {
  * @param {{ handleTemplateTriggerIfNeeded?: Function, checkProactiveReschedule?: Function, handleAutoSendIfNeeded?: Function }} callbacks
  */
 export async function handleTurnCompletion(sessionId, workingDirectory, callbacks = {}) {
-  const { handleTemplateTriggerIfNeeded, checkProactiveReschedule: _checkProactiveReschedule, handleAutoSendIfNeeded } = callbacks;
   // Associate work logs with the last message now that the turn is complete
-  const lastMessageId = lastMessageIds.get(sessionId);
-  if (lastMessageId) {
-    associateAndBroadcastWorkLogs(sessionId, lastMessageId);
-    lastMessageIds.delete(sessionId);
+  associateAndCleanupWorkLogs(sessionId);
+
+  // Sessions with final errors should not transition to waiting
+  if (finalErrorSessionIds.has(sessionId)) {
+    finalErrorSessionIds.delete(sessionId);
+    return false;
   }
 
   // Session ready for follow-up - set to waiting instead of completed
   const activeSession = activeSessions.get(sessionId);
   if (activeSession && !activeSession.controller?.signal?.aborted) {
-    sessions.update(sessionId, { status: 'waiting' });
-    broadcastSessionStatus(sessionId, 'waiting');
-
-    // Check if session should be proactively rescheduled based on token threshold
-    if (_checkProactiveReschedule) {
-      const wasRescheduled = await _checkProactiveReschedule(sessionId);
-      if (wasRescheduled) {
-        return true; // Session was rescheduled, don't continue with normal completion
-      }
-    }
-
-    // Extract PR URL immediately (lightweight, no API call)
-    summaryService.extractPrUrlIfNeeded(sessionId);
-    // Trigger debounced summary generation on turn completion (not complete yet)
-    summaryService.onSessionActivity(sessionId);
-
-    // Broadcast changes update when turn completes (real-time indicator)
-    const currentSession = sessions.getById(sessionId);
-    if (currentSession) {
-      await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
-    }
-
-    // Handle kanban lane movements based on targetLaneId
-    await kanbanService.handleTurnCompletion(sessionId);
-
-    // Auto-send queued prompt if enabled (runs BEFORE template trigger)
-    let autoSendFired = false;
-    if (handleAutoSendIfNeeded) {
-      autoSendFired = await handleAutoSendIfNeeded(sessionId);
-    }
-
-    // Only trigger next template if auto-send did NOT fire
-    // (if auto-send fired, template will trigger after that turn completes)
-    if (!autoSendFired && handleTemplateTriggerIfNeeded) {
-      await handleTemplateTriggerIfNeeded(sessionId);
-    }
+    return handleActiveSessionCompletion(sessionId, workingDirectory, callbacks);
   }
+
   return false;
 }
 
@@ -149,6 +180,7 @@ export async function handleSessionError(sessionId, error, options = {}) {
 
   // Normal error handling (no reschedule or reschedule limits reached)
   sessions.update(sessionId, { status: 'error', error: error.message });
+  createVisibleFinalErrorMessage(sessionId, error, activeConversationIds);
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: error.message });
 
   // Optionally broadcast final conversation state (continueSession does this)
