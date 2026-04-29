@@ -204,14 +204,12 @@ function stripAnthropicHostEnv(env) {
 
 function replaceWithCodexCliEnv(sessionEnv, providerEnv) {
   const target = sessionEnv;
-  const allowed = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'TMPDIR'];
-  const cleaned = {};
-  for (const key of allowed) {
-    if (target[key] !== undefined) cleaned[key] = target[key];
-  }
-  Object.assign(cleaned, providerEnv);
-  for (const key of Object.keys(target)) delete target[key];
-  Object.assign(target, cleaned);
+  delete target.OPENAI_API_KEY;
+  delete target.OPENAI_BASE_URL;
+  delete target.OPENAI_API_BASE;
+  delete target.OPENAI_ORG_ID;
+  delete target.OPENAI_PROJECT;
+  Object.assign(target, providerEnv);
 }
 
 function stripOpenAIBaseUrlUnlessProvided(sessionEnv, providerEnv) {

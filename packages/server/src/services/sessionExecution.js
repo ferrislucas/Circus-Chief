@@ -82,7 +82,9 @@ function buildClaudeCodeQueryParams({
       abortController: controller,
       includePartialMessages: true,
       permissionMode: getPermissionModeForSession(session.mode),
-      settingSources: ['project'],
+      // Match normal Claude Code CLI behavior: load user-level settings
+      // such as configured MCP servers, then project/local overrides.
+      settingSources: ['user', 'project', 'local'],
       ...(resumeSessionId && { resume: resumeSessionId }),
       env: sessionEnv,
       spawnClaudeCodeProcess: createClaudeCodeSpawner(),
