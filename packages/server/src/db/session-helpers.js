@@ -59,6 +59,10 @@ const CONFIG_DEFAULTS = {
   status: 'starting',
   model: null,
   effortLevel: null,
+  // Agent runtime for the session: 'claude-code' (default) or 'codex'.
+  // Defaults to null so SessionRepository.create() can resolve it from the model.
+  // Explicit values from callers are preserved as-is.
+  agentType: null,
 };
 
 function buildConfig(src) {
@@ -109,6 +113,7 @@ export const DIRECT_FIELD_MAP = {
   effortLevel: 'effort_level',
   targetLaneId: 'target_lane_id',
   laneTriggerDepth: 'lane_trigger_depth',
+  agentType: 'agent_type',
 };
 
 /** camelCase -> snake_case column mapping for boolean fields (converted to 1/0) */

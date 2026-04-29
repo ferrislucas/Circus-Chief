@@ -42,6 +42,16 @@ describe('CanvasApi', () => {
     });
   });
 
+  describe('getCanvasItemContent', () => {
+    it('sends GET with item id', async () => {
+      mockFetch.mockReturnValue(mockResponse({ content: '# Hello', type: 'markdown' }));
+
+      await client.getCanvasItemContent('sess-123', 'item-456');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/canvas/item-456/content', expect.any(Object));
+    });
+  });
+
   describe('getAllCanvasItems', () => {
     it('sends GET to /sessions/:id/canvas/all', async () => {
       const items = [

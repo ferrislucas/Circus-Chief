@@ -4,6 +4,7 @@ import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { resolveAgentTypeFromModel } from './sessionProvider.js';
 
 const liquid = new Liquid();
 
@@ -157,6 +158,7 @@ function buildChildSessionOptions(template, parentSession, settings) {
     status: 'starting',
     model: settings.model,
     effortLevel: settings.effortLevel,
+    agentType: resolveAgentTypeFromModel(settings.model),
   };
 
   const postCreateUpdate = {

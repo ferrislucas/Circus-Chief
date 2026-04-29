@@ -1,5 +1,6 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { createClaudeCodeSpawner } from './nodeSpawnHelper.js';
+import { createCodexSpawner } from './codexSpawnHelper.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
@@ -7,6 +8,7 @@ import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
 import {
   buildSystemPromptConfig,
   getPermissionModeForSession,
+  getSandboxModeForSession,
   buildPromptWithAttachments,
 } from './sessionPrompts.js';
 import {
@@ -20,18 +22,38 @@ import {
 } from './streamEventHandler.js';
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { schedulerService } from './schedulerService.js';
-import { buildConversationContextForModelSwitch } from './conversationContext.js';
+import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 /**
+ * Build the adapter-specific default config object for
+ * {@link createAgentForSession}. Callers may pass an explicit `config` to
+ * override these defaults.
+ * @param {string} agentType
+ * @returns {Object}
+ */
+function buildAgentConfig(agentType) {
+  if (agentType === 'codex') {
+    return { spawnCodexProcess: createCodexSpawner() };
+  }
+  return {};
+}
+
+/**
  * Create the agent for a session, using gateway + logging + VCR.
  *
- * @param {string} agentType - The agent type (e.g., 'claude-code')
+ * If `config` is empty, the adapter-specific default config is applied
+ * (e.g. codex receives a fresh `spawnCodexProcess` spawner). Explicit
+ * `config` keys win over defaults.
+ *
+ * @param {string} agentType - The agent type (e.g., 'claude-code', 'codex')
+ * @param {Object} [config] - Optional adapter config forwarded to the gateway.
  * @returns {{ execute: (queryParams: any, meta?: any) => AsyncGenerator }}
  */
-export function createAgentForSession(agentType = 'claude-code') {
-  const baseAgent = agentGateway.createAgent(agentType);
+export function createAgentForSession(agentType = 'claude-code', config = {}) {
+  const mergedConfig = { ...buildAgentConfig(agentType), ...config };
+  const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 
   // Wrap with VCR adapter if in VCR mode
   const agent = process.env.VCR_MODE
@@ -43,22 +65,13 @@ export function createAgentForSession(agentType = 'claude-code') {
 }
 
 /**
- * Build query parameters for executing a session via the Claude agent.
- * Shared by runSession, continueSession, and continueSessionWithExistingMessage.
- * @param {Object} options
- * @param {string} options.prompt - The prompt text to send
- * @param {string} options.workingDirectory - Session working directory
- * @param {AbortController} options.controller - Abort controller for the session
- * @param {Object} options.session - Session object from DB
- * @param {string} options.sessionId - Session ID
- * @param {string|null} options.systemPrompt - Custom system prompt from project settings
- * @param {string|null} options.model - Model to use
- * @param {Object} options.sessionEnv - Environment variables for the session
- * @param {string|null} [options.resumeSessionId] - Claude session ID to resume (null for new session)
- * @returns {Object} Query parameters for agent.execute()
+ * Build query parameters for the Claude Code adapter.
+ * @returns {Object}
  */
-export function buildQueryParams({ prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv, resumeSessionId = null }) {
-  // Determine model (force Haiku in VCR mode to minimize cost)
+function buildClaudeCodeQueryParams({
+  prompt, workingDirectory, controller, session, sessionId, systemPrompt,
+  model, sessionEnv, resumeSessionId = null,
+}) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
 
@@ -69,7 +82,9 @@ export function buildQueryParams({ prompt, workingDirectory, controller, session
       abortController: controller,
       includePartialMessages: true,
       permissionMode: getPermissionModeForSession(session.mode),
-      settingSources: ['project'],
+      // Match normal Claude Code CLI behavior: load user-level settings
+      // such as configured MCP servers, then project/local overrides.
+      settingSources: ['user', 'project', 'local'],
       ...(resumeSessionId && { resume: resumeSessionId }),
       env: sessionEnv,
       spawnClaudeCodeProcess: createClaudeCodeSpawner(),
@@ -77,6 +92,67 @@ export function buildQueryParams({ prompt, workingDirectory, controller, session
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
     },
   };
+}
+
+/**
+ * Build query parameters for the Codex adapter.
+ *
+ * Codex in v1 is a simple Chat-Completions-shaped executor — it doesn't need
+ * or accept Claude-specific options (permissionMode, settingSources,
+ * includePartialMessages, spawnClaudeCodeProcess, resume).
+ *
+ * Codex does have its own sandboxing model, driven from {@code session.mode}
+ * via {@link getSandboxModeForSession}. Codex CLI v0.124.0 also supports
+ * resume via `codex resume` / `codex exec resume`, but Circus Chief v1
+ * intentionally does NOT pass a resume token — wiring is deferred to a
+ * later phase (see canvas plan §Phase 4.5).
+ *
+ * @returns {Object}
+ */
+function buildCodexQueryParams({
+  prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
+}) {
+  const isVCR = Boolean(process.env.VCR_MODE);
+  // In VCR mode, force the cheapest commonly-cassetted OpenAI model.
+  const effectiveModel = isVCR ? 'gpt-4o-mini' : model;
+
+  return {
+    prompt,
+    options: {
+      cwd: workingDirectory,
+      abortController: controller,
+      env: sessionEnv,
+      model: effectiveModel,
+      effortLevel: session?.effortLevel ?? null,
+      systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      sandboxMode: getSandboxModeForSession(session?.mode),
+    },
+  };
+}
+
+/**
+ * Build query parameters for executing a session via the configured agent.
+ * Shared by runSession, continueSession, and continueSessionWithExistingMessage.
+ *
+ * @param {Object} options
+ * @param {string} options.prompt - The prompt text to send
+ * @param {string} options.workingDirectory - Session working directory
+ * @param {AbortController} options.controller - Abort controller for the session
+ * @param {Object} options.session - Session object from DB
+ * @param {string} options.sessionId - Session ID
+ * @param {string|null} options.systemPrompt - Custom system prompt from project settings
+ * @param {string|null} options.model - Model to use
+ * @param {Object} options.sessionEnv - Environment variables for the session
+ * @param {string|null} [options.resumeSessionId] - Session ID to resume (null for new session)
+ * @param {string} [options.agentType] - 'claude-code' (default) | 'codex'
+ * @returns {Object} Query parameters for agent.execute()
+ */
+export function buildQueryParams(options) {
+  const { agentType = 'claude-code' } = options || {};
+  if (agentType === 'codex') {
+    return buildCodexQueryParams(options);
+  }
+  return buildClaudeCodeQueryParams(options);
 }
 
 /**
@@ -146,17 +222,26 @@ export async function _executeSession({
 }
 
 /**
- * Build prompt with conversation context when switching models.
+ * Build prompt with conversation context for a continuation.
  * When the model changes, we can't resume the previous session, so we include
  * conversation history as context so the new model can continue naturally.
- * @param {boolean} modelChanged
- * @param {string} conversationId
- * @param {string} promptWithAttachments
+ * When the adapter cannot resume, we include conversation history so the
+ * model has context of previous turns.
+ * @param {Object} opts
+ * @param {boolean} opts.modelChanged
+ * @param {Object} opts.agent - Agent instance
+ * @param {string} opts.conversationId
+ * @param {string} opts.prompt
  * @returns {Promise<string>}
  */
-async function buildPromptForContinue(modelChanged, conversationId, promptWithAttachments) {
-  if (!modelChanged) return promptWithAttachments;
-  return buildConversationContextForModelSwitch(conversationId) + promptWithAttachments;
+async function buildPromptForContinue({ modelChanged, agent, conversationId, prompt }) {
+  if (modelChanged) {
+    return buildConversationContextForModelSwitch(conversationId) + prompt;
+  }
+  if (agent.needsConversationContext()) {
+    return buildConversationContextForContinuation(conversationId) + prompt;
+  }
+  return prompt;
 }
 
 /**
@@ -201,13 +286,16 @@ function buildContinueModelAndEnv(session, sessionId, model) {
 async function buildContinueParams({
   sessionId, session, model, systemPrompt, effectiveModel, sessionEnv,
   modelChanged, activeConversation, promptWithAttachments,
-  workingDirectory, controller, agentType,
+  workingDirectory, controller, agentType, agent,
 }) {
-  // Only resume if we have a session ID AND model hasn't changed
-  const canResume = activeConversation.claudeSessionId && !modelChanged;
+  // Only resume if we have a session ID AND model hasn't changed AND the
+  // agent supports resume.
+  const canResume = activeConversation.claudeSessionId && !modelChanged && agent.supportsResume();
 
-  // Build prompt with conversation context when model changes
-  const promptWithContext = await buildPromptForContinue(modelChanged, activeConversation.id, promptWithAttachments);
+  // Build prompt with conversation context when model changes or adapter needs it
+  const promptWithContext = await buildPromptForContinue({
+    modelChanged, agent, conversationId: activeConversation.id, prompt: promptWithAttachments,
+  });
 
   const queryParams = buildQueryParams({
     prompt: promptWithContext,
@@ -219,6 +307,7 @@ async function buildContinueParams({
     model: effectiveModel,
     sessionEnv,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
+    agentType,
   });
 
   // Logging metadata for agent call tracking
@@ -311,7 +400,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
     sessionId, session, model, systemPrompt,
     effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
-    workingDirectory, controller, agentType,
+    workingDirectory, controller, agentType, agent,
   });
 
   await _executeSession({
@@ -388,6 +477,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     systemPrompt,
     model: effectiveModel,
     sessionEnv,
+    agentType,
   });
 
   // Log query params for debugging third-party provider issues

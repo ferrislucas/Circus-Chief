@@ -2,6 +2,7 @@ export { ProjectsApi } from './ProjectsApi.js';
 export { SessionsApi } from './SessionsApi.js';
 export { CanvasApi } from './CanvasApi.js';
 export { ProvidersApi } from './ProvidersApi.js';
+export { AgentsApi } from './AgentsApi.js';
 export { CommandButtonsApi } from './CommandButtonsApi.js';
 export { SettingsApi } from './SettingsApi.js';
 export { ConversationsApi } from './ConversationsApi.js';

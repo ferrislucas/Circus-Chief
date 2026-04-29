@@ -4,12 +4,13 @@
  * Each export is an array of { name, up(db) } migration objects.
  */
 import { randomUUID } from 'node:crypto';
+import { OPENAI_MODELS } from '@circuschief/shared';
 import { addColumnIfMissing, tableExists } from './migrationUtils.js';
 
 /**
  * Seed the built-in Anthropic provider if it doesn't exist.
  */
-function seedBuiltInProvider(db) {
+function seedBuiltInAnthropicProvider(db) {
   const providerId = 'anthropic-default';
 
   const existing = db
@@ -41,6 +42,35 @@ function seedBuiltInProvider(db) {
   for (const model of defaultModels) {
     insertModel.run(model.id, providerId, model.modelId, model.displayName, model.description, model.tier, now);
   }
+}
+
+/**
+ * Seed the built-in OpenAI/Codex provider if it doesn't exist.
+ */
+function seedBuiltInOpenAIProvider(db) {
+  const providerId = 'openai-default';
+  const now = Date.now();
+
+  db.prepare(
+    `INSERT OR IGNORE INTO providers (
+       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
+     )
+     VALUES (?, ?, NULL, NULL, 'openai', 1, ?, ?)`
+  ).run(providerId, 'OpenAI (Official)', now, now);
+
+  const insertModel = db.prepare(
+    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+     VALUES (?, ?, ?, ?, ?, 'custom', ?)`
+  );
+
+  for (const model of OPENAI_MODELS) {
+    insertModel.run(model.seedId, providerId, model.id, model.name, model.description, now);
+  }
+}
+
+function seedBuiltInProviders(db) {
+  seedBuiltInAnthropicProvider(db);
+  seedBuiltInOpenAIProvider(db);
 }
 
 /**
@@ -217,6 +247,7 @@ export const miscMigrations = [
           api_timeout_ms INTEGER,
           additional_env_vars TEXT,
           is_built_in INTEGER NOT NULL DEFAULT 0,
+          kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai')),
           created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
           updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
         );
@@ -235,10 +266,29 @@ export const miscMigrations = [
     },
   },
 
-  // --- Seed built-in provider ---
+  // --- Add `kind` column to providers (for DBs that predate the CREATE TABLE change) ---
+  {
+    name: 'providers-add-kind',
+    up(db) {
+      addColumnIfMissing(
+        db,
+        'providers',
+        'kind',
+        "TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai'))"
+      );
+    },
+  },
+
+  // --- Seed built-in providers ---
   {
     name: 'providers-seed-built-in',
-    up(db) { seedBuiltInProvider(db); },
+    up(db) { seedBuiltInProviders(db); },
+  },
+
+  // --- Seed built-in OpenAI provider for DBs that already ran the original seed ---
+  {
+    name: 'providers-seed-built-in-openai',
+    up(db) { seedBuiltInOpenAIProvider(db); },
   },
 
   // --- Update built-in models to 4.6 ---

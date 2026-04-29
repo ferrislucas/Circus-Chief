@@ -5,8 +5,9 @@
 <h1 align="center">Circus Chief</h1>
 
 <p align="center">
-  An open-source, touch-optimized control plane for managing Claude Code agents.<br/><br/>
-  Supports Anthropic API, AWS Bedrock, Google Vertex AI, z.ai, or any Anthropic-compatible endpoint.
+  An open-source, touch-optimized control plane for managing AI coding agents.<br/><br/>
+  Supports Claude Code agents (Anthropic API, AWS Bedrock, Google Vertex AI, z.ai, or any Anthropic-compatible endpoint)
+  and OpenAI Codex agents.
 </p>
 
 ---
@@ -81,7 +82,8 @@ npx circuschief -p 8080
 - macOS or Linux
 - Node.js 20+
 - Yarn
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — required for Claude Code agents
+- [OpenAI Codex CLI](https://github.com/openai/codex) — required for Codex agents
 - [GitHub CLI](https://cli.github.com/) (optional — enables automatic PR linking)
 
 ## Documentation

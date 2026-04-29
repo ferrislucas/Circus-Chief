@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useSessionsStore } from './sessions.js';
 
@@ -4867,6 +4867,62 @@ describe('Sessions Store', () => {
 
         expect(store.messages).toHaveLength(1);
       });
+
+      it('bumps lastActivityAt on the session in the list when a new message arrives', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'session-1', name: 'S1', lastActivityAt: 1000 },
+          { id: 'session-2', name: 'S2', lastActivityAt: 2000 },
+        ];
+        store.currentSession = { id: 'session-1' };
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'hello', timestamp: 5000 });
+
+        const updated = store.sessions.find((s) => s.id === 'session-1');
+        expect(updated.lastActivityAt).toBe(5000);
+        // Unrelated sessions are not affected.
+        const other = store.sessions.find((s) => s.id === 'session-2');
+        expect(other.lastActivityAt).toBe(2000);
+      });
+
+      it('never moves lastActivityAt backwards', () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 5000 }];
+        store.currentSession = { id: 'session-1' };
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'stale', timestamp: 1000 });
+
+        const updated = store.sessions.find((s) => s.id === 'session-1');
+        expect(updated.lastActivityAt).toBe(5000);
+      });
+
+      it('bumps lastActivityAt for a different session than the current one', () => {
+        const store = useSessionsStore();
+        store.sessions = [
+          { id: 'session-a', name: 'A', lastActivityAt: 1000 },
+          { id: 'session-b', name: 'B', lastActivityAt: 2000 },
+        ];
+        store.currentSession = { id: 'session-a' };
+
+        store.addMessage({ id: 'msg-b', sessionId: 'session-b', content: 'background', timestamp: 9000 });
+
+        // lastActivityAt on the background session is still updated for list re-sorting.
+        const b = store.sessions.find((s) => s.id === 'session-b');
+        expect(b.lastActivityAt).toBe(9000);
+        // The guard still prevents the message from being appended to the current session's messages.
+        expect(store.messages).toHaveLength(0);
+      });
+
+      it('bumps lastActivityAt when currentSession is null', () => {
+        const store = useSessionsStore();
+        store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 1000 }];
+        store.currentSession = null;
+
+        store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'hi', timestamp: 4000 });
+
+        const updated = store.sessions.find((s) => s.id === 'session-1');
+        expect(updated.lastActivityAt).toBe(4000);
+      });
     });
 
     describe('addWorkLog guard', () => {
@@ -5342,6 +5398,183 @@ describe('Sessions Store', () => {
 
       expect(api.updateSession).toHaveBeenCalledWith('sess-1', { autoSendPendingPrompt: false });
       expect(store.currentSession.autoSendPendingPrompt).toBe(false);
+    });
+  });
+
+  describe('recentSends (ghost-prompt markers)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('initializes recentSends to an empty object', () => {
+      const store = useSessionsStore();
+      expect(store.recentSends).toEqual({});
+    });
+
+    it('markRecentSend records the current timestamp for a session', () => {
+      const store = useSessionsStore();
+      const t0 = 1_700_000_000_000;
+      vi.setSystemTime(t0);
+
+      store.markRecentSend('sess-1');
+
+      expect(store.recentSends['sess-1']).toBe(t0);
+    });
+
+    it('markRecentSend is a no-op for an empty sessionId', () => {
+      const store = useSessionsStore();
+      store.markRecentSend(null);
+      store.markRecentSend('');
+      store.markRecentSend(undefined);
+
+      expect(store.recentSends).toEqual({});
+    });
+
+    it('hasRecentSend returns true within 5s of markRecentSend', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+      vi.setSystemTime(1_700_000_000_000 + 4_999);
+
+      expect(store.hasRecentSend('sess-1')).toBe(true);
+    });
+
+    it('hasRecentSend returns false after 5s', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+      vi.setSystemTime(1_700_000_000_000 + 5_001);
+
+      expect(store.hasRecentSend('sess-1')).toBe(false);
+    });
+
+    it('hasRecentSend returns false for unknown sessions', () => {
+      const store = useSessionsStore();
+      expect(store.hasRecentSend('never-sent')).toBe(false);
+    });
+
+    it('hasRecentSend returns false for empty sessionId', () => {
+      const store = useSessionsStore();
+      expect(store.hasRecentSend(null)).toBe(false);
+      expect(store.hasRecentSend('')).toBe(false);
+    });
+
+    it('clearRecentSend removes the marker', () => {
+      const store = useSessionsStore();
+      store.markRecentSend('sess-1');
+      expect(store.hasRecentSend('sess-1')).toBe(true);
+
+      store.clearRecentSend('sess-1');
+
+      expect(store.hasRecentSend('sess-1')).toBe(false);
+      expect(store.recentSends['sess-1']).toBeUndefined();
+    });
+
+    it('clearRecentSend is a no-op for unknown sessions', () => {
+      const store = useSessionsStore();
+      expect(() => store.clearRecentSend('unknown')).not.toThrow();
+    });
+
+    it('TTL safety-net timer clears the marker after 5s', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+      expect(store.recentSends['sess-1']).toBeDefined();
+
+      // Advance past the 5s safety-net window.
+      vi.setSystemTime(1_700_000_000_000 + 5_100);
+      vi.advanceTimersByTime(5_100);
+
+      expect(store.recentSends['sess-1']).toBeUndefined();
+    });
+
+    it('markRecentSend tracks multiple sessions independently', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+      store.markRecentSend('sess-2');
+
+      expect(store.hasRecentSend('sess-1')).toBe(true);
+      expect(store.hasRecentSend('sess-2')).toBe(true);
+
+      store.clearRecentSend('sess-1');
+
+      expect(store.hasRecentSend('sess-1')).toBe(false);
+      expect(store.hasRecentSend('sess-2')).toBe(true);
+    });
+
+    it('re-calling markRecentSend on the same session cancels the prior safety-net timer', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+
+      // Advance halfway through the TTL and re-mark — this extends the
+      // marker's lifetime and should cancel the in-flight timer so the
+      // original 5s expiry cannot clear the *fresher* timestamp early.
+      vi.setSystemTime(1_700_000_000_000 + 2_500);
+      vi.advanceTimersByTime(2_500);
+      store.markRecentSend('sess-1');
+
+      // Advance to the ORIGINAL mark's 5s expiry. The marker must NOT
+      // have been cleared — only the newer timer is authoritative.
+      vi.setSystemTime(1_700_000_000_000 + 5_001);
+      vi.advanceTimersByTime(2_501);
+
+      expect(store.hasRecentSend('sess-1')).toBe(true);
+
+      // Advance past the RE-MARK's 5s expiry.
+      vi.setSystemTime(1_700_000_000_000 + 7_600);
+      vi.advanceTimersByTime(2_599);
+
+      expect(store.recentSends['sess-1']).toBeUndefined();
+    });
+
+    it('clearRecentSend cancels the outstanding safety-net timer', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+      store.clearRecentSend('sess-1');
+
+      // If the timer fired, it could re-enter clearRecentSend and no-op
+      // (guarded). But after manual clear, the timer should be nulled.
+      expect(store._recentSendTimers['sess-1']).toBe(null);
+
+      // Advancing past the TTL must not re-surface the marker.
+      vi.setSystemTime(1_700_000_000_000 + 6_000);
+      vi.advanceTimersByTime(6_000);
+      expect(store.recentSends['sess-1']).toBeUndefined();
+    });
+
+    it('cancelAllRecentSendTimers tears down every outstanding safety-net timer', () => {
+      const store = useSessionsStore();
+      vi.setSystemTime(1_700_000_000_000);
+
+      store.markRecentSend('sess-1');
+      store.markRecentSend('sess-2');
+      store.markRecentSend('sess-3');
+
+      store.cancelAllRecentSendTimers();
+
+      expect(store._recentSendTimers).toEqual({});
+
+      // The markers themselves are left in place (cancel targets timers,
+      // not state) but no fire can clear them after the TTL.
+      vi.setSystemTime(1_700_000_000_000 + 10_000);
+      vi.advanceTimersByTime(10_000);
+
+      expect(store.recentSends['sess-1']).toBeDefined();
+      expect(store.recentSends['sess-2']).toBeDefined();
+      expect(store.recentSends['sess-3']).toBeDefined();
     });
   });
 });
