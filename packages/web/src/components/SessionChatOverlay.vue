@@ -59,7 +59,6 @@
             <!-- Header (no padding constraints) -->
             <div
               class="overlay-header"
-              :class="{ 'header-compact': inputFocused && isMobile && !isEditingName }"
               @touchmove="handleHeaderTouchmove"
             >
               <!-- Row 1: Session Name -->
@@ -364,6 +363,7 @@ import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
+import { requestVisualViewportSettle } from '../composables/useVisualViewport.js';
 import { createOverlaySessionsStore } from '../stores/createOverlaySessionsStore.js';
 import { createOverlayTodosStore } from '../stores/createOverlayTodosStore.js';
 import { SESSIONS_STORE_KEY, TODOS_STORE_KEY } from '../composables/useOverlayStore.js';
@@ -423,7 +423,7 @@ const switchingSession = ref(true);
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
 
-// Track whether the prompt textarea is focused (for compact header on mobile)
+// Track whether a text input is focused so blur can coordinate viewport settling.
 const inputFocused = ref(false);
 let focusOutRaf = null;
 
@@ -792,9 +792,8 @@ function handleEscape(event) {
 /**
  * Handle focusin on the overlay body — detect when the prompt textarea gains focus.
  * Uses event delegation from .overlay-body so we catch the bubbling event from
- * InputForm → ResizableTextarea's <textarea>. Drives the `header-compact`
- * class on mobile; browser-native scroll-on-focus handles bringing the
- * focused field into the `.overlay-body` scroll viewport.
+ * InputForm → ResizableTextarea's <textarea>. Browser-native scroll-on-focus
+ * handles bringing the focused field into the `.overlay-body` scroll viewport.
  */
 function handleOverlayFocusin(e) {
   // Symmetric with handleOverlayFocusout: both TEXTAREA and text-typed INPUT
@@ -834,6 +833,7 @@ function handleOverlayFocusout(e) {
   if (!isText) return;
 
   if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
+  requestVisualViewportSettle();
   focusOutRaf = requestAnimationFrame(() => {
     focusOutRaf = null;
     inputFocused.value = false;
@@ -1036,8 +1036,8 @@ defineExpose({
   position: fixed;
   top: var(--viewport-offset-top, 0px);
   right: 0;
-  bottom: 0;
   left: 0;
+  height: var(--visual-viewport-height, 100dvh);
   z-index: 1000;
   background: rgb(17, 24, 39);
   display: block;
@@ -1050,7 +1050,7 @@ defineExpose({
   position: fixed;
   top: var(--viewport-offset-top, 0px);
   right: 0;
-  bottom: 0;
+  height: var(--visual-viewport-height, 100dvh);
   display: flex;
   min-height: 0;
   max-width: 900px;
@@ -1157,34 +1157,6 @@ defineExpose({
   flex-shrink: 0;
   z-index: 20;
   width: 100%;
-  transition: padding 0.2s ease, gap 0.2s ease;
-}
-
-/* Compact header: collapse to a single row showing only the session name */
-.overlay-header.header-compact {
-  flex-direction: row;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.375rem 0.5rem;
-}
-
-/* Hide the session selector row and actions row in compact mode */
-.overlay-header.header-compact .overlay-header-selector,
-.overlay-header.header-compact .overlay-header-actions {
-  display: none;
-}
-
-/* Shrink the session name text */
-.overlay-header.header-compact .overlay-root-name {
-  font-size: 0.8125rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Hide the edit-name trigger in compact mode */
-.overlay-header.header-compact .name-edit-trigger {
-  display: none;
 }
 
 .overlay-header-row {

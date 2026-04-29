@@ -81,7 +81,7 @@ test.describe('Codex provider flow', () => {
     expect(hasCodexOption).toBe(true);
 
     await page.locator('#model-select').selectOption('gpt-4o');
-    await expect(page.locator('[data-agent-badge="codex"]')).toBeVisible();
+    await expect(page.locator('[data-agent-badge="codex"]')).toHaveCount(0);
     await expect(
       page.locator('.thinking-toggle').filter({ hasText: 'Enable Thinking' }).locator('input')
     ).toBeDisabled();
