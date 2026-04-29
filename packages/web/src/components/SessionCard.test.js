@@ -197,8 +197,13 @@ describe('SessionCard', () => {
       expect(html).toContain('to="/sessions/session-123"');
     });
 
-    it('renders formatted date', () => {
-      const wrapper = mountComponent();
+    it('renders formatted date based on lastActivityAt', () => {
+      const wrapper = mountComponent({
+        session: {
+          ...baseSession,
+          lastActivityAt: '2024-01-15T11:45:00Z',
+        },
+      });
       const dateText = wrapper.find('.session-date').text();
       expect(dateText).toMatch(/Jan/);
       expect(dateText).toMatch(/15/);
@@ -306,20 +311,23 @@ describe('SessionCard', () => {
       expect(dateText).toMatch(/Jan.*20.*2024/);
     });
 
-    it('falls back to updatedAt when lastActivityAt is not available', () => {
+    it('uses lastActivityAt even when updatedAt/createdAt are more recent', () => {
+      // Ensures we prefer last activity over updatedAt, which can be bumped by
+      // unrelated events (token usage updates, status changes, etc.).
       const wrapper = mountComponent({
         session: {
           ...baseSession,
           createdAt: '2024-01-10T09:00:00Z',
-          updatedAt: '2024-01-15T14:00:00Z',
+          updatedAt: '2024-05-15T14:00:00Z',
+          lastActivityAt: '2024-01-20T16:30:00Z',
         },
         showProject: false,
       });
       const dateText = wrapper.find('.session-date').text();
-      expect(dateText).toMatch(/Jan.*15.*2024/);
+      expect(dateText).toMatch(/Jan.*20.*2024/);
     });
 
-    it('falls back to createdAt when both lastActivityAt and updatedAt are not available', () => {
+    it('renders a placeholder and "No activity yet" tooltip when lastActivityAt is null', () => {
       const wrapper = mountComponent({
         session: {
           ...baseSession,
@@ -329,8 +337,23 @@ describe('SessionCard', () => {
         },
         showProject: true,
       });
-      const dateText = wrapper.find('.session-date').text();
-      expect(dateText).toMatch(/Jan.*15.*2024/);
+      const dateEl = wrapper.find('.session-date');
+      expect(dateEl.text()).toBe('—');
+      expect(dateEl.attributes('title')).toBe('No activity yet');
+    });
+
+    it('sets "Last activity" tooltip when lastActivityAt is present', () => {
+      const wrapper = mountComponent({
+        session: {
+          ...baseSession,
+          createdAt: '2024-01-10T09:00:00Z',
+          updatedAt: '2024-01-15T14:00:00Z',
+          lastActivityAt: '2024-01-20T16:30:00Z',
+        },
+        showProject: false,
+      });
+      const dateEl = wrapper.find('.session-date');
+      expect(dateEl.attributes('title')).toBe('Last activity');
     });
   });
 

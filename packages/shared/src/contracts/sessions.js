@@ -83,7 +83,7 @@ export const SessionResponse = z.object({
   laneTriggerDepth: z.number(),
   createdAt: z.number(),
   updatedAt: z.number(),
-  lastActivityAt: z.number(),
+  lastActivityAt: z.number().nullable(),
 });
 
 export const SessionListResponse = z.array(SessionResponse);

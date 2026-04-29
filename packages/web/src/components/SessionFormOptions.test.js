@@ -166,13 +166,13 @@ describe('SessionFormOptions', () => {
     expect(effortSelect.element.disabled).toBe(true);
   });
 
-  it('shows an "Agent: Codex" badge only when a Codex model is selected', async () => {
+  it('does not render the Codex agent badge when a Codex model is selected', async () => {
     const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
     await flushAll(wrapper);
     expect(wrapper.find('[data-agent-badge="codex"]').exists()).toBe(false);
 
     await wrapper.setProps({ model: 'gpt-4o' });
     await flushAll(wrapper);
-    expect(wrapper.find('[data-agent-badge="codex"]').exists()).toBe(true);
+    expect(wrapper.find('[data-agent-badge="codex"]').exists()).toBe(false);
   });
 });

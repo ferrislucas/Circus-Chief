@@ -16,11 +16,6 @@
           @update:model-value="$emit('update:model', $event)"
           @update:provider-id="$emit('update:providerId', $event)"
         />
-        <span
-          v-if="isCodexModel"
-          class="agent-badge"
-          data-agent-badge="codex"
-        >Agent: Codex</span>
       </div>
 
       <div
@@ -192,17 +187,6 @@ const effortSelectorTitle = computed(() => (
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.agent-badge {
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--color-text-soft);
-  background-color: var(--color-background-mute);
-  border: 1px solid var(--color-border);
-  border-radius: 0.375rem;
-  padding: 0.125rem 0.375rem;
-  letter-spacing: 0.02em;
 }
 
 .option-disabled {

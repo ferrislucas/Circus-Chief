@@ -1,5 +1,8 @@
 <template>
-  <div class="session-header">
+  <div
+    class="session-header"
+    :class="{ 'is-archived': session.archived }"
+  >
     <!-- Main header row with status, name, and menu -->
     <div class="session-header-row">
       <!-- Session name -->
@@ -91,6 +94,35 @@
           <h3 class="session-name">
             {{ session.name }}
           </h3>
+          <span
+            v-if="session.archived"
+            class="archived-badge"
+            aria-label="Archived session"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect
+                width="20"
+                height="5"
+                x="2"
+                y="3"
+                rx="1"
+              />
+              <path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" />
+              <path d="M10 12h4" />
+            </svg>
+            Archived
+          </span>
           <button
             class="btn-link name-edit-trigger"
             title="Edit session name"
@@ -364,6 +396,11 @@ defineExpose({
   padding: 0 0.5rem;
 }
 
+.session-header.is-archived {
+  border-left: 3px solid #f59e0b;
+  padding-left: calc(0.5rem - 3px);
+}
+
 .session-header-row {
   display: flex;
   align-items: center;
@@ -371,7 +408,8 @@ defineExpose({
 }
 
 .session-name-wrapper {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 0.25rem;
   flex: 1;
@@ -448,8 +486,31 @@ defineExpose({
   font-size: 1.25rem;
   font-weight: 600;
   overflow: hidden;
-  word-break: break-word;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   line-height: 1.4;
+  min-width: 0;
+}
+
+.archived-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.5rem;
+  padding: 0.1875rem 0.5rem;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 4px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #fbbf24;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.archived-badge svg {
+  flex-shrink: 0;
 }
 
 .branch-pr-indicators {
@@ -476,8 +537,27 @@ defineExpose({
     padding-top: 0.25rem;
   }
 
+  .session-name-wrapper {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 0.375rem;
+    row-gap: 0.25rem;
+  }
+
+  .name-edit-trigger {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
   .session-name {
     font-size: 1rem;
+  }
+
+  .archived-badge {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: start;
+    font-size: 0.6875rem;
+    min-height: 1.375rem;
   }
 }
 

@@ -1034,27 +1034,24 @@ defineExpose({
 <style scoped>
 .overlay-backdrop {
   position: fixed;
-  inset: 0;
+  top: var(--viewport-offset-top, 0px);
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 1000;
   background: rgb(17, 24, 39);
-  display: flex;
-  justify-content: flex-end;
-  /* `stretch` lets the panel wrapper fill the full backdrop height
-     without viewport-unit min-heights; `inset: 0` is the sole size
-     source, so the browser tracks URL-bar / keyboard / orientation
-     changes automatically (no JS viewport sync). */
-  align-items: stretch;
+  display: block;
   overflow: hidden;
   overflow-y: hidden;
   overscroll-behavior: none;
 }
 
 .overlay-panel-wrapper {
-  position: relative;
+  position: fixed;
+  top: var(--viewport-offset-top, 0px);
+  right: 0;
+  bottom: 0;
   display: flex;
-  /* Cross-axis size comes from `align-items: stretch` on the backdrop.
-     `min-height: 0` allows the internal flex column to shrink without
-     overflowing. */
   min-height: 0;
   max-width: 900px;
   width: 100%;
@@ -1146,6 +1143,8 @@ defineExpose({
 }
 
 .overlay-header {
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;

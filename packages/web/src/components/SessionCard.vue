@@ -249,7 +249,7 @@ const onAddToBoardClick = () => {
   emit('addToBoard', props.session);
 };
 
-const dateToShow = computed(() => props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt);
+const dateToShow = computed(() => props.session.lastActivityAt ?? null);
 
 /**
  * Get all sessions in the workflow tree (root + all descendants at any depth).
