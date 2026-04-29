@@ -84,6 +84,11 @@ describe('buildQueryParams', () => {
     expect(result.options.resume).toBeUndefined();
   });
 
+  it('loads Claude user/project/local settings so CLI-configured MCP servers are available', () => {
+    const result = buildQueryParams(baseArgs());
+    expect(result.options.settingSources).toEqual(['user', 'project', 'local']);
+  });
+
   it('propagates effortLevel into Codex query options', () => {
     const args = {
       ...baseArgs(),
@@ -369,7 +374,7 @@ describe('buildQueryParams agent-aware', () => {
       model: 'claude-sonnet-4-20250514',
     };
     const result = buildQueryParams(args);
-    expect(result.options.settingSources).toEqual(['project']);
+    expect(result.options.settingSources).toEqual(['user', 'project', 'local']);
     expect(result.options.includePartialMessages).toBe(true);
     expect(typeof result.options.spawnClaudeCodeProcess).toBe('function');
     expect(result.options.permissionMode).toBeDefined();
