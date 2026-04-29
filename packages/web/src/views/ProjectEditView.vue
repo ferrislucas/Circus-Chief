@@ -281,6 +281,7 @@
           >Model</label>
           <ModelSelector
             v-model="defaultModel"
+            v-model:provider-id="defaultProviderId"
             :allow-empty="true"
             empty-label="Use system default"
             select-class="form-input"
@@ -422,6 +423,7 @@ const defaultStartImmediately = ref(true);
 const defaultGitMode = ref('');
 const defaultGitBranch = ref('');
 const defaultModel = ref('');
+const defaultProviderId = ref(null);
 
 const saving = ref(false);
 const savingDefaults = ref(false);
@@ -456,6 +458,7 @@ watch(() => defaultsStore.getDefaultsForProject(route.params.id), (defaults) => 
     defaultGitMode.value = defaults.gitMode || '';
     defaultGitBranch.value = defaults.gitBranch || '';
     defaultModel.value = defaults.model || '';
+    defaultProviderId.value = defaults.providerId || null;
   }
 }, { immediate: true });
 
@@ -480,7 +483,13 @@ function collectNonDefaultValues() {
   if (!defaultStartImmediately.value) data.startImmediately = false;
   if (defaultGitMode.value) data.gitMode = defaultGitMode.value;
   if (defaultGitBranch.value) data.gitBranch = defaultGitBranch.value;
-  if (defaultModel.value) data.model = defaultModel.value;
+  if (defaultModel.value) {
+    data.model = defaultModel.value;
+    data.providerId = defaultProviderId.value || null;
+  } else {
+    data.model = null;
+    data.providerId = null;
+  }
   return data;
 }
 
@@ -533,6 +542,7 @@ async function handleResetDefaults() {
     defaultGitMode.value = '';
     defaultGitBranch.value = '';
     defaultModel.value = '';
+    defaultProviderId.value = null;
     uiStore.success('Session defaults reset to system defaults');
   } catch (err) {
     error.value = err.message;

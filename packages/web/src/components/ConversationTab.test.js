@@ -3439,7 +3439,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       await flushAll(wrapper);
 
       // Should persist the new model to the session
-      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus');
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus', null);
     });
 
     it('calls updateSessionModel with correct session ID', async () => {
@@ -3454,7 +3454,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       modelSelectorComponent.vm.$emit('update:modelValue', 'haiku');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-456', 'haiku');
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-456', 'haiku', null);
     });
 
     it('does not call updateSessionModel when model is set to same value', async () => {
@@ -3485,7 +3485,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       await flushAll(wrapper);
 
       // Should have attempted the call
-      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus');
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus', null);
 
       // Component should still be functional (not crashed)
       expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
@@ -4142,7 +4142,8 @@ describe('ConversationTab - Input clearing on submit', () => {
       expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
         'sess-123',
         'My draft prompt',
-        'sonnet'
+        'sonnet',
+        null
       );
       // After successful start, textarea should be cleared
       expect(textarea.element.value).toBe('');

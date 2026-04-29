@@ -42,6 +42,7 @@
       :session-id="sessionId"
       :model-value="input"
       :selected-model="selectedModel"
+      :selected-provider-id="selectedProviderId"
       :can-send-message="canSendMessage"
       :is-draft="isDraft"
       :is-scheduled-draft="isScheduledDraft"
@@ -63,6 +64,7 @@
       :auto-send-pending-prompt="sessionsStore.currentSession?.autoSendPendingPrompt ?? false"
       @update:model-value="input = $event"
       @update:selected-model="selectedModel = $event"
+      @update:selected-provider-id="selectedProviderId = $event"
       @submit="handleFormSubmit"
       @auto-send-toggle="handleAutoSendToggle"
       @input="handleInput"
@@ -174,6 +176,8 @@ const inputFormRef = ref(null);
 const conversationMessagesRef = ref(null);
 const attachedFiles = ref([]);
 const selectedModel = ref(null);
+const selectedProviderId = ref(null);
+let suppressNextModelPersist = false;
 
 // Draft saving composable
 const {
@@ -447,6 +451,13 @@ function getProjectDefaultModel() {
   return defaults?.model || null;
 }
 
+function getProjectDefaultProviderId() {
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId) return null;
+  const defaults = defaultsStore.getDefaultsForProject(projectId);
+  return defaults?.providerId || null;
+}
+
 // Watch for conversation query parameter changes
 watch(
   () => route.query.conv,
@@ -462,21 +473,38 @@ watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (selectedModel.value === null) {
+      suppressNextModelPersist = true;
       selectedModel.value = sessionsStore.currentSession?.model ||
         getProjectDefaultModel() ||
         'sonnet';
+      selectedProviderId.value = sessionsStore.currentSession?.providerId ||
+        getProjectDefaultProviderId() ||
+        null;
+      nextTick(() => {
+        suppressNextModelPersist = false;
+      });
     }
   },
   { immediate: true }
 );
 
 // Persist model selection to session
-watch(selectedModel, async (newModel, oldModel) => {
+watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [oldModel, oldProviderId]) => {
+  if (suppressNextModelPersist) {
+    suppressNextModelPersist = false;
+    return;
+  }
   if (oldModel !== null && newModel && newModel !== oldModel) {
     try {
-      await sessionsStore.updateSessionModel(props.sessionId, newModel);
+      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
     } catch (err) {
       console.error('Failed to persist model selection:', err);
+    }
+  } else if (newModel && newProviderId !== oldProviderId) {
+    try {
+      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
+    } catch (err) {
+      console.error('Failed to persist model provider selection:', err);
     }
   }
 });
@@ -509,7 +537,10 @@ async function handleFormSubmit() {
     const sessionModel = selectedModel.value
       || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
-    const success = await handleStart(currentValue, sessionModel);
+    const sessionProviderId = selectedProviderId.value
+      || sessionsStore.currentSession?.providerId
+      || null;
+    const success = await handleStart(currentValue, sessionModel, sessionProviderId);
     if (success) {
       clearSubmittedInput(textareaRef);
       attachedFiles.value = [];

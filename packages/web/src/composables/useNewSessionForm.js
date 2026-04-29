@@ -53,9 +53,11 @@ export function useNewSessionForm(storageKey) {
     }
     if (defaults.model) {
       model.value = defaults.model;
+      providerId.value = defaults.providerId || null;
       usingDefaults.value.model = true;
     } else {
       model.value = 'sonnet';
+      providerId.value = null;
       usingDefaults.value.model = true;
     }
     if (defaults.thinkingEnabled !== null && defaults.thinkingEnabled !== undefined) {

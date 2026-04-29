@@ -61,6 +61,13 @@ describe('SessionFormOptions', () => {
     });
   }
 
+  it('passes providerId into ModelSelector', () => {
+    const wrapper = mountForm({ providerId: 'openai-prov', model: 'gpt-4o' });
+    const selector = wrapper.findComponent({ name: 'ModelSelector' });
+
+    expect(selector.props('providerId')).toBe('openai-prov');
+  });
+
   it('enables thinking and effort controls for Anthropic (Claude Code) models after capabilities load', async () => {
     const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
     await flushAll(wrapper);

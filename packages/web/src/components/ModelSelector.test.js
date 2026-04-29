@@ -844,6 +844,8 @@ describe('ModelSelector', () => {
       await wrapper.find('select').setValue(optionValue('custom-openai', 'gpt-5.5'));
       await flushAll(wrapper);
 
+      expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['gpt-5.5']);
+      expect(wrapper.emitted('update:providerId')?.at(-1)).toEqual(['custom-openai']);
       expect(onModelSelected).toHaveBeenCalledWith({
         modelId: 'gpt-5.5',
         providerId: 'custom-openai',

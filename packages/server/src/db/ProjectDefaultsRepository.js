@@ -12,6 +12,7 @@ const UPSERT_FIELD_MAP = [
   { key: 'gitMode', column: 'git_mode' },
   { key: 'gitBranch', column: 'git_branch' },
   { key: 'model', column: 'model' },
+  { key: 'providerId', column: 'provider_id' },
   { key: 'effortLevel', column: 'effort_level' },
 ];
 
@@ -47,6 +48,7 @@ export class ProjectDefaultsRepository extends BaseRepository {
       gitMode: row.git_mode || null,
       gitBranch: row.git_branch || null,
       model: row.model || null,
+      providerId: row.provider_id || null,
       effortLevel: row.effort_level || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -84,8 +86,8 @@ export class ProjectDefaultsRepository extends BaseRepository {
       this.db
         .prepare(
           `INSERT INTO project_session_defaults
-           (id, project_id, mode, thinking_enabled, start_immediately, git_mode, git_branch, model, effort_level, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, project_id, mode, thinking_enabled, start_immediately, git_mode, git_branch, model, provider_id, effort_level, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           id,
@@ -96,6 +98,7 @@ export class ProjectDefaultsRepository extends BaseRepository {
           data.gitMode || null,
           data.gitBranch || null,
           data.model || null,
+          data.providerId || null,
           data.effortLevel || null,
           now,
           now
@@ -137,7 +140,8 @@ export class ProjectDefaultsRepository extends BaseRepository {
       .prepare(
         `UPDATE project_session_defaults
          SET mode = NULL, thinking_enabled = NULL, start_immediately = NULL,
-             git_mode = NULL, git_branch = NULL, model = NULL, effort_level = NULL, updated_at = ?
+             git_mode = NULL, git_branch = NULL, model = NULL, provider_id = NULL,
+             effort_level = NULL, updated_at = ?
          WHERE project_id = ?`
       )
       .run(Date.now(), projectId);
@@ -167,6 +171,7 @@ export class ProjectDefaultsRepository extends BaseRepository {
       gitMode: null,
       gitBranch: null,
       model: null,
+      providerId: null,
       effortLevel: null,
     };
   }
