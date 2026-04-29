@@ -231,13 +231,17 @@ describe('InputForm', () => {
     });
 
     it('passes and emits provider selection through ModelSelector', async () => {
-      const wrapper = mountComponent({ selectedProviderId: 'anthropic-default' });
+      const onUpdateSelectedProviderId = vi.fn();
+      const wrapper = mountComponent({
+        selectedProviderId: 'anthropic-default',
+        'onUpdate:selectedProviderId': onUpdateSelectedProviderId,
+      });
       const selector = wrapper.findComponent({ name: 'ModelSelector' });
 
       expect(selector.props('providerId')).toBe('anthropic-default');
 
       await selector.vm.$emit('update:providerId', 'openai-prov');
-      expect(wrapper.emitted('update:selectedProviderId')).toEqual([['openai-prov']]);
+      expect(onUpdateSelectedProviderId).toHaveBeenCalledWith('openai-prov');
     });
 
     it('should render file attachment', () => {

@@ -828,6 +828,8 @@ describe('ModelSelector', () => {
         },
       ];
 
+      const onUpdateModelValue = vi.fn();
+      const onUpdateProviderId = vi.fn();
       const onModelSelected = vi.fn();
       const wrapper = mountComponent(
         {
@@ -835,17 +837,19 @@ describe('ModelSelector', () => {
           providerId: 'openai-default',
           hideBuiltInDuplicates: false,
         },
-        { onModelSelected }
+        { 'onUpdate:modelValue': onUpdateModelValue, 'onUpdate:providerId': onUpdateProviderId, onModelSelected }
       );
       await flushAll(wrapper);
 
       expect(wrapper.find('select').element.value).toBe(optionValue('openai-default', 'gpt-5.5'));
 
-      await wrapper.find('select').setValue(optionValue('custom-openai', 'gpt-5.5'));
+      const select = wrapper.find('select');
+      select.element.value = optionValue('custom-openai', 'gpt-5.5');
+      await select.trigger('change');
       await flushAll(wrapper);
 
-      expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['gpt-5.5']);
-      expect(wrapper.emitted('update:providerId')?.at(-1)).toEqual(['custom-openai']);
+      expect(onUpdateModelValue).toHaveBeenCalledWith('gpt-5.5');
+      expect(onUpdateProviderId).toHaveBeenCalledWith('custom-openai');
       expect(onModelSelected).toHaveBeenCalledWith({
         modelId: 'gpt-5.5',
         providerId: 'custom-openai',

@@ -505,12 +505,15 @@ describe('ProjectEditView with Session Defaults', () => {
       };
 
       defaultsStore.defaultsByProjectId['proj-1'] = {
-        mode: '',
+        mode: 'plan',
         thinkingEnabled: false,
         gitMode: '',
         gitBranch: '',
-        model: ''
+        model: '',
+        providerId: null,
       };
+
+      await router.push('/projects/proj-1/edit');
 
       const wrapper = mount(ProjectEditView, {
         global: {
@@ -526,14 +529,6 @@ describe('ProjectEditView with Session Defaults', () => {
         expect(true).toBe(true);
         return;
       }
-
-      // Set only mode default, leave others empty
-      wrapper.vm.defaultMode = 'plan';
-      wrapper.vm.defaultThinkingEnabled = false;
-      wrapper.vm.defaultGitMode = '';
-      wrapper.vm.defaultModel = '';
-
-      await flushAll(wrapper);
 
       await form.trigger('submit');
       await flushAll(wrapper);
@@ -566,8 +561,11 @@ describe('ProjectEditView with Session Defaults', () => {
         thinkingEnabled: false,
         gitMode: '',
         gitBranch: '',
-        model: ''
+        model: 'claude-sonnet-4-6',
+        providerId: 'anthropic-provider',
       };
+
+      await router.push('/projects/proj-1/edit');
 
       const wrapper = mount(ProjectEditView, {
         global: {
@@ -583,12 +581,6 @@ describe('ProjectEditView with Session Defaults', () => {
         expect(true).toBe(true);
         return;
       }
-
-      // Set a concrete model
-      wrapper.vm.defaultModel = 'claude-sonnet-4-6';
-      wrapper.vm.defaultProviderId = 'anthropic-provider';
-
-      await flushAll(wrapper);
 
       await form.trigger('submit');
       await flushAll(wrapper);
