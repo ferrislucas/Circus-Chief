@@ -32,9 +32,10 @@
       >Summary Model</label>
       <ModelSelector
         v-model="summaryModel"
-        :provider-id="summaryProviderId"
+        v-model:provider-id="summaryProviderId"
         allow-empty
         empty-label="Use default summary model"
+        :hide-built-in-duplicates="false"
         select-class="form-input"
         @model-selected="handleModelSelected"
       />

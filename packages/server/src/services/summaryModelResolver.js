@@ -1,4 +1,5 @@
 import { modelProviders, sessions } from '../database.js';
+import { ACTIVITY_FIELDS_SQL } from '../db/session-helpers.js';
 
 export const DEFAULT_ANTHROPIC_SUMMARY_MODEL = 'claude-haiku-4-5-20251001';
 export const DEFAULT_OPENAI_SUMMARY_MODEL = 'gpt-5.4-mini';
@@ -31,6 +32,9 @@ export function resolveSummaryModel(summarySettings = {}) {
   if (summaryModel) {
     return resolveExplicitSummaryModel(summaryModel, summaryProviderId);
   }
+  if (summaryProviderId) {
+    throw new Error('summaryModel is required when summaryProviderId is set');
+  }
 
   const recentFamily = findRecentBuiltInProviderFamily();
   if (recentFamily === BUILT_IN_OPENAI_PROVIDER_ID) {
@@ -52,33 +56,20 @@ export function resolveSummaryModel(summarySettings = {}) {
 }
 
 function resolveExplicitSummaryModel(summaryModel, summaryProviderId) {
-  if (summaryProviderId) {
-    const provider = modelProviders.getById(summaryProviderId);
-    if (!provider) {
-      throw new Error(`Summary provider not found: ${summaryProviderId}`);
-    }
-    const ownsModel = provider.models?.some((model) => model.modelId === summaryModel);
-    if (!ownsModel) {
-      throw new Error(`Summary provider ${summaryProviderId} does not own model ${summaryModel}`);
-    }
-    return providerResolution(summaryModel, provider, 'explicit');
+  if (!summaryProviderId) {
+    throw new Error('summaryProviderId is required when summaryModel is set');
   }
 
-  const provider = modelProviders.getProviderByModelId(summaryModel);
-  if (provider) return providerResolution(summaryModel, provider, 'explicit');
-
-  if (isKnownBuiltInAnthropicModel(summaryModel)) {
-    return {
-      model: summaryModel,
-      provider: null,
-      providerId: null,
-      kind: 'anthropic',
-      isDefault: false,
-      selectionReason: 'explicit',
-    };
+  const provider = modelProviders.getById(summaryProviderId);
+  if (!provider) {
+    throw new Error(`Summary provider not found: ${summaryProviderId}`);
   }
 
-  throw new Error(`Unknown summary model: ${summaryModel}`);
+  const ownsModel = provider.models?.some((model) => model.modelId === summaryModel);
+  if (!ownsModel) {
+    throw new Error(`Summary provider ${summaryProviderId} does not own model ${summaryModel}`);
+  }
+  return providerResolution(summaryModel, provider, 'explicit');
 }
 
 function providerResolution(model, provider, selectionReason) {
@@ -140,9 +131,12 @@ function builtInFamilyForProvider(provider) {
 export function getRecentSessionModelUsage(limit = 50) {
   const rows = sessions.db
     .prepare(
-      `SELECT model, provider_id
-       FROM sessions
-       ORDER BY updated_at DESC, created_at DESC, rowid DESC
+      `SELECT s.model, s.provider_id, ${ACTIVITY_FIELDS_SQL}
+       FROM sessions s
+       ORDER BY COALESCE(last_activity_at, s.updated_at, s.created_at) DESC,
+                s.updated_at DESC,
+                s.created_at DESC,
+                s.rowid DESC
        LIMIT ?`
     )
     .all(limit);

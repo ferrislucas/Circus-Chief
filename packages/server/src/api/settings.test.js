@@ -40,12 +40,40 @@ describe('Settings API', { timeout: 30_000 }, () => {
       expect(res.body.defaultSessionTitlePrompt).toBeTypeOf('string');
     });
 
-    it('accepts legacy summary body without model fields', async () => {
+    it('rejects a summary body without summaryModel', async () => {
       const res = await request(server)
         .put('/api/settings/summary')
         .send({
           disableSessionSummaries: true,
           sessionTitlePrompt: 'Title prompt',
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('summaryModel must be present');
+    });
+
+    it('rejects a summary body without summaryProviderId', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: true,
+          sessionTitlePrompt: 'Title prompt',
+          summaryModel: '',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('summaryProviderId must be present');
+    });
+
+    it('accepts auto mode with an empty model and null provider', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: true,
+          sessionTitlePrompt: 'Title prompt',
+          summaryModel: '',
+          summaryProviderId: null,
         });
 
       expect(res.status).toBe(200);
@@ -89,6 +117,54 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('does not own');
+    });
+
+    it('rejects model-only explicit mode', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('summaryProviderId is required');
+    });
+
+    it('rejects empty-string provider with a non-empty model', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: '',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('summaryProviderId is required');
+    });
+
+    it('rejects provider-only auto mode', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: '',
+          summaryProviderId: 'openai-default',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('must be null');
     });
   });
 

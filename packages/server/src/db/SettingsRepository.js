@@ -125,12 +125,7 @@ export class SettingsRepository {
     }
     try {
       const parsed = JSON.parse(value);
-      return {
-        disableSessionSummaries: parsed.disableSessionSummaries || false,
-        sessionTitlePrompt: parsed.sessionTitlePrompt || '',
-        summaryModel: typeof parsed.summaryModel === 'string' ? parsed.summaryModel : '',
-        summaryProviderId: typeof parsed.summaryProviderId === 'string' ? parsed.summaryProviderId : null,
-      };
+      return normalizeStoredSummarySettings(parsed);
     } catch {
       return { ...DEFAULT_SUMMARY_SETTINGS };
     }
@@ -146,13 +141,17 @@ export class SettingsRepository {
    */
   setSummarySettings(settings) {
     const summaryModel = String(settings.summaryModel || '');
+    const summaryProviderId = typeof settings.summaryProviderId === 'string'
+      ? settings.summaryProviderId
+      : null;
+    if (summaryModel && !summaryProviderId) {
+      throw new Error('summaryProviderId is required when summaryModel is set');
+    }
     const validated = {
       disableSessionSummaries: Boolean(settings.disableSessionSummaries),
       sessionTitlePrompt: String(settings.sessionTitlePrompt || ''),
       summaryModel,
-      summaryProviderId: summaryModel && typeof settings.summaryProviderId === 'string'
-        ? settings.summaryProviderId
-        : null,
+      summaryProviderId: summaryModel ? summaryProviderId : null,
     };
     this.set(SUMMARY_SETTINGS_KEY, JSON.stringify(validated));
     return validated;
@@ -215,4 +214,26 @@ export class SettingsRepository {
       disableAnalytics: false,
     };
   }
+}
+
+function normalizeStoredSummarySettings(parsed) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ...DEFAULT_SUMMARY_SETTINGS };
+  }
+
+  const summaryModel = typeof parsed.summaryModel === 'string' ? parsed.summaryModel : '';
+  const summaryProviderId = typeof parsed.summaryProviderId === 'string' && parsed.summaryProviderId
+    ? parsed.summaryProviderId
+    : null;
+
+  if (summaryModel && !summaryProviderId) {
+    return { ...DEFAULT_SUMMARY_SETTINGS };
+  }
+
+  return {
+    disableSessionSummaries: Boolean(parsed.disableSessionSummaries),
+    sessionTitlePrompt: typeof parsed.sessionTitlePrompt === 'string' ? parsed.sessionTitlePrompt : '',
+    summaryModel,
+    summaryProviderId: summaryModel ? summaryProviderId : null,
+  };
 }

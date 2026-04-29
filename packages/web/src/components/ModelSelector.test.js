@@ -8,6 +8,7 @@ import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 
 // Use actual model data from the shared package
 const [haiku, sonnet, opusLegacy, opus] = CLAUDE_MODELS;
+const optionValue = (providerId, modelId) => `${providerId}::${modelId}`;
 
 // Global helper to flush all async updates and force DOM re-render
 async function flushAll(wrapper) {
@@ -76,10 +77,10 @@ describe('ModelSelector', () => {
     it('sets correct values for options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options[0].element.value).toBe(haiku.id);
-      expect(options[1].element.value).toBe(sonnet.id);
-      expect(options[2].element.value).toBe(opusLegacy.id);
-      expect(options[3].element.value).toBe(opus.id);
+      expect(options[0].element.value).toBe(optionValue('anthropic', haiku.id));
+      expect(options[1].element.value).toBe(optionValue('anthropic', sonnet.id));
+      expect(options[2].element.value).toBe(optionValue('anthropic', opusLegacy.id));
+      expect(options[3].element.value).toBe(optionValue('anthropic', opus.id));
     });
   });
 
@@ -87,19 +88,19 @@ describe('ModelSelector', () => {
     it('marks sonnet as selected when modelValue is sonnet', () => {
       const wrapper = mountComponent({ modelValue: sonnet.id });
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe(optionValue('anthropic', sonnet.id));
     });
 
     it('marks opus as selected when modelValue is opus', () => {
       const wrapper = mountComponent({ modelValue: opus.id });
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe(optionValue('anthropic', opus.id));
     });
 
     it('marks haiku as selected when modelValue is haiku', () => {
       const wrapper = mountComponent({ modelValue: haiku.id });
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(haiku.id);
+      expect(select.element.value).toBe(optionValue('anthropic', haiku.id));
     });
   });
 
@@ -112,7 +113,7 @@ describe('ModelSelector', () => {
       );
       const select = wrapper.find('select');
 
-      await select.setValue(opus.id);
+      await select.setValue(optionValue('anthropic', opus.id));
       await flushAll(wrapper);
 
       expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
@@ -125,7 +126,7 @@ describe('ModelSelector', () => {
         { onModelSelected }
       );
 
-      await wrapper.find('select').setValue(opus.id);
+      await wrapper.find('select').setValue(optionValue('anthropic', opus.id));
       await flushAll(wrapper);
 
       expect(onModelSelected).toHaveBeenCalledWith({
@@ -144,12 +145,12 @@ describe('ModelSelector', () => {
       const select = wrapper.find('select');
 
       // Changing to opus
-      await select.setValue(opus.id);
+      await select.setValue(optionValue('anthropic', opus.id));
       await flushAll(wrapper);
       expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
 
       // Changing to haiku
-      await select.setValue(haiku.id);
+      await select.setValue(optionValue('anthropic', haiku.id));
       await flushAll(wrapper);
       expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
 
@@ -164,7 +165,7 @@ describe('ModelSelector', () => {
       );
       const select = wrapper.find('select');
 
-      await select.setValue(sonnet.id);
+      await select.setValue(optionValue('anthropic', sonnet.id));
       await flushAll(wrapper);
 
       expect(onUpdateModelValue).not.toHaveBeenCalled();
@@ -191,14 +192,14 @@ describe('ModelSelector', () => {
       let select = wrapper.find('select');
 
       // Initial value
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe(optionValue('anthropic', sonnet.id));
 
       // Change to opus
-      await select.setValue(opus.id);
+      await select.setValue(optionValue('anthropic', opus.id));
       await nextTick();
 
       select = wrapper.find('select');
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe(optionValue('anthropic', opus.id));
     });
 
     it('emits update:modelValue immediately in form context', async () => {
@@ -209,7 +210,7 @@ describe('ModelSelector', () => {
       );
       const select = wrapper.find('select');
 
-      await select.setValue(opus.id);
+      await select.setValue(optionValue('anthropic', opus.id));
       await flushAll(wrapper);
 
       expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
@@ -223,21 +224,21 @@ describe('ModelSelector', () => {
       const wrapper1 = mountComponent({ modelValue: sonnet.id });
       await flushAll(wrapper1);
       let select = wrapper1.find('select');
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe(optionValue('anthropic', sonnet.id));
       wrapper1.unmount();
 
       // Test mounting with opus
       const wrapper2 = mountComponent({ modelValue: opus.id });
       await flushAll(wrapper2);
       select = wrapper2.find('select');
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe(optionValue('anthropic', opus.id));
       wrapper2.unmount();
 
       // Test mounting with haiku
       const wrapper3 = mountComponent({ modelValue: haiku.id });
       await flushAll(wrapper3);
       select = wrapper3.find('select');
-      expect(select.element.value).toBe(haiku.id);
+      expect(select.element.value).toBe(optionValue('anthropic', haiku.id));
       wrapper3.unmount();
     });
 
@@ -254,10 +255,10 @@ describe('ModelSelector', () => {
       let select = wrapper.find('select');
 
       // Initial state
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe(optionValue('anthropic', sonnet.id));
 
       // Change to haiku
-      await select.setValue(haiku.id);
+      await select.setValue(optionValue('anthropic', haiku.id));
       await flushAll(wrapper);
 
       // Should emit immediately
@@ -265,7 +266,7 @@ describe('ModelSelector', () => {
 
       // Visual feedback should be immediate
       select = wrapper.find('select');
-      expect(select.element.value).toBe(haiku.id);
+      expect(select.element.value).toBe(optionValue('anthropic', haiku.id));
     });
 
     it('updates visual state and emits when user selects different options', async () => {
@@ -277,14 +278,14 @@ describe('ModelSelector', () => {
       await flushAll(wrapper);
 
       let select = wrapper.find('select');
-      expect(select.element.value).toBe(sonnet.id);
+      expect(select.element.value).toBe(optionValue('anthropic', sonnet.id));
 
       // Change to haiku - visual state should update immediately
-      await select.setValue(haiku.id);
+      await select.setValue(optionValue('anthropic', haiku.id));
       await flushAll(wrapper);
 
       select = wrapper.find('select');
-      expect(select.element.value).toBe(haiku.id);
+      expect(select.element.value).toBe(optionValue('anthropic', haiku.id));
 
       // Emit should have been called
       expect(onUpdateModelValue).toHaveBeenCalledWith(haiku.id);
@@ -311,7 +312,7 @@ describe('ModelSelector', () => {
 
       // The select should show opus, not sonnet
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(opus.id);
+      expect(select.element.value).toBe(optionValue('anthropic', opus.id));
     });
   });
 
@@ -376,7 +377,7 @@ describe('ModelSelector', () => {
       await flushAll(wrapper);
 
       const select = wrapper.find('select');
-      await select.setValue(opus.id);
+      await select.setValue(optionValue('anthropic', opus.id));
       await flushAll(wrapper);
 
       expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
@@ -632,7 +633,7 @@ describe('ModelSelector', () => {
       await flushAll(wrapper);
 
       const select = wrapper.find('select');
-      expect(select.element.value).toBe('claude-sonnet-4-6');
+      expect(select.element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-4-6'));
     });
 
     it('keeps Anthropic as the default when both official providers exist', async () => {
@@ -664,7 +665,7 @@ describe('ModelSelector', () => {
       const wrapper = mountComponent({ modelValue: null });
       await flushAll(wrapper);
 
-      expect(wrapper.find('select').element.value).toBe('claude-sonnet-4-6');
+      expect(wrapper.find('select').element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-4-6'));
     });
 
     it('leaves defaultModel empty when only Codex providers exist', async () => {
@@ -723,10 +724,10 @@ describe('ModelSelector', () => {
       const claudeValues = claudeOptGroup.findAll('option').map((o) => o.element.value);
       const codexValues = codexOptGroup.findAll('option').map((o) => o.element.value);
 
-      expect(claudeValues).toEqual(['claude-sonnet-4-6']);
-      expect(codexValues).toEqual(['gpt-4o']);
-      expect(claudeValues).not.toContain('gpt-4o');
-      expect(codexValues).not.toContain('claude-sonnet-4-6');
+      expect(claudeValues).toEqual([optionValue('anthropic-default', 'claude-sonnet-4-6')]);
+      expect(codexValues).toEqual([optionValue('openai-prov', 'gpt-4o')]);
+      expect(claudeValues).not.toContain(optionValue('openai-prov', 'gpt-4o'));
+      expect(codexValues).not.toContain(optionValue('anthropic-default', 'claude-sonnet-4-6'));
     });
 
     it('hides duplicate built-in OpenAI options when a custom provider owns the same model ID', async () => {
@@ -759,7 +760,95 @@ describe('ModelSelector', () => {
       expect(optgroups).toHaveLength(1);
       expect(optgroups[0].attributes('label')).toBe('Codex · Custom OpenAI');
       expect(wrapper.findAll('option')).toHaveLength(1);
-      expect(wrapper.find('option').element.value).toBe('gpt-5.5');
+      expect(wrapper.find('option').element.value).toBe(optionValue('custom-openai', 'gpt-5.5'));
+    });
+
+    it('shows duplicate built-in and custom options when requested', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+          ],
+        },
+        {
+          id: 'custom-openai',
+          name: 'Custom OpenAI',
+          isBuiltIn: false,
+          kind: 'openai',
+          models: [
+            { id: 'custom-gpt-5-5', modelId: 'gpt-5.5', displayName: 'Custom GPT-5.5', tier: 'custom' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({
+        modelValue: 'gpt-5.5',
+        providerId: 'openai-default',
+        hideBuiltInDuplicates: false,
+      });
+      await flushAll(wrapper);
+
+      const options = wrapper.findAll('option');
+      expect(options).toHaveLength(2);
+      expect(options.map((option) => option.element.value)).toEqual([
+        optionValue('openai-default', 'gpt-5.5'),
+        optionValue('custom-openai', 'gpt-5.5'),
+      ]);
+      expect(options.map((option) => option.text())).toEqual([
+        'GPT-5.5 (OpenAI (Official))',
+        'gpt-5.5 (Custom OpenAI)',
+      ]);
+    });
+
+    it('selects and emits the requested provider for duplicate model ids', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+          ],
+        },
+        {
+          id: 'custom-openai',
+          name: 'Custom OpenAI',
+          isBuiltIn: false,
+          kind: 'openai',
+          models: [
+            { id: 'custom-gpt-5-5', modelId: 'gpt-5.5', displayName: 'Custom GPT-5.5', tier: 'custom' },
+          ],
+        },
+      ];
+
+      const onModelSelected = vi.fn();
+      const wrapper = mountComponent(
+        {
+          modelValue: 'gpt-5.5',
+          providerId: 'openai-default',
+          hideBuiltInDuplicates: false,
+        },
+        { onModelSelected }
+      );
+      await flushAll(wrapper);
+
+      expect(wrapper.find('select').element.value).toBe(optionValue('openai-default', 'gpt-5.5'));
+
+      await wrapper.find('select').setValue(optionValue('custom-openai', 'gpt-5.5'));
+      await flushAll(wrapper);
+
+      expect(onModelSelected).toHaveBeenCalledWith({
+        modelId: 'gpt-5.5',
+        providerId: 'custom-openai',
+        kind: 'openai',
+      });
     });
   });
 });
