@@ -1,10 +1,11 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { createClaudeCodeSpawner } from './nodeSpawnHelper.js';
 import { createCodexSpawner } from './codexSpawnHelper.js';
-import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
+import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
+import { isE2ESpawnCaptureEnabled } from './e2eSpawnCapture.js';
 import {
   buildSystemPromptConfig,
   getPermissionModeForSession,
@@ -56,7 +57,7 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
   const baseAgent = agentGateway.createAgent(agentType, mergedConfig);
 
   // Wrap with VCR adapter if in VCR mode
-  const agent = process.env.VCR_MODE
+  const agent = process.env.VCR_MODE && !isE2ESpawnCaptureEnabled()
     ? new VCRAgentAdapter(baseAgent, { cassetteDir: 'tests/e2e/cassettes' })
     : baseAgent;
 
@@ -70,10 +71,13 @@ export function createAgentForSession(agentType = 'claude-code', config = {}) {
  */
 function buildClaudeCodeQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt,
-  model, sessionEnv, resumeSessionId = null,
+  model, sessionEnv, resumeSessionId = null, commitAttributionOverride = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
+  const extraArgs = commitAttributionOverride
+    ? { settings: JSON.stringify({ attribution: { commit: commitAttributionOverride } }) }
+    : undefined;
 
   return {
     prompt,
@@ -88,6 +92,7 @@ function buildClaudeCodeQueryParams({
       spawnClaudeCodeProcess: createClaudeCodeSpawner(),
       model: effectiveModel,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      ...(extraArgs && { extraArgs }),
     },
   };
 }
@@ -109,6 +114,7 @@ function buildClaudeCodeQueryParams({
  */
 function buildCodexQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
+  commitAttributionOverride = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   // In VCR mode, force the cheapest commonly-cassetted OpenAI model.
@@ -122,6 +128,7 @@ function buildCodexQueryParams({
       env: sessionEnv,
       model: effectiveModel,
       effortLevel: session?.effortLevel ?? null,
+      commitAttributionOverride,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sandboxMode: getSandboxModeForSession(session?.mode),
     },
@@ -258,6 +265,7 @@ function buildContinueModelAndEnv(session, sessionId, model) {
 
   // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(effectiveModel);
+  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   // Check if model changed from the session's last requested model
@@ -273,7 +281,13 @@ function buildContinueModelAndEnv(session, sessionId, model) {
     updatedSession = sessions.getById(sessionId); // refresh
   }
 
-  return { effectiveModel, sessionEnv, modelChanged, session: updatedSession };
+  return {
+    effectiveModel,
+    sessionEnv,
+    commitAttributionOverride: providerMetadata?.commitAttributionOverride ?? null,
+    modelChanged,
+    session: updatedSession,
+  };
 }
 
 /**
@@ -284,7 +298,7 @@ function buildContinueModelAndEnv(session, sessionId, model) {
 async function buildContinueParams({
   sessionId, session, model, systemPrompt, effectiveModel, sessionEnv,
   modelChanged, activeConversation, promptWithAttachments,
-  workingDirectory, controller, agentType, agent,
+  workingDirectory, controller, agentType, agent, commitAttributionOverride,
 }) {
   // Only resume if we have a session ID AND model hasn't changed AND the
   // agent supports resume.
@@ -306,6 +320,7 @@ async function buildContinueParams({
     sessionEnv,
     resumeSessionId: canResume ? activeConversation.claudeSessionId : null,
     agentType,
+    commitAttributionOverride,
   });
 
   // Logging metadata for agent call tracking
@@ -397,6 +412,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   const { queryParams, agentCallMeta } = await buildContinueParams({
     sessionId, session, model, systemPrompt,
     effectiveModel: modelEnv.effectiveModel, sessionEnv: modelEnv.sessionEnv,
+    commitAttributionOverride: modelEnv.commitAttributionOverride,
     modelChanged: modelEnv.modelChanged, activeConversation, promptWithAttachments,
     workingDirectory, controller, agentType, agent,
   });
@@ -464,6 +480,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
 
   // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(effectiveModel);
+  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   const queryParams = buildQueryParams({
@@ -476,6 +493,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     model: effectiveModel,
     sessionEnv,
     agentType,
+    commitAttributionOverride: providerMetadata?.commitAttributionOverride ?? null,
   });
 
   // Log query params for debugging third-party provider issues

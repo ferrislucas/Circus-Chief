@@ -62,6 +62,67 @@ describe('Providers API', () => {
       expect(openai.models.map((model) => model.modelId).sort()).toEqual(
         OPENAI_MODELS.map((model) => model.id).sort()
       );
+      expect(anthropic).toHaveProperty('commitAttributionOverride');
+      expect(openai).toHaveProperty('commitAttributionOverride');
+    });
+  });
+
+  describe('commit attribution provider field', () => {
+    it('creates and returns commitAttributionOverride', async () => {
+      const response = await request(app)
+        .post('/api/providers')
+        .send({
+          name: 'Attribution API Provider',
+          kind: 'openai',
+          commitAttributionOverride: 'Codex <noreply@openai.com>',
+        })
+        .expect(201);
+
+      testProviderId = response.body.id;
+      expect(response.body.commitAttributionOverride).toBe('Codex <noreply@openai.com>');
+    });
+
+    it('normalizes cleared attribution to null', async () => {
+      const provider = modelProviders.create({
+        name: 'Clear Attribution',
+        kind: 'anthropic',
+        commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+      });
+      testProviderId = provider.id;
+
+      const response = await request(app)
+        .patch(`/api/providers/${provider.id}`)
+        .send({ commitAttributionOverride: '   ' })
+        .expect(200);
+
+      expect(response.body.commitAttributionOverride).toBeNull();
+    });
+
+    it('rejects non-string attribution values', async () => {
+      const provider = modelProviders.create({ name: 'Reject Attribution', kind: 'openai' });
+      testProviderId = provider.id;
+
+      await request(app)
+        .patch(`/api/providers/${provider.id}`)
+        .send({ commitAttributionOverride: 42 })
+        .expect(400);
+    });
+
+    it('allows built-in attribution updates but rejects unrelated built-in fields', async () => {
+      await request(app)
+        .patch('/api/providers/openai-default')
+        .send({ commitAttributionOverride: 'Codex <noreply@openai.com>' })
+        .expect(200);
+
+      await request(app)
+        .patch('/api/providers/openai-default')
+        .send({ name: 'Nope' })
+        .expect(403);
+
+      await request(app)
+        .patch('/api/providers/openai-default')
+        .send({ commitAttributionOverride: null })
+        .expect(200);
     });
   });
 

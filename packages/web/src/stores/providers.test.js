@@ -84,6 +84,7 @@ describe('useProvidersStore — Phase 5 kind wiring', () => {
         authToken: 'tok',
         apiTimeoutMs: 12345,
         additionalEnvVars: { A: 'B' },
+        commitAttributionOverride: 'Codex <noreply@openai.com>',
       });
 
       expect(mockApi.updateProvider).toHaveBeenCalledWith('p1', {
@@ -92,6 +93,7 @@ describe('useProvidersStore — Phase 5 kind wiring', () => {
         authToken: 'tok',
         apiTimeoutMs: 12345,
         additionalEnvVars: { A: 'B' },
+        commitAttributionOverride: 'Codex <noreply@openai.com>',
       });
     });
 

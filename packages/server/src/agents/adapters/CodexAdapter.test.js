@@ -213,6 +213,29 @@ describe('CodexAdapter', () => {
     expect(spawnArgs.args[cIdx + 1]).toBe('preferred_auth_method=chatgpt');
   });
 
+  it('CLI path: appends commit_attribution config when configured', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-attr"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test' },
+        commitAttributionOverride: 'Codex <noreply@openai.com>',
+        abortController: new AbortController(),
+      },
+    }));
+
+    const spawnArgs = fakeSpawn.mock.calls[0][0];
+    expect(spawnArgs.args).toContain('-c');
+    expect(spawnArgs.args).toContain('commit_attribution=Codex <noreply@openai.com>');
+  });
+
   it('CLI path: does NOT append -c preferred_auth_method=chatgpt when OPENAI_API_KEY is in env', async () => {
     const fakeSpawn = vi.fn(() => createFakeChild({
       stdoutLines: ['{"type":"thread.started","thread_id":"codex-d"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
@@ -609,6 +632,41 @@ describe('CodexAdapter', () => {
       messages: [{ role: 'user', content: 'say hi' }],
       stream: true,
     });
+  });
+
+  it('Direct-API path: ignores commitAttributionOverride without throwing', async () => {
+    process.env.USE_CODEX_DIRECT_API = '1';
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+    const fakeStream = {
+      async *[Symbol.asyncIterator]() {
+        yield { choices: [{ delta: { content: 'ok' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+      },
+    };
+    const client = {
+      chat: {
+        completions: {
+          create: vi.fn(async () => fakeStream),
+        },
+      },
+    };
+
+    const adapter = new CodexAdapter({ openaiClientFactory: () => client });
+    const events = await collect(adapter.execute({
+      prompt: 'say hi',
+      options: {
+        model: 'gpt-4o-mini',
+        env: { OPENAI_API_KEY: 'sk-test' },
+        commitAttributionOverride: 'Codex <noreply@openai.com>',
+        abortController: new AbortController(),
+      },
+    }));
+
+    expect(events.some((event) => event.type === 'result')).toBe(true);
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[CodexAdapter] Ignoring commitAttributionOverride in direct API fallback'
+    );
+    debugSpy.mockRestore();
   });
 
   it('Direct-API path: missing OPENAI_API_KEY and no factory → throws OPENAI_API_KEY_MISSING', async () => {

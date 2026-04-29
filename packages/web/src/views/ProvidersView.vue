@@ -54,7 +54,6 @@
           </div>
           <div class="provider-actions">
             <button
-              v-if="!provider.isBuiltIn"
               class="btn btn-sm"
               :disabled="testingProviderId === provider.id"
               title="Test Connection"
@@ -63,11 +62,10 @@
               {{ testingProviderId === provider.id ? 'Testing...' : 'Test' }}
             </button>
             <button
-              v-if="!provider.isBuiltIn"
               class="btn btn-sm"
-              @click="openEditModal(provider)"
+              @click="provider.isBuiltIn ? openAttributionModal(provider) : openEditModal(provider)"
             >
-              Edit
+              {{ provider.isBuiltIn ? 'Settings' : 'Edit' }}
             </button>
             <button
               v-if="!provider.isBuiltIn"
@@ -80,6 +78,14 @@
         </div>
 
         <div class="provider-details">
+          <div
+            class="provider-detail"
+          >
+            <span class="detail-label">Commit attribution:</span>
+            <span class="detail-value">
+              {{ provider.commitAttributionOverride ? 'Custom attribution' : 'Agent default' }}
+            </span>
+          </div>
           <div
             v-if="provider.baseUrl"
             class="provider-detail"
@@ -108,6 +114,7 @@
     <ProviderForm
       :is-open="isFormOpen"
       :provider="selectedProvider"
+      :attribution-only="attributionOnly"
       @close="closeFormModal"
       @saved="handleProviderSaved"
     />
@@ -168,6 +175,7 @@ const uiStore = useUiStore();
 
 const isFormOpen = ref(false);
 const selectedProvider = ref(null);
+const attributionOnly = ref(false);
 const providerToDelete = ref(null);
 const deleting = ref(false);
 const testingProviderId = ref(null);
@@ -178,17 +186,26 @@ onMounted(() => {
 
 function openCreateModal() {
   selectedProvider.value = null;
+  attributionOnly.value = false;
   isFormOpen.value = true;
 }
 
 function openEditModal(provider) {
   selectedProvider.value = provider;
+  attributionOnly.value = false;
+  isFormOpen.value = true;
+}
+
+function openAttributionModal(provider) {
+  selectedProvider.value = provider;
+  attributionOnly.value = true;
   isFormOpen.value = true;
 }
 
 function closeFormModal() {
   isFormOpen.value = false;
   selectedProvider.value = null;
+  attributionOnly.value = false;
 }
 
 function handleProviderSaved() {
@@ -301,12 +318,14 @@ async function deleteProvider() {
   font-size: 0.75rem;
   font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.025em;
+  letter-spacing: 0;
   color: var(--color-text-soft);
 }
 
 .provider-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem;
   flex-shrink: 0;
 }
@@ -332,6 +351,7 @@ async function deleteProvider() {
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
+  overflow-wrap: anywhere;
 }
 
 .btn-sm {
@@ -431,5 +451,38 @@ async function deleteProvider() {
   padding: 1rem 1.25rem;
   border-top: 1px solid var(--color-border);
   background: var(--color-background-soft);
+}
+
+@media (max-width: 520px) {
+  .provider-card {
+    padding: 1rem;
+  }
+
+  .provider-header,
+  .provider-detail {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .provider-actions {
+    justify-content: flex-start;
+  }
+
+  .modal-overlay {
+    align-items: stretch;
+  }
+
+  .modal {
+    max-width: none;
+    max-height: none;
+    min-height: 100vh;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .modal-footer {
+    justify-content: space-between;
+  }
 }
 </style>

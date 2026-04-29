@@ -115,6 +115,35 @@ describe('buildQueryParams', () => {
 
     expect(result.options.effortLevel).toBeNull();
   });
+
+  it('omits Claude attribution settings when override is null', () => {
+    const result = buildQueryParams({ ...baseArgs(), commitAttributionOverride: null });
+    expect(result.options.extraArgs).toBeUndefined();
+  });
+
+  it('includes Claude attribution settings when override is configured', () => {
+    const result = buildQueryParams({
+      ...baseArgs(),
+      commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+    });
+
+    expect(JSON.parse(result.options.extraArgs.settings)).toEqual({
+      attribution: {
+        commit: 'Co-authored-by: Claude <noreply@anthropic.com>',
+      },
+    });
+  });
+
+  it('carries commitAttributionOverride into Codex query options', () => {
+    const result = buildQueryParams({
+      ...baseArgs(),
+      agentType: 'codex',
+      model: 'gpt-5.5',
+      commitAttributionOverride: 'Codex <noreply@openai.com>',
+    });
+
+    expect(result.options.commitAttributionOverride).toBe('Codex <noreply@openai.com>');
+  });
 });
 
 // ── continueSessionCore model fallback ──────────────────────────────────────

@@ -11,6 +11,7 @@ import { schedulerService } from '../services/schedulerService.js';
  *   - dbPath: string|null (absolute path of DB; ":memory:" in tests)
  *   - vcrMode: string|null (non-empty string or null; never "")
  *   - schedulerRunning: boolean
+ *   - e2eSpawnCaptureEnabled: boolean
  * The endpoint must be additive-safe: consumers are required to ignore
  * unknown fields so we can add more without a coordinated release.
  */
@@ -45,6 +46,7 @@ describe('GET /api/server-info', () => {
     expect(typeof res.body.dbPath).toBe('string');
     expect(res.body.vcrMode).toBeNull();
     expect(typeof res.body.schedulerRunning).toBe('boolean');
+    expect(typeof res.body.e2eSpawnCaptureEnabled).toBe('boolean');
   });
 
   it('dbPath matches the path the DB was initialized with', async () => {
@@ -96,5 +98,6 @@ describe('GET /api/server-info', () => {
     expect(res.body).toHaveProperty('dbPath');
     expect(res.body).toHaveProperty('vcrMode');
     expect(res.body).toHaveProperty('schedulerRunning');
+    expect(res.body).toHaveProperty('e2eSpawnCaptureEnabled');
   });
 });

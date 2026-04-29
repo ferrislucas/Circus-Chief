@@ -76,6 +76,21 @@ describe('ProviderRepository', () => {
       repo.delete(provider.id);
     });
 
+    it('persists commitAttributionOverride and normalizes whitespace to null', () => {
+      const provider = repo.create({
+        name: 'Attribution Provider',
+        kind: 'openai',
+        commitAttributionOverride: '  Codex <noreply@openai.com>  ',
+      });
+
+      expect(provider.commitAttributionOverride).toBe('Codex <noreply@openai.com>');
+
+      const updated = repo.update(provider.id, { commitAttributionOverride: '   ' });
+      expect(updated.commitAttributionOverride).toBeNull();
+
+      repo.delete(provider.id);
+    });
+
     it('encrypts auth token at rest (raw row should not contain plaintext token)', () => {
       const provider = repo.create({
         name: 'Encrypted Token Test',
@@ -116,6 +131,24 @@ describe('ProviderRepository', () => {
 
     it('returns null for non-existent ID', () => {
       expect(repo.getById('non-existent')).toBeNull();
+    });
+  });
+
+  describe('built-in provider attribution updates', () => {
+    it('allows commitAttributionOverride on built-in providers', () => {
+      const updated = repo.update('anthropic-default', {
+        commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+      });
+
+      expect(updated.commitAttributionOverride).toBe('Co-authored-by: Claude <noreply@anthropic.com>');
+
+      repo.update('anthropic-default', { commitAttributionOverride: null });
+    });
+
+    it('rejects unrelated built-in provider fields', () => {
+      expect(() => repo.update('anthropic-default', { name: 'Nope' })).toThrow(
+        /Built-in providers can only update commitAttributionOverride/
+      );
     });
   });
 

@@ -54,8 +54,8 @@ describe('useProviderForm', () => {
     onSaved = vi.fn();
   });
 
-  function createForm() {
-    return withSetup(() => useProviderForm(isOpenRef, providerRef, onSaved));
+  function createForm(options = {}) {
+    return withSetup(() => useProviderForm(isOpenRef, providerRef, onSaved, options));
   }
 
   // ── 1. Form initialization - default state (no provider) ─────────
@@ -70,6 +70,7 @@ describe('useProviderForm', () => {
         authToken: null,
         apiTimeoutMs: null,
         additionalEnvVars: {},
+        commitAttributionOverride: null,
       });
     });
 
@@ -671,6 +672,21 @@ describe('useProviderForm', () => {
         const callArgs = mockProvidersStore.createProvider.mock.calls[0][0];
         expect(callArgs).not.toHaveProperty('authToken');
       });
+
+      it('normalizes whitespace attribution override to null on create', async () => {
+        mockProvidersStore.createProvider.mockResolvedValue({ id: 'p' });
+        mockProvidersStore.fetchProviders.mockResolvedValue();
+
+        const { result } = createForm();
+        result.form.value.name = 'Test';
+        result.form.value.commitAttributionOverride = '   ';
+
+        await result.save();
+
+        expect(mockProvidersStore.createProvider).toHaveBeenCalledWith(
+          expect.objectContaining({ commitAttributionOverride: null }),
+        );
+      });
     });
 
     describe('update existing provider', () => {
@@ -702,6 +718,34 @@ describe('useProviderForm', () => {
           'p1',
           expect.objectContaining({ name: 'Updated Name' }),
         );
+      });
+
+      it('attribution-only update sends only commitAttributionOverride', async () => {
+        providerRef.value = {
+          id: 'p1',
+          name: 'Built In',
+          baseUrl: null,
+          authToken: null,
+          apiTimeoutMs: null,
+          additionalEnvVars: null,
+          commitAttributionOverride: null,
+          models: [],
+        };
+        isOpenRef.value = true;
+        const attributionOnlyRef = ref(true);
+
+        const { result } = createForm({ attributionOnlyRef });
+        await nextTick();
+
+        mockProvidersStore.updateProvider.mockResolvedValue({ id: 'p1' });
+        result.form.value.commitAttributionOverride = '  Codex <noreply@openai.com>  ';
+
+        await result.save();
+
+        expect(mockProvidersStore.updateProvider).toHaveBeenCalledWith('p1', {
+          commitAttributionOverride: 'Codex <noreply@openai.com>',
+        });
+        expect(mockProvidersStore.fetchProviders).not.toHaveBeenCalled();
       });
 
       it('should show success toast on update', async () => {

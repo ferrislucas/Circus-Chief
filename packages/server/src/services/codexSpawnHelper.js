@@ -1,5 +1,10 @@
 import { spawn } from 'child_process';
 import { createRobustEnv } from './nodeSpawnHelper.js';
+import {
+  captureSpawnAttempt,
+  createCapturedSpawnProcess,
+  isE2ESpawnCaptureEnabled,
+} from './e2eSpawnCapture.js';
 
 /**
  * Create a custom spawn function for the Codex CLI.
@@ -19,6 +24,10 @@ import { createRobustEnv } from './nodeSpawnHelper.js';
 export function createCodexSpawner() {
   return (options) => {
     const { command, args, cwd, env, signal } = options;
+    if (isE2ESpawnCaptureEnabled()) {
+      captureSpawnAttempt('codex', options);
+      return createCapturedSpawnProcess('codex');
+    }
 
     // Replace 'node' with the absolute path to the current Node executable
     const actualCommand = command === 'node' ? process.execPath : command;

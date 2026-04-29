@@ -82,7 +82,10 @@ router.patch('/:id', (req, res) => {
     const updated = modelProviders.update(req.params.id, result.data);
     res.json(redactAuthToken(updated));
   } catch (error) {
-    if (error.message === 'Cannot delete built-in provider') {
+    if (
+      error.message === 'Cannot delete built-in provider' ||
+      error.message.startsWith('Built-in providers can only update')
+    ) {
       return res.status(403).json({ error: error.message });
     }
     res.status(500).json({ error: error.message });

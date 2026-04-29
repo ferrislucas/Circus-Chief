@@ -246,6 +246,7 @@ export const miscMigrations = [
           auth_token TEXT,
           api_timeout_ms INTEGER,
           additional_env_vars TEXT,
+          commit_attribution_override TEXT,
           is_built_in INTEGER NOT NULL DEFAULT 0,
           kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai')),
           created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
@@ -276,6 +277,13 @@ export const miscMigrations = [
         'kind',
         "TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai'))"
       );
+    },
+  },
+
+  {
+    name: 'providers-add-commit_attribution_override',
+    up(db) {
+      addColumnIfMissing(db, 'providers', 'commit_attribution_override', 'TEXT');
     },
   },
 

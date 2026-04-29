@@ -16,6 +16,7 @@ function createFormDefaults() {
     authToken: null,
     apiTimeoutMs: null,
     additionalEnvVars: {},
+    commitAttributionOverride: null,
   };
 }
 
@@ -32,6 +33,7 @@ function buildFormFromProvider(provider) {
     authToken: provider.authToken === '••••••••' ? null : provider.authToken,
     apiTimeoutMs: provider.apiTimeoutMs,
     additionalEnvVars: provider.additionalEnvVars ? { ...provider.additionalEnvVars } : {},
+    commitAttributionOverride: provider.commitAttributionOverride || null,
   };
   const envKeys = Object.keys(formData.additionalEnvVars);
   const models = (provider.models || []).map((m) => ({
@@ -69,9 +71,10 @@ function createFormState() {
  * @param {import('vue').Ref<Object|null>} providerRef - reactive ref for provider being edited (null = create)
  * @param {Function} onSaved - callback invoked after a successful save
  */
-export function useProviderForm(isOpenRef, providerRef, onSaved) {
+export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
   const providersStore = useProvidersStore();
   const uiStore = useUiStore();
+  const attributionOnlyRef = options.attributionOnlyRef;
 
   // ── Form state ────────────────────────────────────────────────
   const state = createFormState();
@@ -80,6 +83,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
   // ── Computed ──────────────────────────────────────────────────
   const isEditing = computed(() => Boolean(providerRef.value));
   const isValid = computed(() => {
+    if (attributionOnlyRef?.value) return true;
     if (form.value.name.trim().length === 0) return false;
     // `kind` is required on create; on edit the server enforces immutability
     // and we simply surface the existing value, so no extra validation needed.
@@ -223,6 +227,11 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
   }
 
   // ── Save ──────────────────────────────────────────────────────
+  function normalizeCommitAttributionOverride(value) {
+    const trimmed = value?.trim() || '';
+    return trimmed ? trimmed : null;
+  }
+
   async function save() {
     saving.value = true;
     error.value = null;
@@ -236,7 +245,19 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
           Object.keys(form.value.additionalEnvVars).length > 0
             ? form.value.additionalEnvVars
             : null,
+        commitAttributionOverride: normalizeCommitAttributionOverride(
+          form.value.commitAttributionOverride
+        ),
       };
+
+      if (attributionOnlyRef?.value) {
+        await providersStore.updateProvider(providerRef.value.id, {
+          commitAttributionOverride: data.commitAttributionOverride,
+        });
+        uiStore.success('Provider updated successfully');
+        onSaved();
+        return;
+      }
 
       if (authTokenModified.value) {
         data.authToken = form.value.authToken?.trim() || null;

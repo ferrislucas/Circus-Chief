@@ -169,6 +169,7 @@ export const allMigrations = validateMigrations([
   // --- Providers + provider_models tables + seed ---
   m.get('providers-create-tables'),
   m.get('providers-add-kind'),
+  m.get('providers-add-commit_attribution_override'),
   m.get('providers-seed-built-in'),
   m.get('providers-seed-built-in-openai'),
 

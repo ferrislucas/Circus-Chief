@@ -18,6 +18,15 @@ export const AGENT_TYPE_BY_KIND = Object.freeze({
   openai: 'codex',
 });
 
+const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride']);
+
+function normalizeCommitAttributionOverride(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 /**
  * Provider repository class (replaces ModelProviderRepository).
  *
@@ -44,6 +53,7 @@ export class ProviderRepository extends BaseRepository {
       authToken: decrypt(row.auth_token),
       apiTimeoutMs: row.api_timeout_ms,
       additionalEnvVars: row.additional_env_vars ? JSON.parse(row.additional_env_vars) : null,
+      commitAttributionOverride: row.commit_attribution_override ?? null,
       isBuiltIn: row.is_built_in === 1,
       kind: row.kind || 'anthropic',
       createdAt: row.created_at,
@@ -83,6 +93,7 @@ export class ProviderRepository extends BaseRepository {
       authToken = null,
       apiTimeoutMs = null,
       additionalEnvVars = null,
+      commitAttributionOverride = null,
       kind = 'anthropic',
     } = data;
 
@@ -95,8 +106,8 @@ export class ProviderRepository extends BaseRepository {
 
     this.db
       .prepare(
-        `INSERT INTO providers (id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, kind, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO providers (id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, commit_attribution_override, kind, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -105,6 +116,7 @@ export class ProviderRepository extends BaseRepository {
         encrypt(authToken),
         apiTimeoutMs,
         additionalEnvVars ? JSON.stringify(additionalEnvVars) : null,
+        normalizeCommitAttributionOverride(commitAttributionOverride),
         kind,
         now,
         now
@@ -143,6 +155,20 @@ export class ProviderRepository extends BaseRepository {
    * @returns {Object} Updated provider (with models array)
    */
   update(id, data) {
+    const provider = this.getById(id);
+    if (!provider) return null;
+
+    if (provider.isBuiltIn) {
+      const unsupportedFields = Object.keys(data || {}).filter(
+        (key) => !BUILT_IN_MUTABLE_FIELDS.includes(key)
+      );
+      if (unsupportedFields.length > 0) {
+        throw new Error(
+          `Built-in providers can only update commitAttributionOverride. Rejected fields: ${unsupportedFields.join(', ')}.`
+        );
+      }
+    }
+
     // `kind` is immutable after create. Existing models + env wiring depend on it,
     // so changing it in place would silently corrupt sessions already attached to
     // this provider.
@@ -174,6 +200,10 @@ export class ProviderRepository extends BaseRepository {
     if (data.additionalEnvVars !== undefined) {
       updates.push('additional_env_vars = ?');
       values.push(data.additionalEnvVars ? JSON.stringify(data.additionalEnvVars) : null);
+    }
+    if (data.commitAttributionOverride !== undefined) {
+      updates.push('commit_attribution_override = ?');
+      values.push(normalizeCommitAttributionOverride(data.commitAttributionOverride));
     }
 
     if (updates.length > 0) {
@@ -346,6 +376,33 @@ export class ProviderRepository extends BaseRepository {
     }
 
     return provider;
+  }
+
+  /**
+   * Look up provider metadata for a model without applying runtime env fallback
+   * rules. Unlike getProviderByModelId, this returns built-in Anthropic too.
+   *
+   * @param {string|null|undefined} modelId
+   * @returns {Object|null}
+   */
+  getProviderMetadataByModelId(modelId) {
+    if (!modelId) return null;
+
+    const tierNames = ['sonnet', 'opus', 'haiku'];
+    if (tierNames.includes(modelId.toLowerCase())) {
+      return this.getById('anthropic-default');
+    }
+
+    const row = this.db
+      .prepare(
+        `SELECT p.id FROM providers p
+         JOIN provider_models pm ON p.id = pm.provider_id
+         WHERE pm.model_id = ?
+         ORDER BY p.is_built_in ASC, p.name ASC`
+      )
+      .get(modelId);
+
+    return row ? this.getById(row.id) : null;
   }
 
   /**

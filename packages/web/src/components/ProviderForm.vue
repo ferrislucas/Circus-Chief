@@ -6,7 +6,7 @@
   >
     <div class="modal">
       <div class="modal-header">
-        <h2>{{ isEditing ? 'Edit Provider' : 'Add Provider' }}</h2>
+        <h2>{{ attributionOnly ? 'Commit Attribution' : (isEditing ? 'Edit Provider' : 'Add Provider') }}</h2>
         <button
           type="button"
           class="close-btn"
@@ -19,7 +19,10 @@
 
       <div class="modal-body">
         <form @submit.prevent="save">
-          <div class="form-group">
+          <div
+            v-if="!attributionOnly"
+            class="form-group"
+          >
             <label for="provider-name">Provider Name*</label>
             <input
               id="provider-name"
@@ -31,7 +34,10 @@
             >
           </div>
 
-          <div class="form-group">
+          <div
+            v-if="!attributionOnly"
+            class="form-group"
+          >
             <label for="provider-kind">
               Compatibility*
               <span class="label-hint">Wire protocol &amp; env-var convention</span>
@@ -59,7 +65,10 @@
             </p>
           </div>
 
-          <div class="form-group">
+          <div
+            v-if="!attributionOnly"
+            class="form-group"
+          >
             <label for="base-url">
               Base URL
               <span class="label-hint">({{ baseUrlEnvName }})</span>
@@ -72,7 +81,10 @@
             >
           </div>
 
-          <div class="form-group">
+          <div
+            v-if="!attributionOnly"
+            class="form-group"
+          >
             <label for="auth-token">
               Auth Token
               <span class="label-hint">({{ authTokenEnvName }})</span>
@@ -96,14 +108,31 @@
             </div>
           </div>
 
+          <div class="form-group">
+            <label for="commit-attribution-override">Commit attribution override</label>
+            <textarea
+              id="commit-attribution-override"
+              v-model="form.commitAttributionOverride"
+              rows="3"
+              placeholder="Blank uses agent default"
+            />
+            <p class="field-note">
+              Blank uses agent default.
+            </p>
+          </div>
+
           <ProviderModelsList
+            v-if="!attributionOnly"
             :models="localModels"
             @add="addLocalModel"
             @remove="removeLocalModel"
           />
 
           <!-- Advanced Settings Section -->
-          <details class="expandable-section">
+          <details
+            v-if="!attributionOnly"
+            class="expandable-section"
+          >
             <summary class="section-header">
               Advanced Settings
             </summary>
@@ -201,6 +230,7 @@
 
       <div class="modal-footer">
         <button
+          v-if="!attributionOnly"
           type="button"
           class="btn btn-secondary"
           :disabled="saving || testing || !canTest"
@@ -239,6 +269,7 @@ import ProviderModelsList from './ProviderModelsList.vue';
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
   provider: { type: Object, default: null },
+  attributionOnly: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['close', 'saved']);
@@ -267,6 +298,7 @@ const {
   toRef(props, 'isOpen'),
   toRef(props, 'provider'),
   () => emit('saved'),
+  { attributionOnlyRef: toRef(props, 'attributionOnly') },
 );
 
 const baseUrlEnvName = computed(() =>
@@ -370,6 +402,7 @@ function close() {
 .form-group input[type='url'],
 .form-group input[type='password'],
 .form-group input[type='number'],
+.form-group textarea,
 .form-group select.kind-select {
   width: 100%;
   padding: 0.5rem 0.75rem;
@@ -380,7 +413,14 @@ function close() {
   font-size: 0.875rem;
 }
 
+.form-group textarea {
+  min-height: 4.75rem;
+  resize: vertical;
+  line-height: 1.45;
+}
+
 .form-group input:focus,
+.form-group textarea:focus,
 .form-group select.kind-select:focus {
   outline: none;
   border-color: var(--color-primary);
@@ -603,5 +643,50 @@ function close() {
 
 .btn-primary:hover:not(:disabled) {
   filter: brightness(1.1);
+}
+
+@media (max-width: 520px) {
+  .modal-overlay {
+    align-items: stretch;
+    justify-content: stretch;
+  }
+
+  .modal {
+    max-width: none;
+    max-height: none;
+    min-height: 100vh;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
+  }
+
+  .modal-body {
+    padding: 1rem;
+  }
+
+  .modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .footer-actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .footer-actions .btn,
+  .modal-footer > .btn {
+    flex: 1;
+  }
+
+  .env-var-row,
+  .token-input-wrapper {
+    flex-direction: column;
+  }
+
+  .env-key {
+    flex: 1;
+  }
 }
 </style>

@@ -14,6 +14,7 @@ import kanbanRouter from './kanban.js';
 import agentsRouter from './agents.js';
 import { getDbPath } from '../database.js';
 import { schedulerService } from '../services/schedulerService.js';
+import { isE2ESpawnCaptureEnabled } from '../services/e2eSpawnCapture.js';
 
 const router = Router();
 
@@ -29,6 +30,7 @@ router.get('/server-info', (_req, res) => {
     dbPath: getDbPath(),
     vcrMode: vcr && vcr.length > 0 ? vcr : null,
     schedulerRunning: schedulerService.isRunning(),
+    e2eSpawnCaptureEnabled: isE2ESpawnCaptureEnabled(),
   });
 });
 

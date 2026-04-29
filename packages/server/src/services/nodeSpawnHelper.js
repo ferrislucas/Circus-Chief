@@ -1,5 +1,10 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import {
+  captureSpawnAttempt,
+  createCapturedSpawnProcess,
+  isE2ESpawnCaptureEnabled,
+} from './e2eSpawnCapture.js';
 
 /**
  * Get the directory containing the current Node.js executable.
@@ -42,6 +47,10 @@ export function createRobustEnv(baseEnv = process.env) {
 export function createClaudeCodeSpawner() {
   return (options) => {
     const { command, args, cwd, env, signal } = options;
+    if (isE2ESpawnCaptureEnabled()) {
+      captureSpawnAttempt('claude-code', options);
+      return createCapturedSpawnProcess('claude-code');
+    }
 
     // Replace 'node' with the absolute path to the current Node executable
     // This ensures we use the same Node that's running our app

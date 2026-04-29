@@ -1152,6 +1152,7 @@ export async function createProvider(data: {
   baseUrl?: string;
   authToken?: string;
   apiTimeoutMs?: number;
+  commitAttributionOverride?: string | null;
 }) {
   const response = await fetch(`${API_URL}/api/providers`, {
     method: 'POST',
@@ -1242,6 +1243,7 @@ export async function updateProvider(id: string, data: {
   baseUrl?: string;
   authToken?: string;
   apiTimeoutMs?: number;
+  commitAttributionOverride?: string | null;
 }) {
   const response = await fetch(`${API_URL}/api/providers/${id}`, {
     method: 'PATCH',

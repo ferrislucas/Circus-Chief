@@ -16,6 +16,7 @@ export const CreateProviderRequest = z.object({
   authToken: z.string().nullable().optional(),
   apiTimeoutMs: z.number().int().positive().nullable().optional(),
   additionalEnvVars: z.record(z.string()).nullable().optional(),
+  commitAttributionOverride: z.string().nullable().optional(),
 });
 
 // `kind` is intentionally omitted. `.strict()` makes any extra key (including
@@ -28,6 +29,7 @@ export const UpdateProviderRequest = z
     authToken: z.string().nullable().optional(),
     apiTimeoutMs: z.number().int().positive().nullable().optional(),
     additionalEnvVars: z.record(z.string()).nullable().optional(),
+    commitAttributionOverride: z.string().nullable().optional(),
   })
   .strict();
 
@@ -39,6 +41,7 @@ export const ProviderResponse = z.object({
   authToken: z.string().nullable(), // Will be redacted in API responses
   apiTimeoutMs: z.number().nullable(),
   additionalEnvVars: z.record(z.string()).nullable(),
+  commitAttributionOverride: z.string().nullable(),
   isBuiltIn: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number(),

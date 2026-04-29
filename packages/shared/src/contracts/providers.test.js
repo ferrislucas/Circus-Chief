@@ -56,6 +56,20 @@ describe('Provider Contracts', () => {
       expect(a.success).toBe(true);
       expect(o.success).toBe(true);
     });
+
+    it('accepts omitted, null, and string commit attribution override', () => {
+      expect(CreateProviderRequest.safeParse({ name: 'A', kind: 'anthropic' }).success).toBe(true);
+      expect(CreateProviderRequest.safeParse({
+        name: 'A',
+        kind: 'anthropic',
+        commitAttributionOverride: null,
+      }).success).toBe(true);
+      expect(CreateProviderRequest.safeParse({
+        name: 'A',
+        kind: 'anthropic',
+        commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+      }).success).toBe(true);
+    });
   });
 
   describe('UpdateProviderRequest', () => {
@@ -75,6 +89,19 @@ describe('Provider Contracts', () => {
     it('rejects kind even when no other fields are present', () => {
       const result = UpdateProviderRequest.safeParse({ kind: 'anthropic' });
       expect(result.success).toBe(false);
+    });
+
+    it('accepts null and string commit attribution override updates', () => {
+      expect(UpdateProviderRequest.safeParse({ commitAttributionOverride: null }).success).toBe(true);
+      expect(UpdateProviderRequest.safeParse({
+        commitAttributionOverride: 'Codex <noreply@openai.com>',
+      }).success).toBe(true);
+    });
+
+    it('rejects non-string commit attribution override updates', () => {
+      for (const value of [1, true, {}, []]) {
+        expect(UpdateProviderRequest.safeParse({ commitAttributionOverride: value }).success).toBe(false);
+      }
     });
   });
 
