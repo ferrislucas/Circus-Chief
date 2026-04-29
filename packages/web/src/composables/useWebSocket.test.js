@@ -1280,3 +1280,200 @@ describe('connectionStatus and reconnectAttempt refs', () => {
     expect(ws.reconnectAttempt.value).toBe(0);
   });
 });
+
+describe('WebSocket auth token in URL', () => {
+  let capturedUrl = null;
+
+  class UrlCapturingWebSocket {
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor(url) {
+      capturedUrl = url;
+      this.readyState = UrlCapturingWebSocket.OPEN;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onclose = null;
+      this.onerror = null;
+      this.sentMessages = [];
+
+      setTimeout(() => {
+        if (this.onopen) this.onopen();
+      }, 0);
+    }
+
+    send(data) {
+      this.sentMessages.push(data);
+    }
+
+    close(code) {
+      this.readyState = UrlCapturingWebSocket.CLOSED;
+      if (this.onclose) this.onclose({ code });
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    capturedUrl = null;
+    globalThis.WebSocket = UrlCapturingWebSocket;
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  it('includes auth token as query parameter when available', async () => {
+    // Mock getAuthToken to return a token
+    vi.doMock('../api/fetchWithAuth.js', () => ({
+      getAuthToken: () => 'dXNlcjpwYXNz',
+    }));
+
+    const module = await import('./useWebSocket.js');
+    module.useWebSocket();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(capturedUrl).toContain('token=dXNlcjpwYXNz');
+  });
+
+  it('does not include token when getAuthToken returns undefined', async () => {
+    vi.doMock('../api/fetchWithAuth.js', () => ({
+      getAuthToken: () => undefined,
+    }));
+
+    const module = await import('./useWebSocket.js');
+    module.useWebSocket();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(capturedUrl).not.toContain('token=');
+  });
+});
+
+describe('WebSocket auth failure (code 4001)', () => {
+  let closeCode = null;
+
+  class AuthRejectingWebSocket {
+    static OPEN = 1;
+    static CLOSED = 3;
+
+    constructor(url) {
+      this.readyState = AuthRejectingWebSocket.OPEN;
+      this.onopen = null;
+      this.onmessage = null;
+      this.onclose = null;
+      this.onerror = null;
+
+      // Simulate immediate auth rejection
+      setTimeout(() => {
+        if (this.onclose) {
+          closeCode = 4001;
+          this.onclose({ code: 4001 });
+        }
+      }, 0);
+    }
+
+    send() {}
+    close() {}
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    closeCode = null;
+    globalThis.WebSocket = AuthRejectingWebSocket;
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  it('sets connectionStatus to disconnected on auth failure (code 4001)', async () => {
+    // Mock auth store to avoid pinia errors from dynamic import in close handler
+    const mockMarkRequired = vi.fn();
+    vi.doMock('../stores/auth.js', () => ({
+      useAuthStore: () => ({ markRequired: mockMarkRequired }),
+    }));
+    // Mock router to avoid errors
+    vi.doMock('../router.js', () => ({
+      default: { push: vi.fn() },
+    }));
+
+    const module = await import('./useWebSocket.js');
+    const ws = module.useWebSocket();
+
+    // Wait for close event and dynamic imports to resolve
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(ws.connectionStatus.value).toBe('disconnected');
+    expect(ws.isConnected.value).toBe(false);
+    expect(mockMarkRequired).toHaveBeenCalled();
+  });
+});
+
+describe('reconnectWithAuth', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    globalThis.WebSocket = MockWebSocket;
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  it('is exported as a function', async () => {
+    const module = await import('./useWebSocket.js');
+    expect(typeof module.reconnectWithAuth).toBe('function');
+  });
+
+  it('creates a new connection after being called', async () => {
+    const module = await import('./useWebSocket.js');
+    const ws = module.useWebSocket();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Disconnect
+    ws.disconnect();
+    expect(ws.isConnected.value).toBe(false);
+
+    // Reconnect with auth
+    module.reconnectWithAuth();
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(ws.isConnected.value).toBe(true);
+    expect(ws.connectionStatus.value).toBe('connected');
+  });
+
+  it('sets connectionStatus to reconnecting before connecting', async () => {
+    const module = await import('./useWebSocket.js');
+    module.useWebSocket();
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Use a delayed WebSocket to catch the reconnecting state
+    let resolveOpen;
+    class DelayedWebSocket {
+      static OPEN = 1;
+      static CLOSED = 3;
+      constructor(url) {
+        this.readyState = DelayedWebSocket.OPEN;
+        this.onopen = null;
+        this.onmessage = null;
+        this.onclose = null;
+        this.onerror = null;
+        resolveOpen = () => { if (this.onopen) this.onopen(); };
+      }
+      send() {}
+      close() {}
+    }
+    globalThis.WebSocket = DelayedWebSocket;
+
+    module.reconnectWithAuth();
+
+    // Should be reconnecting before onopen fires
+    expect(module.useWebSocket().connectionStatus.value).toBe('reconnecting');
+
+    // Now resolve
+    resolveOpen();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(module.useWebSocket().connectionStatus.value).toBe('connected');
+  });
+});

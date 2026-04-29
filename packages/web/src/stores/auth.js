@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { getOriginalFetch, reset401Handled } from '../api/fetchWithAuth.js';
 
 export const useAuthStore = defineStore('auth', () => {
   /** @type {import('vue').Ref<{ username: string, password: string }|null>} */
@@ -33,13 +34,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   /**
    * Attempt to log in by validating credentials against a protected endpoint.
+   * Uses the original (unpatched) fetch to avoid the auth header injection loop.
    * @param {string} username
    * @param {string} password
    * @returns {Promise<void>}
    */
   async function login(username, password) {
     const token = btoa(`${username}:${password}`);
-    const response = await fetch('/api/settings/general', {
+    const fetchFn = getOriginalFetch();
+    const response = await fetchFn('/api/settings/general', {
       headers: {
         Authorization: `Basic ${token}`,
       },
@@ -55,6 +58,7 @@ export const useAuthStore = defineStore('auth', () => {
 
     credentials.value = { username, password };
     required.value = true;
+    reset401Handled();
   }
 
   /**

@@ -19,14 +19,11 @@ const __dirname = dirname(__filename);
 export function createApp(options = {}) {
   const app = express();
 
-  // CORS — allow Authorization header when auth is enabled for preflight
-  if (options.auth) {
-    app.use(cors({
-      allowedHeaders: ['Content-Type', 'Authorization'],
-    }));
-  } else {
-    app.use(cors());
-  }
+  // CORS — always allow Content-Type; include Authorization when auth is enabled
+  const corsOptions = options.auth
+    ? { allowedHeaders: ['Content-Type', 'Authorization'] }
+    : { allowedHeaders: ['Content-Type'] };
+  app.use(cors(corsOptions));
 
   // Body parsing
   app.use(express.json({ limit: MAX_JSON_SIZE }));

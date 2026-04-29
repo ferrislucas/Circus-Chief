@@ -8,7 +8,7 @@
  * and _uploadFormData()) automatically get auth headers.
  */
 
-/** @type {{ authHeader: import('vue').ComputedRef<string|undefined>, markRequired: () => void }|null} */
+/** @type {{ authHeader: import('vue').ComputedRef<string|undefined>, authToken: import('vue').ComputedRef<string|undefined>, markRequired: () => void }|null} */
 let store = null;
 
 /** @type {import('vue-router').Router|null} */
@@ -16,6 +16,15 @@ let router = null;
 
 /** @type {typeof globalThis.fetch} */
 const originalFetch = globalThis.fetch;
+
+/**
+ * Get the original (unpatched) fetch function.
+ * Used by auth store's login() to avoid the auth header injection loop.
+ * @returns {typeof globalThis.fetch}
+ */
+export function getOriginalFetch() {
+  return originalFetch;
+}
 
 /**
  * Get the current Authorization header value
@@ -31,6 +40,19 @@ export function getAuthHeaderValue() {
  */
 export function getAuthToken() {
   return store?.authToken?.value ?? undefined;
+}
+
+/**
+ * Whether we've already handled a 401 and initiated a redirect to /login.
+ * Prevents duplicate redirects from concurrent 401 responses.
+ */
+let handled401 = false;
+
+/**
+ * Reset the 401 handled flag (called after successful login).
+ */
+export function reset401Handled() {
+  handled401 = false;
 }
 
 /**
@@ -51,8 +73,9 @@ function patchedFetch(...args) {
   }
 
   return originalFetch(input, init).then((response) => {
-    // Intercept 401 before ApiClient throws
-    if (response.status === 401) {
+    // Intercept 401 before ApiClient throws — only redirect once
+    if (response.status === 401 && !handled401) {
+      handled401 = true;
       if (store) {
         store.markRequired();
       }

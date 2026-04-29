@@ -494,6 +494,77 @@ describe('WebSocketManager', () => {
     });
   });
 
+  describe('auth', () => {
+    const credentials = { username: 'admin', password: 'secret123' };
+
+    it('rejects connection without token when auth is enabled', async () => {
+      manager.init(server, credentials);
+
+      const ws = new WebSocket(`ws://localhost:${port}/ws`);
+      const closeEvent = await new Promise((resolve) => ws.on('close', resolve));
+
+      expect(closeEvent).toBe(4001);
+      expect(manager.getClients().size).toBe(0);
+    });
+
+    it('rejects connection with wrong token', async () => {
+      manager.init(server, credentials);
+      const wrongToken = Buffer.from('admin:wrongpassword').toString('base64');
+
+      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${wrongToken}`);
+      const closeEvent = await new Promise((resolve) => ws.on('close', resolve));
+
+      expect(closeEvent).toBe(4001);
+      expect(manager.getClients().size).toBe(0);
+    });
+
+    it('accepts connection with valid token', async () => {
+      manager.init(server, credentials);
+      const token = Buffer.from('admin:secret123').toString('base64');
+
+      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${token}`);
+      await new Promise((resolve) => ws.on('open', resolve));
+
+      expect(manager.getClients().size).toBe(1);
+      ws.close();
+    });
+
+    it('accepts connection without token when auth is null', async () => {
+      manager.init(server, null);
+
+      const ws = await connectClient();
+      expect(manager.getClients().size).toBe(1);
+      ws.close();
+    });
+
+    it('accepts connection without token when auth is not provided', async () => {
+      manager.init(server);
+
+      const ws = await connectClient();
+      expect(manager.getClients().size).toBe(1);
+      ws.close();
+    });
+
+    it('client with valid token can subscribe and receive messages', async () => {
+      manager.init(server, credentials);
+      const token = Buffer.from('admin:secret123').toString('base64');
+
+      const ws = new WebSocket(`ws://localhost:${port}/ws?token=${token}`);
+      await new Promise((resolve) => ws.on('open', resolve));
+
+      ws.send(createMessage(WS_MESSAGE_TYPES.SUBSCRIBE_SESSION, { sessionId: 'sess-123' }));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const msgPromise = waitForMessage(ws);
+      manager.broadcastToSession('sess-123', 'TEST_MSG', { data: 'hello' });
+      const msg = await msgPromise;
+      expect(msg.type).toBe('TEST_MSG');
+      expect(msg.data).toBe('hello');
+
+      ws.close();
+    });
+  });
+
   describe('close', () => {
     it('closes server and clears state', async () => {
       manager.init(server);

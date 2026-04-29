@@ -71,6 +71,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.js';
+import { reconnectWithAuth } from '../composables/useWebSocket.js';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -91,6 +92,7 @@ async function handleSubmit() {
 
   try {
     await authStore.login(username.value, password.value);
+    reconnectWithAuth();
     router.push('/');
   } catch (err) {
     error.value = err.message;

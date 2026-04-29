@@ -94,6 +94,18 @@ describe('createBasicAuthMiddleware', () => {
       expect(mockNext).not.toHaveBeenCalled();
     });
 
+    it('should return 401 for token of different length (timing-safe)', () => {
+      const middleware = createBasicAuthMiddleware(credentials);
+      // Use a short token that's clearly a different length
+      mockReq.headers.authorization = 'Basic short';
+
+      middleware(mockReq, mockRes, mockNext);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: 'Authentication required' });
+      expect(mockNext).not.toHaveBeenCalled();
+    });
+
     it('should use xBasic scheme in WWW-Authenticate to suppress browser dialog', () => {
       const middleware = createBasicAuthMiddleware(credentials);
 

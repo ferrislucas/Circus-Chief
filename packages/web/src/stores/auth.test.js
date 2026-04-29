@@ -2,9 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 import { useAuthStore } from './auth.js';
 
-// Mock global fetch
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+// Mock getOriginalFetch from fetchWithAuth — login() uses this instead of global fetch
+const mockOriginalFetch = vi.fn();
+vi.mock('../api/fetchWithAuth.js', () => ({
+  getOriginalFetch: () => mockOriginalFetch,
+  reset401Handled: () => {},
+}));
 
 describe('Auth Store', () => {
   beforeEach(() => {
@@ -80,7 +83,7 @@ describe('Auth Store', () => {
   describe('login', () => {
     it('sets credentials on successful login', async () => {
       const store = useAuthStore();
-      mockFetch.mockResolvedValue({ ok: true, status: 200 });
+      mockOriginalFetch.mockResolvedValue({ ok: true, status: 200 });
 
       await store.login('admin', 'secret');
 
@@ -90,7 +93,7 @@ describe('Auth Store', () => {
 
     it('throws on 401 response', async () => {
       const store = useAuthStore();
-      mockFetch.mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+      mockOriginalFetch.mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
 
       await expect(store.login('admin', 'wrong')).rejects.toThrow('Invalid username or password');
       expect(store.credentials).toBeNull();
@@ -98,18 +101,18 @@ describe('Auth Store', () => {
 
     it('throws on non-ok response', async () => {
       const store = useAuthStore();
-      mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Internal Server Error' });
+      mockOriginalFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Internal Server Error' });
 
       await expect(store.login('admin', 'secret')).rejects.toThrow('Login failed: Internal Server Error');
     });
 
     it('sends Authorization header with credentials', async () => {
       const store = useAuthStore();
-      mockFetch.mockResolvedValue({ ok: true, status: 200 });
+      mockOriginalFetch.mockResolvedValue({ ok: true, status: 200 });
 
       await store.login('admin', 'secret');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/settings/general', {
+      expect(mockOriginalFetch).toHaveBeenCalledWith('/api/settings/general', {
         headers: {
           Authorization: `Basic ${btoa('admin:secret')}`,
         },

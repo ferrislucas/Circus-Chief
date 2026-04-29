@@ -1,3 +1,5 @@
+import { timingSafeEqual } from 'crypto';
+
 /**
  * Create HTTP Basic Authentication middleware.
  *
@@ -6,6 +8,8 @@
  *
  * Uses 'xBasic' scheme in WWW-Authenticate to suppress the browser's native
  * auth dialog, allowing the frontend to show its own styled login form.
+ *
+ * Token comparison uses crypto.timingSafeEqual to prevent timing attacks.
  *
  * @param {{ username: string, password: string }|null} credentials
  * @returns {import('express').RequestHandler}
@@ -16,8 +20,8 @@ export function createBasicAuthMiddleware(credentials) {
     return (_req, _res, next) => next();
   }
 
-  // Pre-compute the expected base64 token
-  const expectedToken = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
+  // Pre-compute the expected base64 token as a Buffer for constant-time comparison
+  const expectedBuffer = Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64');
 
   return (req, res, next) => {
     const authHeader = req.headers.authorization;
@@ -34,7 +38,12 @@ export function createBasicAuthMiddleware(credentials) {
       return res.status(401).json({ error: 'Authentication required' });
     }
 
-    if (parts[1] !== expectedToken) {
+    // Constant-time comparison to prevent timing attacks
+    const providedBuffer = parts[1];
+    if (
+      providedBuffer.length !== expectedBuffer.length ||
+      !timingSafeEqual(Buffer.from(providedBuffer), Buffer.from(expectedBuffer))
+    ) {
       res.setHeader('WWW-Authenticate', 'xBasic realm="Circus Chief"');
       return res.status(401).json({ error: 'Authentication required' });
     }
