@@ -144,6 +144,17 @@ const props = defineProps({
   sessionId: { type: String, required: true },
   scrollContainerRef: { type: Object, default: null },
   hideNewConversation: { type: Boolean, default: false },
+  /**
+   * Initial scroll target after mount.
+   * - 'bottom' (default): scroll to the bottom of the conversation.
+   * - 'latest-agent-turn': scroll to the last assistant message,
+   *   falling back to bottom if no assistant messages exist.
+   */
+  initialScrollTarget: {
+    type: String,
+    default: 'bottom',
+    validator: (v) => ['bottom', 'latest-agent-turn'].includes(v),
+  },
 });
 
 const sessionsStore = useInjectedSessionsStore();
@@ -337,8 +348,26 @@ onMounted(async () => {
     await sessionsStore.switchConversation(props.sessionId, convId);
   }
 
-  conversationMessagesRef.value?.scrollToBottom(true);
+  scrollToInitialTarget();
 });
+
+/**
+ * Perform the initial scroll after all async mount work completes.
+ * Respects the `initialScrollTarget` prop:
+ * - 'latest-agent-turn': scroll to the last assistant message, falling
+ *   back to bottom if no assistant messages exist.
+ * - 'bottom': always scroll to the bottom.
+ */
+function scrollToInitialTarget() {
+  if (props.initialScrollTarget === 'latest-agent-turn') {
+    const hasAssistant = sessionsStore.messages.some(m => m.role === 'assistant');
+    if (hasAssistant) {
+      conversationMessagesRef.value?.scrollToClaudesTurn?.();
+      return;
+    }
+  }
+  conversationMessagesRef.value?.scrollToBottom(true);
+}
 
 onUnmounted(() => {
   // Flush any pending draft save immediately before the component is destroyed.

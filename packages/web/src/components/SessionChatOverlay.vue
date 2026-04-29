@@ -335,6 +335,7 @@
                 :session-id="activeSessionId"
                 :scroll-container-ref="overlayBodyRef"
                 :hide-new-conversation="true"
+                initial-scroll-target="latest-agent-turn"
               />
             </div>
           </div><!-- end overlay-content -->

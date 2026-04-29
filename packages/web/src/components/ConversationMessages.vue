@@ -110,8 +110,8 @@ function getWorkLogsForMessage(messageId) {
   return sessionsStore.getWorkLogsForMessage(messageId);
 }
 
-// Expose scrollToBottom so parent can call it
-defineExpose({ scrollToBottom });
+// Expose scrollToBottom and scrollToClaudesTurn so parent can call them
+defineExpose({ scrollToBottom, scrollToClaudesTurn });
 </script>
 
 <style scoped>
