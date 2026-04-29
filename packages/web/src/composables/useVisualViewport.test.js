@@ -57,13 +57,13 @@ describe('useVisualViewport', () => {
       template: '<div>Test</div>',
       setup() {
         const {
-          requestVisualViewportSettle,
-          requestVisualViewportUpdate,
+          requestVisualViewportSettle: requestVisualViewportSettleFn,
+          requestVisualViewportUpdate: requestVisualViewportUpdateFn,
           updateViewportOffset,
         } = useVisualViewport();
         return {
-          requestVisualViewportSettle,
-          requestVisualViewportUpdate,
+          requestVisualViewportSettle: requestVisualViewportSettleFn,
+          requestVisualViewportUpdate: requestVisualViewportUpdateFn,
           updateViewportOffset,
         };
       },
