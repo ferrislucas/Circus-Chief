@@ -1054,8 +1054,8 @@ defineExpose({
 }
 
 .overlay-panel-wrapper {
-  position: fixed;
-  top: var(--viewport-offset-top, 0px);
+  position: absolute;
+  inset: 0 0 auto auto;
   right: 0;
   height: var(--visual-viewport-height, 100dvh);
   display: flex;
@@ -1146,6 +1146,7 @@ defineExpose({
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
 }
 

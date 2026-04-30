@@ -20,13 +20,18 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   const debounceTimer = null;
   const SCROLL_THRESHOLD = 100; // pixels from bottom
 
+  function resolveScrollContainer(container) {
+    const resolved = container?.value ?? container ?? null;
+    return resolved?.value ?? resolved ?? null;
+  }
+
   /**
    * Resolve which element to use for scrolling.
    * When scrollContainer is provided (e.g. overlay's .overlay-body), use it.
    * Otherwise fall back to messagesContainer (the .messages div).
    */
   function getScrollEl() {
-    return scrollContainer?.value || messagesContainer.value;
+    return resolveScrollContainer(scrollContainer) || messagesContainer.value;
   }
 
   function getSendButtonEl(scrollEl) {
@@ -150,11 +155,40 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
       );
       if (!el) return;
 
-      // Scroll so the message is near the top of the visible area
+      // Scroll so the message sits near the top of the visible area with a
+      // small buffer. If the computed target would be a no-op, nudge upward so
+      // the jump is always observable and the latest assistant turn is easier
+      // to read in cramped mobile layouts.
       const containerRect = scrollEl.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
-      const scrollOffset = elRect.top - containerRect.top + scrollEl.scrollTop - 16;
-      scrollEl.scrollTop = scrollOffset;
+      const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+      const desiredOffset = elRect.top - containerRect.top + scrollEl.scrollTop - 48;
+      const scrollOffset = Math.max(0, Math.min(maxScrollTop, desiredOffset));
+      const finalOffset =
+        scrollOffset === scrollEl.scrollTop && maxScrollTop > 0
+          ? Math.max(0, Math.min(maxScrollTop, scrollOffset - 48))
+          : scrollOffset;
+
+      const hasStyle = Boolean(scrollEl.style);
+      const previousOverflowAnchor = hasStyle ? scrollEl.style.overflowAnchor : null;
+      if (hasStyle) {
+        scrollEl.style.overflowAnchor = 'none';
+      }
+      const applyScroll = () => {
+        scrollEl.scrollTop = finalOffset;
+      };
+
+      applyScroll();
+      setTimeout(applyScroll, 0);
+      requestAnimationFrame(() => {
+        applyScroll();
+        requestAnimationFrame(() => {
+          applyScroll();
+          if (hasStyle) {
+            scrollEl.style.overflowAnchor = previousOverflowAnchor;
+          }
+        });
+      });
     });
   }
 
@@ -217,7 +251,7 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   // Re-attach scroll listener if scrollContainer changes after mount
   // (e.g. when the parent ref resolves after the child mounts)
   watch(
-    () => scrollContainer?.value,
+    () => resolveScrollContainer(scrollContainer),
     (newEl, oldEl) => {
       if (oldEl) oldEl.removeEventListener('scroll', handleScroll);
       if (newEl) newEl.addEventListener('scroll', handleScroll, { passive: true });

@@ -1578,14 +1578,15 @@ describe('SessionChatOverlay', () => {
       expect(block).not.toMatch(/bottom:\s*0/);
     });
 
-    it('panel-wrapper stylesheet uses fixed visual viewport geometry', () => {
+    it('panel-wrapper stylesheet uses absolute visual viewport geometry', () => {
       const blockMatch = sessionChatOverlaySource.match(/\.overlay-panel-wrapper\s*\{[^}]*\}/);
       expect(blockMatch).toBeTruthy();
       const block = blockMatch[0];
-      expect(block).toMatch(/position:\s*fixed/);
-      expect(block).toMatch(/top:\s*var\(--viewport-offset-top,\s*0px\)/);
+      expect(block).toMatch(/position:\s*absolute/);
+      expect(block).toMatch(/inset:\s*0\s+0\s+auto\s+auto/);
       expect(block).toMatch(/right:\s*0/);
       expect(block).toMatch(/height:\s*var\(--visual-viewport-height,\s*100dvh\)/);
+      expect(block).not.toMatch(/top:\s*var\(--viewport-offset-top,\s*0px\)/);
       expect(block).not.toMatch(/bottom:\s*0/);
       expect(block).not.toMatch(/min-height:\s*100vh/);
       expect(block).not.toMatch(/min-height:\s*100dvh/);
