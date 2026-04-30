@@ -70,15 +70,21 @@ test.describe('scroll-to-bottom button', () => {
 
     await expect(btn).toBeVisible({ timeout: 5000 });
 
-    // Click and confirm we're back at the bottom and the button hides.
+    // Click and confirm the send button, not the full content bottom, is
+    // aligned with the bottom of the overlay viewport.
     await btn.click();
     await expect(btn).toHaveCount(0, { timeout: 5000 });
 
-    const distanceFromBottom = await body.evaluate((el) => {
+    const sendButtonOffset = await body.evaluate((el) => {
       const h = el as HTMLElement;
-      return h.scrollHeight - h.scrollTop - h.clientHeight;
+      const sendButton = h.querySelector('.btn-send-full');
+      if (!sendButton) return null;
+      const bodyRect = h.getBoundingClientRect();
+      const buttonRect = sendButton.getBoundingClientRect();
+      return Math.abs(buttonRect.bottom - bodyRect.bottom);
     });
-    expect(distanceFromBottom).toBeLessThan(100);
+    expect(sendButtonOffset).not.toBeNull();
+    expect(sendButtonOffset!).toBeLessThan(2);
   });
 
   test('both scroll-to-bottom and scroll-to-claude buttons can render together in the overlay', async ({ page }) => {
