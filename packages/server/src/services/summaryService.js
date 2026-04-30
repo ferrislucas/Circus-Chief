@@ -13,7 +13,7 @@
 
 import { sessions, messages, sessionSummaries, projects, settings } from '../database.js';
 import { createConcurrencyGuard } from './withConcurrencyGuard.js';
-import { callClaude } from './summaryClaudeClient.js';
+import { callSummaryModel } from './summaryModelClient.js';
 import {
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
@@ -299,10 +299,11 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     // Build conversation context and prompt
     const { prompt } = fetchConversationContext(sessionId, { existingSummary, recentMessages, session, globalSettings });
 
-    // Call Claude via SDK
-    const responseText = await callClaude(prompt, recentMessages, session.status, {
+    // Call the configured summary model.
+    const responseText = await callSummaryModel(prompt, recentMessages, session.status, {
       logMeta: { sessionId, callType: 'generateSessionSummary' },
       systemPrompt: SUMMARY_SYSTEM_PROMPT,
+      summarySettings: globalSettings,
     });
 
     // Parse response and retry if needed
@@ -536,7 +537,8 @@ export {
   SUMMARY_SYSTEM_PROMPT, formatMessages, buildIncrementalPrompt, parseSummaryResponse,
   stripMarkdownCodeBlock as _stripMarkdownCodeBlock, trackMessageMetadata as _trackMessageMetadata,
 };
-export { callClaude };
+export { callSummaryModel };
+export { callClaude } from './summaryClaudeClient.js';
 export { parsePrUrl, validatePrUrl, extractPrUrlIfNeeded, enrichPrData as _enrichPrData };
 export { getChildSessions, buildChildSessionContext, aggregateFilesModified };
 

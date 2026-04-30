@@ -13,6 +13,7 @@
       <div class="model-selector-wrapper">
         <ModelSelector
           :model-value="model"
+          :provider-id="providerId"
           @update:model-value="$emit('update:model', $event)"
           @update:provider-id="$emit('update:providerId', $event)"
         />
@@ -82,6 +83,10 @@ const props = defineProps({
     default: 'yolo',
   },
   model: {
+    type: String,
+    default: null,
+  },
+  providerId: {
     type: String,
     default: null,
   },

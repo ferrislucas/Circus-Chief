@@ -161,6 +161,45 @@ describe('Projects API', () => {
       expect(res.status).toBe(400);
     });
 
+    it('persists providerId for JSON session creation', async () => {
+      const provider = modelProviders.create({
+        name: 'OpenAI Test',
+        kind: 'openai',
+        baseUrl: 'https://api.openai.test',
+        apiKey: 'test-key',
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+        model: 'gpt-4o',
+        providerId: provider.id,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.providerId).toBe(provider.id);
+      expect(sessions.getById(res.body.id).providerId).toBe(provider.id);
+    });
+
+    it('persists providerId for multipart session creation', async () => {
+      const provider = modelProviders.create({
+        name: 'OpenAI Multipart Test',
+        kind: 'openai',
+        baseUrl: 'https://api.openai.test',
+        apiKey: 'test-key',
+      });
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/sessions`)
+        .field('prompt', 'Test prompt')
+        .field('model', 'gpt-4o')
+        .field('providerId', provider.id)
+        .attach('files', Buffer.from('hello'), 'hello.txt');
+
+      expect(res.status).toBe(201);
+      expect(res.body.providerId).toBe(provider.id);
+      expect(sessions.getById(res.body.id).providerId).toBe(provider.id);
+    });
+
     describe('git repo validation', () => {
       it('succeeds for git repo when gitMode is missing (defaults to none)', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({

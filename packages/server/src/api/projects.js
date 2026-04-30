@@ -243,6 +243,7 @@ function createSessionRow(projectId, config, nextTemplateId, initialStatus) {
     parentSessionId: config.parentSessionId,
     status: initialStatus,
     model: config.model,
+    providerId: config.providerId,
     effortLevel: config.effortLevel,
     agentType: config.agentType,
   });

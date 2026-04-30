@@ -25,13 +25,6 @@
           </div>
         </div>
       </Transition>
-      <!-- Session hierarchy breadcrumb -->
-      <SessionHierarchyBreadcrumb
-        v-if="sessionPath.length > 1"
-        :path="sessionPath"
-        :current-session-id="currentSessionId"
-      />
-
       <SessionHeaderPanel
         :session-id="currentSessionId"
         :session="sessionsStore.currentSession"
@@ -129,7 +122,6 @@ import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
-import SessionHierarchyBreadcrumb from '../components/SessionHierarchyBreadcrumb.vue';
 import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
 import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
@@ -415,12 +407,6 @@ const { cleanup, initializeSession } = useSessionInitializer({
 });
 
 const activeTab = computed(() => route.params.tab || 'summary');
-
-// Get the session hierarchy path (for breadcrumbs)
-const sessionPath = computed(() => 
-  // Use route.params.id directly to be reactive to route changes
-   sessionsStore.getSessionPath(route.params.id)
-);
 
 // Command button status indicators for real-time updates (mirrors SessionCard behavior)
 const buttonStatusesToDisplay = computed(() => {

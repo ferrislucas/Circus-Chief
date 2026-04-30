@@ -417,7 +417,7 @@ describe('createOverlaySessionsStore', () => {
 
     await overlayStore.startSession('sess-1', 'Test prompt', 'claude-sonnet-4');
 
-    expect(api.startSession).toHaveBeenCalledWith('sess-1', 'Test prompt', 'claude-sonnet-4');
+    expect(api.startSession).toHaveBeenCalledWith('sess-1', 'Test prompt', 'claude-sonnet-4', undefined);
   });
 
   it('delegated action: sendMessage calls through to main store', async () => {

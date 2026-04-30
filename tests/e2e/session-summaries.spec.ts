@@ -547,6 +547,8 @@ test.describe('Session Summaries', () => {
         body: JSON.stringify({
           disableSessionSummaries: true,
           sessionTitlePrompt: '',
+          summaryModel: '',
+          summaryProviderId: null,
         }),
       });
       expect(putResponse.ok).toBe(true);
@@ -563,6 +565,8 @@ test.describe('Session Summaries', () => {
         body: JSON.stringify({
           disableSessionSummaries: false,
           sessionTitlePrompt: 'Custom title format',
+          summaryModel: '',
+          summaryProviderId: null,
         }),
       });
       expect(putResponse.ok).toBe(true);
@@ -580,6 +584,8 @@ test.describe('Session Summaries', () => {
         body: JSON.stringify({
           disableSessionSummaries: true,
           sessionTitlePrompt: 'Custom prompt',
+          summaryModel: '',
+          summaryProviderId: null,
         }),
       });
 

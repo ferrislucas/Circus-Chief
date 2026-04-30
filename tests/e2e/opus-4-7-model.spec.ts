@@ -100,14 +100,15 @@ test.describe('Opus 4.7 Model Availability', () => {
     console.log('Model selector options:', JSON.stringify(optionValues, null, 2));
 
     // Assert that both Opus versions are available
-    const opus47Option = optionValues.find(opt => opt.value === 'claude-opus-4-7');
+    // Option values use providerId::modelId format (e.g. "anthropic-default::claude-opus-4-7")
+    const opus47Option = optionValues.find(opt => opt.value.endsWith('::claude-opus-4-7'));
     expect(
       opus47Option,
       `Opus 4.7 should be in the model selector. Found: ${optionValues.map(o => o.value).join(', ')}`
     ).toBeTruthy();
     expect(opus47Option!.text).toContain('Opus 4.7');
 
-    const opus46Option = optionValues.find(opt => opt.value === 'claude-opus-4-6');
+    const opus46Option = optionValues.find(opt => opt.value.endsWith('::claude-opus-4-6'));
     expect(
       opus46Option,
       `Opus 4.6 should still be in the model selector for backward compatibility. Found: ${optionValues.map(o => o.value).join(', ')}`
@@ -134,18 +135,26 @@ test.describe('Opus 4.7 Model Availability', () => {
     const modelSelect = page.locator('#model-select');
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
-    // Wait for options to be populated
+    // Wait for options to be populated (option values use providerId::modelId format)
     await page.waitForFunction(() => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
-      return select && Array.from(select.options).some(opt => opt.value === 'claude-opus-4-7');
+      return select && Array.from(select.options).some(opt => opt.value.endsWith('::claude-opus-4-7'));
     }, { timeout: 10000 });
+
+    // Find the full option value (providerId::claude-opus-4-7) to use with selectOption
+    const opus47OptionValue = await page.evaluate(() => {
+      const select = document.querySelector('#model-select') as HTMLSelectElement;
+      const opt = Array.from(select.options).find(o => o.value.endsWith('::claude-opus-4-7'));
+      return opt ? opt.value : null;
+    });
+    expect(opus47OptionValue).toBeTruthy();
 
     // Select Opus 4.7 and wait for the PATCH request
     const patchPromise = page.waitForResponse(
       (resp) => resp.url().includes('/api/sessions/') && resp.request().method() === 'PATCH',
       { timeout: 10000 }
     );
-    await modelSelect.selectOption('claude-opus-4-7');
+    await modelSelect.selectOption(opus47OptionValue!);
     const patchResponse = await patchPromise;
     expect(patchResponse.ok()).toBe(true);
 
@@ -177,17 +186,17 @@ test.describe('Opus 4.7 Model Availability', () => {
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
     // Wait for the model selector to initialize with the session's model
+    // Option values use providerId::modelId format (e.g. "anthropic-default::claude-opus-4-6")
     await page.waitForFunction(
-      (expectedModel) => {
+      () => {
         const select = document.querySelector('#model-select') as HTMLSelectElement;
-        return select && select.value === expectedModel;
+        return select && select.value.endsWith('::claude-opus-4-6');
       },
-      'claude-opus-4-6',
       { timeout: 10000 }
     );
 
-    // The selected value should be claude-opus-4-6
+    // The selected value should end with ::claude-opus-4-6
     const selectedValue = await modelSelect.inputValue();
-    expect(selectedValue).toBe('claude-opus-4-6');
+    expect(selectedValue.endsWith('::claude-opus-4-6')).toBe(true);
   });
 });
