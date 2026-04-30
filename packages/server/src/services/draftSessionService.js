@@ -112,6 +112,7 @@ function getOrCreateInitialMessage(session, options) {
  * @param {object} options
  * @param {string} [options.prompt] - Optional new prompt to use/override
  * @param {string} [options.model] - Optional model override
+ * @param {string|null} [options.providerId] - Optional provider override
  * @returns {Promise<object>} The updated session
  */
 export async function startDraft(session, options = {}) {
@@ -144,6 +145,7 @@ export async function startDraft(session, options = {}) {
     status: 'starting',
     pendingModel: null,
     ...(model ? { model, agentType } : {}),
+    ...(options.providerId !== undefined ? { providerId: options.providerId } : {}),
   });
 
   // Resolve skill/command invocations so skill body goes into system prompt

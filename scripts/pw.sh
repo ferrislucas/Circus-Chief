@@ -106,7 +106,7 @@ verify_server_isolation() {
     return 0
 }
 
-# Before we touch the server, set DB_PATH to a worktree-local file and wipe
+# Before we touch the server, force DB_PATH to a worktree-local file and wipe
 # any leftover DB from earlier runs so each pw.sh run starts clean. The rm
 # is guarded to files inside PROJECT_ROOT.
 #
@@ -123,9 +123,7 @@ setup_isolated_test_db() {
         return 0
     fi
 
-    if [ -z "${DB_PATH:-}" ]; then
-        export DB_PATH="$PROJECT_ROOT/.circuschief-test.db"
-    fi
+    export DB_PATH="$PROJECT_ROOT/.circuschief-test.db"
 
     case "$DB_PATH" in
         "$PROJECT_ROOT"/*)
@@ -155,6 +153,45 @@ wait_for_server() {
 
     print_error "Server did not respond after ${timeout}s"
     return 1
+}
+
+# Stop a server started for a pw.sh test/debug run.
+#
+# detect_or_start_server always restarts any reusable non-5000 worktree server
+# before returning a port, so cmd_test/cmd_debug can safely tear down the
+# returned non-5000 listener after Playwright finishes. Port 5000 is still
+# protected because it may be the user's main development server.
+cleanup_test_server() {
+    local port="${1:-}"
+
+    if [ -z "$port" ]; then
+        return 0
+    fi
+
+    if [ "$port" = "5000" ]; then
+        print_warning "Leaving protected server on port 5000 running"
+        return 0
+    fi
+
+    local server_pid
+    server_pid=$(lsof -t -i:"$port" 2>/dev/null || true)
+    if [ -n "$server_pid" ]; then
+        print_info "Stopping Playwright test server on port $port..."
+        kill $server_pid 2>/dev/null || true
+
+        local wait_count=0
+        while lsof -i:"$port" >/dev/null 2>&1 && [ $wait_count -lt 10 ]; do
+            sleep 1
+            ((wait_count+=1))
+        done
+
+        if lsof -i:"$port" >/dev/null 2>&1; then
+            print_warning "Test server on port $port did not stop after SIGTERM; forcing shutdown"
+            kill -9 $server_pid 2>/dev/null || true
+        fi
+    fi
+
+    rm -f "$PROJECT_ROOT/.server-port" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
 }
 
 # Detect or start server
@@ -400,12 +437,16 @@ cmd_test() {
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
 
     if ! verify_server_isolation "$TEST_SERVER_PORT"; then
+        cleanup_test_server "$TEST_SERVER_PORT"
         exit 1
     fi
+
+    trap 'cleanup_test_server "$TEST_SERVER_PORT"' EXIT INT TERM
 
     print_info "Running Playwright tests on port: $TEST_SERVER_PORT"
 
     local exit_code
+    set +e
     if [ "$USE_DOCKER" = true ]; then
         # Use -T to disable pseudo-TTY allocation in docker
         # This prevents conflicts with the PTY wrapper used by command buttons
@@ -417,6 +458,10 @@ cmd_test() {
         cd "$PROJECT_ROOT" && npx playwright test "$@"
         exit_code=$?
     fi
+    set -e
+
+    cleanup_test_server "$TEST_SERVER_PORT"
+    trap - EXIT INT TERM
 
     # Explicitly return the exit code
     return $exit_code
@@ -542,12 +587,16 @@ cmd_debug() {
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
 
     if ! verify_server_isolation "$TEST_SERVER_PORT"; then
+        cleanup_test_server "$TEST_SERVER_PORT"
         exit 1
     fi
+
+    trap 'cleanup_test_server "$TEST_SERVER_PORT"' EXIT INT TERM
 
     print_info "Running tests in debug mode (headed browser) on port: $TEST_SERVER_PORT"
 
     local exit_code
+    set +e
     if [ "$USE_DOCKER" = true ]; then
         # Use -T for output streaming (headed mode still works with X11 forwarding)
         docker compose -f "$COMPOSE_FILE" --profile headed run --rm -T playwright-headed test "$@"
@@ -557,6 +606,10 @@ cmd_debug() {
         cd "$PROJECT_ROOT" && npx playwright test --headed "$@"
         exit_code=$?
     fi
+    set -e
+
+    cleanup_test_server "$TEST_SERVER_PORT"
+    trap - EXIT INT TERM
 
     return $exit_code
 }

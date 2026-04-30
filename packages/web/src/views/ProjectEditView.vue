@@ -144,165 +144,10 @@
         </div>
       </details>
 
-      <details class="advanced-settings">
-        <summary>Session Defaults</summary>
-        <p class="form-help">
-          Set default values for new sessions created in this project. These values can be overridden when creating individual sessions.
-        </p>
-
-        <div class="form-group">
-          <label
-            class="form-label"
-            for="defaultMode"
-          >Mode</label>
-          <select
-            id="defaultMode"
-            v-model="defaultMode"
-            class="form-input"
-          >
-            <option value="">
-              Use system default (standard)
-            </option>
-            <option value="plan">
-              Plan
-            </option>
-            <option value="standard">
-              Standard
-            </option>
-            <option value="yolo">
-              YOLO
-            </option>
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input
-              v-model="defaultThinkingEnabled"
-              type="checkbox"
-            >
-            Enable thinking (extended thinking) by default
-          </label>
-          <p class="form-help">
-            Enable the agent's extended thinking capability for new sessions.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label
-            class="form-label"
-            for="defaultEffortLevel"
-          >Default Effort Level</label>
-          <select
-            id="defaultEffortLevel"
-            v-model="defaultEffortLevel"
-            class="form-input"
-          >
-            <option value="">
-              Auto (default)
-            </option>
-            <option value="low">
-              Low
-            </option>
-            <option value="medium">
-              Medium
-            </option>
-            <option value="high">
-              High
-            </option>
-            <option value="max">
-              Max
-            </option>
-          </select>
-          <p class="form-help">
-            Set the default effort level for new sessions. Controls how much effort the agent puts into responses.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input
-              v-model="defaultStartImmediately"
-              type="checkbox"
-            >
-            Start sessions immediately
-          </label>
-          <p class="form-help">
-            When enabled, sessions will start automatically. When disabled, sessions will be created in "waiting" state.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label
-            class="form-label"
-            for="defaultGitMode"
-          >Git Mode</label>
-          <select
-            id="defaultGitMode"
-            v-model="defaultGitMode"
-            class="form-input"
-          >
-            <option value="">
-              No git isolation
-            </option>
-            <option value="branch">
-              Create branch for each session
-            </option>
-            <option value="worktree">
-              Create worktree for each session
-            </option>
-          </select>
-          <p class="form-help">
-            Controls how git changes are isolated for each session.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label
-            class="form-label"
-            for="defaultGitBranch"
-          >Default Git Branch</label>
-          <input
-            id="defaultGitBranch"
-            v-model="defaultGitBranch"
-            type="text"
-            class="form-input"
-            placeholder="e.g., feature/ai-implementation"
-          >
-          <p class="form-help">
-            When using git branch mode, this is the branch name pattern for new sessions.
-          </p>
-        </div>
-
-        <div class="form-group">
-          <label
-            class="form-label"
-            for="defaultModel"
-          >Model</label>
-          <ModelSelector
-            v-model="defaultModel"
-            :allow-empty="true"
-            empty-label="Use system default"
-            select-class="form-input"
-          />
-          <p class="form-help">
-            Choose the default model for new sessions in this project.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          class="btn btn-secondary"
-          :disabled="savingDefaults"
-          @click="handleResetDefaults"
-        >
-          <span
-            v-if="savingDefaults"
-            class="loading-spinner"
-          />
-          Reset to System Defaults
-        </button>
-      </details>
+      <ProjectSessionDefaults
+        ref="sessionDefaultsRef"
+        :project-id="route.params.id"
+      />
 
       <details class="advanced-settings">
         <summary>Quick Responses</summary>
@@ -388,14 +233,13 @@ import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
+import ProjectSessionDefaults from '../components/ProjectSessionDefaults.vue';
 import QuickResponseSettings from '../components/QuickResponseSettings.vue';
-import ModelSelector from '../components/ModelSelector.vue';
-import { DEFAULT_SYSTEM_PROMPT, DEFAULT_SESSION_TITLE_PROMPT } from '@circuschief/shared/constants';
+import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared/constants';
 import { api } from '../api/index.js';
 import '../components/InputWithButton.css';
 
 const defaultSystemPrompt = DEFAULT_SYSTEM_PROMPT;
-const defaultSessionTitlePrompt = DEFAULT_SESSION_TITLE_PROMPT;
 
 const route = useRoute();
 const router = useRouter();
@@ -413,24 +257,14 @@ const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
 const kanbanEnabled = ref(false);
 const detectingWorktreePath = ref(false);
-
-// Session defaults refs
-const defaultMode = ref('');
-const defaultThinkingEnabled = ref(false);
-const defaultEffortLevel = ref('');
-const defaultStartImmediately = ref(true);
-const defaultGitMode = ref('');
-const defaultGitBranch = ref('');
-const defaultModel = ref('');
+const sessionDefaultsRef = ref(null);
 
 const saving = ref(false);
-const savingDefaults = ref(false);
 const error = ref(null);
 const quickResponseSettingsOpen = ref(false);
 
 onMounted(() => {
   projectsStore.fetchProject(route.params.id);
-  defaultsStore.fetchDefaults(route.params.id);
   quickResponsesStore.fetchForProject(route.params.id);
 });
 
@@ -447,18 +281,6 @@ watch(() => projectsStore.currentProject, (project) => {
   }
 }, { immediate: true });
 
-watch(() => defaultsStore.getDefaultsForProject(route.params.id), (defaults) => {
-  if (defaults) {
-    defaultMode.value = defaults.mode || '';
-    defaultThinkingEnabled.value = defaults.thinkingEnabled || false;
-    defaultEffortLevel.value = defaults.effortLevel ?? '';
-    defaultStartImmediately.value = defaults.startImmediately !== false;
-    defaultGitMode.value = defaults.gitMode || '';
-    defaultGitBranch.value = defaults.gitBranch || '';
-    defaultModel.value = defaults.model || '';
-  }
-}, { immediate: true });
-
 async function detectWorktreePath() {
   if (!workingDirectory.value) return;
   detectingWorktreePath.value = true;
@@ -470,18 +292,6 @@ async function detectWorktreePath() {
   } finally {
     detectingWorktreePath.value = false;
   }
-}
-
-function collectNonDefaultValues() {
-  const data = {};
-  if (defaultMode.value) data.mode = defaultMode.value;
-  if (defaultThinkingEnabled.value) data.thinkingEnabled = true;
-  if (defaultEffortLevel.value) data.effortLevel = defaultEffortLevel.value;
-  if (!defaultStartImmediately.value) data.startImmediately = false;
-  if (defaultGitMode.value) data.gitMode = defaultGitMode.value;
-  if (defaultGitBranch.value) data.gitBranch = defaultGitBranch.value;
-  if (defaultModel.value) data.model = defaultModel.value;
-  return data;
 }
 
 async function handleSubmit() {
@@ -502,10 +312,9 @@ async function handleSubmit() {
       kanbanEnabled: kanbanEnabled.value,
     });
 
-    // Update defaults - collect non-default values
-    const defaultsData = collectNonDefaultValues();
-
-    if (Object.keys(defaultsData).length > 0) {
+    // Update defaults - collect non-default values from child component
+    const defaultsData = sessionDefaultsRef.value?.collectNonDefaultValues();
+    if (defaultsData && Object.keys(defaultsData).length > 0) {
       await defaultsStore.updateDefaults(route.params.id, defaultsData);
     }
 
@@ -515,29 +324,6 @@ async function handleSubmit() {
     error.value = err.message;
   } finally {
     saving.value = false;
-  }
-}
-
-async function handleResetDefaults() {
-  if (!confirm('Reset all session defaults to system defaults?')) return;
-
-  savingDefaults.value = true;
-  error.value = null;
-
-  try {
-    await defaultsStore.resetDefaults(route.params.id);
-    defaultMode.value = '';
-    defaultThinkingEnabled.value = false;
-    defaultEffortLevel.value = '';
-    defaultStartImmediately.value = true;
-    defaultGitMode.value = '';
-    defaultGitBranch.value = '';
-    defaultModel.value = '';
-    uiStore.success('Session defaults reset to system defaults');
-  } catch (err) {
-    error.value = err.message;
-  } finally {
-    savingDefaults.value = false;
   }
 }
 

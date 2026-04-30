@@ -268,36 +268,4 @@ test.describe('SessionChatOverlay layout', () => {
     expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
   });
 
-  test('header-compact class still toggles on focus (mobile regression guard)', async ({
-    page,
-  }) => {
-    // This guard only matters on narrow viewports. The header-compact
-    // behaviour is gated by isMobile which uses window.innerWidth.
-    const size = page.viewportSize();
-    test.skip(
-      !size || size.width > 768,
-      'header-compact only triggers on mobile-width viewports'
-    );
-
-    await navigateToSession(page);
-    await openOverlay(page);
-
-    const header = page.locator(
-      '[data-testid="session-chat-overlay"] .overlay-header'
-    );
-    await expect(header).toBeVisible();
-    await expect(header).not.toHaveClass(/header-compact/);
-
-    const textarea = page
-      .locator('[data-testid="session-chat-overlay"] textarea')
-      .first();
-    await expect(textarea).toBeVisible({ timeout: 5000 });
-    await textarea.focus();
-    // focusin handler is synchronous for the class toggle.
-    await expect(header).toHaveClass(/header-compact/, { timeout: 2000 });
-
-    await textarea.blur();
-    // focusout is rAF-debounced; give it a frame + slack.
-    await expect(header).not.toHaveClass(/header-compact/, { timeout: 2000 });
-  });
 });

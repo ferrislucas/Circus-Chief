@@ -8,6 +8,8 @@ export const useSettingsStore = defineStore('settings', {
     summarySettings: {
       disableSessionSummaries: false,
       sessionTitlePrompt: '',
+      summaryModel: '',
+      summaryProviderId: null,
       defaultSessionTitlePrompt: '', // Default prompt from server
     },
     generalSettings: {
@@ -95,6 +97,8 @@ export const useSettingsStore = defineStore('settings', {
         this.summarySettings = {
           disableSessionSummaries: false,
           sessionTitlePrompt: '',
+          summaryModel: '',
+          summaryProviderId: null,
           defaultSessionTitlePrompt: '',
         };
       } finally {

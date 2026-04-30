@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -49,10 +49,11 @@ describe('pw.sh server-reuse verification', () => {
     const parseFn = extract('parse_server_info_field');
     const verifyFn = extract('verify_server_isolation');
     const setupFn = extract('setup_isolated_test_db');
+    const cleanupFn = extract('cleanup_test_server');
 
     writeFileSync(
       helperScript,
-      `#!/bin/bash\nprint_error() { echo "ERROR: $1" >&2; }\nprint_info() { echo "INFO: $1" >&2; }\nprint_warning() { echo "WARN: $1" >&2; }\n${parseFn}\n${verifyFn}\n${setupFn}\n`,
+      `#!/bin/bash\nprint_error() { echo "ERROR: $1" >&2; }\nprint_info() { echo "INFO: $1" >&2; }\nprint_warning() { echo "WARN: $1" >&2; }\n${parseFn}\n${verifyFn}\n${setupFn}\n${cleanupFn}\n`,
       { mode: 0o755 },
     );
   });
@@ -264,7 +265,7 @@ describe('pw.sh server-reuse verification', () => {
       }
     });
 
-    it('preserves a caller-provided DB_PATH on the dev-server path', async () => {
+    it('overrides a caller-provided DB_PATH on the dev-server path', async () => {
       const fakeRoot = mkdtempSync(join(tmpdir(), 'cc-setup-test-'));
       try {
         const result = await runSetup({
@@ -273,7 +274,8 @@ describe('pw.sh server-reuse verification', () => {
           DB_PATH: '/some/caller/path.db',
         });
         expect(result.status).toBe(0);
-        expect(result.stdout).toContain('DB_PATH=/some/caller/path.db');
+        expect(result.stdout).toContain(`DB_PATH=${fakeRoot}/.circuschief-test.db`);
+        expect(result.stdout).not.toContain('/some/caller/path.db');
       } finally {
         rmSync(fakeRoot, { recursive: true, force: true });
       }
@@ -293,6 +295,69 @@ describe('pw.sh server-reuse verification', () => {
         expect(result.stdout).toContain('DB_PATH=UNSET');
         expect(result.stdout).not.toContain('/stale/value.db');
         expect(result.stdout).not.toContain('.circuschief-test.db');
+      } finally {
+        rmSync(fakeRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('cleanup_test_server', () => {
+    const runCleanup = (port, fakeRoot, extraEnv = {}) =>
+      new Promise((resolve) => {
+        const child = spawn(
+          'bash',
+          ['-c', `source "${helperScript}"; PROJECT_ROOT="${fakeRoot}" cleanup_test_server "${port}"`],
+          { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, ...extraEnv } },
+        );
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (d) => (stdout += d.toString()));
+        child.stderr.on('data', (d) => (stderr += d.toString()));
+        child.on('exit', (status) => resolve({ status, stdout, stderr }));
+      });
+
+    it('removes worktree marker files after stopping a non-5000 test server', async () => {
+      const fakeRoot = mkdtempSync(join(tmpdir(), 'cc-cleanup-test-'));
+      try {
+        const fakeBin = join(fakeRoot, 'bin');
+        mkdirSync(fakeBin);
+        writeFileSync(
+          join(fakeBin, 'lsof'),
+          '#!/bin/bash\nif [ "$1" = "-t" ]; then echo 12345; exit 0; fi\nexit 1\n',
+          { mode: 0o755 },
+        );
+
+        const serverPort = 51234;
+        writeFileSync(join(fakeRoot, '.server-port'), String(serverPort));
+        writeFileSync(join(fakeRoot, '.vcr-mode'), 'replay');
+        writeFileSync(join(fakeRoot, '.db-path'), join(fakeRoot, '.circuschief-test.db'));
+
+        const result = await runCleanup(serverPort, fakeRoot, {
+          PATH: `${fakeBin}:${process.env.PATH}`,
+        });
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain(`Stopping Playwright test server on port ${serverPort}`);
+        expect(existsSync(join(fakeRoot, '.server-port'))).toBe(false);
+        expect(existsSync(join(fakeRoot, '.vcr-mode'))).toBe(false);
+        expect(existsSync(join(fakeRoot, '.db-path'))).toBe(false);
+      } finally {
+        rmSync(fakeRoot, { recursive: true, force: true });
+      }
+    });
+
+    it('does not remove marker files or kill protected port 5000', async () => {
+      const fakeRoot = mkdtempSync(join(tmpdir(), 'cc-cleanup-test-'));
+      try {
+        writeFileSync(join(fakeRoot, '.server-port'), '5000');
+        writeFileSync(join(fakeRoot, '.vcr-mode'), 'replay');
+        writeFileSync(join(fakeRoot, '.db-path'), join(fakeRoot, '.circuschief-test.db'));
+
+        const result = await runCleanup(5000, fakeRoot);
+        expect(result.status).toBe(0);
+        expect(result.stderr).toContain('protected');
+        expect(existsSync(join(fakeRoot, '.server-port'))).toBe(true);
+        expect(existsSync(join(fakeRoot, '.vcr-mode'))).toBe(true);
+        expect(existsSync(join(fakeRoot, '.db-path'))).toBe(true);
       } finally {
         rmSync(fakeRoot, { recursive: true, force: true });
       }
