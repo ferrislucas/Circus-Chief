@@ -12,22 +12,16 @@ function formatToken(n) {
 
 /**
  * Build formatted token object from raw token counts.
+ * @param {{ inputTokens: number, outputTokens: number, thinkingTokens: number, cacheReadInputTokens: number, cacheCreationInputTokens: number }} usage
  */
-function buildFormattedTokens(input, output, thinking, cacheRead, cacheCreation) {
-  const usage = {
-    inputTokens: input,
-    outputTokens: output,
-    thinkingTokens: thinking,
-    cacheReadInputTokens: cacheRead,
-    cacheCreationInputTokens: cacheCreation,
-  };
+function buildFormattedTokens(usage) {
   return {
-    input: formatToken(input),
-    output: formatToken(output),
-    thinking: formatToken(thinking),
+    input: formatToken(usage.inputTokens),
+    output: formatToken(usage.outputTokens),
+    thinking: formatToken(usage.thinkingTokens),
     total: formatToken(calculateTokenTotal(usage)),
-    cacheRead: formatToken(cacheRead),
-    cacheCreation: formatToken(cacheCreation),
+    cacheRead: formatToken(usage.cacheReadInputTokens),
+    cacheCreation: formatToken(usage.cacheCreationInputTokens),
   };
 }
 
@@ -98,12 +92,12 @@ export const tokenGetters = {
   formattedTokens: (state) => {
     if (isRunningUsageRelevant(state)) {
       const merged = mergeConvAndRunningUsage(findActiveConversation(state), state.runningUsage);
-      return buildFormattedTokens(merged.inputTokens, merged.outputTokens, merged.thinkingTokens, merged.cacheReadInputTokens, merged.cacheCreationInputTokens);
+      return buildFormattedTokens(merged);
     }
     if (state.activeConversationId && state.conversations.length > 0) {
       const conv = findActiveConversation(state);
       if (conv) {
-        return buildFormattedTokens(conv.inputTokens, conv.outputTokens, conv.thinkingTokens, conv.cacheReadInputTokens, conv.cacheCreationInputTokens);
+        return buildFormattedTokens(convUsage(conv));
       }
     }
     return { input: '-', output: '-', thinking: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
