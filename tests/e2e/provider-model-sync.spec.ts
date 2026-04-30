@@ -16,6 +16,8 @@ import {
  *
  * Verifies that after changing a provider's model list (remove old, add new),
  * the Model Selector correctly reflects the updated model IDs.
+ *
+ * Option values use providerId::modelId format (e.g. "provider-123::test-model-v1").
  */
 test.describe('Provider Model Sync in Model Selector', () => {
   test.describe.configure({ timeout: 60000 });
@@ -24,6 +26,14 @@ test.describe('Provider Model Sync in Model Selector', () => {
   let sonnetModel: any;
   let project: any;
   let session: any;
+
+  /**
+   * Helper to construct the prefixed option value expected by ModelSelector.
+   * Format: providerId::modelId
+   */
+  function optionKey(providerId: string, modelId: string): string {
+    return `${providerId}::${modelId}`;
+  }
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
@@ -69,13 +79,14 @@ test.describe('Provider Model Sync in Model Selector', () => {
     const modelSelect = page.locator('#model-select');
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
-    // Wait for our test provider's model to appear in the select options
-    await page.waitForFunction(() => {
+    // Wait for our test provider's model to appear in the select options (prefixed format)
+    const v1OptionKey = optionKey(provider.id, 'test-model-v1');
+    await page.waitForFunction((expectedKey) => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
       if (!select) return false;
       const options = Array.from(select.options);
-      return options.some(opt => opt.value === 'test-model-v1');
-    }, { timeout: 15000 });
+      return options.some(opt => opt.value === expectedKey);
+    }, v1OptionKey, { timeout: 15000 });
 
     // Update the provider's model via API: remove old, add new
     const removeOk = await removeProviderModel(provider.id, sonnetModel.id);
@@ -115,11 +126,12 @@ test.describe('Provider Model Sync in Model Selector', () => {
     );
     console.log('Model selector options after update:', JSON.stringify(allOptionValues));
 
-    // The NEW model (test-model-v2) should be present
-    expect(allOptionValues).toContain('test-model-v2');
+    // The NEW model (test-model-v2) should be present (prefixed)
+    const v2OptionKey = optionKey(provider.id, 'test-model-v2');
+    expect(allOptionValues).toContain(v2OptionKey);
 
     // The OLD model (test-model-v1) should be gone
-    expect(allOptionValues).not.toContain('test-model-v1');
+    expect(allOptionValues).not.toContain(v1OptionKey);
   });
 
   test('model selector reflects updated provider model IDs after PATCH update', async ({ page }) => {
@@ -137,16 +149,17 @@ test.describe('Provider Model Sync in Model Selector', () => {
     const modelSelect = page.locator('#model-select');
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
-    // Wait for our test provider's model to appear in the select options
-    await page.waitForFunction(() => {
+    // Wait for our test provider's model to appear in the select options (prefixed format)
+    const v1OptionKey = optionKey(provider.id, 'test-model-v1');
+    await page.waitForFunction((expectedKey) => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
       if (!select) return false;
       const options = Array.from(select.options);
-      return options.some(opt => opt.value === 'test-model-v1');
-    }, { timeout: 15000 });
+      return options.some(opt => opt.value === expectedKey);
+    }, v1OptionKey, { timeout: 15000 });
 
-    // Verify test-model-v1 is present as an option
-    const v1Options = modelSelect.locator('option[value="test-model-v1"]');
+    // Verify test-model-v1 is present as an option (prefixed)
+    const v1Options = modelSelect.locator(`option[value="${v1OptionKey}"]`);
     expect(await v1Options.count()).toBeGreaterThanOrEqual(1);
 
     // 6. Update the provider's model via API: PATCH to change modelId
@@ -182,10 +195,11 @@ test.describe('Provider Model Sync in Model Selector', () => {
     );
     console.log('Model selector options after PATCH update:', JSON.stringify(allOptionValues));
 
-    // The NEW model ID (test-model-v2-updated) should be present
-    expect(allOptionValues).toContain('test-model-v2-updated');
+    // The NEW model ID (test-model-v2-updated) should be present (prefixed)
+    const v2UpdatedOptionKey = optionKey(provider.id, 'test-model-v2-updated');
+    expect(allOptionValues).toContain(v2UpdatedOptionKey);
 
     // The OLD model ID (test-model-v1) should be gone
-    expect(allOptionValues).not.toContain('test-model-v1');
+    expect(allOptionValues).not.toContain(v1OptionKey);
   });
 });

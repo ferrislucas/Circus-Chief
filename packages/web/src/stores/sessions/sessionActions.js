@@ -181,10 +181,10 @@ export const sessionActions = {
     catch (err) { this.error = err.message; throw err; }
   },
 
-  async startSession(id, prompt = undefined, model = undefined) {
+  async startSession(id, prompt = undefined, model = undefined, providerId = undefined) {
     this.error = null;
     try {
-      const result = await api.startSession(id, prompt, model);
+      const result = await api.startSession(id, prompt, model, providerId);
       this._updateSessionInAllLists(id, { status: 'starting' });
       return result;
     } catch (err) { this.error = err.message; throw err; }

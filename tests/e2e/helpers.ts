@@ -2358,15 +2358,25 @@ export async function getSummarySettings(): Promise<{
 /**
  * Update summary settings via PUT /api/settings/summary.
  * Returns the updated settings object.
+ *
+ * The API requires summaryModel and summaryProviderId fields.
+ * Defaults: summaryModel='', summaryProviderId=null (no model override).
  */
 export async function updateSummarySettings(settings: {
   disableSessionSummaries: boolean;
   sessionTitlePrompt: string;
+  summaryModel?: string;
+  summaryProviderId?: string | null;
 }): Promise<any> {
+  const payload = {
+    summaryModel: '',
+    summaryProviderId: null as string | null,
+    ...settings,
+  };
   const response = await fetch(`${API_URL}/api/settings/summary`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
+    body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error(`updateSummarySettings failed: ${response.status}`);
   return response.json();

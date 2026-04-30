@@ -25,8 +25,8 @@ vi.mock('./QuickResponsesPanel.vue', () => ({
 vi.mock('./ModelSelector.vue', () => ({
   default: {
     name: 'ModelSelector',
-    props: ['modelValue'],
-    emits: ['update:modelValue'],
+    props: ['modelValue', 'providerId'],
+    emits: ['update:modelValue', 'update:providerId'],
     template: '<select class="model-selector"></select>',
   },
 }));
@@ -83,6 +83,7 @@ function mountComponent(props = {}) {
       sessionId: 'session-123',
       modelValue: '',
       selectedModel: 'sonnet',
+      selectedProviderId: null,
       canSendMessage: true,
       isDraft: false,
       isScheduledDraft: false,
@@ -227,6 +228,20 @@ describe('InputForm', () => {
     it('should render model selector', () => {
       const wrapper = mountComponent();
       expect(wrapper.findComponent({ name: 'ModelSelector' }).exists()).toBe(true);
+    });
+
+    it('passes and emits provider selection through ModelSelector', async () => {
+      const onUpdateSelectedProviderId = vi.fn();
+      const wrapper = mountComponent({
+        selectedProviderId: 'anthropic-default',
+        'onUpdate:selectedProviderId': onUpdateSelectedProviderId,
+      });
+      const selector = wrapper.findComponent({ name: 'ModelSelector' });
+
+      expect(selector.props('providerId')).toBe('anthropic-default');
+
+      await selector.vm.$emit('update:providerId', 'openai-prov');
+      expect(onUpdateSelectedProviderId).toHaveBeenCalledWith('openai-prov');
     });
 
     it('should render file attachment', () => {

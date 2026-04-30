@@ -518,22 +518,30 @@ describe('sessionProvider', () => {
       process.env.OPENAI_PROJECT = 'proj-should-be-stripped';
       const provider = { name: 'O', kind: 'openai' };
       const env = buildSessionEnv(provider, false, null);
-      // Whitelist strips all OPENAI_* vars
       expect(env.OPENAI_API_KEY).toBeUndefined();
       expect(env.OPENAI_BASE_URL).toBeUndefined();
       expect(env.OPENAI_ORG_ID).toBeUndefined();
       expect(env.OPENAI_PROJECT).toBeUndefined();
     });
 
-    it('openai provider with no authToken: whitelist preserves HOME and PATH', () => {
-      const provider = { name: 'O', kind: 'openai' };
-      const env = buildSessionEnv(provider, false, null);
-      expect(env.HOME).toBeDefined();
-      expect(env.PATH).toBeDefined();
-      expect(env.PATH).toContain('/mock-node-bin');
+    it('openai provider with no authToken: preserves CLI environment for Codex MCP servers', () => {
+      try {
+        process.env.GITHUB_TOKEN = 'github-token-for-mcp';
+        process.env.FIRECRAWL_API_KEY = 'firecrawl-token-for-mcp';
+        const provider = { name: 'O', kind: 'openai' };
+        const env = buildSessionEnv(provider, false, null);
+        expect(env.HOME).toBeDefined();
+        expect(env.PATH).toBeDefined();
+        expect(env.PATH).toContain('/mock-node-bin');
+        expect(env.GITHUB_TOKEN).toBe('github-token-for-mcp');
+        expect(env.FIRECRAWL_API_KEY).toBe('firecrawl-token-for-mcp');
+      } finally {
+        delete process.env.GITHUB_TOKEN;
+        delete process.env.FIRECRAWL_API_KEY;
+      }
     });
 
-    it('openai provider with no authToken: whitelist strips ANTHROPIC_* too', () => {
+    it('openai provider with no authToken: strips ANTHROPIC_* too', () => {
       process.env.ANTHROPIC_API_KEY = 'should-be-stripped';
       process.env.ANTHROPIC_BASE_URL = 'https://should-be-stripped';
       const provider = { name: 'O', kind: 'openai' };
@@ -579,7 +587,6 @@ describe('sessionProvider', () => {
     });
 
     it('openai provider with no config: strips host OPENAI_API_BASE (older alias)', () => {
-      // Whitelist strips everything except safe vars
       process.env.OPENAI_API_BASE = 'https://host-api-base';
       const provider = { name: 'O', kind: 'openai' };
       const env = buildSessionEnv(provider, false, null);

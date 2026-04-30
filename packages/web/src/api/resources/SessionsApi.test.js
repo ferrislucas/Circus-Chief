@@ -162,6 +162,7 @@ describe('SessionsApi', () => {
         prompt: 'Hello',
         mode: 'standard',
         model: 'claude-sonnet-4-20250514',
+        providerId: 'anthropic-default',
         thinkingEnabled: true,
         startImmediately: false,
         gitBranch: 'feature',
@@ -173,6 +174,7 @@ describe('SessionsApi', () => {
       const formData = mockFetch.mock.calls[0][1].body;
       expect(formData.get('mode')).toBe('standard');
       expect(formData.get('model')).toBe('claude-sonnet-4-20250514');
+      expect(formData.get('providerId')).toBe('anthropic-default');
       expect(formData.get('thinkingEnabled')).toBe('true');
       expect(formData.get('startImmediately')).toBe('false');
       expect(formData.get('gitBranch')).toBe('feature');
@@ -432,6 +434,17 @@ describe('SessionsApi', () => {
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.prompt).toBe('Go!');
       expect(body.model).toBe('claude-opus-4-6');
+    });
+
+    it('sends POST with providerId when starting with a provider-backed model', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+      await client.startSession('sess-123', 'Go!', 'gpt-4o', 'openai-prov');
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.prompt).toBe('Go!');
+      expect(body.model).toBe('gpt-4o');
+      expect(body.providerId).toBe('openai-prov');
     });
   });
 

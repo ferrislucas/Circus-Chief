@@ -29,10 +29,25 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
     return scrollContainer?.value || messagesContainer.value;
   }
 
+  function getSendButtonEl(scrollEl) {
+    return scrollEl?.querySelector?.('.btn-send-full') || null;
+  }
+
+  function getDistanceFromTargetBottom(el) {
+    const sendButton = getSendButtonEl(el);
+    if (!sendButton) {
+      return el.scrollHeight - el.scrollTop - el.clientHeight;
+    }
+
+    const containerRect = el.getBoundingClientRect();
+    const buttonRect = sendButton.getBoundingClientRect();
+    return buttonRect.bottom - containerRect.bottom;
+  }
+
   function handleScroll() {
     const el = getScrollEl();
     if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const distanceFromBottom = getDistanceFromTargetBottom(el);
     isNearBottom.value = distanceFromBottom < SCROLL_THRESHOLD;
     if (isNearBottom.value) {
       hasNewMessages.value = false;
@@ -74,6 +89,45 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
         isNearBottom.value = true;
         hasNewMessages.value = false;
       }
+    });
+  }
+
+  function scrollToSendButton(force = false) {
+    if (!force && userScrolledAway.value) {
+      hasNewMessages.value = true;
+      return;
+    }
+
+    if (force) {
+      userScrolledAway.value = false;
+    }
+
+    nextTick(() => {
+      const el = getScrollEl();
+      if (!el) return;
+
+      const sendButton = getSendButtonEl(el);
+      if (!sendButton) {
+        scrollToBottom(force);
+        return;
+      }
+
+      const containerRect = el.getBoundingClientRect();
+      const buttonRect = sendButton.getBoundingClientRect();
+      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const targetTop = Math.min(
+        maxScrollTop,
+        Math.max(0, el.scrollTop + buttonRect.bottom - containerRect.bottom)
+      );
+
+      programmaticScroll = true;
+      if (typeof el.scrollTo === 'function') {
+        el.scrollTo({ top: targetTop, behavior: 'instant' });
+      } else {
+        el.scrollTop = targetTop;
+      }
+      isNearBottom.value = true;
+      hasNewMessages.value = false;
     });
   }
 
@@ -177,6 +231,7 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
     hasNewMessages,
     userScrolledAway,
     scrollToBottom,
+    scrollToSendButton,
     scrollToClaudesTurn,
     handleScroll,
   };

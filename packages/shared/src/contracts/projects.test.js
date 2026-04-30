@@ -362,6 +362,18 @@ describe('Projects Contracts', () => {
       expect(valid.data.model).toBeNull();
     });
 
+    it('validates providerId string and null', () => {
+      expect(ProjectSessionDefaultsRequest.safeParse({
+        providerId: 'openai-provider',
+      }).success).toBe(true);
+
+      const validNull = ProjectSessionDefaultsRequest.safeParse({
+        providerId: null,
+      });
+      expect(validNull.success).toBe(true);
+      expect(validNull.data.providerId).toBeNull();
+    });
+
     it('validates effortLevel enum values', () => {
       for (const effortLevel of ['low', 'medium', 'high', 'max', 'auto']) {
         const valid = ProjectSessionDefaultsRequest.safeParse({ effortLevel });
@@ -389,6 +401,7 @@ describe('Projects Contracts', () => {
         gitMode: 'worktree',
         gitBranch: 'feature/ai',
         model: 'claude-opus-4',
+        providerId: 'anthropic-provider',
         startImmediately: false,
       });
 
@@ -411,6 +424,7 @@ describe('Projects Contracts', () => {
         gitMode: 'worktree',
         gitBranch: 'feature/test',
         model: 'claude-opus-4',
+        providerId: 'anthropic-provider',
         createdAt: 1234567890,
         updatedAt: 1234567890,
       };
@@ -419,6 +433,7 @@ describe('Projects Contracts', () => {
 
       expect(valid.success).toBe(true);
       expect(valid.data.effortLevel).toBe('high');
+      expect(valid.data.providerId).toBe('anthropic-provider');
     });
 
     it('allows null values', () => {
@@ -432,6 +447,7 @@ describe('Projects Contracts', () => {
         gitMode: null,
         gitBranch: null,
         model: null,
+        providerId: null,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       };
@@ -453,6 +469,7 @@ describe('Projects Contracts', () => {
         gitMode: null,
         gitBranch: null,
         model: null,
+        providerId: null,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       };
