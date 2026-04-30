@@ -90,15 +90,16 @@ export function requestVisualViewportSettle(options = {}) {
   }
 
   const {
-    maxDurationMs = 500,
+    maxDurationMs = 1000,
     intervalMs = 50,
     stableSampleCount = 2,
-    minDurationMs = 150,
+    minDurationMs = 500,
   } = options;
 
   cancelVisualViewportSettle();
 
   settleStartedAt = performance.now();
+  writeVisualViewportVariables();
 
   const sample = () => {
     settleRafId = null;

@@ -361,6 +361,41 @@ describe('useVisualViewport', () => {
       expect(document.documentElement.style.getPropertyValue('--visual-viewport-height')).toBe('812px');
     });
 
+    it('default settle keeps sampling past early stable stale values', async () => {
+      requestVisualViewportSettle();
+
+      setTimeout(() => {
+        mockVisualViewport.offsetTop = 0;
+        mockVisualViewport.height = 812;
+      }, 350);
+
+      await new Promise(resolve => setTimeout(resolve, 1100));
+
+      expectViewportVariables('280px', '420px');
+      expectViewportVariables('0px', '812px');
+      expect(document.documentElement.style.getPropertyValue('--viewport-offset-top')).toBe('0px');
+      expect(document.documentElement.style.getPropertyValue('--visual-viewport-height')).toBe('812px');
+    });
+
+    it('does not stop solely because early samples are stable before the minimum window', async () => {
+      requestVisualViewportSettle({
+        maxDurationMs: 900,
+        intervalMs: 50,
+        stableSampleCount: 2,
+        minDurationMs: 500,
+      });
+
+      setTimeout(() => {
+        mockVisualViewport.offsetTop = 0;
+        mockVisualViewport.height = 812;
+      }, 300);
+
+      await new Promise(resolve => setTimeout(resolve, 650));
+
+      expect(document.documentElement.style.getPropertyValue('--viewport-offset-top')).toBe('0px');
+      expect(document.documentElement.style.getPropertyValue('--visual-viewport-height')).toBe('812px');
+    });
+
     it('requestVisualViewportSettle no-ops without visualViewport support', () => {
       delete window.visualViewport;
 
@@ -377,6 +412,35 @@ describe('useVisualViewport', () => {
       expect(cancelRafSpy).toHaveBeenCalled();
 
       await new Promise(resolve => setTimeout(resolve, 150));
+    });
+
+    it('starting a second settle lets only the newer loop determine final variables', async () => {
+      requestVisualViewportSettle({
+        maxDurationMs: 300,
+        intervalMs: 25,
+        stableSampleCount: 10,
+        minDurationMs: 0,
+      });
+
+      mockVisualViewport.offsetTop = 12;
+      mockVisualViewport.height = 600;
+      requestVisualViewportSettle({
+        maxDurationMs: 180,
+        intervalMs: 20,
+        stableSampleCount: 2,
+        minDurationMs: 100,
+      });
+
+      setTimeout(() => {
+        mockVisualViewport.offsetTop = 0;
+        mockVisualViewport.height = 812;
+      }, 80);
+
+      await new Promise(resolve => setTimeout(resolve, 220));
+
+      expect(cancelRafSpy).toHaveBeenCalled();
+      expect(document.documentElement.style.getPropertyValue('--viewport-offset-top')).toBe('0px');
+      expect(document.documentElement.style.getPropertyValue('--visual-viewport-height')).toBe('812px');
     });
   });
 

@@ -1549,7 +1549,7 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('CSS-owned geometry (no JS viewport sync)', () => {
+  describe('visual viewport CSS geometry', () => {
     it('does not write inline geometry on the backdrop', async () => {
       const wrapper = mountOverlay();
       await nextTick();
@@ -1638,6 +1638,12 @@ describe('SessionChatOverlay', () => {
       mockRequestVisualViewportSettle.mockClear();
       textarea.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
       expect(mockRequestVisualViewportSettle).toHaveBeenCalledTimes(1);
+      expect(mockRequestVisualViewportSettle).toHaveBeenCalledWith({
+        maxDurationMs: 1200,
+        intervalMs: 50,
+        stableSampleCount: 2,
+        minDurationMs: 700,
+      });
       // focusout is rAF-debounced; flush one frame.
       await new Promise((r) => requestAnimationFrame(() => r()));
       await nextTick();

@@ -427,6 +427,12 @@ const overlayBodyRef = ref(null);
 // Track whether a text input is focused so blur can coordinate viewport settling.
 const inputFocused = ref(false);
 let focusOutRaf = null;
+const KEYBOARD_BLUR_VIEWPORT_SETTLE_OPTIONS = Object.freeze({
+  maxDurationMs: 1200,
+  intervalMs: 50,
+  stableSampleCount: 2,
+  minDurationMs: 700,
+});
 
 // Template ref to the ConversationTab for flushing drafts before session switch
 const conversationTabRef = ref(null);
@@ -834,7 +840,7 @@ function handleOverlayFocusout(e) {
   if (!isText) return;
 
   if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
-  requestVisualViewportSettle();
+  requestVisualViewportSettle(KEYBOARD_BLUR_VIEWPORT_SETTLE_OPTIONS);
   focusOutRaf = requestAnimationFrame(() => {
     focusOutRaf = null;
     inputFocused.value = false;

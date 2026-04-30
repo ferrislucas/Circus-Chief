@@ -1,11 +1,10 @@
 /**
  * SessionChatOverlay layout regression coverage.
  *
- * This spec replaces `session-chat-overlay-blur.spec.ts`. The overlay no
- * longer synchronises to `window.visualViewport` in JavaScript — geometry
- * is owned by CSS (`position: fixed; inset: 0` + `align-items: stretch`).
- * These tests verify the CSS contract and that no inline geometry is
- * written by the component.
+ * The overlay component does not read `window.visualViewport` or write inline
+ * geometry. Global viewport tracking owns `--viewport-offset-top` and
+ * `--visual-viewport-height`; the overlay shell consumes those CSS variables
+ * consistently across the backdrop, panel wrapper, and sticky header.
  *
  * HONEST SCOPE of the mobile projects (iphone-14, ipad-pro):
  * Playwright's mobile devices run chromium with only viewport size + UA
@@ -96,7 +95,7 @@ test.describe('SessionChatOverlay layout', () => {
     expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
   });
 
-  test('backdrop uses position: fixed and viewport-offset top', async ({ page }) => {
+  test('backdrop uses position: fixed and the current viewport-offset top', async ({ page }) => {
     await navigateToSession(page);
     await openOverlay(page);
 
@@ -117,7 +116,7 @@ test.describe('SessionChatOverlay layout', () => {
     expect(computed.left).toBe('0px');
   });
 
-  test('panel honors visual viewport top offset', async ({ page }) => {
+  test('overlay shell honors visual viewport top offset consistently', async ({ page }) => {
     await navigateToSession(page);
     await page.evaluate(() => {
       document.documentElement.style.setProperty('--viewport-offset-top', '48px');
@@ -147,6 +146,63 @@ test.describe('SessionChatOverlay layout', () => {
     await page.evaluate(() => {
       document.documentElement.style.setProperty('--viewport-offset-top', '0px');
     });
+  });
+
+  test('overlay shell recovers when stale keyboard CSS variables restore', async ({ page }) => {
+    await navigateToSession(page);
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--viewport-offset-top', '52px');
+      document.documentElement.style.setProperty('--visual-viewport-height', '420px');
+    });
+    await openOverlay(page);
+
+    const stale = await page.evaluate(() => {
+      const backdrop = document.querySelector(
+        '[data-testid="session-chat-overlay"]'
+      ) as HTMLElement;
+      const panel = document.querySelector('.overlay-panel-wrapper') as HTMLElement;
+      const header = document.querySelector('.overlay-header') as HTMLElement;
+      return {
+        backdropTop: backdrop.getBoundingClientRect().top,
+        backdropBottom: backdrop.getBoundingClientRect().bottom,
+        panelTop: panel.getBoundingClientRect().top,
+        headerTop: header.getBoundingClientRect().top,
+        innerHeight: window.innerHeight,
+      };
+    });
+
+    expect(stale.backdropTop).toBeGreaterThanOrEqual(51);
+    expect(stale.backdropTop).toBeLessThanOrEqual(53);
+    expect(stale.panelTop).toBeGreaterThanOrEqual(51);
+    expect(stale.panelTop).toBeLessThanOrEqual(53);
+    expect(stale.headerTop).toBeGreaterThanOrEqual(51);
+    expect(stale.headerTop).toBeLessThanOrEqual(53);
+    expect(stale.backdropBottom).toBeLessThan(stale.innerHeight);
+
+    const restored = await page.evaluate(() => {
+      document.documentElement.style.setProperty('--viewport-offset-top', '0px');
+      document.documentElement.style.setProperty('--visual-viewport-height', `${window.innerHeight}px`);
+
+      const backdrop = document.querySelector(
+        '[data-testid="session-chat-overlay"]'
+      ) as HTMLElement;
+      const panel = document.querySelector('.overlay-panel-wrapper') as HTMLElement;
+      const header = document.querySelector('.overlay-header') as HTMLElement;
+      return {
+        backdropTop: backdrop.getBoundingClientRect().top,
+        backdropBottom: backdrop.getBoundingClientRect().bottom,
+        panelTop: panel.getBoundingClientRect().top,
+        panelBottom: panel.getBoundingClientRect().bottom,
+        headerTop: header.getBoundingClientRect().top,
+        innerHeight: window.innerHeight,
+      };
+    });
+
+    expect(restored.backdropTop).toBeLessThanOrEqual(0);
+    expect(restored.backdropBottom).toBeGreaterThanOrEqual(restored.innerHeight);
+    expect(restored.panelTop).toBeLessThanOrEqual(0);
+    expect(restored.panelBottom).toBeGreaterThanOrEqual(restored.innerHeight);
+    expect(restored.headerTop).toBeLessThanOrEqual(0);
   });
 
   test('covers viewport after SessionDetailView scroll', async ({ page }) => {
@@ -186,9 +242,10 @@ test.describe('SessionChatOverlay layout', () => {
     await textarea.focus();
     await page.waitForTimeout(100);
     await textarea.blur();
-    // Enough time for any previously-scheduled recovery timers (now
-    // deleted) to have run; also covers the focusout rAF debounce.
-    await page.waitForTimeout(400);
+    // Covers the focusout rAF debounce and the longer iOS keyboard-dismiss
+    // viewport settle window. Chromium mobile projects do not emulate the
+    // real Safari visual viewport bug; this remains smoke coverage.
+    await page.waitForTimeout(900);
 
     const result = await page.evaluate(() => {
       const el = document.querySelector(
@@ -214,7 +271,7 @@ test.describe('SessionChatOverlay layout', () => {
 
     const size = page.viewportSize() || { width: 1280, height: 720 };
     // Playwright-level approximation only — real device rotation is
-    // validated in Phase 6 manual QA.
+    // validated by manual iPhone Safari QA.
     await page.setViewportSize({ width: size.height, height: size.width });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     await page.waitForTimeout(200);
@@ -246,7 +303,7 @@ test.describe('SessionChatOverlay layout', () => {
     const size = page.viewportSize() || { width: 1280, height: 720 };
     // Approximates an 80 px URL-bar retraction by shortening the
     // chromium viewport. Safari's actual visual/layout viewport
-    // divergence is not exercised; that is validated in Phase 6.
+    // divergence is not exercised; that is validated by manual iPhone Safari QA.
     await page.setViewportSize({ width: size.width, height: Math.max(200, size.height - 80) });
     await page.waitForTimeout(200);
 
