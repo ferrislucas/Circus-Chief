@@ -1,4 +1,4 @@
-import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
+import { sessions, attachments, projects, kanbanBoards, kanbanLanes, commandButtons } from '../database.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 
 /**
@@ -302,6 +302,54 @@ ${buildProjectNotesOps(apiUrl)}`;
 }
 
 /**
+ * Build Command Button API instructions for system prompt if the project has command buttons
+ * @param {string} sessionId - Current session ID
+ * @param {string} projectId - Current project ID
+ * @returns {string} Command button instructions or empty string if no buttons configured
+ */
+function buildCommandButtonApiInstructions(sessionId, projectId) {
+  const buttons = commandButtons.getByProjectId(projectId);
+  if (!buttons || buttons.length === 0) {
+    return '';
+  }
+
+  const apiUrl = getApiBaseUrl();
+
+  return `## Command Buttons API
+
+This project has command buttons configured — reusable shell commands you can execute. Use the Bash tool to run these curl commands.
+
+### List Available Buttons
+\`\`\`bash
+curl ${apiUrl}/api/projects/${projectId}/command-buttons
+\`\`\`
+
+### Run a Button
+\`\`\`bash
+curl -X POST ${apiUrl}/api/sessions/${sessionId}/command-buttons/<button_id>/run
+\`\`\`
+
+Response: { runId, buttonId, status: "running", output: "" }
+
+### Check Run Status & Output
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}/command-buttons/runs/<run_id>
+\`\`\`
+
+Response: { runId, buttonId, status, exitCode, output, startedAt, completedAt }
+
+### List All Runs for This Session
+\`\`\`bash
+curl ${apiUrl}/api/sessions/${sessionId}/command-buttons/runs
+\`\`\`
+
+### Kill a Running Command
+\`\`\`bash
+curl -X POST ${apiUrl}/api/sessions/${sessionId}/command-buttons/runs/<run_id>/kill
+\`\`\``;
+}
+
+/**
  * Build Kanban API instructions for system prompt if Kanban is enabled for the project
  * @param {string} sessionId - Current session ID
  * @param {string} projectId - Current project ID
@@ -426,6 +474,7 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
   const canvasWriteInstructions = buildCanvasWriteSystemPrompt(session);  // Pass session object
   const canvasReadInstructions = buildCanvasReadSystemPrompt(session);    // Pass session object
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
+  const commandButtonApiInstructions = buildCommandButtonApiInstructions(sessionId, projectId);
   const kanbanApiInstructions = buildKanbanApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const worktreeContext = buildWorktreeContext(session);
@@ -445,6 +494,7 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
     canvasWriteInstructions,
     canvasReadInstructions,
     sessionApiInstructions,
+    commandButtonApiInstructions,
     kanbanApiInstructions
   ].filter(Boolean);
 
