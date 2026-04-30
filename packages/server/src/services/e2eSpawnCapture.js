@@ -36,7 +36,7 @@ export function createCapturedSpawnProcess(agentType) {
   processStub.kill = (signal = 'SIGTERM') => {
     if (processStub.killed || processStub.exitCode !== null) return true;
     processStub.killed = true;
-    finishProcess(processStub, stdout, stderr, null, signal);
+    finishProcess({ processStub, stdout, stderr, code: null, signal });
     return true;
   };
 
@@ -44,7 +44,7 @@ export function createCapturedSpawnProcess(agentType) {
     setImmediate(() => {
       if (processStub.killed || processStub.exitCode !== null) return;
       writeCapturedAgentEvents(agentType, stdout);
-      finishProcess(processStub, stdout, stderr, 0, null);
+      finishProcess({ processStub, stdout, stderr, code: 0, signal: null });
     });
   };
 
@@ -126,8 +126,8 @@ function writeJsonLine(stream, value) {
   stream.write(`${JSON.stringify(value)}\n`);
 }
 
-function finishProcess(processStub, stdout, stderr, code, signal) {
-  processStub.exitCode = code;
+function finishProcess({ processStub, stdout, stderr, code, signal }) {
+  Object.assign(processStub, { exitCode: code });
   stdout.end();
   stderr.end();
   setImmediate(() => {

@@ -20,11 +20,58 @@ export const AGENT_TYPE_BY_KIND = Object.freeze({
 
 const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride']);
 
+const UPDATE_COLUMN_BUILDERS = Object.freeze({
+  name: (value) => ['name = ?', value],
+  baseUrl: (value) => ['base_url = ?', value],
+  authToken: (value) => ['auth_token = ?', encrypt(value)],
+  apiTimeoutMs: (value) => ['api_timeout_ms = ?', value],
+  additionalEnvVars: (value) => [
+    'additional_env_vars = ?',
+    value ? JSON.stringify(value) : null,
+  ],
+  commitAttributionOverride: (value) => [
+    'commit_attribution_override = ?',
+    normalizeCommitAttributionOverride(value),
+  ],
+});
+
 function normalizeCommitAttributionOverride(value) {
   if (value === undefined) return undefined;
   if (value === null) return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function validateBuiltInUpdate(provider, data) {
+  if (!provider.isBuiltIn) return;
+
+  const unsupportedFields = Object.keys(data || {}).filter(
+    (key) => !BUILT_IN_MUTABLE_FIELDS.includes(key)
+  );
+  if (unsupportedFields.length > 0) {
+    throw new Error(
+      `Built-in providers can only update commitAttributionOverride. Rejected fields: ${unsupportedFields.join(', ')}.`
+    );
+  }
+}
+
+function validateKindImmutable(data) {
+  if (!data || !Object.prototype.hasOwnProperty.call(data, 'kind')) return;
+
+  throw new Error(
+    "Provider kind is immutable after create. Delete and recreate the provider to change kind."
+  );
+}
+
+function buildUpdateColumns(data = {}) {
+  return Object.entries(UPDATE_COLUMN_BUILDERS).reduce((result, [field, buildColumn]) => {
+    if (data[field] === undefined) return result;
+
+    const [update, value] = buildColumn(data[field]);
+    result.updates.push(update);
+    result.values.push(value);
+    return result;
+  }, { updates: [], values: [] });
 }
 
 /**
@@ -158,53 +205,10 @@ export class ProviderRepository extends BaseRepository {
     const provider = this.getById(id);
     if (!provider) return null;
 
-    if (provider.isBuiltIn) {
-      const unsupportedFields = Object.keys(data || {}).filter(
-        (key) => !BUILT_IN_MUTABLE_FIELDS.includes(key)
-      );
-      if (unsupportedFields.length > 0) {
-        throw new Error(
-          `Built-in providers can only update commitAttributionOverride. Rejected fields: ${unsupportedFields.join(', ')}.`
-        );
-      }
-    }
+    validateBuiltInUpdate(provider, data);
+    validateKindImmutable(data);
 
-    // `kind` is immutable after create. Existing models + env wiring depend on it,
-    // so changing it in place would silently corrupt sessions already attached to
-    // this provider.
-    if (data && Object.prototype.hasOwnProperty.call(data, 'kind')) {
-      throw new Error(
-        "Provider kind is immutable after create. Delete and recreate the provider to change kind."
-      );
-    }
-
-    const updates = [];
-    const values = [];
-
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
-    }
-    if (data.baseUrl !== undefined) {
-      updates.push('base_url = ?');
-      values.push(data.baseUrl);
-    }
-    if (data.authToken !== undefined) {
-      updates.push('auth_token = ?');
-      values.push(encrypt(data.authToken));
-    }
-    if (data.apiTimeoutMs !== undefined) {
-      updates.push('api_timeout_ms = ?');
-      values.push(data.apiTimeoutMs);
-    }
-    if (data.additionalEnvVars !== undefined) {
-      updates.push('additional_env_vars = ?');
-      values.push(data.additionalEnvVars ? JSON.stringify(data.additionalEnvVars) : null);
-    }
-    if (data.commitAttributionOverride !== undefined) {
-      updates.push('commit_attribution_override = ?');
-      values.push(normalizeCommitAttributionOverride(data.commitAttributionOverride));
-    }
+    const { updates, values } = buildUpdateColumns(data);
 
     if (updates.length > 0) {
       updates.push('updated_at = ?');
