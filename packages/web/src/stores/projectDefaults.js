@@ -57,6 +57,7 @@ export const useProjectDefaultsStore = defineStore('projectDefaults', {
           gitMode: null,
           gitBranch: null,
           model: null,
+          providerId: null,
         };
         return this.defaultsByProjectId[projectId];
       } catch (err) {

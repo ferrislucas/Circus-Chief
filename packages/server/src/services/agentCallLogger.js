@@ -20,7 +20,7 @@ export class AgentCallLogger {
     const callId = nanoid();
 
     // Build metadata object - only include keys with defined values
-    const metadata = {};
+    const metadata = { ...(meta.metadata || {}) };
     if (meta.effortLevel !== undefined && meta.effortLevel !== null) {
       metadata.effortLevel = meta.effortLevel;
     }

@@ -91,6 +91,7 @@
       <SessionFormOptions
         :mode="mode"
         :model="model"
+        :provider-id="providerId"
         :effort-level="effortLevel"
         :thinking-enabled="thinkingEnabled"
         :start-immediately="startImmediately"

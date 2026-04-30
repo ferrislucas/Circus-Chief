@@ -454,7 +454,8 @@ describe('ConversationTab - Model Initialization Bug', () => {
       expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
         'sess-123',
         'Test prompt',
-        'opus'
+        'opus',
+        null
       );
     });
   });

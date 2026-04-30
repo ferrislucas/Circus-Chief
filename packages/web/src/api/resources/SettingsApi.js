@@ -32,7 +32,7 @@ export function SettingsApi(ApiClient) {
 
     /**
      * Get summary settings
-     * @returns {Promise<{disableSessionSummaries: boolean, sessionTitlePrompt: string}>}
+     * @returns {Promise<{disableSessionSummaries: boolean, sessionTitlePrompt: string, summaryModel: string, summaryProviderId: string|null}>}
      */
     async getSummarySettings() {
       return this._get('/settings/summary');
@@ -41,7 +41,7 @@ export function SettingsApi(ApiClient) {
     /**
      * Update summary settings
      * @param {Object} settings - Summary settings
-     * @returns {Promise<{disableSessionSummaries: boolean, sessionTitlePrompt: string}>}
+     * @returns {Promise<{disableSessionSummaries: boolean, sessionTitlePrompt: string, summaryModel: string, summaryProviderId: string|null}>}
      */
     async updateSummarySettings(settings) {
       return this._put('/settings/summary', settings);
@@ -49,7 +49,7 @@ export function SettingsApi(ApiClient) {
 
     /**
      * Reset summary settings to defaults
-     * @returns {Promise<{disableSessionSummaries: boolean, sessionTitlePrompt: string}>}
+     * @returns {Promise<{disableSessionSummaries: boolean, sessionTitlePrompt: string, summaryModel: string, summaryProviderId: string|null}>}
      */
     async resetSummarySettings() {
       return this._delete('/settings/summary');

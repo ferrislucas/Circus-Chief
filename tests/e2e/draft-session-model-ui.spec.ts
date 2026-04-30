@@ -23,6 +23,17 @@ import {
 test.describe('Draft session model dropdown sync', () => {
   let project: any;
 
+  // Built-in Anthropic provider ID used for option value prefix
+  const ANTHROPIC_PROVIDER_ID = 'anthropic-default';
+
+  /**
+   * Helper to construct the prefixed option value expected by ModelSelector.
+   * Format: providerId::modelId (e.g. "anthropic-default::claude-sonnet-4-6")
+   */
+  function optionKey(providerId: string, modelId: string): string {
+    return `${providerId}::${modelId}`;
+  }
+
   test.beforeEach(async () => {
     await cleanupCreatedResources();
     project = await seedProject('Draft Model UI Test', '/tmp/test-draft-model-ui');
@@ -61,25 +72,27 @@ test.describe('Draft session model dropdown sync', () => {
     const modelSelect = page.locator('#model-select');
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
-    // Wait for the dropdown to have the initial model selected
+    // Wait for the dropdown to have the initial model selected (prefixed format)
+    const initialOptionKey = optionKey(ANTHROPIC_PROVIDER_ID, initialModel);
     await page.waitForFunction(
-      (expectedModel) => {
+      (expectedValue) => {
         const select = document.querySelector('#model-select') as HTMLSelectElement;
-        return select && select.value === expectedModel;
+        return select && select.value === expectedValue;
       },
-      initialModel,
+      initialOptionKey,
       { timeout: 10000 }
     );
 
-    // Verify the dropdown shows the creation model
+    // Verify the dropdown shows the creation model (prefixed)
     const initialValue = await modelSelect.inputValue();
-    expect(initialValue).toBe(initialModel);
+    expect(initialValue).toBe(initialOptionKey);
 
-    // Check that the target model is available as an option
+    // Check that the target model is available as an option (prefixed)
+    const targetOptionKey = optionKey(ANTHROPIC_PROVIDER_ID, targetModel);
     const hasTarget = await page.evaluate((targetId) => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
       return Array.from(select.options).some(opt => opt.value === targetId);
-    }, targetModel);
+    }, targetOptionKey);
 
     if (!hasTarget) {
       test.skip();
@@ -92,8 +105,8 @@ test.describe('Draft session model dropdown sync', () => {
       { timeout: 10000 }
     );
 
-    // Change the model dropdown to opus
-    await modelSelect.selectOption(targetModel);
+    // Change the model dropdown to opus (using prefixed value)
+    await modelSelect.selectOption(targetOptionKey);
 
     // Wait for the PATCH to complete
     await patchPromise;
@@ -101,7 +114,7 @@ test.describe('Draft session model dropdown sync', () => {
     // Give a brief moment for the server to process
     await page.waitForTimeout(500);
 
-    // Fetch the session via API and verify both fields were updated
+    // Fetch the session via API and verify both fields were updated (bare model ID)
     const updatedSession = await getSession(session.id);
     expect(updatedSession.model).toBe(targetModel);
     expect(updatedSession.pendingModel).toBe(targetModel);
@@ -128,21 +141,23 @@ test.describe('Draft session model dropdown sync', () => {
     const modelSelect = page.locator('#model-select');
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
-    // Wait for model to be initialized
+    // Wait for model to be initialized (prefixed format)
+    const initialOptionKey = optionKey(ANTHROPIC_PROVIDER_ID, initialModel);
     await page.waitForFunction(
-      (expectedModel) => {
+      (expectedValue) => {
         const select = document.querySelector('#model-select') as HTMLSelectElement;
-        return select && select.value === expectedModel;
+        return select && select.value === expectedValue;
       },
-      initialModel,
+      initialOptionKey,
       { timeout: 10000 }
     );
 
-    // Check that the target model is available
+    // Check that the target model is available (prefixed)
+    const targetOptionKey = optionKey(ANTHROPIC_PROVIDER_ID, targetModel);
     const hasTarget = await page.evaluate((targetId) => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
       return Array.from(select.options).some(opt => opt.value === targetId);
-    }, targetModel);
+    }, targetOptionKey);
 
     if (!hasTarget) {
       test.skip();
@@ -154,7 +169,7 @@ test.describe('Draft session model dropdown sync', () => {
       (resp) => resp.url().includes('/api/sessions/') && resp.request().method() === 'PATCH',
       { timeout: 10000 }
     );
-    await modelSelect.selectOption(targetModel);
+    await modelSelect.selectOption(targetOptionKey);
     await patchPromise;
     await page.waitForTimeout(500);
 
@@ -167,18 +182,18 @@ test.describe('Draft session model dropdown sync', () => {
     const modelSelectAfterReload = page.locator('#model-select');
     await expect(modelSelectAfterReload).toBeVisible({ timeout: 10000 });
 
-    // Wait for the dropdown to have the updated model
+    // Wait for the dropdown to have the updated model (prefixed)
     await page.waitForFunction(
-      (expectedModel) => {
+      (expectedValue) => {
         const select = document.querySelector('#model-select') as HTMLSelectElement;
-        return select && select.value === expectedModel;
+        return select && select.value === expectedValue;
       },
-      targetModel,
+      targetOptionKey,
       { timeout: 10000 }
     );
 
     // Verify the model persisted after reload
     const valueAfterReload = await modelSelectAfterReload.inputValue();
-    expect(valueAfterReload).toBe(targetModel);
+    expect(valueAfterReload).toBe(targetOptionKey);
   });
 });

@@ -2,6 +2,13 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { SettingsRepository } from './SettingsRepository.js';
 import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
 
+const DEFAULT_SUMMARY_SETTINGS = {
+  disableSessionSummaries: false,
+  sessionTitlePrompt: '',
+  summaryModel: '',
+  summaryProviderId: null,
+};
+
 describe('SettingsRepository', () => {
   // Uses global setup from test/setup.js
   let repo;
@@ -252,8 +259,7 @@ describe('SettingsRepository', () => {
       const settings = repo.getSummarySettings();
 
       expect(settings).toEqual({
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
+        ...DEFAULT_SUMMARY_SETTINGS,
       });
     });
 
@@ -261,6 +267,8 @@ describe('SettingsRepository', () => {
       const customSettings = {
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Custom prompt',
+        summaryModel: '',
+        summaryProviderId: null,
       };
       repo.setSummarySettings(customSettings);
 
@@ -268,21 +276,22 @@ describe('SettingsRepository', () => {
       expect(retrieved).toEqual(customSettings);
     });
 
-    it('merges partial settings with defaults', () => {
+    it('merges partial auto-mode settings with defaults', () => {
       // Manually set incomplete settings (simulating corruption/migration)
       repo.set('summary_settings', JSON.stringify({ disableSessionSummaries: true }));
 
       const settings = repo.getSummarySettings();
       expect(settings.disableSessionSummaries).toBe(true);
       expect(settings.sessionTitlePrompt).toBe('');
+      expect(settings.summaryModel).toBe('');
+      expect(settings.summaryProviderId).toBeNull();
     });
 
     it('returns defaults when stored value is invalid JSON', () => {
       repo.set('summary_settings', 'invalid-json{');
       const settings = repo.getSummarySettings();
       expect(settings).toEqual({
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
+        ...DEFAULT_SUMMARY_SETTINGS,
       });
     });
 
@@ -294,16 +303,43 @@ describe('SettingsRepository', () => {
       expect(newSettings.disableSessionSummaries).toBe(false);
     });
 
-    it('coerces values to correct types', () => {
+    it('normalizes invalid stored value types to strict defaults', () => {
       repo.set('summary_settings', JSON.stringify({
         disableSessionSummaries: 1, // truthy number
         sessionTitlePrompt: 123, // number
       }));
 
       const settings = repo.getSummarySettings();
-      // getSummarySettings returns truthy/falsy values as-is (uses || operator)
-      expect(settings.disableSessionSummaries).toBe(1);
-      expect(settings.sessionTitlePrompt).toBe(123);
+      expect(settings.disableSessionSummaries).toBe(true);
+      expect(settings.sessionTitlePrompt).toBe('');
+      expect(settings.summaryModel).toBe('');
+      expect(settings.summaryProviderId).toBeNull();
+    });
+
+    it('does not return model-only explicit settings from stored partial data', () => {
+      repo.set('summary_settings', JSON.stringify({
+        disableSessionSummaries: true,
+        sessionTitlePrompt: 'Prompt',
+        summaryModel: 'gpt-5.4-mini',
+      }));
+
+      expect(repo.getSummarySettings()).toEqual(DEFAULT_SUMMARY_SETTINGS);
+    });
+
+    it('normalizes provider-only auto mode back to auto mode', () => {
+      repo.set('summary_settings', JSON.stringify({
+        disableSessionSummaries: true,
+        sessionTitlePrompt: 'Prompt',
+        summaryModel: '',
+        summaryProviderId: 'openai-default',
+      }));
+
+      expect(repo.getSummarySettings()).toEqual({
+        disableSessionSummaries: true,
+        sessionTitlePrompt: 'Prompt',
+        summaryModel: '',
+        summaryProviderId: null,
+      });
     });
   });
 
@@ -312,6 +348,8 @@ describe('SettingsRepository', () => {
       const customSettings = {
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Test prompt',
+        summaryModel: '',
+        summaryProviderId: null,
       };
       const saved = repo.setSummarySettings(customSettings);
 
@@ -323,6 +361,8 @@ describe('SettingsRepository', () => {
       const saved = repo.setSummarySettings({
         disableSessionSummaries: 'true',
         sessionTitlePrompt: '',
+        summaryModel: '',
+        summaryProviderId: null,
       });
 
       expect(saved.disableSessionSummaries).toBe(true);
@@ -333,6 +373,8 @@ describe('SettingsRepository', () => {
       const saved = repo.setSummarySettings({
         disableSessionSummaries: false,
         sessionTitlePrompt: 12345,
+        summaryModel: '',
+        summaryProviderId: null,
       });
 
       expect(saved.sessionTitlePrompt).toBe('12345');
@@ -343,6 +385,8 @@ describe('SettingsRepository', () => {
       const saved = repo.setSummarySettings({
         disableSessionSummaries: null,
         sessionTitlePrompt: null,
+        summaryModel: '',
+        summaryProviderId: null,
       });
 
       expect(saved.disableSessionSummaries).toBe(false);
@@ -354,6 +398,8 @@ describe('SettingsRepository', () => {
       const customSettings = {
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Cross-instance test',
+        summaryModel: '',
+        summaryProviderId: null,
       };
       repo.setSummarySettings(customSettings);
 
@@ -366,16 +412,29 @@ describe('SettingsRepository', () => {
       repo.setSummarySettings({
         disableSessionSummaries: false,
         sessionTitlePrompt: 'Original',
+        summaryModel: '',
+        summaryProviderId: null,
       });
 
       const updated = repo.setSummarySettings({
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Updated',
+        summaryModel: '',
+        summaryProviderId: null,
       });
 
       expect(updated.disableSessionSummaries).toBe(true);
       expect(updated.sessionTitlePrompt).toBe('Updated');
       expect(repo.getSummarySettings()).toEqual(updated);
+    });
+
+    it('requires a provider id for explicit summary models', () => {
+      expect(() => repo.setSummarySettings({
+        disableSessionSummaries: false,
+        sessionTitlePrompt: '',
+        summaryModel: 'gpt-5.4-mini',
+        summaryProviderId: null,
+      })).toThrow('summaryProviderId is required');
     });
   });
 
@@ -385,14 +444,15 @@ describe('SettingsRepository', () => {
       repo.setSummarySettings({
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Custom prompt',
+        summaryModel: '',
+        summaryProviderId: null,
       });
 
       // Reset to defaults
       const defaults = repo.resetSummarySettings();
 
       expect(defaults).toEqual({
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
+        ...DEFAULT_SUMMARY_SETTINGS,
       });
       expect(repo.getSummarySettings()).toEqual(defaults);
     });
@@ -400,8 +460,7 @@ describe('SettingsRepository', () => {
     it('returns defaults even if no custom settings were set', () => {
       const defaults = repo.resetSummarySettings();
       expect(defaults).toEqual({
-        disableSessionSummaries: false,
-        sessionTitlePrompt: '',
+        ...DEFAULT_SUMMARY_SETTINGS,
       });
     });
 
@@ -409,6 +468,8 @@ describe('SettingsRepository', () => {
       repo.setSummarySettings({
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Test',
+        summaryModel: '',
+        summaryProviderId: null,
       });
 
       expect(repo.get('summary_settings')).not.toBeNull();

@@ -58,6 +58,7 @@ const CONFIG_DEFAULTS = {
   parentSessionId: null,
   status: 'starting',
   model: null,
+  providerId: null,
   effortLevel: null,
   // Agent runtime for the session: 'claude-code' (default) or 'codex'.
   // Defaults to null so SessionRepository.create() can resolve it from the model.
@@ -100,6 +101,7 @@ export const DIRECT_FIELD_MAP = {
   costUsd: 'cost_usd',
   claudeSessionId: 'claude_session_id',
   model: 'model',
+  providerId: 'provider_id',
   nextTemplateId: 'next_template_id',
   parentSessionId: 'parent_session_id',
   scheduledAt: 'scheduled_at',
