@@ -34,13 +34,6 @@ vi.mock('../components/OverflowMenu.vue', () => ({
     emits: ['duplicate', 'archive', 'delete']
   }
 }));
-vi.mock('../components/SessionHierarchyBreadcrumb.vue', () => ({
-  default: {
-    name: 'SessionHierarchyBreadcrumb',
-    template: '<div class="breadcrumb">Breadcrumb</div>',
-    props: ['path', 'currentSessionId']
-  }
-}));
 vi.mock('../components/SessionChatHandle.vue', () => ({
   default: {
     name: 'SessionChatHandle',
