@@ -3089,8 +3089,8 @@ describe('ConversationTab - Scroll container behavior', () => {
       const btn = wrapper.find('[data-testid="scroll-to-bottom-btn"]');
       expect(btn.exists()).toBe(true);
       expect(btn.element.tagName).toBe('BUTTON');
-      expect(btn.attributes('aria-label')).toBe('Scroll to the bottom of the conversation');
-      expect(btn.attributes('title')).toBe('Scroll to the bottom of the conversation');
+      expect(btn.attributes('aria-label')).toBe('Scroll to the send button');
+      expect(btn.attributes('title')).toBe('Scroll to the send button');
     });
 
     it('renders inside .conversation-scroll-actions wrapper as the sole child when scroll-to-claude is not eligible', async () => {

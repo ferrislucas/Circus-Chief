@@ -29,10 +29,10 @@
       <button
         v-if="!isNearBottom"
         class="conversation-scroll-btn scroll-to-bottom-btn"
-        title="Scroll to the bottom of the conversation"
-        aria-label="Scroll to the bottom of the conversation"
+        title="Scroll to the send button"
+        aria-label="Scroll to the send button"
         data-testid="scroll-to-bottom-btn"
-        @click="forceScrollToBottom"
+        @click="forceScrollToSendButton"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -87,7 +87,7 @@ const messages = computed(() => sessionsStore.messages);
 const partialText = computed(() => sessionsStore.partialText);
 
 // Scroll management composable
-const { messagesContainer, isNearBottom, scrollToBottom, scrollToClaudesTurn } = useMessageScroll({
+const { messagesContainer, isNearBottom, scrollToBottom, scrollToSendButton, scrollToClaudesTurn } = useMessageScroll({
   messages,
   partialText,
   activeConversationId: computed(() => sessionsStore.activeConversationId),
@@ -99,19 +99,19 @@ const isUsersTurn = computed(() => props.sessionStatus === 'waiting' || props.se
 const hasAssistantMessages = computed(() => sessionsStore.messages.some(msg => msg.role === 'assistant'));
 
 /**
- * Named wrapper around scrollToBottom(force=true). Avoids a bare boolean at
+ * Named wrapper around scrollToSendButton(force=true). Avoids a bare boolean at
  * the click-handler call site and gives the intent a searchable name.
  */
-function forceScrollToBottom() {
-  scrollToBottom(true);
+function forceScrollToSendButton() {
+  scrollToSendButton(true);
 }
 
 function getWorkLogsForMessage(messageId) {
   return sessionsStore.getWorkLogsForMessage(messageId);
 }
 
-// Expose scrollToBottom and scrollToClaudesTurn so parent can call them
-defineExpose({ scrollToBottom, scrollToClaudesTurn });
+// Expose scroll helpers so parent components can choose the appropriate target.
+defineExpose({ scrollToBottom, scrollToSendButton, scrollToClaudesTurn });
 </script>
 
 <style scoped>
