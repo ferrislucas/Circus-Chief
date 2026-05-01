@@ -25,7 +25,9 @@
       :has-warnings="hasWarnings"
       :scheduled-time-display="scheduledTimeDisplay"
       :scheduling-countdown="schedulingCountdown"
+      :cancelling="cancellingSchedule"
       @edit-schedule="showScheduleTimeModal = true"
+      @cancel-schedule="handleCancelSchedule"
     />
 
     <!-- Scheduling Edit Modal -->
@@ -124,6 +126,7 @@ const generatingManual = ref(false);
 const filesCount = ref(0);
 const latestResponse = ref(null);
 const showScheduleTimeModal = ref(false);
+const cancellingSchedule = ref(false);
 const nowTick = ref(Date.now());
 let countdownInterval = null;
 
@@ -258,6 +261,19 @@ async function handleRegenerate() {
     uiStore.error(err.message);
   } finally {
     generatingManual.value = false;
+  }
+}
+
+async function handleCancelSchedule() {
+  if (!confirm('Cancel this scheduled session?')) return;
+  cancellingSchedule.value = true;
+  try {
+    await sessionsStore.updateSessionFields(props.sessionId, { status: 'stopped' });
+    uiStore.success('Session cancelled');
+  } catch (err) {
+    uiStore.error(`Failed to cancel session: ${err.message}`);
+  } finally {
+    cancellingSchedule.value = false;
   }
 }
 </script>
