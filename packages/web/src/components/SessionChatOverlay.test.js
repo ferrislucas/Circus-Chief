@@ -1031,7 +1031,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
-      expect(onSessionCreated).toHaveBeenCalledWith('new-sess');
+      expect(onSessionCreated).toHaveBeenCalledWith(newSession);
       wrapper.unmount();
     });
 
