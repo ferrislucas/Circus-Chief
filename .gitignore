@@ -67,3 +67,6 @@ temp/
 .claude/plans/
 .claude-plans/
 .plan/
+
+# Session attachments (temporary artifacts)
+.attachments/

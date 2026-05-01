@@ -1,5 +1,3 @@
-import { DEFAULT_TOKEN_COST_WEIGHTS } from './constants.js';
-
 /**
  * Generate a short random ID (4 hex characters)
  * @returns {string}
@@ -9,23 +7,17 @@ export function generateShortId() {
 }
 
 /**
- * Calculate Billable Token Equivalent (BTE) - a cost-weighted token score
- * @param {Object} usage - Token usage object
- * @param {number} [usage.inputTokens] - Number of input tokens
- * @param {number} [usage.outputTokens] - Number of output tokens
- * @param {number} [usage.cacheReadInputTokens] - Number of cache read tokens
- * @param {number} [usage.cacheCreationInputTokens] - Number of cache creation tokens
- * @param {Object} [weights] - Custom weights (defaults to DEFAULT_TOKEN_COST_WEIGHTS)
- * @returns {number} The calculated BTE score
+ * Calculate the canonical raw token total for display.
+ * @param {Object|null|undefined} usage - Token usage object
+ * @returns {number} The raw token total
  */
-export function calculateBillableTokens(usage, weights = DEFAULT_TOKEN_COST_WEIGHTS) {
+export function calculateTokenTotal(usage) {
   if (!usage) return 0;
-  return Math.round(
-    (usage.inputTokens || 0) * weights.input +
-    (usage.outputTokens || 0) * weights.output +
-    (usage.cacheReadInputTokens || 0) * weights.cacheRead +
-    (usage.cacheCreationInputTokens || 0) * weights.cacheCreation
-  );
+  return (usage.inputTokens || 0) +
+    (usage.outputTokens || 0) +
+    (usage.thinkingTokens || 0) +
+    (usage.cacheReadInputTokens || 0) +
+    (usage.cacheCreationInputTokens || 0);
 }
 
 /**

@@ -1284,7 +1284,7 @@ describe('Sessions Store', () => {
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('500');
         expect(formatted.output).toBe('250');
-        expect(formatted.total).toBe('750');
+        expect(formatted.total).toBe('900');
         expect(formatted.cacheRead).toBe('100');
         expect(formatted.cacheCreation).toBe('50');
       });
@@ -1360,7 +1360,7 @@ describe('Sessions Store', () => {
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('500');
         expect(formatted.output).toBe('2.5K');
-        expect(formatted.total).toBe('3.0K');
+        expect(formatted.total).toBe('3.3K');
         expect(formatted.cacheRead).toBe('200');
         expect(formatted.cacheCreation).toBe('100');
       });
@@ -1382,7 +1382,7 @@ describe('Sessions Store', () => {
         const formatted = store.formattedTokens;
         expect(formatted.input).toBe('5.5K');
         expect(formatted.output).toBe('2.5K');
-        expect(formatted.total).toBe('8.0K');
+        expect(formatted.total).toBe('8.2K');
         expect(formatted.cacheRead).toBe('100');
         expect(formatted.cacheCreation).toBe('50');
       });
@@ -1420,10 +1420,10 @@ describe('Sessions Store', () => {
         // Should show: conversation base + running usage
         // Input: 1000 + 2000 = 3000 = 3.0K
         // Output: 500 + 1000 = 1500 = 1.5K
-        // Total: 3000 + 1500 = 4500 = 4.5K
+        // Total: 3000 + 1500 + 300 + 150 = 4950 = 5.0K
         expect(formatted.input).toBe('3.0K');
         expect(formatted.output).toBe('1.5K');
-        expect(formatted.total).toBe('4.5K');
+        expect(formatted.total).toBe('5.0K');
         expect(formatted.cacheRead).toBe('300');  // 100 + 200
         expect(formatted.cacheCreation).toBe('150');  // 50 + 100
       });
@@ -1576,7 +1576,7 @@ describe('Sessions Store', () => {
           // Should use conversation data because it has non-zero tokens
           expect(formatted.input).toBe('1.0K');
           expect(formatted.output).toBe('500');
-          expect(formatted.total).toBe('1.5K');
+          expect(formatted.total).toBe('1.8K');
           expect(formatted.cacheRead).toBe('200');
           expect(formatted.cacheCreation).toBe('100');
         });
@@ -1776,10 +1776,10 @@ describe('Sessions Store', () => {
           // Should show: base + current turn
           // Input: 5000 + 1000 = 6000 = 6.0K
           // Output: 2000 + 500 = 2500 = 2.5K
-          // Total: 6000 + 2500 = 8500 = 8.5K
+          // Total: 6000 + 2500 + 600 + 300 = 9400 = 9.4K
           expect(formatted.input).toBe('6.0K');
           expect(formatted.output).toBe('2.5K');
-          expect(formatted.total).toBe('8.5K');
+          expect(formatted.total).toBe('9.4K');
           expect(formatted.cacheRead).toBe('600');  // 500 + 100
           expect(formatted.cacheCreation).toBe('300');  // 250 + 50
         });
@@ -1804,7 +1804,7 @@ describe('Sessions Store', () => {
           // Should show only conversation base (no current turn)
           expect(formatted.input).toBe('5.0K');
           expect(formatted.output).toBe('2.0K');
-          expect(formatted.total).toBe('7.0K');
+          expect(formatted.total).toBe('7.8K');
           expect(formatted.cacheRead).toBe('500');
           expect(formatted.cacheCreation).toBe('250');
         });
@@ -1865,7 +1865,7 @@ describe('Sessions Store', () => {
           // Should show: 0 + running = running
           expect(formatted.input).toBe('1.0K');
           expect(formatted.output).toBe('500');
-          expect(formatted.total).toBe('1.5K');
+          expect(formatted.total).toBe('1.6K');
           expect(formatted.cacheRead).toBe('100');
           expect(formatted.cacheCreation).toBe('50');
         });

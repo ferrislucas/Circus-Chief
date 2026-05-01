@@ -4,10 +4,9 @@ import {
   sanitizeBranchName,
   extractSlugFromPrompt,
   generateWorktreeBranch,
-  calculateBillableTokens,
+  calculateTokenTotal,
   formatTokenCount,
 } from './utils.js';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from './constants.js';
 
 describe('generateShortId', () => {
   it('generates a 4-character hex string', () => {
@@ -120,65 +119,44 @@ describe('generateWorktreeBranch', () => {
   });
 });
 
-describe('calculateBillableTokens', () => {
-  it('calculates BTE with default weights', () => {
+describe('calculateTokenTotal', () => {
+  it('calculates the raw total with all display token fields', () => {
     const usage = {
       inputTokens: 1000,
       outputTokens: 500,
+      thinkingTokens: 75,
       cacheReadInputTokens: 2000,
       cacheCreationInputTokens: 100,
     };
-    // Expected: 1000*1.0 + 500*5.0 + 2000*0.1 + 100*1.25 = 1000 + 2500 + 200 + 125 = 3825
-    expect(calculateBillableTokens(usage)).toBe(3825);
+    expect(calculateTokenTotal(usage)).toBe(3675);
   });
 
   it('handles missing token fields gracefully', () => {
-    expect(calculateBillableTokens({ inputTokens: 100 })).toBe(100);
-    expect(calculateBillableTokens({ outputTokens: 100 })).toBe(500);
-    expect(calculateBillableTokens({ cacheReadInputTokens: 100 })).toBe(10);
-    expect(calculateBillableTokens({ cacheCreationInputTokens: 100 })).toBe(125);
+    expect(calculateTokenTotal({ inputTokens: 100 })).toBe(100);
+    expect(calculateTokenTotal({ outputTokens: 100 })).toBe(100);
+    expect(calculateTokenTotal({ thinkingTokens: 100 })).toBe(100);
+    expect(calculateTokenTotal({ cacheReadInputTokens: 100 })).toBe(100);
+    expect(calculateTokenTotal({ cacheCreationInputTokens: 100 })).toBe(100);
   });
 
   it('handles null or undefined usage', () => {
-    expect(calculateBillableTokens(null)).toBe(0);
-    expect(calculateBillableTokens(undefined)).toBe(0);
+    expect(calculateTokenTotal(null)).toBe(0);
+    expect(calculateTokenTotal(undefined)).toBe(0);
   });
 
   it('handles empty usage object', () => {
-    expect(calculateBillableTokens({})).toBe(0);
-  });
-
-  it('uses custom weights when provided', () => {
-    const usage = {
-      inputTokens: 1000,
-      outputTokens: 500,
-    };
-    const customWeights = {
-      input: 2.0,
-      output: 10.0,
-      cacheRead: 0.5,
-      cacheCreation: 2.0,
-    };
-    // Expected: 1000*2.0 + 500*10.0 = 2000 + 5000 = 7000
-    expect(calculateBillableTokens(usage, customWeights)).toBe(7000);
-  });
-
-  it('rounds the result to nearest integer', () => {
-    const usage = {
-      inputTokens: 1,
-      cacheReadInputTokens: 1, // 0.1 weight
-    };
-    // Expected: 1*1.0 + 1*0.1 = 1.1, rounded to 1
-    expect(calculateBillableTokens(usage)).toBe(1);
+    expect(calculateTokenTotal({})).toBe(0);
   });
 
   it('handles large token counts', () => {
     const usage = {
       inputTokens: 1000000,
       outputTokens: 500000,
+      thinkingTokens: 250000,
+      cacheReadInputTokens: 100000,
+      cacheCreationInputTokens: 50000,
     };
-    // Expected: 1000000*1.0 + 500000*5.0 = 1000000 + 2500000 = 3500000
-    expect(calculateBillableTokens(usage)).toBe(3500000);
+    expect(calculateTokenTotal(usage)).toBe(1900000);
   });
 });
 
@@ -209,14 +187,5 @@ describe('formatTokenCount', () => {
     expect(formatTokenCount(1000000)).toBe('1.0M');
     expect(formatTokenCount(1234567)).toBe('1.2M');
     expect(formatTokenCount(12345678)).toBe('12.3M');
-  });
-});
-
-describe('DEFAULT_TOKEN_COST_WEIGHTS', () => {
-  it('has expected default values', () => {
-    expect(DEFAULT_TOKEN_COST_WEIGHTS.input).toBe(1.0);
-    expect(DEFAULT_TOKEN_COST_WEIGHTS.output).toBe(5.0);
-    expect(DEFAULT_TOKEN_COST_WEIGHTS.cacheRead).toBe(0.1);
-    expect(DEFAULT_TOKEN_COST_WEIGHTS.cacheCreation).toBe(1.25);
   });
 });

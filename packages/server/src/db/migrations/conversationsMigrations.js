@@ -114,6 +114,10 @@ export const conversationsMigrations = [
     up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'output_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
+    name: 'conversations-add-thinking_tokens',
+    up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'thinking_tokens', COL_INTEGER_DEFAULT_0); },
+  },
+  {
     name: 'conversations-add-cache_read_input_tokens',
     up(db) { addColumnIfMissing(db, TABLE_CONVERSATIONS, 'cache_read_input_tokens', COL_INTEGER_DEFAULT_0); },
   },

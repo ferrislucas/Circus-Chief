@@ -2,10 +2,11 @@
  * SessionChatOverlay layout regression coverage.
  *
  * This spec replaces `session-chat-overlay-blur.spec.ts`. The overlay no
- * longer synchronises to `window.visualViewport` in JavaScript — geometry
- * is owned by CSS (`position: fixed; inset: 0` + `align-items: stretch`).
- * These tests verify the CSS contract and that no inline geometry is
- * written by the component.
+ * longer uses JS-written visual viewport CSS variables for its shell.
+ * Geometry is owned by browser CSS (`position: fixed; inset: 0` on the
+ * backdrop, child geometry for the panel). These tests verify that stale
+ * root CSS variables do not affect the shell and that no inline geometry
+ * is written by the component.
  *
  * HONEST SCOPE of the mobile projects (iphone-14, ipad-pro):
  * Playwright's mobile devices run chromium with only viewport size + UA
@@ -96,7 +97,7 @@ test.describe('SessionChatOverlay layout', () => {
     expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
   });
 
-  test('backdrop uses position: fixed and viewport-offset top', async ({ page }) => {
+  test('backdrop uses position: fixed at the viewport origin', async ({ page }) => {
     await navigateToSession(page);
     await openOverlay(page);
 
@@ -117,36 +118,56 @@ test.describe('SessionChatOverlay layout', () => {
     expect(computed.left).toBe('0px');
   });
 
-  test('panel honors visual viewport top offset', async ({ page }) => {
+  test('stale visual viewport CSS variables do not move or shrink the shell', async ({ page }) => {
     await navigateToSession(page);
     await page.evaluate(() => {
-      document.documentElement.style.setProperty('--viewport-offset-top', '48px');
-    });
-    await openOverlay(page);
-
-    const result = await page.evaluate(() => {
-      const backdrop = document.querySelector(
-        '[data-testid="session-chat-overlay"]'
-      ) as HTMLElement;
-      const panel = document.querySelector('.overlay-panel-wrapper') as HTMLElement;
-      const header = document.querySelector('.overlay-header') as HTMLElement;
-      return {
-        backdropTop: backdrop.getBoundingClientRect().top,
-        panelTop: panel.getBoundingClientRect().top,
-        headerTop: header.getBoundingClientRect().top,
-      };
+      document.documentElement.style.setProperty('--viewport-offset-top', '260px');
+      document.documentElement.style.setProperty('--visual-viewport-height', '420px');
     });
 
-    expect(result.backdropTop).toBeGreaterThanOrEqual(47);
-    expect(result.backdropTop).toBeLessThanOrEqual(49);
-    expect(result.panelTop).toBeGreaterThanOrEqual(47);
-    expect(result.panelTop).toBeLessThanOrEqual(49);
-    expect(result.headerTop).toBeGreaterThanOrEqual(47);
-    expect(result.headerTop).toBeLessThanOrEqual(49);
+    try {
+      await openOverlay(page);
 
-    await page.evaluate(() => {
-      document.documentElement.style.setProperty('--viewport-offset-top', '0px');
-    });
+      const result = await page.evaluate(() => {
+        const rectFor = (selector: string) => {
+          const el = document.querySelector(selector) as HTMLElement;
+          const r = el.getBoundingClientRect();
+          return {
+            top: r.top,
+            bottom: r.bottom,
+            left: r.left,
+            right: r.right,
+            width: r.width,
+          };
+        };
+
+        return {
+          backdrop: rectFor('[data-testid="session-chat-overlay"]'),
+          panel: rectFor('.overlay-panel-wrapper'),
+          header: rectFor('.overlay-header'),
+          inner: { w: window.innerWidth, h: window.innerHeight },
+        };
+      });
+
+      expect(result.backdrop.top).toBeLessThanOrEqual(1);
+      expect(result.backdrop.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+      expect(result.backdrop.left).toBeLessThanOrEqual(1);
+      expect(result.backdrop.right).toBeGreaterThanOrEqual(result.inner.w - 1);
+
+      expect(result.panel.top).toBeLessThanOrEqual(1);
+      expect(result.panel.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+      expect(result.panel.right).toBeGreaterThanOrEqual(result.inner.w - 1);
+      expect(result.panel.right).toBeLessThanOrEqual(result.inner.w + 1);
+      expect(result.panel.width).toBeLessThanOrEqual(Math.min(result.inner.w, 900) + 1);
+
+      expect(result.header.top).toBeLessThanOrEqual(1);
+      expect(result.header.top).toBeLessThan(260);
+    } finally {
+      await page.evaluate(() => {
+        document.documentElement.style.removeProperty('--viewport-offset-top');
+        document.documentElement.style.removeProperty('--visual-viewport-height');
+      });
+    }
   });
 
   test('covers viewport after SessionDetailView scroll', async ({ page }) => {
