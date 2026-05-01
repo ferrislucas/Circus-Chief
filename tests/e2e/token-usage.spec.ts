@@ -16,6 +16,19 @@ test.describe('Token usage display', () => {
     await cleanupCreatedResources();
   });
 
+  async function openOverlay(page: any, sessionId: string) {
+    await navigateAndWait(page, `/sessions/${sessionId}`, {
+      waitFor: '.session-detail',
+      timeout: 15000,
+    });
+    const handle = page.locator('[data-testid="session-chat-handle"]');
+    await expect(handle).toBeVisible({ timeout: 10000 });
+    await handle.click();
+    const overlay = page.locator('[data-testid="session-chat-overlay"]');
+    await expect(overlay).toBeVisible({ timeout: 5000 });
+    return overlay;
+  }
+
   test('conversation overlay shows raw token total and breakdown', async ({ page }) => {
     const project = await seedProject('Token Usage Test', '/tmp');
     const session = await seedSession(project.id, {
@@ -31,16 +44,17 @@ test.describe('Token usage display', () => {
       cacheCreationInputTokens: 750,
     });
 
-    await navigateAndWait(page, `/sessions/${session.id}`);
+    const overlay = await openOverlay(page, session.id);
 
-    await expect(page.getByText('Tokens:')).toBeVisible();
-    await expect(page.getByText('10.0K')).toBeVisible();
+    await expect(overlay.getByText('Tokens:')).toBeVisible();
+    await expect(overlay.getByText('10.0K')).toBeVisible();
 
-    await page.getByText('Tokens:').click();
-    await expect(page.getByText('Input')).toBeVisible();
-    await expect(page.getByText('Output')).toBeVisible();
-    await expect(page.getByText('Thinking')).toBeVisible();
-    await expect(page.getByText('Cache Read')).toBeVisible();
-    await expect(page.getByText('Cache Create')).toBeVisible();
+    await overlay.getByText('Tokens:').click();
+    const tokenBreakdown = overlay.locator('.token-breakdown');
+    await expect(tokenBreakdown.getByText('Input')).toBeVisible();
+    await expect(tokenBreakdown.getByText('Output')).toBeVisible();
+    await expect(tokenBreakdown.getByText('Thinking')).toBeVisible();
+    await expect(tokenBreakdown.getByText('Cache Read')).toBeVisible();
+    await expect(tokenBreakdown.getByText('Cache Create')).toBeVisible();
   });
 });
