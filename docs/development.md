@@ -125,8 +125,10 @@ Each agent type is registered in `packages/server/src/agents/AgentGateway.js` an
 
 The Codex adapter (`packages/server/src/agents/adapters/CodexAdapter.js`) supports two execution paths:
 
-1. **CLI path (default)** — spawns `codex --json` and parses line-delimited JSON output
-2. **Direct API path** — activated via `USE_CODEX_DIRECT_API=1`, uses the OpenAI SDK with Chat Completions streaming
+1. **CLI path (default)** — spawns `codex exec --json --skip-git-repo-check`, maps Codex JSONL events into the shared agent event shape, and applies session mode via the Codex `--sandbox` flag (`plan` → `read-only`, `standard` → `workspace-write`, `yolo` → `danger-full-access`).
+2. **Direct API path (fallback)** — activated via `USE_CODEX_DIRECT_API=1` or after the CLI is unavailable, streams Chat Completions through the OpenAI SDK, and requires `OPENAI_API_KEY`.
+
+The CLI path also passes configured reasoning effort and commit attribution to Codex. When no `OPENAI_API_KEY` is present in the session environment, it forces `preferred_auth_method=chatgpt` so the CLI uses its own ChatGPT login instead of an accidental API-key path. The direct API fallback does not run the Codex CLI, so CLI-specific behavior such as sandbox enforcement and commit attribution config is not applied there.
 
 | Capability | Supported |
 |------------|-----------|
