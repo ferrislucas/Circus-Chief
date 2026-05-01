@@ -61,6 +61,7 @@
         </div>
         <p class="form-help">
           Where git worktrees are created for sessions. Changing this only affects new sessions.
+          <br>Effective path: <code>{{ worktreePath || (workingDirectory ? `${workingDirectory}/.worktrees` : '') }}/{sessionId}</code>
         </p>
       </div>
 

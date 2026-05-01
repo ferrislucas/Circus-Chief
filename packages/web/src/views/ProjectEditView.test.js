@@ -1084,6 +1084,74 @@ describe('ProjectEditView with Session Defaults', () => {
     });
   });
 
+  describe('Effective Worktree Path display', () => {
+    it('shows the working directory + /.worktrees when worktreePath is empty', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp/myrepo',
+        worktreePath: null
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      const text = wrapper.text();
+      expect(text).toContain('Effective path:');
+      expect(text).toContain('/tmp/myrepo/.worktrees/{sessionId}');
+    });
+
+    it('shows the worktreePath value when it is set', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp/myrepo',
+        worktreePath: '/custom/worktrees'
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      const text = wrapper.text();
+      expect(text).toContain('Effective path:');
+      expect(text).toContain('/custom/worktrees/{sessionId}');
+    });
+
+    it('renders the effective path inside a <code> element for monospace styling', async () => {
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Test',
+        workingDirectory: '/tmp/myrepo',
+        worktreePath: null
+      };
+
+      const wrapper = mount(ProjectEditView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: { PathChooser: true, QuickResponseSettings: true }
+        }
+      });
+
+      await flushAll(wrapper);
+
+      const codeEls = wrapper.findAll('code');
+      const effectiveCode = codeEls.find(c => c.text().includes('/tmp/myrepo/.worktrees/{sessionId}'));
+      expect(effectiveCode).toBeDefined();
+    });
+  });
+
   describe('Kanban Experimental labeling', () => {
     it('renders "Experimental" badge in the Kanban Board section summary', async () => {
       projectsStore.currentProject = {
