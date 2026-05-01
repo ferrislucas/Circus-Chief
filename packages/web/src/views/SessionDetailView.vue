@@ -89,7 +89,7 @@
         :session-chain="sessionChain"
         :summaries-map="summariesMap"
         @close="handleOverlayClose"
-        @session-created="buildSessionChain"
+        @session-created="handleOverlaySessionCreated"
       />
 
       <!-- Archive Confirm Modal -->
@@ -175,6 +175,8 @@ const archiving = ref(false);
 
 // Session ID to pass to the overlay - resolves to running child if present
 const overlaySessionId = ref(route.params.id);
+const preferredOverlaySessionId = ref(null);
+const preferredOverlaySession = ref(null);
 
 // Session chain state (lifted from SessionChatOverlay)
 const sessionChain = ref([]);
@@ -285,6 +287,18 @@ async function buildSessionChain() {
 function resolveOverlayTarget() {
   const chain = sessionChain.value;
 
+  if (preferredOverlaySessionId.value) {
+    const preferred = chain.find(entry => entry.session.id === preferredOverlaySessionId.value);
+    if (preferred) {
+      overlaySessionId.value = preferred.session.id;
+      return;
+    }
+    if (preferredOverlaySession.value?.id === preferredOverlaySessionId.value) {
+      overlaySessionId.value = preferredOverlaySession.value.id;
+      return;
+    }
+  }
+
   // No children — use the current session
   if (chain.length <= 1) {
     overlaySessionId.value = currentSessionId.value;
@@ -382,6 +396,37 @@ function handleSessionCreated(msg) {
 function handleOverlayOpen() {
   resolveOverlayTarget();
   chatOverlayOpen.value = true;
+}
+
+async function handleOverlaySessionCreated(session) {
+  const createdSession = typeof session === 'string'
+    ? sessionsStore.getSessionById(session)
+    : session;
+  const sessionId = typeof session === 'string' ? session : session?.id;
+  if (!sessionId) return;
+
+  preferredOverlaySessionId.value = sessionId;
+  preferredOverlaySession.value = createdSession || null;
+  overlaySessionId.value = sessionId;
+
+  if (createdSession && !sessionsStore.getSessionById(sessionId)) {
+    sessionsStore.sessions.unshift(createdSession);
+  }
+
+  await buildSessionChain();
+  if (
+    preferredOverlaySession.value &&
+    !sessionChain.value.some(entry => entry.session.id === sessionId)
+  ) {
+    const parentEntry = sessionChain.value.find(
+      entry => entry.session.id === preferredOverlaySession.value.parentSessionId
+    );
+    sessionChain.value = [
+      { session: preferredOverlaySession.value, depth: parentEntry ? parentEntry.depth + 1 : 0 },
+      ...sessionChain.value,
+    ];
+  }
+  resolveOverlayTarget();
 }
 
 async function handleOverlayClose() {
@@ -528,6 +573,8 @@ watch(
       // Reset readiness so tests (and any caller watching isReady) observe
       // the hydration transition for the new session.
       sessionChainReady.value = false;
+      preferredOverlaySessionId.value = null;
+      preferredOverlaySession.value = null;
       cleanup();
       currentSessionId.value = newSessionId;
       await initializeSession(newSessionId);

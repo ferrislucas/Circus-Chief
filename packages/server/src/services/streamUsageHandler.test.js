@@ -170,6 +170,7 @@ describe('handleTextDelta', () => {
     mockCurrentTurnUsage.set('conv-1', {
       inputTokens: 100,
       outputTokens: 50,
+      thinkingTokens: 30,
       lastMessageOutput: 20,
       cacheReadInputTokens: 10,
       cacheCreationInputTokens: 5,
@@ -181,6 +182,7 @@ describe('handleTextDelta', () => {
     expect(usageCall).toBeDefined();
     expect(usageCall[2].isEstimate).toBe(true);
     expect(usageCall[2].isFinal).toBe(false);
+    expect(usageCall[2].usage.thinkingTokens).toBe(30);
   });
 });
 
@@ -190,21 +192,23 @@ describe('extractTurnUsage', () => {
   it('extracts from modelUsage first value', () => {
     mockCurrentModels.set('sess-1', 'claude-sonnet');
     const result = extractTurnUsage('sess-1', {
-      modelUsage: { 'claude-opus': { inputTokens: 100, outputTokens: 50 } },
+      modelUsage: { 'claude-opus': { inputTokens: 100, outputTokens: 50, thinkingTokens: 75 } },
       usage: { input_tokens: 200, output_tokens: 100 },
     });
     expect(result.inputTokens).toBe(100);
     expect(result.outputTokens).toBe(50);
+    expect(result.thinkingTokens).toBe(75);
     expect(result.model).toBe('claude-sonnet');
   });
 
   it('falls back to event.usage', () => {
     mockCurrentModels.set('sess-1', null);
     const result = extractTurnUsage('sess-1', {
-      usage: { input_tokens: 200, output_tokens: 100, cache_read_input_tokens: 50, cache_creation_input_tokens: 10 },
+      usage: { input_tokens: 200, output_tokens: 100, thinking_tokens: 40, cache_read_input_tokens: 50, cache_creation_input_tokens: 10 },
     });
     expect(result.inputTokens).toBe(200);
     expect(result.outputTokens).toBe(100);
+    expect(result.thinkingTokens).toBe(40);
     expect(result.cacheReadInputTokens).toBe(50);
     expect(result.cacheCreationInputTokens).toBe(10);
   });
@@ -218,6 +222,15 @@ describe('extractTurnUsage', () => {
     const result = extractTurnUsage('sess-1', { usage: {} });
     expect(result.webSearchRequests).toBe(0);
   });
+
+  it('defaults thinkingTokens to 0 when absent from both modelUsage and usage', () => {
+    mockCurrentModels.set('sess-1', 'claude-sonnet');
+    const result = extractTurnUsage('sess-1', {
+      modelUsage: { 'claude-sonnet': { inputTokens: 100, outputTokens: 50 } },
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+    expect(result.thinkingTokens).toBe(0);
+  });
 });
 
 // ── buildCumulativeSessionUsage ───────────────────────────────────────────
@@ -228,6 +241,7 @@ describe('buildCumulativeSessionUsage', () => {
     sessions.getById.mockReturnValue({
       inputTokens: 100,
       outputTokens: 50,
+      thinkingTokens: 40,
       cacheReadInputTokens: 10,
       cacheCreationInputTokens: 5,
       webSearchRequests: 2,
@@ -236,6 +250,7 @@ describe('buildCumulativeSessionUsage', () => {
     const result = buildCumulativeSessionUsage('sess-1', {
       inputTokens: 50,
       outputTokens: 25,
+      thinkingTokens: 35,
       cacheReadInputTokens: 5,
       cacheCreationInputTokens: 2,
       webSearchRequests: 1,
@@ -244,6 +259,7 @@ describe('buildCumulativeSessionUsage', () => {
 
     expect(result.inputTokens).toBe(150);
     expect(result.outputTokens).toBe(75);
+    expect(result.thinkingTokens).toBe(75);
     expect(result.cacheReadInputTokens).toBe(15);
     expect(result.webSearchRequests).toBe(3);
     expect(result.contextWindow).toBe(200000);
@@ -256,6 +272,7 @@ describe('buildCumulativeSessionUsage', () => {
     const result = buildCumulativeSessionUsage('sess-1', {
       inputTokens: 100,
       outputTokens: 50,
+      thinkingTokens: 25,
       cacheReadInputTokens: 0,
       cacheCreationInputTokens: 0,
       webSearchRequests: 0,
@@ -264,6 +281,7 @@ describe('buildCumulativeSessionUsage', () => {
 
     expect(result.inputTokens).toBe(100);
     expect(result.outputTokens).toBe(50);
+    expect(result.thinkingTokens).toBe(25);
   });
 });
 
@@ -276,18 +294,25 @@ describe('updateConversationUsage', () => {
 
   it('cumulatively adds usage to existing conversation', async () => {
     const { conversations } = await import('../database.js');
-    conversations.updateUsage.mockReturnValue({ id: 'conv-1', inputTokens: 150, outputTokens: 75 });
+    conversations.updateUsage.mockReturnValue({ id: 'conv-1', inputTokens: 150, outputTokens: 75, thinkingTokens: 60 });
 
-    const result = updateConversationUsage('conv-1', { inputTokens: 100, outputTokens: 50 }, {
+    const result = updateConversationUsage('conv-1', { inputTokens: 100, outputTokens: 50, thinkingTokens: 30 }, {
       inputTokens: 50,
       outputTokens: 25,
+      thinkingTokens: 30,
+      cacheReadInputTokens: 0,
+      cacheCreationInputTokens: 0,
+      webSearchRequests: 0,
+      contextWindow: 200000,
     });
 
     expect(result.inputTokens).toBe(150);
     expect(result.outputTokens).toBe(75);
+    expect(result.thinkingTokens).toBe(60);
     expect(conversations.updateUsage).toHaveBeenCalledWith('conv-1', expect.objectContaining({
       inputTokens: 150,
       outputTokens: 75,
+      thinkingTokens: 60,
     }));
   });
 });
@@ -302,20 +327,20 @@ describe('handleResultUsage', () => {
     mockActiveConversationIds.set('sess-1', 'conv-1');
     mockCurrentModels.set('sess-1', 'claude-sonnet');
 
-    sessions.getById.mockReturnValue({ id: 'sess-1', inputTokens: 0, outputTokens: 0, projectId: 'proj-1' });
-    sessions.updateUsage.mockReturnValue({ id: 'sess-1', inputTokens: 100, outputTokens: 50, projectId: 'proj-1' });
-    conversations.getById.mockReturnValue({ id: 'conv-1', inputTokens: 0, outputTokens: 0 });
-    conversations.updateUsage.mockReturnValue({ id: 'conv-1', inputTokens: 100, outputTokens: 50 });
+    sessions.getById.mockReturnValue({ id: 'sess-1', inputTokens: 0, outputTokens: 0, thinkingTokens: 0, projectId: 'proj-1' });
+    sessions.updateUsage.mockReturnValue({ id: 'sess-1', inputTokens: 100, outputTokens: 50, thinkingTokens: 75, projectId: 'proj-1' });
+    conversations.getById.mockReturnValue({ id: 'conv-1', inputTokens: 0, outputTokens: 0, thinkingTokens: 0 });
+    conversations.updateUsage.mockReturnValue({ id: 'conv-1', inputTokens: 100, outputTokens: 50, thinkingTokens: 75 });
 
     handleResultUsage('sess-1', {
-      modelUsage: { 'claude-sonnet': { inputTokens: 100, outputTokens: 50 } },
-      usage: { input_tokens: 100, output_tokens: 50 },
+      modelUsage: { 'claude-sonnet': { inputTokens: 100, outputTokens: 50, thinkingTokens: 75 } },
+      usage: { input_tokens: 100, output_tokens: 50, thinking_tokens: 75 },
     });
 
-    // Should broadcast usage update (isFinal: true)
-    expect(broadcastToSession).toHaveBeenCalledWith('sess-1', 'session_usage_update', expect.objectContaining({
-      isFinal: true,
-    }));
+    // Should broadcast usage update (isFinal: true) with thinkingTokens
+    const usageCall = broadcastToSession.mock.calls.find(c => c[1] === 'session_usage_update' && c[2].isFinal === true);
+    expect(usageCall).toBeDefined();
+    expect(usageCall[2].usage.thinkingTokens).toBe(75);
 
     // Should broadcast session update
     expect(broadcastToProject).toHaveBeenCalledWith('proj-1', 'session_updated', expect.any(Object));

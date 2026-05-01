@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia';
-import { calculateBillableTokens, formatTokenCount } from '@circuschief/shared';
-import { useSettingsStore } from './settings.js';
+import { calculateTokenTotal, formatTokenCount } from '@circuschief/shared';
 
 /**
  * Format a token count for display
@@ -24,6 +23,7 @@ function mergeUsageWithRunning(conv, runningUsage) {
   return {
     inputTokens: (conv?.inputTokens || 0) + (runningUsage?.inputTokens || 0),
     outputTokens: (conv?.outputTokens || 0) + (runningUsage?.outputTokens || 0),
+    thinkingTokens: (conv?.thinkingTokens || 0) + (runningUsage?.thinkingTokens || 0),
     cacheReadInputTokens: (conv?.cacheReadInputTokens || 0) + (runningUsage?.cacheReadInputTokens || 0),
     cacheCreationInputTokens: (conv?.cacheCreationInputTokens || 0) + (runningUsage?.cacheCreationInputTokens || 0),
   };
@@ -38,6 +38,7 @@ function convUsage(conv) {
   return {
     inputTokens: conv.inputTokens,
     outputTokens: conv.outputTokens,
+    thinkingTokens: conv.thinkingTokens,
     cacheReadInputTokens: conv.cacheReadInputTokens,
     cacheCreationInputTokens: conv.cacheCreationInputTokens,
   };
@@ -97,6 +98,7 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
           updateConversationAtIndex(index, {
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
+            thinkingTokens: usage.thinkingTokens,
             cacheReadInputTokens: usage.cacheReadInputTokens,
             cacheCreationInputTokens: usage.cacheCreationInputTokens,
             webSearchRequests: usage.webSearchRequests,
@@ -111,6 +113,7 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
         updateCurrentSession({
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
+          thinkingTokens: usage.thinkingTokens,
           cacheReadInputTokens: usage.cacheReadInputTokens,
           cacheCreationInputTokens: usage.cacheCreationInputTokens,
           webSearchRequests: usage.webSearchRequests,
@@ -141,6 +144,7 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
         ? {
             inputTokens: conv.inputTokens || 0,
             outputTokens: conv.outputTokens || 0,
+            thinkingTokens: conv.thinkingTokens || 0,
             cacheReadInputTokens: conv.cacheReadInputTokens || 0,
             cacheCreationInputTokens: conv.cacheCreationInputTokens || 0,
             webSearchRequests: conv.webSearchRequests || 0,
@@ -159,10 +163,10 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
     getTotalTokens(conversations, activeConversationId, currentSession) {
       const conv = conversations.find((c) => c.id === activeConversationId);
       if (conv) {
-        return (conv.inputTokens || 0) + (conv.outputTokens || 0);
+        return calculateTokenTotal(conv);
       }
       if (!currentSession) return 0;
-      return (currentSession.inputTokens || 0) + (currentSession.outputTokens || 0);
+      return calculateTokenTotal(currentSession);
     },
 
     /**
@@ -180,7 +184,8 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
         return {
           input: formatNumber(merged.inputTokens),
           output: formatNumber(merged.outputTokens),
-          total: formatNumber(merged.inputTokens + merged.outputTokens),
+          thinking: formatNumber(merged.thinkingTokens),
+          total: formatNumber(calculateTokenTotal(merged)),
           cacheRead: formatNumber(merged.cacheReadInputTokens),
           cacheCreation: formatNumber(merged.cacheCreationInputTokens),
         };
@@ -193,7 +198,8 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
           return {
             input: formatNumber(conv.inputTokens),
             output: formatNumber(conv.outputTokens),
-            total: formatNumber((conv.inputTokens || 0) + (conv.outputTokens || 0)),
+            thinking: formatNumber(conv.thinkingTokens),
+            total: formatNumber(calculateTokenTotal(conv)),
             cacheRead: formatNumber(conv.cacheReadInputTokens),
             cacheCreation: formatNumber(conv.cacheCreationInputTokens),
           };
@@ -201,7 +207,7 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
       }
 
       // FALLBACK
-      return { input: '-', output: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
+      return { input: '-', output: '-', thinking: '-', total: '-', cacheRead: '-', cacheCreation: '-' };
     },
 
     /**
@@ -216,7 +222,7 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
       if (isRunningUsageRelevant(this.runningUsage, activeConversationId)) {
         const conv = conversations.find(c => c.id === activeConversationId);
         const merged = mergeUsageWithRunning(conv, this.runningUsage);
-        const total = merged.inputTokens + merged.outputTokens;
+        const total = calculateTokenTotal(merged);
         const contextWindow = this.runningUsage.contextWindow || conv?.contextWindow || 200000;
         return Math.min(100, Math.round((total / contextWindow) * 100));
       }
@@ -226,7 +232,7 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
       const source = conv || currentSession;
       if (!source) return 0;
 
-      const totalTokens = (source.inputTokens || 0) + (source.outputTokens || 0);
+      const totalTokens = calculateTokenTotal(source);
       const contextWindow = source.contextWindow || 200000;
       return Math.min(100, Math.round((totalTokens / contextWindow) * 100));
     },
@@ -252,46 +258,45 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
      */
     getConversationDisplayTokens(conversationId, conversations) {
       const conv = conversations.find((c) => c.id === conversationId);
-      if (!conv) return { inputTokens: 0, outputTokens: 0, total: 0 };
+      if (!conv) return { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, total: 0 };
 
       if (this.runningUsage && this.runningUsage.conversationId === conversationId) {
         const merged = mergeUsageWithRunning(conv, this.runningUsage);
         return {
           inputTokens: merged.inputTokens,
           outputTokens: merged.outputTokens,
-          total: merged.inputTokens + merged.outputTokens,
+          thinkingTokens: merged.thinkingTokens,
+          total: calculateTokenTotal(merged),
         };
       }
 
       return {
         inputTokens: conv.inputTokens || 0,
         outputTokens: conv.outputTokens || 0,
-        total: (conv.inputTokens || 0) + (conv.outputTokens || 0),
+        thinkingTokens: conv.thinkingTokens || 0,
+        total: calculateTokenTotal(conv),
       };
     },
 
     /**
-     * Calculate BTE for current active conversation
+     * Calculate raw tokens for current active conversation
      * @param {Array} conversations - Conversations array
      * @param {string|null} activeConversationId - Active conversation ID
      * @returns {number}
      */
-    getBillableTokens(conversations, activeConversationId) {
-      const settingsStore = useSettingsStore();
-      const weights = settingsStore.tokenCostWeights;
-
+    getTokenTotal(conversations, activeConversationId) {
       // STREAMING
       if (isRunningUsageRelevant(this.runningUsage, activeConversationId)) {
         const conv = conversations.find(c => c.id === activeConversationId);
         const usage = mergeUsageWithRunning(conv, this.runningUsage);
-        return calculateBillableTokens(usage, weights);
+        return calculateTokenTotal(usage);
       }
 
       // PERSISTED
       if (activeConversationId && conversations.length > 0) {
         const conv = conversations.find(c => c.id === activeConversationId);
         if (conv) {
-          return calculateBillableTokens(convUsage(conv), weights);
+          return calculateTokenTotal(convUsage(conv));
         }
       }
 
@@ -299,27 +304,24 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
     },
 
     /**
-     * Get formatted BTE string
+     * Get formatted raw token total
      * @param {Array} conversations - Conversations array
      * @param {string|null} activeConversationId - Active conversation ID
      * @returns {string}
      */
-    getFormattedBillableTokens(conversations, activeConversationId) {
-      const settingsStore = useSettingsStore();
-      const weights = settingsStore.tokenCostWeights;
-
+    getFormattedTokenTotal(conversations, activeConversationId) {
       // STREAMING
       if (isRunningUsageRelevant(this.runningUsage, activeConversationId)) {
         const conv = conversations.find(c => c.id === activeConversationId);
         const usage = mergeUsageWithRunning(conv, this.runningUsage);
-        return formatTokenCount(calculateBillableTokens(usage, weights));
+        return formatTokenCount(calculateTokenTotal(usage));
       }
 
       // PERSISTED
       if (activeConversationId && conversations.length > 0) {
         const conv = conversations.find(c => c.id === activeConversationId);
         if (conv) {
-          return formatTokenCount(calculateBillableTokens(convUsage(conv), weights));
+          return formatTokenCount(calculateTokenTotal(convUsage(conv)));
         }
       }
 
@@ -327,35 +329,29 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
     },
 
     /**
-     * Calculate BTE for a specific conversation
+     * Calculate raw tokens for a specific conversation
      * @param {string} conversationId - Conversation ID
      * @param {Array} conversations - Conversations array
      * @returns {number}
      */
-    getConversationBillableTokens(conversationId, conversations) {
-      const settingsStore = useSettingsStore();
-      const weights = settingsStore.tokenCostWeights;
-
+    getConversationTokenTotal(conversationId, conversations) {
       const conv = conversations.find(c => c.id === conversationId);
       if (!conv) return 0;
 
       if (this.runningUsage && this.runningUsage.conversationId === conversationId) {
-        return calculateBillableTokens(mergeUsageWithRunning(conv, this.runningUsage), weights);
+        return calculateTokenTotal(mergeUsageWithRunning(conv, this.runningUsage));
       }
 
-      return calculateBillableTokens(convUsage(conv), weights);
+      return calculateTokenTotal(convUsage(conv));
     },
 
     /**
-     * Get formatted BTE for a specific conversation
+     * Get formatted raw tokens for a specific conversation
      * @param {string} conversationId - Conversation ID
      * @param {Array} conversations - Conversations array
      * @returns {string}
      */
-    getFormattedConversationBillableTokens(conversationId, conversations) {
-      const settingsStore = useSettingsStore();
-      const weights = settingsStore.tokenCostWeights;
-
+    getFormattedConversationTokenTotal(conversationId, conversations) {
       const conv = conversations.find(c => c.id === conversationId);
       if (!conv) return '-';
 
@@ -366,7 +362,7 @@ export const useSessionUsageStore = defineStore('sessionUsage', {
         usage = convUsage(conv);
       }
 
-      return formatTokenCount(calculateBillableTokens(usage, weights));
+      return formatTokenCount(calculateTokenTotal(usage));
     },
   },
 });

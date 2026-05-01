@@ -1,5 +1,6 @@
 import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import { buildCommandButtonApiInstructions } from './commandButtonPrompts.js';
 
 /**
  * Get the base API URL for canvas and session operations.
@@ -422,10 +423,12 @@ This session is part of a multi-session workflow:
  * @returns {string} System prompt string
  */
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
+  const apiUrl = getApiBaseUrl();
   const session = sessions.getById(sessionId);
   const canvasWriteInstructions = buildCanvasWriteSystemPrompt(session);  // Pass session object
   const canvasReadInstructions = buildCanvasReadSystemPrompt(session);    // Pass session object
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
+  const commandButtonApiInstructions = buildCommandButtonApiInstructions(apiUrl, sessionId, projectId);
   const kanbanApiInstructions = buildKanbanApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const worktreeContext = buildWorktreeContext(session);
@@ -445,6 +448,7 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
     canvasWriteInstructions,
     canvasReadInstructions,
     sessionApiInstructions,
+    commandButtonApiInstructions,
     kanbanApiInstructions
   ].filter(Boolean);
 

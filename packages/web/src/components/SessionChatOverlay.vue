@@ -364,7 +364,6 @@ import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { api } from '../composables/useApi.js';
-import { requestVisualViewportSettle } from '../composables/useVisualViewport.js';
 import { createOverlaySessionsStore } from '../stores/createOverlaySessionsStore.js';
 import { createOverlayTodosStore } from '../stores/createOverlayTodosStore.js';
 import { SESSIONS_STORE_KEY, TODOS_STORE_KEY } from '../composables/useOverlayStore.js';
@@ -423,10 +422,6 @@ const switchingSession = ref(true);
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
-
-// Track whether a text input is focused so blur can coordinate viewport settling.
-const inputFocused = ref(false);
-let focusOutRaf = null;
 
 // Template ref to the ConversationTab for flushing drafts before session switch
 const conversationTabRef = ref(null);
@@ -595,8 +590,10 @@ async function addChildSession() {
     // Add to main store's session list (not the overlay's isolated state)
     mainSessionsStore.sessions.unshift(newSession);
 
-    // Notify parent to rebuild session chain so it includes the new child
-    emit('session-created', newSession.id);
+    // Notify parent to rebuild session chain so it includes the new child.
+    // Pass the full session so the parent does not have to wait for the
+    // project-session list endpoint to include this brand-new session.
+    emit('session-created', newSession);
 
     // Switch the overlay to the new session
     await switchToSession(newSession.id);
@@ -791,57 +788,6 @@ function handleEscape(event) {
 }
 
 /**
- * Handle focusin on the overlay body — detect when the prompt textarea gains focus.
- * Uses event delegation from .overlay-body so we catch the bubbling event from
- * InputForm → ResizableTextarea's <textarea>. Browser-native scroll-on-focus
- * handles bringing the focused field into the `.overlay-body` scroll viewport.
- */
-function handleOverlayFocusin(e) {
-  // Symmetric with handleOverlayFocusout: both TEXTAREA and text-typed INPUT
-  // can open the iOS keyboard. Keeping scopes identical ensures inputFocused
-  // transitions are balanced (focus→blur pairs on text inputs toggle it
-  // consistently).
-  const tag = e.target.tagName;
-  const isText =
-    tag === 'TEXTAREA' ||
-    (tag === 'INPUT' && /^(text|search|url|email|number|tel|password)$/i
-      .test(e.target.type || 'text'));
-  if (!isText) return;
-
-  // Cancel any pending focusout that would have cleared inputFocused
-  if (focusOutRaf) {
-    cancelAnimationFrame(focusOutRaf);
-    focusOutRaf = null;
-  }
-  inputFocused.value = true;
-}
-
-/**
- * Handle focusout on the overlay body — detect when the prompt textarea /
- * text input loses focus. Uses requestAnimationFrame delay to avoid flashing
- * the header when focus moves from textarea to another element (e.g. Send
- * button).
- */
-function handleOverlayFocusout(e) {
-  // Expanded scope: both TEXTAREA and text INPUT elements can open the iOS
-  // keyboard. Exclude non-text inputs (checkbox, radio, button, etc.) since
-  // they don't trigger the keyboard.
-  const tag = e.target.tagName;
-  const isText =
-    tag === 'TEXTAREA' ||
-    (tag === 'INPUT' && /^(text|search|url|email|number|tel|password)$/i
-      .test(e.target.type || 'text'));
-  if (!isText) return;
-
-  if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
-  requestVisualViewportSettle();
-  focusOutRaf = requestAnimationFrame(() => {
-    focusOutRaf = null;
-    inputFocused.value = false;
-  });
-}
-
-/**
  * Prevent touch-drag on the overlay header from scrolling the overlay,
  * while allowing touch-move inside interactive children that need it:
  * - SessionChatPicker dropdown (scrollable list)
@@ -911,15 +857,6 @@ onMounted(async () => {
   window.addEventListener('resize', checkMobile);
   checkMobile();
 
-  // Register focusin/focusout BEFORE the await so they're ready immediately.
-  // overlayBodyRef is a template ref on .overlay-body which is always rendered
-  // (it does not depend on switchingSession), so it is available at mount time.
-  const body = overlayBodyRef.value;
-  if (body) {
-    body.addEventListener('focusin', handleOverlayFocusin);
-    body.addEventListener('focusout', handleOverlayFocusout);
-  }
-
   // Load data for the active session, then reveal ConversationTab.
   // switchingSession starts as true, so ConversationTab won't mount until
   // currentSession is set to the correct overlay session.
@@ -936,12 +873,6 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
-  const body = overlayBodyRef.value;
-  if (body) {
-    body.removeEventListener('focusin', handleOverlayFocusin);
-    body.removeEventListener('focusout', handleOverlayFocusout);
-  }
-  if (focusOutRaf) cancelAnimationFrame(focusOutRaf);
   cleanupSubscription();
   // Clean up overlay stores: dispose subscriptions AND remove from Pinia registry
   // to prevent state leaks on every overlay open/close cycle.
@@ -960,9 +891,6 @@ defineExpose({
   switchingSession,
   pickerOpen,
   handlePickerSelect,
-  inputFocused,
-  // DOM refs needed by tests that append real elements (textarea/input)
-  // into the overlay body to exercise focusin/focusout flows:
   overlayBodyRef,
 });
 </script>
@@ -1035,10 +963,7 @@ defineExpose({
 <style scoped>
 .overlay-backdrop {
   position: fixed;
-  top: var(--viewport-offset-top, 0px);
-  right: 0;
-  left: 0;
-  height: var(--visual-viewport-height, 100dvh);
+  inset: 0;
   z-index: 1000;
   background: rgb(17, 24, 39);
   display: block;
@@ -1048,10 +973,9 @@ defineExpose({
 }
 
 .overlay-panel-wrapper {
-  position: fixed;
-  top: var(--viewport-offset-top, 0px);
-  right: 0;
-  height: var(--visual-viewport-height, 100dvh);
+  position: absolute;
+  inset: 0 0 0 auto;
+  height: 100%;
   display: flex;
   min-height: 0;
   max-width: 900px;
@@ -1128,6 +1052,7 @@ defineExpose({
   padding: 0;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
   position: relative;
+  background: rgb(17, 24, 39);
 }
 
 .overlay-body {
@@ -1141,6 +1066,7 @@ defineExpose({
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  background: rgb(17, 24, 39);
 }
 
 .overlay-header {
@@ -1223,10 +1149,10 @@ defineExpose({
   flex: 1;
 }
 
-/* In the overlay the .conversation-controls-row (TokenCostPanel + scroll-to-
+/* In the overlay the .conversation-controls-row (token panel + scroll-to-
    claude button) uses `position: sticky; bottom: 0` so it always stays at the
    bottom of the .overlay-body scroll viewport. This keeps the button visible
-   and tappable regardless of scroll position while the button and cost panel
+   and tappable regardless of scroll position while the button and token panel
    remain naturally aligned as siblings in the same flex row.
 
    pointer-events: none on the row itself allows clicks to pass through the

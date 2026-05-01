@@ -8,20 +8,17 @@ import sessionChatOverlaySource from './SessionChatOverlay.vue?raw';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@circuschief/shared';
 
-const mockRequestVisualViewportUpdate = vi.hoisted(() => vi.fn());
-const mockRequestVisualViewportSettle = vi.hoisted(() => vi.fn());
-
-vi.mock('../composables/useVisualViewport.js', () => ({
-  requestVisualViewportSettle: mockRequestVisualViewportSettle,
-  requestVisualViewportUpdate: mockRequestVisualViewportUpdate,
-}));
-
-// jsdom has no scrollIntoView. Several overlay code paths call it after
-// focus transitions fire; stub it globally so blur-recovery tests can
-// exercise the real focusin/focusout listeners without throwing.
+// jsdom has no scrollIntoView. Several descendant overlay code paths can call
+// it after focus transitions fire; stub it globally for mounted tests.
 if (!HTMLElement.prototype.scrollIntoView) {
   HTMLElement.prototype.scrollIntoView = function scrollIntoViewStub() {};
 }
+
+Object.defineProperty(window, 'scrollTo', {
+  configurable: true,
+  writable: true,
+  value: vi.fn(),
+});
 
 // Mock @circuschief/shared
 vi.mock('@circuschief/shared', () => ({
@@ -262,6 +259,14 @@ describe('SessionChatOverlay', () => {
       },
       attachTo: document.body,
     });
+  }
+
+  function getStyleBlock(selector) {
+    const start = sessionChatOverlaySource.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = sessionChatOverlaySource.indexOf('\n}', start);
+    expect(end).toBeGreaterThan(start);
+    return sessionChatOverlaySource.slice(start, end + 2);
   }
 
   async function waitForTransition() {
@@ -1026,7 +1031,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
-      expect(onSessionCreated).toHaveBeenCalledWith('new-sess');
+      expect(onSessionCreated).toHaveBeenCalledWith(newSession);
       wrapper.unmount();
     });
 
@@ -1549,7 +1554,7 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('CSS-owned geometry (no JS viewport sync)', () => {
+  describe('fullscreen shell CSS contract', () => {
     it('does not write inline geometry on the backdrop', async () => {
       const wrapper = mountOverlay();
       await nextTick();
@@ -1562,42 +1567,60 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('backdrop stylesheet uses fixed viewport-offset geometry', () => {
-      // Assert against the SFC source text (imported as raw via Vite `?raw`).
-      // jsdom does not reliably attach Vue <style scoped> blocks to
-      // document.styleSheets, so source-text inspection is the check used
-      // elsewhere in this file (see removed panel-wrapper stylesheet test).
-      const blockMatch = sessionChatOverlaySource.match(/\.overlay-backdrop\s*\{[^}]*\}/);
-      expect(blockMatch).toBeTruthy();
-      const block = blockMatch[0];
+    it('backdrop stylesheet uses browser-owned full viewport geometry', () => {
+      const block = getStyleBlock('.overlay-backdrop');
       expect(block).toMatch(/position:\s*fixed/);
-      expect(block).toMatch(/top:\s*var\(--viewport-offset-top,\s*0px\)/);
-      expect(block).toMatch(/right:\s*0/);
-      expect(block).toMatch(/left:\s*0/);
-      expect(block).toMatch(/height:\s*var\(--visual-viewport-height,\s*100dvh\)/);
-      expect(block).not.toMatch(/bottom:\s*0/);
+      expect(block).toMatch(/inset:\s*0/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
+      expect(block).not.toMatch(/--visual-viewport-height/);
+      expect(block).not.toMatch(/top:\s*var\(/);
+      expect(block).not.toMatch(/height:\s*var\(/);
     });
 
-    it('panel-wrapper stylesheet uses fixed visual viewport geometry', () => {
-      const blockMatch = sessionChatOverlaySource.match(/\.overlay-panel-wrapper\s*\{[^}]*\}/);
-      expect(blockMatch).toBeTruthy();
-      const block = blockMatch[0];
-      expect(block).toMatch(/position:\s*fixed/);
-      expect(block).toMatch(/top:\s*var\(--viewport-offset-top,\s*0px\)/);
-      expect(block).toMatch(/right:\s*0/);
-      expect(block).toMatch(/height:\s*var\(--visual-viewport-height,\s*100dvh\)/);
-      expect(block).not.toMatch(/bottom:\s*0/);
+    it('panel-wrapper stylesheet is child geometry inside the backdrop', () => {
+      const block = getStyleBlock('.overlay-panel-wrapper');
+      expect(block).toMatch(/position:\s*absolute/);
+      expect(block).toMatch(/inset:\s*0 0 0 auto/);
+      expect(block).toMatch(/height:\s*100%/);
+      expect(block).not.toMatch(/position:\s*fixed/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
+      expect(block).not.toMatch(/--visual-viewport-height/);
+      expect(block).not.toMatch(/top:\s*var\(/);
+      expect(block).not.toMatch(/height:\s*var\(/);
       expect(block).not.toMatch(/min-height:\s*100vh/);
       expect(block).not.toMatch(/min-height:\s*100dvh/);
     });
 
-    it('source no longer references window.visualViewport', () => {
-      // Viewport reads stay centralized in useVisualViewport.js.
+    it('overlay shell stylesheet ignores stale visual viewport variables', () => {
+      const shellBlocks = [
+        getStyleBlock('.overlay-backdrop'),
+        getStyleBlock('.overlay-panel-wrapper'),
+      ].join('\n');
+      expect(shellBlocks).not.toMatch(/--viewport-offset-top/);
+      expect(shellBlocks).not.toMatch(/--visual-viewport-height/);
+    });
+
+    it('content, header, and body declare solid backgrounds', () => {
+      for (const selector of ['.overlay-content', '.overlay-header', '.overlay-body']) {
+        const block = getStyleBlock(selector);
+        const declaration = block.match(/background(?:-color)?:\s*([^;]+);/);
+        expect(declaration).toBeTruthy();
+        expect(declaration[1]).not.toMatch(/\btransparent\b|rgba\(/);
+      }
+    });
+
+    it('source no longer references visual viewport APIs', () => {
+      // Viewport reads stay centralized in useVisualViewport.js for app-level chrome.
       expect(sessionChatOverlaySource).not.toMatch(/window\.visualViewport/);
+      expect(sessionChatOverlaySource).not.toMatch(/requestVisualViewportSettle/);
+      expect(sessionChatOverlaySource).not.toMatch(/useVisualViewport\.js/);
       expect(sessionChatOverlaySource).not.toMatch(/syncToVisualViewport/);
       expect(sessionChatOverlaySource).not.toMatch(/markRecentBlur/);
       expect(sessionChatOverlaySource).not.toMatch(/applyLayoutViewport/);
       expect(sessionChatOverlaySource).not.toMatch(/overlayBackdropRef/);
+      expect(sessionChatOverlaySource).not.toMatch(/inputFocused/);
+      expect(sessionChatOverlaySource).not.toMatch(/focusOutRaf/);
+      expect(sessionChatOverlaySource).not.toMatch(/handleOverlayFocus(?:in|out)/);
     });
 
     it('lockBodyScroll does not call window.scrollTo(0, 0) at mount time', async () => {
@@ -1616,36 +1639,50 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('inputFocused toggles via focusin/focusout and requests viewport settle on blur', async () => {
-      setViewportWidth(390);
+    it('locks body scroll and pins #app while mounted', async () => {
+      const app = document.createElement('div');
+      app.id = 'app';
+      document.body.appendChild(app);
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 123,
+      });
+      const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+
       const wrapper = mountOverlay();
       await nextTick();
 
-      expect(wrapper.vm.inputFocused).toBe(false);
+      expect(document.body.style.overflow).toBe('hidden');
+      expect(app.style.position).toBe('fixed');
+      expect(app.style.top).toBe('-123px');
+      expect(app.style.left).toBe('0px');
+      expect(app.style.right).toBe('0px');
+      expect(app.style.width).toBe('100%');
 
-      // Append a real textarea into .overlay-body so the delegated
-      // focusin/focusout handlers fire.
-      const body = wrapper.vm.overlayBodyRef;
-      expect(body).toBeTruthy();
-      const textarea = document.createElement('textarea');
-      body.appendChild(textarea);
+      wrapper.unmount();
+      expect(document.body.style.overflow).toBe('');
+      expect(app.style.position).toBe('');
+      expect(app.style.top).toBe('');
+      expect(app.style.left).toBe('');
+      expect(app.style.right).toBe('');
+      expect(app.style.width).toBe('');
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 123);
 
-      textarea.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      scrollToSpy.mockRestore();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+      app.remove();
+    });
+
+    it('does not expose dead focus or visual viewport settling state', async () => {
+      const wrapper = mountOverlay();
       await nextTick();
-      expect(wrapper.vm.inputFocused).toBe(true);
-      expect(document.querySelector('.overlay-header')?.classList.contains('header-compact')).toBe(false);
-
-      mockRequestVisualViewportSettle.mockClear();
-      textarea.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      expect(mockRequestVisualViewportSettle).toHaveBeenCalledTimes(1);
-      // focusout is rAF-debounced; flush one frame.
-      await new Promise((r) => requestAnimationFrame(() => r()));
-      await nextTick();
-      expect(mockRequestVisualViewportSettle).toHaveBeenCalledTimes(1);
-      expect(mockRequestVisualViewportUpdate).not.toHaveBeenCalled();
-      expect(wrapper.vm.inputFocused).toBe(false);
-
-      body.removeChild(textarea);
+      expect(wrapper.vm.inputFocused).toBeUndefined();
+      expect(wrapper.vm.handleOverlayFocusin).toBeUndefined();
+      expect(wrapper.vm.handleOverlayFocusout).toBeUndefined();
+      expect(wrapper.vm.requestVisualViewportSettle).toBeUndefined();
       wrapper.unmount();
     });
 
