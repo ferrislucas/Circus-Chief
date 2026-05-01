@@ -326,7 +326,9 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
       expect(overlapsHoriz && overlapsVert).toBe(false);
     }
 
-    // Functional click.
+    // Functional click: start away from the mount-time latest-agent-turn target.
+    await overlay.locator('.overlay-body').evaluate((el) => { (el as HTMLElement).scrollTop = 0; });
+    await expect(scrollBtn).toBeVisible();
     const beforeScroll = await overlay.locator('.overlay-body').evaluate((el) => (el as HTMLElement).scrollTop);
     await scrollBtn.click();
     await expect.poll(
