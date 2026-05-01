@@ -45,6 +45,7 @@ export class SessionRepository extends BaseRepository {
       status: row.status,
       mode: row.mode,
       model: row.model,
+      providerId: row.provider_id || null,
       thinkingEnabled: Boolean(row.thinking_enabled),
       archived: Boolean(row.archived),
       starred: Boolean(row.starred),
@@ -84,7 +85,7 @@ export class SessionRepository extends BaseRepository {
     return this.map(row);
   }
 
-  /** Create a new session with optional config (mode, thinkingEnabled, gitBranch, parentSessionId, status, model, effortLevel, agentType) */
+  /** Create a new session with optional config (mode, thinkingEnabled, gitBranch, parentSessionId, status, model, providerId, effortLevel, agentType) */
   create(projectId, name, prompt, options = {}) {
     const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));
 
@@ -98,8 +99,8 @@ export class SessionRepository extends BaseRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, effort_level, agent_type, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, parent_session_id, model, provider_id, effort_level, agent_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -111,6 +112,7 @@ export class SessionRepository extends BaseRepository {
         config.gitBranch,
         config.parentSessionId,
         config.model,
+        config.providerId,
         config.effortLevel,
         agentType,
         now,
@@ -282,10 +284,10 @@ export class SessionRepository extends BaseRepository {
     // Insert new session with same settings but new ID and status
     this.db
       .prepare(
-        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, effort_level, agent_type, context_window,
-                               input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens,
+        `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_branch, model, provider_id, effort_level, agent_type, context_window,
+                               input_tokens, output_tokens, thinking_tokens, cache_read_input_tokens, cache_creation_input_tokens,
                                web_search_requests, cost_usd, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -296,11 +298,13 @@ export class SessionRepository extends BaseRepository {
         source.thinkingEnabled ? 1 : 0,
         source.gitBranch,  // Copy branch name (NOT worktree path)
         source.model,
+        source.providerId,
         source.effortLevel,
         source.agentType || DEFAULT_AGENT_TYPE,
         source.contextWindow,
         source.inputTokens,
         source.outputTokens,
+        source.thinkingTokens,
         source.cacheReadInputTokens,
         source.cacheCreationInputTokens,
         source.webSearchRequests,
@@ -326,11 +330,11 @@ export class SessionRepository extends BaseRepository {
   updateUsage(id, usage) {
     this.db
       .prepare(
-        `UPDATE sessions SET input_tokens = ?, output_tokens = ?, cache_read_input_tokens = ?,
+        `UPDATE sessions SET input_tokens = ?, output_tokens = ?, thinking_tokens = ?, cache_read_input_tokens = ?,
           cache_creation_input_tokens = ?, web_search_requests = ?, context_window = ?, updated_at = ?
         WHERE id = ?`
       )
-      .run(usage.inputTokens, usage.outputTokens, usage.cacheReadInputTokens,
+      .run(usage.inputTokens, usage.outputTokens, usage.thinkingTokens || 0, usage.cacheReadInputTokens,
         usage.cacheCreationInputTokens, usage.webSearchRequests, usage.contextWindow, Date.now(), id);
     return this.getById(id);
   }

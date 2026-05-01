@@ -35,7 +35,7 @@ function buildSessionFormData(jsonData, files) {
   formData.append('prompt', jsonData.prompt);
 
   appendOptionalFields(formData, jsonData, [
-    'name', 'mode', 'model', 'effortLevel', 'gitBranch', 'gitMode',
+    'name', 'mode', 'model', 'providerId', 'effortLevel', 'gitBranch', 'gitMode',
     'templateId', 'parentSessionId',
   ]);
 
@@ -253,12 +253,14 @@ export function SessionsApi(ApiClient) {
      * @param {string} id - Session ID
      * @param {string|undefined} prompt - Optional updated prompt to use when starting
      * @param {string|undefined} model - Optional model override
+     * @param {string|null|undefined} providerId - Optional provider override
      * @returns {Promise<Object>}
      */
-    async startSession(id, prompt, model) {
+    async startSession(id, prompt, model, providerId) {
       const data = {};
       if (prompt !== undefined) data.prompt = prompt;
       if (model !== undefined) data.model = model;
+      if (providerId !== undefined) data.providerId = providerId;
       return this._post(`/sessions/${id}/start`,
         Object.keys(data).length > 0 ? data : undefined);
     },

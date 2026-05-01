@@ -171,7 +171,16 @@ describe('useSessionControl', () => {
 
       await handleStart('Hello Claude', 'sonnet');
 
-      expect(mockSessionsStore.startSession).toHaveBeenCalledWith('session-123', 'Hello Claude', 'sonnet');
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith('session-123', 'Hello Claude', 'sonnet', undefined);
+    });
+
+    it('should call startSession with providerId when provided', async () => {
+      mockSessionsStore.startSession.mockResolvedValue();
+      const { handleStart } = createControl();
+
+      await handleStart('Hello Claude', 'sonnet', 'anthropic-default');
+
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith('session-123', 'Hello Claude', 'sonnet', 'anthropic-default');
     });
 
     it('should not start with empty prompt', async () => {

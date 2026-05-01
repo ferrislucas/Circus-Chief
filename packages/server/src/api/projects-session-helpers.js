@@ -45,6 +45,26 @@ export function resolveDefault(explicit, projectDefault, systemDefault) {
 }
 
 /**
+ * Normalize provider IDs from JSON or multipart request fields.
+ * @param {*} value - Raw providerId value
+ * @returns {string|null|undefined}
+ */
+export function normalizeProviderId(value) {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  if (typeof value !== 'string') {
+    throw new TypeError('providerId must be a string or null');
+  }
+  return value;
+}
+
+function resolveProviderDefault(explicit, projectDefault, systemDefault) {
+  if (explicit !== undefined) return explicit;
+  if (projectDefault !== undefined && projectDefault !== null) return projectDefault;
+  return systemDefault ?? null;
+}
+
+/**
  * Resolve thinkingEnabled with special boolean handling.
  * @param {object} body - Request body
  * @param {object|null} projectDefs - Project defaults
@@ -114,11 +134,16 @@ export function prepareSessionConfig(body, projectDefs, systemDefaults) {
     effortLevel = null;
   }
 
+  const explicitProviderId = normalizeProviderId(body.providerId);
+  const projectProviderId = normalizeProviderId(projectDefs?.providerId);
+  const systemProviderId = normalizeProviderId(systemDefaults.providerId);
+
   return {
     prompt: body.prompt,
     name: body.name,
     mode: resolveDefault(body.mode, projectDefs?.mode, systemDefaults.mode),
     model: resolveDefault(body.model, projectDefs?.model, systemDefaults.model || null),
+    providerId: resolveProviderDefault(explicitProviderId, projectProviderId, systemProviderId),
     effortLevel,
     gitBranch: resolveDefault(body.gitBranch, projectDefs?.gitBranch, null),
     gitMode: resolveDefault(body.gitMode, projectDefs?.gitMode, systemDefaults.gitMode),

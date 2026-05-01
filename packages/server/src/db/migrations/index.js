@@ -114,6 +114,7 @@ export const allMigrations = validateMigrations([
   c.get('conversations-add-claude_session_id'),
   c.get('conversations-add-input_tokens'),
   c.get('conversations-add-output_tokens'),
+  c.get('conversations-add-thinking_tokens'),
   c.get('conversations-add-cache_read_input_tokens'),
   c.get('conversations-add-cache_creation_input_tokens'),
   c.get('conversations-add-web_search_requests'),
@@ -123,6 +124,7 @@ export const allMigrations = validateMigrations([
   // --- Sessions token usage ---
   s.get('sessions-add-input_tokens'),
   s.get('sessions-add-output_tokens'),
+  s.get('sessions-add-thinking_tokens'),
   s.get('sessions-add-cache_read_input_tokens'),
   s.get('sessions-add-cache_creation_input_tokens'),
   s.get('sessions-add-web_search_requests'),

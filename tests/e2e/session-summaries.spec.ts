@@ -547,12 +547,13 @@ test.describe('Session Summaries', () => {
         body: JSON.stringify({
           disableSessionSummaries: true,
           sessionTitlePrompt: '',
+          summaryModel: '',
+          summaryProviderId: null,
         }),
       });
       expect(putResponse.ok).toBe(true);
 
-      const getResponse = await fetch(`${API_URL}/api/settings/summary`);
-      const settings = await getResponse.json();
+      const settings = await putResponse.json();
       expect(settings.disableSessionSummaries).toBe(true);
     });
 
@@ -563,12 +564,13 @@ test.describe('Session Summaries', () => {
         body: JSON.stringify({
           disableSessionSummaries: false,
           sessionTitlePrompt: 'Custom title format',
+          summaryModel: '',
+          summaryProviderId: null,
         }),
       });
       expect(putResponse.ok).toBe(true);
 
-      const getResponse = await fetch(`${API_URL}/api/settings/summary`);
-      const settings = await getResponse.json();
+      const settings = await putResponse.json();
       expect(settings.sessionTitlePrompt).toBe('Custom title format');
     });
 
@@ -580,6 +582,8 @@ test.describe('Session Summaries', () => {
         body: JSON.stringify({
           disableSessionSummaries: true,
           sessionTitlePrompt: 'Custom prompt',
+          summaryModel: '',
+          summaryProviderId: null,
         }),
       });
 
@@ -833,7 +837,7 @@ test.describe('Session Summaries', () => {
 
   // ============================================================
   // Category 10: Summary Tab — Overview Metrics (5 tests)
-  // Tests the new metrics row: session count, cost (BTE), work time, files count
+  // Tests the new metrics row: session count, tokens, work time, files count
   // ============================================================
 
   test.describe('Category 10: Summary Tab — Overview Metrics', () => {
@@ -881,10 +885,10 @@ test.describe('Session Summaries', () => {
       expect(valueText).toMatch(/^\d+[smh](\s\d+[mhd])?$/);
     });
 
-    test('shows cost metric when session has token usage', async ({ page }) => {
+    test('shows token metric when session has token usage', async ({ page }) => {
       const session = await seedSession(project.id, {
-        prompt: 'Test cost metric',
-        name: 'Cost Metric Test',
+        prompt: 'Test token metric',
+        name: 'Token Metric Test',
         startImmediately: false,
       });
       await waitForSessionToExist(session.id);
@@ -899,8 +903,8 @@ test.describe('Session Summaries', () => {
 
       // Seed a summary so the overview card shows
       seedSessionSummaryDirect(session.id, {
-        shortSummary: 'Cost metric test session',
-        fullSummary: 'Testing cost metric display with token usage',
+        shortSummary: 'Token metric test session',
+        fullSummary: 'Testing token metric display with token usage',
         outcome: 'completed',
       });
 
@@ -914,15 +918,15 @@ test.describe('Session Summaries', () => {
       const metricsRow = page.locator('.overview-metrics');
       await expect(metricsRow).toBeVisible();
 
-      // The Cost metric should be present
-      const costLabel = page.locator('.overview-metrics .metric-label').filter({ hasText: 'Cost' });
-      await expect(costLabel).toBeVisible();
+      // The Tokens metric should be present
+      const tokenLabel = page.locator('.overview-metrics .metric-label').filter({ hasText: 'Tokens' });
+      await expect(tokenLabel).toBeVisible();
 
-      // The cost value should be a non-zero formatted BTE count
-      const costMetric = costLabel.locator('..');
-      const costValue = costMetric.locator('.metric-value');
-      await expect(costValue).toBeVisible();
-      const valueText = await costValue.textContent();
+      // The token value should be a non-zero formatted raw token count
+      const tokenMetric = tokenLabel.locator('..');
+      const tokenValue = tokenMetric.locator('.metric-value');
+      await expect(tokenValue).toBeVisible();
+      const valueText = await tokenValue.textContent();
       // Should be a non-zero formatted value like "50.0K" or similar
       expect(valueText).not.toBe('0');
       expect(valueText.length).toBeGreaterThan(0);

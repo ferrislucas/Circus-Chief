@@ -102,6 +102,25 @@ describe('useMessageScroll', () => {
       expect(scrollUtilities.hasNewMessages.value).toBe(false);
     });
 
+    it('should use the send button as the bottom target when present', () => {
+      const sendButton = {
+        getBoundingClientRect: vi.fn(() => ({ bottom: 500 })),
+      };
+      mockContainer.querySelector.mockReturnValue(sendButton);
+      mockContainer.getBoundingClientRect.mockReturnValue({ top: 0, bottom: 500, height: 500 });
+
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+      scrollUtilities.hasNewMessages.value = true;
+
+      mockContainer.scrollTop = 320;
+      scrollUtilities.handleScroll();
+
+      expect(mockContainer.querySelector).toHaveBeenCalledWith('.btn-send-full');
+      expect(scrollUtilities.isNearBottom.value).toBe(true);
+      expect(scrollUtilities.hasNewMessages.value).toBe(false);
+    });
+
     it('should not crash when container is null', () => {
       scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
       scrollUtilities.messagesContainer.value = null;
@@ -212,6 +231,37 @@ describe('useMessageScroll', () => {
 
       expect(() => scrollUtilities.scrollToBottom(true)).not.toThrow();
       await nextTick();
+    });
+
+    it('should scroll so the send button bottom aligns with the container bottom', async () => {
+      const sendButton = {
+        getBoundingClientRect: vi.fn(() => ({ bottom: 900 })),
+      };
+      mockContainer.querySelector.mockReturnValue(sendButton);
+      mockContainer.getBoundingClientRect.mockReturnValue({ top: 0, bottom: 500, height: 500 });
+      mockContainer.scrollTop = 100;
+
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      scrollUtilities.scrollToSendButton(true);
+      await nextTick();
+
+      expect(mockContainer.scrollTop).toBe(500);
+      expect(scrollUtilities.isNearBottom.value).toBe(true);
+      expect(scrollUtilities.hasNewMessages.value).toBe(false);
+    });
+
+    it('should fall back to content bottom when no send button exists', async () => {
+      mockContainer.querySelector.mockReturnValue(null);
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      scrollUtilities.scrollToSendButton(true);
+      await nextTick();
+      await nextTick();
+
+      expect(mockContainer.scrollTop).toBe(mockContainer.scrollHeight);
     });
   });
 

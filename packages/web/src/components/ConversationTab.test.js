@@ -3089,8 +3089,8 @@ describe('ConversationTab - Scroll container behavior', () => {
       const btn = wrapper.find('[data-testid="scroll-to-bottom-btn"]');
       expect(btn.exists()).toBe(true);
       expect(btn.element.tagName).toBe('BUTTON');
-      expect(btn.attributes('aria-label')).toBe('Scroll to the bottom of the conversation');
-      expect(btn.attributes('title')).toBe('Scroll to the bottom of the conversation');
+      expect(btn.attributes('aria-label')).toBe('Scroll to the send button');
+      expect(btn.attributes('title')).toBe('Scroll to the send button');
     });
 
     it('renders inside .conversation-scroll-actions wrapper as the sole child when scroll-to-claude is not eligible', async () => {
@@ -3439,7 +3439,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       await flushAll(wrapper);
 
       // Should persist the new model to the session
-      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus');
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus', null);
     });
 
     it('calls updateSessionModel with correct session ID', async () => {
@@ -3454,7 +3454,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       modelSelectorComponent.vm.$emit('update:modelValue', 'haiku');
       await flushAll(wrapper);
 
-      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-456', 'haiku');
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-456', 'haiku', null);
     });
 
     it('does not call updateSessionModel when model is set to same value', async () => {
@@ -3485,7 +3485,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       await flushAll(wrapper);
 
       // Should have attempted the call
-      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus');
+      expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus', null);
 
       // Component should still be functional (not crashed)
       expect(wrapper.find('.model-selector-stub').exists()).toBe(true);
@@ -4142,7 +4142,8 @@ describe('ConversationTab - Input clearing on submit', () => {
       expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
         'sess-123',
         'My draft prompt',
-        'sonnet'
+        'sonnet',
+        null
       );
       // After successful start, textarea should be cleared
       expect(textarea.element.value).toBe('');
@@ -4310,5 +4311,94 @@ describe('ConversationTab connection status', () => {
 
     expect(wrapper.find('[data-testid="stale-badge"]').exists()).toBe(false);
     wrapper.unmount();
+  });
+});
+
+/**
+ * Tests for the scrollToInitialTarget logic inside ConversationTab.
+ *
+ * These tests verify the decision logic (which scroll method to call based on
+ * initialScrollTarget prop and message content) without mounting the full component.
+ * The VTU mount-based approach doesn't work here because:
+ *   1. VTU stubs don't expose methods via template refs
+ *   2. `global.components` doesn't override locally imported components in Vue 3
+ *
+ * The actual scroll behavior is covered by:
+ *   - useMessageScroll.test.js (scrollToClaudesTurn unit tests)
+ *   - session-chat-overlay-scroll.spec.ts (E2E integration tests)
+ */
+describe('ConversationTab - scrollToInitialTarget decision logic', () => {
+  /**
+   * Recreates the decision logic from ConversationTab's scrollToInitialTarget().
+   * This mirrors the exact branching so we can test the conditions in isolation.
+   */
+  function computeScrollAction({ initialScrollTarget, messages }) {
+    if (initialScrollTarget === 'latest-agent-turn') {
+      const hasAssistant = messages.some(m => m.role === 'assistant');
+      if (hasAssistant) {
+        return 'scrollToClaudesTurn';
+      }
+    }
+    return 'scrollToBottom';
+  }
+
+  it('returns scrollToBottom for default prop (bottom)', () => {
+    const action = computeScrollAction({
+      initialScrollTarget: 'bottom',
+      messages: [],
+    });
+    expect(action).toBe('scrollToBottom');
+  });
+
+  it('returns scrollToClaudesTurn when latest-agent-turn and assistant messages exist', () => {
+    const action = computeScrollAction({
+      initialScrollTarget: 'latest-agent-turn',
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-2', role: 'assistant', content: 'Hi there!' },
+        { id: 'msg-3', role: 'user', content: 'Thanks' },
+      ],
+    });
+    expect(action).toBe('scrollToClaudesTurn');
+  });
+
+  it('returns scrollToClaudesTurn when latest-agent-turn and only assistant messages exist', () => {
+    const action = computeScrollAction({
+      initialScrollTarget: 'latest-agent-turn',
+      messages: [
+        { id: 'msg-1', role: 'assistant', content: 'Hello' },
+      ],
+    });
+    expect(action).toBe('scrollToClaudesTurn');
+  });
+
+  it('falls back to scrollToBottom when latest-agent-turn but no assistant messages', () => {
+    const action = computeScrollAction({
+      initialScrollTarget: 'latest-agent-turn',
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-2', role: 'user', content: 'How are you?' },
+      ],
+    });
+    expect(action).toBe('scrollToBottom');
+  });
+
+  it('falls back to scrollToBottom when latest-agent-turn and messages are empty', () => {
+    const action = computeScrollAction({
+      initialScrollTarget: 'latest-agent-turn',
+      messages: [],
+    });
+    expect(action).toBe('scrollToBottom');
+  });
+
+  it('returns scrollToBottom when bottom with assistant messages present', () => {
+    const action = computeScrollAction({
+      initialScrollTarget: 'bottom',
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'Hello' },
+        { id: 'msg-2', role: 'assistant', content: 'Response' },
+      ],
+    });
+    expect(action).toBe('scrollToBottom');
   });
 });

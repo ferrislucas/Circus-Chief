@@ -1,19 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ProjectDefaultsRepository } from './ProjectDefaultsRepository.js';
 import { ProjectRepository } from './ProjectRepository.js';
+import { ProviderRepository } from './ProviderRepository.js';
 
 describe('ProjectDefaultsRepository', () => {
   let defaultsRepo;
   let projectRepo;
+  let providerRepo;
   let projectId;
+  let providerId;
 
   beforeEach(() => {
     defaultsRepo = new ProjectDefaultsRepository();
     projectRepo = new ProjectRepository();
+    providerRepo = new ProviderRepository();
 
     // Create a test project
     const project = projectRepo.create('Test Project', '/tmp/test');
     projectId = project.id;
+    const provider = providerRepo.create({ name: 'Test Provider', kind: 'anthropic' });
+    providerId = provider.id;
   });
 
   describe('getByProjectId', () => {
@@ -35,6 +41,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults).toHaveProperty('gitMode');
       expect(defaults).toHaveProperty('gitBranch');
       expect(defaults).toHaveProperty('model');
+      expect(defaults).toHaveProperty('providerId');
       expect(defaults).toHaveProperty('effortLevel');
       expect(defaults).toHaveProperty('createdAt');
       expect(defaults).toHaveProperty('updatedAt');
@@ -102,6 +109,15 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults.model).toBe('claude-opus-4');
     });
 
+    it('stores providerId string', () => {
+      const defaults = defaultsRepo.upsert(projectId, {
+        model: 'gpt-4o',
+        providerId,
+      });
+      expect(defaults.model).toBe('gpt-4o');
+      expect(defaults.providerId).toBe(providerId);
+    });
+
     it('stores gitBranch string', () => {
       const defaults = defaultsRepo.upsert(projectId, { gitBranch: 'feature/test' });
       expect(defaults.gitBranch).toBe('feature/test');
@@ -145,6 +161,7 @@ describe('ProjectDefaultsRepository', () => {
         gitMode: 'worktree',
         gitBranch: 'feature/test',
         model: 'claude-opus',
+        providerId,
         effortLevel: 'max',
       });
 
@@ -154,6 +171,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults.gitMode).toBe('worktree');
       expect(defaults.gitBranch).toBe('feature/test');
       expect(defaults.model).toBe('claude-opus');
+      expect(defaults.providerId).toBe(providerId);
       expect(defaults.effortLevel).toBe('max');
     });
 
@@ -166,6 +184,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(defaults.gitMode).toBeNull();
       expect(defaults.gitBranch).toBeNull();
       expect(defaults.model).toBeNull();
+      expect(defaults.providerId).toBeNull();
       expect(defaults.effortLevel).toBeNull();
     });
   });
@@ -177,6 +196,7 @@ describe('ProjectDefaultsRepository', () => {
         thinkingEnabled: true,
         gitMode: 'worktree',
         model: 'claude-opus',
+        providerId,
         effortLevel: 'high',
       });
 
@@ -188,6 +208,7 @@ describe('ProjectDefaultsRepository', () => {
       expect(reset.gitMode).toBeNull();
       expect(reset.gitBranch).toBeNull();
       expect(reset.model).toBeNull();
+      expect(reset.providerId).toBeNull();
       expect(reset.effortLevel).toBeNull();
     });
 

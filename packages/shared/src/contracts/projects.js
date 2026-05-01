@@ -49,6 +49,7 @@ export const ProjectSessionDefaultsRequest = z.object({
   gitMode: z.enum(['branch', 'worktree']).nullable().optional(),
   gitBranch: z.string().nullable().optional(),
   model: z.string().nullable().optional(),
+  providerId: z.string().nullable().optional(),
 });
 
 export const ProjectSessionDefaultsResponse = z.object({
@@ -61,6 +62,7 @@ export const ProjectSessionDefaultsResponse = z.object({
   gitMode: z.enum(['branch', 'worktree']).nullable(),
   gitBranch: z.string().nullable(),
   model: z.string().nullable(),
+  providerId: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

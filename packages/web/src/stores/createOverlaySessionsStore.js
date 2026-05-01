@@ -136,8 +136,8 @@ const sessionSyncActions = {
 const delegatedSessionActions = {
   async stopSession(id) { return useSessionsStore().stopSession(id); },
   async restartSession(id) { return useSessionsStore().restartSession(id); },
-  async startSession(id, prompt = undefined, model = undefined) {
-    return useSessionsStore().startSession(id, prompt, model);
+  async startSession(id, prompt = undefined, model = undefined, providerId = undefined) {
+    return useSessionsStore().startSession(id, prompt, model, providerId);
   },
   async sendMessage(sessionId, content, files = [], model = null) {
     return useSessionsStore().sendMessage(sessionId, content, files, model);

@@ -1,10 +1,10 @@
 <template>
   <div
-    v-if="hasNonZeroCost"
+    v-if="hasNonZeroTokens"
     class="running-token-display"
   >
-    <span class="cost-label">Cost:</span>
-    <span class="cost-value">{{ formattedBillableTokens }}</span>
+    <span class="token-label">Tokens:</span>
+    <span class="token-value">{{ formattedTokenTotal }}</span>
     <span
       v-if="isUpdating"
       class="updating-indicator"
@@ -19,21 +19,14 @@
 <script setup>
 import { computed } from 'vue';
 import { useSessionsStore } from '../stores/sessions.js';
-import { useSettingsStore } from '../stores/settings.js';
 
 const sessionsStore = useSessionsStore();
-const settingsStore = useSettingsStore();
 
-// Ensure settings are loaded
-settingsStore.fetchTokenCostWeights();
+const formattedTokenTotal = computed(() => sessionsStore.formattedTokenTotal || '0');
 
-// Get the formatted BTE cost score
-const formattedBillableTokens = computed(() => sessionsStore.formattedBillableTokens || '0');
-
-// Check if cost is non-zero
-const hasNonZeroCost = computed(() => {
-  const cost = formattedBillableTokens.value;
-  return cost && cost !== '0' && cost !== '-' && cost !== '0.0';
+const hasNonZeroTokens = computed(() => {
+  const tokens = formattedTokenTotal.value;
+  return tokens && tokens !== '0' && tokens !== '-' && tokens !== '0.0';
 });
 
 // Show updating indicator when session is running
@@ -52,12 +45,12 @@ const isUpdating = computed(() => sessionsStore.currentSession?.status === 'runn
   font-size: 0.8125rem;
 }
 
-.cost-label {
+.token-label {
   color: var(--color-text-soft);
   font-weight: 500;
 }
 
-.cost-value {
+.token-value {
   font-family: var(--font-mono);
   color: var(--color-accent);
   font-weight: 600;

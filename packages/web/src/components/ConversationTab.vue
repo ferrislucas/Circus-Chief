@@ -6,7 +6,7 @@
     <!-- Stale content badge -->
     <StaleBadge :is-stale="isStale" />
 
-    <!-- Unified Conversation Panel - selector + BTE cost display -->
+    <!-- Unified Conversation Panel - selector + token display -->
     <ConversationPanel
       v-if="!isScheduledForFuture"
       :session-id="sessionId"
@@ -42,6 +42,7 @@
       :session-id="sessionId"
       :model-value="input"
       :selected-model="selectedModel"
+      :selected-provider-id="selectedProviderId"
       :can-send-message="canSendMessage"
       :is-draft="isDraft"
       :is-scheduled-draft="isScheduledDraft"
@@ -63,6 +64,7 @@
       :auto-send-pending-prompt="sessionsStore.currentSession?.autoSendPendingPrompt ?? false"
       @update:model-value="input = $event"
       @update:selected-model="selectedModel = $event"
+      @update:selected-provider-id="selectedProviderId = $event"
       @submit="handleFormSubmit"
       @auto-send-toggle="handleAutoSendToggle"
       @input="handleInput"
@@ -144,6 +146,17 @@ const props = defineProps({
   sessionId: { type: String, required: true },
   scrollContainerRef: { type: Object, default: null },
   hideNewConversation: { type: Boolean, default: false },
+  /**
+   * Initial scroll target after mount.
+   * - 'bottom' (default): scroll to the bottom of the conversation.
+   * - 'latest-agent-turn': scroll to the last assistant message,
+   *   falling back to bottom if no assistant messages exist.
+   */
+  initialScrollTarget: {
+    type: String,
+    default: 'bottom',
+    validator: (v) => ['bottom', 'latest-agent-turn'].includes(v),
+  },
 });
 
 const sessionsStore = useInjectedSessionsStore();
@@ -174,6 +187,8 @@ const inputFormRef = ref(null);
 const conversationMessagesRef = ref(null);
 const attachedFiles = ref([]);
 const selectedModel = ref(null);
+const selectedProviderId = ref(null);
+let suppressNextModelPersist = false;
 
 // Draft saving composable
 const {
@@ -337,8 +352,26 @@ onMounted(async () => {
     await sessionsStore.switchConversation(props.sessionId, convId);
   }
 
-  conversationMessagesRef.value?.scrollToBottom(true);
+  scrollToInitialTarget();
 });
+
+/**
+ * Perform the initial scroll after all async mount work completes.
+ * Respects the `initialScrollTarget` prop:
+ * - 'latest-agent-turn': scroll to the last assistant message, falling
+ *   back to bottom if no assistant messages exist.
+ * - 'bottom': always scroll to the bottom.
+ */
+function scrollToInitialTarget() {
+  if (props.initialScrollTarget === 'latest-agent-turn') {
+    const hasAssistant = sessionsStore.messages.some(m => m.role === 'assistant');
+    if (hasAssistant) {
+      conversationMessagesRef.value?.scrollToClaudesTurn?.();
+      return;
+    }
+  }
+  conversationMessagesRef.value?.scrollToBottom(true);
+}
 
 onUnmounted(() => {
   // Flush any pending draft save immediately before the component is destroyed.
@@ -447,6 +480,13 @@ function getProjectDefaultModel() {
   return defaults?.model || null;
 }
 
+function getProjectDefaultProviderId() {
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId) return null;
+  const defaults = defaultsStore.getDefaultsForProject(projectId);
+  return defaults?.providerId || null;
+}
+
 // Watch for conversation query parameter changes
 watch(
   () => route.query.conv,
@@ -462,21 +502,38 @@ watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (selectedModel.value === null) {
+      suppressNextModelPersist = true;
       selectedModel.value = sessionsStore.currentSession?.model ||
         getProjectDefaultModel() ||
         'sonnet';
+      selectedProviderId.value = sessionsStore.currentSession?.providerId ||
+        getProjectDefaultProviderId() ||
+        null;
+      nextTick(() => {
+        suppressNextModelPersist = false;
+      });
     }
   },
   { immediate: true }
 );
 
 // Persist model selection to session
-watch(selectedModel, async (newModel, oldModel) => {
+watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [oldModel, oldProviderId]) => {
+  if (suppressNextModelPersist) {
+    suppressNextModelPersist = false;
+    return;
+  }
   if (oldModel !== null && newModel && newModel !== oldModel) {
     try {
-      await sessionsStore.updateSessionModel(props.sessionId, newModel);
+      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
     } catch (err) {
       console.error('Failed to persist model selection:', err);
+    }
+  } else if (newModel && newProviderId !== oldProviderId) {
+    try {
+      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
+    } catch (err) {
+      console.error('Failed to persist model provider selection:', err);
     }
   }
 });
@@ -509,7 +566,10 @@ async function handleFormSubmit() {
     const sessionModel = selectedModel.value
       || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
-    const success = await handleStart(currentValue, sessionModel);
+    const sessionProviderId = selectedProviderId.value
+      || sessionsStore.currentSession?.providerId
+      || null;
+    const success = await handleStart(currentValue, sessionModel, sessionProviderId);
     if (success) {
       clearSubmittedInput(textareaRef);
       attachedFiles.value = [];

@@ -72,16 +72,18 @@ test.describe('Codex provider flow', () => {
       timeout: 15000,
     });
 
-    const hasCodexOption = await page.locator('#model-select').evaluate((select: HTMLSelectElement, expectedName) => {
+    // Option values use providerId::modelId format
+    const codexOptionKey = `${provider.id}::gpt-4o`;
+    const hasCodexOption = await page.locator('#model-select').evaluate((select: HTMLSelectElement, { expectedName, expectedKey }: { expectedName: string, expectedKey: string }) => {
       return Array.from(select.querySelectorAll('optgroup')).some((group) => (
         group.label === `Codex · ${expectedName}` &&
-        Array.from(group.querySelectorAll('option')).some((option) => option.value === 'gpt-4o')
+        Array.from(group.querySelectorAll('option')).some((option) => option.value === expectedKey)
       ));
-    }, providerName);
+    }, { expectedName: providerName, expectedKey: codexOptionKey });
     expect(hasCodexOption).toBe(true);
 
-    await page.locator('#model-select').selectOption('gpt-4o');
-    await expect(page.locator('[data-agent-badge="codex"]')).toBeVisible();
+    await page.locator('#model-select').selectOption(codexOptionKey);
+    await expect(page.locator('[data-agent-badge="codex"]')).toHaveCount(0);
     await expect(
       page.locator('.thinking-toggle').filter({ hasText: 'Enable Thinking' }).locator('input')
     ).toBeDisabled();

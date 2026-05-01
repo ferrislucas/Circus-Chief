@@ -1,4 +1,4 @@
-/** @type {Map<string, {inputTokens: number, outputTokens: number, lastMessageOutput: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>}
+/** @type {Map<string, {inputTokens: number, outputTokens: number, thinkingTokens: number, lastMessageOutput: number, cacheReadInputTokens: number, cacheCreationInputTokens: number}>}
  * Current turn usage - accumulates across multiple messages within a turn
  * Keyed by conversationId (Issue #175)
  * - inputTokens: MAX seen across all messages (larger context with tool results)
@@ -31,6 +31,7 @@ function updateTurnUsage(conversationId, usage, eventType) {
   const current = currentTurnUsage.get(conversationId) || {
     inputTokens: 0,
     outputTokens: 0,
+    thinkingTokens: 0,
     lastMessageOutput: 0,
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
@@ -46,11 +47,13 @@ function updateTurnUsage(conversationId, usage, eventType) {
     estimatedOutputTokens.delete(conversationId);
     // 4. For input tokens, keep the MAX (larger context with tool results)
     current.inputTokens = Math.max(current.inputTokens, usage.input_tokens || 0);
+    current.thinkingTokens = Math.max(current.thinkingTokens, usage.thinking_tokens || usage.thinkingTokens || 0);
     current.cacheReadInputTokens = Math.max(current.cacheReadInputTokens, usage.cache_read_input_tokens || 0);
     current.cacheCreationInputTokens = Math.max(current.cacheCreationInputTokens, usage.cache_creation_input_tokens || 0);
   } else if (eventType === 'message_delta') {
     // OUTPUT STREAMING - output_tokens is cumulative within this message
     current.lastMessageOutput = usage.output_tokens || 0;
+    current.thinkingTokens = Math.max(current.thinkingTokens, usage.thinking_tokens || usage.thinkingTokens || 0);
     // Clear estimate when actual output tokens arrive
     estimatedOutputTokens.delete(conversationId);
   }
@@ -61,6 +64,7 @@ function updateTurnUsage(conversationId, usage, eventType) {
   return {
     inputTokens: current.inputTokens,
     outputTokens: current.outputTokens + current.lastMessageOutput,
+    thinkingTokens: current.thinkingTokens,
     cacheReadInputTokens: current.cacheReadInputTokens,
     cacheCreationInputTokens: current.cacheCreationInputTokens,
   };

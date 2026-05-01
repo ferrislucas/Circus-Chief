@@ -49,11 +49,16 @@ function logResultUsage(callId, event) {
 /**
  * Build the query parameters for the Claude SDK call.
  * @param {string} prompt - The prompt to send
- * @param {{ systemPrompt?: string, jsonSchema?: Object }} options
+ * @param {{ systemPrompt?: string, jsonSchema?: Object, model?: string, env?: Object }} options
  * @returns {Object} queryParams ready for the SDK query function
  */
 function buildClaudeRequest(prompt, options) {
-  const { systemPrompt = null, jsonSchema = null } = options || {};
+  const {
+    systemPrompt = null,
+    jsonSchema = null,
+    model = 'claude-haiku-4-5-20251001',
+    env = null,
+  } = options || {};
   const schema = jsonSchema || SESSION_SUMMARY_SCHEMA;
 
   return {
@@ -62,7 +67,8 @@ function buildClaudeRequest(prompt, options) {
       cwd: process.cwd(),
       permissionMode: 'bypassPermissions',
       maxTurns: 1,
-      model: 'claude-haiku-4-5-20251001',
+      model,
+      ...(env && { env }),
       ...(systemPrompt && { systemPrompt }),
       outputFormat: {
         type: 'json_schema',
@@ -108,6 +114,21 @@ async function handleClaudeResponse(eventStream, callId) {
   return state.responseText;
 }
 
+function buildSummaryCallMetadata({ logMeta, model, providerId, selectionReason, promptLength }) {
+  return {
+    sessionId: logMeta.sessionId,
+    conversationId: logMeta.conversationId || null,
+    agentType: 'summary',
+    model,
+    callType: logMeta.callType,
+    promptLength,
+    metadata: {
+      ...(providerId ? { providerId } : {}),
+      ...(selectionReason ? { selectionReason } : {}),
+    },
+  };
+}
+
 export const SESSION_SUMMARY_SCHEMA = {
   type: 'object',
   properties: {
@@ -130,11 +151,16 @@ export const SESSION_SUMMARY_SCHEMA = {
  * @param {string} prompt - The prompt to send
  * @param {Array} recentMessages - Messages (for mock mode context)
  * @param {string} sessionStatus - Session status (for mock mode context)
- * @param {{ logMeta?: Object, systemPrompt?: string, jsonSchema?: Object }} options - Optional parameters
+ * @param {{ logMeta?: Object, systemPrompt?: string, jsonSchema?: Object, model?: string, env?: Object, providerId?: string|null, selectionReason?: string }} options - Optional parameters
  * @returns {Promise<string>} The text response (JSON string)
  */
 export async function callClaude(prompt, recentMessages, sessionStatus, options = {}) {
-  const { logMeta = null } = options || {};
+  const {
+    logMeta = null,
+    model = 'claude-haiku-4-5-20251001',
+    providerId = null,
+    selectionReason = null,
+  } = options || {};
   // Build stable key for VCR cassette (session prompts are hardcoded strings in E2E tests)
   let keyHint = null;
   if (process.env.VCR_MODE && logMeta?.sessionId) {
@@ -151,14 +177,13 @@ export async function callClaude(prompt, recentMessages, sessionStatus, options 
   // Start logging if metadata provided
   let callId = null;
   if (logMeta) {
-    callId = agentCallLogger.startCall({
-      sessionId: logMeta.sessionId,
-      conversationId: logMeta.conversationId || null,
-      agentType: 'summary',
-      model: 'claude-haiku-4-5-20251001',
-      callType: logMeta.callType,
+    callId = agentCallLogger.startCall(buildSummaryCallMetadata({
+      logMeta,
+      model,
+      providerId,
+      selectionReason,
       promptLength: prompt.length,
-    });
+    }));
   }
 
   try {

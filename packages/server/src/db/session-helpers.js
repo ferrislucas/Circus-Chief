@@ -24,6 +24,7 @@ export function mapTokenUsage(row) {
   return {
     inputTokens: row.input_tokens || 0,
     outputTokens: row.output_tokens || 0,
+    thinkingTokens: row.thinking_tokens || 0,
     cacheReadInputTokens: row.cache_read_input_tokens || 0,
     cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
     webSearchRequests: row.web_search_requests || 0,
@@ -58,6 +59,7 @@ const CONFIG_DEFAULTS = {
   parentSessionId: null,
   status: 'starting',
   model: null,
+  providerId: null,
   effortLevel: null,
   // Agent runtime for the session: 'claude-code' (default) or 'codex'.
   // Defaults to null so SessionRepository.create() can resolve it from the model.
@@ -100,6 +102,7 @@ export const DIRECT_FIELD_MAP = {
   costUsd: 'cost_usd',
   claudeSessionId: 'claude_session_id',
   model: 'model',
+  providerId: 'provider_id',
   nextTemplateId: 'next_template_id',
   parentSessionId: 'parent_session_id',
   scheduledAt: 'scheduled_at',

@@ -59,14 +59,15 @@ export function useSessionControl({ getSessionId }) {
    * Start a draft session with the given prompt and model.
    * @param {string} prompt - The prompt to send
    * @param {string} model - The model to use
+   * @param {string|null} providerId - The provider to use
    */
-  async function handleStart(prompt, model) {
+  async function handleStart(prompt, model, providerId = undefined) {
     if (restarting.value || !prompt?.trim()) return false;
 
     const sessionId = getSessionId();
     restarting.value = true;
     try {
-      await sessionsStore.startSession(sessionId, prompt, model);
+      await sessionsStore.startSession(sessionId, prompt, model, providerId);
       // Mark this session as having a recent send so `ConversationTab`'s
       // onMounted restore path (and status watcher) knows not to re-populate
       // the textarea with the just-sent prompt on remount.

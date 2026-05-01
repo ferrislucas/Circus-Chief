@@ -122,6 +122,7 @@ describe('usageTracker', () => {
       const result = updateTurnUsage('conv-1', {}, 'message_start');
       expect(result.inputTokens).toBe(0);
       expect(result.outputTokens).toBe(0);
+      expect(result.thinkingTokens).toBe(0);
       expect(result.cacheReadInputTokens).toBe(0);
       expect(result.cacheCreationInputTokens).toBe(0);
     });
@@ -134,6 +135,51 @@ describe('usageTracker', () => {
       const dataB = currentTurnUsage.get('conv-B');
       expect(dataA.inputTokens).toBe(100);
       expect(dataB.inputTokens).toBe(999);
+    });
+
+    // ── thinkingTokens ──────────────────────────────────────────────────
+
+    it('tracks thinkingTokens from snake_case thinking_tokens on message_start', () => {
+      const result = updateTurnUsage('conv-1', { input_tokens: 500, thinking_tokens: 200 }, 'message_start');
+      expect(result.thinkingTokens).toBe(200);
+    });
+
+    it('tracks thinkingTokens from camelCase thinkingTokens on message_start', () => {
+      const result = updateTurnUsage('conv-1', { input_tokens: 500, thinkingTokens: 150 }, 'message_start');
+      expect(result.thinkingTokens).toBe(150);
+    });
+
+    it('prefers snake_case over camelCase when both are present', () => {
+      const result = updateTurnUsage('conv-1', { input_tokens: 500, thinking_tokens: 300, thinkingTokens: 100 }, 'message_start');
+      expect(result.thinkingTokens).toBe(300);
+    });
+
+    it('takes MAX of thinkingTokens across multiple message_start calls', () => {
+      updateTurnUsage('conv-1', { input_tokens: 100, thinking_tokens: 50 }, 'message_start');
+      updateTurnUsage('conv-1', { input_tokens: 200, thinking_tokens: 150 }, 'message_start');
+      const result = updateTurnUsage('conv-1', { input_tokens: 150, thinking_tokens: 75 }, 'message_start');
+
+      expect(result.thinkingTokens).toBe(150);
+    });
+
+    it('takes MAX of thinkingTokens across message_delta events', () => {
+      updateTurnUsage('conv-1', { input_tokens: 500, thinking_tokens: 100 }, 'message_start');
+      updateTurnUsage('conv-1', { output_tokens: 50, thinking_tokens: 200 }, 'message_delta');
+
+      const result = updateTurnUsage('conv-1', { output_tokens: 80, thinking_tokens: 180 }, 'message_delta');
+      expect(result.thinkingTokens).toBe(200);
+    });
+
+    it('includes thinkingTokens in returned usage object', () => {
+      updateTurnUsage('conv-1', { input_tokens: 500, thinking_tokens: 75 }, 'message_start');
+      const result = updateTurnUsage('conv-1', { output_tokens: 50 }, 'message_delta');
+      expect(result).toHaveProperty('thinkingTokens', 75);
+    });
+
+    it('defaults thinkingTokens to 0 when absent from message_delta', () => {
+      updateTurnUsage('conv-1', { input_tokens: 500 }, 'message_start');
+      const result = updateTurnUsage('conv-1', { output_tokens: 50 }, 'message_delta');
+      expect(result.thinkingTokens).toBe(0);
     });
   });
 
