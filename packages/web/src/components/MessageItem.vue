@@ -13,7 +13,15 @@
       >
         {{ formatModelName(message.model) }}
       </span>
-      <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+      <span class="message-timestamp">
+        <span
+          v-if="isBeforeToday(message.timestamp)"
+          class="message-date"
+        >
+          {{ formatMessageDate(message.timestamp) }}
+        </span>
+        <span class="message-time">{{ formatTime(message.timestamp) }}</span>
+      </span>
     </div>
     <div class="message-content">
       <MarkdownViewer
@@ -69,7 +77,14 @@ const props = defineProps({
   workLogs: { type: Array, default: () => [] },
 });
 
-const { formatTime, formatModelName, formatFileSize, getAttachmentIcon } = useMessageFormatting();
+const {
+  formatTime,
+  formatMessageDate,
+  isBeforeToday,
+  formatModelName,
+  formatFileSize,
+  getAttachmentIcon,
+} = useMessageFormatting();
 </script>
 
 <style scoped>
@@ -108,8 +123,16 @@ const { formatTime, formatModelName, formatFileSize, getAttachmentIcon } = useMe
   text-transform: capitalize;
 }
 
-.message-time {
+.message-timestamp {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   margin-left: auto;
+  line-height: 1.2;
+}
+
+.message-date,
+.message-time {
   font-size: 0.75rem;
   color: var(--color-text-soft);
 }
