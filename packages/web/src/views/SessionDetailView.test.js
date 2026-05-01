@@ -3630,6 +3630,147 @@ describe('SessionDetailView', () => {
       expect(wrapper.vm.sessionChain[1].session.id).toBe('parent-1');
     });
 
+    it('keeps an overlay-created child selected when reopening the overlay', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: null,
+      };
+      const previousChild = {
+        id: 'previous-child',
+        name: 'Previous Child',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        lastActivityAt: 3000,
+      };
+      const newChild = {
+        id: 'new-child',
+        name: 'New Child',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession, previousChild];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'parent-1'
+          ? sessionsStore.sessions.filter(s => s.parentSessionId === 'parent-1')
+          : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => parentSession);
+      api.getProjectSessions.mockImplementation(() => Promise.resolve(sessionsStore.sessions));
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.overlaySessionId).toBe('previous-child');
+
+      sessionsStore.sessions.push(newChild);
+      wrapper.vm.chatOverlayOpen = true;
+      await nextTick();
+
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
+      treeOverlay.vm.$emit('session-created', 'new-child');
+      await flushPromises();
+      await nextTick();
+
+      wrapper.vm.chatOverlayOpen = false;
+      await nextTick();
+      wrapper.vm.handleOverlayOpen();
+      await nextTick();
+
+      expect(wrapper.vm.overlaySessionId).toBe('new-child');
+      expect(wrapper.vm.chatOverlayOpen).toBe(true);
+    });
+
+    it('keeps an overlay-created child selected when the project-session refresh is stale', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: null,
+      };
+      const previousChild = {
+        id: 'previous-child',
+        name: 'Previous Child',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        lastActivityAt: 3000,
+      };
+      const newChild = {
+        id: 'new-child',
+        name: 'New Child',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession, previousChild];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === 'parent-1'
+          ? sessionsStore.sessions.filter(s => s.parentSessionId === 'parent-1')
+          : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => parentSession);
+      api.getProjectSessions.mockResolvedValue([parentSession, previousChild]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.overlaySessionId).toBe('previous-child');
+
+      wrapper.vm.chatOverlayOpen = true;
+      await nextTick();
+
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
+      treeOverlay.vm.$emit('session-created', newChild);
+      await flushPromises();
+      await nextTick();
+
+      wrapper.vm.chatOverlayOpen = false;
+      await nextTick();
+      wrapper.vm.handleOverlayOpen();
+      await nextTick();
+
+      expect(wrapper.vm.overlaySessionId).toBe('new-child');
+      expect(wrapper.vm.sessionChain.some(entry => entry.session.id === 'new-child')).toBe(true);
+    });
+
     it('sorts session chain by lastActivityAt descending (most recent first)', async () => {
       const sessionA = {
         id: 'session-a',

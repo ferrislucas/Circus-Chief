@@ -595,8 +595,10 @@ async function addChildSession() {
     // Add to main store's session list (not the overlay's isolated state)
     mainSessionsStore.sessions.unshift(newSession);
 
-    // Notify parent to rebuild session chain so it includes the new child
-    emit('session-created', newSession.id);
+    // Notify parent to rebuild session chain so it includes the new child.
+    // Pass the full session so the parent does not have to wait for the
+    // project-session list endpoint to include this brand-new session.
+    emit('session-created', newSession);
 
     // Switch the overlay to the new session
     await switchToSession(newSession.id);
