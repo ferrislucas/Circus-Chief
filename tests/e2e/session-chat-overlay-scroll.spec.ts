@@ -298,7 +298,7 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     seedConversationTokens(parentSession.id, null, { inputTokens: 1000, outputTokens: 500 });
 
     const overlay = await openOverlay(page, parentSession.id);
-    const tokenPanel = overlay.locator('.token-cost-panel');
+    const tokenPanel = overlay.locator('.token-usage-panel');
     await expect(tokenPanel).toBeVisible({ timeout: 5000 });
 
     const scrollBtn = overlay.locator('.scroll-to-claude-btn');
