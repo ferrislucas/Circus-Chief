@@ -16,9 +16,12 @@ vi.mock('../database.js', () => ({
   kanbanLanes: {
     getByBoardId: vi.fn(),
   },
+  commandButtons: {
+    getByProjectId: vi.fn(),
+  },
 }));
 
-import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
+import { sessions, attachments, projects, kanbanBoards, kanbanLanes, commandButtons } from '../database.js';
 import {
   getApiBaseUrl,
   buildPromptWithAttachments,
@@ -40,6 +43,8 @@ describe('sessionPrompts', () => {
     projects.getById.mockReturnValue(null);
     kanbanBoards.getByProjectId.mockReturnValue(null);
     kanbanLanes.getByBoardId.mockReturnValue([]);
+    // Default mock: no command buttons
+    commandButtons.getByProjectId.mockReturnValue([]);
   });
 
   afterEach(() => {
@@ -534,6 +539,69 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Create a New Lane');
       expect(result).toContain('Update a Lane');
       expect(result).toContain('Delete a Lane');
+    });
+
+    describe('command button API instructions', () => {
+      it('includes section when buttons exist', () => {
+        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
+
+        const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+        expect(result).toContain('## Command Buttons API');
+        expect(result).toContain('/command-buttons');
+        expect(result).toContain('/runs');
+        expect(result).toContain('/run');
+        expect(result).toContain('/kill');
+      });
+
+      it('excludes section when no buttons exist', () => {
+        commandButtons.getByProjectId.mockReturnValue([]);
+
+        const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+        expect(result).not.toContain('## Command Buttons API');
+      });
+
+      it('section appears between Session Management and Kanban', () => {
+        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
+        projects.getById.mockReturnValue({ kanbanEnabled: true });
+        kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
+        kanbanLanes.getByBoardId.mockReturnValue([]);
+
+        const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+        const sessionApiIdx = result.indexOf('## Session Management API');
+        const commandBtnIdx = result.indexOf('## Command Buttons API');
+        const kanbanIdx = result.indexOf('## Kanban Board API');
+
+        expect(sessionApiIdx).toBeGreaterThanOrEqual(0);
+        expect(commandBtnIdx).toBeGreaterThanOrEqual(0);
+        expect(kanbanIdx).toBeGreaterThanOrEqual(0);
+        expect(commandBtnIdx).toBeGreaterThan(sessionApiIdx);
+        expect(commandBtnIdx).toBeLessThan(kanbanIdx);
+      });
+
+      it('kill endpoint is documented', () => {
+        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
+
+        const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+        expect(result).toContain(`/api/sessions/${sessionId}/command-buttons/runs/<run_id>/kill`);
+      });
+
+      it('run response shape is documented', () => {
+        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
+
+        const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+        expect(result).toContain('runId');
+        expect(result).toContain('buttonId');
+        expect(result).toContain('status');
+        expect(result).toContain('exitCode');
+        expect(result).toContain('output');
+        expect(result).toContain('startedAt');
+        expect(result).toContain('completedAt');
+      });
     });
   });
 });
