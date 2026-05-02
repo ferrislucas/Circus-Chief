@@ -1,12 +1,10 @@
 /**
  * SessionChatOverlay layout regression coverage.
  *
- * This spec replaces `session-chat-overlay-blur.spec.ts`. The overlay no
- * longer uses JS-written visual viewport CSS variables for its shell.
- * Geometry is owned by browser CSS (`position: fixed; inset: 0` on the
- * backdrop, child geometry for the panel). These tests verify that stale
- * root CSS variables do not affect the shell and that no inline geometry
- * is written by the component.
+ * The overlay is teleported to body and scroll locking is applied to #app,
+ * while tablet-sized layouts align the fixed backdrop to the visual viewport CSS variables.
+ * This keeps the overlay out of the fixed app wrapper without losing the
+ * iPadOS browser-chrome offset and height corrections.
  *
  * HONEST SCOPE of the mobile projects (iphone-14, ipad-pro):
  * Playwright's mobile devices run chromium with only viewport size + UA
@@ -97,7 +95,7 @@ test.describe('SessionChatOverlay layout', () => {
     expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
   });
 
-  test('backdrop uses position: fixed at the viewport origin', async ({ page }) => {
+  test('backdrop uses position: fixed at the viewport origin by default', async ({ page }) => {
     await navigateToSession(page);
     await openOverlay(page);
 
@@ -118,16 +116,56 @@ test.describe('SessionChatOverlay layout', () => {
     expect(computed.left).toBe('0px');
   });
 
-  test('stale visual viewport CSS variables do not move or shrink the shell', async ({ page }) => {
+  test('narrow phone-sized layouts ignore stale visual viewport CSS variables', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await navigateToSession(page);
+    await openOverlay(page);
+
     await page.evaluate(() => {
       document.documentElement.style.setProperty('--viewport-offset-top', '260px');
       document.documentElement.style.setProperty('--visual-viewport-height', '420px');
     });
+    await page.waitForTimeout(50);
 
     try {
-      await openOverlay(page);
+      const result = await page.evaluate(() => {
+        const el = document.querySelector(
+          '[data-testid="session-chat-overlay"]'
+        ) as HTMLElement;
+        const r = el.getBoundingClientRect();
+        return {
+          top: r.top,
+          bottom: r.bottom,
+          left: r.left,
+          right: r.right,
+          inner: { w: window.innerWidth, h: window.innerHeight },
+        };
+      });
 
+      expect(result.top).toBeLessThanOrEqual(1);
+      expect(result.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+      expect(result.left).toBeLessThanOrEqual(1);
+      expect(result.right).toBeGreaterThanOrEqual(result.inner.w - 1);
+    } finally {
+      await page.evaluate(() => {
+        document.documentElement.style.removeProperty('--viewport-offset-top');
+        document.documentElement.style.removeProperty('--visual-viewport-height');
+      });
+    }
+  });
+
+  test('tablet-sized layouts let visual viewport CSS variables move and size the shell', async ({ page }) => {
+    await page.setViewportSize({ width: 744, height: 1000 });
+    await navigateToSession(page);
+    await openOverlay(page);
+
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--viewport-offset-top', '260px');
+      document.documentElement.style.setProperty('--visual-viewport-height', '420px');
+    });
+    await page.waitForTimeout(50);
+
+    try {
       const result = await page.evaluate(() => {
         const rectFor = (selector: string) => {
           const el = document.querySelector(selector) as HTMLElement;
@@ -149,19 +187,23 @@ test.describe('SessionChatOverlay layout', () => {
         };
       });
 
-      expect(result.backdrop.top).toBeLessThanOrEqual(1);
-      expect(result.backdrop.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+      expect(result.backdrop.top).toBeGreaterThanOrEqual(259);
+      expect(result.backdrop.top).toBeLessThanOrEqual(261);
+      expect(result.backdrop.bottom).toBeGreaterThanOrEqual(679);
+      expect(result.backdrop.bottom).toBeLessThanOrEqual(681);
       expect(result.backdrop.left).toBeLessThanOrEqual(1);
       expect(result.backdrop.right).toBeGreaterThanOrEqual(result.inner.w - 1);
 
-      expect(result.panel.top).toBeLessThanOrEqual(1);
-      expect(result.panel.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+      expect(result.panel.top).toBeGreaterThanOrEqual(259);
+      expect(result.panel.top).toBeLessThanOrEqual(261);
+      expect(result.panel.bottom).toBeGreaterThanOrEqual(679);
+      expect(result.panel.bottom).toBeLessThanOrEqual(681);
       expect(result.panel.right).toBeGreaterThanOrEqual(result.inner.w - 1);
       expect(result.panel.right).toBeLessThanOrEqual(result.inner.w + 1);
       expect(result.panel.width).toBeLessThanOrEqual(Math.min(result.inner.w, 900) + 1);
 
-      expect(result.header.top).toBeLessThanOrEqual(1);
-      expect(result.header.top).toBeLessThan(260);
+      expect(result.header.top).toBeGreaterThanOrEqual(259);
+      expect(result.header.top).toBeLessThanOrEqual(261);
     } finally {
       await page.evaluate(() => {
         document.documentElement.style.removeProperty('--viewport-offset-top');
@@ -172,9 +214,9 @@ test.describe('SessionChatOverlay layout', () => {
 
   test('covers viewport after SessionDetailView scroll', async ({ page }) => {
     await navigateToSession(page);
-    // Scroll SessionDetailView before opening the overlay. Previously the
-    // JS sync relied on visualViewport events to anchor the backdrop; now
-    // `position: fixed` + the scroll-lock on #app handles this.
+    // Scroll SessionDetailView before opening the overlay. The app scroll
+    // lock is applied to #app, while the teleported backdrop remains fixed
+    // against the viewport.
     await page.evaluate(() => window.scrollTo(0, 400));
     await openOverlay(page);
 

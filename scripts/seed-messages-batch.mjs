@@ -56,9 +56,8 @@ const insertStmt = db.prepare(
 
 const selectStmt = db.prepare('SELECT * FROM conversation_messages WHERE id = ?');
 
-const results = [];
-
 const insertAll = db.transaction(() => {
+  const results = [];
   let now = Date.now();
   for (const msg of messages) {
     const id = randomUUID();
@@ -82,16 +81,22 @@ const insertAll = db.transaction(() => {
     // Increment timestamp so messages have distinct ordering
     now++;
   }
+  return results;
 });
 
-// Retry the transaction in case of transient SQLITE_BUSY errors
-const MAX_RETRIES = 3;
+function isTransientBusyError(err) {
+  return err?.code === 'SQLITE_BUSY' || err?.code === 'SQLITE_BUSY_SNAPSHOT';
+}
+
+// Retry the transaction in case of transient SQLite lock/snapshot errors.
+const MAX_RETRIES = 5;
+let results;
 for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
   try {
-    insertAll();
+    results = insertAll();
     break;
   } catch (err) {
-    if (err.code === 'SQLITE_BUSY' && attempt < MAX_RETRIES) {
+    if (isTransientBusyError(err) && attempt < MAX_RETRIES) {
       // Wait with exponential backoff before retrying
       const delay = 1000 * attempt;
       await new Promise(resolve => setTimeout(resolve, delay));
