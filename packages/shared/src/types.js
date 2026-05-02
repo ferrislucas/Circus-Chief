@@ -47,6 +47,7 @@
  * @property {string|null} gitBranch
  * @property {string|null} gitWorktree
  * @property {string|null} prUrl
+ * @property {boolean} prUrlAutoLinkDisabled
  * @property {string|null} error
  * @property {number} createdAt
  * @property {number} updatedAt

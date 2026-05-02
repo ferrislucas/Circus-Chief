@@ -1302,7 +1302,7 @@ export async function cleanupProviders() {
  * session_summaries and must be seeded via seedSessionSummaryWithPR().
  */
 export async function updateSessionWithPR(sessionId: string, prData: {
-  prUrl?: string;
+  prUrl?: string | null;
   prState?: 'open' | 'merged' | 'closed' | 'draft';
   hasMergeConflicts?: boolean;
   ciStatus?: 'success' | 'failure' | 'pending';

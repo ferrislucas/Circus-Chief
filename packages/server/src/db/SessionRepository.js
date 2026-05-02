@@ -53,6 +53,7 @@ export class SessionRepository extends BaseRepository {
       gitBranch: row.git_branch,
       gitWorktree: row.git_worktree,
       prUrl: row.pr_url,
+      prUrlAutoLinkDisabled: Boolean(row.pr_url_auto_link_disabled),
       error: row.error,
       costUsd: row.cost_usd,
       claudeSessionId: row.claude_session_id,
