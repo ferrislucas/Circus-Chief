@@ -40,6 +40,23 @@ function buildAgentConfig(agentType) {
   return {};
 }
 
+async function resolveInitialSessionModelEnv(session, model) {
+  const effectiveModel = model || session.model;
+  const provider = resolveProviderFromModel(effectiveModel);
+  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
+  const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
+
+  if (session.gitWorktree) {
+    await configureWorktreeCommitAttribution(session.gitWorktree, commitAttributionOverride);
+  }
+
+  return {
+    effectiveModel,
+    sessionEnv: buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel),
+    commitAttributionOverride,
+  };
+}
+
 /**
  * Create the agent for a session, using gateway + logging + VCR.
  *
@@ -380,19 +397,8 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   const agentType = session.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
 
-  // Resolve the effective model: fall back to session.model as defense-in-depth
-  // (draftSessionService already resolves the model upstream, but this ensures
-  // correctness if called directly).
-  const effectiveModel = model || session.model;
-
-  // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(effectiveModel);
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
-  const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
-  if (session.gitWorktree) {
-    await configureWorktreeCommitAttribution(session.gitWorktree, commitAttributionOverride);
-  }
-  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
+  const { effectiveModel, sessionEnv, commitAttributionOverride } =
+    await resolveInitialSessionModelEnv(session, model);
 
   const queryParams = buildQueryParams({
     prompt: promptWithAttachments,
