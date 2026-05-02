@@ -161,6 +161,33 @@ describe('Projects API', () => {
       expect(res.status).toBe(400);
     });
 
+    it('returns 404 when parentSessionId references a missing session', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Child prompt',
+        parentSessionId: 'missing-parent-session',
+      });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Parent session not found');
+      expect(setupGitForSession).not.toHaveBeenCalled();
+      expect(sessions.getByProjectId(projectId)).toHaveLength(0);
+    });
+
+    it('rejects parentSessionId from another project', async () => {
+      const otherProject = projects.create('Other Project', tempDir);
+      const otherParent = sessions.create(otherProject.id, 'Other Parent', 'Parent prompt');
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Child prompt',
+        parentSessionId: otherParent.id,
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Parent session does not belong to this project');
+      expect(setupGitForSession).not.toHaveBeenCalled();
+      expect(sessions.getByProjectId(projectId)).toHaveLength(0);
+    });
+
     it('persists providerId for JSON session creation', async () => {
       const provider = modelProviders.create({
         name: 'OpenAI Test',

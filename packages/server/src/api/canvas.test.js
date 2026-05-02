@@ -1338,6 +1338,21 @@ describe('Canvas API', () => {
         expect(contentRes.body.content).toBe('Version 1');
       });
 
+      it('rejects a child session whose parent chain crosses projects', async () => {
+        const otherProject = projects.create('Other Project', '/tmp/other');
+        const otherRoot = sessions.create(otherProject.id, 'Other Root', 'Other prompt');
+        const child = sessions.create(projectId, 'Cross Project Child', 'Child prompt', {
+          mode: 'standard',
+          parentSessionId: otherRoot.id,
+        });
+        canvasItems.create(otherRoot.id, { type: 'text', content: 'Do not leak', filename: 'secret.txt' });
+
+        const res = await request(app).get(`/api/sessions/${child.id}/canvas`);
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Session parent chain crosses projects');
+      });
+
       it('creates canvas item from inline markdown content', async () => {
         const res = await request(app)
           .post(`/api/sessions/${sessionId}/canvas`)

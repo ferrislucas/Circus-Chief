@@ -72,6 +72,10 @@ export function requireRootSessionAndProject(req, res, next) {
     return res.status(404).json({ error: 'Session not found' });
   }
 
+  if (providedSession.projectId !== rootSession.projectId) {
+    return res.status(400).json({ error: 'Session parent chain crosses projects' });
+  }
+
   const rootProject = projects.getById(rootSession.projectId);
   if (!rootProject) {
     return res.status(404).json({ error: 'Project not found' });
