@@ -212,6 +212,18 @@ describe('prUrlService', () => {
       expect(session.prUrl).toBe('https://github.com/user/repo/pull/1');
     });
 
+    it('does not extract when automatic PR linking is disabled', async () => {
+      sessions.update(sessionId, { prUrlAutoLinkDisabled: true });
+      messages.create(sessionId, 'assistant', 'PR: https://github.com/user/repo/pull/42');
+
+      await extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBeNull();
+      expect(broadcastSessionUpdate).not.toHaveBeenCalled();
+      expect(ghService.getPrInfo).not.toHaveBeenCalled();
+    });
+
     it('does nothing for non-existent session', async () => {
       await extractPrUrlIfNeeded('non-existent');
       expect(broadcastSessionUpdate).not.toHaveBeenCalled();
@@ -254,6 +266,23 @@ describe('prUrlService', () => {
       // Verify root keeps the original PR URL (first wins)
       const rootAfter = sessions.getById(root.id);
       expect(rootAfter.prUrl).toBe(originalPrUrl);
+    });
+
+    it('does not propagate extracted PR URL to root when root automatic linking is disabled', async () => {
+      const root = sessions.create(projectId, 'Root Session', 'Root prompt');
+      sessions.update(root.id, { prUrlAutoLinkDisabled: true });
+
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard', false, null, root.id);
+      messages.create(child.id, 'assistant', 'Created PR: https://github.com/user/repo/pull/777');
+
+      await extractPrUrlIfNeeded(child.id);
+
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBe('https://github.com/user/repo/pull/777');
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBeNull();
+      expect(rootAfter.prUrlAutoLinkDisabled).toBe(true);
     });
   });
 

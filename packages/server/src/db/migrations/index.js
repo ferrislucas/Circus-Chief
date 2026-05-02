@@ -134,6 +134,7 @@ export const allMigrations = validateMigrations([
   s.get('sessions-add-archived'),
   s.get('sessions-add-starred'),
   s.get('sessions-add-manually_named'),
+  s.get('sessions-add-pr_url_auto_link_disabled'),
 
   // --- Project session defaults table ---
   p.get('project_session_defaults-create-table'),

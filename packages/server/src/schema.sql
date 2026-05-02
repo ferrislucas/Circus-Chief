@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   git_branch TEXT,
   git_worktree TEXT,
   pr_url TEXT,
+  pr_url_auto_link_disabled INTEGER NOT NULL DEFAULT 0,
   error TEXT,
   effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
   cost_usd REAL DEFAULT 0,

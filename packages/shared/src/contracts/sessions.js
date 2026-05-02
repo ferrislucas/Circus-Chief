@@ -64,6 +64,7 @@ export const SessionResponse = z.object({
   gitBranch: z.string().nullable(),
   gitWorktree: z.string().nullable(),
   prUrl: z.string().nullable(),
+  prUrlAutoLinkDisabled: z.boolean(),
   manuallyNamed: z.boolean(),
   error: z.string().nullable(),
   nextTemplateId: z.string().uuid().nullable(),

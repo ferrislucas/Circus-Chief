@@ -43,10 +43,12 @@ describe('Sessions API - PR URL Endpoint', () => {
         .expect(200);
 
       expect(response.body.prUrl).toBe(prUrl);
+      expect(response.body.prUrlAutoLinkDisabled).toBe(false);
 
       // Verify it was persisted
       const updated = sessions.getById(session.id);
       expect(updated.prUrl).toBe(prUrl);
+      expect(updated.prUrlAutoLinkDisabled).toBe(false);
     });
 
     it('updates prUrl with different valid PR URL', async () => {
@@ -80,10 +82,12 @@ describe('Sessions API - PR URL Endpoint', () => {
         .expect(200);
 
       expect(response.body.prUrl).toBeNull();
+      expect(response.body.prUrlAutoLinkDisabled).toBe(true);
 
       // Verify it was persisted
       const updated = sessions.getById(session.id);
       expect(updated.prUrl).toBeNull();
+      expect(updated.prUrlAutoLinkDisabled).toBe(true);
     });
 
     it('clears prUrl when set to empty string', async () => {
@@ -100,10 +104,55 @@ describe('Sessions API - PR URL Endpoint', () => {
         .expect(200);
 
       expect(response.body.prUrl).toBeNull();
+      expect(response.body.prUrlAutoLinkDisabled).toBe(true);
 
       // Verify it was persisted
       const updated = sessions.getById(session.id);
       expect(updated.prUrl).toBeNull();
+      expect(updated.prUrlAutoLinkDisabled).toBe(true);
+    });
+
+    it('defaults prUrlAutoLinkDisabled to false for new sessions', () => {
+      const created = sessions.getById(session.id);
+      expect(created.prUrlAutoLinkDisabled).toBe(false);
+    });
+
+    it('re-enables auto linking when manually setting a valid PR URL after clearing', async () => {
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: null })
+        .expect(200);
+
+      const prUrl = 'https://github.com/owner/repo/pull/456';
+      const response = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl })
+        .expect(200);
+
+      expect(response.body.prUrl).toBe(prUrl);
+      expect(response.body.prUrlAutoLinkDisabled).toBe(false);
+
+      const updated = sessions.getById(session.id);
+      expect(updated.prUrl).toBe(prUrl);
+      expect(updated.prUrlAutoLinkDisabled).toBe(false);
+    });
+
+    it('does not modify prUrlAutoLinkDisabled when prUrl is not included in request', async () => {
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: null })
+        .expect(200);
+
+      const response = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ thinkingEnabled: true })
+        .expect(200);
+
+      expect(response.body.prUrl).toBeNull();
+      expect(response.body.prUrlAutoLinkDisabled).toBe(true);
+
+      const updated = sessions.getById(session.id);
+      expect(updated.prUrlAutoLinkDisabled).toBe(true);
     });
 
     it('rejects invalid PR URL format', async () => {
