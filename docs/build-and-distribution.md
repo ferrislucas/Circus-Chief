@@ -102,7 +102,7 @@ Meanwhile `pw.sh test-package`:
 
 ### When to use `test-package`
 
-- **Before publishing** — run it after `scripts/publish.sh`'s build succeeds but before you actually publish, to prove the tarball works end-to-end.
+- **Before publishing** — run it before invoking `scripts/publish.sh`, to prove the tarball works end-to-end. The publish script builds and then immediately runs `npm publish`; it does not pause for a package-test checkpoint.
 - **After changes to `scripts/build-package.js`** — any change to the import-rewriter, the `files` whitelist, the production `cli.js`, or the merged dependency list should be covered by a `test-package` run.
 - **After touching anything in `packages/server/bin/`** or runtime code paths that differ between `yarn dev` and the packaged artifact.
 
