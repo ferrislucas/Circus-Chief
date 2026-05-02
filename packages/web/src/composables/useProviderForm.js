@@ -1,6 +1,10 @@
 import { ref, computed, watch } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
+import {
+  COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
+  parseCommitAttributionOverride,
+} from '@circuschief/shared/contracts/providers';
 
 export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
 
@@ -82,7 +86,12 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
 
   // ── Computed ──────────────────────────────────────────────────
   const isEditing = computed(() => Boolean(providerRef.value));
+  const attributionValidationError = computed(() => {
+    const result = parseCommitAttributionOverride(form.value.commitAttributionOverride);
+    return result.success ? null : result.error;
+  });
   const isValid = computed(() => {
+    if (attributionValidationError.value) return false;
     if (attributionOnlyRef?.value) return true;
     if (form.value.name.trim().length === 0) return false;
     // `kind` is required on create; on edit the server enforces immutability
@@ -228,8 +237,11 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
 
   // ── Save ──────────────────────────────────────────────────────
   function normalizeCommitAttributionOverride(value) {
-    const trimmed = value?.trim() || '';
-    return trimmed ? trimmed : null;
+    const result = parseCommitAttributionOverride(value);
+    if (!result.success) {
+      throw new Error(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
+    }
+    return result.value;
   }
 
   async function save() {
@@ -297,6 +309,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     testResult,
     authTokenModified,
     isEditing,
+    attributionValidationError,
     isValid,
     canTest,
     addLocalModel,

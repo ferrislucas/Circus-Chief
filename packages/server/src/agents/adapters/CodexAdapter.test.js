@@ -213,7 +213,7 @@ describe('CodexAdapter', () => {
     expect(spawnArgs.args[cIdx + 1]).toBe('preferred_auth_method=chatgpt');
   });
 
-  it('CLI path: appends commit_attribution config when configured', async () => {
+  it('CLI path: does not append native commit_attribution config', async () => {
     const fakeSpawn = vi.fn(() => createFakeChild({
       stdoutLines: ['{"type":"thread.started","thread_id":"codex-attr"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
       exitCode: 0,
@@ -232,8 +232,7 @@ describe('CodexAdapter', () => {
     }));
 
     const spawnArgs = fakeSpawn.mock.calls[0][0];
-    expect(spawnArgs.args).toContain('-c');
-    expect(spawnArgs.args).toContain('commit_attribution=Codex <noreply@openai.com>');
+    expect(spawnArgs.args.some((arg) => arg.startsWith('commit_attribution='))).toBe(false);
   });
 
   it('CLI path: does NOT append -c preferred_auth_method=chatgpt when OPENAI_API_KEY is in env', async () => {
@@ -634,7 +633,7 @@ describe('CodexAdapter', () => {
     });
   });
 
-  it('Direct-API path: ignores commitAttributionOverride without throwing', async () => {
+  it('Direct-API path: ignores commitAttributionOverride without logging', async () => {
     process.env.USE_CODEX_DIRECT_API = '1';
     const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
 
@@ -663,9 +662,7 @@ describe('CodexAdapter', () => {
     }));
 
     expect(events.some((event) => event.type === 'result')).toBe(true);
-    expect(debugSpy).toHaveBeenCalledWith(
-      '[CodexAdapter] Ignoring commitAttributionOverride in direct API fallback'
-    );
+    expect(debugSpy).not.toHaveBeenCalled();
     debugSpy.mockRestore();
   });
 

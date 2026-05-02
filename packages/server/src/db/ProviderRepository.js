@@ -1,6 +1,7 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
+import { normalizeCommitAttributionOverride } from '@circuschief/shared/contracts/providers';
 
 /**
  * Valid values for `providers.kind`. Maps 1:1 to an agent adapter:
@@ -34,13 +35,6 @@ const UPDATE_COLUMN_BUILDERS = Object.freeze({
     normalizeCommitAttributionOverride(value),
   ],
 });
-
-function normalizeCommitAttributionOverride(value) {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
 
 function validateBuiltInUpdate(provider, data) {
   if (!provider.isBuiltIn) return;

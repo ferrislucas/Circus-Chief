@@ -79,7 +79,7 @@ describe('Providers API', () => {
         .expect(201);
 
       testProviderId = response.body.id;
-      expect(response.body.commitAttributionOverride).toBe('Codex <noreply@openai.com>');
+      expect(response.body.commitAttributionOverride).toBe('Co-authored-by: Codex <noreply@openai.com>');
     });
 
     it('normalizes cleared attribution to null', async () => {
@@ -98,7 +98,7 @@ describe('Providers API', () => {
       expect(response.body.commitAttributionOverride).toBeNull();
     });
 
-    it('rejects non-string attribution values', async () => {
+    it('rejects malformed attribution values', async () => {
       const provider = modelProviders.create({ name: 'Reject Attribution', kind: 'openai' });
       testProviderId = provider.id;
 
@@ -106,13 +106,30 @@ describe('Providers API', () => {
         .patch(`/api/providers/${provider.id}`)
         .send({ commitAttributionOverride: 42 })
         .expect(400);
+
+      await request(app)
+        .patch(`/api/providers/${provider.id}`)
+        .send({ commitAttributionOverride: 'noreply@openai.com' })
+        .expect(400);
+
+      await request(app)
+        .post('/api/providers')
+        .send({
+          name: 'Bad Attribution API Provider',
+          kind: 'openai',
+          commitAttributionOverride: 'Codex <noreply@openai.com>\nMore',
+        })
+        .expect(400);
     });
 
     it('allows built-in attribution updates but rejects unrelated built-in fields', async () => {
       await request(app)
         .patch('/api/providers/openai-default')
         .send({ commitAttributionOverride: 'Codex <noreply@openai.com>' })
-        .expect(200);
+        .expect(200)
+        .expect((response) => {
+          expect(response.body.commitAttributionOverride).toBe('Co-authored-by: Codex <noreply@openai.com>');
+        });
 
       await request(app)
         .patch('/api/providers/openai-default')

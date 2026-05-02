@@ -4,6 +4,7 @@ import {
   CreateProviderRequest,
   UpdateProviderRequest,
   TestConnectionRequest,
+  COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
 } from './providers.js';
 
 describe('Provider Contracts', () => {
@@ -57,18 +58,49 @@ describe('Provider Contracts', () => {
       expect(o.success).toBe(true);
     });
 
-    it('accepts omitted, null, and string commit attribution override', () => {
+    it('canonicalizes omitted, null, blank, and valid commit attribution overrides', () => {
       expect(CreateProviderRequest.safeParse({ name: 'A', kind: 'anthropic' }).success).toBe(true);
       expect(CreateProviderRequest.safeParse({
         name: 'A',
         kind: 'anthropic',
         commitAttributionOverride: null,
-      }).success).toBe(true);
+      }).data.commitAttributionOverride).toBeNull();
+      expect(CreateProviderRequest.safeParse({
+        name: 'A',
+        kind: 'anthropic',
+        commitAttributionOverride: '   ',
+      }).data.commitAttributionOverride).toBeNull();
+      expect(CreateProviderRequest.safeParse({
+        name: 'A',
+        kind: 'anthropic',
+        commitAttributionOverride: 'Codex <noreply@openai.com>',
+      }).data.commitAttributionOverride).toBe('Co-authored-by: Codex <noreply@openai.com>');
       expect(CreateProviderRequest.safeParse({
         name: 'A',
         kind: 'anthropic',
         commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
-      }).success).toBe(true);
+      }).data.commitAttributionOverride).toBe('Co-authored-by: Claude <noreply@anthropic.com>');
+    });
+
+    it('rejects malformed commit attribution overrides', () => {
+      for (const value of [
+        'noreply@openai.com',
+        '<noreply@openai.com>',
+        'Codex noreply@openai.com',
+        'Codex <not-an-email>',
+        'Codex <noreply@openai.com>\nMore',
+        1,
+        {},
+        [],
+      ]) {
+        const result = CreateProviderRequest.safeParse({
+          name: 'A',
+          kind: 'anthropic',
+          commitAttributionOverride: value,
+        });
+        expect(result.success).toBe(false);
+        expect(result.error.issues[0].message).toBe(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
+      }
     });
   });
 
@@ -91,15 +123,29 @@ describe('Provider Contracts', () => {
       expect(result.success).toBe(false);
     });
 
-    it('accepts null and string commit attribution override updates', () => {
-      expect(UpdateProviderRequest.safeParse({ commitAttributionOverride: null }).success).toBe(true);
+    it('canonicalizes null, blank, and valid commit attribution override updates', () => {
+      expect(UpdateProviderRequest.safeParse({ commitAttributionOverride: null }).data.commitAttributionOverride).toBeNull();
+      expect(UpdateProviderRequest.safeParse({ commitAttributionOverride: '   ' }).data.commitAttributionOverride).toBeNull();
       expect(UpdateProviderRequest.safeParse({
         commitAttributionOverride: 'Codex <noreply@openai.com>',
-      }).success).toBe(true);
+      }).data.commitAttributionOverride).toBe('Co-authored-by: Codex <noreply@openai.com>');
+      expect(UpdateProviderRequest.safeParse({
+        commitAttributionOverride: 'Co-authored-by: Codex <noreply@openai.com>',
+      }).data.commitAttributionOverride).toBe('Co-authored-by: Codex <noreply@openai.com>');
     });
 
-    it('rejects non-string commit attribution override updates', () => {
-      for (const value of [1, true, {}, []]) {
+    it('rejects malformed commit attribution override updates', () => {
+      for (const value of [
+        'noreply@openai.com',
+        '<noreply@openai.com>',
+        'Codex noreply@openai.com',
+        'Codex <not-an-email>',
+        'Codex <noreply@openai.com>\nMore',
+        1,
+        true,
+        {},
+        [],
+      ]) {
         expect(UpdateProviderRequest.safeParse({ commitAttributionOverride: value }).success).toBe(false);
       }
     });

@@ -15,6 +15,7 @@ export function captureSpawnAttempt(agentType, spawnOptions) {
     command: spawnOptions.command,
     args: spawnOptions.args || [],
     cwd: spawnOptions.cwd || null,
+    env: summarizeSpawnEnv(spawnOptions.env),
     options: summarizeSpawnOptions(agentType, spawnOptions),
     capturedAt: new Date().toISOString(),
   };
@@ -55,6 +56,15 @@ export function createCapturedSpawnProcess(agentType) {
   }
 
   return processStub;
+}
+
+function summarizeSpawnEnv(env = {}) {
+  if (!Object.prototype.hasOwnProperty.call(env, 'CIRCUSCHIEF_COMMIT_ATTRIBUTION')) {
+    return {};
+  }
+  return {
+    CIRCUSCHIEF_COMMIT_ATTRIBUTION: env.CIRCUSCHIEF_COMMIT_ATTRIBUTION,
+  };
 }
 
 function summarizeSpawnOptions(agentType, spawnOptions) {

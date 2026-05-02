@@ -76,19 +76,27 @@ describe('ProviderRepository', () => {
       repo.delete(provider.id);
     });
 
-    it('persists commitAttributionOverride and normalizes whitespace to null', () => {
+    it('persists canonical commitAttributionOverride and normalizes whitespace to null', () => {
       const provider = repo.create({
         name: 'Attribution Provider',
         kind: 'openai',
         commitAttributionOverride: '  Codex <noreply@openai.com>  ',
       });
 
-      expect(provider.commitAttributionOverride).toBe('Codex <noreply@openai.com>');
+      expect(provider.commitAttributionOverride).toBe('Co-authored-by: Codex <noreply@openai.com>');
 
       const updated = repo.update(provider.id, { commitAttributionOverride: '   ' });
       expect(updated.commitAttributionOverride).toBeNull();
 
       repo.delete(provider.id);
+    });
+
+    it('rejects invalid commitAttributionOverride values', () => {
+      expect(() => repo.create({
+        name: 'Bad Attribution Provider',
+        kind: 'openai',
+        commitAttributionOverride: 'noreply@openai.com',
+      })).toThrow(/Commit attribution must be in the format/);
     });
 
     it('encrypts auth token at rest (raw row should not contain plaintext token)', () => {
@@ -137,7 +145,7 @@ describe('ProviderRepository', () => {
   describe('built-in provider attribution updates', () => {
     it('allows commitAttributionOverride on built-in providers', () => {
       const updated = repo.update('anthropic-default', {
-        commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+        commitAttributionOverride: 'Claude <noreply@anthropic.com>',
       });
 
       expect(updated.commitAttributionOverride).toBe('Co-authored-by: Claude <noreply@anthropic.com>');

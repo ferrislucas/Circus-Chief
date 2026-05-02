@@ -2,7 +2,11 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { realpath } from 'fs/promises';
-export { configureWorktreeCommitAttribution } from './gitCommitAttribution.js';
+export {
+  clearWorktreeCommitAttribution,
+  configureWorktreeCommitAttribution,
+  ensureWorktreeCommitAttributionHook,
+} from './gitCommitAttribution.js';
 
 const execAsync = promisify(exec);
 

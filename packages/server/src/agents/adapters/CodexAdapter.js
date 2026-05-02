@@ -24,8 +24,7 @@ let codexCliUnavailable = false;
  *      against the provider's configured baseURL/apiKey. It bypasses
  *      CLI-specific behavior such as sandbox enforcement and Codex
  *      commit-attribution config. Intended for
- *      environments where the Codex CLI isn't installable and for the
- *      Step-0 contingency path in the implementation plan.
+ *      environments where the Codex CLI isn't installable.
  *
  * Capabilities in v1:
  *   - streaming:   true
@@ -112,7 +111,7 @@ export class CodexAdapter extends BaseAgent {
 
   _spawnCodexChild(queryParams, options) {
     const spawnFn = this._spawnCodex ?? createCodexSpawner();
-    const { cwd, env, abortController, model, sandboxMode, effortLevel, commitAttributionOverride } = options;
+    const { cwd, env, abortController, model, sandboxMode, effortLevel } = options;
     const effectiveSandbox = sandboxMode || 'workspace-write';
     const codexReasoningEffort = resolveCodexReasoningEffort(effortLevel);
     const args = [
@@ -128,10 +127,6 @@ export class CodexAdapter extends BaseAgent {
         '-c', `model_reasoning_effort=${codexReasoningEffort}`,
         '-c', `plan_mode_reasoning_effort=${codexReasoningEffort}`
       );
-    }
-
-    if (commitAttributionOverride) {
-      args.push('-c', `commit_attribution=${commitAttributionOverride}`);
     }
 
     // Defense in depth: when no API key is in the env, force ChatGPT auth
@@ -165,11 +160,6 @@ export class CodexAdapter extends BaseAgent {
    * Direct-API path — stream Chat Completions via the OpenAI SDK.
    */
   async *_executeDirectApi(queryParams, options) {
-    if (options.commitAttributionOverride) {
-      console.debug(
-        '[CodexAdapter] Ignoring commitAttributionOverride in direct API fallback'
-      );
-    }
     const { model, systemPrompt, abortController } = resolveDirectApiInputs(options);
     const client = await this._resolveOpenAiClient(options);
 

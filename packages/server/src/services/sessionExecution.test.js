@@ -18,7 +18,7 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 
-import { buildQueryParams, createAgentForSession } from './sessionExecution.js';
+import { buildAgentEnv, buildQueryParams, createAgentForSession } from './sessionExecution.js';
 import { continueSession, runSession, continueSessionWithExistingMessage } from './sessionManager.js';
 import * as sessionProvider from './sessionProvider.js';
 import { agentGateway } from '../agents/AgentGateway.js';
@@ -126,20 +126,16 @@ describe('buildQueryParams', () => {
     expect(result.options.extraArgs).toBeUndefined();
   });
 
-  it('includes Claude attribution settings when override is configured', () => {
+  it('does not include native Claude attribution settings when override is configured', () => {
     const result = buildQueryParams({
       ...baseArgs(),
       commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
     });
 
-    expect(JSON.parse(result.options.extraArgs.settings)).toEqual({
-      attribution: {
-        commit: 'Co-authored-by: Claude <noreply@anthropic.com>',
-      },
-    });
+    expect(result.options.extraArgs).toBeUndefined();
   });
 
-  it('carries commitAttributionOverride into Codex query options', () => {
+  it('does not carry commitAttributionOverride into Codex query options', () => {
     const result = buildQueryParams({
       ...baseArgs(),
       agentType: 'codex',
@@ -147,7 +143,16 @@ describe('buildQueryParams', () => {
       commitAttributionOverride: 'Codex <noreply@openai.com>',
     });
 
-    expect(result.options.commitAttributionOverride).toBe('Codex <noreply@openai.com>');
+    expect(result.options.commitAttributionOverride).toBeUndefined();
+  });
+
+  it('buildAgentEnv sets or deletes CIRCUSCHIEF_COMMIT_ATTRIBUTION', () => {
+    expect(buildAgentEnv({}, 'Co-authored-by: Codex <noreply@openai.com>'))
+      .toMatchObject({ CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Codex <noreply@openai.com>' });
+    expect(buildAgentEnv({
+      CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Leaked <leaked@example.com>',
+      OTHER: 'value',
+    }, null)).toEqual({ OTHER: 'value' });
   });
 });
 

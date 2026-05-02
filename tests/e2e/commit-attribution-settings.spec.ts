@@ -16,8 +16,8 @@ import {
   TEST_PREFIX,
 } from './helpers';
 
-const CLAUDE_ATTRIBUTION = 'Claude E2E <claude-e2e@example.com>';
-const CODEX_ATTRIBUTION = 'Codex E2E <codex-e2e@example.com>';
+const CLAUDE_ATTRIBUTION = 'Co-authored-by: Claude E2E <claude-e2e@example.com>';
+const CODEX_ATTRIBUTION = 'Co-authored-by: Codex E2E <codex-e2e@example.com>';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -134,7 +134,7 @@ test.describe('Commit attribution launch behavior', () => {
     clearCaptureFile();
   });
 
-  test('built-in Anthropic blank attribution does not pass Claude commit settings', async () => {
+  test('built-in Anthropic blank attribution does not pass commit attribution env', async () => {
     const project = await seedProject('Claude Blank Attribution Project', process.cwd());
     const session = await seedSession(project.id, {
       prompt: 'Claude blank attribution e2e',
@@ -145,9 +145,10 @@ test.describe('Commit attribution launch behavior', () => {
     await waitForStatus(session.id, 'waiting', 60000);
     const spawn = await waitForSpawn('claude-code');
     expect(spawn.args).not.toContain('--settings');
+    expect(spawn.env?.CIRCUSCHIEF_COMMIT_ATTRIBUTION).toBeUndefined();
   });
 
-  test('built-in Anthropic override passes Claude commit settings', async () => {
+  test('built-in Anthropic override passes commit attribution env', async () => {
     const anthropic = await builtInProvider('anthropic');
     await updateProvider(anthropic.id, { commitAttributionOverride: CLAUDE_ATTRIBUTION });
 
@@ -159,10 +160,10 @@ test.describe('Commit attribution launch behavior', () => {
     });
 
     await waitForStatus(session.id, 'waiting', 60000);
-    expectClaudeSettings(await waitForSpawn('claude-code'), CLAUDE_ATTRIBUTION);
+    expectAttributionEnv(await waitForSpawn('claude-code'), CLAUDE_ATTRIBUTION);
   });
 
-  test('custom Anthropic provider override passes Claude commit settings', async () => {
+  test('custom Anthropic provider override passes commit attribution env', async () => {
     const provider = await createProvider({
       name: `${TEST_PREFIX}Launch Anthropic`,
       kind: 'anthropic',
@@ -184,10 +185,10 @@ test.describe('Commit attribution launch behavior', () => {
     });
 
     await waitForStatus(session.id, 'waiting', 60000);
-    expectClaudeSettings(await waitForSpawn('claude-code'), CLAUDE_ATTRIBUTION);
+    expectAttributionEnv(await waitForSpawn('claude-code'), CLAUDE_ATTRIBUTION);
   });
 
-  test('built-in OpenAI blank attribution does not pass Codex commit attribution config', async () => {
+  test('built-in OpenAI blank attribution does not pass commit attribution env or native config', async () => {
     const project = await seedProject('Codex Blank Attribution Project', process.cwd());
     const session = await seedSession(project.id, {
       prompt: 'Codex blank attribution e2e',
@@ -197,11 +198,11 @@ test.describe('Commit attribution launch behavior', () => {
 
     await waitForStatus(session.id, 'waiting', 60000);
     const spawn = await waitForSpawn('codex');
-    expect(spawn.args).not.toContain(`commit_attribution=${CODEX_ATTRIBUTION}`);
     expect(spawn.args.some((arg: string) => arg.startsWith('commit_attribution='))).toBe(false);
+    expect(spawn.env?.CIRCUSCHIEF_COMMIT_ATTRIBUTION).toBeUndefined();
   });
 
-  test('built-in OpenAI override passes Codex commit attribution config', async () => {
+  test('built-in OpenAI override passes commit attribution env without native config', async () => {
     const openai = await builtInProvider('openai');
     await updateProvider(openai.id, { commitAttributionOverride: CODEX_ATTRIBUTION });
 
@@ -213,10 +214,10 @@ test.describe('Commit attribution launch behavior', () => {
     });
 
     await waitForStatus(session.id, 'waiting', 60000);
-    expectCodexAttribution(await waitForSpawn('codex'), CODEX_ATTRIBUTION);
+    expectAttributionEnv(await waitForSpawn('codex'), CODEX_ATTRIBUTION);
   });
 
-  test('custom OpenAI provider override passes Codex commit attribution config', async () => {
+  test('custom OpenAI provider override passes commit attribution env without native config', async () => {
     const provider = await createProvider({
       name: `${TEST_PREFIX}Launch OpenAI`,
       kind: 'openai',
@@ -238,7 +239,7 @@ test.describe('Commit attribution launch behavior', () => {
     });
 
     await waitForStatus(session.id, 'waiting', 60000);
-    expectCodexAttribution(await waitForSpawn('codex'), CODEX_ATTRIBUTION);
+    expectAttributionEnv(await waitForSpawn('codex'), CODEX_ATTRIBUTION);
   });
 });
 
@@ -336,16 +337,8 @@ function readCaptureRecords() {
     .map((line) => JSON.parse(line));
 }
 
-function expectClaudeSettings(spawn: any, attribution: string) {
-  const settingsIndex = spawn.args.indexOf('--settings');
-  expect(settingsIndex).toBeGreaterThanOrEqual(0);
-  const settings = JSON.parse(spawn.args[settingsIndex + 1]);
-  expect(settings.attribution.commit).toBe(attribution);
-}
-
-function expectCodexAttribution(spawn: any, attribution: string) {
-  const configValues = spawn.args
-    .map((arg: string, index: number) => (arg === '-c' ? spawn.args[index + 1] : null))
-    .filter(Boolean);
-  expect(configValues).toContain(`commit_attribution=${attribution}`);
+function expectAttributionEnv(spawn: any, attribution: string) {
+  expect(spawn.env?.CIRCUSCHIEF_COMMIT_ATTRIBUTION).toBe(attribution);
+  expect(spawn.args).not.toContain('--settings');
+  expect(spawn.args.some((arg: string) => arg.startsWith('commit_attribution='))).toBe(false);
 }

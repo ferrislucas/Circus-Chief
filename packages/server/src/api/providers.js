@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { modelProviders } from '../database.js';
 import {
+  COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
   CreateProviderRequest,
   UpdateProviderRequest,
   CreateProviderModelRequest,
@@ -34,6 +35,9 @@ router.get('/', (_req, res) => {
     const sanitized = allProviders.map(redactAuthToken);
     res.json(sanitized);
   } catch (error) {
+    if (error.message === COMMIT_ATTRIBUTION_VALIDATION_MESSAGE) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -87,6 +91,9 @@ router.patch('/:id', (req, res) => {
       error.message.startsWith('Built-in providers can only update')
     ) {
       return res.status(403).json({ error: error.message });
+    }
+    if (error.message === COMMIT_ATTRIBUTION_VALIDATION_MESSAGE) {
+      return res.status(400).json({ error: error.message });
     }
     res.status(500).json({ error: error.message });
   }

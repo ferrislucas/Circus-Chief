@@ -22,7 +22,7 @@ import {
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { schedulerService } from './schedulerService.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
-import { configureWorktreeCommitAttribution } from './gitService.js';
+import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
@@ -40,6 +40,16 @@ function buildAgentConfig(agentType) {
   return {};
 }
 
+export function buildAgentEnv(sessionEnv, commitAttributionOverride) {
+  const env = { ...(sessionEnv || {}) };
+  if (commitAttributionOverride) {
+    env.CIRCUSCHIEF_COMMIT_ATTRIBUTION = commitAttributionOverride;
+  } else {
+    delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
+  }
+  return env;
+}
+
 async function resolveInitialSessionModelEnv(session, model) {
   const effectiveModel = model || session.model;
   const provider = resolveProviderFromModel(effectiveModel);
@@ -47,12 +57,13 @@ async function resolveInitialSessionModelEnv(session, model) {
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
 
   if (session.gitWorktree) {
-    await configureWorktreeCommitAttribution(session.gitWorktree, commitAttributionOverride);
+    await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
 
+  const baseSessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
   return {
     effectiveModel,
-    sessionEnv: buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel),
+    sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride),
     commitAttributionOverride,
   };
 }
@@ -187,7 +198,11 @@ function buildContinueModelAndEnv(session, sessionId, model) {
   // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(effectiveModel);
   const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
-  const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
+  const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
+  const sessionEnv = buildAgentEnv(
+    buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel),
+    commitAttributionOverride
+  );
 
   // Check if model changed from the session's last requested model
   // When model changes, we can't resume the previous session - thinking blocks and
@@ -205,7 +220,7 @@ function buildContinueModelAndEnv(session, sessionId, model) {
   return {
     effectiveModel,
     sessionEnv,
-    commitAttributionOverride: providerMetadata?.commitAttributionOverride ?? null,
+    commitAttributionOverride,
     modelChanged,
     session: updatedSession,
   };
@@ -329,7 +344,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
   session = modelEnv.session;
   if (session.gitWorktree) {
-    await configureWorktreeCommitAttribution(session.gitWorktree, modelEnv.commitAttributionOverride);
+    await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
 
   // Build query params and agent call meta

@@ -11,13 +11,10 @@ import {
  */
 function buildClaudeCodeQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt,
-  model, sessionEnv, resumeSessionId = null, commitAttributionOverride = null,
+  model, sessionEnv, resumeSessionId = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
-  const extraArgs = commitAttributionOverride
-    ? { settings: JSON.stringify({ attribution: { commit: commitAttributionOverride } }) }
-    : undefined;
 
   return {
     prompt,
@@ -34,7 +31,6 @@ function buildClaudeCodeQueryParams({
       spawnClaudeCodeProcess: createClaudeCodeSpawner(),
       model: effectiveModel,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
-      ...(extraArgs && { extraArgs }),
     },
   };
 }
@@ -50,7 +46,6 @@ function buildClaudeCodeQueryParams({
  */
 function buildCodexQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
-  commitAttributionOverride = null,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'gpt-4o-mini' : model;
@@ -63,7 +58,6 @@ function buildCodexQueryParams({
       env: sessionEnv,
       model: effectiveModel,
       effortLevel: session?.effortLevel ?? null,
-      commitAttributionOverride,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sandboxMode: getSandboxModeForSession(session?.mode),
     },

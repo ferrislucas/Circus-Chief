@@ -119,6 +119,12 @@
             <p class="field-note">
               Blank uses agent default.
             </p>
+            <p
+              v-if="attributionValidationError"
+              class="field-error"
+            >
+              {{ attributionValidationError }}
+            </p>
           </div>
 
           <ProviderModelsList
@@ -285,6 +291,7 @@ const {
   testResult,
   authTokenModified,
   isEditing,
+  attributionValidationError,
   isValid,
   canTest,
   addLocalModel,

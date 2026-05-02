@@ -743,7 +743,7 @@ describe('useProviderForm', () => {
         await result.save();
 
         expect(mockProvidersStore.updateProvider).toHaveBeenCalledWith('p1', {
-          commitAttributionOverride: 'Codex <noreply@openai.com>',
+          commitAttributionOverride: 'Co-authored-by: Codex <noreply@openai.com>',
         });
         expect(mockProvidersStore.fetchProviders).not.toHaveBeenCalled();
       });

@@ -86,8 +86,6 @@ describe('e2eSpawnCapture', () => {
         '--sandbox',
         'workspace-write',
         '-c',
-        'commit_attribution=Codex <noreply@openai.com>',
-        '-c',
         'model_reasoning_effort=high',
       ],
       cwd: tempDir,
@@ -101,10 +99,7 @@ describe('e2eSpawnCapture', () => {
       options: {
         model: 'gpt-5.5',
         sandbox: 'workspace-write',
-        config: [
-          'commit_attribution=Codex <noreply@openai.com>',
-          'model_reasoning_effort=high',
-        ],
+        config: ['model_reasoning_effort=high'],
       },
     });
   });

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('./gitService.js', () => ({
   checkoutBranch: vi.fn(),
   createWorktreeForBranch: vi.fn(),
-  configureWorktreeCommitAttribution: vi.fn(),
+  ensureWorktreeCommitAttributionHook: vi.fn(),
   pinAuthorInWorktree: vi.fn(),
 }));
 
@@ -18,7 +18,7 @@ describe('setupGitForSession', () => {
       branch: 'test-branch',
     });
     gitService.pinAuthorInWorktree.mockResolvedValue(true);
-    gitService.configureWorktreeCommitAttribution.mockResolvedValue(true);
+    gitService.ensureWorktreeCommitAttributionHook.mockResolvedValue(true);
   });
 
   it('returns projectDir when gitMode is null', async () => {
@@ -106,7 +106,7 @@ describe('setupGitForSession', () => {
       );
     });
 
-    it('installs commit attribution enforcement when configured', async () => {
+    it('installs the managed commit attribution hook for worktrees', async () => {
       await setupGitForSession({
         projectDir: '/project',
         gitMode: 'worktree',
@@ -115,13 +115,11 @@ describe('setupGitForSession', () => {
         commitAttributionOverride: 'Codex <noreply@openai.com>',
       });
 
-      expect(gitService.configureWorktreeCommitAttribution).toHaveBeenCalledWith(
-        '/project/.worktrees/session-1',
-        'Codex <noreply@openai.com>'
-      );
+      expect(gitService.ensureWorktreeCommitAttributionHook)
+        .toHaveBeenCalledWith('/project/.worktrees/session-1');
     });
 
-    it('does not install commit attribution enforcement when unset', async () => {
+    it('installs the managed hook even when attribution is unset', async () => {
       await setupGitForSession({
         projectDir: '/project',
         gitMode: 'worktree',
@@ -129,7 +127,8 @@ describe('setupGitForSession', () => {
         sessionId: 'session-1',
       });
 
-      expect(gitService.configureWorktreeCommitAttribution).not.toHaveBeenCalled();
+      expect(gitService.ensureWorktreeCommitAttributionHook)
+        .toHaveBeenCalledWith('/project/.worktrees/session-1');
     });
 
     it('calls pinAuthorInWorktree with worktreePath and projectDir', async () => {

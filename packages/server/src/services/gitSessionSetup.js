@@ -9,7 +9,7 @@ import * as gitService from './gitService.js';
  * @param {string|null} options.gitBranch - Branch name
  * @param {string} options.sessionId - Session ID
  * @param {string|null} [options.worktreeBasePath] - Custom base path for worktrees (overrides default .worktrees)
- * @param {string|null} [options.commitAttributionOverride] - Agent commit attribution to enforce in worktree commits
+ * @param {string|null} [options.commitAttributionOverride] - Deprecated; attribution is process-scoped at agent launch
  * @returns {Promise<{workingDirectory: string, gitWorktree: string|null}>}
  */
 export async function setupGitForSession({
@@ -43,9 +43,8 @@ export async function setupGitForSession({
     await gitService.createWorktreeForBranch(projectDir, gitBranch, worktreePath);
     // Pin the human developer's git identity so they are the commit Author
     await gitService.pinAuthorInWorktree(worktreePath, projectDir);
-    if (commitAttributionOverride) {
-      await gitService.configureWorktreeCommitAttribution(worktreePath, commitAttributionOverride);
-    }
+    void commitAttributionOverride;
+    await gitService.ensureWorktreeCommitAttributionHook(worktreePath);
     return {
       workingDirectory: worktreePath,
       gitWorktree: worktreePath,
