@@ -248,7 +248,7 @@ function buildInsertString(command, args) {
   justify-content: center;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(2px);
-  z-index: 1000;
+  z-index: 1250;
 }
 
 .wizard-modal {

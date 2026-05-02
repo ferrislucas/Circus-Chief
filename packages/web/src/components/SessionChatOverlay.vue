@@ -74,7 +74,7 @@
                       type="text"
                       class="name-edit-input"
                       placeholder="Session name"
-                      @keyup.enter="saveSessionName"
+                      @keydown.enter.prevent="saveSessionName"
                       @keyup.escape="cancelEditName"
                     >
                     <button
