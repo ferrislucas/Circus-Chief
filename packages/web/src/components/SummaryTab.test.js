@@ -88,6 +88,7 @@ describe('SummaryTab', () => {
 
     // Reset API mock implementations to defaults
     api.getSessionSummary.mockResolvedValue(null);
+    api.generateSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
     api.getWorkflowLatestResponse.mockResolvedValue(null);
 
     // Get actual store instances
@@ -122,7 +123,8 @@ describe('SummaryTab', () => {
           SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
           SummaryContent: {
             name: 'SummaryContent',
-            template: '<div class="summary-content-stub"></div>',
+            props: ['summary'],
+            template: '<div class="summary-content-stub">{{ summary?.fullSummary || summary?.shortSummary }}</div>',
           },
           SchedulingInfo: {
             name: 'SchedulingInfo',
@@ -999,6 +1001,51 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.summary-empty-state').exists()).toBe(true);
       expect(wrapper.text()).toContain("This session hasn't started yet.");
       expect(wrapper.text()).toContain('Start the session or send a message to see a summary here.');
+      expect(wrapper.find('.summary-empty-state .summary-generate-action').exists()).toBe(true);
+      expect(wrapper.find('.summary-empty-state .summary-generate-action').text()).toContain('Generate summary');
+    });
+
+    it('generates and renders a missing summary from the empty state', async () => {
+      api.generateSessionSummary.mockResolvedValue({
+        shortSummary: 'Generated summary',
+        fullSummary: 'Generated full summary text',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('.summary-empty-state .summary-generate-action').trigger('click');
+      await flushAll(wrapper);
+
+      expect(api.generateSessionSummary).toHaveBeenCalledWith('sess-123');
+      expect(wrapper.findComponent({ name: 'SummaryContent' }).exists()).toBe(true);
+      expect(wrapper.text()).toContain('Generated full summary text');
+    });
+
+    it('disables the missing-summary generate action while generation is pending', async () => {
+      let resolveGenerate;
+      api.generateSessionSummary.mockReturnValue(new Promise((resolve) => {
+        resolveGenerate = resolve;
+      }));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const generateButton = wrapper.find('.summary-empty-state .summary-generate-action');
+      await generateButton.trigger('click');
+      await nextTick();
+
+      expect(generateButton.attributes('disabled')).toBeDefined();
+      expect(generateButton.find('.loading-spinner').exists()).toBe(true);
+
+      resolveGenerate({
+        shortSummary: 'Generated summary',
+        fullSummary: 'Generated after pending',
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SummaryContent' }).exists()).toBe(true);
+      expect(wrapper.text()).toContain('Generated after pending');
     });
 
     it('does not show empty state while loading', async () => {
@@ -1031,6 +1078,20 @@ describe('SummaryTab', () => {
 
       expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
       expect(wrapper.find('.latest-response').exists()).toBe(true);
+    });
+
+    it('shows a generate action when latest response exists but summary is missing', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: { content: 'A response', timestamp: Date.now(), role: 'assistant' },
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.find('.missing-summary-action').exists()).toBe(true);
+      expect(wrapper.find('.missing-summary-action button').text()).toContain('Generate summary');
     });
 
     it('does not show empty state when session is running', async () => {

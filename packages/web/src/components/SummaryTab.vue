@@ -73,7 +73,36 @@
         <p class="summary-empty-state-hint">
           Start the session or send a message to see a summary here.
         </p>
+        <button
+          class="btn-link summary-generate-action"
+          :disabled="generatingManual"
+          @click="handleRegenerate"
+        >
+          <span
+            v-if="generatingManual"
+            class="loading-spinner"
+          />
+          Generate summary
+        </button>
       </div>
+    </div>
+
+    <div
+      v-else-if="latestResponse"
+      class="missing-summary-action"
+    >
+      <span class="missing-summary-text">No summary has been generated yet.</span>
+      <button
+        class="btn-link"
+        :disabled="generatingManual"
+        @click="handleRegenerate"
+      >
+        <span
+          v-if="generatingManual"
+          class="loading-spinner"
+        />
+        Generate summary
+      </button>
     </div>
   </div>
 </template>
@@ -300,5 +329,43 @@ async function handleRegenerate() {
   color: var(--color-text-soft);
   margin: 0;
   line-height: 1.4;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
+.btn-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.summary-generate-action {
+  margin-top: 1rem;
+}
+
+.missing-summary-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  color: var(--color-text-soft);
+}
+
+.missing-summary-text {
+  font-size: 0.875rem;
 }
 </style>
