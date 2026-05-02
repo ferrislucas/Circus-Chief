@@ -1394,7 +1394,7 @@ describe('SummaryTab', () => {
       await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
       await flushAll(wrapper);
 
-      expect(updateSpy).toHaveBeenCalledWith('sess-123', { status: 'stopped' });
+      expect(updateSpy).toHaveBeenCalledWith('sess-123', { status: 'stopped', scheduledAt: null });
     });
 
     it('shows success toast after successful cancellation', async () => {

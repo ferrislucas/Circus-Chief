@@ -25,9 +25,9 @@
       :has-warnings="hasWarnings"
       :scheduled-time-display="scheduledTimeDisplay"
       :scheduling-countdown="schedulingCountdown"
-      :cancelling="cancellingSchedule"
+      :cancelling="cancelling"
       @edit-schedule="showScheduleTimeModal = true"
-      @cancel-schedule="handleCancelSchedule"
+      @cancel-schedule="cancelScheduledSession(sessionId)"
     />
 
     <!-- Scheduling Edit Modal -->
@@ -87,6 +87,7 @@ import { formatTokenCount } from '@circuschief/shared';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useScheduleCancel } from '../composables/useScheduleCancel.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import SchedulingEditModal from './SchedulingEditModal.vue';
@@ -105,6 +106,7 @@ const props = defineProps({
 
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
+const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore);
 
 // Set up streaming subscriptions (primary + descendants)
 const { onSummaryUpdate, onSummaryGenerating, onMessage } = useSummaryStreaming(props.sessionId);
@@ -126,7 +128,6 @@ const generatingManual = ref(false);
 const filesCount = ref(0);
 const latestResponse = ref(null);
 const showScheduleTimeModal = ref(false);
-const cancellingSchedule = ref(false);
 const nowTick = ref(Date.now());
 let countdownInterval = null;
 
@@ -261,19 +262,6 @@ async function handleRegenerate() {
     uiStore.error(err.message);
   } finally {
     generatingManual.value = false;
-  }
-}
-
-async function handleCancelSchedule() {
-  if (!confirm('Cancel this scheduled session?')) return;
-  cancellingSchedule.value = true;
-  try {
-    await sessionsStore.updateSessionFields(props.sessionId, { status: 'stopped' });
-    uiStore.success('Session cancelled');
-  } catch (err) {
-    uiStore.error(`Failed to cancel session: ${err.message}`);
-  } finally {
-    cancellingSchedule.value = false;
   }
 }
 </script>
