@@ -956,6 +956,21 @@ describe('gitService', () => {
       expect(result).toBe(false);
       expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
         .toThrow();
+      expect(() => execSync('git config --worktree core.hooksPath', { cwd: worktreePath }))
+        .toThrow();
+    });
+
+    it('clears stale managed hooks path when attribution was already unset', async () => {
+      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
+      execSync('git config --worktree core.hooksPath .circuschief-hooks', { cwd: worktreePath });
+
+      const result = await configureWorktreeCommitAttribution(worktreePath, null);
+
+      expect(result).toBe(false);
+      expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
+        .toThrow();
+      expect(() => execSync('git config --worktree core.hooksPath', { cwd: worktreePath }))
+        .toThrow();
     });
 
     it('does not change worktree config when attribution is unset and no prior attribution exists', async () => {

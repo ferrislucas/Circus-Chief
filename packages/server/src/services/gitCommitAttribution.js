@@ -52,15 +52,27 @@ git interpret-trailers --trailer "$trailer" --in-place "$msg_file"
 
 async function clearWorktreeCommitAttribution(worktreePath) {
   const currentAttribution = await gitConfigValue(worktreePath, ATTRIBUTION_CONFIG_KEY);
-  if (!currentAttribution) {
+  const currentHooksPath = await gitConfigValue(worktreePath, 'core.hooksPath');
+  if (!currentAttribution && currentHooksPath !== MANAGED_HOOKS_PATH) {
     return false;
   }
 
   await git(worktreePath, 'config extensions.worktreeConfig true');
-  try {
-    await git(worktreePath, `config --worktree --unset ${ATTRIBUTION_CONFIG_KEY}`);
-  } catch {
-    // Unset is idempotent for callers that are clearing a value that was never set.
+
+  if (currentAttribution) {
+    try {
+      await git(worktreePath, `config --worktree --unset ${ATTRIBUTION_CONFIG_KEY}`);
+    } catch {
+      // Unset is idempotent for callers that are clearing a value that was never set.
+    }
+  }
+
+  if (currentHooksPath === MANAGED_HOOKS_PATH) {
+    try {
+      await git(worktreePath, 'config --worktree --unset core.hooksPath');
+    } catch {
+      // Unset is idempotent for callers that are clearing stale managed hook config.
+    }
   }
   return false;
 }
