@@ -10,6 +10,8 @@
         class="overlay-backdrop"
         data-testid="session-chat-overlay"
         @click.self="close"
+        @focusin="handleOverlayFocusin"
+        @focusout="handleOverlayFocusout"
       >
         <div
           class="overlay-panel-wrapper"
@@ -367,6 +369,10 @@ import { api } from '../composables/useApi.js';
 import { createOverlaySessionsStore } from '../stores/createOverlaySessionsStore.js';
 import { createOverlayTodosStore } from '../stores/createOverlayTodosStore.js';
 import { SESSIONS_STORE_KEY, TODOS_STORE_KEY } from '../composables/useOverlayStore.js';
+import {
+  requestVisualViewportSettle,
+  requestVisualViewportUpdate,
+} from '../composables/useVisualViewport.js';
 
 import ConversationTab from './ConversationTab.vue';
 import SessionChatPicker from './SessionChatPicker.vue';
@@ -799,6 +805,14 @@ function handleHeaderTouchmove(event) {
   event.preventDefault();
 }
 
+function handleOverlayFocusin() {
+  requestVisualViewportUpdate();
+}
+
+function handleOverlayFocusout() {
+  requestVisualViewportSettle();
+}
+
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
 // On iOS Safari, `overflow: hidden` alone is insufficient: it doesn't reset
 // the existing scroll offset and touch gestures can still move the body.
@@ -852,6 +866,8 @@ function unlockBodyScroll() {
 // Lifecycle
 onMounted(async () => {
   lockBodyScroll();
+  requestVisualViewportUpdate();
+  requestVisualViewportSettle();
   document.addEventListener('keydown', handleEscape);
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
@@ -964,12 +980,22 @@ defineExpose({
 .overlay-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1000;
+  z-index: 1200;
   background: rgb(17, 24, 39);
   display: block;
   overflow: hidden;
   overflow-y: hidden;
   overscroll-behavior: none;
+}
+
+@media (min-width: 700px) and (min-height: 700px) {
+  .overlay-backdrop {
+    top: var(--viewport-offset-top, 0px);
+    right: 0;
+    bottom: auto;
+    left: 0;
+    height: var(--visual-viewport-height, 100dvh);
+  }
 }
 
 .overlay-panel-wrapper {
