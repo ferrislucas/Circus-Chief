@@ -8,6 +8,7 @@ import {
   branchExists,
   checkoutBranch,
   clearDefaultBranchCache,
+  configureWorktreeCommitAttribution,
   createWorktree,
   createWorktreeForBranch,
   detectWorktreePath,
@@ -841,6 +842,137 @@ describe('gitService', () => {
 
       const author = execSync('git log -1 --format="%an <%ae>"', { cwd: worktreePath }).toString().trim();
       expect(author).toBe('Human <human@example.com>');
+    });
+  });
+
+  describe('configureWorktreeCommitAttribution', () => {
+    let worktreePath;
+    let fakeHome;
+
+    function createIsolatedGitEnv(fakeHomePath) {
+      return {
+        ...process.env,
+        HOME: fakeHomePath,
+        XDG_CONFIG_HOME: '/dev/null',
+      };
+    }
+
+    beforeEach(async () => {
+      fakeHome = await mkdtemp(join(tmpdir(), 'fake-home-'));
+      const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      worktreePath = join(testDir, '.worktrees', `attr-test-${suffix}`);
+      await createWorktreeForBranch(testDir, `attr-test-branch-${suffix}`, worktreePath, { skipFetch: true });
+    });
+
+    afterEach(async () => {
+      if (worktreePath && existsSync(worktreePath)) {
+        try {
+          execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+      if (fakeHome) await rm(fakeHome, { recursive: true, force: true });
+    });
+
+    it('stores attribution in worktree config and installs an executable commit-msg hook', async () => {
+      const result = await configureWorktreeCommitAttribution(
+        worktreePath,
+        'Codex <noreply@openai.com>'
+      );
+
+      expect(result).toBe(true);
+      expect(execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }).toString().trim())
+        .toBe('Codex <noreply@openai.com>');
+      expect(execSync('git config --worktree core.hooksPath', { cwd: worktreePath }).toString().trim())
+        .toBe('.circuschief-hooks');
+      expect(existsSync(join(worktreePath, '.circuschief-hooks', 'commit-msg'))).toBe(true);
+    });
+
+    it('appends the configured trailer to a plain git commit', async () => {
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human\n\temail = human@example.com\n');
+      await pinAuthorInWorktree(worktreePath, testDir, {
+        env: createIsolatedGitEnv(fakeHome),
+      });
+      await configureWorktreeCommitAttribution(worktreePath, 'Codex <noreply@openai.com>');
+
+      await writeFile(join(worktreePath, 'attributed.txt'), 'hello');
+      execSync('git add attributed.txt', { cwd: worktreePath });
+      execSync('git commit -m "Attributed commit"', { cwd: worktreePath });
+
+      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      const author = execSync('git log -1 --format="%an <%ae>"', { cwd: worktreePath }).toString().trim();
+      expect(body).toContain('Co-authored-by: Codex <noreply@openai.com>');
+      expect(author).toBe('Human <human@example.com>');
+    });
+
+    it('does not duplicate an existing identical attribution trailer on amend', async () => {
+      await configureWorktreeCommitAttribution(worktreePath, 'Codex <noreply@openai.com>');
+
+      await writeFile(join(worktreePath, 'dedupe.txt'), 'hello');
+      execSync('git add dedupe.txt', { cwd: worktreePath });
+      execSync('git commit -m "Dedupe commit"', { cwd: worktreePath });
+      execSync('git commit --amend --no-edit', { cwd: worktreePath });
+
+      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      const matches = body.match(/Co-authored-by: Codex <noreply@openai\.com>/g) || [];
+      expect(matches).toHaveLength(1);
+    });
+
+    it('preserves other coauthor trailers with the same token', async () => {
+      await configureWorktreeCommitAttribution(worktreePath, 'Codex <noreply@openai.com>');
+
+      await writeFile(join(worktreePath, 'multi.txt'), 'hello');
+      execSync('git add multi.txt', { cwd: worktreePath });
+      execSync(
+        'git commit -m "Multi author" -m "Co-authored-by: Claude <noreply@anthropic.com>"',
+        { cwd: worktreePath }
+      );
+
+      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      expect(body).toContain('Co-authored-by: Claude <noreply@anthropic.com>');
+      expect(body).toContain('Co-authored-by: Codex <noreply@openai.com>');
+    });
+
+    it('accepts a complete Co-authored-by trailer value', async () => {
+      await configureWorktreeCommitAttribution(
+        worktreePath,
+        'Co-authored-by: Claude <noreply@anthropic.com>'
+      );
+
+      await writeFile(join(worktreePath, 'full-trailer.txt'), 'hello');
+      execSync('git add full-trailer.txt', { cwd: worktreePath });
+      execSync('git commit -m "Full trailer"', { cwd: worktreePath });
+
+      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      expect(body).toContain('Co-authored-by: Claude <noreply@anthropic.com>');
+      expect(body).not.toContain('Co-authored-by: Co-authored-by: Claude');
+    });
+
+    it('clears attribution without installing hooks when attribution is unset', async () => {
+      await configureWorktreeCommitAttribution(worktreePath, 'Codex <noreply@openai.com>');
+      const result = await configureWorktreeCommitAttribution(worktreePath, null);
+
+      expect(result).toBe(false);
+      expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
+        .toThrow();
+    });
+
+    it('does not change worktree config when attribution is unset and no prior attribution exists', async () => {
+      const result = await configureWorktreeCommitAttribution(worktreePath, null);
+
+      expect(result).toBe(false);
+      expect(() => execSync('git config extensions.worktreeConfig', { cwd: worktreePath })).toThrow();
+      expect(existsSync(join(worktreePath, '.circuschief-hooks', 'commit-msg'))).toBe(false);
+    });
+
+    it('fails visibly instead of overwriting an unrelated hooks path', async () => {
+      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
+      execSync('git config --worktree core.hooksPath custom-hooks', { cwd: worktreePath });
+
+      await expect(
+        configureWorktreeCommitAttribution(worktreePath, 'Codex <noreply@openai.com>')
+      ).rejects.toThrow('already has core.hooksPath set to "custom-hooks"');
     });
   });
 

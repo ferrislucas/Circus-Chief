@@ -22,6 +22,7 @@ import {
 import { shouldRescheduleOnError, _checkProactiveReschedule } from './sessionErrors.js';
 import { schedulerService } from './schedulerService.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
+import { configureWorktreeCommitAttribution } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
@@ -310,6 +311,9 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   // Resolve model/provider and detect model changes
   const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
   session = modelEnv.session;
+  if (session.gitWorktree) {
+    await configureWorktreeCommitAttribution(session.gitWorktree, modelEnv.commitAttributionOverride);
+  }
 
   // Build query params and agent call meta
   const { queryParams, agentCallMeta } = await buildContinueParams({
@@ -384,6 +388,10 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
   const provider = resolveProviderFromModel(effectiveModel);
   const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
+  const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
+  if (session.gitWorktree) {
+    await configureWorktreeCommitAttribution(session.gitWorktree, commitAttributionOverride);
+  }
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
   const queryParams = buildQueryParams({
@@ -396,7 +404,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
     model: effectiveModel,
     sessionEnv,
     agentType,
-    commitAttributionOverride: providerMetadata?.commitAttributionOverride ?? null,
+    commitAttributionOverride,
   });
 
   // Log query params for debugging third-party provider issues

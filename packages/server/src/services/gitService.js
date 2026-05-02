@@ -1,9 +1,11 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
-import { realpath } from 'fs/promises';
+import { chmod, mkdir, realpath, writeFile } from 'fs/promises';
 
 const execAsync = promisify(exec);
+const MANAGED_HOOKS_PATH = '.circuschief-hooks';
+const ATTRIBUTION_CONFIG_KEY = 'circuschief.commitAttribution';
 
 // Cache for default branch detection per repository
 // Key: directory path, Value: { branch: string, timestamp: number }
@@ -74,6 +76,18 @@ async function git(directory, command, opts = {}) {
   if (opts.env) execOpts.env = opts.env;
   const { stdout } = await execAsync(`git ${command}`, execOpts);
   return stdout.trim();
+}
+
+async function gitConfigValue(directory, key, opts = {}) {
+  try {
+    return await git(directory, `config --get ${key}`, opts);
+  } catch {
+    return null;
+  }
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 /**
@@ -515,9 +529,87 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
 
   // Pin the human's identity in the worktree config so they are always
   // the commit Author, regardless of what the session does later
-  await git(worktreePath, `config --worktree user.name "${author.name}"`);
-  await git(worktreePath, `config --worktree user.email "${author.email}"`);
+  await git(worktreePath, `config --worktree user.name ${shellQuote(author.name)}`);
+  await git(worktreePath, `config --worktree user.email ${shellQuote(author.email)}`);
 
+  return true;
+}
+
+function buildCommitMsgHook() {
+  return `#!/bin/sh
+set -eu
+
+msg_file="$1"
+attribution="$(git config --get ${ATTRIBUTION_CONFIG_KEY} || true)"
+
+[ -n "$attribution" ] || exit 0
+
+case "$attribution" in
+  [Cc][Oo]-[Aa][Uu][Tt][Hh][Oo][Rr][Ee][Dd]-[Bb][Yy]:*)
+    trailer="$attribution"
+    ;;
+  *)
+    trailer="Co-authored-by: $attribution"
+    ;;
+esac
+
+if grep -F -x -i -- "$trailer" "$msg_file" >/dev/null 2>&1; then
+  exit 0
+fi
+
+git interpret-trailers --trailer "$trailer" --in-place "$msg_file"
+`;
+}
+
+/**
+ * Install/update managed commit attribution enforcement for a worktree.
+ *
+ * Attribution is stored in worktree-local Git config so each managed session
+ * can enforce a different trailer while preserving the human Git identity.
+ *
+ * @param {string} worktreePath - The worktree directory
+ * @param {string|null} commitAttribution - Name/email or complete Co-authored-by trailer
+ * @returns {Promise<boolean>} True when a hook is installed or updated
+ */
+export async function configureWorktreeCommitAttribution(worktreePath, commitAttribution) {
+  const normalizedAttribution = typeof commitAttribution === 'string'
+    ? commitAttribution.trim()
+    : '';
+
+  if (!normalizedAttribution) {
+    const currentAttribution = await gitConfigValue(worktreePath, ATTRIBUTION_CONFIG_KEY);
+    if (!currentAttribution) {
+      return false;
+    }
+    await git(worktreePath, 'config extensions.worktreeConfig true');
+    try {
+      await git(worktreePath, `config --worktree --unset ${ATTRIBUTION_CONFIG_KEY}`);
+    } catch {
+      // Unset is idempotent for callers that are clearing a value that was never set.
+    }
+    return false;
+  }
+
+  await git(worktreePath, 'config extensions.worktreeConfig true');
+
+  const currentHooksPath = await gitConfigValue(worktreePath, 'core.hooksPath');
+  if (currentHooksPath && currentHooksPath !== MANAGED_HOOKS_PATH) {
+    throw new Error(
+      `Cannot install managed commit attribution hook: worktree already has core.hooksPath set to "${currentHooksPath}"`
+    );
+  }
+
+  await git(
+    worktreePath,
+    `config --worktree ${ATTRIBUTION_CONFIG_KEY} ${shellQuote(normalizedAttribution)}`
+  );
+  await git(worktreePath, `config --worktree core.hooksPath ${shellQuote(MANAGED_HOOKS_PATH)}`);
+
+  const hooksDir = path.join(worktreePath, MANAGED_HOOKS_PATH);
+  const hookPath = path.join(hooksDir, 'commit-msg');
+  await mkdir(hooksDir, { recursive: true });
+  await writeFile(hookPath, buildCommitMsgHook(), 'utf8');
+  await chmod(hookPath, 0o755);
   return true;
 }
 

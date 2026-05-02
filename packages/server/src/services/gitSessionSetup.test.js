@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 vi.mock('./gitService.js', () => ({
   checkoutBranch: vi.fn(),
   createWorktreeForBranch: vi.fn(),
+  configureWorktreeCommitAttribution: vi.fn(),
   pinAuthorInWorktree: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ describe('setupGitForSession', () => {
       branch: 'test-branch',
     });
     gitService.pinAuthorInWorktree.mockResolvedValue(true);
+    gitService.configureWorktreeCommitAttribution.mockResolvedValue(true);
   });
 
   it('returns projectDir when gitMode is null', async () => {
@@ -102,6 +104,32 @@ describe('setupGitForSession', () => {
         '/project/.worktrees/session-1',
         '/project'
       );
+    });
+
+    it('installs commit attribution enforcement when configured', async () => {
+      await setupGitForSession({
+        projectDir: '/project',
+        gitMode: 'worktree',
+        gitBranch: 'feature-x',
+        sessionId: 'session-1',
+        commitAttributionOverride: 'Codex <noreply@openai.com>',
+      });
+
+      expect(gitService.configureWorktreeCommitAttribution).toHaveBeenCalledWith(
+        '/project/.worktrees/session-1',
+        'Codex <noreply@openai.com>'
+      );
+    });
+
+    it('does not install commit attribution enforcement when unset', async () => {
+      await setupGitForSession({
+        projectDir: '/project',
+        gitMode: 'worktree',
+        gitBranch: 'feature-x',
+        sessionId: 'session-1',
+      });
+
+      expect(gitService.configureWorktreeCommitAttribution).not.toHaveBeenCalled();
     });
 
     it('calls pinAuthorInWorktree with worktreePath and projectDir', async () => {
