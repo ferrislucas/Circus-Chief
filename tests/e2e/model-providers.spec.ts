@@ -386,11 +386,11 @@ test.describe('Model Provider - Session Model Selection', () => {
     const modelSelect = page.locator('#model-select');
     await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
-    // Check if our custom model is available as an option
-    const hasCustomModel = await page.evaluate((modelId) => {
+    // Check if our custom model is available as an option (option values use providerId::modelId format)
+    const hasCustomModel = await page.evaluate(({ expectedKey }) => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
-      return Array.from(select.options).some(opt => opt.value === modelId);
-    }, model.modelId);
+      return Array.from(select.options).some(opt => opt.value === expectedKey);
+    }, { expectedKey: `${provider.id}::${model.modelId}` });
 
     // The custom model should be available in the dropdown
     expect(hasCustomModel).toBe(true);

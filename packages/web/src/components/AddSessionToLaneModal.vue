@@ -80,7 +80,10 @@
                   v-if="session.mode"
                   class="session-mode"
                 >{{ session.mode }}</span>
-                <span class="session-date">{{ formatDate(session.updatedAt || session.createdAt) }}</span>
+                <span
+                  class="session-date"
+                  :title="session.lastActivityAt ? 'Last activity' : 'No activity yet'"
+                >{{ formatDate(session.lastActivityAt || session.updatedAt || session.createdAt) }}</span>
               </div>
             </div>
           </div>

@@ -2111,6 +2111,54 @@ describe('Canvas API', () => {
     });
   });
 
+  describe('HTTP GET /api/sessions/:id/canvas/:itemId/content (Item Content Endpoint)', () => {
+    let app;
+    let projectId;
+    let sessionId;
+
+    beforeEach(() => {
+      app = express();
+      app.use(express.json());
+      app.use('/api/sessions', canvasRouter);
+
+      const project = projects.create('Test Project', '/tmp/test');
+      projectId = project.id;
+
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, projectId, 'Test Session', 'running', 'standard', now, now);
+      sessionId = id;
+    });
+
+    it('returns content for the requested historical item id', async () => {
+      const first = canvasItems.create(sessionId, { type: 'markdown', content: '# First', filename: 'doc.md', mimeType: 'text/markdown' });
+      canvasItems.create(sessionId, { type: 'markdown', content: '# Second', filename: 'doc.md', mimeType: 'text/markdown' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/${first.id}/content`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('# First');
+      expect(res.body.type).toBe('markdown');
+      expect(res.body.filename).toBe('doc.md');
+    });
+
+    it('rejects item ids from another session', async () => {
+      const otherSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(otherSessionId, projectId, 'Other Session', 'running', 'standard', now, now);
+      const item = canvasItems.create(otherSessionId, { type: 'text', content: 'Other', filename: 'other.txt' });
+
+      const res = await request(app).get(`/api/sessions/${sessionId}/canvas/${item.id}/content`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Canvas item does not belong to this session');
+    });
+  });
+
   describe('Bulk endpoints with version expansion', () => {
     let app;
     let sessionId;

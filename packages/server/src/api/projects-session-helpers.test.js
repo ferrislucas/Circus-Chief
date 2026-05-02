@@ -249,6 +249,7 @@ describe('prepareSessionConfig', () => {
       name: 'My Session',
       mode: 'yolo',
       model: 'opus',
+      providerId: 'anthropic-default',
       thinkingEnabled: true,
       startImmediately: true,
       effortLevel: 'high',
@@ -263,6 +264,7 @@ describe('prepareSessionConfig', () => {
     expect(config.name).toBe('My Session');
     expect(config.mode).toBe('yolo');
     expect(config.model).toBe('opus');
+    expect(config.providerId).toBe('anthropic-default');
     expect(config.effortLevel).toBe('high');
     expect(config.thinkingEnabled).toBe(true);
     expect(config.startImmediately).toBe(true);
@@ -283,11 +285,29 @@ describe('prepareSessionConfig', () => {
   });
 
   it('uses project defaults when body fields not provided', () => {
-    const projectDefs = { mode: 'plan', model: 'haiku', thinkingEnabled: false };
+    const projectDefs = { mode: 'plan', model: 'haiku', providerId: 'project-provider', thinkingEnabled: false };
     const config = prepareSessionConfig({ prompt: 'test' }, projectDefs, systemDefaults);
     expect(config.mode).toBe('plan');
     expect(config.model).toBe('haiku');
+    expect(config.providerId).toBe('project-provider');
     expect(config.thinkingEnabled).toBe(false);
+  });
+
+  it('normalizes empty providerId to null', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test', model: 'haiku', providerId: '' },
+      { providerId: 'project-provider' },
+      systemDefaults
+    );
+    expect(config.providerId).toBeNull();
+  });
+
+  it('rejects non-string providerId values', () => {
+    expect(() => prepareSessionConfig(
+      { prompt: 'test', providerId: 123 },
+      null,
+      systemDefaults
+    )).toThrow('providerId must be a string or null');
   });
 
   it('handles null projectDefs', () => {
@@ -303,6 +323,18 @@ describe('prepareSessionConfig', () => {
       systemDefaults
     );
     expect(config.scheduledAt).toBe(1700000000000);
+  });
+
+  // Phase 7 regression: agent-type derivation happens in the route
+  // (projects.js) after prepareSessionConfig, not inside prepareSessionConfig
+  // itself. Keeping prepareSessionConfig pure avoids DB lookups here.
+  it('does NOT add agentType to the config (derivation happens in the route)', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test', model: 'some-model' },
+      null,
+      systemDefaults
+    );
+    expect(config).not.toHaveProperty('agentType');
   });
 });
 

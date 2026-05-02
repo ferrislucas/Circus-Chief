@@ -6,7 +6,7 @@
     <!-- Stale content badge -->
     <StaleBadge :is-stale="isStale" />
 
-    <!-- Unified Conversation Panel - selector + BTE cost display -->
+    <!-- Unified Conversation Panel - selector + token display -->
     <ConversationPanel
       v-if="!isScheduledForFuture"
       :session-id="sessionId"
@@ -42,6 +42,7 @@
       :session-id="sessionId"
       :model-value="input"
       :selected-model="selectedModel"
+      :selected-provider-id="selectedProviderId"
       :can-send-message="canSendMessage"
       :is-draft="isDraft"
       :is-scheduled-draft="isScheduledDraft"
@@ -61,7 +62,9 @@
       :send-button-disabled-reason="sendButtonDisabledReason"
       :is-send-disabled="isSendDisabled"
       :auto-send-pending-prompt="sessionsStore.currentSession?.autoSendPendingPrompt ?? false"
+      @update:model-value="input = $event"
       @update:selected-model="selectedModel = $event"
+      @update:selected-provider-id="selectedProviderId = $event"
       @submit="handleFormSubmit"
       @auto-send-toggle="handleAutoSendToggle"
       @input="handleInput"
@@ -143,6 +146,17 @@ const props = defineProps({
   sessionId: { type: String, required: true },
   scrollContainerRef: { type: Object, default: null },
   hideNewConversation: { type: Boolean, default: false },
+  /**
+   * Initial scroll target after mount.
+   * - 'bottom' (default): scroll to the bottom of the conversation.
+   * - 'latest-agent-turn': scroll to the last assistant message,
+   *   falling back to bottom if no assistant messages exist.
+   */
+  initialScrollTarget: {
+    type: String,
+    default: 'bottom',
+    validator: (v) => ['bottom', 'latest-agent-turn'].includes(v),
+  },
 });
 
 const sessionsStore = useInjectedSessionsStore();
@@ -173,9 +187,18 @@ const inputFormRef = ref(null);
 const conversationMessagesRef = ref(null);
 const attachedFiles = ref([]);
 const selectedModel = ref(null);
+const selectedProviderId = ref(null);
+let suppressNextModelPersist = false;
 
 // Draft saving composable
-const { saveStatus, saveError, handleInput, savePendingPrompt, flush: flushDraft } = useDraftSaving({
+const {
+  saveStatus,
+  saveError,
+  handleInput,
+  savePendingPrompt,
+  flush: flushDraft,
+  cancel: cancelDraft,
+} = useDraftSaving({
   input,
   canSendMessage: computed(() => canSendMessage.value),
   isRunning: computed(() => isRunning.value),
@@ -271,29 +294,40 @@ const workingDirectory = computed(() => {
   return result;
 });
 
+// Statuses that legitimately expect a standing draft on mount.
+const RESTORE_ALLOWED_STATUSES = new Set(['waiting', 'scheduled', 'stopped', 'error', 'running']);
+
+/**
+ * Compute the initial `input.value` on mount.
+ *
+ * Critically, skips the restore entirely if we just sent a prompt for this
+ * session. Otherwise an overlay remount / session switch / overlay reopen
+ * within the TTL window would re-populate the textarea with the prompt we
+ * just sent (the "ghost prompt" bug).
+ */
+function restoreInitialInput() {
+  const session = sessionsStore.currentSession;
+  const recentlySent = sessionsStore.hasRecentSend?.(session?.id) ?? false;
+  if (recentlySent) return;
+
+  const pending = session?.pendingPrompt;
+  const statusAllowsRestore = Boolean(session) && (isDraft.value || RESTORE_ALLOWED_STATUSES.has(session?.status));
+
+  if (pending && statusAllowsRestore) {
+    // No imperative DOM write — ResizableTextarea's watch(modelValue)
+    // syncs the DOM when `input.value` changes.
+    input.value = pending;
+    return;
+  }
+  if (isDraft.value && sessionsStore.messages.length > 0) {
+    const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
+    if (userMessage) input.value = userMessage.content;
+  }
+}
+
 // Lifecycle
 onMounted(async () => {
-  const pending = sessionsStore.currentSession?.pendingPrompt;
-  if (pending) {
-    input.value = pending;
-    nextTick(() => {
-      const textareaRef = inputFormRef.value?.textareaRef;
-      if (textareaRef) {
-        textareaRef.value = pending;
-      }
-    });
-  } else if (isDraft.value && sessionsStore.messages.length > 0) {
-    const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
-    if (userMessage) {
-      input.value = userMessage.content;
-      nextTick(() => {
-        const textareaRef = inputFormRef.value?.textareaRef;
-        if (textareaRef) {
-          textareaRef.value = userMessage.content;
-        }
-      });
-    }
-  }
+  restoreInitialInput();
 
   if (sessionsStore.conversations.length === 0 ||
       sessionsStore.conversations[0]?.sessionId !== props.sessionId) {
@@ -318,8 +352,26 @@ onMounted(async () => {
     await sessionsStore.switchConversation(props.sessionId, convId);
   }
 
-  conversationMessagesRef.value?.scrollToBottom(true);
+  scrollToInitialTarget();
 });
+
+/**
+ * Perform the initial scroll after all async mount work completes.
+ * Respects the `initialScrollTarget` prop:
+ * - 'latest-agent-turn': scroll to the last assistant message, falling
+ *   back to bottom if no assistant messages exist.
+ * - 'bottom': always scroll to the bottom.
+ */
+function scrollToInitialTarget() {
+  if (props.initialScrollTarget === 'latest-agent-turn') {
+    const hasAssistant = sessionsStore.messages.some(m => m.role === 'assistant');
+    if (hasAssistant) {
+      conversationMessagesRef.value?.scrollToClaudesTurn?.();
+      return;
+    }
+  }
+  conversationMessagesRef.value?.scrollToBottom(true);
+}
 
 onUnmounted(() => {
   // Flush any pending draft save immediately before the component is destroyed.
@@ -332,9 +384,18 @@ onUnmounted(() => {
 // Statuses that indicate a session has terminated
 const terminalStatuses = new Set(['stopped', 'error', 'completed']);
 
-// Check whether the server consumed the pending prompt and the local input should be cleared
+// Check whether the local input should be cleared when a run ends.
+//
+// If the session was Sent/Started within the last 5 s (`hasRecentSend`), we
+// clear unconditionally — this guarantees the "ghost prompt" cleanup runs
+// even if the session object's `pendingPrompt` is momentarily stale from a
+// late-arriving WS frame. Otherwise we fall back to the original behavior:
+// only clear when the server has no pending prompt and no auto-send is
+// queued.
 function shouldClearInputAfterRun(session, inputVal) {
-  return session && !session.pendingPrompt && !session.autoSendPendingPrompt && inputVal;
+  if (!session || !inputVal) return false;
+  if (sessionsStore.hasRecentSend?.(session.id)) return true;
+  return !session.pendingPrompt && !session.autoSendPendingPrompt;
 }
 
 // Re-fetch messages and work logs when session status changes from running to waiting/completed
@@ -358,35 +419,37 @@ watch(
       sessionsStore.updateAutoSendPendingPrompt(props.sessionId, false);
     }
 
-    // If server consumed the pending prompt (auto-send), clear local input.
+    // If server consumed the pending prompt (auto-send), or this session was
+    // just Sent/Started, clear local input. This is the event-driven end
+    // condition for the recent-send TTL — when the run ends, we've
+    // definitively finished the Send/Start flow, so we drop the marker.
     if (oldStatus === 'running' && newStatus !== 'running') {
       await nextTick();
-      if (shouldClearInputAfterRun(sessionsStore.currentSession, input.value)) {
+      const currentSession = sessionsStore.currentSession;
+      if (shouldClearInputAfterRun(currentSession, input.value)) {
         input.value = '';
+        if (currentSession?.id) {
+          sessionsStore.clearRecentSend?.(currentSession.id);
+        }
       }
     }
   }
 );
 
-// Watch for messages loading on draft sessions and populate textarea
+// Watch for messages loading on draft sessions and populate textarea.
+// Uses `input.value` (the reactive source of truth) rather than peeking at
+// the DOM via the textareaRef — the `input` ref is the canonical value.
+// Suppresses restore if we just sent a prompt for this session.
 watch(
   () => sessionsStore.messages,
   (newMessages) => {
-    const textareaRef = inputFormRef.value?.textareaRef;
-    if (isDraft.value && textareaRef) {
-      const textareaHasContent = textareaRef.value && textareaRef.value.trim().length > 0;
-      if (!textareaHasContent) {
-        const userMessage = newMessages.find(msg => msg.role === 'user');
-        if (userMessage && userMessage.content) {
-          input.value = userMessage.content;
-          nextTick(() => {
-            const textareaEl = inputFormRef.value?.textareaRef;
-            if (textareaEl) {
-              textareaEl.value = userMessage.content;
-            }
-          });
-        }
-      }
+    if (!isDraft.value) return;
+    if (input.value && input.value.trim().length > 0) return;
+    const recentlySent = sessionsStore.hasRecentSend?.(props.sessionId) ?? false;
+    if (recentlySent) return;
+    const userMessage = newMessages.find(msg => msg.role === 'user');
+    if (userMessage && userMessage.content) {
+      input.value = userMessage.content;
     }
   },
   { deep: true, immediate: true }
@@ -417,6 +480,13 @@ function getProjectDefaultModel() {
   return defaults?.model || null;
 }
 
+function getProjectDefaultProviderId() {
+  const projectId = sessionsStore.currentSession?.projectId;
+  if (!projectId) return null;
+  const defaults = defaultsStore.getDefaultsForProject(projectId);
+  return defaults?.providerId || null;
+}
+
 // Watch for conversation query parameter changes
 watch(
   () => route.query.conv,
@@ -432,49 +502,83 @@ watch(
   () => sessionsStore.activeConversation,
   (conv) => {
     if (selectedModel.value === null) {
+      suppressNextModelPersist = true;
       selectedModel.value = sessionsStore.currentSession?.model ||
         getProjectDefaultModel() ||
         'sonnet';
+      selectedProviderId.value = sessionsStore.currentSession?.providerId ||
+        getProjectDefaultProviderId() ||
+        null;
+      nextTick(() => {
+        suppressNextModelPersist = false;
+      });
     }
   },
   { immediate: true }
 );
 
 // Persist model selection to session
-watch(selectedModel, async (newModel, oldModel) => {
+watch([selectedModel, selectedProviderId], async ([newModel, newProviderId], [oldModel, oldProviderId]) => {
+  if (suppressNextModelPersist) {
+    suppressNextModelPersist = false;
+    return;
+  }
   if (oldModel !== null && newModel && newModel !== oldModel) {
     try {
-      await sessionsStore.updateSessionModel(props.sessionId, newModel);
+      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
     } catch (err) {
       console.error('Failed to persist model selection:', err);
+    }
+  } else if (newModel && newProviderId !== oldProviderId) {
+    try {
+      await sessionsStore.updateSessionModel(props.sessionId, newModel, newProviderId);
+    } catch (err) {
+      console.error('Failed to persist model provider selection:', err);
     }
   }
 });
 
 // Form submission handler
+function getSubmittedInputValue(textareaRef) {
+  if (input.value) return input.value;
+  return textareaRef?.value || '';
+}
+
+function clearSubmittedInput(textareaRef) {
+  input.value = '';
+  if (textareaRef && textareaRef.value !== '') {
+    textareaRef.value = '';
+  }
+}
+
 async function handleFormSubmit() {
   if (isRunning.value) return;
 
+  // Cancel any pending debounced draft save BEFORE Send/Start. Otherwise a
+  // debounce scheduled within the last 500 ms could fire after we've
+  // cleared the server's pendingPrompt and re-write the old value back —
+  // the "ghost prompt" race.
+  cancelDraft();
+
+  const textareaRef = inputFormRef.value?.textareaRef;
+  const currentValue = getSubmittedInputValue(textareaRef);
   if (isDraft.value || isScheduledDraft.value) {
-    const textareaRef = inputFormRef.value?.textareaRef;
-    const currentValue = textareaRef?.value || input.value;
     const sessionModel = selectedModel.value
       || sessionsStore.currentSession?.pendingModel
       || sessionsStore.currentSession?.model;
-    const success = await handleStart(currentValue, sessionModel);
+    const sessionProviderId = selectedProviderId.value
+      || sessionsStore.currentSession?.providerId
+      || null;
+    const success = await handleStart(currentValue, sessionModel, sessionProviderId);
     if (success) {
-      input.value = '';
-      if (textareaRef) textareaRef.value = '';
+      clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
       inputFormRef.value?.clearFiles();
     }
   } else {
-    const textareaRef = inputFormRef.value?.textareaRef;
-    const currentValue = textareaRef?.value || input.value;
     const success = await handleSend(currentValue, attachedFiles.value, selectedModel.value);
     if (success) {
-      input.value = '';
-      if (textareaRef) textareaRef.value = '';
+      clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
       inputFormRef.value?.clearFiles();
     }
@@ -487,19 +591,22 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
   input.value = newValue;
 
   if (autoSubmit) {
+    // Auto-submit path: cancel any pending debounced save, then submit.
+    // This mirrors the regular Send invariant (see handleFormSubmit).
+    cancelDraft();
     nextTick(() => {
       handleFormSubmit();
     });
   } else {
+    // Non-submit path: blur the textarea and persist the inserted text.
+    // DOM value syncs automatically via ResizableTextarea's watch(modelValue).
     nextTick(() => {
       const textareaRef = inputFormRef.value?.textareaRef;
       if (textareaRef) {
-        textareaRef.value = newValue;
         textareaRef.blur();
-
-        if (canSendMessage.value && newValue.trim()) {
-          savePendingPrompt(newValue);
-        }
+      }
+      if (canSendMessage.value && newValue.trim()) {
+        savePendingPrompt(newValue);
       }
     });
   }
@@ -537,13 +644,19 @@ function handleSlashCommandInsert({ text }) {
     input.value = `${text  } `;
   }
 
+  // Focus + caret placement are legitimate imperative operations (there is
+  // no reactive equivalent). The textarea VALUE is driven by the reactive
+  // `input` ref — no imperative DOM write. We persist the new value by
+  // calling `savePendingPrompt` directly (mirroring `handleQuickResponseInsert`),
+  // avoiding the synthetic 'input' event indirection.
   nextTick(() => {
     const textareaRef = inputFormRef.value?.textareaRef;
     if (textareaRef) {
-      textareaRef.value = input.value;
       textareaRef.focus();
       textareaRef.selectionStart = textareaRef.selectionEnd = input.value.length;
-      textareaRef.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (canSendMessage.value && input.value.trim()) {
+      savePendingPrompt(input.value);
     }
   });
 }

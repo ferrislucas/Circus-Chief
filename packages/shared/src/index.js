@@ -3,3 +3,4 @@ export * from './protocol.js';
 export * from './constants.js';
 export * from './utils.js';
 export * from './contracts/canvas.js';
+export * from './contracts/providers.js';

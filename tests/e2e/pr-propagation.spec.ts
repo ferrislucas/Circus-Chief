@@ -613,6 +613,55 @@ test.describe('PR URL Propagation', () => {
       const parentAfter = await getSession(parent.id);
       expect(parentAfter.prUrl).toBe(prUrl);
     });
+
+    test('clearing parent PR URL in the UI blocks later child propagation', async ({ page }) => {
+      const parent = await seedSession(project.id, {
+        prompt: 'Parent session',
+        name: 'Parent Session',
+        startImmediately: false,
+      });
+      await waitForSessionToExist(parent.id);
+
+      const child = await seedChildSession(project.id, parent.id, {
+        prompt: 'Child session',
+        name: 'Child Session',
+      });
+      await waitForSessionToExist(child.id);
+
+      const originalPrUrl = 'https://github.com/owner/repo/pull/123';
+      await updateSessionWithPR(parent.id, { prUrl: originalPrUrl });
+
+      await navigateAndWait(page, `/sessions/${parent.id}/summary`, {
+        waitFor: 'body',
+        timeout: 15000,
+      });
+
+      await expect(page.locator(`a[href="${originalPrUrl}"]`)).toBeVisible();
+      await page.locator('button[title="Edit PR URL"]').click();
+      await page.locator('button[title="Clear PR URL"]').click();
+
+      await expect.poll(async () => {
+        const updated = await getSession(parent.id);
+        return {
+          prUrl: updated.prUrl,
+          prUrlAutoLinkDisabled: updated.prUrlAutoLinkDisabled,
+        };
+      }).toEqual({
+        prUrl: null,
+        prUrlAutoLinkDisabled: true,
+      });
+
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+      await expect(page.locator(`a[href="${originalPrUrl}"]`)).toHaveCount(0);
+
+      const childPrUrl = 'https://github.com/owner/repo/pull/456';
+      await updateSessionWithPR(child.id, { prUrl: childPrUrl });
+
+      const parentAfterChildPr = await getSession(parent.id);
+      expect(parentAfterChildPr.prUrl).toBeNull();
+      expect(parentAfterChildPr.prUrlAutoLinkDisabled).toBe(true);
+    });
   });
 
   // ============================================================

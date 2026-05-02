@@ -9,6 +9,14 @@ import { BaseAgent } from '../BaseAgent.js';
  * Event handling remains in sessionManager's handleStreamEvent().
  */
 export class ClaudeCodeAdapter extends BaseAgent {
+  static capabilities = Object.freeze({
+    streaming: true,
+    thinking: true,
+    reasoningEffort: true,
+    toolUse: true,
+    resume: true,
+  });
+
   /**
    * Execute a query against the Claude Code SDK.
    * @param {import('../types.js').AgentQueryParams} queryParams - { prompt, options? }
@@ -23,11 +31,6 @@ export class ClaudeCodeAdapter extends BaseAgent {
   }
 
   getCapabilities() {
-    return {
-      streaming: true,
-      thinking: true,
-      toolUse: true,
-      resume: true,
-    };
+    return { ...ClaudeCodeAdapter.capabilities };
   }
 }

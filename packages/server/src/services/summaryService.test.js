@@ -112,6 +112,7 @@ import {
   _stripMarkdownCodeBlock,
   _trackMessageMetadata,
   _enrichPrData,
+  _updateSessionFromSummary,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -2695,6 +2696,56 @@ describe('summaryService', () => {
     });
   });
 
+  describe('updateSessionFromSummary PR URL handling', () => {
+    it('does not apply summary PR URL when automatic linking is disabled', () => {
+      sessions.update(sessionId, { prUrlAutoLinkDisabled: true });
+      const session = sessions.getById(sessionId);
+      const prUrl = 'https://github.com/user/repo/pull/123';
+
+      _updateSessionFromSummary(sessionId, session, {
+        sessionTitle: null,
+        prUrl,
+      });
+
+      const updated = sessions.getById(sessionId);
+      expect(updated.prUrl).toBeNull();
+      expect(updated.prUrlAutoLinkDisabled).toBe(true);
+    });
+
+    it('applies summary PR URL when automatic linking is enabled', () => {
+      const session = sessions.getById(sessionId);
+      const prUrl = 'https://github.com/user/repo/pull/456';
+
+      _updateSessionFromSummary(sessionId, session, {
+        sessionTitle: null,
+        prUrl,
+      });
+
+      const updated = sessions.getById(sessionId);
+      expect(updated.prUrl).toBe(prUrl);
+      expect(updated.prUrlAutoLinkDisabled).toBe(false);
+    });
+
+    it('does not propagate child summary PR URL to a disabled root', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      sessions.update(root.id, { prUrlAutoLinkDisabled: true });
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const prUrl = 'https://github.com/user/repo/pull/789';
+
+      _updateSessionFromSummary(child.id, child, {
+        sessionTitle: null,
+        prUrl,
+      });
+
+      const childAfter = sessions.getById(child.id);
+      expect(childAfter.prUrl).toBe(prUrl);
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBeNull();
+      expect(rootAfter.prUrlAutoLinkDisabled).toBe(true);
+    });
+  });
+
   describe('concurrency guard', () => {
     afterEach(() => {
       // Clean up concurrency state
@@ -2964,6 +3015,19 @@ describe('summaryService', () => {
 
       const rootAfter = sessions.getById(root.id);
       expect(rootAfter.prUrl).toBe(originalPrUrl);
+    });
+
+    it('does not set root PR URL when automatic linking is disabled', () => {
+      const root = sessions.create(projectId, 'Root', 'Root prompt');
+      sessions.update(root.id, { prUrlAutoLinkDisabled: true });
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard', false, null, root.id);
+      const prUrl = 'https://github.com/owner/repo/pull/222';
+
+      summaryService.propagatePrUrlToParent(child.id, prUrl);
+
+      const rootAfter = sessions.getById(root.id);
+      expect(rootAfter.prUrl).toBeNull();
+      expect(rootAfter.prUrlAutoLinkDisabled).toBe(true);
     });
 
     it('does nothing when session has no parent', () => {

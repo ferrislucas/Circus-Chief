@@ -20,9 +20,9 @@ vi.mock('../components/QuickResponseSettings.vue', () => ({
 vi.mock('../components/ModelSelector.vue', () => ({
   default: {
     name: 'ModelSelector',
-    template: '<select :class="selectClass" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"><option value="">{{ emptyLabel || "System default" }}</option><option value="claude-sonnet-4-6">Sonnet 4.6</option><option value="claude-opus-4-6">Opus 4.6</option></select>',
-    props: ['modelValue', 'allowEmpty', 'emptyLabel', 'selectClass', 'disabled'],
-    emits: ['update:modelValue'],
+    template: '<select :class="selectClass" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value); $emit(\'update:providerId\', $event.target.value ? \'anthropic-provider\' : null)"><option value="">{{ emptyLabel || "System default" }}</option><option value="claude-sonnet-4-6">Sonnet 4.6</option><option value="claude-opus-4-6">Opus 4.6</option></select>',
+    props: ['modelValue', 'providerId', 'allowEmpty', 'emptyLabel', 'selectClass', 'disabled'],
+    emits: ['update:modelValue', 'update:providerId'],
   }
 }));
 
@@ -505,12 +505,15 @@ describe('ProjectEditView with Session Defaults', () => {
       };
 
       defaultsStore.defaultsByProjectId['proj-1'] = {
-        mode: '',
+        mode: 'plan',
         thinkingEnabled: false,
         gitMode: '',
         gitBranch: '',
-        model: ''
+        model: '',
+        providerId: null,
       };
+
+      await router.push('/projects/proj-1/edit');
 
       const wrapper = mount(ProjectEditView, {
         global: {
@@ -527,14 +530,6 @@ describe('ProjectEditView with Session Defaults', () => {
         return;
       }
 
-      // Set only mode default, leave others empty
-      wrapper.vm.defaultMode = 'plan';
-      wrapper.vm.defaultThinkingEnabled = false;
-      wrapper.vm.defaultGitMode = '';
-      wrapper.vm.defaultModel = '';
-
-      await flushAll(wrapper);
-
       await form.trigger('submit');
       await flushAll(wrapper);
 
@@ -543,7 +538,9 @@ describe('ProjectEditView with Session Defaults', () => {
       if (calls.length > 0) {
         const callArgs = calls[0];
         expect(callArgs[1]).toEqual({
-          mode: 'plan'
+          mode: 'plan',
+          model: null,
+          providerId: null,
         });
       } else {
         // Form submission may have issues in test environment
@@ -564,8 +561,11 @@ describe('ProjectEditView with Session Defaults', () => {
         thinkingEnabled: false,
         gitMode: '',
         gitBranch: '',
-        model: ''
+        model: 'claude-sonnet-4-6',
+        providerId: 'anthropic-provider',
       };
+
+      await router.push('/projects/proj-1/edit');
 
       const wrapper = mount(ProjectEditView, {
         global: {
@@ -582,11 +582,6 @@ describe('ProjectEditView with Session Defaults', () => {
         return;
       }
 
-      // Set a concrete model
-      wrapper.vm.defaultModel = 'claude-sonnet-4-6';
-
-      await flushAll(wrapper);
-
       await form.trigger('submit');
       await flushAll(wrapper);
 
@@ -594,7 +589,8 @@ describe('ProjectEditView with Session Defaults', () => {
       if (calls.length > 0) {
         const callArgs = calls[0];
         expect(callArgs[1]).toEqual({
-          model: 'claude-sonnet-4-6'
+          model: 'claude-sonnet-4-6',
+          providerId: 'anthropic-provider',
         });
       } else {
         expect(true).toBe(true);

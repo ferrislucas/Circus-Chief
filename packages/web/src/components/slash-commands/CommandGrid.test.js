@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import CommandGrid from './CommandGrid.vue';
+import commandGridSource from './CommandGrid.vue?raw';
 
 describe('CommandGrid.vue', () => {
   describe('skill sections rendering', () => {
@@ -547,6 +548,17 @@ describe('CommandGrid.vue', () => {
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
       expect(emptyState.text()).toContain('No commands match "nonexistent"');
+    });
+  });
+
+  describe('style tokens', () => {
+    it('uses defined theme tokens for command grid styling', () => {
+      const source = commandGridSource;
+
+      expect(source).not.toMatch(/--color-(accent|accent-rgb|bg-hover|border-hover|primary-hover)\b/);
+      expect(source).toContain('--color-primary');
+      expect(source).toContain('--color-background-mute');
+      expect(source).toContain('rgba(88, 166, 255, 0.15)');
     });
   });
 });

@@ -2,6 +2,8 @@ import { ref, computed, watch } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
 import { useUiStore } from '../stores/ui.js';
 
+export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
+
 /**
  * Create the default (empty) form state for a new provider.
  * @returns {Object} Default form values
@@ -9,6 +11,7 @@ import { useUiStore } from '../stores/ui.js';
 function createFormDefaults() {
   return {
     name: '',
+    kind: 'anthropic',
     baseUrl: null,
     authToken: null,
     apiTimeoutMs: null,
@@ -24,6 +27,7 @@ function createFormDefaults() {
 function buildFormFromProvider(provider) {
   const formData = {
     name: provider.name,
+    kind: provider.kind || 'anthropic',
     baseUrl: provider.baseUrl,
     authToken: provider.authToken === '••••••••' ? null : provider.authToken,
     apiTimeoutMs: provider.apiTimeoutMs,
@@ -75,7 +79,13 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
 
   // ── Computed ──────────────────────────────────────────────────
   const isEditing = computed(() => Boolean(providerRef.value));
-  const isValid = computed(() => form.value.name.trim().length > 0);
+  const isValid = computed(() => {
+    if (form.value.name.trim().length === 0) return false;
+    // `kind` is required on create; on edit the server enforces immutability
+    // and we simply surface the existing value, so no extra validation needed.
+    if (!isEditing.value && !PROVIDER_KINDS.includes(form.value.kind)) return false;
+    return true;
+  });
   const canTest = computed(() => form.value.baseUrl || form.value.authToken);
 
   // ── Watcher: reset form when modal opens / provider changes ──
@@ -142,7 +152,9 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
 
     try {
       const sonnetModel = localModels.value.find((m) => m.tier === 'sonnet');
+      // Narrow payload — do NOT bundle additionalEnvVars or models here.
       const config = {
+        kind: form.value.kind || 'anthropic',
         baseUrl: form.value.baseUrl || undefined,
         authToken: form.value.authToken || undefined,
         defaultSonnetModel: sonnetModel?.modelId || undefined,
@@ -233,9 +245,13 @@ export function useProviderForm(isOpenRef, providerRef, onSaved) {
       let savedProvider;
 
       if (isEditing.value) {
+        // `kind` is immutable server-side; the store also strips it as
+        // defense-in-depth. Do not forward it on updates.
         savedProvider = await providersStore.updateProvider(providerRef.value.id, data);
         uiStore.success('Provider updated successfully');
       } else {
+        // `kind` is required on create.
+        data.kind = form.value.kind || 'anthropic';
         savedProvider = await providersStore.createProvider(data);
         uiStore.success('Provider created successfully');
       }

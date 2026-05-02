@@ -9,6 +9,7 @@
       class="form-input form-textarea"
       :placeholder="placeholderText"
       :min-height="80"
+      @update:model-value="$emit('update:modelValue', $event)"
       @input="$emit('input', $event)"
       @keydown="handleKeydown"
     />
@@ -85,7 +86,9 @@
 
         <ModelSelector
           :model-value="selectedModel"
+          :provider-id="selectedProviderId"
           @update:model-value="$emit('update:selectedModel', $event)"
+          @update:provider-id="$emit('update:selectedProviderId', $event)"
         />
 
         <FileAttachment
@@ -147,6 +150,7 @@ const props = defineProps({
   sessionId: { type: String, required: true },
   modelValue: { type: String, default: '' },
   selectedModel: { type: [String, null], default: null },
+  selectedProviderId: { type: [String, null], default: null },
   canSendMessage: { type: Boolean, default: false },
   isDraft: { type: Boolean, default: false },
   isScheduledDraft: { type: Boolean, default: false },
@@ -181,6 +185,7 @@ const emit = defineEmits([
   'templateChange',
   'update:modelValue',
   'update:selectedModel',
+  'update:selectedProviderId',
   'autoSendToggle',
 ]);
 

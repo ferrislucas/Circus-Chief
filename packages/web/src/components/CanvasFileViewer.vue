@@ -164,7 +164,7 @@ watch(() => props.item.id, async () => {
   if (item.content === undefined && item.data === undefined) {
     contentLoading.value = true;
     try {
-      await canvasStore.fetchItemContent(props.sessionId, item.filename);
+      await canvasStore.fetchItemContent(props.sessionId, item.filename, item.id);
     } finally {
       contentLoading.value = false;
     }

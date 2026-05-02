@@ -1,0 +1,33 @@
+{
+  "prompt": "Cross-kind E2E same-kind Claude continuation.",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "claude-e2e-same-kind",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Same-kind Claude continuation accepted."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "usage": {
+        "input_tokens": 8,
+        "output_tokens": 5
+      }
+    }
+  ],
+  "key": "continueSession-cb6be1f5c849f1f3",
+  "recordedAt": "2026-04-26T00:00:00.000Z"
+}

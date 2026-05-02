@@ -1,7 +1,10 @@
 <template>
   <div class="session-header-actions">
-    <div class="session-date">
-      {{ formatDate(dateToShow) }}
+    <div
+      class="session-date"
+      :title="dateToShow ? 'Last activity' : 'No activity yet'"
+    >
+      {{ dateToShow ? formatDate(dateToShow) : '—' }}
     </div>
     <!-- Action buttons (always visible on root sessions, not on child sessions) -->
     <div

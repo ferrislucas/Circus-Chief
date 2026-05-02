@@ -48,29 +48,40 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     return overlay;
   }
 
-  test('overlay auto-scrolls near conversation bottom on open', async ({ page }) => {
+  test('overlay auto-scrolls to last assistant message on open', async ({ page }) => {
     const overlay = await openOverlay(page, parentSession.id);
 
     // Wait for messages to render and auto-scroll to complete
     await page.waitForTimeout(1000);
 
-    // Check that .overlay-body is scrolled near the bottom, not stuck at top
-    const scrollInfo = await page.evaluate(() => {
-      const body = document.querySelector('.overlay-body');
+    // Verify that the last assistant message is visible near the top of the overlay body.
+    // With initialScrollTarget="latest-agent-turn", the overlay should land on the
+    // agent's most recent turn rather than scrolling all the way to the bottom.
+    const alignment = await page.evaluate(() => {
+      const body = document.querySelector('.overlay-body') as HTMLElement | null;
       if (!body) return null;
+      const assistantMessages = body.querySelectorAll('[data-testid="message-assistant"]');
+      if (assistantMessages.length === 0) return null;
+      const lastAssistant = assistantMessages[assistantMessages.length - 1] as HTMLElement;
+      const bodyRect = body.getBoundingClientRect();
+      const msgRect = lastAssistant.getBoundingClientRect();
       return {
+        bodyTop: bodyRect.top,
+        bodyBottom: bodyRect.bottom,
+        msgTop: msgRect.top,
+        msgBottom: msgRect.bottom,
         scrollTop: body.scrollTop,
         scrollHeight: body.scrollHeight,
         clientHeight: body.clientHeight,
       };
     });
 
-    expect(scrollInfo).not.toBeNull();
-    // scrollTop should be significantly above 0 (not stuck at top)
-    expect(scrollInfo!.scrollTop).toBeGreaterThan(100);
-    // Should be near the bottom
-    const distanceFromBottom = scrollInfo!.scrollHeight - scrollInfo!.scrollTop - scrollInfo!.clientHeight;
-    expect(distanceFromBottom).toBeLessThan(200);
+    expect(alignment).not.toBeNull();
+    // The last assistant message should be visible within the overlay body viewport
+    expect(alignment!.msgTop).toBeGreaterThanOrEqual(alignment!.bodyTop - 10);
+    expect(alignment!.msgBottom).toBeLessThanOrEqual(alignment!.bodyBottom + 10);
+    // scrollTop should be well above 0 (not stuck at top) but not at the very bottom
+    expect(alignment!.scrollTop).toBeGreaterThan(100);
   });
 
   test('scroll-to-claude button is visible and functional in overlay', async ({ page }) => {
@@ -132,7 +143,7 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     expect(scrollInfo!.clientHeight).toBeGreaterThan(300);
   });
 
-  test('overlay auto-scrolls after switching to child session', async ({ page }) => {
+  test('overlay auto-scrolls to last assistant message after switching to child session', async ({ page }) => {
     // Create a child with its own conversation history
     const child = await seedChildSession(project.id, parentSession.id, {
       prompt: 'Child prompt',
@@ -157,19 +168,30 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     // Wait for child session messages to render and scroll
     await page.waitForTimeout(1500);
 
-    // Verify auto-scrolled near bottom for the child's conversation
-    const scrollInfo = await page.evaluate(() => {
-      const body = document.querySelector('.overlay-body');
+    // Verify the last assistant message is visible within the overlay body
+    const alignment = await page.evaluate(() => {
+      const body = document.querySelector('.overlay-body') as HTMLElement | null;
       if (!body) return null;
+      const assistantMessages = body.querySelectorAll('[data-testid="message-assistant"]');
+      if (assistantMessages.length === 0) return null;
+      const lastAssistant = assistantMessages[assistantMessages.length - 1] as HTMLElement;
+      const bodyRect = body.getBoundingClientRect();
+      const msgRect = lastAssistant.getBoundingClientRect();
       return {
+        bodyTop: bodyRect.top,
+        bodyBottom: bodyRect.bottom,
+        msgTop: msgRect.top,
+        msgBottom: msgRect.bottom,
         scrollTop: body.scrollTop,
-        scrollHeight: body.scrollHeight,
-        clientHeight: body.clientHeight,
       };
     });
 
-    expect(scrollInfo).not.toBeNull();
-    expect(scrollInfo!.scrollTop).toBeGreaterThan(100);
+    expect(alignment).not.toBeNull();
+    // The last assistant message should be visible within the overlay body viewport
+    expect(alignment!.msgTop).toBeGreaterThanOrEqual(alignment!.bodyTop - 10);
+    expect(alignment!.msgBottom).toBeLessThanOrEqual(alignment!.bodyBottom + 10);
+    // scrollTop should be well above 0 (not stuck at top)
+    expect(alignment!.scrollTop).toBeGreaterThan(100);
   });
 
   test('scroll-to-claude button is visible, tappable, and functional at mobile viewport (no cost panel)', async ({ page }) => {
@@ -276,7 +298,7 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     seedConversationTokens(parentSession.id, null, { inputTokens: 1000, outputTokens: 500 });
 
     const overlay = await openOverlay(page, parentSession.id);
-    const tokenPanel = overlay.locator('.token-cost-panel');
+    const tokenPanel = overlay.locator('.token-usage-panel');
     await expect(tokenPanel).toBeVisible({ timeout: 5000 });
 
     const scrollBtn = overlay.locator('.scroll-to-claude-btn');
@@ -304,7 +326,9 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
       expect(overlapsHoriz && overlapsVert).toBe(false);
     }
 
-    // Functional click.
+    // Functional click from a known non-target scroll position.
+    await overlay.locator('.overlay-body').evaluate((el) => { (el as HTMLElement).scrollTop = 0; });
+    await expect(scrollBtn).toBeVisible();
     const beforeScroll = await overlay.locator('.overlay-body').evaluate((el) => (el as HTMLElement).scrollTop);
     await scrollBtn.click();
     await expect.poll(

@@ -9,6 +9,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
+import { resolveAgentTypeFromModel } from './sessionProvider.js';
 
 // Maximum depth for recursive lane-entry template triggers
 export const MAX_LANE_TRIGGER_DEPTH = 5;
@@ -147,6 +148,7 @@ async function buildChildSessionFromTemplate(template, session, lane, depth) {
     gitBranch: settings.gitBranch,
     status: 'starting',
     model: settings.model,
+    agentType: resolveAgentTypeFromModel(settings.model),
   });
 
   // Configure session
@@ -240,6 +242,7 @@ async function buildChildSessionFromPrompt(lane, session, depth) {
   const newSession = sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
     ...settings,
     status: 'starting',
+    agentType: resolveAgentTypeFromModel(settings.model),
   });
 
   // Configure session

@@ -23,6 +23,7 @@ const SESSIONS_BASE_COLUMNS = `
     git_branch TEXT,
     git_worktree TEXT,
     pr_url TEXT,
+    pr_url_auto_link_disabled INTEGER NOT NULL DEFAULT 0,
     error TEXT,
     effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
     cost_usd REAL DEFAULT 0,
@@ -32,6 +33,7 @@ const SESSIONS_BASE_COLUMNS = `
     parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
     input_tokens INTEGER DEFAULT 0,
     output_tokens INTEGER DEFAULT 0,
+    thinking_tokens INTEGER DEFAULT 0,
     cache_read_input_tokens INTEGER DEFAULT 0,
     cache_creation_input_tokens INTEGER DEFAULT 0,
     web_search_requests INTEGER DEFAULT 0,
@@ -57,9 +59,9 @@ const SESSIONS_BASE_COLUMNS = `
  */
 const SESSIONS_ALL_COLUMNS = [
   'id', 'project_id', 'name', 'status', 'mode', 'thinking_enabled',
-  'git_branch', 'git_worktree', 'pr_url', 'error', 'effort_level',
+  'git_branch', 'git_worktree', 'pr_url', 'pr_url_auto_link_disabled', 'error', 'effort_level',
   'cost_usd', 'claude_session_id', 'model', 'next_template_id',
-  'parent_session_id', 'input_tokens', 'output_tokens',
+  'parent_session_id', 'input_tokens', 'output_tokens', 'thinking_tokens',
   'cache_read_input_tokens', 'cache_creation_input_tokens',
   'web_search_requests', 'context_window', 'archived', 'starred',
   'manually_named', 'scheduled_at', 'reschedule_delay_minutes',
@@ -212,6 +214,10 @@ export const sessionsMigrations = [
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'output_tokens', COL_INTEGER_DEFAULT_0); },
   },
   {
+    name: 'sessions-add-thinking_tokens',
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'thinking_tokens', COL_INTEGER_DEFAULT_0); },
+  },
+  {
     name: 'sessions-add-cache_read_input_tokens',
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'cache_read_input_tokens', COL_INTEGER_DEFAULT_0); },
   },
@@ -246,6 +252,10 @@ export const sessionsMigrations = [
   {
     name: 'sessions-add-manually_named',
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'manually_named', 'INTEGER NOT NULL DEFAULT 0'); },
+  },
+  {
+    name: 'sessions-add-pr_url_auto_link_disabled',
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'pr_url_auto_link_disabled', 'INTEGER NOT NULL DEFAULT 0'); },
   },
 
   // --- Pending prompt / slash commands / pending model / auto send ---

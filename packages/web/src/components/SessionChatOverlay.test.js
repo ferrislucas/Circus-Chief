@@ -8,12 +8,17 @@ import sessionChatOverlaySource from './SessionChatOverlay.vue?raw';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@circuschief/shared';
 
-// jsdom has no scrollIntoView. Several overlay code paths call it after
-// focus transitions fire; stub it globally so blur-recovery tests can
-// exercise the real focusin/focusout listeners without throwing.
+// jsdom has no scrollIntoView. Several descendant overlay code paths can call
+// it after focus transitions fire; stub it globally for mounted tests.
 if (!HTMLElement.prototype.scrollIntoView) {
   HTMLElement.prototype.scrollIntoView = function scrollIntoViewStub() {};
 }
+
+Object.defineProperty(window, 'scrollTo', {
+  configurable: true,
+  writable: true,
+  value: vi.fn(),
+});
 
 // Mock @circuschief/shared
 vi.mock('@circuschief/shared', () => ({
@@ -228,7 +233,20 @@ describe('SessionChatOverlay', () => {
   afterEach(() => {
     // Clean up teleported content
     document.querySelectorAll('[data-testid="session-chat-overlay"]').forEach(el => el.remove());
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1024,
+    });
   });
+
+  function setViewportWidth(width) {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: width,
+    });
+  }
 
   function mountOverlay(propsOverrides = {}) {
     return mount(SessionChatOverlay, {
@@ -241,6 +259,14 @@ describe('SessionChatOverlay', () => {
       },
       attachTo: document.body,
     });
+  }
+
+  function getStyleBlock(selector) {
+    const start = sessionChatOverlaySource.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = sessionChatOverlaySource.indexOf('\n}', start);
+    expect(end).toBeGreaterThan(start);
+    return sessionChatOverlaySource.slice(start, end + 2);
   }
 
   async function waitForTransition() {
@@ -1005,7 +1031,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
-      expect(onSessionCreated).toHaveBeenCalledWith('new-sess');
+      expect(onSessionCreated).toHaveBeenCalledWith(newSession);
       wrapper.unmount();
     });
 
@@ -1087,6 +1113,55 @@ describe('SessionChatOverlay', () => {
       await new Promise(r => setTimeout(r, 50));
 
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
+      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+        prompt: ' ',
+        name: 'New Session',
+        parentSessionId: 'sess-root',
+        startImmediately: false,
+      });
+      wrapper.unmount();
+    });
+
+    it('propagates parent model to child session when parent has a model', async () => {
+      const codexSession = { ...rootSession, projectId: 'proj-123', model: 'gpt-5.4', gitBranch: null, gitWorktree: null };
+      mockSessionsStore.getSessionById.mockReturnValue(codexSession);
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(api.createSession).toHaveBeenCalledWith('proj-123', {
+        prompt: ' ',
+        name: 'New Session',
+        parentSessionId: 'sess-root',
+        startImmediately: false,
+        model: 'gpt-5.4',
+      });
+      wrapper.unmount();
+    });
+
+    it('does not include model field when parent has no model', async () => {
+      const noModelSession = { ...rootSession, projectId: 'proj-123', gitBranch: null, gitWorktree: null };
+      // Ensure no 'model' key is present at all
+      delete noModelSession.model;
+      mockSessionsStore.getSessionById.mockReturnValue(noModelSession);
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
         name: 'New Session',
@@ -1479,7 +1554,7 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('CSS-owned geometry (no JS viewport sync)', () => {
+  describe('fullscreen shell CSS contract', () => {
     it('does not write inline geometry on the backdrop', async () => {
       const wrapper = mountOverlay();
       await nextTick();
@@ -1492,37 +1567,63 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('backdrop stylesheet uses position: fixed and align-items: stretch', () => {
-      // Assert against the SFC source text (imported as raw via Vite `?raw`).
-      // jsdom does not reliably attach Vue <style scoped> blocks to
-      // document.styleSheets, so source-text inspection is the check used
-      // elsewhere in this file (see removed panel-wrapper stylesheet test).
-      const blockMatch = sessionChatOverlaySource.match(/\.overlay-backdrop\s*\{[^}]*\}/);
-      expect(blockMatch).toBeTruthy();
-      const block = blockMatch[0];
+    it('backdrop stylesheet uses fixed viewport geometry by default', () => {
+      const block = getStyleBlock('.overlay-backdrop');
       expect(block).toMatch(/position:\s*fixed/);
       expect(block).toMatch(/inset:\s*0/);
-      expect(block).toMatch(/align-items:\s*stretch/);
+      expect(block).toMatch(/z-index:\s*1200/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
+      expect(block).not.toMatch(/--visual-viewport-height/);
+      expect(block).not.toMatch(/top:\s*var\(/);
+      expect(block).not.toMatch(/height:\s*var\(/);
     });
 
-    it('panel-wrapper stylesheet no longer uses viewport-unit min-heights', () => {
-      const blockMatch = sessionChatOverlaySource.match(/\.overlay-panel-wrapper\s*\{[^}]*\}/);
-      expect(blockMatch).toBeTruthy();
-      const block = blockMatch[0];
-      // Regression guard: Phase 2 removed `min-height: 100vh/100dvh` and
-      // `height: 100%` from the panel wrapper.
+    it('backdrop stylesheet opts tablet-sized viewports into visual viewport geometry', () => {
+      expect(sessionChatOverlaySource).toMatch(
+        /@media\s*\(min-width:\s*700px\)\s*and\s*\(min-height:\s*700px\)\s*\{[\s\S]*?\.overlay-backdrop\s*\{[\s\S]*?top:\s*var\(--viewport-offset-top,\s*0px\);[\s\S]*?height:\s*var\(--visual-viewport-height,\s*100dvh\);/
+      );
+    });
+
+    it('panel-wrapper stylesheet is child geometry inside the backdrop', () => {
+      const block = getStyleBlock('.overlay-panel-wrapper');
+      expect(block).toMatch(/position:\s*absolute/);
+      expect(block).toMatch(/inset:\s*0 0 0 auto/);
+      expect(block).toMatch(/height:\s*100%/);
+      expect(block).not.toMatch(/position:\s*fixed/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
+      expect(block).not.toMatch(/--visual-viewport-height/);
+      expect(block).not.toMatch(/top:\s*var\(/);
       expect(block).not.toMatch(/min-height:\s*100vh/);
       expect(block).not.toMatch(/min-height:\s*100dvh/);
     });
 
-    it('source no longer references window.visualViewport', () => {
-      // Phase 1 removed the entire JS viewport sync. This guard makes
-      // future regressions loud.
-      expect(sessionChatOverlaySource).not.toMatch(/visualViewport/);
+    it('overlay shell keeps visual viewport variables out of phone-sized default geometry', () => {
+      const shellBlocks = [
+        getStyleBlock('.overlay-backdrop'),
+        getStyleBlock('.overlay-panel-wrapper'),
+      ].join('\n');
+      expect(shellBlocks).not.toMatch(/--viewport-offset-top/);
+      expect(shellBlocks).not.toMatch(/--visual-viewport-height/);
+    });
+
+    it('content, header, and body declare solid backgrounds', () => {
+      for (const selector of ['.overlay-content', '.overlay-header', '.overlay-body']) {
+        const block = getStyleBlock(selector);
+        const declaration = block.match(/background(?:-color)?:\s*([^;]+);/);
+        expect(declaration).toBeTruthy();
+        expect(declaration[1]).not.toMatch(/\btransparent\b|rgba\(/);
+      }
+    });
+
+    it('source keeps visual viewport reads centralized in the composable', () => {
+      // SessionChatOverlay may request viewport refreshes, but direct viewport
+      // reads stay centralized in useVisualViewport.js.
+      expect(sessionChatOverlaySource).not.toMatch(/window\.visualViewport/);
       expect(sessionChatOverlaySource).not.toMatch(/syncToVisualViewport/);
       expect(sessionChatOverlaySource).not.toMatch(/markRecentBlur/);
       expect(sessionChatOverlaySource).not.toMatch(/applyLayoutViewport/);
-      expect(sessionChatOverlaySource).not.toMatch(/overlayBackdropRef/);
+      expect(sessionChatOverlaySource).not.toMatch(/inputFocused/);
+      expect(sessionChatOverlaySource).not.toMatch(/focusOutRaf/);
     });
 
     it('lockBodyScroll does not call window.scrollTo(0, 0) at mount time', async () => {
@@ -1541,30 +1642,50 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('inputFocused toggles via focusin/focusout without viewport sync', async () => {
+    it('locks body scroll and pins #app while mounted', async () => {
+      const app = document.createElement('div');
+      app.id = 'app';
+      document.body.appendChild(app);
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 123,
+      });
+      const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+
       const wrapper = mountOverlay();
       await nextTick();
 
-      expect(wrapper.vm.inputFocused).toBe(false);
+      expect(document.body.style.overflow).toBe('hidden');
+      expect(app.style.position).toBe('fixed');
+      expect(app.style.top).toBe('-123px');
+      expect(app.style.left).toBe('0px');
+      expect(app.style.right).toBe('0px');
+      expect(app.style.width).toBe('100%');
 
-      // Append a real textarea into .overlay-body so the delegated
-      // focusin/focusout handlers fire.
-      const body = wrapper.vm.overlayBodyRef;
-      expect(body).toBeTruthy();
-      const textarea = document.createElement('textarea');
-      body.appendChild(textarea);
+      wrapper.unmount();
+      expect(document.body.style.overflow).toBe('');
+      expect(app.style.position).toBe('');
+      expect(app.style.top).toBe('');
+      expect(app.style.left).toBe('');
+      expect(app.style.right).toBe('');
+      expect(app.style.width).toBe('');
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 123);
 
-      textarea.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      scrollToSpy.mockRestore();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+      app.remove();
+    });
+
+    it('does not expose dead focus or visual viewport settling state', async () => {
+      const wrapper = mountOverlay();
       await nextTick();
-      expect(wrapper.vm.inputFocused).toBe(true);
-
-      textarea.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-      // focusout is rAF-debounced; flush one frame.
-      await new Promise((r) => requestAnimationFrame(() => r()));
-      await nextTick();
-      expect(wrapper.vm.inputFocused).toBe(false);
-
-      body.removeChild(textarea);
+      expect(wrapper.vm.inputFocused).toBeUndefined();
+      expect(wrapper.vm.handleOverlayFocusin).toBeUndefined();
+      expect(wrapper.vm.handleOverlayFocusout).toBeUndefined();
+      expect(wrapper.vm.requestVisualViewportSettle).toBeUndefined();
       wrapper.unmount();
     });
 

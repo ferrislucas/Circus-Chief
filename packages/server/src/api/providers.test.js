@@ -2,6 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { modelProviders } from '../database.js';
+import { testProviderConnection } from '../services/providerTestService.js';
+import { OPENAI_MODELS } from '@circuschief/shared';
+
+// Mock providerTestService so we can spy on kind forwarding without hitting
+// external APIs.
+vi.mock('../services/providerTestService.js', () => ({
+  testProviderConnection: vi.fn(),
+}));
 
 // Import the router
 import providersRouter from './providers.js';
@@ -29,6 +37,32 @@ describe('Providers API', () => {
       }
       testProviderId = null;
     }
+  });
+
+  describe('GET /api/providers', () => {
+    it('returns both built-in Anthropic and OpenAI providers', async () => {
+      const response = await request(app)
+        .get('/api/providers')
+        .expect(200);
+
+      const anthropic = response.body.find((provider) => provider.id === 'anthropic-default');
+      const openai = response.body.find((provider) => provider.id === 'openai-default');
+
+      expect(anthropic).toMatchObject({
+        kind: 'anthropic',
+        isBuiltIn: true,
+      });
+      expect(openai).toMatchObject({
+        name: 'OpenAI (Official)',
+        kind: 'openai',
+        isBuiltIn: true,
+        authToken: null,
+        baseUrl: null,
+      });
+      expect(openai.models.map((model) => model.modelId).sort()).toEqual(
+        OPENAI_MODELS.map((model) => model.id).sort()
+      );
+    });
   });
 
   describe('PATCH /api/providers/:id/models/:modelId', () => {
@@ -227,6 +261,191 @@ describe('Providers API', () => {
         .expect(400);
 
       expect(response.body.error).toBeDefined();
+    });
+  });
+
+  describe('POST /api/providers/test (transient test)', () => {
+    beforeEach(() => {
+      testProviderConnection.mockReset();
+      testProviderConnection.mockResolvedValue({
+        success: true,
+        message: 'ok',
+        details: { model: 'any' },
+      });
+    });
+
+    it('200: forwards anthropic kind to providerTestService', async () => {
+      const response = await request(app)
+        .post('/api/providers/test')
+        .send({
+          kind: 'anthropic',
+          baseUrl: 'https://api.anthropic.com',
+          authToken: 'sk-ant-test',
+          defaultSonnetModel: 'claude-sonnet-4',
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(testProviderConnection).toHaveBeenCalledTimes(1);
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.kind).toBe('anthropic');
+      expect(calledWith.baseUrl).toBe('https://api.anthropic.com');
+      expect(calledWith.authToken).toBe('sk-ant-test');
+      expect(calledWith.defaultSonnetModel).toBe('claude-sonnet-4');
+    });
+
+    it('200: forwards openai kind to providerTestService', async () => {
+      const response = await request(app)
+        .post('/api/providers/test')
+        .send({
+          kind: 'openai',
+          baseUrl: 'https://api.openai.com/v1',
+          authToken: 'sk-openai-test',
+          defaultSonnetModel: 'gpt-5-codex',
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(testProviderConnection).toHaveBeenCalledTimes(1);
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.kind).toBe('openai');
+      expect(calledWith.baseUrl).toBe('https://api.openai.com/v1');
+      expect(calledWith.authToken).toBe('sk-openai-test');
+      expect(calledWith.defaultSonnetModel).toBe('gpt-5-codex');
+    });
+
+    it('400: rejects request when kind is missing', async () => {
+      const response = await request(app)
+        .post('/api/providers/test')
+        .send({
+          baseUrl: 'https://api.anthropic.com',
+          authToken: 'sk-ant-test',
+        })
+        .expect(400);
+
+      expect(response.body.error).toBeDefined();
+      expect(testProviderConnection).not.toHaveBeenCalled();
+    });
+
+    it('400: rejects request when kind is invalid', async () => {
+      const response = await request(app)
+        .post('/api/providers/test')
+        .send({
+          kind: 'bogus-kind',
+          baseUrl: 'https://api.example.com',
+          authToken: 'sk-test',
+        })
+        .expect(400);
+
+      expect(response.body.error).toBeDefined();
+      expect(testProviderConnection).not.toHaveBeenCalled();
+    });
+
+    it('propagates failure shape from providerTestService', async () => {
+      testProviderConnection.mockResolvedValue({
+        success: false,
+        message: 'Authentication failed',
+        details: { code: 401, type: 'authentication_error' },
+      });
+
+      const response = await request(app)
+        .post('/api/providers/test')
+        .send({
+          kind: 'openai',
+          baseUrl: 'https://api.openai.com/v1',
+          authToken: 'bad-key',
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.message).toBe('Authentication failed');
+      expect(response.body.details.code).toBe(401);
+    });
+  });
+
+  describe('POST /api/providers/:id/test (saved provider)', () => {
+    beforeEach(() => {
+      testProviderConnection.mockReset();
+      testProviderConnection.mockResolvedValue({
+        success: true,
+        message: 'ok',
+        details: { model: 'any' },
+      });
+    });
+
+    it('200: forwards stored provider kind (anthropic) to providerTestService', async () => {
+      const provider = modelProviders.create({
+        name: 'Saved Anthropic',
+        kind: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        authToken: 'sk-ant-stored',
+      });
+      testProviderId = provider.id;
+
+      modelProviders.addModel(provider.id, {
+        modelId: 'claude-sonnet-4-stored',
+        displayName: 'Sonnet Stored',
+        tier: 'sonnet',
+      });
+
+      await request(app).post(`/api/providers/${provider.id}/test`).expect(200);
+
+      expect(testProviderConnection).toHaveBeenCalledTimes(1);
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.kind).toBe('anthropic');
+      expect(calledWith.baseUrl).toBe('https://api.anthropic.com');
+      expect(calledWith.authToken).toBe('sk-ant-stored');
+      expect(calledWith.defaultSonnetModel).toBe('claude-sonnet-4-stored');
+    });
+
+    it('200: forwards stored provider kind (openai) to providerTestService', async () => {
+      const provider = modelProviders.create({
+        name: 'Saved OpenAI',
+        kind: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        authToken: 'sk-openai-stored',
+      });
+      testProviderId = provider.id;
+
+      modelProviders.addModel(provider.id, {
+        modelId: 'gpt-5-codex-stored',
+        displayName: 'Codex Stored',
+        tier: 'sonnet',
+      });
+
+      await request(app).post(`/api/providers/${provider.id}/test`).expect(200);
+
+      expect(testProviderConnection).toHaveBeenCalledTimes(1);
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.kind).toBe('openai');
+      expect(calledWith.baseUrl).toBe('https://api.openai.com/v1');
+      expect(calledWith.authToken).toBe('sk-openai-stored');
+      expect(calledWith.defaultSonnetModel).toBe('gpt-5-codex-stored');
+    });
+
+    it('200: defaults kind to anthropic when stored provider has no kind', async () => {
+      // Create provider without explicit kind - repo defaults to 'anthropic'.
+      const provider = modelProviders.create({
+        name: 'Legacy Provider',
+        baseUrl: 'https://api.legacy.example',
+        authToken: 'legacy-key',
+      });
+      testProviderId = provider.id;
+
+      await request(app).post(`/api/providers/${provider.id}/test`).expect(200);
+
+      expect(testProviderConnection).toHaveBeenCalledTimes(1);
+      const calledWith = testProviderConnection.mock.calls[0][0];
+      expect(calledWith.kind).toBe('anthropic');
+    });
+
+    it('404: provider not found', async () => {
+      const response = await request(app)
+        .post('/api/providers/non-existent-provider/test')
+        .expect(404);
+
+      expect(response.body.error).toBe('Provider not found');
+      expect(testProviderConnection).not.toHaveBeenCalled();
     });
   });
 

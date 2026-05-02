@@ -1,0 +1,43 @@
+{
+  "prompt": "Claude E2E regression: reply with exactly \"Claude E2E response.\"",
+  "model": "claude-haiku-4-5-20251001",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "claude-e2e-regression",
+      "model": "claude-haiku-4-5-20251001"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "delta": {
+          "type": "text_delta",
+          "text": "Claude E2E response."
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Claude E2E response."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 5
+      }
+    }
+  ],
+  "key": "runSession-ec0df80145f024e5",
+  "recordedAt": "2026-04-26T00:00:00.000Z"
+}

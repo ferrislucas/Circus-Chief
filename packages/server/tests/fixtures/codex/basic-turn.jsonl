@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"codex-xyz"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"agentMessage","text":""}}
+{"type":"item.completed","item":{"id":"item_0","type":"agentMessage","text":"Hello, world"}}
+{"type":"turn.completed","usage":{"input_tokens":12,"cached_input_tokens":0,"output_tokens":4}}

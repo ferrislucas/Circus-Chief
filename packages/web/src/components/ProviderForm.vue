@@ -32,22 +32,50 @@
           </div>
 
           <div class="form-group">
+            <label for="provider-kind">
+              Compatibility*
+              <span class="label-hint">Wire protocol &amp; env-var convention</span>
+            </label>
+            <select
+              id="provider-kind"
+              v-model="form.kind"
+              :disabled="isEditing"
+              :title="isEditing ? 'Compatibility cannot be changed after creation' : undefined"
+              class="kind-select"
+              required
+            >
+              <option value="anthropic">
+                Anthropic (Claude Code)
+              </option>
+              <option value="openai">
+                OpenAI / Codex
+              </option>
+            </select>
+            <p
+              v-if="isEditing"
+              class="field-note"
+            >
+              Compatibility cannot be changed after creation.
+            </p>
+          </div>
+
+          <div class="form-group">
             <label for="base-url">
               Base URL
-              <span class="label-hint">(ANTHROPIC_BASE_URL)</span>
+              <span class="label-hint">({{ baseUrlEnvName }})</span>
             </label>
             <input
               id="base-url"
               v-model="form.baseUrl"
               type="url"
-              placeholder="https://bedrock-runtime.us-east-1.amazonaws.com"
+              :placeholder="baseUrlPlaceholder"
             >
           </div>
 
           <div class="form-group">
             <label for="auth-token">
               Auth Token
-              <span class="label-hint">(ANTHROPIC_AUTH_TOKEN)</span>
+              <span class="label-hint">({{ authTokenEnvName }})</span>
             </label>
             <div class="token-input-wrapper">
               <input
@@ -204,7 +232,7 @@
 </template>
 
 <script setup>
-import { toRef } from 'vue';
+import { toRef, computed } from 'vue';
 import { useProviderForm } from '../composables/useProviderForm.js';
 import ProviderModelsList from './ProviderModelsList.vue';
 
@@ -239,6 +267,18 @@ const {
   toRef(props, 'isOpen'),
   toRef(props, 'provider'),
   () => emit('saved'),
+);
+
+const baseUrlEnvName = computed(() =>
+  form.value.kind === 'openai' ? 'OPENAI_BASE_URL' : 'ANTHROPIC_BASE_URL',
+);
+const authTokenEnvName = computed(() =>
+  form.value.kind === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_AUTH_TOKEN',
+);
+const baseUrlPlaceholder = computed(() =>
+  form.value.kind === 'openai'
+    ? 'https://api.openai.com/v1'
+    : 'https://bedrock-runtime.us-east-1.amazonaws.com',
 );
 
 function close() {
@@ -329,7 +369,8 @@ function close() {
 .form-group input[type='text'],
 .form-group input[type='url'],
 .form-group input[type='password'],
-.form-group input[type='number'] {
+.form-group input[type='number'],
+.form-group select.kind-select {
   width: 100%;
   padding: 0.5rem 0.75rem;
   background: var(--color-background-soft);
@@ -339,9 +380,22 @@ function close() {
   font-size: 0.875rem;
 }
 
-.form-group input:focus {
+.form-group input:focus,
+.form-group select.kind-select:focus {
   outline: none;
   border-color: var(--color-primary);
+}
+
+.form-group select.kind-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.field-note {
+  margin: 0.375rem 0 0 0;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  font-style: italic;
 }
 
 .token-input-wrapper {

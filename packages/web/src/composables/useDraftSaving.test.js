@@ -247,4 +247,99 @@ describe('useDraftSaving', () => {
       expect(api.updateSessionPendingPrompt).not.toHaveBeenCalled();
     });
   });
+
+  describe('cancel', () => {
+    it('should clear pending debounce timers without calling the API', () => {
+      const { handleInput, cancel } = createDraftSaving();
+
+      handleInput({ target: { value: 'draft text' } });
+
+      cancel();
+
+      vi.advanceTimersByTime(1000);
+      expect(api.updateSessionPendingPrompt).not.toHaveBeenCalled();
+    });
+
+    it('should reset save status to saved', () => {
+      const { handleInput, cancel, saveStatus } = createDraftSaving();
+
+      handleInput({ target: { value: 'unsaved' } });
+      expect(saveStatus.value).toBe('unsaved');
+
+      cancel();
+
+      expect(saveStatus.value).toBe('saved');
+    });
+
+    it('should also clear the status-reset timer', async () => {
+      // Schedule a save, let it complete so draftSaveTimer is armed for the
+      // 2 s reset, then cancel — verify no further mutation fires afterwards.
+      api.updateSessionPendingPrompt.mockResolvedValue({});
+      const { handleInput, cancel, saveStatus } = createDraftSaving();
+
+      handleInput({ target: { value: 'x' } });
+      vi.advanceTimersByTime(500);
+      await vi.runOnlyPendingTimersAsync();
+      expect(saveStatus.value).toBe('saved');
+
+      cancel();
+
+      // Still saved, and no additional API calls
+      api.updateSessionPendingPrompt.mockClear();
+      vi.advanceTimersByTime(5000);
+      expect(api.updateSessionPendingPrompt).not.toHaveBeenCalled();
+      expect(saveStatus.value).toBe('saved');
+    });
+  });
+
+  describe('debounce stale-closure guard', () => {
+    it('should bail the debounce callback when input has changed', async () => {
+      const { handleInput } = createDraftSaving();
+
+      handleInput({ target: { value: 'old text' } });
+
+      // Simulate the textarea being cleared (e.g. by handleFormSubmit on
+      // successful Send) before the debounce fires.
+      input.value = '';
+
+      vi.advanceTimersByTime(500);
+      await vi.runAllTimersAsync();
+
+      // The stale debounce should not write the old value back to the server.
+      expect(api.updateSessionPendingPrompt).not.toHaveBeenCalled();
+    });
+
+    it('should save the current input.value, not the captured value', async () => {
+      api.updateSessionPendingPrompt.mockResolvedValue({});
+      const { handleInput } = createDraftSaving();
+
+      // User types 'old', then before the debounce fires (but within the
+      // 500 ms), types 'new'. The debounce should persist 'new' — the
+      // freshest state — not the captured 'old'.
+      handleInput({ target: { value: 'old' } });
+      vi.advanceTimersByTime(200);
+      handleInput({ target: { value: 'new' } });
+
+      vi.advanceTimersByTime(500);
+      await vi.runAllTimersAsync();
+
+      // Only the last debounce fires (the earlier timer was cleared), and it
+      // saves the current input value.
+      expect(api.updateSessionPendingPrompt).toHaveBeenCalledTimes(1);
+      expect(api.updateSessionPendingPrompt).toHaveBeenCalledWith('session-123', 'new');
+    });
+  });
+
+  describe('flush after cancel safety', () => {
+    it('flush() after handleInput still saves current input.value (regression guard)', () => {
+      api.updateSessionPendingPrompt.mockResolvedValue({});
+      const { handleInput, flush } = createDraftSaving();
+
+      handleInput({ target: { value: 'draft-a' } });
+      // Without advancing timers, flush — should save the current value
+      flush();
+
+      expect(api.updateSessionPendingPrompt).toHaveBeenCalledWith('session-123', 'draft-a');
+    });
+  });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
-import { settings } from '../db/index.js';
+import { modelProviders, settings } from '../db/index.js';
 import settingsRouter from './settings.js';
 
 // Use a generous timeout to avoid flakiness during full-suite runs
@@ -19,10 +19,153 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
     // Reset token weights to defaults before each test
     settings.resetTokenCostWeights();
+    settings.resetSummarySettings();
   });
 
   afterEach(async () => {
     await new Promise((resolve) => server.close(resolve));
+  });
+
+  describe('Summary settings', () => {
+    it('returns expanded summary defaults', async () => {
+      const res = await request(server).get('/api/settings/summary');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        disableSessionSummaries: false,
+        sessionTitlePrompt: '',
+        summaryModel: '',
+        summaryProviderId: null,
+      });
+      expect(res.body.defaultSessionTitlePrompt).toBeTypeOf('string');
+    });
+
+    it('rejects a summary body without summaryModel', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: true,
+          sessionTitlePrompt: 'Title prompt',
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('summaryModel must be present');
+    });
+
+    it('rejects a summary body without summaryProviderId', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: true,
+          sessionTitlePrompt: 'Title prompt',
+          summaryModel: '',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('summaryProviderId must be present');
+    });
+
+    it('accepts auto mode with an empty model and null provider', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: true,
+          sessionTitlePrompt: 'Title prompt',
+          summaryModel: '',
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        disableSessionSummaries: true,
+        sessionTitlePrompt: 'Title prompt',
+        summaryModel: '',
+        summaryProviderId: null,
+      });
+    });
+
+    it('accepts a valid provider/model pair', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: provider.id,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: model,
+        summaryProviderId: provider.id,
+      });
+    });
+
+    it('rejects provider/model ownership mismatches', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: 'not-owned-by-openai',
+          summaryProviderId: 'openai-default',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('does not own');
+    });
+
+    it('rejects model-only explicit mode', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('summaryProviderId is required');
+    });
+
+    it('rejects empty-string provider with a non-empty model', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: model,
+          summaryProviderId: '',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('summaryProviderId is required');
+    });
+
+    it('rejects provider-only auto mode', async () => {
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: '',
+          summaryProviderId: 'openai-default',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('must be null');
+    });
   });
 
   describe('GET /api/settings/token-weights', () => {

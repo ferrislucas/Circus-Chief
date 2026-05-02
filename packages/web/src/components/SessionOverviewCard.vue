@@ -40,11 +40,11 @@
         <span class="metric-label">Sessions</span>
       </div>
       <div
-        v-if="hasNonZeroCost"
+        v-if="hasNonZeroTokens"
         class="metric"
       >
-        <span class="metric-value">{{ formattedCost }}</span>
-        <span class="metric-label">Cost</span>
+        <span class="metric-value">{{ formattedTokens }}</span>
+        <span class="metric-label">Tokens</span>
       </div>
       <div
         v-if="formattedDuration"
@@ -178,11 +178,11 @@ defineProps({
     type: Number,
     default: 1,
   },
-  hasNonZeroCost: {
+  hasNonZeroTokens: {
     type: Boolean,
     default: false,
   },
-  formattedCost: {
+  formattedTokens: {
     type: String,
     default: '',
   },

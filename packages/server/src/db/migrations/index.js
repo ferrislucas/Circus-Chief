@@ -114,6 +114,7 @@ export const allMigrations = validateMigrations([
   c.get('conversations-add-claude_session_id'),
   c.get('conversations-add-input_tokens'),
   c.get('conversations-add-output_tokens'),
+  c.get('conversations-add-thinking_tokens'),
   c.get('conversations-add-cache_read_input_tokens'),
   c.get('conversations-add-cache_creation_input_tokens'),
   c.get('conversations-add-web_search_requests'),
@@ -123,6 +124,7 @@ export const allMigrations = validateMigrations([
   // --- Sessions token usage ---
   s.get('sessions-add-input_tokens'),
   s.get('sessions-add-output_tokens'),
+  s.get('sessions-add-thinking_tokens'),
   s.get('sessions-add-cache_read_input_tokens'),
   s.get('sessions-add-cache_creation_input_tokens'),
   s.get('sessions-add-web_search_requests'),
@@ -132,6 +134,7 @@ export const allMigrations = validateMigrations([
   s.get('sessions-add-archived'),
   s.get('sessions-add-starred'),
   s.get('sessions-add-manually_named'),
+  s.get('sessions-add-pr_url_auto_link_disabled'),
 
   // --- Project session defaults table ---
   p.get('project_session_defaults-create-table'),
@@ -168,7 +171,9 @@ export const allMigrations = validateMigrations([
 
   // --- Providers + provider_models tables + seed ---
   m.get('providers-create-tables'),
+  m.get('providers-add-kind'),
   m.get('providers-seed-built-in'),
+  m.get('providers-seed-built-in-openai'),
 
   // --- Sessions provider_id (from providers FK) ---
   s.get('sessions-add-provider_id-from-providers'),

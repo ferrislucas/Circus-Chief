@@ -42,12 +42,20 @@ CREATE TABLE IF NOT EXISTS sessions (
   git_branch TEXT,
   git_worktree TEXT,
   pr_url TEXT,
+  pr_url_auto_link_disabled INTEGER NOT NULL DEFAULT 0,
   error TEXT,
   effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
   cost_usd REAL DEFAULT 0,
   claude_session_id TEXT,
   next_template_id TEXT REFERENCES session_templates(id) ON DELETE SET NULL,
   parent_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  thinking_tokens INTEGER DEFAULT 0,
+  cache_read_input_tokens INTEGER DEFAULT 0,
+  cache_creation_input_tokens INTEGER DEFAULT 0,
+  web_search_requests INTEGER DEFAULT 0,
+  context_window INTEGER DEFAULT 200000,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -64,6 +72,7 @@ CREATE TABLE IF NOT EXISTS conversations (
   -- Token usage fields (per-conversation tracking)
   input_tokens INTEGER DEFAULT 0,
   output_tokens INTEGER DEFAULT 0,
+  thinking_tokens INTEGER DEFAULT 0,
   cache_read_input_tokens INTEGER DEFAULT 0,
   cache_creation_input_tokens INTEGER DEFAULT 0,
   web_search_requests INTEGER DEFAULT 0,
@@ -233,6 +242,7 @@ CREATE TABLE IF NOT EXISTS providers (
   api_timeout_ms INTEGER,
   additional_env_vars TEXT,
   is_built_in INTEGER NOT NULL DEFAULT 0,
+  kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai')),
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

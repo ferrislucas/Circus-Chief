@@ -11,6 +11,7 @@ import {
   formatConversationHistory,
   buildConversationContextForModelSwitch,
   buildConversationContextForBranch,
+  buildConversationContextForContinuation,
 } from './conversationContext.js';
 
 describe('conversationContext', () => {
@@ -153,6 +154,54 @@ describe('conversationContext', () => {
       messages.getByConversationId.mockReturnValue([]);
       buildConversationContextForBranch('conv-99');
       expect(messages.getByConversationId).toHaveBeenCalledWith('conv-99');
+    });
+  });
+
+  // ── buildConversationContextForContinuation ───────────────────────────
+
+  describe('buildConversationContextForContinuation', () => {
+    it('returns empty string when no messages', () => {
+      messages.getByConversationId.mockReturnValue([]);
+      expect(buildConversationContextForContinuation('conv-1')).toBe('');
+    });
+
+    it('returns empty string when only one message (current prompt)', () => {
+      messages.getByConversationId.mockReturnValue([
+        { role: 'user', content: 'the only message' },
+      ]);
+      expect(buildConversationContextForContinuation('conv-1')).toBe('');
+    });
+
+    it('formats previous messages excluding last one', () => {
+      messages.getByConversationId.mockReturnValue([
+        { role: 'user', content: 'First question' },
+        { role: 'assistant', content: 'First answer' },
+        { role: 'user', content: 'Current prompt' },
+      ]);
+      const result = buildConversationContextForContinuation('conv-1');
+      expect(result).toContain('<conversation_history>');
+      expect(result).toContain('User: First question');
+      expect(result).toContain('Assistant: First answer');
+      expect(result).not.toContain('Current prompt');
+      expect(result).toContain('</conversation_history>');
+    });
+
+    it('uses continuation-specific wording', () => {
+      messages.getByConversationId.mockReturnValue([
+        { role: 'user', content: 'Q' },
+        { role: 'assistant', content: 'A' },
+        { role: 'user', content: 'Current' },
+      ]);
+      const result = buildConversationContextForContinuation('conv-1');
+      expect(result).toContain('conversation history from this session so far');
+      expect(result).not.toContain('switched to a different model');
+      expect(result).not.toContain('branched session');
+    });
+
+    it('passes correct conversationId to database', () => {
+      messages.getByConversationId.mockReturnValue([]);
+      buildConversationContextForContinuation('conv-77');
+      expect(messages.getByConversationId).toHaveBeenCalledWith('conv-77');
     });
   });
 });

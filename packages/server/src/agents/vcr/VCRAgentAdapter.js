@@ -117,6 +117,14 @@ export class VCRAgentAdapter {
   }
 
   /**
+   * Proxy conversation context need to inner agent
+   * @returns {boolean}
+   */
+  needsConversationContext() {
+    return this.innerAgent.needsConversationContext?.() ?? true;
+  }
+
+  /**
    * Proxy capabilities to inner agent
    * @returns {object}
    */

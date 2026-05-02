@@ -158,6 +158,10 @@ function buildUpdateData(body) {
     updateData.manuallyNamed = true;
   }
 
+  if (body.prUrl !== undefined) {
+    updateData.prUrlAutoLinkDisabled = updateData.prUrl === null;
+  }
+
   return { updateData };
 }
 

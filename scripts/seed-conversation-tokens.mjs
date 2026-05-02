@@ -10,6 +10,7 @@
  *   conversationId?: string,          // conversation ID (uses active conversation if omitted)
  *   inputTokens?: number,             // input token count
  *   outputTokens?: number,            // output token count
+ *   thinkingTokens?: number,          // thinking token count
  *   cacheReadInputTokens?: number,    // cache read input token count
  *   cacheCreationInputTokens?: number,// cache creation input token count
  *   contextWindow?: number,           // context window size
@@ -18,7 +19,7 @@
  * Behavior:
  * - Opens the SQLite database
  * - If conversationId is not provided, resolves the active conversation for the session
- * - Updates input_tokens, output_tokens, cache_read_input_tokens, cache_creation_input_tokens, context_window columns
+ * - Updates input_tokens, output_tokens, thinking_tokens, cache_read_input_tokens, cache_creation_input_tokens, context_window columns
  * - Outputs the updated conversation row as JSON on stdout
  */
 
@@ -36,6 +37,7 @@ const {
   conversationId,
   inputTokens,
   outputTokens,
+  thinkingTokens,
   cacheReadInputTokens,
   cacheCreationInputTokens,
   contextWindow,
@@ -65,6 +67,7 @@ db.prepare(
   `UPDATE conversations SET
     input_tokens = ?,
     output_tokens = ?,
+    thinking_tokens = ?,
     cache_read_input_tokens = ?,
     cache_creation_input_tokens = ?,
     context_window = ?,
@@ -73,6 +76,7 @@ db.prepare(
 ).run(
   inputTokens ?? 0,
   outputTokens ?? 0,
+  thinkingTokens ?? 0,
   cacheReadInputTokens ?? 0,
   cacheCreationInputTokens ?? 0,
   contextWindow ?? 200000,
@@ -90,6 +94,7 @@ const conversation = {
   isActive: row.is_active === 1,
   inputTokens: row.input_tokens || 0,
   outputTokens: row.output_tokens || 0,
+  thinkingTokens: row.thinking_tokens || 0,
   cacheReadInputTokens: row.cache_read_input_tokens || 0,
   cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
   contextWindow: row.context_window || 200000,
