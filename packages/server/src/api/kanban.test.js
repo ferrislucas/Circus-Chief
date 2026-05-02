@@ -305,6 +305,58 @@ describe('Kanban API', () => {
       expect(res.body.sessions[0].id).toBe(session.id);
     });
 
+    it('creates a card for the workflow root when body session is a child', async () => {
+      setupBoard();
+      const root = createSession('Root Session');
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', {
+        mode: 'standard',
+        parentSessionId: root.id,
+      });
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .send({ sessionId: child.id, laneId: lanes[0].id });
+
+      expect(res.status).toBe(201);
+      expect(res.body.sessions[0].id).toBe(root.id);
+      expect(kanbanCards.getBySessionId(root.id)).toBeTruthy();
+      expect(kanbanCards.getBySessionId(child.id)).toBeNull();
+    });
+
+    it('detects duplicate cards by workflow root session ID', async () => {
+      setupBoard();
+      const root = createSession('Root Session');
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', {
+        mode: 'standard',
+        parentSessionId: root.id,
+      });
+      kanbanCards.create(lanes[0].id, root.id);
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .send({ sessionId: child.id, laneId: lanes[1].id });
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('Session already has a card on the board');
+    });
+
+    it('rejects child sessions whose workflow root belongs to another project', async () => {
+      setupBoard();
+      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const root = sessions.create(otherProject.id, 'Other Root', 'Prompt');
+      const child = sessions.create(otherProject.id, 'Other Child', 'Prompt', {
+        mode: 'standard',
+        parentSessionId: root.id,
+      });
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .send({ sessionId: child.id, laneId: lanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Session does not belong to this project');
+    });
+
     it('broadcasts KANBAN_CARD_ADDED', async () => {
       setupBoard();
       const session = createSession();

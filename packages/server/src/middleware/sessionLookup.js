@@ -55,3 +55,64 @@ export function requireSessionAndProject(req, res, next) {
   req.workingDirectory = session.gitWorktree || project.workingDirectory;
   next();
 }
+
+/**
+ * Middleware: Look up the provided session ID, then attach the workflow root
+ * session/project for resources shared across a session tree.
+ */
+export function requireRootSessionAndProject(req, res, next) {
+  const providedSession = sessions.getById(req.params.id);
+  if (!providedSession) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const rootSessionId = sessions.getRootSessionId(providedSession.id) || providedSession.id;
+  const rootSession = sessions.getById(rootSessionId);
+  if (!rootSession) {
+    return res.status(404).json({ error: 'Session not found' });
+  }
+
+  const rootProject = projects.getById(rootSession.projectId);
+  if (!rootProject) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  req.providedSession_ = providedSession;
+  req.rootSession_ = rootSession;
+  req.rootSessionId = rootSessionId;
+  req.rootProject = rootProject;
+  req.rootWorkingDirectory = rootSession.gitWorktree || rootProject.workingDirectory;
+  next();
+}
+
+/**
+ * Middleware factory for project-scoped endpoints that receive a sessionId in
+ * the JSON body and should operate on that session tree's root.
+ */
+export function resolveBodyRootSessionForProject(projectParam = 'projectId') {
+  return (req, res, next) => {
+    const providedSessionId = req.body?.sessionId;
+    if (!providedSessionId) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    const providedSession = sessions.getById(providedSessionId);
+    if (!providedSession) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const rootSessionId = sessions.getRootSessionId(providedSession.id) || providedSession.id;
+    const rootSession = sessions.getById(rootSessionId);
+    if (!rootSession) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (rootSession.projectId !== req.params[projectParam]) {
+      return res.status(400).json({ error: 'Session does not belong to this project' });
+    }
+
+    req.bodyRootSession_ = rootSession;
+    req.bodyRootSessionId = rootSessionId;
+    next();
+  };
+}

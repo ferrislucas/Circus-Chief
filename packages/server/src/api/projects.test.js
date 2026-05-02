@@ -1059,6 +1059,82 @@ describe('Projects API', () => {
   });
 
   describe('Session creation with project defaults', () => {
+    it('creates a session from prompt only and resolves project defaults', async () => {
+      const provider = modelProviders.create({
+        name: 'Prompt Only Provider',
+        kind: 'openai',
+        baseUrl: 'https://api.openai.test',
+        apiKey: 'test-key',
+      });
+
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+        thinkingEnabled: true,
+        model: 'gpt-4o',
+        providerId: provider.id,
+        effortLevel: 'high',
+        startImmediately: false,
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Prompt only creation',
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.mode).toBe('plan');
+      expect(session.thinkingEnabled).toBe(true);
+      expect(session.model).toBe('gpt-4o');
+      expect(session.providerId).toBe(provider.id);
+      expect(session.effortLevel).toBe('high');
+      expect(session.status).toBe('waiting');
+    });
+
+    it('uses request body overrides before project defaults', async () => {
+      const defaultProvider = modelProviders.create({
+        name: 'Default Provider',
+        kind: 'openai',
+        baseUrl: 'https://api.default.test',
+        apiKey: 'test-key',
+      });
+      const overrideProvider = modelProviders.create({
+        name: 'Override Provider',
+        kind: 'openai',
+        baseUrl: 'https://api.override.test',
+        apiKey: 'test-key',
+      });
+
+      await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        mode: 'plan',
+        thinkingEnabled: false,
+        model: 'default-model',
+        providerId: defaultProvider.id,
+        effortLevel: 'low',
+        startImmediately: false,
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Override defaults',
+        mode: 'standard',
+        thinkingEnabled: true,
+        model: 'override-model',
+        providerId: overrideProvider.id,
+        effortLevel: 'max',
+        startImmediately: true,
+      });
+
+      expect(res.status).toBe(201);
+
+      const session = sessions.getById(res.body.id);
+      expect(session.mode).toBe('standard');
+      expect(session.thinkingEnabled).toBe(true);
+      expect(session.model).toBe('override-model');
+      expect(session.providerId).toBe(overrideProvider.id);
+      expect(session.effortLevel).toBe('max');
+      expect(session.status).toBe('starting');
+    });
+
     it('applies project mode default when no param provided', async () => {
       // Set project defaults
       await request(app).post(`/api/projects/${projectId}/session-defaults`).send({

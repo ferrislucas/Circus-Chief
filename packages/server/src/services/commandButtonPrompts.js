@@ -16,10 +16,11 @@ export function buildCommandButtonApiInstructions(apiUrl, sessionId, projectId) 
   return `## Command Buttons API
 
 This project has command buttons configured - reusable shell commands you can execute. Use the Bash tool to run these curl commands.
+Command-button runs are workflow-scoped and resolved automatically by the API.
 
 ### List Available Buttons
 \`\`\`bash
-curl ${apiUrl}/api/projects/${projectId}/command-buttons
+curl ${apiUrl}/api/sessions/${sessionId}/command-buttons
 \`\`\`
 
 ### Run a Button
@@ -36,7 +37,7 @@ curl ${apiUrl}/api/sessions/${sessionId}/command-buttons/runs/<run_id>
 
 Response: { runId, buttonId, status, exitCode, output, startedAt, completedAt }
 
-### List All Runs for This Session
+### List Command Runs
 \`\`\`bash
 curl ${apiUrl}/api/sessions/${sessionId}/command-buttons/runs
 \`\`\`
