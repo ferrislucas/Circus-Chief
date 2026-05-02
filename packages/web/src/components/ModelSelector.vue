@@ -370,7 +370,9 @@ function findVisibleOption(modelId, providerId = null) {
     const model = provider.models?.find((entry) => entry.modelId === modelId);
     if (model) return { provider, model };
   }
-  if (providerId) return null;
+  // If the requested provider is not visible, still select a visible option for
+  // the requested model. This can happen when built-in duplicate models are
+  // hidden in favor of a custom provider.
   for (const provider of visibleProviders.value) {
     const model = provider.models?.find((entry) => entry.modelId === modelId);
     if (model) return { provider, model };
