@@ -113,17 +113,12 @@ Regular `./scripts/pw.sh test` is still the fast path for normal development —
 Use `scripts/publish.sh`, which wraps the build and `npm publish`:
 
 ```bash
-# Usage: ./scripts/publish.sh [-y] [version] <otp>
+# Usage: ./scripts/publish.sh [version] <otp>
 
 # Examples:
 ./scripts/publish.sh 123456             # auto-bump minor, publish
 ./scripts/publish.sh 0.2.0 123456       # publish exactly 0.2.0
-./scripts/publish.sh -y 123456          # auto-bump without prompt
 ```
-
-Options:
-
-- `-y, --yes` — Skip confirmation prompt when auto-bumping version.
 
 Arguments:
 
@@ -133,7 +128,7 @@ Arguments:
 What the script does:
 
 1. Verifies you're logged in (`npm whoami`) and aborts with an error if not.
-2. If `version` is omitted, queries npm for the latest published version and auto-bumps the minor version (e.g. `1.4.2` → `1.5.0`). Prompts for confirmation unless `-y` is passed.
+2. If `version` is omitted, queries npm for the latest published version and auto-bumps the minor version (e.g. `1.4.2` → `1.5.0`).
 3. Runs `node scripts/build-package.js --version=$VERSION`.
 4. Runs `npm publish --otp=$OTP` from inside `dist-package/`.
 5. Prints install/run hints (`npx circuschief`, `npx circuschief@<version>`).
