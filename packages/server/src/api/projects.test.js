@@ -201,7 +201,7 @@ describe('Projects API', () => {
     });
 
     describe('git repo validation', () => {
-      it('succeeds for git repo when gitMode is missing (defaults to none)', async () => {
+      it('succeeds for git repo when gitMode is missing', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
           gitBranch: 'feature-x',
@@ -214,7 +214,7 @@ describe('Projects API', () => {
         expect(session.gitBranch).toBe('feature-x');
       });
 
-      it('succeeds for git repo when gitBranch is missing (defaults to main)', async () => {
+      it('succeeds for git repo when gitBranch is missing (generates branch for worktree)', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
           gitMode: 'worktree',
@@ -222,9 +222,9 @@ describe('Projects API', () => {
 
         expect(res.status).toBe(201);
 
-        // gitBranch should default to 'main'
+        // gitBranch should be generated for default worktree creation.
         const session = sessions.getById(res.body.id);
-        expect(session.gitBranch).toBe('main');
+        expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
       });
 
       it('succeeds for git repo when both gitMode and gitBranch are missing (defaults applied)', async () => {
@@ -234,9 +234,9 @@ describe('Projects API', () => {
 
         expect(res.status).toBe(201);
 
-        // gitBranch should default to 'main'
+        // System defaults use worktree mode, so gitBranch should be generated.
         const session = sessions.getById(res.body.id);
-        expect(session.gitBranch).toBe('main');
+        expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
       });
 
       it('succeeds for non-git project without gitMode/gitBranch', async () => {

@@ -76,7 +76,7 @@ test.describe('Git-backed project session creation', () => {
     // Verify the session was created with sensible defaults
     const fetchedSession = await getSession(session.id);
     expect(fetchedSession).toBeTruthy();
-    // gitBranch should default to 'main' when not provided
-    expect(fetchedSession.gitBranch).toBe('main');
+    // Worktree defaults should generate a unique branch when none is provided.
+    expect(fetchedSession.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-api-test-without-git$/);
   });
 });

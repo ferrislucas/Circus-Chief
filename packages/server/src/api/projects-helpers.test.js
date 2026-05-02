@@ -47,13 +47,15 @@ describe('validateGitSettings', () => {
     expect(config.gitMode).toBeUndefined();
   });
 
-  it('defaults gitBranch to main for git repo when gitBranch is missing', async () => {
+  it('generates gitBranch for git repo when worktree gitBranch is missing', async () => {
     isGitRepo.mockResolvedValue(true);
 
-    const config = { gitMode: 'worktree' };
+    const config = { gitMode: 'worktree', prompt: 'Test prompt' };
     const result = await validateGitSettings(config, project);
 
-    expect(result).toEqual({ config: { gitMode: 'worktree', gitBranch: 'main' }, error: null });
+    expect(result.error).toBeNull();
+    expect(result.config).toMatchObject({ gitMode: 'worktree', prompt: 'Test prompt' });
+    expect(result.config.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
     expect(config.gitBranch).toBeUndefined();
   });
 
