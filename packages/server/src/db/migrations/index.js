@@ -199,6 +199,9 @@ export const allMigrations = validateMigrations([
   k.get('kanban_lanes-add-on_enter_prompt'),
   k.get('kanban_lanes-add-agent-settings'),
 
+  // --- Sessions default mode / thinking defaults (table recreation) ---
+  s.get('sessions-migrate-default-mode-thinking'),
+
   // --- Seed default global quick responses ---
   m.get('quick_responses-seed-defaults'),
 
