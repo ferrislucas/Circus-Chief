@@ -139,6 +139,7 @@ router.post('/:id/test', async (req, res) => {
     // Pick the sonnet-tiered model (if any) as the test model, falling back to any first model
     const sonnetModel = provider.models?.find((m) => m.tier === 'sonnet');
     const testConfig = {
+      kind: provider.kind || 'anthropic',
       baseUrl: provider.baseUrl,
       authToken: provider.authToken,
       defaultSonnetModel: sonnetModel?.modelId,

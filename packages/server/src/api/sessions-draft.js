@@ -57,6 +57,7 @@ router.post('/:id/start', requireSession, async (req, res) => {
     const updatedSession = await startDraft(req.session_, {
       prompt: req.body.prompt,
       model: req.body.model,
+      providerId: req.body.providerId,
     });
 
     res.json({ success: true, session: updatedSession });

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import ArgumentsForm from './ArgumentsForm.vue';
+import argumentsFormSource from './ArgumentsForm.vue?raw';
 
 describe('ArgumentsForm.vue', () => {
   describe('skill rendering', () => {
@@ -279,6 +280,18 @@ describe('ArgumentsForm.vue', () => {
 
       const submitBtn = wrapper.find('[data-testid="execute-command-btn"]');
       expect(submitBtn.text()).toContain('Execute Command');
+    });
+  });
+
+  describe('style tokens', () => {
+    it('uses defined theme tokens for argument form styling', () => {
+      const source = argumentsFormSource;
+
+      expect(source).not.toMatch(/--color-(accent|accent-rgb|bg-hover|border-hover|primary-hover)\b/);
+      expect(source).toContain('--color-primary');
+      expect(source).toContain('--color-primary-soft');
+      expect(source).toContain('--color-background-mute');
+      expect(source).toContain('--color-border');
     });
   });
 });

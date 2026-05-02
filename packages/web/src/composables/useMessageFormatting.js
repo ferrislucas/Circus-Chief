@@ -13,6 +13,49 @@ export function useMessageFormatting() {
     return new Date(timestamp).toLocaleTimeString();
   }
 
+  function parseValidDate(timestamp) {
+    if (!timestamp) return null;
+    const date = new Date(timestamp);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  /**
+   * Format a timestamp date for display in message headers.
+   * @param {string|number|Date} timestamp - The timestamp to format
+   * @returns {string} Formatted date string
+   */
+  function formatMessageDate(timestamp) {
+    const date = parseValidDate(timestamp);
+    if (!date) return '';
+
+    return date.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+
+  /**
+   * Check whether a timestamp is before today's local calendar date.
+   * @param {string|number|Date} timestamp - The timestamp to compare
+   * @param {Date} now - The date to compare against
+   * @returns {boolean} True when timestamp is before today's local date
+   */
+  function isBeforeToday(timestamp, now = new Date()) {
+    const date = parseValidDate(timestamp);
+    const comparisonDate = parseValidDate(now);
+    if (!date || !comparisonDate) return false;
+
+    const messageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const today = new Date(
+      comparisonDate.getFullYear(),
+      comparisonDate.getMonth(),
+      comparisonDate.getDate()
+    );
+
+    return messageDay < today;
+  }
+
   /**
    * Format model name for display.
    * Converts "claude-3-5-sonnet-20241022" to "claude-3.5-sonnet"
@@ -54,6 +97,8 @@ export function useMessageFormatting() {
 
   return {
     formatTime,
+    formatMessageDate,
+    isBeforeToday,
     formatModelName,
     formatFileSize,
     getAttachmentIcon,

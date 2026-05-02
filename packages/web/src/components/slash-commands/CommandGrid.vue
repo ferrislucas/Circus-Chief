@@ -355,7 +355,7 @@ onMounted(() => {
 }
 
 .search-input:focus {
-  border-color: var(--color-accent);
+  border-color: var(--color-primary);
 }
 
 .search-input::placeholder {
@@ -382,7 +382,7 @@ onMounted(() => {
   width: 1.25rem;
   height: 1.25rem;
   border: 2px solid var(--color-border);
-  border-top-color: var(--color-accent);
+  border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
@@ -435,8 +435,8 @@ onMounted(() => {
 }
 
 .command-card:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-accent);
+  background: var(--color-background-mute);
+  border-color: var(--color-primary);
 }
 
 .command-card:active {
@@ -446,7 +446,7 @@ onMounted(() => {
 .command-name {
   font-size: 0.875rem;
   font-weight: 600;
-  color: var(--color-accent);
+  color: var(--color-primary);
   font-family: ui-monospace, monospace;
 }
 
@@ -468,8 +468,8 @@ onMounted(() => {
   font-size: 0.625rem;
   font-weight: 500;
   text-transform: uppercase;
-  background: rgba(var(--color-accent-rgb, 88, 166, 255), 0.15);
-  color: var(--color-accent);
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--color-primary);
   border-radius: 0.25rem;
   width: fit-content;
 }

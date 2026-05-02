@@ -181,8 +181,14 @@ const selectedItem = computed(() => {
 const selectedVersions = computed(() => {
   if (!selectedItem.value) return [];
   const key = selectedItem.value.filename || selectedItem.value.id;
+  const seen = new Set();
   return canvasStore.items
     .filter((i) => (i.filename || i.id) === key)
+    .filter((i) => {
+      if (seen.has(i.id)) return false;
+      seen.add(i.id);
+      return true;
+    })
     .sort((a, b) => b.createdAt - a.createdAt);
 });
 const shouldShowViewer = computed(() => 
@@ -193,28 +199,6 @@ const shouldShowViewer = computed(() =>
 const showBackButton = computed(() => 
   // Always show back button in detail view so users can navigate to the list
    true
-);
-
-// Auto-navigate to the latest version when a new version of the viewed file arrives
-watch(
-  () => canvasStore.items.length,
-  () => {
-    if (!selectedItem.value) return;
-
-    const currentFilename = selectedItem.value.filename || selectedItem.value.id;
-
-    // Find the latest item with the same filename
-    const latest = canvasStore.items
-      .filter(i => (i.filename || i.id) === currentFilename)
-      .sort((a, b) => b.createdAt - a.createdAt)[0];
-
-    // If the latest version is different from what we're viewing, navigate to it
-    if (latest && latest.id !== selectedItemId.value) {
-      router.replace({
-        query: { ...route.query, item: latest.id }
-      });
-    }
-  }
 );
 
 // Navigation helpers
@@ -232,7 +216,58 @@ function handleBack() {
   router.push({ query: rest });
 }
 
-const handleSelectVersion = navigateToItem;
+// Track an explicit user pin: set only when the user picks a non-latest version
+// from the version dropdown. WebSocket arrivals of newer versions MUST NOT
+// override an explicit pin.
+const userPinnedVersionId = ref(null);
+
+function handleSelectVersion(itemId) {
+  const latestId = selectedVersions.value[0]?.id;
+  // Picking the latest version is equivalent to "unpin"
+  userPinnedVersionId.value = itemId === latestId ? null : itemId;
+  navigateToItem(itemId);
+}
+
+// Scoped, pin-aware auto-nav watcher. Watches the id-list of the currently
+// viewed file's versions (NOT global canvasStore.items.length), so:
+//   - unrelated canvas adds (different filenames) never trigger auto-nav
+//   - the initial empty → populated transition preserves deep-links
+//   - a user-pinned version is never overridden by later arrivals
+watch(
+  () => selectedVersions.value.map((v) => v.id).join('|'),
+  (newKey, oldKey) => {
+    if (!selectedItem.value) return;
+    if (!oldKey) return;                    // initial empty → populated
+    if (newKey === oldKey) return;          // no change in the id list
+    if (userPinnedVersionId.value) return;  // user is browsing history
+    const latest = selectedVersions.value[0];
+    if (latest && latest.id !== selectedItemId.value) {
+      router.replace({
+        query: { ...route.query, item: latest.id }
+      });
+    }
+  }
+);
+
+// Clear the pin when the user leaves the detail view or switches files. Watch
+// a derived key of "${filename}|${selectedItemId}" so filename changes clear
+// the pin even without navigating through the list first.
+watch(
+  () => {
+    if (!selectedItemId.value) return null;
+    const item = canvasStore.items.find((i) => i.id === selectedItemId.value);
+    return item ? (item.filename || item.id) : null;
+  },
+  (newFilename, oldFilename) => {
+    if (newFilename === null) {
+      userPinnedVersionId.value = null;
+      return;
+    }
+    if (oldFilename !== undefined && oldFilename !== null && newFilename !== oldFilename) {
+      userPinnedVersionId.value = null;
+    }
+  }
+);
 
 // Delete handler
 async function handleDeleteAll(filename) {

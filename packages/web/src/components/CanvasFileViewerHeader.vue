@@ -37,6 +37,7 @@
         <!-- Version dropdown -->
         <details
           v-if="versions.length > 1"
+          ref="versionDetailsRef"
           class="version-dropdown"
         >
           <summary class="version-badge">
@@ -48,7 +49,7 @@
               v-for="(v, index) in versions"
               :key="v.id"
               :class="{ active: v.id === item.id }"
-              @click="$emit('selectVersion', v.id)"
+              @click="onVersionClick(v.id)"
             >
               <span class="version-number">v{{ versions.length - index }}</span>
               <span class="version-time">{{ formatRelativeTime(v.createdAt) }}</span>
@@ -158,11 +159,19 @@ const emit = defineEmits(['back', 'selectVersion', 'deleteAll', 'edit']);
 const menuOpen = ref(false);
 const menuHighlightedIndex = ref(null);
 const menuContainerRef = ref(null);
+const versionDetailsRef = ref(null);
 
 const currentVersionIndex = computed(() => {
   const idx = props.versions.findIndex((v) => v.id === props.item.id);
   return idx >= 0 ? idx : 0;
 });
+
+function onVersionClick(id) {
+  emit('selectVersion', id);
+  if (versionDetailsRef.value) {
+    versionDetailsRef.value.open = false;
+  }
+}
 
 async function copyToClipboard(text) {
   try {

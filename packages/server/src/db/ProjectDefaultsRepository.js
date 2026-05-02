@@ -12,6 +12,7 @@ const UPSERT_FIELD_MAP = [
   { key: 'gitMode', column: 'git_mode' },
   { key: 'gitBranch', column: 'git_branch' },
   { key: 'model', column: 'model' },
+  { key: 'providerId', column: 'provider_id' },
   { key: 'effortLevel', column: 'effort_level' },
 ];
 
@@ -47,6 +48,7 @@ export class ProjectDefaultsRepository extends BaseRepository {
       gitMode: row.git_mode || null,
       gitBranch: row.git_branch || null,
       model: row.model || null,
+      providerId: row.provider_id || null,
       effortLevel: row.effort_level || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -72,47 +74,53 @@ export class ProjectDefaultsRepository extends BaseRepository {
    * @param {Object} data - Defaults data (all fields optional)
    * @returns {Object} Updated defaults object
    */
+  #insertDefaults(projectId, data) {
+    const id = databaseManager.generateId();
+    const now = Date.now();
+
+    this.db
+      .prepare(
+        `INSERT INTO project_session_defaults
+         (id, project_id, mode, thinking_enabled, start_immediately, git_mode, git_branch, model, provider_id, effort_level, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        projectId,
+        data.mode || null,
+        data.thinkingEnabled !== undefined ? (data.thinkingEnabled ? 1 : 0) : null,
+        data.startImmediately !== undefined ? (data.startImmediately ? 1 : 0) : null,
+        data.gitMode || null,
+        data.gitBranch || null,
+        data.model || null,
+        data.providerId || null,
+        data.effortLevel || null,
+        now,
+        now
+      );
+  }
+
+  #updateDefaults(projectId, data) {
+    const { updates, values } = buildUpdateFields(data);
+
+    if (updates.length > 0) {
+      updates.push('updated_at = ?');
+      values.push(Date.now());
+      values.push(projectId);
+
+      this.db
+        .prepare(`UPDATE project_session_defaults SET ${updates.join(', ')} WHERE project_id = ?`)
+        .run(...values);
+    }
+  }
+
   upsert(projectId, data) {
-    // Get existing defaults if any
     const existing = this.getByProjectId(projectId);
 
     if (!existing) {
-      // Create new defaults record
-      const id = databaseManager.generateId();
-      const now = Date.now();
-
-      this.db
-        .prepare(
-          `INSERT INTO project_session_defaults
-           (id, project_id, mode, thinking_enabled, start_immediately, git_mode, git_branch, model, effort_level, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          id,
-          projectId,
-          data.mode || null,
-          data.thinkingEnabled !== undefined ? (data.thinkingEnabled ? 1 : 0) : null,
-          data.startImmediately !== undefined ? (data.startImmediately ? 1 : 0) : null,
-          data.gitMode || null,
-          data.gitBranch || null,
-          data.model || null,
-          data.effortLevel || null,
-          now,
-          now
-        );
+      this.#insertDefaults(projectId, data);
     } else {
-      // Update existing defaults
-      const { updates, values } = buildUpdateFields(data);
-
-      if (updates.length > 0) {
-        updates.push('updated_at = ?');
-        values.push(Date.now());
-        values.push(projectId);
-
-        this.db
-          .prepare(`UPDATE project_session_defaults SET ${updates.join(', ')} WHERE project_id = ?`)
-          .run(...values);
-      }
+      this.#updateDefaults(projectId, data);
     }
 
     return this.getByProjectId(projectId);
@@ -137,7 +145,8 @@ export class ProjectDefaultsRepository extends BaseRepository {
       .prepare(
         `UPDATE project_session_defaults
          SET mode = NULL, thinking_enabled = NULL, start_immediately = NULL,
-             git_mode = NULL, git_branch = NULL, model = NULL, effort_level = NULL, updated_at = ?
+             git_mode = NULL, git_branch = NULL, model = NULL, provider_id = NULL,
+             effort_level = NULL, updated_at = ?
          WHERE project_id = ?`
       )
       .run(Date.now(), projectId);
@@ -167,6 +176,7 @@ export class ProjectDefaultsRepository extends BaseRepository {
       gitMode: null,
       gitBranch: null,
       model: null,
+      providerId: null,
       effortLevel: null,
     };
   }

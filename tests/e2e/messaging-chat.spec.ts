@@ -502,12 +502,12 @@ test.describe('Resizable Textarea', () => {
     // Press Cmd+Enter (Meta+Enter on macOS / Control+Enter on others)
     await page.keyboard.press('Meta+Enter');
 
-    // After submission, a new user message should exist in the API — retry until found
-    const msgs = await getSessionMessages(session.id);
-    const userMessages = msgs.filter((m: any) => m.role === 'user');
-    expect(userMessages.length).toBeGreaterThanOrEqual(1);
-    const lastUserMsg = userMessages[userMessages.length - 1];
-    expect(lastUserMsg.content).toContain('My follow-up question');
+    // After submission, a new user message should exist in the API.
+    await expect.poll(async () => {
+      const msgs = await getSessionMessages(session.id);
+      const userMessages = msgs.filter((m: any) => m.role === 'user');
+      return userMessages[userMessages.length - 1]?.content || '';
+    }, { timeout: 10000 }).toContain('My follow-up question');
   });
 
   test('send button is disabled when textarea is empty', async ({ page }) => {

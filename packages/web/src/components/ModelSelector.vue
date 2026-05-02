@@ -2,13 +2,14 @@
   <div
     class="model-selector"
     :data-model="effectiveSelectedModel"
+    :data-provider-id="effectiveSelectedProviderId || ''"
   >
     <select
       id="model-select"
-      :value="effectiveSelectedModel"
+      :value="effectiveSelectedKey"
       :disabled="disabled"
       :class="selectClass || 'model-select'"
-      @change="handleModelChange($event.target.value)"
+      @change="handleModelChange($event)"
     >
       <option
         v-if="allowEmpty"
@@ -17,17 +18,20 @@
         {{ emptyLabel }}
       </option>
       <optgroup
-        v-for="provider in providersStore.providers"
+        v-for="provider in visibleProviders"
         :key="provider.id"
-        :label="provider.name"
+        :label="`${agentLabelFor(provider)} · ${provider.name}`"
+        :data-agent-type="agentTypeFor(provider)"
       >
         <option
           v-for="model in provider.models"
-          :key="model.id"
-          :value="model.modelId"
+          :key="`${provider.id}:${model.id}`"
+          :value="optionKey(provider.id, model.modelId)"
           :data-provider-id="provider.id"
+          :data-model-id="model.modelId"
+          :data-agent-type="agentTypeFor(provider)"
         >
-          {{ provider.isBuiltIn ? model.displayName : model.modelId }}
+          {{ optionLabel(provider, model) }}
         </option>
       </optgroup>
     </select>
@@ -59,9 +63,17 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  providerId: {
+    type: String,
+    default: null,
+  },
+  hideBuiltInDuplicates: {
+    type: Boolean,
+    default: true,
+  },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'model-selected', 'update:providerId']);
 
 const providersStore = useProvidersStore();
 
@@ -73,7 +85,7 @@ const providersHaveModels = computed(() => providersStore.providers.length > 0 &
 // Get all valid model IDs from all providers
 const validModelIds = computed(() => {
   const ids = new Set();
-  for (const provider of providersStore.providers) {
+  for (const provider of visibleProviders.value) {
     if (provider.models) {
       for (const model of provider.models) {
         ids.add(model.modelId);
@@ -88,18 +100,90 @@ function isValidModelId(modelId) {
   return modelId && validModelIds.value.has(modelId);
 }
 
-// Get default model from first available provider
-const defaultModel = computed(() => {
-  // Prefer built-in Anthropic provider's sonnet model
-  const builtIn = providersStore.providers.find(p => p.isBuiltIn);
-  if (builtIn?.models?.length) {
-    // Find sonnet tier if available, otherwise first model
-    const sonnet = builtIn.models.find(m => m.tier === 'sonnet');
-    return sonnet?.modelId || builtIn.models[0].modelId;
+// Map a provider kind to an agent type. Default to 'claude-code' when `kind`
+// is absent so legacy providers (pre-Phase-1) keep their Claude Code grouping.
+function agentTypeFor(provider) {
+  if (provider?.kind === 'openai') return 'codex';
+  return 'claude-code';
+}
+
+// Human-readable agent heading for optgroup labels.
+function agentLabelFor(provider) {
+  return agentTypeFor(provider) === 'codex' ? 'Codex' : 'Claude Code';
+}
+
+// Sort providers by:
+//   1) Agent type: Claude Code first, then Codex
+//   2) Built-in before custom within the same agent
+//   3) Alphabetical by name among custom providers
+const sortedProviders = computed(() => {
+  const list = [...providersStore.providers];
+  list.sort((a, b) => {
+    const aType = agentTypeFor(a);
+    const bType = agentTypeFor(b);
+    if (aType !== bType) {
+      return aType === 'claude-code' ? -1 : 1;
+    }
+    if (a.isBuiltIn !== b.isBuiltIn) {
+      return a.isBuiltIn ? -1 : 1;
+    }
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  return list;
+});
+
+const visibleProviders = computed(() => {
+  const customModelIds = new Set();
+  for (const provider of providersStore.providers) {
+    if (provider.isBuiltIn || !provider.models) continue;
+    for (const model of provider.models) {
+      customModelIds.add(model.modelId);
+    }
   }
-  // Fallback to first provider's first model
-  const firstProvider = providersStore.providers[0];
-  return firstProvider?.models?.[0]?.modelId || null;
+
+  return sortedProviders.value
+    .map((provider) => {
+      if (!props.hideBuiltInDuplicates || !provider.isBuiltIn) return provider;
+      return withCustomModelsHidden(provider, customModelIds);
+    })
+    .filter((provider) => provider.models?.length);
+});
+
+const duplicateModelIds = computed(() => {
+  const counts = new Map();
+  for (const provider of visibleProviders.value) {
+    for (const model of provider.models || []) {
+      counts.set(model.modelId, (counts.get(model.modelId) || 0) + 1);
+    }
+  }
+  return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([modelId]) => modelId));
+});
+
+function withCustomModelsHidden(provider, customModelIds) {
+  return {
+    ...provider,
+    models: (provider.models || []).filter((model) => !customModelIds.has(model.modelId)),
+  };
+}
+
+// Default model resolution honours Phase 6 rules:
+//   - Prefer the first built-in Anthropic provider's sonnet (or first) model.
+//   - If NO Anthropic providers exist at all, return null rather than silently
+//     selecting a Codex model (Codex has no "default" concept in the UI yet).
+const defaultModel = computed(() => {
+  const anthropicProviders = providersStore.providers.filter(
+    (p) => agentTypeFor(p) === 'claude-code'
+  );
+  if (anthropicProviders.length === 0) {
+    return null;
+  }
+  const builtIn = anthropicProviders.find((p) => p.isBuiltIn);
+  const candidate = builtIn || anthropicProviders[0];
+  if (candidate?.models?.length) {
+    const sonnet = candidate.models.find((m) => m.tier === 'sonnet');
+    return sonnet?.modelId || candidate.models[0].modelId;
+  }
+  return null;
 });
 
 // Track if we've already initialized (to prevent default model from overriding after init)
@@ -128,7 +212,10 @@ function resolveModelId(modelValue) {
   }
 
   // It's a tier name like 'sonnet', 'opus', 'haiku' - find matching model
-  const builtIn = providersStore.providers.find(p => p.isBuiltIn);
+  // (only resolve against an Anthropic built-in; Codex has no tier map)
+  const builtIn = providersStore.providers.find(
+    (p) => p.isBuiltIn && agentTypeFor(p) === 'claude-code'
+  );
   if (builtIn?.models?.length) {
     const match = builtIn.models.find(m => m.tier === modelValue);
     if (match) {
@@ -142,6 +229,7 @@ function resolveModelId(modelValue) {
 
 // Local state for optimistic UI updates - provides immediate visual feedback
 const selectedModel = ref(resolveModelId(props.modelValue));
+const selectedProviderId = ref(props.providerId);
 
 // Computed that ALWAYS returns a valid model ID for the select element
 // This ensures the select never shows empty, even before providers load
@@ -162,15 +250,36 @@ const effectiveSelectedModel = computed(() => {
   return selectedModel.value;
 });
 
+const effectiveSelectedProviderId = computed(() => {
+  if (!effectiveSelectedModel.value) return null;
+  const option = findVisibleOption(effectiveSelectedModel.value, props.providerId || selectedProviderId.value);
+  return option?.provider.id || null;
+});
+
+const effectiveSelectedKey = computed(() => {
+  if (props.allowEmpty && (!effectiveSelectedModel.value || effectiveSelectedModel.value === '')) {
+    return '';
+  }
+  if (!effectiveSelectedModel.value) return '';
+  const option = findVisibleOption(effectiveSelectedModel.value, props.providerId || selectedProviderId.value);
+  return option ? optionKey(option.provider.id, option.model.modelId) : effectiveSelectedModel.value;
+});
+
 // Watch for external changes to keep local selection in sync
 const modelValueRef = toRef(props, 'modelValue');
 watch(modelValueRef, (newModel) => {
   selectedModel.value = resolveModelId(newModel);
 }, { flush: 'sync' });
 
+watch(toRef(props, 'providerId'), (newProviderId) => {
+  selectedProviderId.value = newProviderId;
+}, { flush: 'sync' });
+
 // Also watch providers - when they load, we may need to resolve tier names
 // Use immediate: true to run on mount when providers might already be loaded
-watch(() => providersStore.providers, () => {
+watch(() => providersStore.providers, syncSelectionFromProviders, { deep: true, immediate: true });
+
+function syncSelectionFromProviders() {
   // Skip if no models loaded yet - wait for models to be available
   if (!providersHaveModels.value) return;
 
@@ -180,41 +289,101 @@ watch(() => providersStore.providers, () => {
     return;
   }
 
-  // First, try to resolve the model ID from props
-  let resolvedModel = null;
-  if (props.modelValue) {
-    resolvedModel = resolveModelId(props.modelValue);
-  }
+  const resolvedModel = props.modelValue ? resolveModelId(props.modelValue) : null;
 
   // Check if resolved model is valid (exists as an option)
   if (resolvedModel && isValidModelId(resolvedModel)) {
-    if (selectedModel.value !== resolvedModel) {
-      selectedModel.value = resolvedModel;
-      // Emit the resolved value back to parent if it changed
-      if (resolvedModel !== props.modelValue) {
-        emit('update:modelValue', resolvedModel);
-      }
-    }
-  } else if (defaultModel.value) {
-    // Model is invalid or not provided - use default
-    if (selectedModel.value !== defaultModel.value) {
-      selectedModel.value = defaultModel.value;
-      emit('update:modelValue', defaultModel.value);
-    }
+    applyResolvedModel(resolvedModel);
+    return;
   }
-}, { deep: true, immediate: true });
+
+  applyDefaultModel();
+}
+
+function applyResolvedModel(resolvedModel) {
+  if (selectedModel.value === resolvedModel) return;
+  selectedModel.value = resolvedModel;
+  selectedProviderId.value = findVisibleOption(resolvedModel, props.providerId)?.provider.id || null;
+  // Emit the resolved value back to parent if it changed
+  if (resolvedModel !== props.modelValue) {
+    emit('update:modelValue', resolvedModel);
+  }
+}
+
+function applyDefaultModel() {
+  if (!defaultModel.value || selectedModel.value === defaultModel.value) return;
+  selectedModel.value = defaultModel.value;
+  selectedProviderId.value = findVisibleOption(defaultModel.value)?.provider.id || null;
+  emit('update:modelValue', defaultModel.value);
+}
 
 // NOTE: Removed defaultModel watcher - it should not override after initialization
 // The default is now only applied once during onMounted (see above)
 
-function handleModelChange(modelId) {
-  if (effectiveSelectedModel.value === modelId) return;
+function handleModelChange(event) {
+  const optionValue = event.target.value;
+  const parsed = optionValue ? parseOptionKey(optionValue) : null;
+  const metadata = parsed
+    ? {
+        modelId: parsed.modelId,
+        providerId: parsed.providerId,
+        kind: providerKindForId(parsed.providerId),
+      }
+    : { modelId: '', providerId: null, kind: null };
+  const modelId = metadata.modelId;
+
+  if (effectiveSelectedModel.value === modelId && effectiveSelectedProviderId.value === metadata.providerId) return;
 
   // Immediate visual feedback - update UI right away
   selectedModel.value = modelId;
+  selectedProviderId.value = metadata.providerId;
 
   // Emit for v-model (empty string when allowEmpty option is selected)
   emit('update:modelValue', modelId);
+  emit('update:providerId', metadata.providerId);
+  emit('model-selected', metadata);
+}
+
+function providerKindForId(providerId) {
+  if (!providerId) return null;
+  const provider = providersStore.providers.find((entry) => entry.id === providerId);
+  return provider?.kind || 'anthropic';
+}
+
+function optionKey(providerId, modelId) {
+  return `${providerId}::${modelId}`;
+}
+
+function parseOptionKey(value) {
+  const separatorIndex = value.indexOf('::');
+  if (separatorIndex === -1) return null;
+  return {
+    providerId: value.slice(0, separatorIndex),
+    modelId: value.slice(separatorIndex + 2),
+  };
+}
+
+function findVisibleOption(modelId, providerId = null) {
+  if (!modelId) return null;
+  for (const provider of visibleProviders.value) {
+    if (providerId && provider.id !== providerId) continue;
+    const model = provider.models?.find((entry) => entry.modelId === modelId);
+    if (model) return { provider, model };
+  }
+  // If the requested provider is not visible, still select a visible option for
+  // the requested model. This can happen when built-in duplicate models are
+  // hidden in favor of a custom provider.
+  for (const provider of visibleProviders.value) {
+    const model = provider.models?.find((entry) => entry.modelId === modelId);
+    if (model) return { provider, model };
+  }
+  return null;
+}
+
+function optionLabel(provider, model) {
+  const baseLabel = provider.isBuiltIn ? model.displayName : model.modelId;
+  if (!duplicateModelIds.value.has(model.modelId)) return baseLabel;
+  return `${baseLabel} (${provider.name})`;
 }
 </script>
 

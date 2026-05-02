@@ -1,4 +1,5 @@
 import { ClaudeCodeAdapter } from './adapters/ClaudeCodeAdapter.js';
+import { CodexAdapter } from './adapters/CodexAdapter.js';
 
 /**
  * Factory/registry for agent adapters.
@@ -8,11 +9,14 @@ export class AgentGateway {
   constructor() {
     /** @type {Map<string, typeof import('./BaseAgent.js').BaseAgent>} */
     this.adapters = new Map();
+    /** @type {Map<string, Object>} */
+    this._capabilitiesCache = new Map();
     this._registerDefaultAdapters();
   }
 
   _registerDefaultAdapters() {
     this.registerAdapter('claude-code', ClaudeCodeAdapter);
+    this.registerAdapter('codex', CodexAdapter);
   }
 
   /**
@@ -22,6 +26,8 @@ export class AgentGateway {
    */
   registerAdapter(agentType, AdapterClass) {
     this.adapters.set(agentType, AdapterClass);
+    // Invalidate any cached capabilities for this type.
+    this._capabilitiesCache.delete(agentType);
   }
 
   /**
@@ -48,15 +54,42 @@ export class AgentGateway {
   }
 
   /**
-   * Get capabilities for an agent type (uses a static check, no instantiation).
+   * Get capabilities for an agent type.
+   *
+   * Prefers the adapter's static `capabilities` field (no instantiation),
+   * falling back to constructing an empty instance and calling
+   * `getCapabilities()` for backward compatibility with adapters that
+   * haven't migrated yet.
+   *
    * @param {string} agentType
    * @returns {Object|null}
    */
   getAgentCapabilities(agentType) {
+    const cached = this._capabilitiesCache.get(agentType);
+    if (cached) return cached;
+
     const AdapterClass = this.adapters.get(agentType);
     if (!AdapterClass) return null;
-    // Capabilities are static per adapter class
-    return new AdapterClass({}).getCapabilities();
+
+    let caps;
+    if (AdapterClass.capabilities) {
+      caps = { ...AdapterClass.capabilities };
+    } else {
+      caps = new AdapterClass({}).getCapabilities();
+    }
+    this._capabilitiesCache.set(agentType, caps);
+    return caps;
+  }
+
+  /**
+   * Get capabilities for every registered adapter.
+   * @returns {Array<{ agentType: string, capabilities: Object }>}
+   */
+  getAllAgentCapabilities() {
+    return this.getAvailableAgents().map((agentType) => ({
+      agentType,
+      capabilities: this.getAgentCapabilities(agentType),
+    }));
   }
 }
 

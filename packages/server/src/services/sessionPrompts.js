@@ -1,5 +1,6 @@
 import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import { buildCommandButtonApiInstructions } from './commandButtonPrompts.js';
 
 /**
  * Get the base API URL for canvas and session operations.
@@ -105,6 +106,31 @@ export function getPermissionModeForSession(mode) {
     case 'standard':
     default:
       return 'default';
+  }
+}
+
+/**
+ * Map session mode to the Codex CLI --sandbox flag value.
+ *
+ *   plan     → read-only           (parity with Claude plan mode's read-mostly posture)
+ *   standard → workspace-write     (default; Codex can edit files in cwd)
+ *   yolo     → danger-full-access  (parallels Claude's bypassPermissions)
+ *
+ * Note: `--full-auto` is intentionally NOT used — it is a shorthand that also
+ * overrides approval policies, which would conflate two orthogonal concerns.
+ *
+ * @param {string} mode - Session mode ('plan', 'standard', 'yolo')
+ * @returns {string} Codex sandbox mode
+ */
+export function getSandboxModeForSession(mode) {
+  switch (mode) {
+    case 'plan':
+      return 'read-only';
+    case 'yolo':
+      return 'danger-full-access';
+    case 'standard':
+    default:
+      return 'workspace-write';
   }
 }
 
@@ -397,10 +423,12 @@ This session is part of a multi-session workflow:
  * @returns {string} System prompt string
  */
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
+  const apiUrl = getApiBaseUrl();
   const session = sessions.getById(sessionId);
   const canvasWriteInstructions = buildCanvasWriteSystemPrompt(session);  // Pass session object
   const canvasReadInstructions = buildCanvasReadSystemPrompt(session);    // Pass session object
   const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
+  const commandButtonApiInstructions = buildCommandButtonApiInstructions(apiUrl, sessionId, projectId);
   const kanbanApiInstructions = buildKanbanApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const worktreeContext = buildWorktreeContext(session);
@@ -420,6 +448,7 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
     canvasWriteInstructions,
     canvasReadInstructions,
     sessionApiInstructions,
+    commandButtonApiInstructions,
     kanbanApiInstructions
   ].filter(Boolean);
 

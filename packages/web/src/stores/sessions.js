@@ -40,6 +40,11 @@ export const useSessionsStore = defineStore('sessions', {
       hasMore: false,
       loading: false,
     },
+    // Per-session timestamps for "recently sent" markers. Used by
+    // ConversationTab to suppress restoring a just-sent prompt back into the
+    // textarea on remount. Keys are session IDs, values are Date.now()
+    // timestamps. Entries older than 5s are considered expired.
+    recentSends: {},
   }),
 
   getters: {
@@ -106,23 +111,6 @@ export const useSessionsStore = defineStore('sessions', {
         }
         const runningStatuses = ['running', 'starting'];
         return allSessions.some((s) => runningStatuses.includes(s.status)) ? 'running' : 'idle';
-      };
-    },
-
-    getSessionPath() {
-      return (sessionId) => {
-        const path = [];
-        const findSession = (id) => {
-          if (this.currentSession?.id === id) return this.currentSession;
-          return this._findSessionById(id);
-        };
-        let current = findSession(sessionId);
-        while (current) {
-          path.unshift(current);
-          if (!current.parentSessionId) break;
-          current = findSession(current.parentSessionId);
-        }
-        return path;
       };
     },
 

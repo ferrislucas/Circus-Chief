@@ -45,7 +45,10 @@
           >
             Next: {{ nextTemplateName }}
           </span>
-          <span class="workflow-session-date">{{ formatDate(displayDate) }}</span>
+          <span
+            class="workflow-session-date"
+            :title="dateTitle"
+          >{{ displayDate ? formatDate(displayDate) : '—' }}</span>
         </div>
       </div>
     </router-link>
@@ -130,7 +133,14 @@ const displayDate = computed(() => {
     return props.session.scheduledAt;
   }
   // For all other sessions, show last activity time
-  return props.session.lastActivityAt || props.session.updatedAt || props.session.createdAt;
+  return props.session.lastActivityAt ?? null;
+});
+
+const dateTitle = computed(() => {
+  if (props.session.status === 'scheduled' && props.session.scheduledAt) {
+    return 'Scheduled to run';
+  }
+  return props.session.lastActivityAt ? 'Last activity' : 'No activity yet';
 });
 
 const nextTemplateName = computed(() => {

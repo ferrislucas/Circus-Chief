@@ -65,6 +65,7 @@ describe('useProviderForm', () => {
 
       expect(result.form.value).toEqual({
         name: '',
+        kind: 'anthropic',
         baseUrl: null,
         authToken: null,
         apiTimeoutMs: null,
@@ -1050,6 +1051,163 @@ describe('useProviderForm', () => {
           tier: 'custom',
         });
       });
+    });
+  });
+
+  // ── 9.5 Phase 5: provider kind (anthropic vs openai) ─────────────
+  describe('provider kind (Phase 5)', () => {
+    it('defaults kind to "anthropic" on a fresh form', () => {
+      const { result } = createForm();
+      expect(result.form.value.kind).toBe('anthropic');
+    });
+
+    it('reads kind from an existing provider on edit', async () => {
+      const { result } = createForm();
+      providerRef.value = {
+        id: 'p1',
+        name: 'My OpenAI',
+        kind: 'openai',
+        baseUrl: null,
+        authToken: null,
+        apiTimeoutMs: null,
+        additionalEnvVars: null,
+        models: [],
+      };
+      isOpenRef.value = true;
+      await nextTick();
+      expect(result.form.value.kind).toBe('openai');
+    });
+
+    it('falls back to "anthropic" when editing a legacy provider without kind', async () => {
+      const { result } = createForm();
+      providerRef.value = {
+        id: 'p1',
+        name: 'Legacy',
+        baseUrl: null,
+        authToken: null,
+        apiTimeoutMs: null,
+        additionalEnvVars: null,
+        models: [],
+      };
+      isOpenRef.value = true;
+      await nextTick();
+      expect(result.form.value.kind).toBe('anthropic');
+    });
+
+    it('isValid is false on create when kind is cleared', () => {
+      const { result } = createForm();
+      result.form.value.name = 'Valid Name';
+      result.form.value.kind = '';
+      expect(result.isValid.value).toBe(false);
+    });
+
+    it('isValid remains true on edit even without touching kind', async () => {
+      const { result } = createForm();
+      providerRef.value = {
+        id: 'p1',
+        name: 'Editable',
+        kind: 'openai',
+        baseUrl: null,
+        authToken: null,
+        apiTimeoutMs: null,
+        additionalEnvVars: null,
+        models: [],
+      };
+      isOpenRef.value = true;
+      await nextTick();
+      expect(result.isEditing.value).toBe(true);
+      expect(result.isValid.value).toBe(true);
+    });
+
+    it('save() forwards kind=openai on create with the full shape', async () => {
+      mockProvidersStore.createProvider.mockResolvedValue({ id: 'p' });
+      mockProvidersStore.fetchProviders.mockResolvedValue();
+
+      const { result } = createForm();
+      result.form.value.name = 'Codex';
+      result.form.value.kind = 'openai';
+      result.form.value.additionalEnvVars = { EXTRA: 'x' };
+      result.localModels.value = [
+        { modelId: 'gpt-4o', displayName: 'GPT-4o', tier: 'custom' },
+      ];
+
+      await result.save();
+
+      expect(mockProvidersStore.createProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'openai',
+          name: 'Codex',
+          additionalEnvVars: { EXTRA: 'x' },
+        }),
+      );
+    });
+
+    it('save() does NOT forward kind on update', async () => {
+      providerRef.value = {
+        id: 'p1',
+        name: 'Existing',
+        kind: 'anthropic',
+        baseUrl: null,
+        authToken: null,
+        apiTimeoutMs: null,
+        additionalEnvVars: null,
+        models: [],
+      };
+      isOpenRef.value = true;
+
+      const { result } = createForm();
+      await nextTick();
+
+      mockProvidersStore.updateProvider.mockResolvedValue({ id: 'p1' });
+      mockProvidersStore.fetchProviders.mockResolvedValue();
+
+      await result.save();
+
+      const callArgs = mockProvidersStore.updateProvider.mock.calls[0][1];
+      expect(callArgs).not.toHaveProperty('kind');
+    });
+
+    it('testConnection() payload is an exact narrow shape including kind', async () => {
+      mockProvidersStore.testConnection.mockResolvedValue({ success: true });
+
+      const { result } = createForm();
+      result.form.value.kind = 'openai';
+      result.form.value.baseUrl = 'https://api.openai.com/v1';
+      result.form.value.authToken = 'sk-xyz';
+      result.form.value.apiTimeoutMs = 45000;
+      result.form.value.additionalEnvVars = { SHOULD_NOT_LEAK: 'y' };
+      result.localModels.value = [
+        { modelId: 'gpt-4o', displayName: 'GPT-4o', tier: 'sonnet' },
+        { modelId: 'other', displayName: 'other', tier: 'custom' },
+      ];
+
+      await result.testConnection();
+
+      const callArgs = mockProvidersStore.testConnection.mock.calls[0][0];
+      expect(callArgs).toEqual({
+        kind: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        authToken: 'sk-xyz',
+        defaultSonnetModel: 'gpt-4o',
+        apiTimeoutMs: 45000,
+      });
+      expect(callArgs).not.toHaveProperty('additionalEnvVars');
+      expect(callArgs).not.toHaveProperty('models');
+      expect(callArgs).not.toHaveProperty('name');
+    });
+
+    it('testConnection() defaults kind to anthropic when form.kind is unset', async () => {
+      mockProvidersStore.testConnection.mockResolvedValue({ success: true });
+
+      const { result } = createForm();
+      result.form.value.kind = '';
+      result.form.value.baseUrl = 'https://example.com';
+
+      await result.testConnection();
+
+      expect(mockProvidersStore.testConnection).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'anthropic' }),
+      );
     });
   });
 

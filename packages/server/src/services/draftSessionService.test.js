@@ -40,6 +40,15 @@ vi.mock('./sessionManager.js', () => ({
   runSession: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Mock sessionProvider for resolveAgentTypeFromModel
+vi.mock('./sessionProvider.js', () => ({
+  resolveAgentTypeFromModel: vi.fn((model) => (
+    model?.startsWith('gpt') || model?.startsWith('o1') ? 'codex' : 'claude-code'
+  )),
+}));
+
+import { resolveAgentTypeFromModel } from './sessionProvider.js';
+
 describe('draftSessionService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -240,6 +249,9 @@ describe('draftSessionService', () => {
       const { runSession } = await import('./sessionManager.js');
       const lastCallArgs = runSession.mock.calls[runSession.mock.calls.length - 1];
       expect(lastCallArgs[3].model).toBe('claude-3-opus');
+
+      // resolveAgentTypeFromModel should be called with the final resolved model
+      expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-3-opus');
     });
 
     it('uses gitWorktree as working directory when set', async () => {
@@ -263,6 +275,94 @@ describe('draftSessionService', () => {
       const result = await startDraft(mockSession);
 
       expect(result).toEqual({ ...mockSession, status: 'starting' });
+    });
+
+    it('resolves and persists agentType from selected model (claude-code draft → codex model)', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      const claudeSession = { ...mockSession, agentType: 'claude-code', model: 'claude-opus' };
+
+      await startDraft(claudeSession, { model: 'gpt-5.4' });
+
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+        model: 'gpt-5.4',
+        agentType: 'codex',
+      });
+
+      const { runSession } = await import('./sessionManager.js');
+      expect(runSession).toHaveBeenCalled();
+    });
+
+    it('resolves and persists agentType from selected model (codex draft → claude-code model)', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      const codexSession = { ...mockSession, agentType: 'codex', model: 'gpt-4o' };
+
+      await startDraft(codexSession, { model: 'claude-sonnet-test' });
+
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+        model: 'claude-sonnet-test',
+        agentType: 'claude-code',
+      });
+
+      const { runSession } = await import('./sessionManager.js');
+      expect(runSession).toHaveBeenCalled();
+    });
+
+    it('binds agentType from pendingModel when no request model is provided', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      const sessionWithPending = { ...mockSession, agentType: 'claude-code', pendingModel: 'gpt-4o-test' };
+
+      await startDraft(sessionWithPending);
+
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+        model: 'gpt-4o-test',
+        agentType: 'codex',
+      });
+
+      const { runSession } = await import('./sessionManager.js');
+      const lastCallArgs = runSession.mock.calls[runSession.mock.calls.length - 1];
+      expect(lastCallArgs[3].model).toBe('gpt-4o-test');
+    });
+
+    it('request body model wins over pendingModel for agentType resolution', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      const sessionWithPending = {
+        ...mockSession,
+        agentType: 'codex',
+        pendingModel: 'gpt-4o-test',
+        model: 'gpt-4o',
+      };
+
+      await startDraft(sessionWithPending, { model: 'claude-sonnet' });
+
+      // options.model ('claude-sonnet') should win over pendingModel ('gpt-4o-test')
+      expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-sonnet');
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+        model: 'claude-sonnet',
+        agentType: 'claude-code',
+      });
+    });
+
+    it('updates only status and pendingModel when no resolved model exists', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      await startDraft(mockSession);
+
+      expect(sessions.update).toHaveBeenCalledWith('s1', {
+        status: 'starting',
+        pendingModel: null,
+      });
     });
   });
 

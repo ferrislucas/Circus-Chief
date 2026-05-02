@@ -203,6 +203,55 @@ describe('VCRAgentAdapter', () => {
     });
   });
 
+  describe('codex event shape round-trip', () => {
+    it('records then replays Codex-shaped events identically', async () => {
+      const codexDir = path.join('tests', 'cassettes', 'temp-codex-test');
+      // Clean at start
+      if (fs.existsSync(codexDir)) fs.rmSync(codexDir, { recursive: true, force: true });
+
+      try {
+        const codexEvents = [
+          { type: 'system', subtype: 'init', session_id: 'codex-xyz', model: 'gpt-4o' },
+          {
+            type: 'stream_event',
+            event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello' } },
+          },
+          { type: 'assistant', message: { content: [{ type: 'text', text: 'Hello' }] } },
+          { type: 'result', subtype: 'success', usage: { input_tokens: 5, output_tokens: 2 } },
+        ];
+
+        const uniquePrompt = `vcr-codex-round-trip-${Date.now()}`;
+
+        // Record
+        process.env.VCR_MODE = 'record';
+        const recorder = new VCRAgentAdapter(createMockAgent(codexEvents), { cassetteDir: codexDir });
+        const recorded = [];
+        for await (const e of recorder.execute({ prompt: uniquePrompt }, { callType: 'runSession' })) {
+          recorded.push(e);
+        }
+        expect(recorded).toEqual(codexEvents);
+
+        // Confirm cassette on disk
+        const key = CassetteStore.buildKey('runSession', uniquePrompt);
+        const cassette = CassetteStore.load(codexDir, key);
+        expect(cassette).not.toBeNull();
+        expect(cassette.events).toEqual(codexEvents);
+
+        // Replay
+        process.env.VCR_MODE = 'replay';
+        const replayer = new VCRAgentAdapter(createMockAgent([]), { cassetteDir: codexDir });
+        const replayed = [];
+        for await (const e of replayer.execute({ prompt: uniquePrompt }, { callType: 'runSession' })) {
+          replayed.push(e);
+        }
+        expect(replayed).toEqual(codexEvents);
+      } finally {
+        if (fs.existsSync(codexDir)) fs.rmSync(codexDir, { recursive: true, force: true });
+        delete process.env.VCR_MODE;
+      }
+    });
+  });
+
   describe('buildCassetteKey', () => {
     it('should use callType from meta', () => {
       const mockAgent = createMockAgent([]);

@@ -200,6 +200,7 @@ describe('useProjectDefaultsStore', () => {
         gitMode: null,
         gitBranch: null,
         model: null,
+        providerId: null,
       });
     });
 

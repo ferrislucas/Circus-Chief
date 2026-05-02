@@ -279,6 +279,26 @@ router.get('/:id/canvas/file/:filename/content', (req, res) => {
   });
 });
 
+// GET /api/sessions/:id/canvas/:itemId/content - Get one canvas item content inline
+router.get('/:id/canvas/:itemId/content', (req, res) => {
+  const session = sessions.getById(req.params.id);
+  if (!session) return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
+
+  const item = canvasItems.getById(req.params.itemId);
+  if (!item) return res.status(404).json({ error: 'Canvas item not found' });
+  if (item.sessionId !== req.params.id) {
+    return res.status(400).json({ error: 'Canvas item does not belong to this session' });
+  }
+
+  res.json({
+    content: item.content ?? null,
+    data: item.data ?? null,
+    type: item.type,
+    mimeType: item.mimeType,
+    filename: item.filename,
+  });
+});
+
 // GET /api/sessions/:id/canvas/file/:filename - Get canvas file by filename
 // Writes the file to /tmp and returns the file path for Claude's Read tool
 // Always returns the latest version

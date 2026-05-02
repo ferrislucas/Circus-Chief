@@ -70,3 +70,30 @@ ${transcript}
 
 `;
 }
+
+/**
+ * Build context for a continuation where the adapter cannot resume.
+ * This is the generic case for any non-resumable adapter (Codex, future adapters).
+ * @param {string} conversationId
+ * @returns {string}
+ */
+export function buildConversationContextForContinuation(conversationId) {
+  const conversationMessages = messages.getByConversationId(conversationId);
+
+  // Don't include the last user message (that's the current prompt)
+  const previousMessages = conversationMessages.slice(0, -1);
+
+  if (previousMessages.length === 0) {
+    return '';
+  }
+
+  const transcript = formatConversationHistory(previousMessages);
+
+  return `<conversation_history>
+The following is the conversation history from this session so far. Continue naturally from where the conversation left off.
+
+${transcript}
+</conversation_history>
+
+`;
+}

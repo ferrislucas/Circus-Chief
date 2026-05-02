@@ -10,6 +10,10 @@ import {
   handleTextDelta as _handleTextDelta,
   handleResultUsage,
 } from './streamUsageHandler.js';
+import {
+  createVisibleFinalErrorMessage,
+  normalizeFinalErrorMessage,
+} from './visibleFinalErrorMessage.js';
 
 // ── Shared module-level state ──────────────────────────────────────────────
 
@@ -33,6 +37,9 @@ export const currentModels = new Map();
 
 /** @type {Map<string, Set<string>>} Track tool_use IDs that have already been logged per session */
 export const loggedToolUseIds = new Map();
+
+/** @type {Set<string>} Track sessions that received a final result.error event */
+export const finalErrorSessionIds = new Set();
 
 // ── Helper functions ───────────────────────────────────────────────────────
 
@@ -205,6 +212,9 @@ function handleAssistantTextContent(sessionId, textContent, toolUseBlocks) {
   const conversationId = activeConversation?.id || null;
   const currentModel = currentModels.get(sessionId) || null;
   const message = messages.create(sessionId, 'assistant', textContent, { toolUse, conversationId, model: currentModel });
+
+  // Touch the session to update its updated_at timestamp so it sorts to the top
+  sessions.touch(sessionId);
 
   // Associate pending work logs with this message immediately
   // This ensures work logs are attached to the correct message, not just the last one
@@ -401,8 +411,11 @@ function handleResultEvent(sessionId, event) {
  * @param {Object} event
  */
 function handleResultError(sessionId, event) {
-  sessions.update(sessionId, { status: 'error', error: event.error });
-  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: event.error });
+  const errorMessage = normalizeFinalErrorMessage(event.error);
+  finalErrorSessionIds.add(sessionId);
+  sessions.update(sessionId, { status: 'error', error: errorMessage });
+  createVisibleFinalErrorMessage(sessionId, errorMessage, activeConversationIds);
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_ERROR, { sessionId, error: errorMessage });
   // Broadcast error status to project subscribers for session list updates
   broadcastSessionStatus(sessionId, 'error');
   // Extract PR URL before generating summary (PR may have been created before error)
@@ -478,6 +491,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false) {
   thinkingAccumulators.delete(sessionId);
   currentModels.delete(sessionId);
   loggedToolUseIds.delete(sessionId);
+  finalErrorSessionIds.delete(sessionId);
   activeSessions.delete(sessionId);
   if (includeConversationId) {
     activeConversationIds.delete(sessionId);

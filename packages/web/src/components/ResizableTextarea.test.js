@@ -333,4 +333,42 @@ describe('ResizableTextarea', () => {
       expect(handle.exists()).toBe(true);
     });
   });
+
+  describe('modelValue → DOM sync (watcher)', () => {
+    it('propagates initial modelValue to the rendered textarea', () => {
+      wrapper = mount(ResizableTextarea, { props: { modelValue: 'initial' } });
+      expect(wrapper.find('textarea').element.value).toBe('initial');
+    });
+
+    it('watcher syncs textarea.value when modelValue changes externally', async () => {
+      wrapper = mount(ResizableTextarea, { props: { modelValue: 'first' } });
+      const textarea = wrapper.find('textarea').element;
+
+      await wrapper.setProps({ modelValue: 'second' });
+      expect(textarea.value).toBe('second');
+
+      await wrapper.setProps({ modelValue: '' });
+      expect(textarea.value).toBe('');
+    });
+
+    it('watcher does not re-assign when DOM value already matches modelValue', async () => {
+      wrapper = mount(ResizableTextarea, { props: { modelValue: 'same' } });
+      const textarea = wrapper.find('textarea').element;
+
+      // Spy on the setter to confirm no unnecessary writes occur.
+      const setSpy = vi.spyOn(
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value'),
+        'set'
+      );
+
+      // Changing to an identical value should not trigger a DOM write from
+      // the watcher (reactivity won't fire; the guard inside the watcher
+      // also short-circuits equal values).
+      await wrapper.setProps({ modelValue: 'same' });
+      expect(setSpy).not.toHaveBeenCalled();
+
+      setSpy.mockRestore();
+      expect(textarea.value).toBe('same');
+    });
+  });
 });

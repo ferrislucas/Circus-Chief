@@ -31,6 +31,10 @@ function overlayState() {
     loading: false,
     error: null,
     commandRunVersion: 0,
+    // Per-session timestamps for "recently sent" markers. Scoped per overlay
+    // instance so markers set via Send/Start in the overlay don't leak into
+    // the main store (and vice-versa). See `markRecentSend` / `hasRecentSend`.
+    recentSends: {},
   };
 }
 
@@ -132,8 +136,8 @@ const sessionSyncActions = {
 const delegatedSessionActions = {
   async stopSession(id) { return useSessionsStore().stopSession(id); },
   async restartSession(id) { return useSessionsStore().restartSession(id); },
-  async startSession(id, prompt = undefined, model = undefined) {
-    return useSessionsStore().startSession(id, prompt, model);
+  async startSession(id, prompt = undefined, model = undefined, providerId = undefined) {
+    return useSessionsStore().startSession(id, prompt, model, providerId);
   },
   async sendMessage(sessionId, content, files = [], model = null) {
     return useSessionsStore().sendMessage(sessionId, content, files, model);
@@ -237,6 +241,11 @@ export function createOverlaySessionsStore() {
   // store's state entry from pinia.state.value, leaking memory on every
   // overlay open/close cycle.
   store.$cleanup = () => {
+    // Tear down any outstanding recent-send safety-net timers so they
+    // don't fire against a disposed store instance.
+    if (typeof store.cancelAllRecentSendTimers === 'function') {
+      store.cancelAllRecentSendTimers();
+    }
     store.$dispose();
     const pinia = getActivePinia();
     if (pinia) delete pinia.state.value[storeId];

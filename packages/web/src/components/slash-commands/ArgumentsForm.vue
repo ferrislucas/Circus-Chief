@@ -218,7 +218,7 @@ function handleSubmit() {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
-  color: var(--color-accent);
+  color: var(--color-primary);
   font-family: ui-monospace, monospace;
 }
 
@@ -275,7 +275,7 @@ function handleSubmit() {
 .field-input:focus,
 .field-select:focus,
 .field-textarea:focus {
-  border-color: var(--color-accent);
+  border-color: var(--color-primary);
 }
 
 .field-input::placeholder,
@@ -326,8 +326,8 @@ function handleSubmit() {
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--color-primary-hover, #2563eb);
-  border-color: var(--color-primary-hover, #2563eb);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-soft);
 }
 
 .btn-primary:disabled {
@@ -342,8 +342,8 @@ function handleSubmit() {
 }
 
 .btn-secondary:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border-hover);
+  background: var(--color-background-mute);
+  border-color: var(--color-border);
 }
 
 .loading-spinner {

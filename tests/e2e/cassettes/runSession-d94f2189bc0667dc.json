@@ -1,0 +1,43 @@
+{
+  "prompt": "Codex E2E smoke: reply with exactly \"Codex E2E response.\"",
+  "model": "gpt-4o-mini",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "codex-e2e-smoke",
+      "model": "gpt-4o-mini"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "delta": {
+          "type": "text_delta",
+          "text": "Codex E2E response."
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Codex E2E response."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "usage": {
+        "input_tokens": 12,
+        "output_tokens": 5
+      }
+    }
+  ],
+  "key": "runSession-d94f2189bc0667dc",
+  "recordedAt": "2026-04-26T00:00:00.000Z"
+}

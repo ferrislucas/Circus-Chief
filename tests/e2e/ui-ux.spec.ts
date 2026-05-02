@@ -127,7 +127,7 @@ test.describe('Dark Mode Styling', () => {
 });
 
 // ============================================================
-// Category 2: Toast Notifications (7 tests)
+// Category 2: Toast Notifications (8 tests)
 // ============================================================
 
 test.describe('Toast Notifications', () => {
@@ -339,6 +339,74 @@ test.describe('Toast Notifications', () => {
 
     // The toast container itself should exist and be visible
     await expect(page.locator('.toast-container')).toBeVisible();
+  });
+
+  test('toast renders above session chat overlay', async ({ page }) => {
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+
+    // Open the session chat overlay
+    await openSessionOverlay(page);
+
+    // Verify the overlay is visible
+    const overlay = page.locator('.overlay-backdrop');
+    await expect(overlay).toBeVisible();
+
+    // Inject a toast via the Pinia ui store while the overlay is open
+    await page.evaluate(() => {
+      // Access Pinia store through the Vue app instance
+      const app = document.querySelector('#app')?.__vue_app__;
+      if (!app) throw new Error('Vue app not found');
+      const pinia = app.config.globalProperties.$pinia;
+      const store = pinia._s.get('ui');
+      if (!store) throw new Error('UI store not found');
+      store.success('Test toast above overlay', 0); // duration=0 so it stays
+    });
+
+    // Wait for the toast to appear
+    const toast = page.locator('.toast-container .toast').first();
+    await expect(toast).toBeVisible({ timeout: 5000 });
+    await expect(toast.locator('.toast-message')).toContainText('Test toast above overlay');
+
+    // Verify the toast is visually above the overlay using elementFromPoint.
+    // Clamp coordinates to the viewport so we don't hit null when the toast
+    // overflows past the right edge.
+    const isAboveOverlay = await page.evaluate(() => {
+      const toastEl = document.querySelector('.toast-container .toast');
+      const toastContainer = document.querySelector('.toast-container');
+      const overlayBackdrop = document.querySelector('.overlay-backdrop');
+      if (!toastEl) return { result: false, reason: 'no toast element' };
+      const rect = toastEl.getBoundingClientRect();
+      const vw = document.documentElement.clientWidth;
+      const vh = document.documentElement.clientHeight;
+      // Pick a point guaranteed inside both the toast AND the viewport
+      const px = Math.min(Math.max(rect.left + 4, 0), vw - 1);
+      const py = Math.min(Math.max(rect.top + 4, 0), vh - 1);
+      const toastZ = toastContainer ? window.getComputedStyle(toastContainer).zIndex : 'unknown';
+      const overlayZ = overlayBackdrop ? window.getComputedStyle(overlayBackdrop).zIndex : 'unknown';
+      const topElement = document.elementFromPoint(px, py);
+      if (!topElement) return { result: false, reason: 'no element at point', px, py, vw, vh, rect: JSON.stringify(rect) };
+      // The topmost element at the toast position should be the toast or a descendant
+      const contains = toastEl.contains(topElement);
+      return {
+        result: contains,
+        reason: contains ? 'ok' : 'not contained',
+        toastZ,
+        overlayZ,
+        topTag: topElement.tagName,
+        topClass: topElement.className,
+        px,
+        py,
+      };
+    });
+    expect(isAboveOverlay).toEqual(expect.objectContaining({ result: true }));
+
+    // Verify the toast close button is clickable while overlay is open
+    const closeBtn = toast.locator('.toast-close');
+    await expect(closeBtn).toBeVisible();
+    await closeBtn.click();
+
+    // Toast should disappear
+    await expect(toast).toBeHidden({ timeout: 3000 });
   });
 });
 

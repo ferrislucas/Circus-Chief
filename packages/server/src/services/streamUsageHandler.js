@@ -74,6 +74,7 @@ export function handleTextDelta(sessionId, delta, textAccumulators) {
   const turnData = currentTurnUsage.get(conversationId) || {
     inputTokens: 0,
     outputTokens: 0,
+    thinkingTokens: 0,
     lastMessageOutput: 0,
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
@@ -83,6 +84,7 @@ export function handleTextDelta(sessionId, delta, textAccumulators) {
   const broadcastUsage = {
     inputTokens: turnData.inputTokens,
     outputTokens: turnData.outputTokens + Math.max(turnData.lastMessageOutput, newEstimate),
+    thinkingTokens: turnData.thinkingTokens,
     cacheReadInputTokens: turnData.cacheReadInputTokens,
     cacheCreationInputTokens: turnData.cacheCreationInputTokens,
   };
@@ -123,6 +125,7 @@ export function extractTurnUsage(sessionId, event) {
   return {
     inputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'inputTokens', snake: 'input_tokens' }),
     outputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'outputTokens', snake: 'output_tokens' }),
+    thinkingTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'thinkingTokens', snake: 'thinking_tokens' }),
     cacheReadInputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'cacheReadInputTokens', snake: 'cache_read_input_tokens' }),
     cacheCreationInputTokens: resolveTokenField(modelUsageEntry, event.usage, { camel: 'cacheCreationInputTokens', snake: 'cache_creation_input_tokens' }),
     webSearchRequests: modelUsageEntry?.webSearchRequests || 0,
@@ -142,6 +145,7 @@ export function buildCumulativeSessionUsage(sessionId, turnUsage) {
   return {
     inputTokens: (currentSession.inputTokens || 0) + turnUsage.inputTokens,
     outputTokens: (currentSession.outputTokens || 0) + turnUsage.outputTokens,
+    thinkingTokens: (currentSession.thinkingTokens || 0) + turnUsage.thinkingTokens,
     cacheReadInputTokens: (currentSession.cacheReadInputTokens || 0) + turnUsage.cacheReadInputTokens,
     cacheCreationInputTokens: (currentSession.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
     webSearchRequests: (currentSession.webSearchRequests || 0) + turnUsage.webSearchRequests,
@@ -162,6 +166,7 @@ export function updateConversationUsage(conversationId, currentConversation, tur
   const cumulativeConversationUsage = {
     inputTokens: (currentConversation.inputTokens || 0) + turnUsage.inputTokens,
     outputTokens: (currentConversation.outputTokens || 0) + turnUsage.outputTokens,
+    thinkingTokens: (currentConversation.thinkingTokens || 0) + turnUsage.thinkingTokens,
     cacheReadInputTokens: (currentConversation.cacheReadInputTokens || 0) + turnUsage.cacheReadInputTokens,
     cacheCreationInputTokens: (currentConversation.cacheCreationInputTokens || 0) + turnUsage.cacheCreationInputTokens,
     webSearchRequests: (currentConversation.webSearchRequests || 0) + turnUsage.webSearchRequests,
@@ -197,6 +202,7 @@ export function handleResultUsage(sessionId, event) {
     usage: updatedConversation ? {
       inputTokens: updatedConversation.inputTokens,
       outputTokens: updatedConversation.outputTokens,
+      thinkingTokens: updatedConversation.thinkingTokens,
       cacheReadInputTokens: updatedConversation.cacheReadInputTokens,
       cacheCreationInputTokens: updatedConversation.cacheCreationInputTokens,
       webSearchRequests: updatedConversation.webSearchRequests,

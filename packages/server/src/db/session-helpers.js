@@ -24,6 +24,7 @@ export function mapTokenUsage(row) {
   return {
     inputTokens: row.input_tokens || 0,
     outputTokens: row.output_tokens || 0,
+    thinkingTokens: row.thinking_tokens || 0,
     cacheReadInputTokens: row.cache_read_input_tokens || 0,
     cacheCreationInputTokens: row.cache_creation_input_tokens || 0,
     webSearchRequests: row.web_search_requests || 0,
@@ -58,7 +59,12 @@ const CONFIG_DEFAULTS = {
   parentSessionId: null,
   status: 'starting',
   model: null,
+  providerId: null,
   effortLevel: null,
+  // Agent runtime for the session: 'claude-code' (default) or 'codex'.
+  // Defaults to null so SessionRepository.create() can resolve it from the model.
+  // Explicit values from callers are preserved as-is.
+  agentType: null,
 };
 
 function buildConfig(src) {
@@ -96,6 +102,7 @@ export const DIRECT_FIELD_MAP = {
   costUsd: 'cost_usd',
   claudeSessionId: 'claude_session_id',
   model: 'model',
+  providerId: 'provider_id',
   nextTemplateId: 'next_template_id',
   parentSessionId: 'parent_session_id',
   scheduledAt: 'scheduled_at',
@@ -109,6 +116,7 @@ export const DIRECT_FIELD_MAP = {
   effortLevel: 'effort_level',
   targetLaneId: 'target_lane_id',
   laneTriggerDepth: 'lane_trigger_depth',
+  agentType: 'agent_type',
 };
 
 /** camelCase -> snake_case column mapping for boolean fields (converted to 1/0) */
@@ -117,6 +125,7 @@ export const BOOLEAN_FIELD_MAP = {
   archived: 'archived',
   starred: 'starred',
   manuallyNamed: 'manually_named',
+  prUrlAutoLinkDisabled: 'pr_url_auto_link_disabled',
   autoRescheduleEnabled: 'auto_reschedule_enabled',
   rescheduleOnTokenLimit: 'reschedule_on_token_limit',
   rescheduleOnServiceError: 'reschedule_on_service_error',
