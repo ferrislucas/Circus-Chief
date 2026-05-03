@@ -5,6 +5,8 @@ import {
   UpdateProviderRequest,
   TestConnectionRequest,
   COMMIT_ATTRIBUTION_VALIDATION_MESSAGE,
+  parseCommitAttributionOverride,
+  normalizeCommitAttributionOverride,
 } from './providers.js';
 
 describe('Provider Contracts', () => {
@@ -182,6 +184,78 @@ describe('Provider Contracts', () => {
         baseUrl: 'https://api.test.com',
       });
       expect(result.success).toBe(false);
+    });
+  });
+
+  describe('parseCommitAttributionOverride', () => {
+    it('returns null for undefined', () => {
+      expect(parseCommitAttributionOverride(undefined)).toEqual({ success: true, value: null });
+    });
+
+    it('returns null for null', () => {
+      expect(parseCommitAttributionOverride(null)).toEqual({ success: true, value: null });
+    });
+
+    it('returns error for non-string', () => {
+      expect(parseCommitAttributionOverride(123)).toEqual({ success: false, error: COMMIT_ATTRIBUTION_VALIDATION_MESSAGE });
+    });
+
+    it('returns null for empty string', () => {
+      expect(parseCommitAttributionOverride('')).toEqual({ success: true, value: null });
+    });
+
+    it('returns null for whitespace-only string', () => {
+      expect(parseCommitAttributionOverride('   ')).toEqual({ success: true, value: null });
+    });
+
+    it('returns error for string with newline', () => {
+      expect(parseCommitAttributionOverride('Claude <a@b.com>\nmore')).toEqual({ success: false, error: COMMIT_ATTRIBUTION_VALIDATION_MESSAGE });
+    });
+
+    it('returns error for string with carriage return', () => {
+      expect(parseCommitAttributionOverride('Claude <a@b.com>\rmore')).toEqual({ success: false, error: COMMIT_ATTRIBUTION_VALIDATION_MESSAGE });
+    });
+
+    it('returns error for malformed string without email brackets', () => {
+      expect(parseCommitAttributionOverride('just text')).toEqual({ success: false, error: COMMIT_ATTRIBUTION_VALIDATION_MESSAGE });
+    });
+
+    it('returns error when name is only whitespace', () => {
+      expect(parseCommitAttributionOverride(' <test@example.com>')).toEqual({ success: false, error: COMMIT_ATTRIBUTION_VALIDATION_MESSAGE });
+    });
+
+    it('returns canonical form for valid input', () => {
+      expect(parseCommitAttributionOverride('Claude <noreply@anthropic.com>')).toEqual({
+        success: true,
+        value: 'Co-authored-by: Claude <noreply@anthropic.com>',
+      });
+    });
+
+    it('strips co-authored-by prefix', () => {
+      expect(parseCommitAttributionOverride('Co-authored-by: Codex <noreply@openai.com>')).toEqual({
+        success: true,
+        value: 'Co-authored-by: Codex <noreply@openai.com>',
+      });
+    });
+  });
+
+  describe('normalizeCommitAttributionOverride', () => {
+    it('returns null for null input', () => {
+      expect(normalizeCommitAttributionOverride(null)).toBeNull();
+    });
+
+    it('returns canonical form for valid input', () => {
+      expect(normalizeCommitAttributionOverride('Claude <noreply@anthropic.com>')).toBe(
+        'Co-authored-by: Claude <noreply@anthropic.com>'
+      );
+    });
+
+    it('throws for invalid input', () => {
+      expect(() => normalizeCommitAttributionOverride('invalid')).toThrow(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
+    });
+
+    it('throws for non-string input', () => {
+      expect(() => normalizeCommitAttributionOverride(42)).toThrow(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
     });
   });
 });
