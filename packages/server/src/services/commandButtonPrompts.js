@@ -19,7 +19,7 @@ This project has command buttons configured - reusable shell commands you can ex
 
 ### List Available Buttons
 \`\`\`bash
-curl ${apiUrl}/api/projects/${projectId}/command-buttons
+curl ${apiUrl}/api/sessions/${sessionId}/command-buttons
 \`\`\`
 
 ### Run a Button
@@ -36,7 +36,7 @@ curl ${apiUrl}/api/sessions/${sessionId}/command-buttons/runs/<run_id>
 
 Response: { runId, buttonId, status, exitCode, output, startedAt, completedAt }
 
-### List All Runs for This Session
+### List Command Runs
 \`\`\`bash
 curl ${apiUrl}/api/sessions/${sessionId}/command-buttons/runs
 \`\`\`

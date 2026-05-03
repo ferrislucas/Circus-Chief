@@ -42,6 +42,13 @@ describe('Sessions API - Notes Routes (sessions-notes.js)', () => {
     sessions.update(session.id, { status: 'waiting' });
   });
 
+  function createChildSession(parent = session) {
+    return sessions.create(project.id, 'Child Session', 'Child prompt', {
+      mode: 'standard',
+      parentSessionId: parent.id,
+    });
+  }
+
   describe('GET /api/sessions/:id/notes', () => {
     it('returns empty array when no notes exist', async () => {
       const res = await request(app).get(`/api/sessions/${session.id}/notes`);
@@ -61,6 +68,17 @@ describe('Sessions API - Notes Routes (sessions-notes.js)', () => {
       expect(contents).toContain('Second note');
     });
 
+    it('lists workflow root notes through a child session', async () => {
+      const child = createChildSession();
+      sessionNotes.create(session.id, 'Root note');
+      sessionNotes.create(child.id, 'Child-only note');
+
+      const res = await request(app).get(`/api/sessions/${child.id}/notes`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.map(n => n.content)).toEqual(['Root note']);
+    });
+
     it('returns 404 for non-existent session', async () => {
       const res = await request(app).get('/api/sessions/non-existent/notes');
       expect(res.status).toBe(404);
@@ -77,6 +95,19 @@ describe('Sessions API - Notes Routes (sessions-notes.js)', () => {
       expect(res.body.content).toBe('My new note');
       expect(res.body.sessionId).toBe(session.id);
       expect(res.body.id).toBeDefined();
+    });
+
+    it('creates notes on the workflow root through a child session', async () => {
+      const child = createChildSession();
+
+      const res = await request(app)
+        .post(`/api/sessions/${child.id}/notes`)
+        .send({ content: 'Root workflow note' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.sessionId).toBe(session.id);
+      expect(sessionNotes.getBySessionId(session.id)).toHaveLength(1);
+      expect(sessionNotes.getBySessionId(child.id)).toHaveLength(0);
     });
 
     it('returns 400 when content is missing', async () => {
@@ -107,6 +138,18 @@ describe('Sessions API - Notes Routes (sessions-notes.js)', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.content).toBe('Updated content');
+    });
+
+    it('updates a root-owned note through a child session', async () => {
+      const child = createChildSession();
+      const note = sessionNotes.create(session.id, 'Original content');
+
+      const res = await request(app)
+        .put(`/api/sessions/${child.id}/notes/${note.id}`)
+        .send({ content: 'Updated through child' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.content).toBe('Updated through child');
     });
 
     it('returns 404 when note does not exist', async () => {
@@ -154,6 +197,17 @@ describe('Sessions API - Notes Routes (sessions-notes.js)', () => {
       // Verify note is gone
       const remaining = sessionNotes.getBySessionId(session.id);
       expect(remaining).toHaveLength(0);
+    });
+
+    it('deletes a root-owned note through a child session', async () => {
+      const child = createChildSession();
+      const note = sessionNotes.create(session.id, 'To be deleted');
+
+      const res = await request(app)
+        .delete(`/api/sessions/${child.id}/notes/${note.id}`);
+
+      expect(res.status).toBe(204);
+      expect(sessionNotes.getBySessionId(session.id)).toHaveLength(0);
     });
 
     it('returns 404 when note does not exist', async () => {
