@@ -353,6 +353,18 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       expect(commandRunner.kill).toHaveBeenCalledWith('root-active');
     });
 
+    it('returns 404 when run does not belong to the root session', async () => {
+      const child = createChildSession();
+      commandRunner.getRunsBySession.mockReturnValue([]); // no active runs for root
+
+      const res = await request(app)
+        .post(`/api/sessions/${child.id}/command-buttons/runs/unknown-run/kill`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Run not found or already completed');
+      expect(commandRunner.kill).not.toHaveBeenCalled();
+    });
+
     it('returns 404 when run not found or already completed', async () => {
       commandRunner.kill.mockReturnValue(false);
 

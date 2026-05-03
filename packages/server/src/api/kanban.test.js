@@ -357,6 +357,24 @@ describe('Kanban API', () => {
       expect(res.body.error).toBe('Session does not belong to this project');
     });
 
+    it('rejects a provided session that belongs to another project even if root is in this project', async () => {
+      setupBoard();
+      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      // root lives in our project, child lives in otherProject
+      const root = createSession('Root in This Project');
+      const child = sessions.create(otherProject.id, 'Child in Other Project', 'Prompt', {
+        mode: 'standard',
+        parentSessionId: root.id,
+      });
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .send({ sessionId: child.id, laneId: lanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Session does not belong to this project');
+    });
+
     it('broadcasts KANBAN_CARD_ADDED', async () => {
       setupBoard();
       const session = createSession();

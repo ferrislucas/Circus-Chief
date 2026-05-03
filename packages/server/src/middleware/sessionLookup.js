@@ -15,11 +15,6 @@ export function requireSession(req, res, next) {
 }
 
 /**
- * Middleware: Look up session AND its project. Attaches req.session_ and req.project.
- * Returns 404 if either is not found.
- * Also resolves req.workingDirectory (gitWorktree || project.workingDirectory).
- */
-/**
  * Middleware factory: Validates that req.session_.status is one of the allowed statuses.
  * Must be used AFTER requireSession or requireSessionAndProject middleware.
  * @param {string[]} allowedStatuses - Array of allowed status strings
@@ -39,6 +34,11 @@ export function requireSessionStatus(allowedStatuses, errorMessage) {
   };
 }
 
+/**
+ * Middleware: Look up session AND its project. Attaches req.session_ and req.project.
+ * Returns 404 if either is not found.
+ * Also resolves req.workingDirectory (gitWorktree || project.workingDirectory).
+ */
 export function requireSessionAndProject(req, res, next) {
   const session = sessions.getById(req.params.id);
   if (!session) {
@@ -103,6 +103,10 @@ export function resolveBodyRootSessionForProject(projectParam = 'projectId') {
     const providedSession = sessions.getById(providedSessionId);
     if (!providedSession) {
       return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (providedSession.projectId !== req.params[projectParam]) {
+      return res.status(400).json({ error: 'Session does not belong to this project' });
     }
 
     const rootSessionId = sessions.getRootSessionId(providedSession.id) || providedSession.id;
