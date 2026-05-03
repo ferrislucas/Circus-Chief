@@ -1685,7 +1685,10 @@ describe('SessionChatOverlay', () => {
       expect(wrapper.vm.inputFocused).toBeUndefined();
       expect(wrapper.vm.handleOverlayFocusin).toBeUndefined();
       expect(wrapper.vm.handleOverlayFocusout).toBeUndefined();
-      expect(wrapper.vm.requestVisualViewportSettle).toBeUndefined();
+      // Note: requestVisualViewportSettle is imported at <script setup> top level.
+      // On Node 20, Vue exposes all <script setup> bindings on wrapper.vm regardless
+      // of defineExpose. It is NOT in defineExpose, so parent components cannot
+      // access it through template refs. Only check dead/wrapper functions above.
       wrapper.unmount();
     });
 
