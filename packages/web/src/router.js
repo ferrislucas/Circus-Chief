@@ -47,11 +47,6 @@ const routes = [
     component: () => import('./views/SessionListView.vue'),
   },
   {
-    path: '/projects/:id/scheduled',
-    name: 'ScheduledSessions',
-    component: () => import('./views/SessionListView.vue'),
-  },
-  {
     path: '/projects/:id/kanban',
     name: 'ProjectKanban',
     component: () => import('./views/SessionListView.vue'),
