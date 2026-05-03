@@ -63,6 +63,50 @@ describe('Kanban Contracts', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('rejects when both onEnterTemplateId and onEnterPrompt are set', () => {
+      const result = CreateKanbanLaneRequest.safeParse({
+        name: 'Test',
+        onEnterTemplateId: UUID,
+        onEnterPrompt: 'Do something',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('allows onEnterPrompt without onEnterTemplateId', () => {
+      const result = CreateKanbanLaneRequest.safeParse({
+        name: 'Test',
+        onEnterPrompt: 'Run tests',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('allows onEnterTemplateId with null onEnterPrompt', () => {
+      const result = CreateKanbanLaneRequest.safeParse({
+        name: 'Test',
+        onEnterTemplateId: UUID,
+        onEnterPrompt: null,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('allows onEnterTemplateId with empty string onEnterPrompt', () => {
+      const result = CreateKanbanLaneRequest.safeParse({
+        name: 'Test',
+        onEnterTemplateId: UUID,
+        onEnterPrompt: '',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('allows onEnterTemplateId with whitespace-only onEnterPrompt', () => {
+      const result = CreateKanbanLaneRequest.safeParse({
+        name: 'Test',
+        onEnterTemplateId: UUID,
+        onEnterPrompt: '   ',
+      });
+      expect(result.success).toBe(true);
+    });
   });
 
   // ── UpdateKanbanLaneRequest ──────────────────────────────────────
@@ -86,6 +130,45 @@ describe('Kanban Contracts', () => {
     it('rejects empty name', () => {
       const result = UpdateKanbanLaneRequest.safeParse({ name: '' });
       expect(result.success).toBe(false);
+    });
+
+    it('rejects when both onEnterTemplateId and onEnterPrompt are set', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({
+        onEnterTemplateId: UUID,
+        onEnterPrompt: 'Do something',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('allows onEnterPrompt without onEnterTemplateId', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({
+        onEnterPrompt: 'Run tests',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('allows onEnterTemplateId with null onEnterPrompt', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({
+        onEnterTemplateId: UUID,
+        onEnterPrompt: null,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('allows onEnterTemplateId with empty string onEnterPrompt', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({
+        onEnterTemplateId: UUID,
+        onEnterPrompt: '',
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('allows onEnterTemplateId with whitespace-only onEnterPrompt', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({
+        onEnterTemplateId: UUID,
+        onEnterPrompt: '   ',
+      });
+      expect(result.success).toBe(true);
     });
   });
 

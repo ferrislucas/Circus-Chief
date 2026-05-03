@@ -157,6 +157,7 @@
 
 <script setup>
 import { ref, reactive, watch, computed } from 'vue';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
 const props = defineProps({
   modelValue: {
@@ -176,7 +177,7 @@ const localScheduling = reactive({
   scheduledAt: props.modelValue.scheduledAt || null,
   scheduledAtLocal: '',
   autoRescheduleEnabled: props.modelValue.autoRescheduleEnabled ?? false,
-  rescheduleDelayMinutes: props.modelValue.rescheduleDelayMinutes ?? 15,
+  rescheduleDelayMinutes: props.modelValue.rescheduleDelayMinutes ?? DEFAULT_RESCHEDULE_DELAY_MINUTES,
   rescheduleOnTokenLimit: props.modelValue.rescheduleOnTokenLimit ?? true,
   rescheduleOnServiceError: props.modelValue.rescheduleOnServiceError ?? true,
   maxRescheduleCount: props.modelValue.maxRescheduleCount ?? null,

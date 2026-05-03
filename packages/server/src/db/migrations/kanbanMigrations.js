@@ -88,7 +88,7 @@ export const kanbanMigrations = [
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_effort_level', 'TEXT');
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_thinking_enabled', 'INTEGER');
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_auto_reschedule_enabled', 'INTEGER DEFAULT 0');
-      addColumnIfMissing(db, 'kanban_lanes', 'on_enter_reschedule_delay_minutes', 'INTEGER DEFAULT 15');
+      addColumnIfMissing(db, 'kanban_lanes', 'on_enter_reschedule_delay_minutes', 'INTEGER DEFAULT 60'); // keep in sync with DEFAULT_RESCHEDULE_DELAY_MINUTES
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_reschedule_on_token_limit', 'INTEGER DEFAULT 1');
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_reschedule_on_service_error', 'INTEGER DEFAULT 1');
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_max_reschedule_count', 'INTEGER');

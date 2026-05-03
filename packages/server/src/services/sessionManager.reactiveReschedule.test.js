@@ -3,6 +3,7 @@ import { mkdtempSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { sessions, conversations } from '../database.js';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 
 // Mock the schedulerService BEFORE importing anything that uses it
@@ -47,7 +48,7 @@ function setupSessionForReschedule(sessionId, config) {
     autoRescheduleEnabled: config.autoRescheduleEnabled !== undefined ? config.autoRescheduleEnabled : false,
     rescheduleOnTokenLimit: config.rescheduleOnTokenLimit !== undefined ? config.rescheduleOnTokenLimit : true,
     rescheduleOnServiceError: config.rescheduleOnServiceError !== undefined ? config.rescheduleOnServiceError : true,
-    rescheduleDelayMinutes: config.rescheduleDelayMinutes || 15,
+    rescheduleDelayMinutes: config.rescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES,
     maxRescheduleCount: config.maxRescheduleCount || null,
     maxTotalTokens: config.maxTotalTokens || null,
   });

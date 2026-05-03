@@ -18,7 +18,7 @@ vi.mock('./sessionManager.js', () => ({
 import { renderTemplatePrompt, checkAndTriggerNextTemplate, getRootSession } from './templateTriggerService.js';
 import { broadcastToProject } from '../websocket.js';
 import { runSession } from './sessionManager.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
 describe('templateTriggerService', () => {
   describe('renderTemplatePrompt', () => {
@@ -731,7 +731,7 @@ Please review the above work.
       expect(childSession.autoRescheduleEnabled).toBe(false);
       expect(childSession.rescheduleOnTokenLimit).toBe(true);
       expect(childSession.rescheduleOnServiceError).toBe(true);
-      expect(childSession.rescheduleDelayMinutes).toBe(15);
+      expect(childSession.rescheduleDelayMinutes).toBe(DEFAULT_RESCHEDULE_DELAY_MINUTES);
     });
 
     it('does not inherit rescheduleCount from root (resets to 0)', async () => {
