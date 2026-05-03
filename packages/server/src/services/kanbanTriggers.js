@@ -9,7 +9,7 @@ import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
-import { resolveAgentTypeFromModel } from './sessionProvider.js';
+import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 
 // Maximum depth for recursive lane-entry template triggers
 export const MAX_LANE_TRIGGER_DEPTH = 5;
@@ -56,6 +56,8 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       gitBranch: gitOptions.gitBranch || null,
       sessionId: gitOptions.sessionId,
       worktreeBasePath: project.worktreePath || null,
+      commitAttributionOverride:
+        resolveProviderMetadataFromModel(gitOptions.model)?.commitAttributionOverride ?? null,
     });
     return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
   }
@@ -190,6 +192,7 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
       gitMode: settings.gitMode,
       gitBranch: settings.gitBranch,
       sessionId: newSession.id,
+      model: settings.model,
     });
     if (gitWorktree) {
       sessions.update(newSession.id, { gitWorktree });

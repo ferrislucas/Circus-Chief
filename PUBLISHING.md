@@ -151,7 +151,7 @@ The build script filters out `*.test.js` files from both `server` and `shared` p
 
 ### The `nanoid` dependency
 
-`nanoid` is used in the server source but isn't declared in `packages/server/package.json` (it resolves via hoisting in the monorepo). The build script explicitly adds it to the published `package.json`.
+`nanoid` is used in the server source and is declared in `packages/server/package.json`. The build script merges the server and shared package dependencies into the published `package.json`, so runtime dependencies must be declared in their owning package instead of relying on workspace hoisting.
 
 ## E2E Testing Against the Built Package
 
@@ -188,7 +188,11 @@ The command uses VCR replay mode by default (no API key needed) and auto-assigns
 ## What Gets Checked In
 
 - `scripts/build-package.js` — the build script
+- `scripts/publish.sh` — the npm publish wrapper
+- `scripts/publish.test.sh` — publish script tests
+- `scripts/start-package-server.sh` — package-test server launcher
 - `PUBLISHING.md` — this file
+- `docs/build-and-distribution.md` — detailed build, package-test, and publishing reference
 
 ## What Doesn't Get Checked In
 

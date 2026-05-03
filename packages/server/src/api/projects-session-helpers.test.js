@@ -32,6 +32,11 @@ vi.mock('../database.js', () => ({
     getById: vi.fn(),
     updateUsage: vi.fn(),
   },
+  modelProviders: {
+    getById: vi.fn(() => null),
+    getProviderMetadataByModelId: vi.fn(() => null),
+    getProviderByModelId: vi.fn(() => null),
+  },
 }));
 
 vi.mock('../services/slashCommandService.js', () => ({

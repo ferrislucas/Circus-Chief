@@ -560,25 +560,25 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Delete a Lane');
     });
 
-    describe('command button API instructions', () => {
-      it('includes section when buttons exist', () => {
+    describe('command API instructions', () => {
+      it('includes section when commands exist', () => {
         commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).toContain('## Command Buttons API');
+        expect(result).toContain('## Commands API');
         expect(result).toContain('/command-buttons');
         expect(result).toContain('/runs');
         expect(result).toContain('/run');
         expect(result).toContain('/kill');
       });
 
-      it('excludes section when no buttons exist', () => {
+      it('excludes section when no commands exist', () => {
         commandButtons.getByProjectId.mockReturnValue([]);
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).not.toContain('## Command Buttons API');
+        expect(result).not.toContain('## Commands API');
       });
 
       it('section appears between Session Management and Kanban', () => {
@@ -590,14 +590,14 @@ describe('sessionPrompts', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         const sessionApiIdx = result.indexOf('## Session Management API');
-        const commandBtnIdx = result.indexOf('## Command Buttons API');
+        const commandIdx = result.indexOf('## Commands API');
         const kanbanIdx = result.indexOf('## Kanban Board API');
 
         expect(sessionApiIdx).toBeGreaterThanOrEqual(0);
-        expect(commandBtnIdx).toBeGreaterThanOrEqual(0);
+        expect(commandIdx).toBeGreaterThanOrEqual(0);
         expect(kanbanIdx).toBeGreaterThanOrEqual(0);
-        expect(commandBtnIdx).toBeGreaterThan(sessionApiIdx);
-        expect(commandBtnIdx).toBeLessThan(kanbanIdx);
+        expect(commandIdx).toBeGreaterThan(sessionApiIdx);
+        expect(commandIdx).toBeLessThan(kanbanIdx);
       });
 
       it('kill endpoint is documented', () => {
@@ -608,7 +608,7 @@ describe('sessionPrompts', () => {
         expect(result).toContain(`/api/sessions/${sessionId}/command-buttons/runs/<run_id>/kill`);
       });
 
-      it('uses session-scoped command button routes without tree traversal terms', () => {
+      it('uses session-scoped command routes without tree traversal terms', () => {
         commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');

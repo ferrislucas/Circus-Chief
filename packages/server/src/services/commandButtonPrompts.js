@@ -1,11 +1,11 @@
 import { commandButtons } from '../database.js';
 
 /**
- * Build Command Button API instructions for system prompt if the project has command buttons.
+ * Build Command API instructions for system prompt if the project has commands.
  * @param {string} apiUrl - Base API URL
  * @param {string} sessionId - Current session ID
  * @param {string} projectId - Current project ID
- * @returns {string} Command button instructions or empty string if no buttons configured
+ * @returns {string} Command instructions or empty string if no commands configured
  */
 export function buildCommandButtonApiInstructions(apiUrl, sessionId, projectId) {
   const buttons = commandButtons.getByProjectId(projectId);
@@ -13,16 +13,16 @@ export function buildCommandButtonApiInstructions(apiUrl, sessionId, projectId) 
     return '';
   }
 
-  return `## Command Buttons API
+  return `## Commands API
 
-This project has command buttons configured - reusable shell commands you can execute. Use the Bash tool to run these curl commands.
+This project has commands configured - reusable shell commands you can execute. Use the Bash tool to run these curl commands.
 
-### List Available Buttons
+### List Available Commands
 \`\`\`bash
 curl ${apiUrl}/api/sessions/${sessionId}/command-buttons
 \`\`\`
 
-### Run a Button
+### Run a Command
 \`\`\`bash
 curl -X POST ${apiUrl}/api/sessions/${sessionId}/command-buttons/<button_id>/run
 \`\`\`

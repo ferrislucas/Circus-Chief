@@ -27,6 +27,7 @@ vi.mock('./sessionManager.js', () => ({
 
 vi.mock('./sessionProvider.js', () => ({
   resolveAgentTypeFromModel: vi.fn().mockReturnValue('claude-code'),
+  resolveProviderMetadataFromModel: vi.fn().mockReturnValue(null),
 }));
 
 import { sessions, sessionTemplates, sessionSummaries, projects } from '../database.js';
@@ -126,6 +127,7 @@ describe('kanbanTriggers', () => {
         gitBranch: 'feature-branch',
         sessionId: 'new-session-1',
         worktreeBasePath: null,
+        commitAttributionOverride: null,
       });
       expect(result).toEqual({
         workingDirectory: '/tmp/git-setup-dir',
@@ -149,6 +151,7 @@ describe('kanbanTriggers', () => {
         gitBranch: null,
         sessionId: 'sess-1',
         worktreeBasePath: null,
+        commitAttributionOverride: null,
       });
     });
 
