@@ -120,6 +120,7 @@ input, textarea, select {
 }
 
 .btn-danger:hover {
+  background-color: var(--color-error);
   opacity: 0.9;
 }
 
