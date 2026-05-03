@@ -282,10 +282,10 @@ describe('sessionPrompts', () => {
       const result = buildSystemPromptConfig('root-123', projectId, null, 'standard');
       expect(result).toContain('/api/sessions/root-123/canvas');
       expect(result).toContain('POST');
-      expect(sessions.getRootSessionId).toHaveBeenCalledWith('root-123');
+      expect(sessions.getRootSessionId).not.toHaveBeenCalled();
     });
 
-    it('includes canvas write instructions for child session (uses root ID)', () => {
+    it('includes canvas write instructions for child session using current session ID', () => {
       sessions.getById.mockReturnValue({
         id: 'child-456',
         parentSessionId: 'parent-789',
@@ -295,9 +295,9 @@ describe('sessionPrompts', () => {
       sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
 
       const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
-      expect(result).toContain('/api/sessions/root-123/canvas');
-      expect(result).not.toContain('/api/sessions/child-456/canvas');
-      expect(sessions.getRootSessionId).toHaveBeenCalledWith('child-456');
+      expect(result).toContain('/api/sessions/child-456/canvas');
+      expect(result).not.toContain('/api/sessions/root-123/canvas');
+      expect(sessions.getRootSessionId).not.toHaveBeenCalled();
     });
 
     it('includes canvas read instructions', () => {
@@ -315,7 +315,7 @@ describe('sessionPrompts', () => {
       expect(sessions.getRootSessionId).not.toHaveBeenCalled();
     });
 
-    it('uses root session ID for all canvas endpoints including history', () => {
+    it('uses current session ID for all canvas endpoints including history', () => {
       sessions.getById.mockReturnValue({
         id: 'child-456',
         parentSessionId: 'parent-789',
@@ -325,12 +325,12 @@ describe('sessionPrompts', () => {
       sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
 
       const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
-      expect(result).toContain('/api/sessions/root-123/canvas/file/');
+      expect(result).toContain('/api/sessions/child-456/canvas/file/');
       expect(result).toContain('/history/');
-      expect(result).not.toMatch(/\/api\/sessions\/child-456\/canvas\/file\/.*\/history\//);
+      expect(result).not.toMatch(/\/api\/sessions\/root-123\/canvas\/file\/.*\/history\//);
     });
 
-    it('falls back to session.id when getRootSessionId returns null', () => {
+    it('uses session.id without resolving root session IDs', () => {
       sessions.getById.mockReturnValue({
         id: 'orphan-123',
         parentSessionId: 'nonexistent-parent',
@@ -343,9 +343,10 @@ describe('sessionPrompts', () => {
       expect(result).toContain('/api/sessions/orphan-123/canvas');
       expect(result).toBeDefined();
       expect(result).not.toContain('/api/sessions/null/canvas');
+      expect(sessions.getRootSessionId).not.toHaveBeenCalled();
     });
 
-    it('maintains correct prompt ordering with child session context', () => {
+    it('maintains correct prompt ordering without exposing child session context', () => {
       sessions.getById.mockReturnValue({
         id: 'child-456',
         parentSessionId: 'parent-789',
@@ -359,8 +360,8 @@ describe('sessionPrompts', () => {
       const canvasWriteIdx = result.indexOf('When you generate artifacts');
       const canvasReadIdx = result.indexOf('## Reading from Canvas');
 
-      expect(childCtxIdx).toBeGreaterThanOrEqual(0);
-      expect(canvasWriteIdx).toBeGreaterThan(childCtxIdx);
+      expect(childCtxIdx).toBe(-1);
+      expect(canvasWriteIdx).toBeGreaterThanOrEqual(0);
       expect(canvasReadIdx).toBeGreaterThan(canvasWriteIdx);
     });
 
@@ -369,6 +370,25 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Session Management API');
       expect(result).toContain(sessionId);
       expect(result).toContain(projectId);
+    });
+
+    it('documents prompt-only session creation and optional overrides', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain('-d \'{"prompt": "Your task description here"}\'');
+      expect(result).toContain('Only `prompt` is required');
+      expect(result).toContain('Optional override fields');
+      expect(result).toContain('`model`');
+      expect(result).toContain('`providerId`');
+      expect(result).toContain('`startImmediately`');
+      expect(result).not.toContain('"name": "Optional session name"');
+    });
+
+    it('uses current session ID for workflow summary examples', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain(`/api/sessions/${sessionId}/summary?generate=true`);
+      expect(result).not.toContain('/api/sessions/<session_id>/summary');
     });
 
     it('includes worktree context when session has gitWorktree', () => {
@@ -405,7 +425,7 @@ describe('sessionPrompts', () => {
     });
 
     describe('child session context', () => {
-      it('includes child session context when session has parentSessionId', () => {
+      it('does not include child session context when session has parentSessionId', () => {
         sessions.getById.mockReturnValue({
           id: 'child-789',
           gitWorktree: null,
@@ -417,10 +437,10 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig('child-789', 'proj-xyz', null, 'standard');
 
-        expect(result).toContain('## Child Session');
-        expect(result).toContain('Parent Session ID: parent-123');
-        expect(result).toContain('Root Session ID: root-456');
-        expect(sessions.getRootSessionId).toHaveBeenCalledWith('child-789');
+        expect(result).not.toContain('## Child Session');
+        expect(result).not.toContain('Parent Session ID');
+        expect(result).not.toContain('Root Session ID');
+        expect(sessions.getRootSessionId).not.toHaveBeenCalled();
       });
 
       it('excludes child session context when session has no parentSessionId', () => {
@@ -444,7 +464,7 @@ describe('sessionPrompts', () => {
         expect(result).not.toContain('## Child Session');
       });
 
-      it('places child context after base prompt and before worktree context', () => {
+      it('places worktree context after base prompt without child context', () => {
         sessions.getById.mockReturnValue({
           id: 'child-789',
           gitWorktree: '/path/to/worktree',
@@ -460,10 +480,9 @@ describe('sessionPrompts', () => {
         const worktreeIdx = result.indexOf('## Git Worktree Session');
 
         expect(basePromptIdx).toBeGreaterThanOrEqual(0);
-        expect(childCtxIdx).toBeGreaterThanOrEqual(0);
+        expect(childCtxIdx).toBe(-1);
         expect(worktreeIdx).toBeGreaterThanOrEqual(0);
-        expect(basePromptIdx).toBeLessThan(childCtxIdx);
-        expect(childCtxIdx).toBeLessThan(worktreeIdx);
+        expect(basePromptIdx).toBeLessThan(worktreeIdx);
       });
     });
 
@@ -533,7 +552,7 @@ describe('sessionPrompts', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
       expect(result).toContain('Get Board with All Lanes and Cards');
-      expect(result).toContain('Add This Session to the Board');
+      expect(result).toContain('Add Current Workflow to the Board');
       expect(result).toContain('Move a Card to a Different Lane');
       expect(result).toContain('Remove a Card from the Board');
       expect(result).toContain('Create a New Lane');
@@ -587,6 +606,17 @@ describe('sessionPrompts', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain(`/api/sessions/${sessionId}/command-buttons/runs/<run_id>/kill`);
+      });
+
+      it('uses session-scoped command button routes without tree traversal terms', () => {
+        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
+
+        const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+        expect(result).toContain(`curl http://localhost:5000/api/sessions/${sessionId}/command-buttons`);
+        expect(result).not.toContain(`/api/projects/${projectId}/command-buttons`);
+        expect(result).not.toContain('Root Session ID');
+        expect(result).not.toContain('Parent Session ID');
       });
 
       it('run response shape is documented', () => {

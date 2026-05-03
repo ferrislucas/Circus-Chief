@@ -692,6 +692,9 @@ describe('Command Buttons API', () => {
 
   describe('POST /api/sessions/:sessionId/command-buttons/runs/:runId/kill', () => {
     it('kills running command', async () => {
+      commandRunner.getRunsBySession.mockReturnValue([
+        { runId: 'run-123', buttonId, status: 'running' },
+      ]);
       commandRunner.kill.mockReturnValue(true);
 
       const res = await request(app).post(
