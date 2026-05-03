@@ -15,7 +15,7 @@ This document describes the system prompt injected into every agent session and 
 | 5 | Canvas write instructions | `buildCanvasWriteSystemPrompt()` | Yes |
 | 6 | Canvas read instructions | `buildCanvasReadSystemPrompt()` | Yes |
 | 7 | Session management API | `buildSessionApiInstructions()` | Yes |
-| 8 | Command buttons API | `buildCommandButtonApiInstructions()` (in `commandButtonPrompts.js`) | Only when project has command buttons |
+| 8 | Commands API | `buildCommandButtonApiInstructions()` (in `commandButtonPrompts.js`) | Only when project has commands |
 | 9 | Kanban board API | `buildKanbanApiInstructions()` | Only when project has kanban enabled |
 
 The base URL used in all endpoint examples is derived from `CIRCUSCHIEF_API_URL` env var, falling back to `http://localhost:{PORT}`.
@@ -69,14 +69,14 @@ The prompt provides the agent with its own session ID and project ID. All endpoi
 | GET | `/api/sessions/{sessionId}/summary?generate=true` | Get (and generate) a session summary |
 | POST | `/api/sessions/{sessionId}/summary` | Regenerate the session summary |
 
-### Command Buttons API (conditional)
+### Commands API (conditional)
 
-Included only when the project has command buttons configured. Built in `packages/server/src/services/commandButtonPrompts.js`.
+Included only when the project has commands configured. Built in `packages/server/src/services/commandButtonPrompts.js`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/sessions/{sessionId}/command-buttons` | List available buttons |
-| POST | `/api/sessions/{sessionId}/command-buttons/{button_id}/run` | Run a button. Response: `{ runId, buttonId, status: "running", output: "" }` |
+| GET | `/api/sessions/{sessionId}/command-buttons` | List available commands |
+| POST | `/api/sessions/{sessionId}/command-buttons/{button_id}/run` | Run a command. Response: `{ runId, buttonId, status: "running", output: "" }` |
 | GET | `/api/sessions/{sessionId}/command-buttons/runs/{run_id}` | Check run status & output. Response: `{ runId, buttonId, status, exitCode, output, startedAt, completedAt }` |
 | GET | `/api/sessions/{sessionId}/command-buttons/runs` | List all command runs |
 | POST | `/api/sessions/{sessionId}/command-buttons/runs/{run_id}/kill` | Kill a running command |
@@ -100,5 +100,5 @@ Included only when the project has kanban enabled. Also includes a dynamically p
 | File | Purpose |
 |------|---------|
 | `packages/server/src/services/sessionPrompts.js` | Main prompt assembly and canvas/session/kanban endpoint documentation |
-| `packages/server/src/services/commandButtonPrompts.js` | Command button endpoint documentation |
+| `packages/server/src/services/commandButtonPrompts.js` | Command endpoint documentation |
 | `packages/shared/src/constants.js` | `DEFAULT_SYSTEM_PROMPT` fallback |
