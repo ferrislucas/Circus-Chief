@@ -72,18 +72,6 @@ export const sessionActions = {
     finally { if (showLoading) this.loading = false; }
   },
 
-  async fetchScheduledSessions(projectId = null) {
-    this.loadingScheduled = true;
-    this.error = null;
-    try {
-      const sessions = await api.getScheduledSessions(projectId);
-      this.scheduledSessions = sessions.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
-    } catch (err) {
-      this.error = err.message;
-      console.error('Failed to fetch scheduled sessions:', err);
-    } finally { this.loadingScheduled = false; }
-  },
-
   async fetchSessions(projectId, { silent = false } = {}) {
     if (!silent) this.loading = true;
     this.error = null;
@@ -311,14 +299,6 @@ export const sessionActions = {
       this.currentSession = { ...this.currentSession, ...sessionData };
     }
     updateSessionInList(this.activeSessions, sessionData);
-
-    // Handle scheduled sessions
-    if (sessionData.status === 'scheduled') {
-      updateSessionInList(this.scheduledSessions, sessionData, true);
-      this.scheduledSessions.sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt));
-    } else {
-      this.scheduledSessions = this.scheduledSessions.filter((s) => s.id !== sessionData.id);
-    }
   },
 
   addSessionToList(session) {

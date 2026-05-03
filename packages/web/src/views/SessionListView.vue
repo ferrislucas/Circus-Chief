@@ -419,7 +419,7 @@ watch(
   }
 );
 
-// Watch for route changes to load archived sessions and scheduled sessions when needed
+// Watch for route changes to load archived sessions when needed
 watch(
   () => route.name,
   async (newRouteName) => {
