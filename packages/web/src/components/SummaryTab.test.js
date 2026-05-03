@@ -1351,4 +1351,137 @@ describe('SummaryTab', () => {
     });
   });
 
+  describe('Cancel Schedule', () => {
+    beforeEach(() => {
+      vi.restoreAllMocks();
+      // Re-apply the ui store spies after restoreAllMocks
+      vi.spyOn(uiStore, 'error').mockImplementation(() => {});
+      vi.spyOn(uiStore, 'success').mockImplementation(() => {});
+    });
+
+    it('Cancel button is visible when session is scheduled', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').exists()).toBe(true);
+    });
+
+    it('Cancel button is NOT visible for non-scheduled sessions', async () => {
+      sessionsStore.currentSession = { id: 'sess-123', status: 'waiting' };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').exists()).toBe(false);
+    });
+
+    it('shows confirm dialog when Cancel button is clicked', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
+    });
+
+    it('calls updateSessionFields with { status: "stopped" } when user confirms', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const updateSpy = vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(updateSpy).toHaveBeenCalledWith('sess-123', { status: 'stopped', scheduledAt: null });
+    });
+
+    it('shows success toast after successful cancellation', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(uiStore.success).toHaveBeenCalledWith('Session cancelled');
+    });
+
+    it('does not call updateSessionFields when user dismisses confirm dialog', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      const updateSpy = vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('shows error toast when updateSessionFields rejects', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.spyOn(sessionsStore, 'updateSessionFields').mockRejectedValue(new Error('Network error'));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(uiStore.error).toHaveBeenCalledWith(expect.stringContaining('Network error'));
+    });
+  });
+
 });

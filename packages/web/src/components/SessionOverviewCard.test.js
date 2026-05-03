@@ -32,89 +32,137 @@ describe('SessionOverviewCard.vue', () => {
     });
   }
 
-  it('renders no scheduled sessions section when array is empty', () => {
-    const wrapper = mountComponent({ scheduledSessions: [] });
-    // The card should not render at all when there's no content
-    expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(false);
-  });
-
-  it('renders no scheduled sessions section when prop is omitted', () => {
-    const wrapper = mountComponent();
-    expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(false);
-  });
-
-  it('renders scheduled sessions section when array has items', () => {
-    const scheduledSessions = [
-      { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
-    ];
-    const wrapper = mountComponent({
-      scheduledSessions,
-      projectId: 'proj-1',
+  describe('Scheduled Sessions', () => {
+    it('renders no scheduled sessions section when array is empty', () => {
+      const wrapper = mountComponent({ scheduledSessions: [] });
+      // The card should not render at all when there's no content
+      expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(false);
     });
 
-    expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
-    expect(wrapper.find('.scheduled-sessions-heading').text()).toBe('Scheduled Sessions (1)');
-  });
-
-  it('renders multiple ScheduledChildCard stubs', () => {
-    const scheduledSessions = [
-      { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
-      { id: 'c2', name: 'Child 2', status: 'scheduled', scheduledAt: Date.now() + 7200000 },
-      { id: 'c3', name: 'Child 3', status: 'scheduled', scheduledAt: Date.now() + 10800000 },
-    ];
-    const wrapper = mountComponent({
-      scheduledSessions,
-      projectId: 'proj-1',
+    it('renders no scheduled sessions section when prop is omitted', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(false);
     });
 
-    expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
-    expect(wrapper.find('.scheduled-sessions-heading').text()).toBe('Scheduled Sessions (3)');
-    const stubs = wrapper.findAll('.scheduled-child-card-stub');
-    expect(stubs.length).toBe(3);
-    expect(stubs[0].text()).toBe('Child 1');
-    expect(stubs[1].text()).toBe('Child 2');
-    expect(stubs[2].text()).toBe('Child 3');
-  });
+    it('renders scheduled sessions section when array has items', () => {
+      const scheduledSessions = [
+        { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
+      ];
+      const wrapper = mountComponent({
+        scheduledSessions,
+        projectId: 'proj-1',
+      });
 
-  it('passes projectId to each ScheduledChildCard', () => {
-    const scheduledSessions = [
-      { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
-      { id: 'c2', name: 'Child 2', status: 'scheduled', scheduledAt: Date.now() + 7200000 },
-    ];
-    const wrapper = mountComponent({
-      scheduledSessions,
-      projectId: 'proj-1',
+      expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
+      expect(wrapper.find('.scheduled-sessions-heading').text()).toBe('Scheduled Sessions (1)');
     });
 
-    const cards = wrapper.findAllComponents({ name: 'ScheduledChildCard' });
-    expect(cards.length).toBe(2);
-    expect(cards[0].props('projectId')).toBe('proj-1');
-    expect(cards[1].props('projectId')).toBe('proj-1');
-  });
+    it('renders multiple ScheduledChildCard stubs', () => {
+      const scheduledSessions = [
+        { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
+        { id: 'c2', name: 'Child 2', status: 'scheduled', scheduledAt: Date.now() + 7200000 },
+        { id: 'c3', name: 'Child 3', status: 'scheduled', scheduledAt: Date.now() + 10800000 },
+      ];
+      const wrapper = mountComponent({
+        scheduledSessions,
+        projectId: 'proj-1',
+      });
 
-  it('shows overview card when only scheduled sessions exist (no summary, PR, metrics)', () => {
-    const scheduledSessions = [
-      { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
-    ];
-    const wrapper = mountComponent({
-      scheduledSessions,
-      projectId: 'proj-1',
+      expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
+      expect(wrapper.find('.scheduled-sessions-heading').text()).toBe('Scheduled Sessions (3)');
+      const stubs = wrapper.findAll('.scheduled-child-card-stub');
+      expect(stubs.length).toBe(3);
+      expect(stubs[0].text()).toBe('Child 1');
+      expect(stubs[1].text()).toBe('Child 2');
+      expect(stubs[2].text()).toBe('Child 3');
     });
 
-    expect(wrapper.find('.session-overview').exists()).toBe(true);
-    expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
-  });
+    it('passes projectId to each ScheduledChildCard', () => {
+      const scheduledSessions = [
+        { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
+        { id: 'c2', name: 'Child 2', status: 'scheduled', scheduledAt: Date.now() + 7200000 },
+      ];
+      const wrapper = mountComponent({
+        scheduledSessions,
+        projectId: 'proj-1',
+      });
 
-  it('does not show "Session Overview" header when only scheduled sessions exist', () => {
-    const scheduledSessions = [
-      { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
-    ];
-    const wrapper = mountComponent({
-      scheduledSessions,
-      projectId: 'proj-1',
+      const cards = wrapper.findAllComponents({ name: 'ScheduledChildCard' });
+      expect(cards.length).toBe(2);
+      expect(cards[0].props('projectId')).toBe('proj-1');
+      expect(cards[1].props('projectId')).toBe('proj-1');
     });
 
-    expect(wrapper.find('.session-overview').exists()).toBe(true);
-    expect(wrapper.find('.overview-header').exists()).toBe(false);
+    it('shows overview card when only scheduled sessions exist (no summary, PR, metrics)', () => {
+      const scheduledSessions = [
+        { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
+      ];
+      const wrapper = mountComponent({
+        scheduledSessions,
+        projectId: 'proj-1',
+      });
+
+      expect(wrapper.find('.session-overview').exists()).toBe(true);
+      expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
+    });
+
+    it('does not show "Session Overview" header when only scheduled sessions exist', () => {
+      const scheduledSessions = [
+        { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
+      ];
+      const wrapper = mountComponent({
+        scheduledSessions,
+        projectId: 'proj-1',
+      });
+
+      expect(wrapper.find('.session-overview').exists()).toBe(true);
+      expect(wrapper.find('.overview-header').exists()).toBe(false);
+    });
+  });
+
+  describe('Cancel Schedule Button', () => {
+    const baseScheduledProps = {
+      scheduledSessions: [
+        { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
+      ],
+      projectId: 'proj-1',
+    };
+
+    it('renders Cancel button when scheduled sessions exist', () => {
+      const wrapper = mountComponent(baseScheduledProps);
+
+      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').text()).toBe('Cancel');
+    });
+
+    it('Cancel button is enabled and clickable when not cancelling', () => {
+      const wrapper = mountComponent(baseScheduledProps);
+
+      const cancelBtn = wrapper.find('[data-testid="scheduling-cancel-link"]');
+      expect(cancelBtn.exists()).toBe(true);
+      expect(cancelBtn.attributes('disabled')).toBeUndefined();
+    });
+
+    it('disables Cancel button when cancelling prop is true', () => {
+      const wrapper = mountComponent({
+        ...baseScheduledProps,
+        cancelling: true,
+      });
+
+      const cancelBtn = wrapper.find('[data-testid="scheduling-cancel-link"]');
+      expect(cancelBtn.exists()).toBe(true);
+      expect(cancelBtn.attributes('disabled')).toBeDefined();
+    });
+
+    it('does not disable Cancel button when cancelling prop is false (default)', () => {
+      const wrapper = mountComponent({
+        ...baseScheduledProps,
+        cancelling: false,
+      });
+
+      const cancelBtn = wrapper.find('[data-testid="scheduling-cancel-link"]');
+      expect(cancelBtn.exists()).toBe(true);
+      expect(cancelBtn.attributes('disabled')).toBeUndefined();
+    });
   });
 });
