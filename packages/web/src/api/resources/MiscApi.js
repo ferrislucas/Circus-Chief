@@ -1,6 +1,6 @@
 /**
  * Miscellaneous API resource mixin
- * Adds git, todos, summaries, notes, filesystem, slash commands,
+ * Adds git, todos, summaries, filesystem, slash commands,
  * agent logs, and session defaults methods to ApiClient
  * @param {import('../ApiClient.js').ApiClient} ApiClient
  */
@@ -105,48 +105,6 @@ export function MiscApi(ApiClient) {
         }
         throw err;
       }
-    },
-
-    // Notes
-
-    /**
-     * Get all notes for a session
-     * @param {string} sessionId - Session ID
-     * @returns {Promise<Array>}
-     */
-    async getSessionNotes(sessionId) {
-      return this._get(`/sessions/${sessionId}/notes`);
-    },
-
-    /**
-     * Create a note for a session
-     * @param {string} sessionId - Session ID
-     * @param {string} content - Note content
-     * @returns {Promise<Object>}
-     */
-    async createNote(sessionId, content) {
-      return this._post(`/sessions/${sessionId}/notes`, { content });
-    },
-
-    /**
-     * Update a note
-     * @param {string} sessionId - Session ID
-     * @param {string} noteId - Note ID
-     * @param {string} content - Updated note content
-     * @returns {Promise<Object>}
-     */
-    async updateNote(sessionId, noteId, content) {
-      return this._put(`/sessions/${sessionId}/notes/${noteId}`, { content });
-    },
-
-    /**
-     * Delete a note
-     * @param {string} sessionId - Session ID
-     * @param {string} noteId - Note ID
-     * @returns {Promise<void>}
-     */
-    async deleteNote(sessionId, noteId) {
-      return this._delete(`/sessions/${sessionId}/notes/${noteId}`);
     },
 
     // Filesystem

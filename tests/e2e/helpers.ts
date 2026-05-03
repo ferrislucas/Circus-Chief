@@ -1498,32 +1498,6 @@ export async function getArchivedSessions(projectId: string) {
 }
 
 // ============================================================
-// Session Note Helpers
-// ============================================================
-
-/**
- * Create a session note
- */
-export async function seedSessionNote(sessionId: string, data: { content: string }) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) throw new Error('Failed to seed session note');
-  return response.json();
-}
-
-/**
- * Get notes for a session
- */
-export async function getSessionNotes(sessionId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/notes`);
-  if (!response.ok) return [];
-  return response.json();
-}
-
-// ============================================================
 // Conversation Management Helpers
 // ============================================================
 

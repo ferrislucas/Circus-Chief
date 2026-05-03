@@ -4,7 +4,6 @@ import {
   seedSession,
   seedChildSession,
   seedCanvasItem,
-  seedSessionNote,
   cleanupCreatedResources,
   getSession,
   getProjectSessions,
@@ -89,7 +88,7 @@ test.describe('Child Session Cascade Delete', () => {
     expect(await getSession(child.id)).toBeNull();
   });
 
-  test('deleting a parent cascades child session data (canvas, notes)', async () => {
+  test('deleting a parent cascades child session data (canvas)', async () => {
     const parent = await seedSession(project.id, {
       prompt: 'Parent with data',
       name: 'Parent',
@@ -107,7 +106,6 @@ test.describe('Child Session Cascade Delete', () => {
       content: '# Child canvas item',
       filename: 'child.md',
     });
-    await seedSessionNote(child.id, { content: 'Child note' });
 
     // Delete parent
     await deleteSession(parent.id);
@@ -119,10 +117,6 @@ test.describe('Child Session Cascade Delete', () => {
     // Canvas items for the child should also be gone
     const canvasResponse = await fetch(`${getAPIURL()}/api/sessions/${child.id}/canvas`);
     expect(canvasResponse.status).toBe(404);
-
-    // Notes for the child should also be gone
-    const notesResponse = await fetch(`${getAPIURL()}/api/sessions/${child.id}/notes`);
-    expect(notesResponse.status).toBe(404);
   });
 
   test('deleting a child session does not delete the parent', async () => {

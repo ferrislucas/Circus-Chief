@@ -8,7 +8,6 @@ import { requireSession, requireSessionAndProject } from '../middleware/sessionL
 import { commandRunner } from '../services/commandRunner.js';
 
 // Import sub-routers
-import notesRouter from './sessions-notes.js';
 import conversationsRouter from './sessions-conversations.js';
 import commandsRouter from './sessions-commands.js';
 import patchRouter from './sessions-patch.js';
@@ -21,7 +20,6 @@ import draftRouter from './sessions-draft.js';
 const router = Router();
 
 // Mount sub-routers
-router.use('/', notesRouter);
 router.use('/', conversationsRouter);
 router.use('/', commandsRouter);
 router.use('/', patchRouter);

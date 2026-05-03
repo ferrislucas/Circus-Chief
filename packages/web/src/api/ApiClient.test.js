@@ -1170,56 +1170,6 @@ describe('ApiClient', () => {
     });
   });
 
-  describe('notes', () => {
-    describe('getSessionNotes', () => {
-      it('fetches notes for session', async () => {
-        mockFetch.mockReturnValue(mockResponse([{ id: '1', content: 'Note' }]));
-
-        await client.getSessionNotes('sess-123');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/notes', expect.any(Object));
-      });
-    });
-
-    describe('createNote', () => {
-      it('posts note content', async () => {
-        mockFetch.mockReturnValue(mockResponse({ id: '1' }));
-
-        await client.createNote('sess-123', 'New note');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/notes', expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ content: 'New note' }),
-        }));
-      });
-    });
-
-    describe('updateNote', () => {
-      it('puts note content', async () => {
-        mockFetch.mockReturnValue(mockResponse({ id: 'note-456' }));
-
-        await client.updateNote('sess-123', 'note-456', 'Updated');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/notes/note-456', expect.objectContaining({
-          method: 'PUT',
-          body: JSON.stringify({ content: 'Updated' }),
-        }));
-      });
-    });
-
-    describe('deleteNote', () => {
-      it('deletes note', async () => {
-        mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
-
-        await client.deleteNote('sess-123', 'note-456');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/notes/note-456', expect.objectContaining({
-          method: 'DELETE',
-        }));
-      });
-    });
-  });
-
   describe('error handling', () => {
     it('throws with error message from response', async () => {
       mockFetch.mockReturnValue(Promise.resolve({

@@ -12,7 +12,7 @@ export { SessionTemplateRepository } from './SessionTemplateRepository.js';
 export { MessageRepository } from './MessageRepository.js';
 export { ConversationRepository } from './ConversationRepository.js';
 export { CanvasItemRepository } from './CanvasItemRepository.js';
-export { SessionNoteRepository } from './SessionNoteRepository.js';
+
 export { TodoRepository } from './TodoRepository.js';
 export { WorkLogRepository } from './WorkLogRepository.js';
 export { SessionSummaryRepository } from './SessionSummaryRepository.js';
@@ -35,7 +35,7 @@ import { ProjectDefaultsRepository } from './ProjectDefaultsRepository.js';
 import { MessageRepository } from './MessageRepository.js';
 import { ConversationRepository } from './ConversationRepository.js';
 import { CanvasItemRepository } from './CanvasItemRepository.js';
-import { SessionNoteRepository } from './SessionNoteRepository.js';
+
 import { TodoRepository } from './TodoRepository.js';
 import { WorkLogRepository } from './WorkLogRepository.js';
 import { SessionSummaryRepository } from './SessionSummaryRepository.js';
@@ -56,7 +56,7 @@ export const projectDefaults = new ProjectDefaultsRepository();
 export const messages = new MessageRepository();
 export const conversations = new ConversationRepository();
 export const canvasItems = new CanvasItemRepository();
-export const sessionNotes = new SessionNoteRepository();
+
 export const todos = new TodoRepository();
 export const workLogs = new WorkLogRepository();
 export const sessionSummaries = new SessionSummaryRepository();

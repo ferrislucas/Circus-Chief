@@ -109,15 +109,6 @@ CREATE TABLE IF NOT EXISTS canvas_items (
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
--- Session notes
-CREATE TABLE IF NOT EXISTS session_notes (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-);
-
 -- Global tool templates
 CREATE TABLE IF NOT EXISTS global_tool_templates (
   id TEXT PRIMARY KEY,
@@ -269,7 +260,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 -- Note: idx_canvas_deleted is created in migrations to handle existing databases
 -- that may not have the deleted_at column yet
-CREATE INDEX IF NOT EXISTS idx_notes_session ON session_notes(session_id);
+
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(project_id);
 -- Note: idx_sessions_next_template and idx_sessions_parent are created in migrations

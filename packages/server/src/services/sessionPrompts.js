@@ -258,8 +258,8 @@ curl -X PATCH ${apiUrl}/api/sessions/<session_id> \\
 \`\`\``;
 }
 
-/** Build project, notes, and summary operations section */
-function buildProjectNotesOps(apiUrl) {
+/** Build project and summary operations section */
+function buildProjectSummaryOps(apiUrl) {
   return `### Project Operations
 \`\`\`bash
 curl ${apiUrl}/api/projects                          # List all projects
@@ -270,14 +270,6 @@ curl -X POST ${apiUrl}/api/projects \\
   -d '{"name": "Project Name", "workingDirectory": "/path/to/directory"}'
 \`\`\`
 Optional field: \`systemPrompt\`
-
-### Session Notes
-\`\`\`bash
-curl ${apiUrl}/api/sessions/<session_id>/notes       # Get notes
-curl -X POST ${apiUrl}/api/sessions/<session_id>/notes \\
-  -H "Content-Type: application/json" \\
-  -d '{"content": "Note content"}'
-\`\`\`
 
 ### Session Summary
 \`\`\`bash
@@ -299,7 +291,7 @@ You can create and modify sessions in this system using curl or similar HTTP too
 
 ${buildSessionCrudOps(apiUrl, projectId)}
 
-${buildProjectNotesOps(apiUrl)}`;
+${buildProjectSummaryOps(apiUrl)}`;
 }
 
 /**
