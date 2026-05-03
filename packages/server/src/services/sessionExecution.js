@@ -56,7 +56,7 @@ async function resolveInitialSessionModelEnv(session, model) {
   const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
 
-  if (session.gitWorktree) {
+  if (session.gitWorktree && commitAttributionOverride) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
 
@@ -343,7 +343,7 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   // Resolve model/provider and detect model changes
   const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
   session = modelEnv.session;
-  if (session.gitWorktree) {
+  if (session.gitWorktree && modelEnv.commitAttributionOverride) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
 
