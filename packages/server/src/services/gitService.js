@@ -2,6 +2,11 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { realpath } from 'fs/promises';
+export {
+  clearWorktreeCommitAttribution,
+  configureWorktreeCommitAttribution,
+  ensureWorktreeCommitAttributionHook,
+} from './gitCommitAttribution.js';
 
 const execAsync = promisify(exec);
 
@@ -74,6 +79,10 @@ async function git(directory, command, opts = {}) {
   if (opts.env) execOpts.env = opts.env;
   const { stdout } = await execAsync(`git ${command}`, execOpts);
   return stdout.trim();
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
 /**
@@ -515,8 +524,8 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
 
   // Pin the human's identity in the worktree config so they are always
   // the commit Author, regardless of what the session does later
-  await git(worktreePath, `config --worktree user.name "${author.name}"`);
-  await git(worktreePath, `config --worktree user.email "${author.email}"`);
+  await git(worktreePath, `config --worktree user.name ${shellQuote(author.name)}`);
+  await git(worktreePath, `config --worktree user.email ${shellQuote(author.email)}`);
 
   return true;
 }

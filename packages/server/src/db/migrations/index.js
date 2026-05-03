@@ -14,6 +14,8 @@ import { conversationsMigrations } from './conversationsMigrations.js';
 import { canvasItemsMigrations } from './canvasItemsMigrations.js';
 import { miscMigrations } from './miscMigrations.js';
 import { kanbanMigrations } from './kanbanMigrations.js';
+import { providerMigrations } from './providerMigrations.js';
+import { providerCommitAttributionMigrations } from './providerCommitAttributionMigrations.js';
 
 /**
  * Build a lookup map from a migrations array keyed by migration name.
@@ -34,6 +36,8 @@ const c = toLookup(conversationsMigrations);
 const ci = toLookup(canvasItemsMigrations);
 const m = toLookup(miscMigrations);
 const k = toLookup(kanbanMigrations);
+const pr = toLookup(providerMigrations);
+const pca = toLookup(providerCommitAttributionMigrations);
 
 /**
  * Flat, ordered list of every migration, matching the original execution order
@@ -167,13 +171,15 @@ export const allMigrations = validateMigrations([
   m.get('app_settings-create-table'),
 
   // --- Legacy model_providers cleanup ---
-  m.get('model_providers-cleanup-legacy'),
+  pr.get('model_providers-cleanup-legacy'),
 
   // --- Providers + provider_models tables + seed ---
-  m.get('providers-create-tables'),
-  m.get('providers-add-kind'),
-  m.get('providers-seed-built-in'),
-  m.get('providers-seed-built-in-openai'),
+  pr.get('providers-create-tables'),
+  pr.get('providers-add-kind'),
+  pr.get('providers-add-commit_attribution_override'),
+  pca.get('providers-normalize-commit_attribution_override'),
+  pr.get('providers-seed-built-in'),
+  pr.get('providers-seed-built-in-openai'),
 
   // --- Sessions provider_id (from providers FK) ---
   s.get('sessions-add-provider_id-from-providers'),
@@ -183,7 +189,7 @@ export const allMigrations = validateMigrations([
   p.get('project_session_defaults-add-effort_level'),
 
   // --- Update built-in models ---
-  m.get('providers-update-built-in-models'),
+  pr.get('providers-update-built-in-models'),
 
   // --- Sessions agent_type ---
   s.get('sessions-add-agent_type'),
@@ -207,5 +213,5 @@ export const allMigrations = validateMigrations([
   m.get('session_templates-seed-defaults'),
 
   // --- Update built-in Opus model to 4.7 ---
-  m.get('providers-update-built-in-opus-4-7'),
+  pr.get('providers-update-built-in-opus-4-7'),
 ]);

@@ -14,16 +14,17 @@ let codexCliUnavailable = false;
  *
  * Two execution paths:
  *
- *   1. CLI path (default) — spawns the `codex --json ...` CLI and parses its
+ *   1. CLI path (default) — spawns `codex exec --json ...` and parses its
  *      line-delimited JSON stdout. Uses {@link createCodexEventMapper} to
  *      normalize events into the SDK-shaped envelope the rest of the app
  *      already understands.
  *
  *   2. Direct-API path — activated by {@code USE_CODEX_DIRECT_API=1}. Uses
  *      the official {@code openai} SDK with Chat Completions streaming
- *      against the provider's configured baseURL/apiKey. Intended for
- *      environments where the Codex CLI isn't installable and for the
- *      Step-0 contingency path in the implementation plan.
+ *      against the provider's configured baseURL/apiKey. It bypasses
+ *      CLI-specific behavior such as sandbox enforcement and Codex
+ *      commit-attribution config. Intended for
+ *      environments where the Codex CLI isn't installable.
  *
  * Capabilities in v1:
  *   - streaming:   true

@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { CommandRunner, stripAnsiCodes, TerminalOutputProcessor } from './commandRunner.js';
+import {
+  CommandRunner,
+  createCommandRunnerEnv,
+  stripAnsiCodes,
+  TerminalOutputProcessor,
+} from './commandRunner.js';
 import * as osModule from 'os';
 
 describe('CommandRunner', () => {
@@ -10,6 +15,16 @@ describe('CommandRunner', () => {
   });
 
   describe('run', () => {
+    it('strips commit attribution from command-button environments', () => {
+      const env = createCommandRunnerEnv({
+        PATH: '/usr/bin',
+        CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Codex <noreply@openai.com>',
+      });
+
+      expect(env.CIRCUSCHIEF_COMMIT_ATTRIBUTION).toBeUndefined();
+      expect(env.PATH).toContain('/usr/bin');
+    });
+
     it('executes a simple command and captures output', async () => {
       const outputs = [];
       let completed = false;
