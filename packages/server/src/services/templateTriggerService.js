@@ -4,7 +4,7 @@ import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { resolveAgentTypeFromModel } from './sessionProvider.js';
+import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
 
 const liquid = new Liquid();
 
@@ -100,6 +100,8 @@ async function resolveWorkingDirectory(parentSession, project, settings, newSess
     gitBranch: settings.gitBranch,
     sessionId: newSessionId,
     worktreeBasePath: project.worktreePath || null,
+    commitAttributionOverride:
+      resolveProviderMetadataFromModel(settings.model)?.commitAttributionOverride ?? null,
   });
   return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
 }

@@ -1523,6 +1523,7 @@ describe('Projects API', () => {
         gitBranch: 'test-branch',
         sessionId: res.body.id,
         worktreeBasePath: null,
+        commitAttributionOverride: null,
       });
     });
 
@@ -1542,6 +1543,7 @@ describe('Projects API', () => {
         gitBranch: 'test-branch',
         sessionId: res.body.id,
         worktreeBasePath: null,
+        commitAttributionOverride: null,
       });
     });
 

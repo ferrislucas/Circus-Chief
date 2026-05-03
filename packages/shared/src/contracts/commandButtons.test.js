@@ -4,9 +4,23 @@ import {
   UpdateCommandButtonRequest,
   CommandButtonResponse,
   CommandRunResponse,
+  normalizeCommandOptionDashes,
 } from './commandButtons.js';
 
 describe('Command Buttons Contracts', () => {
+  describe('normalizeCommandOptionDashes', () => {
+    it('normalizes pasted Unicode dashes in command option tokens', () => {
+      expect(normalizeCommandOptionDashes('scripts/start-server.sh —-force')).toBe(
+        'scripts/start-server.sh --force'
+      );
+      expect(normalizeCommandOptionDashes('npm test –watch')).toBe('npm test -watch');
+    });
+
+    it('does not alter Unicode dashes inside ordinary argument text', () => {
+      expect(normalizeCommandOptionDashes('echo alpha—beta')).toBe('echo alpha—beta');
+    });
+  });
+
   describe('CreateCommandButtonRequest', () => {
     it('accepts valid create request with required fields', () => {
       const result = CreateCommandButtonRequest.safeParse({
@@ -112,6 +126,15 @@ describe('Command Buttons Contracts', () => {
       });
       expect(result.success).toBe(false);
     });
+
+    it('normalizes Unicode dashes in command options', () => {
+      const result = CreateCommandButtonRequest.safeParse({
+        label: 'Start',
+        command: 'scripts/start-server.sh —-force',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.command).toBe('scripts/start-server.sh --force');
+    });
   });
 
   describe('UpdateCommandButtonRequest', () => {
@@ -203,6 +226,14 @@ describe('Command Buttons Contracts', () => {
         showOnList: 'true',
       });
       expect(result.success).toBe(false);
+    });
+
+    it('normalizes Unicode dashes in command options', () => {
+      const result = UpdateCommandButtonRequest.safeParse({
+        command: 'scripts/start-server.sh —-force',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data.command).toBe('scripts/start-server.sh --force');
     });
   });
 
