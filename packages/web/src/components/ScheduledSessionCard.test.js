@@ -5,22 +5,29 @@ import ScheduledSessionCard from './ScheduledSessionCard.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 
+// Shared mock instances so the composable and tests reference the same spies
+const sharedSessionsStore = {
+  updateSessionFields: vi.fn(),
+};
+
+const sharedUiStore = {
+  success: vi.fn(),
+  error: vi.fn(),
+};
+
 vi.mock('../stores/sessions.js', () => ({
-  useSessionsStore: vi.fn(() => ({
-    updateSessionFields: vi.fn(),
-  })),
+  useSessionsStore: vi.fn(() => sharedSessionsStore),
 }));
 
 vi.mock('../stores/ui.js', () => ({
-  useUiStore: vi.fn(() => ({
-    success: vi.fn(),
-    error: vi.fn(),
-  })),
+  useUiStore: vi.fn(() => sharedUiStore),
 }));
 
 describe('ScheduledSessionCard.vue', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+    vi.clearAllMocks();
+    sharedSessionsStore.updateSessionFields.mockResolvedValue(undefined);
   });
 
   const mockSession = {
@@ -139,19 +146,7 @@ describe('ScheduledSessionCard.vue', () => {
   });
 
   it('handles Cancel action with confirmation', async () => {
-    const mockSessionsStore = {
-      updateSessionFields: vi.fn().mockResolvedValue(undefined),
-    };
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-
-    useSessionsStore.mockReturnValue(mockSessionsStore);
-    useUiStore.mockReturnValue(mockUiStore);
-
-    // Mock confirm dialog
-    window.confirm = vi.fn().mockReturnValue(true);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     const wrapper = mount(ScheduledSessionCard, {
       props: {
@@ -164,27 +159,16 @@ describe('ScheduledSessionCard.vue', () => {
     await cancelButton.trigger('click');
     await wrapper.vm.$nextTick();
 
-    expect(window.confirm).toHaveBeenCalled();
-    expect(mockSessionsStore.updateSessionFields).toHaveBeenCalledWith('session-1', {
+    expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
+    expect(sharedSessionsStore.updateSessionFields).toHaveBeenCalledWith('session-1', {
       status: 'stopped',
+      scheduledAt: null,
     });
-    expect(mockUiStore.success).toHaveBeenCalledWith('Session cancelled');
+    expect(sharedUiStore.success).toHaveBeenCalledWith('Session cancelled');
   });
 
   it('does not cancel when user confirms no', async () => {
-    const mockSessionsStore = {
-      updateSessionFields: vi.fn().mockResolvedValue(undefined),
-    };
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
-
-    useSessionsStore.mockReturnValue(mockSessionsStore);
-    useUiStore.mockReturnValue(mockUiStore);
-
-    // Mock confirm dialog to return false
-    window.confirm = vi.fn().mockReturnValue(false);
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
 
     const wrapper = mount(ScheduledSessionCard, {
       props: {
@@ -197,24 +181,14 @@ describe('ScheduledSessionCard.vue', () => {
     await cancelButton.trigger('click');
     await wrapper.vm.$nextTick();
 
-    expect(window.confirm).toHaveBeenCalled();
-    expect(mockSessionsStore.updateSessionFields).not.toHaveBeenCalled();
+    expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
+    expect(sharedSessionsStore.updateSessionFields).not.toHaveBeenCalled();
   });
 
   it('handles Cancel error gracefully', async () => {
-    const mockError = new Error('Failed to cancel');
-    const mockSessionsStore = {
-      updateSessionFields: vi.fn().mockRejectedValue(mockError),
-    };
-    const mockUiStore = {
-      success: vi.fn(),
-      error: vi.fn(),
-    };
+    sharedSessionsStore.updateSessionFields.mockRejectedValue(new Error('Failed to cancel'));
 
-    useSessionsStore.mockReturnValue(mockSessionsStore);
-    useUiStore.mockReturnValue(mockUiStore);
-
-    window.confirm = vi.fn().mockReturnValue(true);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     const wrapper = mount(ScheduledSessionCard, {
       props: {
@@ -228,7 +202,7 @@ describe('ScheduledSessionCard.vue', () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
     await wrapper.vm.$nextTick();
 
-    expect(mockUiStore.error).toHaveBeenCalledWith('Failed to cancel session: Failed to cancel');
+    expect(sharedUiStore.error).toHaveBeenCalledWith('Failed to cancel session: Failed to cancel');
     expect(cancelButton.text()).toBe('Cancel');
   });
 

@@ -93,6 +93,10 @@ These variables are resolved during `yarn build` (specifically `vite build`). Th
 | `BROWSER` | `chromium` | Browser to use |
 | `HEADLESS` | `true` | Run headless |
 
+## Agent System Prompt & REST API
+
+The system prompt injected into every agent session includes documentation for a REST API that agents can use to create sessions, manage the canvas, and interact with project resources. For a full reference, see [Agent System Prompt & REST API Reference](./agent-system-prompt.md).
+
 ## Project Structure
 
 ```

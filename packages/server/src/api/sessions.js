@@ -108,11 +108,14 @@ router.get('/:id', requireSession, (req, res) => {
   const allMessages = messages.getBySessionId(req.params.id);
   const hasResponses = allMessages.some(msg => msg.role === 'assistant');
 
-  // Get command run statuses (latest run per button for this session)
+  // Session details are for the requested session; command runs are workflow-root scoped.
+  const commandRunSessionId = sessions.getRootSessionId(req.params.id) || req.params.id;
+
+  // Get command run statuses (latest run per button for this workflow)
   // Completed runs from DB
-  const dbRuns = commandRuns.getLatestRunsForSession(req.params.id);
+  const dbRuns = commandRuns.getLatestRunsForSession(commandRunSessionId);
   // Currently running commands from memory - filter all runs for this session
-  const allRunning = commandRunner.getRunsBySession(req.params.id);
+  const allRunning = commandRunner.getRunsBySession(commandRunSessionId);
   const runningRuns = allRunning.filter(run => run.status === 'running');
 
   // Build map of buttonId -> run data

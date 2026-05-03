@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { reactive, h } from 'vue';
@@ -52,6 +52,10 @@ describe('MessageItem', () => {
     setActivePinia(createPinia());
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('rendering', () => {
     it('should render with correct data-testid for user messages', () => {
       const wrapper = mountComponent();
@@ -94,6 +98,43 @@ describe('MessageItem', () => {
     it('should render message timestamp', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('.message-time').text()).toBeTruthy();
+    });
+
+    it('should not render message date for messages from today', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 4, 1, 12, 0));
+
+      const wrapper = mountComponent({
+        message: createMessage({ timestamp: new Date(2026, 4, 1, 9, 30) }),
+      });
+
+      expect(wrapper.find('.message-time').text()).toBeTruthy();
+      expect(wrapper.find('.message-date').exists()).toBe(false);
+    });
+
+    it('should render message date above time for prior-day messages', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 4, 1, 12, 0));
+
+      const wrapper = mountComponent({
+        message: createMessage({ timestamp: new Date(2026, 3, 30, 23, 59) }),
+      });
+
+      expect(wrapper.find('.message-date').exists()).toBe(true);
+      expect(wrapper.find('.message-date').text()).toContain('2026');
+      expect(wrapper.find('.message-time').text()).toBeTruthy();
+    });
+
+    it('should not render message date for missing timestamps', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 4, 1, 12, 0));
+
+      const wrapper = mountComponent({
+        message: createMessage({ timestamp: null }),
+      });
+
+      expect(wrapper.find('.message-date').exists()).toBe(false);
+      expect(wrapper.find('.message-time').text()).toBe('');
     });
   });
 

@@ -162,10 +162,7 @@ CRITICAL: Do NOT start coding until you have presented a plan and received appro
  */
 function buildCanvasWriteSystemPrompt(session) {
   const apiUrl = getApiBaseUrl();
-  // Use root session ID, fall back to session.id if getRootSessionId returns null, fall back to 'unknown-session' if session is null
-  const sessionId = session
-    ? (sessions.getRootSessionId(session.id) || session.id)
-    : 'unknown-session';
+  const sessionId = session?.id || 'unknown-session';
   return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 
 POST ${apiUrl}/api/sessions/${sessionId}/canvas
@@ -187,10 +184,7 @@ The file type is automatically detected from the file extension. Supported forma
  */
 function buildCanvasReadSystemPrompt(session) {
   const apiUrl = getApiBaseUrl();
-  // Use root session ID, fall back to session.id if getRootSessionId returns null, fall back to 'unknown-session' if session is null
-  const sessionId = session
-    ? (sessions.getRootSessionId(session.id) || session.id)
-    : 'unknown-session';
+  const sessionId = session?.id || 'unknown-session';
   return `## Reading from Canvas
 
 To list all files on the canvas:
@@ -225,9 +219,10 @@ function buildSessionCrudOps(apiUrl, projectId) {
 \`\`\`bash
 curl -X POST ${apiUrl}/api/projects/${projectId}/sessions \\
   -H "Content-Type: application/json" \\
-  -d '{"prompt": "Your task description here", "name": "Optional session name"}'
+  -d '{"prompt": "Your task description here"}'
 \`\`\`
-Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`gitBranch\`, \`gitMode\`, \`parentSessionId\` (to create a child session)
+Only \`prompt\` is required. Omitted settings are automatically derived from the project's session defaults, then system defaults, matching UI behavior.
+Optional override fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`model\`, \`providerId\`, \`gitBranch\`, \`gitMode\`, \`templateId\`, \`nextTemplateId\`, \`parentSessionId\` (to create a related follow-up session from the current session), \`startImmediately\`, \`scheduledAt\`, \`autoRescheduleEnabled\`, \`rescheduleDelayMinutes\`, \`rescheduleOnTokenLimit\`, \`rescheduleOnServiceError\`, \`maxRescheduleCount\`, \`maxTotalTokens\`, and \`rescheduleAtTokenCount\`.
 
 ### Send a Follow-up Message
 \`\`\`bash
@@ -258,8 +253,8 @@ curl -X PATCH ${apiUrl}/api/sessions/<session_id> \\
 \`\`\``;
 }
 
-/** Build project, notes, and summary operations section */
-function buildProjectNotesOps(apiUrl) {
+/** Build project and summary operations section */
+function buildProjectOps(apiUrl, sessionId) {
   return `### Project Operations
 \`\`\`bash
 curl ${apiUrl}/api/projects                          # List all projects
@@ -271,18 +266,10 @@ curl -X POST ${apiUrl}/api/projects \\
 \`\`\`
 Optional field: \`systemPrompt\`
 
-### Session Notes
+### Workflow Summary
 \`\`\`bash
-curl ${apiUrl}/api/sessions/<session_id>/notes       # Get notes
-curl -X POST ${apiUrl}/api/sessions/<session_id>/notes \\
-  -H "Content-Type: application/json" \\
-  -d '{"content": "Note content"}'
-\`\`\`
-
-### Session Summary
-\`\`\`bash
-curl "${apiUrl}/api/sessions/<session_id>/summary?generate=true"
-curl -X POST ${apiUrl}/api/sessions/<session_id>/summary  # Regenerate
+curl "${apiUrl}/api/sessions/${sessionId}/summary?generate=true"
+curl -X POST ${apiUrl}/api/sessions/${sessionId}/summary  # Regenerate
 \`\`\``;
 }
 
@@ -299,7 +286,7 @@ You can create and modify sessions in this system using curl or similar HTTP too
 
 ${buildSessionCrudOps(apiUrl, projectId)}
 
-${buildProjectNotesOps(apiUrl)}`;
+${buildProjectOps(apiUrl, sessionId)}`;
 }
 
 /**
@@ -336,7 +323,7 @@ ${laneContext}
 curl ${apiUrl}/api/projects/${projectId}/kanban
 \`\`\`
 
-### Add This Session to the Board
+### Add Current Workflow to the Board
 \`\`\`bash
 curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
   -H "Content-Type: application/json" \\
@@ -395,26 +382,6 @@ CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working dir
 }
 
 /**
- * Build child session context for system prompt
- * @param {Object} session - Session object
- * @returns {string} Child session context or empty string
- */
-function buildChildSessionContext(session) {
-  if (!session || !session.parentSessionId) {
-    return '';
-  }
-
-  // Get root session ID using existing method
-  const rootSessionId = sessions.getRootSessionId(session.id);
-
-  return `## Child Session
-
-This session is part of a multi-session workflow:
-- Parent Session ID: ${session.parentSessionId}
-- Root Session ID: ${rootSessionId}`;
-}
-
-/**
  * Build the full system prompt configuration
  * @param {string} sessionId
  * @param {string} projectId
@@ -432,7 +399,6 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
   const kanbanApiInstructions = buildKanbanApiInstructions(sessionId, projectId);
   const attachmentsContext = getSessionAttachmentsContext(sessionId);
   const worktreeContext = buildWorktreeContext(session);
-  const childSessionContext = buildChildSessionContext(session);
   const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
 
   // Prepend plan mode instructions if in plan mode
@@ -442,7 +408,6 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
   const parts = [
     modePrompt,
     basePrompt,
-    childSessionContext,
     worktreeContext,
     attachmentsContext,
     canvasWriteInstructions,

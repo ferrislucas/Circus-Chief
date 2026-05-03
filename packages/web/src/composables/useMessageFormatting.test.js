@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { useMessageFormatting } from './useMessageFormatting.js';
 
 describe('useMessageFormatting', () => {
-  const { formatTime, formatModelName, formatFileSize, getAttachmentIcon } = useMessageFormatting();
+  const {
+    formatTime,
+    formatMessageDate,
+    isBeforeToday,
+    formatModelName,
+    formatFileSize,
+    getAttachmentIcon,
+  } = useMessageFormatting();
 
   describe('formatTime', () => {
     it('should format an ISO timestamp to locale time string', () => {
@@ -36,6 +43,71 @@ describe('useMessageFormatting', () => {
 
     it('should return empty string for empty string input', () => {
       expect(formatTime('')).toBe('');
+    });
+  });
+
+  describe('formatMessageDate', () => {
+    it('should format a timestamp as a compact local date', () => {
+      const result = formatMessageDate(new Date(2026, 3, 30, 14, 30));
+
+      expect(result).toContain('2026');
+      expect(result).toMatch(/Apr|4/);
+      expect(result).toContain('30');
+    });
+
+    it('should return empty string for null input', () => {
+      expect(formatMessageDate(null)).toBe('');
+    });
+
+    it('should return empty string for undefined input', () => {
+      expect(formatMessageDate(undefined)).toBe('');
+    });
+
+    it('should return empty string for empty string input', () => {
+      expect(formatMessageDate('')).toBe('');
+    });
+
+    it('should return empty string for invalid dates', () => {
+      expect(formatMessageDate('not-a-date')).toBe('');
+    });
+  });
+
+  describe('isBeforeToday', () => {
+    it('should return false for a timestamp on the same local calendar day', () => {
+      const now = new Date(2026, 4, 1, 22, 0);
+      const timestamp = new Date(2026, 4, 1, 8, 0);
+
+      expect(isBeforeToday(timestamp, now)).toBe(false);
+    });
+
+    it('should return true for a timestamp from the prior local calendar day', () => {
+      const now = new Date(2026, 4, 1, 12, 0);
+      const timestamp = new Date(2026, 3, 30, 12, 0);
+
+      expect(isBeforeToday(timestamp, now)).toBe(true);
+    });
+
+    it('should compare local calendar days instead of elapsed hours', () => {
+      const now = new Date(2026, 4, 1, 0, 1);
+      const timestamp = new Date(2026, 3, 30, 23, 59);
+
+      expect(isBeforeToday(timestamp, now)).toBe(true);
+    });
+
+    it('should return false for null input', () => {
+      expect(isBeforeToday(null, new Date(2026, 4, 1))).toBe(false);
+    });
+
+    it('should return false for undefined input', () => {
+      expect(isBeforeToday(undefined, new Date(2026, 4, 1))).toBe(false);
+    });
+
+    it('should return false for empty string input', () => {
+      expect(isBeforeToday('', new Date(2026, 4, 1))).toBe(false);
+    });
+
+    it('should return false for invalid dates', () => {
+      expect(isBeforeToday('not-a-date', new Date(2026, 4, 1))).toBe(false);
     });
   });
 

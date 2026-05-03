@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, commandButtons, commandRuns, sessionSummaries } from '../database.js';
 
 // Mock websocket before importing the router
 vi.mock('../websocket.js', () => ({
@@ -74,6 +74,7 @@ vi.mock('../middleware/upload.js', () => ({
 }));
 
 import sessionsRouter from './sessions.js';
+import * as summaryService from '../services/summaryService.js';
 
 describe('Sessions API - PATCH effortLevel', () => {
   let app;
@@ -185,5 +186,97 @@ describe('Sessions API - PATCH effortLevel', () => {
     expect(res.body.effortLevel).toBe('max');
     expect(res.body.thinkingEnabled).toBe(true);
     expect(res.body.name).toBe('Updated Session');
+  });
+});
+
+describe('Sessions API - workflow-root command metadata', () => {
+  let app;
+  let project;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/sessions', sessionsRouter);
+
+    project = projects.create('Test Project', '/tmp/test');
+  });
+
+  it('returns requested child session details with latestCommandRuns from the workflow root', async () => {
+    const root = sessions.create(project.id, 'Root Session', 'root prompt');
+    const child = sessions.create(project.id, 'Child Session', 'child prompt', {
+      mode: 'standard',
+      parentSessionId: root.id,
+    });
+    const button = commandButtons.create({ projectId: project.id, label: 'Build', command: 'echo build' });
+    commandRuns.create({ id: 'root-run', sessionId: root.id, buttonId: button.id });
+    commandRuns.complete('root-run', 0, 'done');
+
+    const res = await request(app).get(`/api/sessions/${child.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(child.id);
+    expect(res.body.parentSessionId).toBe(root.id);
+    expect(res.body.latestCommandRuns).toEqual([
+      expect.objectContaining({
+        buttonId: button.id,
+        runId: 'root-run',
+        output: 'done',
+      }),
+    ]);
+  });
+});
+
+describe('Sessions API - workflow summary routes', () => {
+  let app;
+  let project;
+  let root;
+  let child;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/sessions', sessionsRouter);
+
+    project = projects.create('Test Project', '/tmp/test');
+    root = sessions.create(project.id, 'Root Session', 'root prompt');
+    child = sessions.create(project.id, 'Child Session', 'child prompt', {
+      mode: 'standard',
+      parentSessionId: root.id,
+    });
+  });
+
+  it('gets workflow root summary through a child session', async () => {
+    summaryService.getSummary.mockResolvedValueOnce({ sessionId: root.id, summary: 'root summary' });
+
+    const res = await request(app).get(`/api/sessions/${child.id}/summary?generate=true`);
+
+    expect(res.status).toBe(200);
+    expect(summaryService.getSummary).toHaveBeenCalledWith(root.id, true);
+    expect(res.body.sessionId).toBe(root.id);
+  });
+
+  it('regenerates workflow root summary through a child session', async () => {
+    summaryService.regenerateSummary.mockResolvedValueOnce({ sessionId: root.id, summary: 'new summary' });
+
+    const res = await request(app).post(`/api/sessions/${child.id}/summary`);
+
+    expect(res.status).toBe(201);
+    expect(summaryService.regenerateSummary).toHaveBeenCalledWith(root.id);
+    expect(res.body.sessionId).toBe(root.id);
+  });
+
+  it('updates workflow root summary through a child session', async () => {
+    const res = await request(app)
+      .put(`/api/sessions/${child.id}/summary`)
+      .send({ shortSummary: 'Manual', fullSummary: 'manual summary' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe(root.id);
+    expect(sessionSummaries.getBySessionId(root.id).fullSummary).toBe('manual summary');
+    expect(sessionSummaries.getBySessionId(child.id)).toBeNull();
   });
 });
