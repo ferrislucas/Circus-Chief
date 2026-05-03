@@ -108,8 +108,8 @@ test.describe('Summary Regenerate', () => {
   });
 
   test('should show generate summary action when summary is missing', async ({ page }) => {
-    seedUserMessage(session.id, 'Add a summary action for missing summaries');
-    seedAssistantMessage(session.id, 'Implemented the missing-summary action');
+    await seedUserMessage(session.id, 'Add a summary action for missing summaries');
+    await seedAssistantMessage(session.id, 'Implemented the missing-summary action');
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 

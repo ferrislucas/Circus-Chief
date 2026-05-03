@@ -1094,6 +1094,22 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.missing-summary-action button').text()).toContain('Generate summary');
     });
 
+    it('shows missing-summary-action for running session with latest response but no summary', async () => {
+      sessionsStore.currentSession = { id: 'sess-123', status: 'running' };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: { content: 'A response', timestamp: Date.now(), role: 'assistant' },
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.find('.missing-summary-action').exists()).toBe(true);
+      expect(wrapper.find('.missing-summary-action button').text()).toContain('Generate summary');
+    });
+
     it('does not show empty state when session is running', async () => {
       sessionsStore.currentSession = { id: 'sess-123', status: 'running' };
       sessionsStore.sessions = [sessionsStore.currentSession];

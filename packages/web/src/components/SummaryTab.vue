@@ -331,27 +331,6 @@ async function handleRegenerate() {
   line-height: 1.4;
 }
 
-.btn-link {
-  background: none;
-  border: none;
-  color: var(--color-primary);
-  font-size: 0.75rem;
-  cursor: pointer;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.btn-link:hover {
-  text-decoration: underline;
-}
-
-.btn-link:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
 .summary-generate-action {
   margin-top: 1rem;
 }
