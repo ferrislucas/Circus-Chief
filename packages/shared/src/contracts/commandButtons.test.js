@@ -19,6 +19,11 @@ describe('Command Buttons Contracts', () => {
     it('does not alter Unicode dashes inside ordinary argument text', () => {
       expect(normalizeCommandOptionDashes('echo alpha—beta')).toBe('echo alpha—beta');
     });
+
+    it('returns match unchanged when option dashes are plain ASCII', () => {
+      expect(normalizeCommandOptionDashes('npm test --watch')).toBe('npm test --watch');
+      expect(normalizeCommandOptionDashes('git commit -am "msg"')).toBe('git commit -am "msg"');
+    });
   });
 
   describe('CreateCommandButtonRequest', () => {
