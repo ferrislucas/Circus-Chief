@@ -25,7 +25,9 @@
       :has-warnings="hasWarnings"
       :scheduled-time-display="scheduledTimeDisplay"
       :scheduling-countdown="schedulingCountdown"
+      :cancelling="cancelling"
       @edit-schedule="showScheduleTimeModal = true"
+      @cancel-schedule="cancelScheduledSession(sessionId)"
     />
 
     <!-- Scheduling Edit Modal -->
@@ -114,6 +116,7 @@ import { formatTokenCount } from '@circuschief/shared';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useScheduleCancel } from '../composables/useScheduleCancel.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
 import SchedulingEditModal from './SchedulingEditModal.vue';
@@ -132,6 +135,7 @@ const props = defineProps({
 
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
+const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore);
 
 // Set up streaming subscriptions (primary + descendants)
 const { onSummaryUpdate, onSummaryGenerating, onMessage } = useSummaryStreaming(props.sessionId);
