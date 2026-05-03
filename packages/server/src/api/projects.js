@@ -212,6 +212,16 @@ async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, pro
     return { error: 'Prompt is required', status: 400 };
   }
 
+  if (config.parentSessionId) {
+    const parentSession = sessions.getById(config.parentSessionId);
+    if (!parentSession) {
+      return { error: 'Parent session not found', status: 404 };
+    }
+    if (parentSession.projectId !== projectId) {
+      return { error: 'Parent session does not belong to this project', status: 400 };
+    }
+  }
+
   // Apply template overrides and resolve nextTemplateId
   applyTemplateOverrides(config);
   const { nextTemplateId, error: nextTemplateError } = resolveNextTemplateId(reqBody, config.nextTemplateId || null);

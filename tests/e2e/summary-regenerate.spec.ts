@@ -5,6 +5,8 @@ import {
   setSessionSummary,
   cleanupAll,
   navigateAndWait,
+  seedUserMessage,
+  seedAssistantMessage,
 } from './helpers';
 
 test.describe('Summary Regenerate', () => {
@@ -103,5 +105,19 @@ test.describe('Summary Regenerate', () => {
     // Eventually, the summary content should be visible and generating state hidden
     await expect(summaryContent).toBeVisible({ timeout: 10000 });
     await expect(generatingState).not.toBeVisible({ timeout: 10000 });
+  });
+
+  test('should show generate summary action when summary is missing', async ({ page }) => {
+    await seedUserMessage(session.id, 'Add a summary action for missing summaries');
+    await seedAssistantMessage(session.id, 'Implemented the missing-summary action');
+
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+
+    const generateButton = page.getByRole('button', { name: 'Generate summary' });
+    await expect(generateButton).toBeVisible();
+    await generateButton.click();
+
+    await expect(page.locator('.summary-content')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('.generating-state')).not.toBeVisible();
   });
 });
