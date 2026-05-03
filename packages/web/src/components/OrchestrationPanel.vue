@@ -262,6 +262,7 @@ function handleTemplateChange(templateId) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .reschedule-icon {
@@ -272,7 +273,6 @@ function handleTemplateChange(templateId) {
 .reschedule-label {
   font-size: 0.9rem;
   color: var(--color-text);
-  flex: 1;
 }
 
 .btn-status {
