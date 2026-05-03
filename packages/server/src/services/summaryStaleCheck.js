@@ -6,6 +6,20 @@
 import { sessionSummaries, messages, sessions } from '../database.js';
 
 /**
+ * Check if any descendant session has a summary newer than the given timestamp.
+ * @param {string} sessionId
+ * @param {number} generatedAt
+ * @returns {boolean}
+ */
+function hasNewerDescendantSummary(sessionId, generatedAt) {
+  const descendantIds = sessions.getAllDescendantIds(sessionId);
+  if (descendantIds.length === 0) return false;
+
+  const descendantSummaries = sessionSummaries.getBySessionIds(descendantIds);
+  return descendantSummaries.some(ds => ds.generatedAt > generatedAt);
+}
+
+/**
  * Check if a summary is stale (message count, last message ID, or descendant summaries have changed)
  * @param {string} sessionId
  * @returns {boolean}
@@ -34,13 +48,7 @@ export function isSummaryStale(sessionId) {
   if (allMessages.length !== summary.messageCount) return true;
 
   // Check if any descendant session has a newer summary
-  const descendantIds = sessions.getAllDescendantIds(sessionId);
-  if (descendantIds.length > 0) {
-    const descendantSummaries = sessionSummaries.getBySessionIds(descendantIds);
-    for (const ds of descendantSummaries) {
-      if (ds.generatedAt > summary.generatedAt) return true;
-    }
-  }
+  if (hasNewerDescendantSummary(sessionId, summary.generatedAt)) return true;
 
   return false;
 }
