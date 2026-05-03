@@ -90,3 +90,4 @@ npx circuschief -p 8080
 
 - [Development Guide](docs/development.md) — Quick start, commands, testing, environment variables
 - [Build & Distribution](docs/build-and-distribution.md) — How the npm package is built, published, and run
+- [Agent System Prompt & REST API Reference](docs/agent-system-prompt.md) — The REST API exposed to agents via the system prompt

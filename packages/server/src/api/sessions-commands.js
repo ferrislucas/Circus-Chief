@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { commandButtons, commandRuns } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
+import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 
@@ -46,15 +46,23 @@ function broadcastCommandError(ctx, errorMessage) {
   broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, { projectId, sessionId, runId, buttonId, error: errorMessage });
 }
 
+// GET /api/sessions/:id/command-buttons - List command buttons for the workflow project
+router.get('/:id/command-buttons', requireRootSessionAndProject, (req, res) => {
+  res.json(commandButtons.getByProjectId(req.rootSession_.projectId));
+});
+
 // POST /api/sessions/:id/command-buttons/:buttonId/run - Execute button command
-router.post('/:id/command-buttons/:buttonId/run', requireSessionAndProject, (req, res) => {
-  const sessionId = req.params.id;
+router.post('/:id/command-buttons/:buttonId/run', requireRootSessionAndProject, (req, res) => {
+  const sessionId = req.rootSessionId;
   const buttonId = req.params.buttonId;
 
   console.log(`[RUN] Starting command for buttonId: ${buttonId}, sessionId: ${sessionId}`);
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
+  if (button.projectId !== req.rootSession_.projectId) {
     return res.status(404).json({ error: 'Command button not found' });
   }
 
@@ -67,8 +75,8 @@ router.post('/:id/command-buttons/:buttonId/run', requireSessionAndProject, (req
   res.json({ runId, buttonId, status: 'running', output: '' });
 
   // Capture middleware values for use in async callbacks
-  const projectId = req.session_.projectId;
-  const workingDirectory = req.workingDirectory;
+  const projectId = req.rootSession_.projectId;
+  const workingDirectory = req.rootWorkingDirectory;
   const ctx = { sessionId, projectId, runId, buttonId };
 
   // Broadcast initial "running" status immediately so session list can show the running indicator
@@ -98,16 +106,17 @@ router.post('/:id/command-buttons/:buttonId/run', requireSessionAndProject, (req
 });
 
 // GET /api/sessions/:id/command-buttons/runs - Get active runs for session
-router.get('/:id/command-buttons/runs', requireSession, (req, res) => {
-  const sessionId = req.params.id;
+router.get('/:id/command-buttons/runs', requireRootSessionAndProject, (req, res) => {
+  const sessionId = req.rootSessionId;
 
   const activeRuns = commandRunner.getRunsBySession(sessionId);
   res.json(activeRuns);
 });
 
 // GET /api/sessions/:id/command-buttons/runs/:runId - Get single run by ID
-router.get('/:id/command-buttons/runs/:runId', requireSession, (req, res) => {
-  const { id: sessionId, runId } = req.params;
+router.get('/:id/command-buttons/runs/:runId', requireRootSessionAndProject, (req, res) => {
+  const { runId } = req.params;
+  const sessionId = req.rootSessionId;
 
   // Check if run is currently running (in memory)
   if (commandRunner.isRunning(runId)) {
@@ -136,8 +145,8 @@ router.get('/:id/command-buttons/runs/:runId', requireSession, (req, res) => {
 });
 
 // DELETE /api/sessions/:id/command-buttons/runs/:runId - Delete a command run record
-router.delete('/:id/command-buttons/runs/:runId', requireSessionAndProject, (req, res) => {
-  const sessionId = req.params.id;
+router.delete('/:id/command-buttons/runs/:runId', requireRootSessionAndProject, (req, res) => {
+  const sessionId = req.rootSessionId;
   const { runId } = req.params;
 
   const run = commandRuns.getById(runId);
@@ -151,7 +160,7 @@ router.delete('/:id/command-buttons/runs/:runId', requireSessionAndProject, (req
 
   commandRuns.deleteById(runId);
 
-  const projectId = req.session_.projectId;
+  const projectId = req.rootSession_.projectId;
 
   // Broadcast deletion to session and project subscribers
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.COMMAND_RUN_DELETED, {
@@ -170,18 +179,21 @@ router.delete('/:id/command-buttons/runs/:runId', requireSessionAndProject, (req
 });
 
 // DELETE /api/sessions/:id/command-buttons/:buttonId/runs/all - Delete all runs for a button in a session
-router.delete('/:id/command-buttons/:buttonId/runs/all', requireSessionAndProject, (req, res) => {
-  const sessionId = req.params.id;
+router.delete('/:id/command-buttons/:buttonId/runs/all', requireRootSessionAndProject, (req, res) => {
+  const sessionId = req.rootSessionId;
   const { buttonId } = req.params;
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
     return res.status(404).json({ error: 'Command button not found' });
   }
+  if (button.projectId !== req.rootSession_.projectId) {
+    return res.status(404).json({ error: 'Command button not found' });
+  }
 
   const { deletedRuns } = commandRuns.deleteByButtonAndSession(buttonId, sessionId);
 
-  const projectId = req.session_.projectId;
+  const projectId = req.rootSession_.projectId;
 
   // Broadcast individual COMMAND_RUN_DELETED events for each deleted run
   for (const run of deletedRuns) {
@@ -202,11 +214,17 @@ router.delete('/:id/command-buttons/:buttonId/runs/all', requireSessionAndProjec
 });
 
 // POST /api/sessions/:id/command-buttons/runs/:runId/kill - Kill running command
-router.post('/:id/command-buttons/runs/:runId/kill', requireSession, (req, res) => {
-  const sessionId = req.params.id;
+router.post('/:id/command-buttons/runs/:runId/kill', requireRootSessionAndProject, (req, res) => {
+  const sessionId = req.rootSessionId;
   const runId = req.params.runId;
 
   console.log(`[KILL] Kill request for runId: ${runId}, sessionId: ${sessionId}`);
+
+  const activeRuns = commandRunner.getRunsBySession(sessionId);
+  const activeRun = activeRuns.find((run) => run.runId === runId);
+  if (!activeRun) {
+    return res.status(404).json({ error: 'Run not found or already completed' });
+  }
 
   const killed = commandRunner.kill(runId);
   console.log(`[KILL] Kill result: ${killed} for runId: ${runId}`);

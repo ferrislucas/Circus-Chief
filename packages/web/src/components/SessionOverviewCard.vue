@@ -146,6 +146,14 @@
       >
         Edit time
       </button>
+      <button
+        class="btn-link scheduling-cancel-link"
+        data-testid="scheduling-cancel-link"
+        :disabled="cancelling"
+        @click="$emit('cancel-schedule')"
+      >
+        Cancel
+      </button>
     </div>
   </div>
 </template>
@@ -210,9 +218,13 @@ defineProps({
     type: String,
     default: '',
   },
+  cancelling: {
+    type: Boolean,
+    default: false,
+  },
 });
 
-defineEmits(['edit-schedule']);
+defineEmits(['edit-schedule', 'cancel-schedule']);
 </script>
 
 <style scoped>
@@ -420,5 +432,25 @@ defineEmits(['edit-schedule']);
 
 .scheduling-edit-link:hover {
   text-decoration: underline;
+}
+
+.scheduling-cancel-link {
+  background: none;
+  border: none;
+  color: var(--color-error, #f87171);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 0;
+}
+
+.scheduling-cancel-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.scheduling-cancel-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>
