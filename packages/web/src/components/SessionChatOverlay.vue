@@ -10,8 +10,8 @@
         class="overlay-backdrop"
         data-testid="session-chat-overlay"
         @click.self="close"
-        @focusin="handleOverlayFocusin"
-        @focusout="handleOverlayFocusout"
+        @focusin="requestVisualViewportUpdate"
+        @focusout="requestVisualViewportSettle"
       >
         <div
           class="overlay-panel-wrapper"
@@ -803,14 +803,6 @@ function handleHeaderTouchmove(event) {
   if (event.target.closest('[data-testid="session-chat-picker"]')) return;
   if (event.target.closest('.name-edit-input')) return;
   event.preventDefault();
-}
-
-function handleOverlayFocusin() {
-  requestVisualViewportUpdate();
-}
-
-function handleOverlayFocusout() {
-  requestVisualViewportSettle();
 }
 
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
