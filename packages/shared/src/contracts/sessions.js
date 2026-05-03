@@ -7,7 +7,7 @@ export const CreateSessionRequest = z.object({
   thinkingEnabled: z.boolean().optional(),
   effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).optional(),
   gitBranch: z.string().optional(),
-  gitMode: z.enum(['branch', 'worktree']).optional(),
+  gitMode: z.enum(['branch', 'worktree', 'current']).optional(),
   templateId: z.string().uuid().optional(), // Template to apply on session creation
   nextTemplateId: z.string().uuid().nullable().optional(),
   // Scheduling fields

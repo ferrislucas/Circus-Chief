@@ -338,7 +338,7 @@ export function SessionsApi(ApiClient) {
      * @param {string} id - Session ID to duplicate
      * @param {Object} options - Duplication options
      * @param {string} [options.name] - Custom name for duplicated session
-     * @param {string} [options.gitMode] - Git mode (none|branch|worktree)
+     * @param {string} [options.gitMode] - Git mode (current|branch|worktree)
      * @param {string} [options.gitBranch] - Git branch name (if gitMode is branch)
      * @returns {Promise<Object>}
      */

@@ -25,8 +25,8 @@
       <button
         type="button"
         class="segment-btn"
-        :class="{ 'segment-btn--active': modelValue === '' }"
-        @click="$emit('update:modelValue', '')"
+        :class="{ 'segment-btn--active': modelValue === 'current' }"
+        @click="$emit('update:modelValue', 'current')"
       >
         Current
       </button>
@@ -34,7 +34,7 @@
 
     <!-- Branch name input (shown for branch or worktree) -->
     <div
-      v-if="modelValue"
+      v-if="modelValue === 'branch' || modelValue === 'worktree'"
       class="branch-input-row"
     >
       <label class="form-label form-label-small">Branch Name</label>
@@ -62,7 +62,7 @@
     </div>
 
     <p
-      v-if="modelValue === ''"
+      v-if="modelValue === 'current'"
       class="current-branch-hint"
     >
       On: {{ gitStatus.currentBranch }}

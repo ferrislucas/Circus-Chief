@@ -679,6 +679,59 @@ describe('Projects API', () => {
         sessionTemplates.delete(template.id);
       });
     });
+
+    describe('gitMode current opt-out', () => {
+      it('creates session with gitMode current and stores gitBranch as null', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test current mode',
+          gitMode: 'current',
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.gitBranch).toBeNull();
+        expect(res.body.gitWorktree).toBeNull();
+
+        // Verify in database
+        const session = sessions.getById(res.body.id);
+        expect(session.gitBranch).toBeNull();
+        expect(session.gitWorktree).toBeNull();
+      });
+
+      it('current mode does not create a worktree', async () => {
+        await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test no worktree',
+          gitMode: 'current',
+        });
+
+        // setupGitForSession should have been called with null gitMode
+        expect(setupGitForSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            gitMode: null,
+          })
+        );
+      });
+
+      it('current mode overrides project default of worktree', async () => {
+        // Set project default to worktree
+        await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+          gitMode: 'worktree',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Override worktree default',
+          gitMode: 'current',
+        });
+
+        expect(res.status).toBe(201);
+
+        // Verify setupGitForSession was called with null gitMode (current normalized)
+        expect(setupGitForSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            gitMode: null,
+          })
+        );
+      });
+    });
   });
 
   describe('POST /api/projects kanbanEnabled default', () => {
@@ -1009,6 +1062,15 @@ describe('Projects API', () => {
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBeDefined();
+    });
+
+    it('accepts gitMode "current"', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        gitMode: 'current',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.gitMode).toBe('current');
     });
 
     it('returns 404 for non-existent project', async () => {

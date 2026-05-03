@@ -228,6 +228,8 @@ export function buildSessionPayload(formState, options) {
   const { currentPrompt, gitStatus, files } = options;
   const submitGitMode = formState.quickGitMode.value && gitStatus?.isGitRepo
     ? formState.quickGitMode.value : undefined;
+  // Omit gitBranch for current mode (no branch needed)
+  const omitGitBranch = submitGitMode === 'current';
 
   return {
     prompt: currentPrompt,
@@ -238,7 +240,7 @@ export function buildSessionPayload(formState, options) {
     effortLevel: formState.effortLevel.value,
     startImmediately: formState.startImmediately.value,
     gitMode: submitGitMode,
-    gitBranch: submitGitMode ? formState.quickWorktreeBranch.value : undefined,
+    gitBranch: submitGitMode && !omitGitBranch ? formState.quickWorktreeBranch.value : undefined,
     files,
     templateId: formState.selectedTemplateId.value,
     parentSessionId: formState.parentSessionId.value || null,

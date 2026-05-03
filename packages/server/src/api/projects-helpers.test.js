@@ -86,4 +86,25 @@ describe('validateGitSettings', () => {
     expect(result).toEqual({ config: { gitMode: 'none', gitBranch: 'main' }, error: null });
     expect(isGitRepo).not.toHaveBeenCalled();
   });
+
+  describe('current mode', () => {
+    it('passes through current mode without generating a branch', async () => {
+      const config = { gitMode: 'current' };
+      const result = await validateGitSettings(config, project);
+
+      expect(result.error).toBeNull();
+      expect(result.config.gitMode).toBe('current');
+      expect(result.config.gitBranch).toBeNull();
+      // Should not call isGitRepo - current mode short-circuits
+      expect(isGitRepo).not.toHaveBeenCalled();
+    });
+
+    it('sets gitBranch to null even when a branch is provided', async () => {
+      const config = { gitMode: 'current', gitBranch: 'some-branch' };
+      const result = await validateGitSettings(config, project);
+
+      expect(result.config.gitMode).toBe('current');
+      expect(result.config.gitBranch).toBeNull();
+    });
+  });
 });
