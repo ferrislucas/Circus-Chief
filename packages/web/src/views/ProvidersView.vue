@@ -54,6 +54,7 @@
           </div>
           <div class="provider-actions">
             <button
+              v-if="!provider.isBuiltIn"
               class="btn btn-sm"
               :disabled="testingProviderId === provider.id"
               title="Test Connection"
