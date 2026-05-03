@@ -18,9 +18,10 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 }));
 
 
-import { buildQueryParams, createAgentForSession } from './sessionExecution.js';
+import { buildAgentEnv, buildQueryParams, createAgentForSession } from './sessionExecution.js';
 import { continueSession, runSession, continueSessionWithExistingMessage } from './sessionManager.js';
 import * as sessionProvider from './sessionProvider.js';
+import * as gitService from './gitService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 
 import { ProjectRepository } from '../db/ProjectRepository.js';
@@ -119,6 +120,40 @@ describe('buildQueryParams', () => {
     const result = buildQueryParams(args);
 
     expect(result.options.effortLevel).toBeNull();
+  });
+
+  it('omits Claude attribution settings when override is null', () => {
+    const result = buildQueryParams({ ...baseArgs(), commitAttributionOverride: null });
+    expect(result.options.extraArgs).toBeUndefined();
+  });
+
+  it('does not include native Claude attribution settings when override is configured', () => {
+    const result = buildQueryParams({
+      ...baseArgs(),
+      commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+    });
+
+    expect(result.options.extraArgs).toBeUndefined();
+  });
+
+  it('does not carry commitAttributionOverride into Codex query options', () => {
+    const result = buildQueryParams({
+      ...baseArgs(),
+      agentType: 'codex',
+      model: 'gpt-5.5',
+      commitAttributionOverride: 'Codex <noreply@openai.com>',
+    });
+
+    expect(result.options.commitAttributionOverride).toBeUndefined();
+  });
+
+  it('buildAgentEnv sets or deletes CIRCUSCHIEF_COMMIT_ATTRIBUTION', () => {
+    expect(buildAgentEnv({}, 'Co-authored-by: Codex <noreply@openai.com>'))
+      .toMatchObject({ CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Codex <noreply@openai.com>' });
+    expect(buildAgentEnv({
+      CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Leaked <leaked@example.com>',
+      OTHER: 'value',
+    }, null)).toEqual({ OTHER: 'value' });
   });
 });
 
@@ -654,5 +689,114 @@ describe('Phase 7: sessionExecution agent-type dispatch', () => {
     expect(capturedQueryParams.options.resume).toBe('prior-claude-id');
 
     createAgentSpy.mockRestore();
+  });
+});
+
+// ── commit attribution hook guard ─────────────────────────────────────────
+
+describe('commit attribution hook installation guard', () => {
+  let sessionRepo;
+  let conversationRepo;
+  let projectRepo;
+  let tempDir;
+
+  beforeEach(() => {
+    mockQuery.mockClear();
+    sessionRepo = new SessionRepository();
+    conversationRepo = new ConversationRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'attribution-guard-test-'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('runSession does NOT install hook when no attribution is configured', async () => {
+    const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook');
+    // Default: resolveProviderMetadataFromModel returns null → no commitAttributionOverride
+    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue(null);
+
+    const project = projectRepo.create('Attribution Test', tempDir);
+    // Simulate a worktree session by setting gitWorktree
+    const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, { gitWorktree: tempDir, model: 'claude-sonnet-4-20250514' });
+
+    await runSession(session.id, 'test', tempDir);
+
+    expect(hookSpy).not.toHaveBeenCalled();
+  });
+
+  it('runSession installs hook when attribution IS configured', async () => {
+    const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook').mockResolvedValue(true);
+    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue({
+      commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+    });
+
+    const project = projectRepo.create('Attribution Test', tempDir);
+    const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, { gitWorktree: tempDir, model: 'claude-sonnet-4-20250514' });
+
+    await runSession(session.id, 'test', tempDir);
+
+    expect(hookSpy).toHaveBeenCalledWith(tempDir);
+  });
+
+  it('continueSession does NOT install hook when no attribution is configured', async () => {
+    const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook');
+    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue(null);
+
+    const project = projectRepo.create('Attribution Test', tempDir);
+    const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      gitWorktree: tempDir,
+      claudeSessionId: 'mock-claude-session-id',
+      model: 'claude-sonnet-4-20250514',
+    });
+    conversationRepo.create(session.id, 'Test Conversation');
+
+    await continueSession(session.id, 'follow-up', tempDir);
+
+    expect(hookSpy).not.toHaveBeenCalled();
+  });
+
+  it('continueSession installs hook when attribution IS configured', async () => {
+    const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook').mockResolvedValue(true);
+    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue({
+      commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+    });
+
+    const project = projectRepo.create('Attribution Test', tempDir);
+    const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      gitWorktree: tempDir,
+      claudeSessionId: 'mock-claude-session-id',
+      model: 'claude-sonnet-4-20250514',
+    });
+    conversationRepo.create(session.id, 'Test Conversation');
+
+    await continueSession(session.id, 'follow-up', tempDir);
+
+    expect(hookSpy).toHaveBeenCalledWith(tempDir);
+  });
+
+  it('runSession does NOT install hook when gitWorktree is null', async () => {
+    const hookSpy = vi.spyOn(gitService, 'ensureWorktreeCommitAttributionHook');
+    vi.spyOn(sessionProvider, 'resolveProviderMetadataFromModel').mockReturnValue({
+      commitAttributionOverride: 'Co-authored-by: Claude <noreply@anthropic.com>',
+    });
+
+    const project = projectRepo.create('Attribution Test', tempDir);
+    const session = sessionRepo.create(project.id, 'Attribution Session', 'prompt', 'standard');
+    // No gitWorktree set
+    sessionRepo.update(session.id, { model: 'claude-sonnet-4-20250514' });
+
+    await runSession(session.id, 'test', tempDir);
+
+    expect(hookSpy).not.toHaveBeenCalled();
   });
 });

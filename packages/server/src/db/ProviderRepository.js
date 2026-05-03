@@ -1,6 +1,7 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
 import { encrypt, decrypt } from '../services/encryption.js';
+import { normalizeCommitAttributionOverride } from '@circuschief/shared/contracts/providers';
 
 /**
  * Valid values for `providers.kind`. Maps 1:1 to an agent adapter:
@@ -17,6 +18,55 @@ export const AGENT_TYPE_BY_KIND = Object.freeze({
   anthropic: 'claude-code',
   openai: 'codex',
 });
+
+const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride']);
+
+const UPDATE_COLUMN_BUILDERS = Object.freeze({
+  name: (value) => ['name = ?', value],
+  baseUrl: (value) => ['base_url = ?', value],
+  authToken: (value) => ['auth_token = ?', encrypt(value)],
+  apiTimeoutMs: (value) => ['api_timeout_ms = ?', value],
+  additionalEnvVars: (value) => [
+    'additional_env_vars = ?',
+    value ? JSON.stringify(value) : null,
+  ],
+  commitAttributionOverride: (value) => [
+    'commit_attribution_override = ?',
+    normalizeCommitAttributionOverride(value),
+  ],
+});
+
+function validateBuiltInUpdate(provider, data) {
+  if (!provider.isBuiltIn) return;
+
+  const unsupportedFields = Object.keys(data || {}).filter(
+    (key) => !BUILT_IN_MUTABLE_FIELDS.includes(key)
+  );
+  if (unsupportedFields.length > 0) {
+    throw new Error(
+      `Built-in providers can only update commitAttributionOverride. Rejected fields: ${unsupportedFields.join(', ')}.`
+    );
+  }
+}
+
+function validateKindImmutable(data) {
+  if (!data || !Object.prototype.hasOwnProperty.call(data, 'kind')) return;
+
+  throw new Error(
+    "Provider kind is immutable after create. Delete and recreate the provider to change kind."
+  );
+}
+
+function buildUpdateColumns(data = {}) {
+  return Object.entries(UPDATE_COLUMN_BUILDERS).reduce((result, [field, buildColumn]) => {
+    if (data[field] === undefined) return result;
+
+    const [update, value] = buildColumn(data[field]);
+    result.updates.push(update);
+    result.values.push(value);
+    return result;
+  }, { updates: [], values: [] });
+}
 
 /**
  * Provider repository class (replaces ModelProviderRepository).
@@ -44,6 +94,7 @@ export class ProviderRepository extends BaseRepository {
       authToken: decrypt(row.auth_token),
       apiTimeoutMs: row.api_timeout_ms,
       additionalEnvVars: row.additional_env_vars ? JSON.parse(row.additional_env_vars) : null,
+      commitAttributionOverride: row.commit_attribution_override ?? null,
       isBuiltIn: row.is_built_in === 1,
       kind: row.kind || 'anthropic',
       createdAt: row.created_at,
@@ -83,6 +134,7 @@ export class ProviderRepository extends BaseRepository {
       authToken = null,
       apiTimeoutMs = null,
       additionalEnvVars = null,
+      commitAttributionOverride = null,
       kind = 'anthropic',
     } = data;
 
@@ -95,8 +147,8 @@ export class ProviderRepository extends BaseRepository {
 
     this.db
       .prepare(
-        `INSERT INTO providers (id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, kind, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO providers (id, name, base_url, auth_token, api_timeout_ms, additional_env_vars, commit_attribution_override, kind, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -105,6 +157,7 @@ export class ProviderRepository extends BaseRepository {
         encrypt(authToken),
         apiTimeoutMs,
         additionalEnvVars ? JSON.stringify(additionalEnvVars) : null,
+        normalizeCommitAttributionOverride(commitAttributionOverride),
         kind,
         now,
         now
@@ -143,38 +196,13 @@ export class ProviderRepository extends BaseRepository {
    * @returns {Object} Updated provider (with models array)
    */
   update(id, data) {
-    // `kind` is immutable after create. Existing models + env wiring depend on it,
-    // so changing it in place would silently corrupt sessions already attached to
-    // this provider.
-    if (data && Object.prototype.hasOwnProperty.call(data, 'kind')) {
-      throw new Error(
-        "Provider kind is immutable after create. Delete and recreate the provider to change kind."
-      );
-    }
+    const provider = this.getById(id);
+    if (!provider) return null;
 
-    const updates = [];
-    const values = [];
+    validateBuiltInUpdate(provider, data);
+    validateKindImmutable(data);
 
-    if (data.name !== undefined) {
-      updates.push('name = ?');
-      values.push(data.name);
-    }
-    if (data.baseUrl !== undefined) {
-      updates.push('base_url = ?');
-      values.push(data.baseUrl);
-    }
-    if (data.authToken !== undefined) {
-      updates.push('auth_token = ?');
-      values.push(encrypt(data.authToken));
-    }
-    if (data.apiTimeoutMs !== undefined) {
-      updates.push('api_timeout_ms = ?');
-      values.push(data.apiTimeoutMs);
-    }
-    if (data.additionalEnvVars !== undefined) {
-      updates.push('additional_env_vars = ?');
-      values.push(data.additionalEnvVars ? JSON.stringify(data.additionalEnvVars) : null);
-    }
+    const { updates, values } = buildUpdateColumns(data);
 
     if (updates.length > 0) {
       updates.push('updated_at = ?');
@@ -346,6 +374,33 @@ export class ProviderRepository extends BaseRepository {
     }
 
     return provider;
+  }
+
+  /**
+   * Look up provider metadata for a model without applying runtime env fallback
+   * rules. Unlike getProviderByModelId, this returns built-in Anthropic too.
+   *
+   * @param {string|null|undefined} modelId
+   * @returns {Object|null}
+   */
+  getProviderMetadataByModelId(modelId) {
+    if (!modelId) return null;
+
+    const tierNames = ['sonnet', 'opus', 'haiku'];
+    if (tierNames.includes(modelId.toLowerCase())) {
+      return this.getById('anthropic-default');
+    }
+
+    const row = this.db
+      .prepare(
+        `SELECT p.id FROM providers p
+         JOIN provider_models pm ON p.id = pm.provider_id
+         WHERE pm.model_id = ?
+         ORDER BY p.is_built_in ASC, p.name ASC`
+      )
+      .get(modelId);
+
+    return row ? this.getById(row.id) : null;
   }
 
   /**

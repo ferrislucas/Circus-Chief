@@ -7,6 +7,12 @@ import { TerminalOutputProcessor } from './terminalOutput.js';
 // Re-export for backward compatibility
 export { stripAnsiCodes, TerminalOutputProcessor } from './terminalOutput.js';
 
+export function createCommandRunnerEnv(baseEnv = process.env) {
+  const env = createRobustEnv(baseEnv);
+  delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
+  return env;
+}
+
 /**
  * Service for running commands and managing their execution
  */
@@ -141,7 +147,7 @@ export class CommandRunner {
           cwd: workingDirectory,
           stdio: ['pipe', 'pipe', 'pipe'],
           detached: true,
-          env: createRobustEnv(),
+          env: createCommandRunnerEnv(),
         });
 
         const entry = this.#createProcessEntry(child, sessionId, buttonId);

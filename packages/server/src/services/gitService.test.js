@@ -8,6 +8,7 @@ import {
   branchExists,
   checkoutBranch,
   clearDefaultBranchCache,
+  clearWorktreeCommitAttribution,
   createWorktree,
   createWorktreeForBranch,
   detectWorktreePath,
@@ -16,6 +17,7 @@ import {
   getGitAuthor,
   getOriginDefaultBranch,
   getUntrackedFiles,
+  ensureWorktreeCommitAttributionHook,
   pinAuthorInWorktree,
   isGitRepo,
   setLogger,
@@ -841,6 +843,211 @@ describe('gitService', () => {
 
       const author = execSync('git log -1 --format="%an <%ae>"', { cwd: worktreePath }).toString().trim();
       expect(author).toBe('Human <human@example.com>');
+    });
+  });
+
+  describe('ensureWorktreeCommitAttributionHook', () => {
+    let worktreePath;
+    let fakeHome;
+
+    function createIsolatedGitEnv(fakeHomePath) {
+      return {
+        ...process.env,
+        HOME: fakeHomePath,
+        XDG_CONFIG_HOME: '/dev/null',
+      };
+    }
+
+    beforeEach(async () => {
+      fakeHome = await mkdtemp(join(tmpdir(), 'fake-home-'));
+      const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      worktreePath = join(testDir, '.worktrees', `attr-test-${suffix}`);
+      await createWorktreeForBranch(testDir, `attr-test-branch-${suffix}`, worktreePath, { skipFetch: true });
+    });
+
+    afterEach(async () => {
+      if (worktreePath && existsSync(worktreePath)) {
+        try {
+          execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+      if (fakeHome) await rm(fakeHome, { recursive: true, force: true });
+    });
+
+    it('installs an executable commit-msg hook without storing attribution in worktree config', async () => {
+      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
+      execSync('git config --worktree circuschief.commitAttribution "Stale <stale@example.com>"', { cwd: worktreePath });
+
+      const result = await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      expect(result).toBe(true);
+      expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
+        .toThrow();
+      expect(execSync('git config --worktree core.hooksPath', { cwd: worktreePath }).toString().trim())
+        .toBe('.circuschief-hooks');
+      expect(existsSync(join(worktreePath, '.circuschief-hooks', 'commit-msg'))).toBe(true);
+    });
+
+    it('appends the configured trailer to a plain git commit', async () => {
+      await writeFile(join(fakeHome, '.gitconfig'), '[user]\n\tname = Human\n\temail = human@example.com\n');
+      await pinAuthorInWorktree(worktreePath, testDir, {
+        env: createIsolatedGitEnv(fakeHome),
+      });
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      await writeFile(join(worktreePath, 'attributed.txt'), 'hello');
+      execSync('git add attributed.txt', { cwd: worktreePath });
+      execSync('git commit -m "Attributed commit"', {
+        cwd: worktreePath,
+        env: {
+          ...process.env,
+          CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Codex <noreply@openai.com>',
+        },
+      });
+
+      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      const author = execSync('git log -1 --format="%an <%ae>"', { cwd: worktreePath }).toString().trim();
+      expect(body).toContain('Co-authored-by: Codex <noreply@openai.com>');
+      expect(author).toBe('Human <human@example.com>');
+    });
+
+    it('does not append a trailer when commit attribution env is missing or blank', async () => {
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      await writeFile(join(worktreePath, 'no-env.txt'), 'hello');
+      execSync('git add no-env.txt', { cwd: worktreePath });
+      execSync('git commit -m "No env commit"', { cwd: worktreePath });
+
+      let body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      expect(body).not.toContain('Co-authored-by:');
+
+      await writeFile(join(worktreePath, 'blank-env.txt'), 'hello');
+      execSync('git add blank-env.txt', { cwd: worktreePath });
+      execSync('git commit -m "Blank env commit"', {
+        cwd: worktreePath,
+        env: { ...process.env, CIRCUSCHIEF_COMMIT_ATTRIBUTION: '   ' },
+      });
+
+      body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      expect(body).not.toContain('Co-authored-by:');
+    });
+
+    it('fails clearly when commit attribution env is malformed', async () => {
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      await writeFile(join(worktreePath, 'bad-env.txt'), 'hello');
+      execSync('git add bad-env.txt', { cwd: worktreePath });
+
+      let stderr = '';
+      try {
+        execSync('git commit -m "Bad env commit"', {
+          cwd: worktreePath,
+          env: { ...process.env, CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'noreply@openai.com' },
+          stdio: 'pipe',
+        });
+      } catch (error) {
+        stderr = error.stderr?.toString() || '';
+      }
+      expect(stderr).toContain('CIRCUSCHIEF_COMMIT_ATTRIBUTION must be a canonical');
+    });
+
+    it('does not duplicate an existing identical attribution trailer on amend', async () => {
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      await writeFile(join(worktreePath, 'dedupe.txt'), 'hello');
+      execSync('git add dedupe.txt', { cwd: worktreePath });
+      const env = {
+        ...process.env,
+        CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Codex <noreply@openai.com>',
+      };
+      execSync('git commit -m "Dedupe commit"', { cwd: worktreePath, env });
+      execSync('git commit --amend --no-edit', { cwd: worktreePath, env });
+
+      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      const matches = body.match(/Co-authored-by: Codex <noreply@openai\.com>/g) || [];
+      expect(matches).toHaveLength(1);
+    });
+
+    it('preserves other coauthor trailers with the same token', async () => {
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      await writeFile(join(worktreePath, 'multi.txt'), 'hello');
+      execSync('git add multi.txt', { cwd: worktreePath });
+      execSync(
+        'git commit -m "Multi author" -m "Co-authored-by: Claude <noreply@anthropic.com>"',
+        {
+          cwd: worktreePath,
+          env: {
+            ...process.env,
+            CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Codex <noreply@openai.com>',
+          },
+        }
+      );
+
+      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      expect(body).toContain('Co-authored-by: Claude <noreply@anthropic.com>');
+      expect(body).toContain('Co-authored-by: Codex <noreply@openai.com>');
+    });
+
+    it('accepts a complete Co-authored-by trailer value', async () => {
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      await writeFile(join(worktreePath, 'full-trailer.txt'), 'hello');
+      execSync('git add full-trailer.txt', { cwd: worktreePath });
+      execSync('git commit -m "Full trailer"', {
+        cwd: worktreePath,
+        env: {
+          ...process.env,
+          CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Claude <noreply@anthropic.com>',
+        },
+      });
+
+      const body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
+      expect(body).toContain('Co-authored-by: Claude <noreply@anthropic.com>');
+      expect(body).not.toContain('Co-authored-by: Co-authored-by: Claude');
+    });
+
+    it('clears attribution without installing hooks when attribution is unset', async () => {
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+      const result = await clearWorktreeCommitAttribution(worktreePath);
+
+      expect(result).toBe(false);
+      expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
+        .toThrow();
+      expect(() => execSync('git config --worktree core.hooksPath', { cwd: worktreePath }))
+        .toThrow();
+    });
+
+    it('clears stale managed hooks path when attribution was already unset', async () => {
+      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
+      execSync('git config --worktree core.hooksPath .circuschief-hooks', { cwd: worktreePath });
+
+      const result = await clearWorktreeCommitAttribution(worktreePath);
+
+      expect(result).toBe(false);
+      expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
+        .toThrow();
+      expect(() => execSync('git config --worktree core.hooksPath', { cwd: worktreePath }))
+        .toThrow();
+    });
+
+    it('does not change worktree config when attribution is unset and no prior attribution exists', async () => {
+      const result = await clearWorktreeCommitAttribution(worktreePath);
+
+      expect(result).toBe(false);
+      expect(() => execSync('git config extensions.worktreeConfig', { cwd: worktreePath })).toThrow();
+      expect(existsSync(join(worktreePath, '.circuschief-hooks', 'commit-msg'))).toBe(false);
+    });
+
+    it('fails visibly instead of overwriting an unrelated hooks path', async () => {
+      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
+      execSync('git config --worktree core.hooksPath custom-hooks', { cwd: worktreePath });
+
+      await expect(
+        ensureWorktreeCommitAttributionHook(worktreePath)
+      ).rejects.toThrow('already has core.hooksPath set to "custom-hooks"');
     });
   });
 

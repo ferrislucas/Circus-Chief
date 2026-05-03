@@ -267,12 +267,19 @@ export async function ensureSubscribed(sessionId) {
 
   // Wait for connection to confirm the message was sent
   return new Promise((resolve, reject) => {
+    let settled = false;
     const timeout = setTimeout(() => {
+      settled = true;
       reject(new Error(`Subscription timeout for session ${sessionId}`));
     }, 5000);
 
     const checkConnection = () => {
+      if (settled) {
+        return;
+      }
+
       if (isConnected.value) {
+        settled = true;
         clearTimeout(timeout);
         resolve();
       } else {
