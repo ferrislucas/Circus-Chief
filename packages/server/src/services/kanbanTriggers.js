@@ -5,7 +5,7 @@ import {
   projects,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
@@ -250,7 +250,7 @@ async function buildChildSessionFromPrompt(lane, session, depth) {
   if (lane.onEnterAutoRescheduleEnabled) {
     Object.assign(sessionUpdates, {
       autoRescheduleEnabled: true,
-      rescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || 15,
+      rescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES,
       rescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
       rescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
       maxRescheduleCount: lane.onEnterMaxRescheduleCount || null,

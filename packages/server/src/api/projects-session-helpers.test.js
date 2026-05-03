@@ -13,6 +13,7 @@ import {
   buildSchedulingUpdate,
   setupAndStartSession,
 } from './projects-session-helpers.js';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
 // Mock all external dependencies
 vi.mock('../database.js', () => ({
@@ -49,12 +50,16 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
-vi.mock('@circuschief/shared', () => ({
-  WS_MESSAGE_TYPES: {
-    SESSION_CREATED: 'session_created',
-    SESSION_UPDATED: 'session_updated',
-  },
-}));
+vi.mock('@circuschief/shared', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    WS_MESSAGE_TYPES: {
+      SESSION_CREATED: 'session_created',
+      SESSION_UPDATED: 'session_updated',
+    },
+  };
+});
 
 // ── generateInitialName ──────────────────────────────────────────────────
 
@@ -207,8 +212,8 @@ describe('parseSchedulingConfig', () => {
     expect(parseSchedulingConfig({}).autoRescheduleEnabled).toBe(false);
   });
 
-  it('defaults rescheduleDelayMinutes to 15', () => {
-    expect(parseSchedulingConfig({}).rescheduleDelayMinutes).toBe(15);
+  it('defaults rescheduleDelayMinutes to DEFAULT_RESCHEDULE_DELAY_MINUTES', () => {
+    expect(parseSchedulingConfig({}).rescheduleDelayMinutes).toBe(DEFAULT_RESCHEDULE_DELAY_MINUTES);
     expect(parseSchedulingConfig({ rescheduleDelayMinutes: '30' }).rescheduleDelayMinutes).toBe(30);
   });
 
@@ -226,7 +231,7 @@ describe('parseSchedulingConfig', () => {
     const result = parseSchedulingConfig({});
     expect(result.scheduledAt).toBeUndefined();
     expect(result.autoRescheduleEnabled).toBe(false);
-    expect(result.rescheduleDelayMinutes).toBe(15);
+    expect(result.rescheduleDelayMinutes).toBe(DEFAULT_RESCHEDULE_DELAY_MINUTES);
     expect(result.rescheduleOnTokenLimit).toBe(true);
     expect(result.maxRescheduleCount).toBeNull();
   });
