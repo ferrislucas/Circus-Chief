@@ -6,19 +6,19 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as gitService from '../services/gitService.js';
 import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
-import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
+import { requireRootSessionAndProject, requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { duplicateSession } from '../services/sessionDuplicator.js';
 import { configureSchedule, ScheduleError } from '../services/scheduleService.js';
 
 const router = Router();
 
-// GET /api/sessions/:id/summary - Get session summary
-router.get('/:id/summary', requireSession, async (req, res) => {
+// GET /api/sessions/:id/summary - Get workflow summary
+router.get('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   // Check if generateIfMissing query param is set
   const generateIfMissing = req.query.generate === 'true';
 
   try {
-    const summary = await summaryService.getSummary(req.params.id, generateIfMissing);
+    const summary = await summaryService.getSummary(req.rootSessionId, generateIfMissing);
     if (!summary) {
       return res.status(404).json({ error: 'Summary not found' });
     }
@@ -28,10 +28,10 @@ router.get('/:id/summary', requireSession, async (req, res) => {
   }
 });
 
-// POST /api/sessions/:id/summary - Generate/regenerate session summary
-router.post('/:id/summary', requireSession, async (req, res) => {
+// POST /api/sessions/:id/summary - Generate/regenerate workflow summary
+router.post('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   try {
-    const summary = await summaryService.regenerateSummary(req.params.id);
+    const summary = await summaryService.regenerateSummary(req.rootSessionId);
     if (!summary) {
       return res.status(500).json({ error: 'Failed to generate summary' });
     }
@@ -41,10 +41,10 @@ router.post('/:id/summary', requireSession, async (req, res) => {
   }
 });
 
-// PUT /api/sessions/:id/summary - Directly set summary data (for testing/seeding)
-router.put('/:id/summary', requireSession, async (req, res) => {
+// PUT /api/sessions/:id/summary - Directly set workflow summary data (for testing/seeding)
+router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   try {
-    const summary = sessionSummaries.upsert(req.params.id, req.body);
+    const summary = sessionSummaries.upsert(req.rootSessionId, req.body);
     res.json(summary);
   } catch (error) {
     res.status(500).json({ error: error.message });

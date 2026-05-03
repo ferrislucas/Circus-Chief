@@ -2,10 +2,11 @@ import { Router } from 'express';
 import { readFileSync, existsSync, statSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import { extname, join, basename } from 'path';
-import { sessions, canvasItems } from '../database.js';
+import { canvasItems } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES, UpdateCanvasItemRequest } from '@circuschief/shared';
 import { upload, handleUploadError } from '../middleware/upload.js';
+import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import {
   isBinaryContent,
   getTypeFromExtension,
@@ -19,8 +20,6 @@ import {
 import trashRoutes from './canvas-trash-routes.js';
 
 // Error message constants
-const ERR_SESSION_NOT_FOUND = 'Session not found';
-
 /**
  * Process multipart file upload (Mode 1)
  * @param {Express.Multer.File} file - The uploaded file from multer
@@ -84,12 +83,7 @@ router.use('/', trashRoutes);
 // 1. Multipart mode: FormData with 'file' field - from browser file uploads
 // 2. File mode: { filePath } - reads file from disk
 // 3. Inline mode: { type, content, filename } - uses provided content directly
-router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
-  }
-
+router.post('/:id/canvas', requireRootSessionAndProject, upload.single('file'), handleUploadError, (req, res) => {
   const { filePath, type, content, filename } = req.body;
   let result;
 
@@ -110,21 +104,16 @@ router.post('/:id/canvas', upload.single('file'), handleUploadError, (req, res) 
     return res.status(400).json({ error: result.error });
   }
 
-  const item = canvasItems.create(req.params.id, result.itemData);
+  const item = canvasItems.create(req.rootSessionId, result.itemData);
 
   // Broadcast to session subscribers
-  broadcastCanvasUpdate(req.params.id, item);
+  broadcastCanvasUpdate(req.rootSessionId, item);
 
   res.status(201).json(item);
 });
 
 // PUT /api/sessions/:id/canvas/:itemId - Update canvas item content in-place
-router.put('/:id/canvas/:itemId', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
-  }
-
+router.put('/:id/canvas/:itemId', requireRootSessionAndProject, (req, res) => {
   const parsed = UpdateCanvasItemRequest.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid request body', details: parsed.error.issues });
@@ -135,7 +124,7 @@ router.put('/:id/canvas/:itemId', (req, res) => {
     return res.status(404).json({ error: 'Canvas item not found' });
   }
 
-  if (item.sessionId !== req.params.id) {
+  if (item.sessionId !== req.rootSessionId) {
     return res.status(400).json({ error: 'Canvas item does not belong to this session' });
   }
 
@@ -144,20 +133,15 @@ router.put('/:id/canvas/:itemId', (req, res) => {
   }
 
   const updatedItem = canvasItems.updateContent(req.params.itemId, parsed.data.content);
-  broadcastToSession(req.params.id, WS_MESSAGE_TYPES.CANVAS_UPDATE, { item: updatedItem });
+  broadcastToSession(req.rootSessionId, WS_MESSAGE_TYPES.CANVAS_UPDATE, { item: updatedItem });
   res.json(updatedItem);
 });
 
 // GET /api/sessions/:id/canvas - List canvas items
 // Returns only latest version of each file (no version metadata exposed)
-router.get('/:id/canvas', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
-  }
-
+router.get('/:id/canvas', requireRootSessionAndProject, (req, res) => {
   // Get only latest versions (one per filename)
-  const items = canvasItems.getLatestVersionsBySessionId(req.params.id);
+  const items = canvasItems.getLatestVersionsBySessionId(req.rootSessionId);
 
   // Strip content/data from list responses to reduce payload size.
   // Clients should use GET /canvas/file/:filename/content for inline content.
@@ -166,14 +150,9 @@ router.get('/:id/canvas', (req, res) => {
 
 // GET /api/sessions/:id/canvas/all - List ALL canvas items (including all versions)
 // Returns all versions of each file for the frontend UI
-router.get('/:id/canvas/all', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) {
-    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
-  }
-
+router.get('/:id/canvas/all', requireRootSessionAndProject, (req, res) => {
   // Get ALL versions (not just latest)
-  const items = canvasItems.getBySessionId(req.params.id);
+  const items = canvasItems.getBySessionId(req.rootSessionId);
 
   // Strip content/data from list responses to reduce payload size.
   res.json(items.map(({ content: _content, data: _data, ...meta }) => meta));
@@ -182,14 +161,10 @@ router.get('/:id/canvas/all', (req, res) => {
 // GET /api/sessions/:id/canvas/file/:filename/history/:version - Get historical version of canvas file
 // Uses standard versioning: version 1 = oldest, version N = latest (where N = totalVersions)
 // NOTE: This route must be defined BEFORE the main file route to match correctly
-router.get('/:id/canvas/file/:filename/history/:version', async (req, res) => {
-  const { id: sessionId, filename, version } = req.params;
+router.get('/:id/canvas/file/:filename/history/:version', requireRootSessionAndProject, async (req, res) => {
+  const { filename, version } = req.params;
+  const sessionId = req.rootSessionId;
   const versionNum = parseInt(version, 10);
-
-  const session = sessions.getById(sessionId);
-  if (!session) {
-    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
-  }
 
   // Get all versions of this file (newest first)
   const allVersions = canvasItems.getAllVersionsByFilename(sessionId, filename);
@@ -247,11 +222,8 @@ router.get('/:id/canvas/file/:filename/history/:version', async (req, res) => {
 // GET /api/sessions/:id/canvas/file/:filename/content - Get canvas file content inline
 // Returns content/data inline in JSON for browser consumption (unlike the temp-file endpoint below)
 // Supports ?version=N query param (1-based, 1 = oldest)
-router.get('/:id/canvas/file/:filename/content', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
-
-  const allVersions = canvasItems.getAllVersionsByFilename(req.params.id, req.params.filename);
+router.get('/:id/canvas/file/:filename/content', requireRootSessionAndProject, (req, res) => {
+  const allVersions = canvasItems.getAllVersionsByFilename(req.rootSessionId, req.params.filename);
   if (allVersions.length === 0) return res.status(404).json({ error: 'File not found' });
 
   // Support ?version=N (1-based, 1 = oldest)
@@ -280,13 +252,10 @@ router.get('/:id/canvas/file/:filename/content', (req, res) => {
 });
 
 // GET /api/sessions/:id/canvas/:itemId/content - Get one canvas item content inline
-router.get('/:id/canvas/:itemId/content', (req, res) => {
-  const session = sessions.getById(req.params.id);
-  if (!session) return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
-
+router.get('/:id/canvas/:itemId/content', requireRootSessionAndProject, (req, res) => {
   const item = canvasItems.getById(req.params.itemId);
   if (!item) return res.status(404).json({ error: 'Canvas item not found' });
-  if (item.sessionId !== req.params.id) {
+  if (item.sessionId !== req.rootSessionId) {
     return res.status(400).json({ error: 'Canvas item does not belong to this session' });
   }
 
@@ -302,13 +271,9 @@ router.get('/:id/canvas/:itemId/content', (req, res) => {
 // GET /api/sessions/:id/canvas/file/:filename - Get canvas file by filename
 // Writes the file to /tmp and returns the file path for Claude's Read tool
 // Always returns the latest version
-router.get('/:id/canvas/file/:filename', async (req, res) => {
-  const { id: sessionId, filename } = req.params;
-
-  const session = sessions.getById(sessionId);
-  if (!session) {
-    return res.status(404).json({ error: ERR_SESSION_NOT_FOUND });
-  }
+router.get('/:id/canvas/file/:filename', requireRootSessionAndProject, async (req, res) => {
+  const { filename } = req.params;
+  const sessionId = req.rootSessionId;
 
   // Get all versions of this file (newest first)
   const allVersions = canvasItems.getAllVersionsByFilename(sessionId, filename);
