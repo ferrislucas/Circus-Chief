@@ -253,8 +253,8 @@ curl -X PATCH ${apiUrl}/api/sessions/<session_id> \\
 \`\`\``;
 }
 
-/** Build project, notes, and summary operations section */
-function buildProjectNotesOps(apiUrl, sessionId) {
+/** Build project and summary operations section */
+function buildProjectOps(apiUrl, sessionId) {
   return `### Project Operations
 \`\`\`bash
 curl ${apiUrl}/api/projects                          # List all projects
@@ -265,14 +265,6 @@ curl -X POST ${apiUrl}/api/projects \\
   -d '{"name": "Project Name", "workingDirectory": "/path/to/directory"}'
 \`\`\`
 Optional field: \`systemPrompt\`
-
-### Workflow Notes
-\`\`\`bash
-curl ${apiUrl}/api/sessions/${sessionId}/notes       # Get notes
-curl -X POST ${apiUrl}/api/sessions/${sessionId}/notes \\
-  -H "Content-Type: application/json" \\
-  -d '{"content": "Note content"}'
-\`\`\`
 
 ### Workflow Summary
 \`\`\`bash
@@ -292,11 +284,9 @@ You can create and modify sessions in this system using curl or similar HTTP too
 **Current Session ID:** ${sessionId}
 **Current Project ID:** ${projectId}
 
-Use the current session ID for documented workflow API calls; shared workflow resources are resolved automatically by the API.
-
 ${buildSessionCrudOps(apiUrl, projectId)}
 
-${buildProjectNotesOps(apiUrl, sessionId)}`;
+${buildProjectOps(apiUrl, sessionId)}`;
 }
 
 /**

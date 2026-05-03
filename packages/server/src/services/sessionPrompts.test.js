@@ -384,12 +384,10 @@ describe('sessionPrompts', () => {
       expect(result).not.toContain('"name": "Optional session name"');
     });
 
-    it('uses current session ID for workflow notes and summary examples', () => {
+    it('uses current session ID for workflow summary examples', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-      expect(result).toContain(`/api/sessions/${sessionId}/notes`);
       expect(result).toContain(`/api/sessions/${sessionId}/summary?generate=true`);
-      expect(result).not.toContain('/api/sessions/<session_id>/notes');
       expect(result).not.toContain('/api/sessions/<session_id>/summary');
     });
 
@@ -616,7 +614,6 @@ describe('sessionPrompts', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain(`curl http://localhost:5000/api/sessions/${sessionId}/command-buttons`);
-        expect(result).toContain('Command-button runs are workflow-scoped');
         expect(result).not.toContain(`/api/projects/${projectId}/command-buttons`);
         expect(result).not.toContain('Root Session ID');
         expect(result).not.toContain('Parent Session ID');
