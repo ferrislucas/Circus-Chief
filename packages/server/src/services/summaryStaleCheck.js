@@ -3,10 +3,10 @@
  * Extracted from summaryService.js for modularity.
  */
 
-import { sessionSummaries, messages } from '../database.js';
+import { sessionSummaries, messages, sessions } from '../database.js';
 
 /**
- * Check if a summary is stale (message count or last message ID has changed)
+ * Check if a summary is stale (message count, last message ID, or descendant summaries have changed)
  * @param {string} sessionId
  * @returns {boolean}
  */
@@ -27,9 +27,20 @@ export function isSummaryStale(sessionId) {
     }
 
     // Also validate count as a secondary check (defensive programming)
-    return allMessages.length !== summary.messageCount;
+    if (allMessages.length !== summary.messageCount) return true;
   }
 
   // Fallback to count-based staleness detection for old summaries
-  return allMessages.length !== summary.messageCount;
+  if (allMessages.length !== summary.messageCount) return true;
+
+  // Check if any descendant session has a newer summary
+  const descendantIds = sessions.getAllDescendantIds(sessionId);
+  if (descendantIds.length > 0) {
+    const descendantSummaries = sessionSummaries.getBySessionIds(descendantIds);
+    for (const ds of descendantSummaries) {
+      if (ds.generatedAt > summary.generatedAt) return true;
+    }
+  }
+
+  return false;
 }
