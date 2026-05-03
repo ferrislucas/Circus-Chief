@@ -5,22 +5,31 @@ import SchedulingInfo from './SchedulingInfo.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 
+// Shared mock instances so the composable and tests reference the same spies
+const sharedSessionsStore = {
+  updateSessionFields: vi.fn(),
+};
+
+const sharedUiStore = {
+  success: vi.fn(),
+  error: vi.fn(),
+  showToast: vi.fn(),
+};
+
 vi.mock('../stores/sessions.js', () => ({
-  useSessionsStore: vi.fn(() => ({
-    updateSessionFields: vi.fn(),
-  })),
+  useSessionsStore: vi.fn(() => sharedSessionsStore),
 }));
 
 vi.mock('../stores/ui.js', () => ({
-  useUiStore: vi.fn(() => ({
-    showToast: vi.fn(),
-  })),
+  useUiStore: vi.fn(() => sharedUiStore),
 }));
 
 describe('SchedulingInfo.vue', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.useFakeTimers();
+    vi.clearAllMocks();
+    sharedSessionsStore.updateSessionFields.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -195,6 +204,143 @@ describe('SchedulingInfo.vue', () => {
 
       expect(wrapper.find('.scheduling-info').exists()).toBe(false);
       expect(wrapper.find('.auto-reschedule-panel').exists()).toBe(false);
+    });
+  });
+
+  describe('Cancel action', () => {
+    // Cancel tests need real timers so that async rejections can settle
+    beforeEach(() => {
+      vi.useRealTimers();
+    });
+    afterEach(() => {
+      vi.useFakeTimers();
+    });
+
+    it('shows confirm dialog when Cancel button is clicked', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+      const wrapper = mount(SchedulingInfo, {
+        props: {
+          session: scheduledSession,
+        },
+      });
+
+      const cancelButton = wrapper.findAll('.actions button')[1];
+      await cancelButton.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
+    });
+
+    it('calls updateSessionFields with status stopped and scheduledAt null when confirmed', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      const wrapper = mount(SchedulingInfo, {
+        props: {
+          session: scheduledSession,
+        },
+      });
+
+      const cancelButton = wrapper.findAll('.actions button')[1];
+      await cancelButton.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(sharedSessionsStore.updateSessionFields).toHaveBeenCalledWith('session-1', {
+        status: 'stopped',
+        scheduledAt: null,
+      });
+    });
+
+    it('shows success toast after successful cancellation', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+      const wrapper = mount(SchedulingInfo, {
+        props: {
+          session: scheduledSession,
+        },
+      });
+
+      const cancelButton = wrapper.findAll('.actions button')[1];
+      await cancelButton.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(sharedUiStore.success).toHaveBeenCalledWith('Session cancelled');
+    });
+
+    it('does not call updateSessionFields when user dismisses confirm', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+      const wrapper = mount(SchedulingInfo, {
+        props: {
+          session: scheduledSession,
+        },
+      });
+
+      const cancelButton = wrapper.findAll('.actions button')[1];
+      await cancelButton.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(sharedSessionsStore.updateSessionFields).not.toHaveBeenCalled();
+    });
+
+    it('disables Cancel button during cancellation', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      let resolvePromise;
+      sharedSessionsStore.updateSessionFields.mockImplementation(
+        () => new Promise((resolve) => { resolvePromise = resolve; }),
+      );
+
+      const wrapper = mount(SchedulingInfo, {
+        props: {
+          session: scheduledSession,
+        },
+      });
+
+      const cancelButton = wrapper.findAll('.actions button')[1];
+      await cancelButton.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      // Button should be disabled while the API call is in progress
+      expect(cancelButton.attributes('disabled')).toBeDefined();
+
+      resolvePromise();
+      await wrapper.vm.$nextTick();
+    });
+
+    it('shows error toast when updateSessionFields rejects', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      sharedSessionsStore.updateSessionFields.mockRejectedValue(new Error('Network error'));
+
+      const wrapper = mount(SchedulingInfo, {
+        props: {
+          session: scheduledSession,
+        },
+      });
+
+      const cancelButton = wrapper.findAll('.actions button')[1];
+      await cancelButton.trigger('click');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await wrapper.vm.$nextTick();
+
+      expect(sharedUiStore.error).toHaveBeenCalledWith('Failed to cancel session: Network error');
+    });
+
+    it('re-enables Cancel button after error', async () => {
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      sharedSessionsStore.updateSessionFields.mockRejectedValue(new Error('fail'));
+
+      const wrapper = mount(SchedulingInfo, {
+        props: {
+          session: scheduledSession,
+        },
+      });
+
+      const cancelButton = wrapper.findAll('.actions button')[1];
+      await cancelButton.trigger('click');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await wrapper.vm.$nextTick();
+
+      expect(cancelButton.attributes('disabled')).toBeUndefined();
     });
   });
 });
