@@ -10,8 +10,8 @@
         class="overlay-backdrop"
         data-testid="session-chat-overlay"
         @click.self="close"
-        @focusin="requestVisualViewportUpdate"
-        @focusout="requestVisualViewportSettle"
+        @focusin="() => requestVisualViewportUpdate()"
+        @focusout="() => requestVisualViewportSettle()"
       >
         <div
           class="overlay-panel-wrapper"
