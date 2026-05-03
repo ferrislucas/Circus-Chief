@@ -398,6 +398,7 @@ describe('ensureSubscribed function', () => {
   });
 
   it('handles socket connection errors gracefully', async () => {
+    vi.useFakeTimers();
     const module = await import('./useWebSocket.js');
 
     // Create a mock WebSocket that never opens
@@ -410,10 +411,19 @@ describe('ensureSubscribed function', () => {
       close() {}
     };
 
-    // The promise should eventually reject with timeout
-    // We don't wait for it, just verify it returns a promise
-    const promise = module.ensureSubscribed('session-123');
-    expect(promise instanceof Promise).toBe(true);
+    try {
+      const promise = module.ensureSubscribed('session-123');
+      expect(promise instanceof Promise).toBe(true);
+
+      const rejection = expect(promise).rejects.toThrow(
+        'Subscription timeout for session session-123'
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejection;
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 });
 

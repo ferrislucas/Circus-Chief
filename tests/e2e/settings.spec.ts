@@ -383,7 +383,7 @@ test.describe('Settings', () => {
       await expect(anthropicCard.locator('.built-in-badge')).toHaveText('Built-in');
     });
 
-    test('built-in provider has no edit/delete/test buttons', async ({ page }) => {
+    test('built-in provider exposes only safe actions', async ({ page }) => {
       await navigateAndWait(page, `${BASE_URL}/settings/providers`);
       await page.waitForSelector('.provider-list', { timeout: 10000 });
 
@@ -393,7 +393,8 @@ test.describe('Settings', () => {
 
       await expect(builtInCards.locator('button:has-text("Edit")')).toHaveCount(0);
       await expect(builtInCards.locator('button:has-text("Delete")')).toHaveCount(0);
-      await expect(builtInCards.locator('button:has-text("Test")')).toHaveCount(0);
+      await expect(builtInCards.locator('button:has-text("Test")')).toHaveCount(2);
+      await expect(builtInCards.locator('button:has-text("Settings")')).toHaveCount(2);
     });
 
     test('add provider button is visible', async ({ page }) => {

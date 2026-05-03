@@ -11,6 +11,16 @@ export function resolveProviderFromModel(modelId) {
   return modelProviders.getProviderByModelId(modelId);
 }
 
+export function resolveProviderMetadataFromModel(modelId) {
+  if (!modelId) {
+    return modelProviders.getById?.('anthropic-default') || null;
+  }
+  if (typeof modelProviders.getProviderMetadataByModelId === 'function') {
+    return modelProviders.getProviderMetadataByModelId(modelId);
+  }
+  return modelProviders.getProviderByModelId(modelId);
+}
+
 /**
  * Resolve the agent type (claude-code vs codex) for a given model ID.
  * Uses the owning provider's kind:

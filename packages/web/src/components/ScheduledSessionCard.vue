@@ -45,15 +45,15 @@
     <div class="card-actions">
       <button
         class="btn btn-secondary btn-small"
-        :disabled="loading"
+        :disabled="cancelling"
         @click="showEditModal = true"
       >
         Edit Schedule
       </button>
       <button
         class="btn btn-danger btn-small"
-        :disabled="loading"
-        @click="handleCancel"
+        :disabled="cancelling"
+        @click="cancelScheduledSession(session.id)"
       >
         Cancel
       </button>
@@ -73,7 +73,7 @@
 import { ref, computed } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
-import { useUiStore } from '../stores/ui.js';
+import { useScheduleCancel } from '../composables/useScheduleCancel.js';
 import SchedulingEditModal from './SchedulingEditModal.vue';
 
 const props = defineProps({
@@ -84,8 +84,7 @@ const props = defineProps({
 });
 
 const sessionsStore = useSessionsStore();
-const uiStore = useUiStore();
-const loading = ref(false);
+const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore);
 const showEditModal = ref(false);
 
 const scheduledTimeDisplay = computed(() => {
@@ -97,26 +96,6 @@ const absoluteTimeDisplay = computed(() => {
   const time = new Date(props.session.scheduledAt);
   return format(time, 'MMM d, h:mm a');
 });
-
-async function handleCancel() {
-  if (!confirm('Cancel this scheduled session?')) {
-    return;
-  }
-
-  loading.value = true;
-  try {
-    await sessionsStore.updateSessionFields(props.session.id, {
-      status: 'stopped',
-    });
-
-    uiStore.success('Session cancelled');
-  } catch (error) {
-    console.error('Failed to cancel session:', error);
-    uiStore.error(`Failed to cancel session: ${  error.message}`);
-  } finally {
-    loading.value = false;
-  }
-}
 
 function handleSaved() {
   // Modal handles closing itself

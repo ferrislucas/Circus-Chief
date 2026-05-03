@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, commandButtons } from '../database.js';
+import { projects, sessions, commandButtons, commandRuns } from '../database.js';
 
 // Mock websocket before importing the router
 vi.mock('../websocket.js', () => ({
@@ -39,6 +39,7 @@ vi.mock('../services/commandRunner.js', () => ({
 // Import after mocks are set up
 import sessionsRouter from './sessions.js';
 import { commandRunner } from '../services/commandRunner.js';
+import { broadcastToProject, broadcastToSession } from '../websocket.js';
 
 describe('Sessions API - Command Routes (sessions-commands.js)', () => {
   let app;
@@ -55,6 +56,27 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
     project = projects.create('Test Project', '/tmp/test');
     session = sessions.create(project.id, 'Test Session', 'Initial prompt', 'standard');
     sessions.update(session.id, { status: 'waiting' });
+  });
+
+  function createChildSession(parent = session) {
+    return sessions.create(project.id, 'Child Session', 'Child prompt', {
+      mode: 'standard',
+      parentSessionId: parent.id,
+    });
+  }
+
+  describe('GET /api/sessions/:id/command-buttons', () => {
+    it('returns buttons for the workflow root project through a child session', async () => {
+      const child = createChildSession();
+      const button = commandButtons.create({ projectId: project.id, label: 'Test Button', command: 'echo hello' });
+
+      const res = await request(app)
+        .get(`/api/sessions/${child.id}/command-buttons`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].id).toBe(button.id);
+    });
   });
 
   describe('POST /api/sessions/:id/command-buttons/:buttonId/run', () => {
@@ -78,6 +100,36 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       expect(res.body.status).toBe('running');
     });
 
+    it('runs commands against workflow root metadata and working directory through a child session', async () => {
+      session = sessions.update(session.id, { gitWorktree: '/tmp/root-worktree' });
+      const child = createChildSession();
+      const button = commandButtons.create({ projectId: project.id, label: 'Test Button', command: 'echo hello' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${child.id}/command-buttons/${button.id}/run`);
+
+      expect(res.status).toBe(200);
+      expect(commandRunner.run).toHaveBeenCalledWith(
+        expect.objectContaining({
+          command: 'echo hello',
+          workingDirectory: '/tmp/root-worktree',
+        }),
+        expect.any(Object),
+        { sessionId: session.id, buttonId: button.id }
+      );
+    });
+
+    it('returns 404 when the button belongs to another project', async () => {
+      const otherProject = projects.create('Other Project', '/tmp/other');
+      const button = commandButtons.create({ projectId: otherProject.id, label: 'Other Button', command: 'echo no' });
+
+      const res = await request(app)
+        .post(`/api/sessions/${session.id}/command-buttons/${button.id}/run`);
+
+      expect(res.status).toBe(404);
+      expect(commandRunner.run).not.toHaveBeenCalled();
+    });
+
     it('returns 404 for non-existent session', async () => {
       const res = await request(app)
         .post('/api/sessions/non-existent/command-buttons/btn-1/run');
@@ -98,6 +150,20 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
       expect(res.body[0].runId).toBe('r1');
+    });
+
+    it('returns active runs for the workflow root through a child session', async () => {
+      const child = createChildSession();
+      commandRunner.getRunsBySession.mockReturnValue([
+        { runId: 'root-run', buttonId: 'b1', status: 'running' },
+      ]);
+
+      const res = await request(app)
+        .get(`/api/sessions/${child.id}/command-buttons/runs`);
+
+      expect(res.status).toBe(200);
+      expect(commandRunner.getRunsBySession).toHaveBeenCalledWith(session.id);
+      expect(res.body[0].runId).toBe('root-run');
     });
 
     it('returns empty array when no runs exist', async () => {
@@ -133,6 +199,33 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       expect(res.body.status).toBe('running');
     });
 
+    it('returns persisted root-owned run through a child session', async () => {
+      const child = createChildSession();
+      const button = commandButtons.create({ projectId: project.id, label: 'Done Button', command: 'echo done' });
+      commandRuns.create({ id: 'root-complete', sessionId: session.id, buttonId: button.id });
+      commandRuns.complete('root-complete', 0, 'done');
+
+      const res = await request(app)
+        .get(`/api/sessions/${child.id}/command-buttons/runs/root-complete`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.runId).toBe('root-complete');
+      expect(res.body.output).toBe('done');
+    });
+
+    it('does not return child-owned persisted runs through a child session', async () => {
+      const child = createChildSession();
+      const button = commandButtons.create({ projectId: project.id, label: 'Done Button', command: 'echo done' });
+      commandRuns.create({ id: 'child-complete', sessionId: child.id, buttonId: button.id });
+      commandRuns.complete('child-complete', 0, 'done');
+
+      const res = await request(app)
+        .get(`/api/sessions/${child.id}/command-buttons/runs/child-complete`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Run not found');
+    });
+
     it('returns 404 when run not found in memory or database', async () => {
       commandRunner.isRunning.mockReturnValue(false);
 
@@ -146,7 +239,6 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
 
   describe('DELETE /api/sessions/:id/command-buttons/runs/:runId', () => {
     it('returns 204 when run is deleted successfully', async () => {
-      const { commandRuns } = await import('../database.js');
       const button = commandButtons.create({ projectId: project.id, label: 'Del Button', command: 'echo del' });
       commandRuns.create({ id: 'run-del', sessionId: session.id, buttonId: button.id });
       commandRuns.complete('run-del', 0, 'output');
@@ -167,7 +259,6 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
     });
 
     it('returns 409 when run is still running', async () => {
-      const { commandRuns } = await import('../database.js');
       const button = commandButtons.create({ projectId: project.id, label: 'Running Button', command: 'sleep 10' });
       commandRuns.create({ id: 'run-active', sessionId: session.id, buttonId: button.id });
 
@@ -180,6 +271,30 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       expect(res.body.error).toBe('Cannot delete a running command. Kill it first.');
     });
 
+    it('deletes root-owned completed runs and broadcasts root IDs through a child session', async () => {
+      const child = createChildSession();
+      const button = commandButtons.create({ projectId: project.id, label: 'Del Button', command: 'echo del' });
+      commandRuns.create({ id: 'root-del', sessionId: session.id, buttonId: button.id });
+      commandRuns.complete('root-del', 0, 'output');
+      commandRunner.isRunning.mockReturnValue(false);
+
+      const res = await request(app)
+        .delete(`/api/sessions/${child.id}/command-buttons/runs/root-del`);
+
+      expect(res.status).toBe(204);
+      expect(commandRuns.getById('root-del')).toBeNull();
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        session.id,
+        expect.any(String),
+        expect.objectContaining({ runId: 'root-del', sessionId: session.id })
+      );
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        project.id,
+        expect.any(String),
+        expect.objectContaining({ runId: 'root-del', sessionId: session.id, projectId: project.id })
+      );
+    });
+
     it('returns 404 for non-existent session', async () => {
       const res = await request(app)
         .delete('/api/sessions/non-existent/command-buttons/runs/run-1');
@@ -188,8 +303,31 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
     });
   });
 
+  describe('DELETE /api/sessions/:id/command-buttons/:buttonId/runs/all', () => {
+    it('deletes only completed root-session runs for a button through a child session', async () => {
+      const child = createChildSession();
+      const button = commandButtons.create({ projectId: project.id, label: 'Bulk Button', command: 'echo bulk' });
+      commandRuns.create({ id: 'root-1', sessionId: session.id, buttonId: button.id });
+      commandRuns.complete('root-1', 0, 'one');
+      commandRuns.create({ id: 'root-running', sessionId: session.id, buttonId: button.id });
+      commandRuns.create({ id: 'child-1', sessionId: child.id, buttonId: button.id });
+      commandRuns.complete('child-1', 0, 'child');
+
+      const res = await request(app)
+        .delete(`/api/sessions/${child.id}/command-buttons/${button.id}/runs/all`);
+
+      expect(res.status).toBe(204);
+      expect(commandRuns.getById('root-1')).toBeNull();
+      expect(commandRuns.getById('root-running')).toBeTruthy();
+      expect(commandRuns.getById('child-1')).toBeTruthy();
+    });
+  });
+
   describe('POST /api/sessions/:id/command-buttons/runs/:runId/kill', () => {
     it('kills a running command', async () => {
+      commandRunner.getRunsBySession.mockReturnValue([
+        { runId: 'r1', buttonId: 'b1', status: 'running' },
+      ]);
       commandRunner.kill.mockReturnValue(true);
 
       const res = await request(app)
@@ -198,6 +336,33 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.runId).toBe('r1');
+    });
+
+    it('kills a root active run through a child session', async () => {
+      const child = createChildSession();
+      commandRunner.getRunsBySession.mockReturnValue([
+        { runId: 'root-active', buttonId: 'b1', status: 'running' },
+      ]);
+      commandRunner.kill.mockReturnValue(true);
+
+      const res = await request(app)
+        .post(`/api/sessions/${child.id}/command-buttons/runs/root-active/kill`);
+
+      expect(res.status).toBe(200);
+      expect(commandRunner.getRunsBySession).toHaveBeenCalledWith(session.id);
+      expect(commandRunner.kill).toHaveBeenCalledWith('root-active');
+    });
+
+    it('returns 404 when run does not belong to the root session', async () => {
+      const child = createChildSession();
+      commandRunner.getRunsBySession.mockReturnValue([]); // no active runs for root
+
+      const res = await request(app)
+        .post(`/api/sessions/${child.id}/command-buttons/runs/unknown-run/kill`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Run not found or already completed');
+      expect(commandRunner.kill).not.toHaveBeenCalled();
     });
 
     it('returns 404 when run not found or already completed', async () => {

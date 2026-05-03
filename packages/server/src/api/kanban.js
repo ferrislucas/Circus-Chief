@@ -11,6 +11,7 @@ import {
   ReorderKanbanCardsRequest,
 } from '@circuschief/shared/contracts/kanban';
 import { moveCard as moveCardService } from '../services/kanbanService.js';
+import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 
 const router = Router({ mergeParams: true });
 
@@ -215,7 +216,7 @@ router.put('/lanes/reorder', (req, res) => {
  * POST /api/projects/:projectId/kanban/cards
  * Add a session to the board (create card in a lane)
  */
-router.post('/cards', (req, res) => {
+router.post('/cards', resolveBodyRootSessionForProject('projectId'), (req, res) => {
   const { projectId } = req.params;
 
   const result = CreateKanbanCardRequest.safeParse(req.body);
@@ -223,7 +224,8 @@ router.post('/cards', (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { sessionId, laneId } = result.data;
+  const { laneId } = result.data;
+  const sessionId = req.bodyRootSessionId;
 
   // Check if session already has a card
   const existingCard = kanbanCards.getBySessionId(sessionId);

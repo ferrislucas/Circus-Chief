@@ -418,6 +418,28 @@ pre {
   border-color: var(--color-info);
 }
 
+/* Link-style button (used across multiple components) */
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.btn-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.btn-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Preview toggle button (used in DiffViewer and CanvasTab) */
 .preview-toggle {
   padding: 0.25rem 0.5rem;

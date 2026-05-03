@@ -164,5 +164,223 @@ describe('summaryStaleCheck', () => {
       sessions.delete(newSession.id);
       projects.delete(testProject.id);
     });
+
+    // Descendant staleness tests
+    describe('descendant staleness', () => {
+      it('returns false when no descendants exist', async () => {
+        await summaryService.generateSummary(sessionId);
+
+        // Session has no children — descendant check is skipped
+        expect(isSummaryStale(sessionId)).toBe(false);
+      });
+
+      it('returns false when descendants exist but have no summaries', async () => {
+        await summaryService.generateSummary(sessionId);
+
+        // Create a child session with no summary
+        const child = sessions.create(projectId, 'Child Session', 'Child prompt', { parentSessionId: sessionId });
+
+        try {
+          expect(isSummaryStale(sessionId)).toBe(false);
+        } finally {
+          sessions.delete(child.id);
+        }
+      });
+
+      it('returns false when descendants exist but their summaries are older', () => {
+        vi.useFakeTimers();
+
+        try {
+          // Create parent summary at T2 (later)
+          vi.setSystemTime(2000);
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'parent',
+            fullSummary: 'parent full',
+            messageCount: messages.getBySessionId(sessionId).length,
+          });
+
+          // Create child summary at T1 (earlier)
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(1000);
+          sessionSummaries.create(child.id, {
+            shortSummary: 'child',
+            fullSummary: 'child full',
+            messageCount: 0,
+          });
+
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('returns true when a child session has a newer summary', () => {
+        vi.useFakeTimers();
+
+        try {
+          // Create parent summary at T1
+          vi.setSystemTime(1000);
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'parent',
+            fullSummary: 'parent full',
+            messageCount: messages.getBySessionId(sessionId).length,
+          });
+
+          // Create child with a newer summary at T2
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(2000);
+          sessionSummaries.create(child.id, {
+            shortSummary: 'child',
+            fullSummary: 'child full',
+            messageCount: 0,
+          });
+
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('returns true when a grandchild session has a newer summary', () => {
+        vi.useFakeTimers();
+
+        try {
+          // Create parent summary at T1
+          vi.setSystemTime(1000);
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'parent',
+            fullSummary: 'parent full',
+            messageCount: messages.getBySessionId(sessionId).length,
+          });
+
+          // Create child at T1 (same time, not stale)
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(1000);
+          sessionSummaries.create(child.id, {
+            shortSummary: 'child',
+            fullSummary: 'child full',
+            messageCount: 0,
+          });
+
+          // Create grandchild at T2 (newer — should make parent stale)
+          const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt', { parentSessionId: child.id });
+          vi.setSystemTime(2000);
+          sessionSummaries.create(grandchild.id, {
+            shortSummary: 'grandchild',
+            fullSummary: 'grandchild full',
+            messageCount: 0,
+          });
+
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(grandchild.id);
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('returns true when a great-grandchild has a newer summary', () => {
+        vi.useFakeTimers();
+
+        try {
+          // Create parent summary at T1
+          vi.setSystemTime(1000);
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'parent',
+            fullSummary: 'parent full',
+            messageCount: messages.getBySessionId(sessionId).length,
+          });
+
+          // Build a 4-level deep hierarchy
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt', { parentSessionId: child.id });
+          const greatGrandchild = sessions.create(projectId, 'GGC', 'Prompt', { parentSessionId: grandchild.id });
+
+          // Great-grandchild has a newer summary at T2
+          vi.setSystemTime(2000);
+          sessionSummaries.create(greatGrandchild.id, {
+            shortSummary: 'great-grandchild',
+            fullSummary: 'great-grandchild full',
+            messageCount: 0,
+          });
+
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(greatGrandchild.id);
+          sessions.delete(grandchild.id);
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('returns true when multiple descendants have newer summaries', () => {
+        vi.useFakeTimers();
+
+        try {
+          // Create parent summary at T1
+          vi.setSystemTime(1000);
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'parent',
+            fullSummary: 'parent full',
+            messageCount: messages.getBySessionId(sessionId).length,
+          });
+
+          // Create child A with newer summary at T2
+          const childA = sessions.create(projectId, 'Child A', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(2000);
+          sessionSummaries.create(childA.id, {
+            shortSummary: 'child A',
+            fullSummary: 'child A full',
+            messageCount: 0,
+          });
+
+          // Create grandchild B with even newer summary at T3
+          const childB = sessions.create(projectId, 'Child B', 'Prompt', { parentSessionId: sessionId });
+          const grandchildB = sessions.create(projectId, 'Grandchild B', 'Prompt', { parentSessionId: childB.id });
+          vi.setSystemTime(3000);
+          sessionSummaries.create(grandchildB.id, {
+            shortSummary: 'grandchild B',
+            fullSummary: 'grandchild B full',
+            messageCount: 0,
+          });
+
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(grandchildB.id);
+          sessions.delete(childB.id);
+          sessions.delete(childA.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('returns true when message-based staleness already detects stale', async () => {
+        vi.useFakeTimers();
+
+        try {
+          // Generate a summary for the parent
+          await summaryService.generateSummary(sessionId);
+
+          // Create a child session (but don't generate a summary for it)
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+
+          // Add a new message to the parent — this makes it stale by message count
+          messages.create(sessionId, 'assistant', 'New message');
+
+          // Should be stale due to message change, even before checking descendants
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
   });
 });

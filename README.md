@@ -6,8 +6,8 @@
 
 <p align="center">
   An open-source, touch-optimized control plane for managing AI coding agents.<br/><br/>
-  Supports Claude Code agents (Anthropic API, AWS Bedrock, Google Vertex AI, z.ai, or any Anthropic-compatible endpoint)
-  and OpenAI Codex agents.
+  Supports Claude Code agents (any Anthropic-compatible provider) and OpenAI Codex agents (any OpenAI-compatible provider).
+  Works with API key or subscription-based authorization.
 </p>
 
 ---
@@ -90,3 +90,4 @@ npx circuschief -p 8080
 
 - [Development Guide](docs/development.md) — Quick start, commands, testing, environment variables
 - [Build & Distribution](docs/build-and-distribution.md) — How the npm package is built, published, and run
+- [Agent System Prompt & REST API Reference](docs/agent-system-prompt.md) — The REST API exposed to agents via the system prompt
