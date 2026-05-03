@@ -24,18 +24,6 @@
       :has-warnings="hasWarnings"
       :scheduled-sessions="allScheduledSessions"
       :project-id="projectId"
-      :cancelling="cancelling"
-      @edit-schedule="showScheduleTimeModal = true"
-      @cancel-schedule="cancelScheduledSession(sessionId)"
-    />
-
-    <!-- Scheduling Edit Modal -->
-    <SchedulingEditModal
-      v-if="isScheduled"
-      :is-open="showScheduleTimeModal"
-      :session="session"
-      @close="showScheduleTimeModal = false"
-      @saved="showScheduleTimeModal = false"
     />
 
     <div
@@ -109,16 +97,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { format, formatDistanceToNow } from 'date-fns';
+import { ref, computed, onMounted } from 'vue';
 import { formatTokenCount } from '@circuschief/shared';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
-import { useScheduleCancel } from '../composables/useScheduleCancel.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
-import SchedulingEditModal from './SchedulingEditModal.vue';
 import LatestResponseCard from './LatestResponseCard.vue';
 import SessionOverviewCard from './SessionOverviewCard.vue';
 import { useSummaryStreaming } from '../composables/useSummaryStreaming.js';
@@ -134,7 +119,6 @@ const props = defineProps({
 
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
-const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore);
 
 // Set up streaming subscriptions (primary + descendants)
 const { onSummaryUpdate, onSummaryGenerating, onMessage } = useSummaryStreaming(props.sessionId);
@@ -155,9 +139,6 @@ const generating = ref(false);
 const generatingManual = ref(false);
 const filesCount = ref(0);
 const latestResponse = ref(null);
-const showScheduleTimeModal = ref(false);
-const nowTick = ref(Date.now());
-let countdownInterval = null;
 
 const session = computed(() =>
   sessionsStore.sessions.find((s) => s.id === props.sessionId)
@@ -167,7 +148,6 @@ const isRunning = computed(() => {
   const status = session.value?.status;
   return status === 'running' || status === 'starting';
 });
-const isScheduled = computed(() => session.value?.status === 'scheduled');
 
 const allScheduledSessions = computed(() => {
   const result = [];
