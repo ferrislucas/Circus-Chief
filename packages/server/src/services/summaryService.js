@@ -200,18 +200,19 @@ function updateSessionFromSummary(sessionId, session, summaryData) {
   if (summaryData.sessionTitle || summaryData.prUrl) {
     const updateData = {};
     const freshSession = sessions.getById(sessionId);
+    const shouldApplySummaryPrUrl = summaryData.prUrl && !freshSession.prUrlAutoLinkDisabled;
 
     if (summaryData.sessionTitle && !freshSession.manuallyNamed) {
       updateData.name = summaryData.sessionTitle;
     }
 
-    if (summaryData.prUrl) {
+    if (shouldApplySummaryPrUrl) {
       updateData.prUrl = summaryData.prUrl;
     }
 
     const updatedSession = sessions.update(sessionId, updateData);
 
-    if (summaryData.prUrl) {
+    if (shouldApplySummaryPrUrl) {
       propagatePrUrlToParent(sessionId, summaryData.prUrl);
     }
 
@@ -521,7 +522,7 @@ export function propagatePrUrlToParent(sessionId, prUrl) {
   if (!rootId || rootId === sessionId) return;
 
   const root = sessions.getById(rootId);
-  if (!root || root.prUrl) return; // Don't overwrite existing PR URL
+  if (!root || root.prUrl || root.prUrlAutoLinkDisabled) return; // Don't overwrite existing or user-cleared PR URL
 
   sessions.update(root.id, { prUrl });
 
@@ -536,6 +537,7 @@ export {
   MAX_MESSAGES, MIN_MESSAGES_FOR_SUMMARY, MAX_RETRIES, DEFAULT_SESSION_TITLE_PROMPT,
   SUMMARY_SYSTEM_PROMPT, formatMessages, buildIncrementalPrompt, parseSummaryResponse,
   stripMarkdownCodeBlock as _stripMarkdownCodeBlock, trackMessageMetadata as _trackMessageMetadata,
+  updateSessionFromSummary as _updateSessionFromSummary,
 };
 export { callSummaryModel };
 export { callClaude } from './summaryClaudeClient.js';

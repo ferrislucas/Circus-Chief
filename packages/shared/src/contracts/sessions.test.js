@@ -318,6 +318,7 @@ describe('SessionResponse', () => {
     gitBranch: null,
     gitWorktree: null,
     prUrl: null,
+    prUrlAutoLinkDisabled: false,
     manuallyNamed: false,
     error: null,
     nextTemplateId: null,
@@ -386,6 +387,21 @@ describe('SessionResponse', () => {
       manuallyNamed: false,
     });
     expect(result.success).toBe(true);
+  });
+
+  it('validates session with prUrlAutoLinkDisabled: true', () => {
+    const result = SessionResponse.safeParse({
+      ...validSession,
+      prUrlAutoLinkDisabled: true,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('requires prUrlAutoLinkDisabled', () => {
+    const { prUrlAutoLinkDisabled, ...sessionWithoutFlag } = validSession;
+    void prUrlAutoLinkDisabled;
+    const result = SessionResponse.safeParse(sessionWithoutFlag);
+    expect(result.success).toBe(false);
   });
 
   it('validates session with effortLevel set', () => {
@@ -479,6 +495,7 @@ describe('SessionListResponse', () => {
         gitBranch: null,
         gitWorktree: null,
         prUrl: null,
+        prUrlAutoLinkDisabled: false,
         manuallyNamed: false,
         error: null,
         nextTemplateId: null,

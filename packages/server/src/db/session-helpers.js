@@ -125,6 +125,7 @@ export const BOOLEAN_FIELD_MAP = {
   archived: 'archived',
   starred: 'starred',
   manuallyNamed: 'manually_named',
+  prUrlAutoLinkDisabled: 'pr_url_auto_link_disabled',
   autoRescheduleEnabled: 'auto_reschedule_enabled',
   rescheduleOnTokenLimit: 'reschedule_on_token_limit',
   rescheduleOnServiceError: 'reschedule_on_service_error',

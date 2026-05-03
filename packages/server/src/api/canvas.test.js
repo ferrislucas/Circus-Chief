@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { canvasItems, projects } from '../database.js';
+import { canvasItems, projects, sessions } from '../database.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 import { existsSync, rmSync, readFileSync } from 'fs';
 import canvasRouter, { isBinaryContent, getTypeFromExtension } from './canvas.js';
@@ -1298,6 +1298,59 @@ describe('Canvas API', () => {
         expect(res.body.content).toBe('Hello, World!');
         expect(res.body.filename).toBe('output.txt');
         expect(res.body.mimeType).toBe('text/plain');
+      });
+
+      it('creates canvas items on the workflow root through a child session', async () => {
+        const child = sessions.create(projectId, 'Child Session', 'Child prompt', {
+          mode: 'standard',
+          parentSessionId: sessionId,
+        });
+
+        const res = await request(app)
+          .post(`/api/sessions/${child.id}/canvas`)
+          .send({
+            type: 'text',
+            content: 'Shared workflow content',
+            filename: 'workflow.txt',
+          });
+
+        expect(res.status).toBe(201);
+        expect(res.body.sessionId).toBe(sessionId);
+        expect(canvasItems.getLatestVersionsBySessionId(sessionId)).toHaveLength(1);
+        expect(canvasItems.getLatestVersionsBySessionId(child.id)).toHaveLength(0);
+      });
+
+      it('lists and reads root canvas files through a child session', async () => {
+        const child = sessions.create(projectId, 'Child Session', 'Child prompt', {
+          mode: 'standard',
+          parentSessionId: sessionId,
+        });
+        canvasItems.create(sessionId, { type: 'text', content: 'Version 1', filename: 'workflow.txt' });
+        canvasItems.create(sessionId, { type: 'text', content: 'Version 2', filename: 'workflow.txt' });
+
+        const listRes = await request(app).get(`/api/sessions/${child.id}/canvas`);
+        expect(listRes.status).toBe(200);
+        expect(listRes.body).toHaveLength(1);
+        expect(listRes.body[0].sessionId).toBe(sessionId);
+
+        const contentRes = await request(app).get(`/api/sessions/${child.id}/canvas/file/workflow.txt/content?version=1`);
+        expect(contentRes.status).toBe(200);
+        expect(contentRes.body.content).toBe('Version 1');
+      });
+
+      it('rejects a child session whose parent chain crosses projects', async () => {
+        const otherProject = projects.create('Other Project', '/tmp/other');
+        const otherRoot = sessions.create(otherProject.id, 'Other Root', 'Other prompt');
+        const child = sessions.create(projectId, 'Cross Project Child', 'Child prompt', {
+          mode: 'standard',
+          parentSessionId: otherRoot.id,
+        });
+        canvasItems.create(otherRoot.id, { type: 'text', content: 'Do not leak', filename: 'secret.txt' });
+
+        const res = await request(app).get(`/api/sessions/${child.id}/canvas`);
+
+        expect(res.status).toBe(400);
+        expect(res.body.error).toBe('Session parent chain crosses projects');
       });
 
       it('creates canvas item from inline markdown content', async () => {

@@ -31,6 +31,11 @@ vi.mock('../database.js', () => ({
     getById: vi.fn(),
     updateUsage: vi.fn(),
   },
+  modelProviders: {
+    getById: vi.fn(() => null),
+    getProviderMetadataByModelId: vi.fn(() => null),
+    getProviderByModelId: vi.fn(() => null),
+  },
 }));
 
 vi.mock('../services/slashCommandService.js', () => ({
@@ -285,12 +290,58 @@ describe('prepareSessionConfig', () => {
   });
 
   it('uses project defaults when body fields not provided', () => {
-    const projectDefs = { mode: 'plan', model: 'haiku', providerId: 'project-provider', thinkingEnabled: false };
+    const projectDefs = {
+      mode: 'plan',
+      model: 'haiku',
+      providerId: 'project-provider',
+      thinkingEnabled: false,
+      effortLevel: 'high',
+      gitMode: 'worktree',
+      gitBranch: 'feature/default',
+      startImmediately: false,
+    };
     const config = prepareSessionConfig({ prompt: 'test' }, projectDefs, systemDefaults);
     expect(config.mode).toBe('plan');
     expect(config.model).toBe('haiku');
     expect(config.providerId).toBe('project-provider');
     expect(config.thinkingEnabled).toBe(false);
+    expect(config.effortLevel).toBe('high');
+    expect(config.gitMode).toBe('worktree');
+    expect(config.gitBranch).toBe('feature/default');
+    expect(config.startImmediately).toBe(false);
+  });
+
+  it('uses explicit body overrides before project defaults', () => {
+    const projectDefs = {
+      mode: 'plan',
+      model: 'haiku',
+      providerId: 'project-provider',
+      thinkingEnabled: false,
+      effortLevel: 'high',
+      gitMode: 'worktree',
+      gitBranch: 'feature/default',
+      startImmediately: false,
+    };
+    const config = prepareSessionConfig({
+      prompt: 'test',
+      mode: 'standard',
+      model: 'opus',
+      providerId: 'body-provider',
+      thinkingEnabled: true,
+      effortLevel: 'low',
+      gitMode: 'branch',
+      gitBranch: 'feature/body',
+      startImmediately: true,
+    }, projectDefs, systemDefaults);
+
+    expect(config.mode).toBe('standard');
+    expect(config.model).toBe('opus');
+    expect(config.providerId).toBe('body-provider');
+    expect(config.thinkingEnabled).toBe(true);
+    expect(config.effortLevel).toBe('low');
+    expect(config.gitMode).toBe('branch');
+    expect(config.gitBranch).toBe('feature/body');
+    expect(config.startImmediately).toBe(true);
   });
 
   it('normalizes empty providerId to null', () => {

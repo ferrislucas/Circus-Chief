@@ -68,7 +68,9 @@ npx ./circuschief-0.0.0-test.tgz
 
 ## Running E2E tests against the built package
 
-The normal `./scripts/pw.sh test` flow runs Playwright against a dev server started from the repo source. To catch issues that only appear in the published artifact — missing files from the `files` whitelist, broken `@circuschief/shared` import rewrites, a stale `cli.js`, missing runtime dependencies, etc. — use the `test-package` variant:
+The normal `./scripts/pw.sh test` flow runs Playwright against a dev server started from the repo source. That is the right default for day-to-day development, but it does not exercise the exact npm artifact users install.
+
+To catch issues that only appear in the published package — missing files from the `files` whitelist, broken `@circuschief/shared` import rewrites, a stale `cli.js`, missing runtime dependencies, or packaging mistakes that only show up after `npm pack` and `npm install` — use the `test-package` variant:
 
 ```bash
 ./scripts/pw.sh test-package                           # Run all E2E tests against the built package
@@ -81,7 +83,7 @@ VCR_MODE=record ./scripts/pw.sh test-package
 
 ### What `test-package` does
 
-Under the hood, `pw.sh test-package` sets `USE_PACKAGE_SERVER=true` and delegates server startup to `scripts/start-package-server.sh`, which reproduces a realistic end-user install:
+Under the hood, `pw.sh test-package` sets `USE_PACKAGE_SERVER=true` and delegates server startup to `scripts/start-package-server.sh`, which reproduces a realistic end-user install. The key difference is that the server is launched from an installed tarball, not from the repo checkout.
 
 1. Runs `node scripts/build-package.js` to produce `dist-package/`.
 2. `cd dist-package && npm pack` to produce a `circuschief-<version>.tgz` tarball.
@@ -92,7 +94,7 @@ Under the hood, `pw.sh test-package` sets `USE_PACKAGE_SERVER=true` and delegate
 7. Starts the server via `node node_modules/.bin/circuschief -p <port>` with `DB_PATH` set to an absolute path in the temp dir.
 8. On exit, kills the server and removes the temp dir, `.server-port`, `.db-path`, and `.vcr-mode` marker files.
 
-Meanwhile `pw.sh test-package`:
+Meanwhile `pw.sh test-package` keeps the Playwright side aligned with that installed copy:
 
 - Queries `GET /api/server-info` after the package server is ready, asserts the server's reported `dbPath` is **not** the user's home DB (`~/.circuschief/circuschief.db`), then re-exports that path as `DB_PATH` so seed scripts (e.g. `scripts/seed-*.mjs`) write to the **same** database the package server is using — otherwise seeds would go to a default cwd-relative file and the server would see an empty DB.
 - Also asserts the server's `schedulerRunning` is `false` (VCR_MODE propagates through `start-package-server.sh` to the server's `schedulerService.startIfEnabled()` gate). If either check fails, pw.sh exits non-zero before any test runs.
@@ -100,11 +102,17 @@ Meanwhile `pw.sh test-package`:
 - Sets `BASE_URL` / `API_URL` to `http://localhost:<port>` and runs Playwright (Docker if available, `npx playwright` otherwise).
 - Uses a longer startup timeout (180s vs 120s) to cover the extra build + `npm install` steps.
 
-### When to use `test-package`
+### When to use it
 
-- **Before publishing** — run it after `scripts/publish.sh`'s build succeeds but before you actually publish, to prove the tarball works end-to-end.
-- **After changes to `scripts/build-package.js`** — any change to the import-rewriter, the `files` whitelist, the production `cli.js`, or the merged dependency list should be covered by a `test-package` run.
-- **After touching anything in `packages/server/bin/`** or runtime code paths that differ between `yarn dev` and the packaged artifact.
+- **Before publishing** - run `./scripts/pw.sh test-package` immediately before `scripts/publish.sh` so you validate the same artifact shape that will be uploaded to npm.
+- **After packaging changes** - rerun it after changes to `scripts/build-package.js`, `scripts/start-package-server.sh`, `packages/server/bin/`, the package `files` list, or any runtime path that behaves differently in the published tree.
+- **When debugging an install-only failure** - if something works in `./scripts/pw.sh test` but fails after `npx circuschief`, this is the command to reproduce it locally.
+
+### Useful mental model
+
+- `./scripts/pw.sh test` answers: "Does the repo source work under Playwright?"
+- `./scripts/pw.sh test-package` answers: "Does the npm package users install work under Playwright?"
+- If both pass, you have coverage for both the source checkout and the published artifact.
 
 Regular `./scripts/pw.sh test` is still the fast path for normal development — `test-package` adds a full build + `npm pack` + `npm install` on every invocation.
 
@@ -113,17 +121,12 @@ Regular `./scripts/pw.sh test` is still the fast path for normal development —
 Use `scripts/publish.sh`, which wraps the build and `npm publish`:
 
 ```bash
-# Usage: ./scripts/publish.sh [-y] [version] <otp>
+# Usage: ./scripts/publish.sh [version] <otp>
 
 # Examples:
 ./scripts/publish.sh 123456             # auto-bump minor, publish
 ./scripts/publish.sh 0.2.0 123456       # publish exactly 0.2.0
-./scripts/publish.sh -y 123456          # auto-bump without prompt
 ```
-
-Options:
-
-- `-y, --yes` — Skip confirmation prompt when auto-bumping version.
 
 Arguments:
 
@@ -133,7 +136,7 @@ Arguments:
 What the script does:
 
 1. Verifies you're logged in (`npm whoami`) and aborts with an error if not.
-2. If `version` is omitted, queries npm for the latest published version and auto-bumps the minor version (e.g. `1.4.2` → `1.5.0`). Prompts for confirmation unless `-y` is passed.
+2. If `version` is omitted, queries npm for the latest published version and auto-bumps the minor version (e.g. `1.4.2` → `1.5.0`).
 3. Runs `node scripts/build-package.js --version=$VERSION`.
 4. Runs `npm publish --otp=$OTP` from inside `dist-package/`.
 5. Prints install/run hints (`npx circuschief`, `npx circuschief@<version>`).

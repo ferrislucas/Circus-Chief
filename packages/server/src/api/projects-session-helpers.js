@@ -1,6 +1,7 @@
 import { sessions, sessionTemplates, attachments } from '../database.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
+import { resolveProviderMetadataFromModel } from '../services/sessionProvider.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
@@ -269,6 +270,8 @@ async function resolveSessionWorkingDirectory({ session, config, project }) {
     gitBranch: config.gitBranch || null,
     sessionId: session.id,
     worktreeBasePath: project.worktreePath || null,
+    commitAttributionOverride:
+      resolveProviderMetadataFromModel(config.model)?.commitAttributionOverride ?? null,
   });
   return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
 }

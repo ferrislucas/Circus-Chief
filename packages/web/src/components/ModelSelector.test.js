@@ -763,6 +763,41 @@ describe('ModelSelector', () => {
       expect(wrapper.find('option').element.value).toBe(optionValue('custom-openai', 'gpt-5.5'));
     });
 
+    it('falls back to a visible duplicate option when the requested provider is hidden', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+          ],
+        },
+        {
+          id: 'custom-openai',
+          name: 'Custom OpenAI',
+          isBuiltIn: false,
+          kind: 'openai',
+          models: [
+            { id: 'custom-gpt-5-5', modelId: 'gpt-5.5', displayName: 'Custom GPT-5.5', tier: 'custom' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({
+        modelValue: 'gpt-5.5',
+        providerId: 'openai-default',
+      });
+      await flushAll(wrapper);
+
+      const select = wrapper.find('select');
+      expect(select.element.value).toBe(optionValue('custom-openai', 'gpt-5.5'));
+      expect(wrapper.attributes('data-model')).toBe('gpt-5.5');
+      expect(wrapper.attributes('data-provider-id')).toBe('custom-openai');
+    });
+
     it('shows duplicate built-in and custom options when requested', async () => {
       const localProvidersStore = useProvidersStore();
       localProvidersStore.providers = [

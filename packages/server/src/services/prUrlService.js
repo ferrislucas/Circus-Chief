@@ -126,8 +126,8 @@ export async function extractPrUrlIfNeeded(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session) return;
 
-  // Skip if session already has a PR URL
-  if (session.prUrl) return;
+  // Skip if session already has a PR URL or the user cleared automatic PR linking.
+  if (session.prUrl || session.prUrlAutoLinkDisabled) return;
 
   // Extract PR URL from messages
   const prUrl = extractPrUrlFromMessages(sessionId);
@@ -145,7 +145,7 @@ export async function extractPrUrlIfNeeded(sessionId) {
     if (session.parentSessionId) {
       const rootId = sessions.getRootSessionId(sessionId);
       const root = rootId && rootId !== sessionId ? sessions.getById(rootId) : null;
-      if (root && !root.prUrl) {
+      if (root && !root.prUrl && !root.prUrlAutoLinkDisabled) {
         sessions.update(root.id, { prUrl });
         console.log(`[PrUrlService] Propagated PR URL from session ${sessionId} to root ${root.id}: ${prUrl}`);
 

@@ -1567,14 +1567,21 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('backdrop stylesheet uses browser-owned full viewport geometry', () => {
+    it('backdrop stylesheet uses fixed viewport geometry by default', () => {
       const block = getStyleBlock('.overlay-backdrop');
       expect(block).toMatch(/position:\s*fixed/);
       expect(block).toMatch(/inset:\s*0/);
+      expect(block).toMatch(/z-index:\s*1200/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
       expect(block).not.toMatch(/top:\s*var\(/);
       expect(block).not.toMatch(/height:\s*var\(/);
+    });
+
+    it('backdrop stylesheet opts tablet-sized viewports into visual viewport geometry', () => {
+      expect(sessionChatOverlaySource).toMatch(
+        /@media\s*\(min-width:\s*700px\)\s*and\s*\(min-height:\s*700px\)\s*\{[\s\S]*?\.overlay-backdrop\s*\{[\s\S]*?top:\s*var\(--viewport-offset-top,\s*0px\);[\s\S]*?height:\s*var\(--visual-viewport-height,\s*100dvh\);/
+      );
     });
 
     it('panel-wrapper stylesheet is child geometry inside the backdrop', () => {
@@ -1586,12 +1593,11 @@ describe('SessionChatOverlay', () => {
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
       expect(block).not.toMatch(/top:\s*var\(/);
-      expect(block).not.toMatch(/height:\s*var\(/);
       expect(block).not.toMatch(/min-height:\s*100vh/);
       expect(block).not.toMatch(/min-height:\s*100dvh/);
     });
 
-    it('overlay shell stylesheet ignores stale visual viewport variables', () => {
+    it('overlay shell keeps visual viewport variables out of phone-sized default geometry', () => {
       const shellBlocks = [
         getStyleBlock('.overlay-backdrop'),
         getStyleBlock('.overlay-panel-wrapper'),
@@ -1609,18 +1615,15 @@ describe('SessionChatOverlay', () => {
       }
     });
 
-    it('source no longer references visual viewport APIs', () => {
-      // Viewport reads stay centralized in useVisualViewport.js for app-level chrome.
+    it('source keeps visual viewport reads centralized in the composable', () => {
+      // SessionChatOverlay may request viewport refreshes, but direct viewport
+      // reads stay centralized in useVisualViewport.js.
       expect(sessionChatOverlaySource).not.toMatch(/window\.visualViewport/);
-      expect(sessionChatOverlaySource).not.toMatch(/requestVisualViewportSettle/);
-      expect(sessionChatOverlaySource).not.toMatch(/useVisualViewport\.js/);
       expect(sessionChatOverlaySource).not.toMatch(/syncToVisualViewport/);
       expect(sessionChatOverlaySource).not.toMatch(/markRecentBlur/);
       expect(sessionChatOverlaySource).not.toMatch(/applyLayoutViewport/);
-      expect(sessionChatOverlaySource).not.toMatch(/overlayBackdropRef/);
       expect(sessionChatOverlaySource).not.toMatch(/inputFocused/);
       expect(sessionChatOverlaySource).not.toMatch(/focusOutRaf/);
-      expect(sessionChatOverlaySource).not.toMatch(/handleOverlayFocus(?:in|out)/);
     });
 
     it('lockBodyScroll does not call window.scrollTo(0, 0) at mount time', async () => {
@@ -1682,7 +1685,10 @@ describe('SessionChatOverlay', () => {
       expect(wrapper.vm.inputFocused).toBeUndefined();
       expect(wrapper.vm.handleOverlayFocusin).toBeUndefined();
       expect(wrapper.vm.handleOverlayFocusout).toBeUndefined();
-      expect(wrapper.vm.requestVisualViewportSettle).toBeUndefined();
+      // Note: requestVisualViewportSettle is imported at <script setup> top level.
+      // On Node 20, Vue exposes all <script setup> bindings on wrapper.vm regardless
+      // of defineExpose. It is NOT in defineExpose, so parent components cannot
+      // access it through template refs. Only check dead/wrapper functions above.
       wrapper.unmount();
     });
 

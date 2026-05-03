@@ -157,26 +157,26 @@ assert_output_includes "OTP is required" "$OUTPUT" "one-arg version mentions mis
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 4: One arg (OTP 123456) → auto-bump minor"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_VIEW" -y 123456 2>&1) && RC=$? || RC=$?
-assert_exit 0 "$RC" "auto-bump with -y succeeds past confirmation"
+OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_VIEW" 123456 2>&1) && RC=$? || RC=$?
+assert_exit 0 "$RC" "auto-bump succeeds"
 assert_output_includes "Next: 1.5.0" "$OUTPUT" "auto-bump from 1.4.2 → 1.5.0"
 assert_output_includes "Publishing circuschief v1.5.0" "$OUTPUT" "VERSION set to 1.5.0"
 
 # --------------------------------------------------------------------------------
-# Test 5: -y mid-args should fail
+# Test 5: -y is not supported
 # --------------------------------------------------------------------------------
 echo ""
-echo "Test 5: -y mid-args (123456 -y) → error"
-OUTPUT=$(bash "$SCRIPT" 123456 -y 2>&1) && RC=$? || RC=$?
-assert_exit 1 "$RC" "-y mid-args exits 1"
-assert_output_includes "must be the first argument" "$OUTPUT" "-y mid-args error message"
+echo "Test 5: -y 123456 → error"
+OUTPUT=$(bash "$SCRIPT" -y 123456 2>&1) && RC=$? || RC=$?
+assert_exit 1 "$RC" "-y exits 1"
+assert_output_includes "version must be semver" "$OUTPUT" "-y rejected"
 
 # --------------------------------------------------------------------------------
 # Test 6: Pre-release latest → error
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 6: Pre-release latest → error"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_PRERELEASE" -y 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_PRERELEASE" 123456 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "pre-release latest exits 1"
 assert_output_includes "pre-release" "$OUTPUT" "pre-release error message"
 
@@ -185,7 +185,7 @@ assert_output_includes "pre-release" "$OUTPUT" "pre-release error message"
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 7: Never published → 0.1.0"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_EMPTY" -y 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_EMPTY" 123456 2>&1) && RC=$? || RC=$?
 assert_exit 0 "$RC" "never-published succeeds"
 assert_output_includes "Next: 0.1.0" "$OUTPUT" "never-published starts at 0.1.0"
 assert_output_includes "Publishing circuschief v0.1.0" "$OUTPUT" "VERSION set to 0.1.0"
@@ -195,7 +195,7 @@ assert_output_includes "Publishing circuschief v0.1.0" "$OUTPUT" "VERSION set to
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 8: Unparseable npm output → error"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_GARBAGE" -y 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_GARBAGE" 123456 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "unparseable npm output exits 1"
 assert_output_includes "could not parse" "$OUTPUT" "unparseable error message"
 
@@ -209,14 +209,23 @@ assert_exit 1 "$RC" "invalid OTP exits 1"
 assert_output_includes "Unrecognized" "$OUTPUT" "invalid OTP rejected"
 
 # --------------------------------------------------------------------------------
-# Test 10: -y with explicit version and OTP (no prompt expected)
+# Test 10: --yes is not supported
 # --------------------------------------------------------------------------------
 echo ""
-echo "Test 10: -y with explicit version (9.9.9 000000) → no prompt, fails at whoami"
-OUTPUT=$(run_with_mock "$MOCK_NOT_LOGGED_IN" -y 9.9.9 000000 2>&1) && RC=$? || RC=$?
-assert_exit 1 "$RC" "-y explicit version fails at whoami"
-assert_output_includes "Publishing circuschief v9.9.9" "$OUTPUT" "version set correctly"
-assert_output_not_includes "Proceed?" "$OUTPUT" "no confirmation prompt"
+echo "Test 10: --yes 123456 → error"
+OUTPUT=$(bash "$SCRIPT" --yes 123456 2>&1) && RC=$? || RC=$?
+assert_exit 1 "$RC" "--yes exits 1"
+assert_output_includes "version must be semver" "$OUTPUT" "--yes rejected"
+
+# --------------------------------------------------------------------------------
+# Test 11: Auto-bump does not prompt
+# --------------------------------------------------------------------------------
+echo ""
+echo "Test 11: One arg (OTP 123456) → auto-bump without prompt"
+OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_VIEW" 123456 2>&1) && RC=$? || RC=$?
+assert_exit 0 "$RC" "auto-bump succeeds"
+assert_output_includes "Next: 1.5.0" "$OUTPUT" "auto-bump still calculates next version"
+assert_output_not_includes "Proceed?" "$OUTPUT" "auto-bump does not prompt"
 
 # --- Summary ---
 echo ""

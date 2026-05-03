@@ -1152,6 +1152,7 @@ export async function createProvider(data: {
   baseUrl?: string;
   authToken?: string;
   apiTimeoutMs?: number;
+  commitAttributionOverride?: string | null;
 }) {
   const response = await fetch(`${API_URL}/api/providers`, {
     method: 'POST',
@@ -1242,6 +1243,7 @@ export async function updateProvider(id: string, data: {
   baseUrl?: string;
   authToken?: string;
   apiTimeoutMs?: number;
+  commitAttributionOverride?: string | null;
 }) {
   const response = await fetch(`${API_URL}/api/providers/${id}`, {
     method: 'PATCH',
@@ -1302,7 +1304,7 @@ export async function cleanupProviders() {
  * session_summaries and must be seeded via seedSessionSummaryWithPR().
  */
 export async function updateSessionWithPR(sessionId: string, prData: {
-  prUrl?: string;
+  prUrl?: string | null;
   prState?: 'open' | 'merged' | 'closed' | 'draft';
   hasMergeConflicts?: boolean;
   ciStatus?: 'success' | 'failure' | 'pending';

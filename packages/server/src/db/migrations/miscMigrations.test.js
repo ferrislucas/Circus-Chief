@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { miscMigrations, DEFAULT_SESSION_TEMPLATE_PROMPTS } from './miscMigrations.js';
+import { providerMigrations } from './providerMigrations.js';
 import { getDatabase, ProjectRepository } from '../index.js';
 import { allMigrations } from './index.js';
 import { OPENAI_MODELS } from '@circuschief/shared';
@@ -294,8 +295,8 @@ describe('session_templates-seed-defaults migration', () => {
   });
 });
 
-const addKindMigration = miscMigrations.find(m => m.name === 'providers-add-kind');
-const seedOpenAIMigration = miscMigrations.find(m => m.name === 'providers-seed-built-in-openai');
+const addKindMigration = providerMigrations.find(m => m.name === 'providers-add-kind');
+const seedOpenAIMigration = providerMigrations.find(m => m.name === 'providers-seed-built-in-openai');
 
 describe('providers-add-kind migration', () => {
   it('exists in the migrations module', () => {

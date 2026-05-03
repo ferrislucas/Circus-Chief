@@ -88,6 +88,7 @@ describe('SummaryTab', () => {
 
     // Reset API mock implementations to defaults
     api.getSessionSummary.mockResolvedValue(null);
+    api.generateSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
     api.getWorkflowLatestResponse.mockResolvedValue(null);
 
     // Get actual store instances
@@ -122,7 +123,8 @@ describe('SummaryTab', () => {
           SessionLogStream: { template: '<div class="session-log-stream-stub"></div>' },
           SummaryContent: {
             name: 'SummaryContent',
-            template: '<div class="summary-content-stub"></div>',
+            props: ['summary'],
+            template: '<div class="summary-content-stub">{{ summary?.fullSummary || summary?.shortSummary }}</div>',
           },
           SchedulingInfo: {
             name: 'SchedulingInfo',
@@ -999,6 +1001,51 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.summary-empty-state').exists()).toBe(true);
       expect(wrapper.text()).toContain("This session hasn't started yet.");
       expect(wrapper.text()).toContain('Start the session or send a message to see a summary here.');
+      expect(wrapper.find('.summary-empty-state .summary-generate-action').exists()).toBe(true);
+      expect(wrapper.find('.summary-empty-state .summary-generate-action').text()).toContain('Generate summary');
+    });
+
+    it('generates and renders a missing summary from the empty state', async () => {
+      api.generateSessionSummary.mockResolvedValue({
+        shortSummary: 'Generated summary',
+        fullSummary: 'Generated full summary text',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('.summary-empty-state .summary-generate-action').trigger('click');
+      await flushAll(wrapper);
+
+      expect(api.generateSessionSummary).toHaveBeenCalledWith('sess-123');
+      expect(wrapper.findComponent({ name: 'SummaryContent' }).exists()).toBe(true);
+      expect(wrapper.text()).toContain('Generated full summary text');
+    });
+
+    it('disables the missing-summary generate action while generation is pending', async () => {
+      let resolveGenerate;
+      api.generateSessionSummary.mockReturnValue(new Promise((resolve) => {
+        resolveGenerate = resolve;
+      }));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const generateButton = wrapper.find('.summary-empty-state .summary-generate-action');
+      await generateButton.trigger('click');
+      await nextTick();
+
+      expect(generateButton.attributes('disabled')).toBeDefined();
+      expect(generateButton.find('.loading-spinner').exists()).toBe(true);
+
+      resolveGenerate({
+        shortSummary: 'Generated summary',
+        fullSummary: 'Generated after pending',
+      });
+      await flushAll(wrapper);
+
+      expect(wrapper.findComponent({ name: 'SummaryContent' }).exists()).toBe(true);
+      expect(wrapper.text()).toContain('Generated after pending');
     });
 
     it('does not show empty state while loading', async () => {
@@ -1031,6 +1078,36 @@ describe('SummaryTab', () => {
 
       expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
       expect(wrapper.find('.latest-response').exists()).toBe(true);
+    });
+
+    it('shows a generate action when latest response exists but summary is missing', async () => {
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: { content: 'A response', timestamp: Date.now(), role: 'assistant' },
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.find('.missing-summary-action').exists()).toBe(true);
+      expect(wrapper.find('.missing-summary-action button').text()).toContain('Generate summary');
+    });
+
+    it('shows missing-summary-action for running session with latest response but no summary', async () => {
+      sessionsStore.currentSession = { id: 'sess-123', status: 'running' };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+      api.getWorkflowLatestResponse.mockResolvedValue({
+        message: { content: 'A response', timestamp: Date.now(), role: 'assistant' },
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.find('.latest-response').exists()).toBe(true);
+      expect(wrapper.find('.missing-summary-action').exists()).toBe(true);
+      expect(wrapper.find('.missing-summary-action button').text()).toContain('Generate summary');
     });
 
     it('does not show empty state when session is running', async () => {
@@ -1322,6 +1399,139 @@ describe('SummaryTab', () => {
 
       expect(wrapper.find('.overview-scheduling').exists()).toBe(false);
       expect(wrapper.findComponent({ name: 'SchedulingEditModal' }).exists()).toBe(false);
+    });
+  });
+
+  describe('Cancel Schedule', () => {
+    beforeEach(() => {
+      vi.restoreAllMocks();
+      // Re-apply the ui store spies after restoreAllMocks
+      vi.spyOn(uiStore, 'error').mockImplementation(() => {});
+      vi.spyOn(uiStore, 'success').mockImplementation(() => {});
+    });
+
+    it('Cancel button is visible when session is scheduled', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').exists()).toBe(true);
+    });
+
+    it('Cancel button is NOT visible for non-scheduled sessions', async () => {
+      sessionsStore.currentSession = { id: 'sess-123', status: 'waiting' };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').exists()).toBe(false);
+    });
+
+    it('shows confirm dialog when Cancel button is clicked', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
+    });
+
+    it('calls updateSessionFields with { status: "stopped" } when user confirms', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const updateSpy = vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(updateSpy).toHaveBeenCalledWith('sess-123', { status: 'stopped', scheduledAt: null });
+    });
+
+    it('shows success toast after successful cancellation', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(uiStore.success).toHaveBeenCalledWith('Session cancelled');
+    });
+
+    it('does not call updateSessionFields when user dismisses confirm dialog', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(false);
+      const updateSpy = vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('shows error toast when updateSessionFields rejects', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: Date.now() + 3600000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      vi.spyOn(sessionsStore, 'updateSessionFields').mockRejectedValue(new Error('Network error'));
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
+      await flushAll(wrapper);
+
+      expect(uiStore.error).toHaveBeenCalledWith(expect.stringContaining('Network error'));
     });
   });
 
