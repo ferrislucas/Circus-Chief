@@ -1,6 +1,6 @@
 <template>
   <div
-    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || isScheduled || loading"
+    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || loading"
     class="session-overview card"
   >
     <div
@@ -126,32 +126,30 @@
       </div>
     </div>
 
-    <!-- Scheduling section (only for scheduled sessions) -->
+    <!-- Scheduled sessions (parent + children) -->
     <div
-      v-if="isScheduled"
-      class="overview-scheduling"
+      v-if="scheduledSessions.length > 0"
+      class="overview-scheduled-sessions"
     >
-      <span class="scheduling-icon">⏰</span>
-      <div class="scheduling-details">
-        <p class="scheduling-time">
-          Scheduled for <strong>{{ scheduledTimeDisplay }}</strong>
-        </p>
-        <p class="scheduling-countdown">
-          {{ schedulingCountdown }}
-        </p>
+      <h4 class="scheduled-sessions-heading">
+        Scheduled Sessions ({{ scheduledSessions.length }})
+      </h4>
+      <div class="scheduled-sessions-list">
+        <ScheduledChildCard
+          v-for="s in scheduledSessions"
+          :key="s.id"
+          :session="s"
+          :project-id="projectId"
+          class="scheduled-session-card"
+        />
       </div>
-      <button
-        class="btn-link scheduling-edit-link"
-        @click="$emit('edit-schedule')"
-      >
-        Edit time
-      </button>
     </div>
   </div>
 </template>
 
 <script setup>
 import { formatPrState, extractPrNumber } from '../composables/useSummaryHelpers.js';
+import ScheduledChildCard from './ScheduledChildCard.vue';
 
 defineProps({
   summary: {
@@ -167,10 +165,6 @@ defineProps({
     default: false,
   },
   hasMetrics: {
-    type: Boolean,
-    default: false,
-  },
-  isScheduled: {
     type: Boolean,
     default: false,
   },
@@ -202,17 +196,15 @@ defineProps({
     type: Boolean,
     default: false,
   },
-  scheduledTimeDisplay: {
-    type: String,
-    default: '',
+  scheduledSessions: {
+    type: Array,
+    default: () => [],
   },
-  schedulingCountdown: {
+  projectId: {
     type: String,
-    default: '',
+    default: null,
   },
 });
-
-defineEmits(['edit-schedule']);
 </script>
 
 <style scoped>
@@ -372,53 +364,25 @@ defineEmits(['edit-schedule']);
   text-decoration: underline;
 }
 
-.overview-scheduling {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+.overview-scheduled-sessions {
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
 }
 
-.overview-scheduling .scheduling-icon {
-  font-size: 1.25rem;
-  flex-shrink: 0;
-}
-
-.scheduling-details {
-  flex: 1;
-  min-width: 0;
-}
-
-.scheduling-time {
-  margin: 0;
+.scheduled-sessions-heading {
+  margin: 0 0 0.75rem;
   font-size: 0.875rem;
-  color: var(--color-text);
-}
-
-.scheduling-time strong {
-  color: var(--color-primary);
   font-weight: 600;
-}
-
-.scheduling-countdown {
-  margin: 0;
-  font-size: 0.8125rem;
   color: var(--color-text-soft);
 }
 
-.scheduling-edit-link {
-  background: none;
-  border: none;
-  color: var(--color-primary);
-  cursor: pointer;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  white-space: nowrap;
-  padding: 0;
+.scheduled-sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
-.scheduling-edit-link:hover {
-  text-decoration: underline;
+.scheduled-session-card {
+  padding: 0.75rem;
 }
 </style>

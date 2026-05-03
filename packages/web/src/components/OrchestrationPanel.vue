@@ -36,8 +36,11 @@
       v-if="isExpanded"
       class="orchestration-content"
     >
-      <!-- Schedule button -->
-      <div class="schedule-row">
+      <!-- Schedule button (hidden for already-scheduled sessions) -->
+      <div
+        v-if="!hideScheduleRow"
+        class="schedule-row"
+      >
         <button
           type="button"
           class="btn btn-secondary btn-schedule"
@@ -111,6 +114,7 @@ const props = defineProps({
   isDraft: { type: Boolean, default: false },
   inputHasContent: { type: Boolean, default: false },
   autoRescheduleEnabled: { type: Boolean, default: false },
+  hideScheduleRow: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['openSchedule', 'update:templateId', 'openAutoReschedule']);
