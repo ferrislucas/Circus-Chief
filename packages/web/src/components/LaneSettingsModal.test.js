@@ -3,6 +3,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
 // Shared mock objects - same instance returned each time
 const mockKanbanStore = {
@@ -95,7 +96,7 @@ describe('LaneSettingsModal.vue', () => {
     onEnterEffortLevel: null,
     onEnterThinkingEnabled: null,
     onEnterAutoRescheduleEnabled: false,
-    onEnterRescheduleDelayMinutes: 15,
+    onEnterRescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
     onEnterRescheduleOnTokenLimit: true,
     onEnterRescheduleOnServiceError: true,
     onEnterMaxRescheduleCount: null,
@@ -422,7 +423,7 @@ describe('LaneSettingsModal.vue', () => {
       expect(data.onEnterEffortLevel).toBeNull();
       expect(data.onEnterThinkingEnabled).toBeNull();
       expect(data.onEnterAutoRescheduleEnabled).toBe(false);
-      expect(data.onEnterRescheduleDelayMinutes).toBe(15);
+      expect(data.onEnterRescheduleDelayMinutes).toBe(DEFAULT_RESCHEDULE_DELAY_MINUTES);
       expect(data.onEnterMaxRescheduleCount).toBeNull();
       expect(data.onEnterMaxTotalTokens).toBeNull();
       expect(data.onEnterRescheduleAtTokenCount).toBeNull();

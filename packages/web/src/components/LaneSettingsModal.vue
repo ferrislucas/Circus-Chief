@@ -384,6 +384,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
 import { useProjectsStore } from '../stores/projects.js';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import InterpolationHelp from './InterpolationHelp.vue';
 import ResizableTextarea from './ResizableTextarea.vue';
 import SessionFormOptions from './SessionFormOptions.vue';
@@ -425,7 +426,7 @@ const form = reactive({
   onEnterThinkingEnabled: null,
   // Auto-reschedule
   onEnterAutoRescheduleEnabled: false,
-  onEnterRescheduleDelayMinutes: 15,
+  onEnterRescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
   onEnterRescheduleOnTokenLimit: true,
   onEnterRescheduleOnServiceError: true,
   onEnterMaxRescheduleCount: null,
@@ -460,7 +461,7 @@ const isValid = computed(() => {
 function buildRescheduleFields(lane) {
   return {
     onEnterAutoRescheduleEnabled: lane.onEnterAutoRescheduleEnabled || false,
-    onEnterRescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || 15,
+    onEnterRescheduleDelayMinutes: lane.onEnterRescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES,
     onEnterRescheduleOnTokenLimit: lane.onEnterRescheduleOnTokenLimit ?? true,
     onEnterRescheduleOnServiceError: lane.onEnterRescheduleOnServiceError ?? true,
     onEnterMaxRescheduleCount: lane.onEnterMaxRescheduleCount || null,
@@ -576,7 +577,7 @@ function buildSaveDataForNone() {
     onEnterEffortLevel: null,
     onEnterThinkingEnabled: null,
     onEnterAutoRescheduleEnabled: false,
-    onEnterRescheduleDelayMinutes: 15,
+    onEnterRescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
     onEnterRescheduleOnTokenLimit: true,
     onEnterRescheduleOnServiceError: true,
     onEnterMaxRescheduleCount: null,

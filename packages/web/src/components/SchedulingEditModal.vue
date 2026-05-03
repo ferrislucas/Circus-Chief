@@ -233,6 +233,7 @@
 import { ref, reactive, computed, watch } from 'vue';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
 import TemplateSelector from './TemplateSelector.vue';
@@ -259,7 +260,7 @@ const form = reactive({
   nextTemplateId: null,
   // Scheduling options
   autoRescheduleEnabled: false,
-  rescheduleDelayMinutes: 15,
+  rescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
   rescheduleOnTokenLimit: true,
   rescheduleOnServiceError: true,
   maxRescheduleCount: null,
@@ -361,7 +362,7 @@ watch(
       form.nextTemplateId = props.session.nextTemplateId || null;
       // Scheduling options
       form.autoRescheduleEnabled = props.session.autoRescheduleEnabled || false;
-      form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || 15;
+      form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES;
       form.rescheduleOnTokenLimit = props.session.rescheduleOnTokenLimit ?? true;
       form.rescheduleOnServiceError = props.session.rescheduleOnServiceError ?? true;
       form.maxRescheduleCount = props.session.maxRescheduleCount;
