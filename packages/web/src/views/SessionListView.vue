@@ -87,13 +87,6 @@
             Commands
           </button>
           <button
-            class="tab"
-            :class="{ active: activeTab === 'scheduled' }"
-            @click="router.push(`/projects/${route.params.id}/scheduled`)"
-          >
-            Scheduled
-          </button>
-          <button
             v-if="projectsStore.currentProject?.kanbanEnabled"
             class="tab"
             :class="{ active: activeTab === 'kanban' }"
@@ -133,9 +126,6 @@
           </option>
           <option value="commands">
             Commands
-          </option>
-          <option value="scheduled">
-            Scheduled
           </option>
           <option
             v-if="projectsStore.currentProject?.kanbanEnabled"
@@ -255,13 +245,6 @@
       <CommandButtonsPanel :project-id="route.params.id" />
     </div>
 
-    <!-- Scheduled Tab -->
-    <ScheduledTabContent
-      v-if="activeTab === 'scheduled'"
-      :sessions="scheduledSessions"
-      :loading="loadingScheduled"
-    />
-
     <!-- Kanban Tab -->
     <KanbanBoard
       v-if="activeTab === 'kanban'"
@@ -356,7 +339,6 @@ import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
-import ScheduledTabContent from '../components/ScheduledTabContent.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 import KanbanBoard from '../components/KanbanBoard.vue';
@@ -382,7 +364,6 @@ const activeTab = computed(() => {
     case 'ArchivedSessions': return 'archived';
     case 'ProjectTemplates': return 'templates';
     case 'ProjectCommands': return 'commands';
-    case 'ScheduledSessions': return 'scheduled';
     case 'ProjectKanban': return 'kanban';
     default: return 'sessions';
   }
@@ -396,7 +377,6 @@ function handleTabChange(tab) {
     archived: `/projects/${projectId}/archived`,
     templates: `/projects/${projectId}/templates`,
     commands: `/projects/${projectId}/commands`,
-    scheduled: `/projects/${projectId}/scheduled`,
     kanban: `/projects/${projectId}/kanban`,
   };
   router.push(routes[tab]);
@@ -426,10 +406,6 @@ const { archivedLoaded } = useProjectSessionSubscription(projectId, {
   cleanupSummary,
 });
 
-// Scheduled sessions state - use store instead of local refs
-const scheduledSessions = computed(() => sessionsStore.scheduledSessions || []);
-const loadingScheduled = computed(() => sessionsStore.loadingScheduled || false);
-
 // Watch for sessions changes and fetch summaries (debounced to avoid burst of API calls
 // when multiple WebSocket updates arrive in quick succession)
 let fetchSummariesTimer = null;
@@ -443,14 +419,12 @@ watch(
   }
 );
 
-// Watch for route changes to load archived sessions and scheduled sessions when needed
+// Watch for route changes to load archived sessions when needed
 watch(
   () => route.name,
   async (newRouteName) => {
     if (newRouteName === 'ArchivedSessions') {
       await loadArchivedSessions();
-    } else if (newRouteName === 'ScheduledSessions') {
-      await fetchScheduledSessions();
     }
   },
   { immediate: true }
@@ -494,10 +468,6 @@ async function loadArchivedSessions() {
 async function loadMoreArchived() {
   await sessionsStore.loadMoreArchivedSessions(projectId.value);
   fetchSummariesBatch(sessionsStore.archivedSessions);
-}
-
-async function fetchScheduledSessions() {
-  await sessionsStore.fetchScheduledSessions(projectId.value);
 }
 
 // Archive modal state

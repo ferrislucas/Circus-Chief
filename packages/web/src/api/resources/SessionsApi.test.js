@@ -33,33 +33,6 @@ describe('SessionsApi', () => {
     });
   });
 
-  describe('getScheduledSessions', () => {
-    it('fetches all scheduled sessions without project filter', async () => {
-      mockFetch.mockReturnValue(mockResponse([]));
-
-      await client.getScheduledSessions();
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/scheduled', expect.any(Object));
-    });
-
-    it('appends projectId query parameter when provided', async () => {
-      mockFetch.mockReturnValue(mockResponse([]));
-
-      await client.getScheduledSessions('proj-123');
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/scheduled?projectId=proj-123', expect.any(Object));
-    });
-
-    it('omits projectId when null', async () => {
-      mockFetch.mockReturnValue(mockResponse([]));
-
-      await client.getScheduledSessions(null);
-
-      const url = mockFetch.mock.calls[0][0];
-      expect(url).toBe('/api/sessions/scheduled');
-    });
-  });
-
   describe('getProjectSessions', () => {
     it('fetches sessions for project without filters', async () => {
       mockFetch.mockReturnValue(mockResponse([]));

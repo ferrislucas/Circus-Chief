@@ -170,6 +170,7 @@
 import { ref, reactive, watch } from 'vue';
 import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 import { useUiStore } from '../stores/ui.js';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
@@ -185,7 +186,7 @@ const error = ref(null);
 
 const form = reactive({
   autoRescheduleEnabled: false,
-  rescheduleDelayMinutes: 15,
+  rescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
   rescheduleOnTokenLimit: true,
   rescheduleOnServiceError: true,
   maxRescheduleCount: null,
@@ -239,7 +240,7 @@ watch(
     if (isOpen && props.session) {
       error.value = null; // Clear any previous errors
       form.autoRescheduleEnabled = props.session.autoRescheduleEnabled || false;
-      form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || 15;
+      form.rescheduleDelayMinutes = props.session.rescheduleDelayMinutes || DEFAULT_RESCHEDULE_DELAY_MINUTES;
       form.rescheduleOnTokenLimit = props.session.rescheduleOnTokenLimit ?? true;
       form.rescheduleOnServiceError = props.session.rescheduleOnServiceError ?? true;
       form.maxRescheduleCount = props.session.maxRescheduleCount;
