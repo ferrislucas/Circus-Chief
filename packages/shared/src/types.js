@@ -79,15 +79,6 @@
  */
 
 /**
- * @typedef {Object} SessionNote
- * @property {string} id
- * @property {string} sessionId
- * @property {string} content
- * @property {number} createdAt
- * @property {number} updatedAt
- */
-
-/**
  * @typedef {Object} GlobalToolTemplate
  * @property {string} id
  * @property {string} name

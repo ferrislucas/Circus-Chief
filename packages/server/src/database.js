@@ -10,7 +10,6 @@ export {
   MessageRepository,
   ConversationRepository,
   CanvasItemRepository,
-
   TodoRepository,
   WorkLogRepository,
   SessionSummaryRepository,
@@ -35,7 +34,6 @@ export {
   messages,
   conversations,
   canvasItems,
-
   todos,
   workLogs,
   sessionSummaries,
