@@ -36,7 +36,7 @@ import { renderTemplatePrompt, getRootSession } from './templateTriggerService.j
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { resolveAgentTypeFromModel } from './sessionProvider.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 import {
   MAX_LANE_TRIGGER_DEPTH,
   getSessionAndProjectForTrigger,
@@ -648,7 +648,7 @@ describe('kanbanTriggers', () => {
 
       expect(sessions.update).toHaveBeenCalledWith('new-prompt-1', expect.objectContaining({
         autoRescheduleEnabled: true,
-        rescheduleDelayMinutes: 15,
+        rescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
         rescheduleOnTokenLimit: true,
         rescheduleOnServiceError: true,
         maxRescheduleCount: null,

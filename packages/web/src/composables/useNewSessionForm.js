@@ -1,5 +1,5 @@
 import { ref, nextTick } from 'vue';
-import { generateWorktreeBranch } from '@circuschief/shared';
+import { generateWorktreeBranch, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
 /**
  * Composable for managing new session form state and defaults.
@@ -24,7 +24,7 @@ export function useNewSessionForm(storageKey) {
   const schedulingData = ref({
     scheduledAt: null,
     autoRescheduleEnabled: false,
-    rescheduleDelayMinutes: 15,
+    rescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
     rescheduleOnTokenLimit: true,
     rescheduleOnServiceError: true,
     maxRescheduleCount: null,
@@ -102,7 +102,7 @@ export function useNewSessionForm(storageKey) {
     schedulingData.value = {
       scheduledAt: null,
       autoRescheduleEnabled: false,
-      rescheduleDelayMinutes: 15,
+      rescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
       rescheduleOnTokenLimit: true,
       rescheduleOnServiceError: true,
       maxRescheduleCount: null,

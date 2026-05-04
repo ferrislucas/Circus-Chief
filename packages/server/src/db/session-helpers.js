@@ -3,6 +3,8 @@
  * config parsing, and update-clause builders.
  */
 
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+
 /** Reusable SQL fragment for computed activity fields on sessions */
 export const ACTIVITY_FIELDS_SQL = `
   (SELECT MAX(cm.timestamp) FROM conversation_messages cm WHERE cm.session_id = s.id) AS last_activity_at,
@@ -40,7 +42,7 @@ export function mapTokenUsage(row) {
 export function mapScheduling(row) {
   return {
     scheduledAt: row.scheduled_at || null,
-    rescheduleDelayMinutes: row.reschedule_delay_minutes || 15,
+    rescheduleDelayMinutes: row.reschedule_delay_minutes || DEFAULT_RESCHEDULE_DELAY_MINUTES,
     autoRescheduleEnabled: Boolean(row.auto_reschedule_enabled),
     rescheduleOnTokenLimit: Boolean(row.reschedule_on_token_limit),
     rescheduleOnServiceError: Boolean(row.reschedule_on_service_error),

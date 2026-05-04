@@ -45,7 +45,7 @@ const SESSIONS_BASE_COLUMNS = `
     starred INTEGER NOT NULL DEFAULT 0,
     manually_named INTEGER NOT NULL DEFAULT 0,
     scheduled_at INTEGER DEFAULT NULL,
-    reschedule_delay_minutes INTEGER DEFAULT 15,
+    reschedule_delay_minutes INTEGER DEFAULT 60, -- keep in sync with DEFAULT_RESCHEDULE_DELAY_MINUTES in shared/constants.js
     auto_reschedule_enabled INTEGER DEFAULT 0,
     reschedule_on_token_limit INTEGER DEFAULT 1,
     reschedule_on_service_error INTEGER DEFAULT 1,
@@ -255,7 +255,7 @@ export const sessionsMigrations = [
   },
   {
     name: 'sessions-add-reschedule_delay_minutes',
-    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'reschedule_delay_minutes', 'INTEGER DEFAULT 15'); },
+    up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'reschedule_delay_minutes', 'INTEGER DEFAULT 60'); /* keep in sync with DEFAULT_RESCHEDULE_DELAY_MINUTES */ },
   },
   {
     name: 'sessions-add-auto_reschedule_enabled',

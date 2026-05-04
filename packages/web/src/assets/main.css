@@ -109,7 +109,7 @@ input, textarea, select {
   color: #fff;
 }
 
-.btn-primary:hover {
+.btn.btn-primary:hover {
   background-color: var(--color-primary-soft);
 }
 
@@ -119,7 +119,8 @@ input, textarea, select {
   color: #fff;
 }
 
-.btn-danger:hover {
+.btn.btn-danger:hover {
+  background-color: var(--color-error);
   opacity: 0.9;
 }
 
@@ -129,7 +130,7 @@ input, textarea, select {
   color: var(--color-error);
 }
 
-.btn-outline-danger:hover {
+.btn.btn-outline-danger:hover {
   background-color: var(--color-error);
   color: #fff;
 }
@@ -140,7 +141,7 @@ input, textarea, select {
   color: var(--color-text);
 }
 
-.btn-secondary:hover {
+.btn.btn-secondary:hover {
   background-color: var(--color-border);
 }
 

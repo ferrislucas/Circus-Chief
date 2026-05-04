@@ -4,7 +4,7 @@ import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { resolveProviderMetadataFromModel } from '../services/sessionProvider.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
 /**
  * Generate an initial session name from the prompt
@@ -92,7 +92,7 @@ export function parseSchedulingConfig(body) {
   return {
     scheduledAt: body.scheduledAt ? parseInt(body.scheduledAt, 10) : undefined,
     autoRescheduleEnabled: body.autoRescheduleEnabled === true || body.autoRescheduleEnabled === 'true',
-    rescheduleDelayMinutes: body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : 15,
+    rescheduleDelayMinutes: body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : DEFAULT_RESCHEDULE_DELAY_MINUTES,
     rescheduleOnTokenLimit: body.rescheduleOnTokenLimit !== false && body.rescheduleOnTokenLimit !== 'false',
     rescheduleOnServiceError: body.rescheduleOnServiceError !== false && body.rescheduleOnServiceError !== 'false',
     maxRescheduleCount: body.maxRescheduleCount ? parseInt(body.maxRescheduleCount, 10) : null,
