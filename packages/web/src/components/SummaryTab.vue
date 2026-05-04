@@ -15,7 +15,6 @@
       :loading="loading"
       :has-pr-info="hasPrInfo"
       :has-metrics="hasMetrics"
-      :is-scheduled="isScheduled"
       :session-count="sessionCount"
       :has-non-zero-tokens="hasNonZeroTokens"
       :formatted-tokens="formattedTokens"
@@ -23,20 +22,8 @@
       :files-count="filesCount"
       :pr-url="prUrl"
       :has-warnings="hasWarnings"
-      :scheduled-time-display="scheduledTimeDisplay"
-      :scheduling-countdown="schedulingCountdown"
-      :cancelling="cancelling"
-      @edit-schedule="showScheduleTimeModal = true"
-      @cancel-schedule="cancelScheduledSession(sessionId)"
-    />
-
-    <!-- Scheduling Edit Modal -->
-    <SchedulingEditModal
-      v-if="isScheduled"
-      :is-open="showScheduleTimeModal"
-      :session="session"
-      @close="showScheduleTimeModal = false"
-      @saved="showScheduleTimeModal = false"
+      :scheduled-sessions="allScheduledSessions"
+      :project-id="projectId"
     />
 
     <div
@@ -110,16 +97,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { format, formatDistanceToNow } from 'date-fns';
+import { ref, computed, onMounted } from 'vue';
 import { formatTokenCount } from '@circuschief/shared';
 import { api } from '../composables/useApi.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
-import { useScheduleCancel } from '../composables/useScheduleCancel.js';
 import SummaryContent from './SummaryContent.vue';
 import SessionLogStream from './SessionLogStream.vue';
-import SchedulingEditModal from './SchedulingEditModal.vue';
 import LatestResponseCard from './LatestResponseCard.vue';
 import SessionOverviewCard from './SessionOverviewCard.vue';
 import { useSummaryStreaming } from '../composables/useSummaryStreaming.js';
@@ -135,7 +119,6 @@ const props = defineProps({
 
 const uiStore = useUiStore();
 const sessionsStore = useSessionsStore();
-const { cancelling, cancelScheduledSession } = useScheduleCancel(sessionsStore);
 
 // Set up streaming subscriptions (primary + descendants)
 const { onSummaryUpdate, onSummaryGenerating, onMessage } = useSummaryStreaming(props.sessionId);
@@ -156,9 +139,6 @@ const generating = ref(false);
 const generatingManual = ref(false);
 const filesCount = ref(0);
 const latestResponse = ref(null);
-const showScheduleTimeModal = ref(false);
-const nowTick = ref(Date.now());
-let countdownInterval = null;
 
 const session = computed(() =>
   sessionsStore.sessions.find((s) => s.id === props.sessionId)
@@ -168,19 +148,24 @@ const isRunning = computed(() => {
   const status = session.value?.status;
   return status === 'running' || status === 'starting';
 });
-const isScheduled = computed(() => session.value?.status === 'scheduled');
 
-const scheduledTimeDisplay = computed(() =>
-  session.value?.scheduledAt
-    ? format(new Date(session.value.scheduledAt), 'EEEE, MMMM d, yyyy h:mm a')
-    : ''
-);
+const allScheduledSessions = computed(() => {
+  const result = [];
+  // Include parent if scheduled
+  if (session.value?.status === 'scheduled') {
+    result.push(session.value);
+  }
+  // Include all scheduled descendants
+  const descendants = sessionsStore.getAllDescendants(props.sessionId);
+  for (const d of descendants) {
+    if (d.status === 'scheduled') {
+      result.push(d);
+    }
+  }
+  return result;
+});
 
-const schedulingCountdown = computed(() =>
-  session.value?.scheduledAt
-    ? formatDistanceToNow(new Date(session.value.scheduledAt), { addSuffix: true, now: new Date(nowTick.value) })
-    : ''
-);
+const projectId = computed(() => session.value?.projectId || null);
 
 const runningSessionIds = computed(() => {
   const ids = [];
@@ -274,12 +259,6 @@ onMounted(async () => {
   onSummaryGenerating((isGenerating) => {
     generating.value = isGenerating;
   });
-
-  countdownInterval = setInterval(() => { nowTick.value = Date.now(); }, 1000);
-});
-
-onUnmounted(() => {
-  if (countdownInterval) clearInterval(countdownInterval);
 });
 
 async function handleRegenerate() {

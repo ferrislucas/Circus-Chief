@@ -344,4 +344,29 @@ describe('OrchestrationPanel', () => {
       expect(button.attributes('aria-expanded')).toBe('false');
     });
   });
+
+  describe('hideScheduleRow prop', () => {
+    it('hides schedule row when hideScheduleRow is true', () => {
+      const wrapper = mountComponent({
+        currentTemplateId: 'template-1',
+        hideScheduleRow: true,
+      });
+      expect(wrapper.find('.schedule-row').exists()).toBe(false);
+    });
+
+    it('shows schedule row by default', () => {
+      const wrapper = mountComponent({
+        currentTemplateId: 'template-1',
+      });
+      expect(wrapper.find('.schedule-row').exists()).toBe(true);
+    });
+
+    it('shows schedule row when hideScheduleRow is false', () => {
+      const wrapper = mountComponent({
+        currentTemplateId: 'template-1',
+        hideScheduleRow: false,
+      });
+      expect(wrapper.find('.schedule-row').exists()).toBe(true);
+    });
+  });
 });

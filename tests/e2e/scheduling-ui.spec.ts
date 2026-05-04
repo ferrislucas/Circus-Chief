@@ -211,10 +211,10 @@ test.describe('Scheduling UI', () => {
       await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout: 5000 });
 
       // Verify scheduling info is visible in the overview card
-      const schedulingSection = page.locator('.overview-scheduling');
+      const schedulingSection = page.locator('.overview-scheduled-sessions');
       await expect(schedulingSection).toBeVisible({ timeout: 5000 });
-      await expect(schedulingSection).toContainText('Scheduled for');
-      await expect(schedulingSection).toContainText('Edit time');
+      await expect(schedulingSection).toContainText('Scheduled Sessions');
+      await expect(schedulingSection).toContainText('Edit');
     });
 
     test('clicking Edit time opens scheduling edit modal from summary tab', async ({ page }) => {
@@ -251,8 +251,8 @@ test.describe('Scheduling UI', () => {
       await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout: 5000 });
       await page.locator('[data-testid="session-chat-overlay"]').waitFor({ state: 'detached', timeout: 5000 });
 
-      // Click the Edit time link in the overview card
-      await page.click('.scheduling-edit-link');
+      // Click the Edit button inside a ScheduledChildCard
+      await page.click('.timing-action-btn');
 
       // Verify modal opens with datetime picker
       const editModal = page.locator('.modal-backdrop');
