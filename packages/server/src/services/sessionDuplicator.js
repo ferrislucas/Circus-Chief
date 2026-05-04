@@ -3,7 +3,6 @@ import {
   conversations,
   messages,
   canvasItems,
-  sessionNotes,
   sessionSummaries,
   projects,
 } from '../db/index.js';
@@ -47,10 +46,7 @@ export async function duplicateSession(sourceSessionId, options = {}) {
     // 5. Duplicate canvas items
     canvasItems.duplicateForSession(sourceSessionId, newSession.id);
 
-    // 6. Duplicate session notes
-    sessionNotes.duplicateForSession(sourceSessionId, newSession.id);
-
-    // 7. Duplicate session summary (if exists)
+    // 6. Duplicate session summary (if exists)
     sessionSummaries.duplicateForSession(sourceSessionId, newSession.id);
 
     // Return the updated session

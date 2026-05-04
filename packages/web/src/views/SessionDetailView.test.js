@@ -202,41 +202,6 @@ describe('SessionDetailView', () => {
   }
 
   describe('tabs configuration', () => {
-    it('does not include Notes tab in tab list', async () => {
-      sessionsStore.currentSession = {
-        id: 'session-1',
-        name: 'Test Session',
-        status: 'running'
-      };
-
-      await router.push('/sessions/session-1');
-      await router.isReady();
-
-      const wrapper = trackedMount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: true,
-            CommandsTab: true,
-            NotesTab: true,
-            PrIndicators: true,
-            SchedulingInfo: true
-          }
-        }
-      });
-
-      await flushPromises();
-
-      // Check the tabs computed property or rendered tabs
-      const tabButtons = wrapper.findAll('button');
-      const notesTab = tabButtons.find(btn => btn.text().includes('Notes'));
-
-      // Notes tab should not exist
-      expect(notesTab).toBeUndefined();
-    });
-
     it('includes Summary, Changes, Canvas, Commands tabs', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
@@ -255,7 +220,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -287,7 +252,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -320,7 +285,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -351,7 +316,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -382,7 +347,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -416,7 +381,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -448,7 +413,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -481,7 +446,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -512,7 +477,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -547,7 +512,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -581,7 +546,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -658,7 +623,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -692,7 +657,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -719,7 +684,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -755,7 +720,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
           },
         },
@@ -788,7 +753,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
           },
         },
@@ -857,7 +822,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -895,7 +860,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -966,7 +931,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1023,7 +988,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1057,7 +1022,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1093,7 +1058,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1126,7 +1091,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1158,7 +1123,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1204,7 +1169,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1236,7 +1201,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1274,7 +1239,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1312,7 +1277,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1347,7 +1312,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1386,7 +1351,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1426,7 +1391,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1462,7 +1427,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }
@@ -1509,7 +1474,7 @@ describe('SessionDetailView', () => {
             CanvasTab: true,
             SummaryTab: true,
             CommandsTab: true,
-            NotesTab: true,
+
             PrIndicators: true,
             SchedulingInfo: true
           }

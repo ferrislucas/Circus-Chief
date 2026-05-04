@@ -54,7 +54,6 @@ describe('DatabaseManager', () => {
       expect(tables).toContain('sessions');
       expect(tables).toContain('conversation_messages');
       expect(tables).toContain('canvas_items');
-      expect(tables).toContain('session_notes');
     });
   });
 
