@@ -393,7 +393,7 @@ test.describe('Settings', () => {
 
       await expect(builtInCards.locator('button:has-text("Edit")')).toHaveCount(0);
       await expect(builtInCards.locator('button:has-text("Delete")')).toHaveCount(0);
-      await expect(builtInCards.locator('button:has-text("Test")')).toHaveCount(2);
+      await expect(builtInCards.locator('button:has-text("Test")')).toHaveCount(0);
       await expect(builtInCards.locator('button:has-text("Settings")')).toHaveCount(2);
     });
 
