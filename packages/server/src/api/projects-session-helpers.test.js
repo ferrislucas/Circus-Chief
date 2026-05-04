@@ -603,7 +603,6 @@ describe('setupAndStartSession', () => {
   it('passes current/no-isolation sessions through without creating a worktree', async () => {
     const { sessions } = await import('../database.js');
     const { setupGitForSession } = await import('../services/gitSessionSetup.js');
-    const { broadcastToProject } = await import('../websocket.js');
     const { resolvePromptSkillOrCommand } = await import('../services/slashCommandService.js');
 
     const mockSession = { id: 'sess-current' };

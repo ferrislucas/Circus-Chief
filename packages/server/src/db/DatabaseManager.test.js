@@ -889,7 +889,6 @@ describe('DatabaseManager', () => {
 
       try {
         // Create old-style database with model_providers (with old schema)
-        const Database = require('better-sqlite3');
         const oldDb = new Database(dbPath);
         const now = Date.now();
 
