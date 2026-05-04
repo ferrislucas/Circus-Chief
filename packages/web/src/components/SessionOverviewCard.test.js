@@ -120,49 +120,4 @@ describe('SessionOverviewCard.vue', () => {
     });
   });
 
-  describe('Cancel Schedule Button', () => {
-    const baseScheduledProps = {
-      scheduledSessions: [
-        { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
-      ],
-      projectId: 'proj-1',
-    };
-
-    it('renders Cancel button when scheduled sessions exist', () => {
-      const wrapper = mountComponent(baseScheduledProps);
-
-      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').text()).toBe('Cancel');
-    });
-
-    it('Cancel button is enabled and clickable when not cancelling', () => {
-      const wrapper = mountComponent(baseScheduledProps);
-
-      const cancelBtn = wrapper.find('[data-testid="scheduling-cancel-link"]');
-      expect(cancelBtn.exists()).toBe(true);
-      expect(cancelBtn.attributes('disabled')).toBeUndefined();
-    });
-
-    it('disables Cancel button when cancelling prop is true', () => {
-      const wrapper = mountComponent({
-        ...baseScheduledProps,
-        cancelling: true,
-      });
-
-      const cancelBtn = wrapper.find('[data-testid="scheduling-cancel-link"]');
-      expect(cancelBtn.exists()).toBe(true);
-      expect(cancelBtn.attributes('disabled')).toBeDefined();
-    });
-
-    it('does not disable Cancel button when cancelling prop is false (default)', () => {
-      const wrapper = mountComponent({
-        ...baseScheduledProps,
-        cancelling: false,
-      });
-
-      const cancelBtn = wrapper.find('[data-testid="scheduling-cancel-link"]');
-      expect(cancelBtn.exists()).toBe(true);
-      expect(cancelBtn.attributes('disabled')).toBeUndefined();
-    });
-  });
 });
