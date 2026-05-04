@@ -475,27 +475,6 @@ vi.mock('../components/ArchivedTabContent.vue', () => ({
   }),
 }));
 
-// Mock the ScheduledTabContent component
-vi.mock('../components/ScheduledTabContent.vue', () => ({
-  default: defineComponent({
-    name: 'ScheduledTabContent',
-    props: ['sessions', 'loading'],
-    template: `
-      <div>
-        <div v-if="loading" class="skeleton-list">
-          <div v-for="i in 3" :key="i" class="skeleton card" style="height: 120px"></div>
-        </div>
-        <div v-else-if="sessions.length === 0" class="empty-state">
-          <p>No scheduled sessions.</p>
-        </div>
-        <div v-else class="session-list">
-          <div v-for="session in sessions" :key="session.id" class="scheduled-session-card" :data-session-id="session.id"></div>
-        </div>
-      </div>
-    `,
-  }),
-}));
-
 // Mock ArchiveConfirmModal to make it testable
 vi.mock('../components/ArchiveConfirmModal.vue', () => ({
   default: defineComponent({
@@ -539,8 +518,6 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     statusFilter: null,
     starredFilter: null,
     scheduledFilter: null,
-    scheduledSessions: [],
-    loadingScheduled: false,
     get groupedSessions() {
       // Derive groupedSessions from sessions like the real store does
       const grouped = [];
@@ -560,7 +537,6 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
     },
     fetchSessions: vi.fn().mockResolvedValue(),
     fetchArchivedSessions: vi.fn().mockResolvedValue(),
-    fetchScheduledSessions: vi.fn().mockResolvedValue(),
     loadMoreArchivedSessions: vi.fn().mockResolvedValue(),
     archiveSession: vi.fn().mockResolvedValue(),
     unarchiveSession: vi.fn().mockResolvedValue(),
@@ -1644,12 +1620,11 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     const tabs = wrapper.findAll('.tab');
-    expect(tabs.length).toBe(5);
+    expect(tabs.length).toBe(4);
     expect(tabs[0].text()).toBe('Sessions');
     expect(tabs[1].text()).toBe('Archived');
     expect(tabs[2].text()).toBe('Templates');
     expect(tabs[3].text()).toBe('Commands');
-    expect(tabs[4].text()).toContain('Scheduled');
 
     // Sessions tab should be active
     expect(tabs[0].classes()).toContain('active');

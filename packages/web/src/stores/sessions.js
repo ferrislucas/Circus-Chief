@@ -12,7 +12,6 @@ export const useSessionsStore = defineStore('sessions', {
     sessions: [],
     archivedSessions: [],
     activeSessions: [],
-    scheduledSessions: [],
     currentSession: null,
     // Tracks which session the user is actively viewing in SessionDetailView.
     // Used to guard fetchSession() against stale in-flight requests overwriting
@@ -31,7 +30,6 @@ export const useSessionsStore = defineStore('sessions', {
     scheduledFilter: null,
     runningUsage: null,
     loading: false,
-    loadingScheduled: false,
     error: null,
     commandRunVersion: 0,
     archivedPagination: {

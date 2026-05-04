@@ -520,31 +520,6 @@ test.describe('Category 5: Scheduling UI Components', () => {
     await cleanupCreatedResources();
   });
 
-  test('scheduled session card shows countdown and edit button', async ({ page }) => {
-    // Create a scheduled session
-    const session = await seedScheduledSession(project.id, {
-      prompt: 'Scheduled session for UI test',
-      scheduledAt: Date.now() + 3600000,
-    });
-
-    // Navigate to session list, Scheduled tab
-    await navigateAndWait(page, `/projects/${project.id}/scheduled`);
-
-    // Verify ScheduledSessionCard is visible
-    const card = page.locator('.scheduled-session-card');
-    await expect(card).toBeVisible({ timeout: 10000 });
-
-    // Verify countdown text is present (formatDistanceToNow output)
-    const timingText = page.locator('.timing-text');
-    await expect(timingText.first()).toBeVisible();
-    // The text should contain some time reference (e.g., "in about 1 hour")
-    const text = await timingText.first().textContent();
-    expect(text).toBeTruthy();
-
-    // Verify Edit Schedule button is present
-    await expect(page.getByText('Edit Schedule')).toBeVisible();
-  });
-
   test('edit schedule modal saves updated time', async ({ page }) => {
     const session = await seedScheduledSession(project.id, {
       prompt: 'Session to edit schedule',

@@ -72,17 +72,6 @@ export function SessionsApi(ApiClient) {
     },
 
     /**
-     * Get all scheduled sessions (optionally filtered by project)
-     * @param {string|null} projectId - Optional project ID to filter by
-     * @returns {Promise<Array>}
-     */
-    async getScheduledSessions(projectId = null) {
-      return this._get(this._buildQueryPath('/sessions/scheduled', {
-        projectId: projectId || undefined,
-      }));
-    },
-
-    /**
      * Get all sessions for a project
      * @param {string} projectId - Project ID
      * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)

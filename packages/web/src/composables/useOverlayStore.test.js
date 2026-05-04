@@ -23,7 +23,6 @@ vi.mock('../composables/useApi.js', () => ({
     getSessionTodos: vi.fn(),
     getActiveSessions: vi.fn(),
     getProjectSessions: vi.fn(),
-    getScheduledSessions: vi.fn(),
     createSession: vi.fn(),
     deleteSession: vi.fn(),
     archiveSession: vi.fn(),
