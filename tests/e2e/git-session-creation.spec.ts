@@ -102,7 +102,7 @@ test.describe('Git-backed project session creation', () => {
 
     // gitMode should default to 'worktree' from system defaults
     // and gitBranch should be auto-generated (not 'main')
-    expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-build-a-new-feature$/);
+    expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-build-new-feature$/);
   });
 
   test('creates session with gitMode current via API', async () => {
