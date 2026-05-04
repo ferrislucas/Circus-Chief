@@ -52,19 +52,11 @@ vi.mock('vue-router', () => ({
   }),
 }));
 
-vi.mock('./SchedulingInfo.vue', () => ({
+vi.mock('./ScheduledChildCard.vue', () => ({
   default: {
-    name: 'SchedulingInfo',
-    props: ['session'],
-    template: '<div class="scheduling-info-stub" data-testid="scheduling-info">SchedulingInfo</div>',
-  },
-}));
-
-vi.mock('./SchedulingEditModal.vue', () => ({
-  default: {
-    name: 'SchedulingEditModal',
-    props: ['isOpen', 'session'],
-    template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
+    name: 'ScheduledChildCard',
+    props: ['session', 'projectId'],
+    template: '<div class="scheduled-child-card-stub" data-testid="scheduled-child-card">{{ session.name }}</div>',
   },
 }));
 
@@ -126,15 +118,10 @@ describe('SummaryTab', () => {
             props: ['summary'],
             template: '<div class="summary-content-stub">{{ summary?.fullSummary || summary?.shortSummary }}</div>',
           },
-          SchedulingInfo: {
-            name: 'SchedulingInfo',
-            template: '<div class="scheduling-info-stub" data-testid="scheduling-info">SchedulingInfo</div>',
-            props: ['session'],
-          },
-          SchedulingEditModal: {
-            name: 'SchedulingEditModal',
-            template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
-            props: ['isOpen', 'session'],
+          ScheduledChildCard: {
+            name: 'ScheduledChildCard',
+            props: ['session', 'projectId'],
+            template: '<div class="scheduled-child-card-stub" data-testid="scheduled-child-card">{{ session.name }}</div>',
           },
         },
       },
@@ -233,15 +220,10 @@ describe('SummaryTab', () => {
               props: ['sessionId'],
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
             },
-            SchedulingInfo: {
-              name: 'SchedulingInfo',
-              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
-              props: ['session'],
-            },
-            SchedulingEditModal: {
-              name: 'SchedulingEditModal',
-              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
-              props: ['isOpen', 'session'],
+            ScheduledChildCard: {
+              name: 'ScheduledChildCard',
+              props: ['session', 'projectId'],
+              template: '<div class="scheduled-child-card-stub">{{ session.name }}</div>',
             },
           },
         },
@@ -272,15 +254,10 @@ describe('SummaryTab', () => {
               props: ['sessionId'],
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
             },
-            SchedulingInfo: {
-              name: 'SchedulingInfo',
-              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
-              props: ['session'],
-            },
-            SchedulingEditModal: {
-              name: 'SchedulingEditModal',
-              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
-              props: ['isOpen', 'session'],
+            ScheduledChildCard: {
+              name: 'ScheduledChildCard',
+              props: ['session', 'projectId'],
+              template: '<div class="scheduled-child-card-stub">{{ session.name }}</div>',
             },
           },
         },
@@ -314,8 +291,7 @@ describe('SummaryTab', () => {
                 name: 'SessionLogStream',
                 template: '<div class="session-log-stream-stub">SessionLogStream</div>',
               },
-              SchedulingInfo: true,
-              SchedulingEditModal: true,
+              ScheduledChildCard: true,
             },
           },
         });
@@ -346,15 +322,10 @@ describe('SummaryTab', () => {
               props: ['sessionIds'],
               template: '<div class="session-log-stream-stub">{{ sessionIds }}</div>',
             },
-            SchedulingInfo: {
-              name: 'SchedulingInfo',
-              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
-              props: ['session'],
-            },
-            SchedulingEditModal: {
-              name: 'SchedulingEditModal',
-              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
-              props: ['isOpen', 'session'],
+            ScheduledChildCard: {
+              name: 'ScheduledChildCard',
+              props: ['session', 'projectId'],
+              template: '<div class="scheduled-child-card-stub">{{ session.name }}</div>',
             },
           },
         },
@@ -386,15 +357,10 @@ describe('SummaryTab', () => {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
             },
-            SchedulingInfo: {
-              name: 'SchedulingInfo',
-              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
-              props: ['session'],
-            },
-            SchedulingEditModal: {
-              name: 'SchedulingEditModal',
-              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
-              props: ['isOpen', 'session'],
+            ScheduledChildCard: {
+              name: 'ScheduledChildCard',
+              props: ['session', 'projectId'],
+              template: '<div class="scheduled-child-card-stub">{{ session.name }}</div>',
             },
           },
         },
@@ -428,15 +394,10 @@ describe('SummaryTab', () => {
               name: 'SessionLogStream',
               template: '<div class="session-log-stream-stub">SessionLogStream</div>',
             },
-            SchedulingInfo: {
-              name: 'SchedulingInfo',
-              template: '<div class="scheduling-info-stub">SchedulingInfo</div>',
-              props: ['session'],
-            },
-            SchedulingEditModal: {
-              name: 'SchedulingEditModal',
-              template: '<div class="scheduling-edit-modal-stub" data-testid="scheduling-edit-modal" />',
-              props: ['isOpen', 'session'],
+            ScheduledChildCard: {
+              name: 'ScheduledChildCard',
+              props: ['session', 'projectId'],
+              template: '<div class="scheduled-child-card-stub">{{ session.name }}</div>',
             },
           },
         },
@@ -462,7 +423,11 @@ describe('SummaryTab', () => {
               props: ['sessionIds'],
               template: '<div class="session-log-stream-stub">{{ sessionIds }}</div>',
             },
-            SchedulingEditModal: true,
+            ScheduledChildCard: {
+              name: 'ScheduledChildCard',
+              props: ['session', 'projectId'],
+              template: '<div class="scheduled-child-card-stub">{{ session.name }}</div>',
+            },
           },
         },
       });
@@ -1293,246 +1258,175 @@ describe('SummaryTab', () => {
     });
   });
 
-  describe('Scheduling Info', () => {
-    it('renders scheduling section inside session overview when session is scheduled', async () => {
+  describe('Scheduled Sessions', () => {
+    it('passes parent + scheduled children to SessionOverviewCard when parent is scheduled', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'scheduled',
         scheduledAt: Date.now() + 3600000,
+        name: 'Parent Session',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'scheduled', scheduledAt: Date.now() + 7200000, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
+        { id: 'child-2', status: 'scheduled', scheduledAt: Date.now() + 10800000, parentSessionId: 'sess-123', name: 'Child 2', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.exists()).toBe(true);
+      const scheduledSessions = overviewCard.props('scheduledSessions');
+      expect(scheduledSessions.length).toBe(3);
+      // Parent comes first
+      expect(scheduledSessions[0].id).toBe('sess-123');
+      expect(scheduledSessions[1].id).toBe('child-1');
+      expect(scheduledSessions[2].id).toBe('child-2');
+    });
+
+    it('passes only scheduled children when parent is not scheduled', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        name: 'Parent Session',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'scheduled', scheduledAt: Date.now() + 7200000, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
+        { id: 'child-2', status: 'scheduled', scheduledAt: Date.now() + 10800000, parentSessionId: 'sess-123', name: 'Child 2', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.props('scheduledSessions').length).toBe(2);
+    });
+
+    it('does not include non-scheduled descendants', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        name: 'Parent Session',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'scheduled', scheduledAt: Date.now() + 3600000, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
+        { id: 'child-2', status: 'completed', parentSessionId: 'sess-123', name: 'Child 2', projectId: 'proj-1' },
+        { id: 'child-3', status: 'running', parentSessionId: 'sess-123', name: 'Child 3', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.props('scheduledSessions').length).toBe(1);
+      expect(overviewCard.props('scheduledSessions')[0].id).toBe('child-1');
+    });
+
+    it('updates scheduledSessions when a child transitions to scheduled', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        name: 'Parent Session',
+        projectId: 'proj-1',
       };
       sessionsStore.sessions = [sessionsStore.currentSession];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.props('scheduledSessions').length).toBe(0);
+
+      // Add a scheduled child
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-new', status: 'scheduled', scheduledAt: Date.now() + 3600000, parentSessionId: 'sess-123', name: 'New Child', projectId: 'proj-1' },
+      ];
+      await flushAll(wrapper);
+
+      expect(overviewCard.props('scheduledSessions').length).toBe(1);
+    });
+
+    it('shows overview card when only children are scheduled', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        name: 'Parent Session',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'scheduled', scheduledAt: Date.now() + 3600000, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
+      ];
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
       expect(wrapper.find('.session-overview').exists()).toBe(true);
-      expect(wrapper.find('.overview-scheduling').exists()).toBe(true);
-      expect(wrapper.text()).toContain('Scheduled for');
-      expect(wrapper.text()).toContain('Edit time');
+      expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
     });
 
-    it('does not show Session Overview header when only scheduling info is present', async () => {
+    it('does not pass old isScheduled / scheduledTimeDisplay / schedulingCountdown props', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'scheduled',
         scheduledAt: Date.now() + 3600000,
+        name: 'Parent Session',
+        projectId: 'proj-1',
       };
       sessionsStore.sessions = [sessionsStore.currentSession];
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.session-overview').exists()).toBe(true);
-      expect(wrapper.find('.overview-scheduling').exists()).toBe(true);
-      // Header should NOT show when only scheduling is present
-      expect(wrapper.find('.overview-header').exists()).toBe(false);
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      // These old props should not exist on the component
+      expect(overviewCard.vm.$options.props.isScheduled).toBeUndefined();
+      expect(overviewCard.vm.$options.props.scheduledTimeDisplay).toBeUndefined();
+      expect(overviewCard.vm.$options.props.schedulingCountdown).toBeUndefined();
     });
 
-    it('shows Session Overview header when both scheduling and summary exist', async () => {
+    it('passes correct projectId from session', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
-        status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
+        status: 'waiting',
+        projectId: 'proj-42',
       };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Test summary' });
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'scheduled', scheduledAt: Date.now() + 3600000, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-42' },
+      ];
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.overview-header').exists()).toBe(true);
-      expect(wrapper.find('.overview-scheduling').exists()).toBe(true);
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.props('projectId')).toBe('proj-42');
     });
 
-    it('renders SchedulingEditModal when session is scheduled', async () => {
+    it('does not render SchedulingEditModal directly in SummaryTab', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'scheduled',
         scheduledAt: Date.now() + 3600000,
-      };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.findComponent({ name: 'SchedulingEditModal' }).exists()).toBe(true);
-    });
-
-    it('opens SchedulingEditModal when Edit time is clicked', async () => {
-      sessionsStore.currentSession = {
-        id: 'sess-123',
-        status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
+        name: 'Parent Session',
+        projectId: 'proj-1',
       };
       sessionsStore.sessions = [sessionsStore.currentSession];
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      await wrapper.find('.scheduling-edit-link').trigger('click');
-      await flushAll(wrapper);
-
-      const modal = wrapper.findComponent({ name: 'SchedulingEditModal' });
-      expect(modal.exists()).toBe(true);
-      expect(modal.props('isOpen')).toBe(true);
-    });
-
-    it('does not render scheduling section for non-scheduled sessions', async () => {
-      // Default session is status: 'waiting'
-      sessionsStore.currentSession = { id: 'sess-123', status: 'waiting' };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-      api.getSessionSummary.mockResolvedValue({ shortSummary: 'Has content' });
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.overview-scheduling').exists()).toBe(false);
-      expect(wrapper.findComponent({ name: 'SchedulingEditModal' }).exists()).toBe(false);
-    });
-
-    it('does not render scheduling section when session is null', async () => {
-      sessionsStore.currentSession = null;
-      sessionsStore.sessions = [];
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('.overview-scheduling').exists()).toBe(false);
+      // SchedulingEditModal should not be in SummaryTab anymore
       expect(wrapper.findComponent({ name: 'SchedulingEditModal' }).exists()).toBe(false);
     });
   });
 
-  describe('Cancel Schedule', () => {
-    beforeEach(() => {
-      vi.restoreAllMocks();
-      // Re-apply the ui store spies after restoreAllMocks
-      vi.spyOn(uiStore, 'error').mockImplementation(() => {});
-      vi.spyOn(uiStore, 'success').mockImplementation(() => {});
-    });
-
-    it('Cancel button is visible when session is scheduled', async () => {
-      sessionsStore.currentSession = {
-        id: 'sess-123',
-        status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
-      };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').exists()).toBe(true);
-    });
-
-    it('Cancel button is NOT visible for non-scheduled sessions', async () => {
-      sessionsStore.currentSession = { id: 'sess-123', status: 'waiting' };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      expect(wrapper.find('[data-testid="scheduling-cancel-link"]').exists()).toBe(false);
-    });
-
-    it('shows confirm dialog when Cancel button is clicked', async () => {
-      sessionsStore.currentSession = {
-        id: 'sess-123',
-        status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
-      };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-
-      vi.spyOn(window, 'confirm').mockReturnValue(false);
-      vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
-      await flushAll(wrapper);
-
-      expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
-    });
-
-    it('calls updateSessionFields with { status: "stopped" } when user confirms', async () => {
-      sessionsStore.currentSession = {
-        id: 'sess-123',
-        status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
-      };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
-      const updateSpy = vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
-      await flushAll(wrapper);
-
-      expect(updateSpy).toHaveBeenCalledWith('sess-123', { status: 'stopped', scheduledAt: null });
-    });
-
-    it('shows success toast after successful cancellation', async () => {
-      sessionsStore.currentSession = {
-        id: 'sess-123',
-        status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
-      };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
-      vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
-      await flushAll(wrapper);
-
-      expect(uiStore.success).toHaveBeenCalledWith('Session cancelled');
-    });
-
-    it('does not call updateSessionFields when user dismisses confirm dialog', async () => {
-      sessionsStore.currentSession = {
-        id: 'sess-123',
-        status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
-      };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-
-      vi.spyOn(window, 'confirm').mockReturnValue(false);
-      const updateSpy = vi.spyOn(sessionsStore, 'updateSessionFields').mockResolvedValue(undefined);
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
-      await flushAll(wrapper);
-
-      expect(updateSpy).not.toHaveBeenCalled();
-    });
-
-    it('shows error toast when updateSessionFields rejects', async () => {
-      sessionsStore.currentSession = {
-        id: 'sess-123',
-        status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
-      };
-      sessionsStore.sessions = [sessionsStore.currentSession];
-
-      vi.spyOn(window, 'confirm').mockReturnValue(true);
-      vi.spyOn(sessionsStore, 'updateSessionFields').mockRejectedValue(new Error('Network error'));
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      await wrapper.find('[data-testid="scheduling-cancel-link"]').trigger('click');
-      await flushAll(wrapper);
-
-      expect(uiStore.error).toHaveBeenCalledWith(expect.stringContaining('Network error'));
-    });
-  });
 
 });
