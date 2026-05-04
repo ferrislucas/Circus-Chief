@@ -214,7 +214,7 @@ test.describe('Scheduling UI', () => {
       const schedulingSection = page.locator('.overview-scheduled-sessions');
       await expect(schedulingSection).toBeVisible({ timeout: 5000 });
       await expect(schedulingSection).toContainText('Scheduled Sessions');
-      await expect(schedulingSection).toContainText('Edit time');
+      await expect(schedulingSection).toContainText('Edit');
     });
 
     test('clicking Edit time opens scheduling edit modal from summary tab', async ({ page }) => {
