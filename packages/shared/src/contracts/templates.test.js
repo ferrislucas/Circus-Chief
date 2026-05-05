@@ -65,6 +65,13 @@ describe('CreateSessionTemplateRequest', () => {
       CreateSessionTemplateRequest.safeParse({
         name: 'Test',
         prompt: 'Test',
+        gitMode: 'current',
+      }).success
+    ).toBe(true);
+    expect(
+      CreateSessionTemplateRequest.safeParse({
+        name: 'Test',
+        prompt: 'Test',
         gitMode: 'invalid',
       }).success
     ).toBe(false);

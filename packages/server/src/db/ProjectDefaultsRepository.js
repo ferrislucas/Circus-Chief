@@ -170,10 +170,10 @@ export class ProjectDefaultsRepository extends BaseRepository {
    */
   static getSystemDefaults() {
     return {
-      mode: 'standard',
-      thinkingEnabled: false,
+      mode: 'yolo',
+      thinkingEnabled: true,
       startImmediately: true,
-      gitMode: null,
+      gitMode: 'worktree',
       gitBranch: null,
       model: null,
       providerId: null,

@@ -305,7 +305,7 @@ describe('Projects Contracts', () => {
     });
 
     it('validates gitMode enum', () => {
-      for (const gitMode of ['branch', 'worktree']) {
+      for (const gitMode of ['branch', 'worktree', 'current']) {
         const valid = ProjectSessionDefaultsRequest.safeParse({ gitMode });
         expect(valid.success).toBe(true);
       }

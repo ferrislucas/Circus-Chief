@@ -389,13 +389,13 @@ describe('File Attachments API', () => {
       expect(response.body.thinkingEnabled).toBe(true);
     });
 
-    it('thinkingEnabled defaults to false when not provided', async () => {
+    it('thinkingEnabled defaults to true when not provided', async () => {
       const response = await request(app)
         .post(`/api/projects/${project.id}/sessions`)
         .field('prompt', 'Test default')
         .expect(201);
 
-      expect(response.body.thinkingEnabled).toBe(false);
+      expect(response.body.thinkingEnabled).toBe(true);
     });
 
     it('parses mode from form-data', async () => {

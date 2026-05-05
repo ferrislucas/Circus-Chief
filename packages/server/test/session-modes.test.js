@@ -16,9 +16,9 @@ describe('Session Modes', () => {
   });
 
   describe('Session creation with mode', () => {
-    it('creates session with default mode (standard)', () => {
+    it('creates session with default mode (yolo)', () => {
       const session = sessions.create(project.id, 'Default Mode', 'prompt');
-      expect(session.mode).toBe('standard');
+      expect(session.mode).toBe('yolo');
     });
 
     it('creates session with plan mode', () => {

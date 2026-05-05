@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, messages, canvasItems, sessionNotes } from '../database.js';
+import { projects, sessions, messages, canvasItems } from '../database.js';
 
 // Mock websocket before importing the router
 vi.mock('../websocket.js', () => ({
@@ -139,18 +139,6 @@ describe('Sessions API - DELETE cascade', () => {
 
     // Child canvas items are gone
     expect(canvasItems.getBySessionId(child.id)).toEqual([]);
-  });
-
-  it('cascades deletion of child session notes', async () => {
-    const parent = sessions.create(projectId, 'Parent', 'prompt');
-    const child = sessions.create(projectId, 'Child', 'prompt', { parentSessionId: parent.id });
-
-    sessionNotes.create(child.id, 'Important note');
-
-    await request(app).delete(`/api/sessions/${parent.id}`);
-
-    expect(sessions.getById(child.id)).toBeNull();
-    expect(sessionNotes.getBySessionId(child.id)).toEqual([]);
   });
 
   it('does not delete parent when child is deleted', async () => {

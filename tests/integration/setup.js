@@ -170,20 +170,6 @@ export async function getCanvasItems(sessionId) {
 }
 
 /**
- * Seed a session note.
- */
-export async function seedSessionNote(sessionId, note) {
-  return apiPost(`/api/sessions/${sessionId}/notes`, note);
-}
-
-/**
- * Get session notes.
- */
-export async function getSessionNotes(sessionId) {
-  return apiGet(`/api/sessions/${sessionId}/notes`);
-}
-
-/**
  * Duplicate a session via the API.
  */
 export async function duplicateSession(sessionId) {

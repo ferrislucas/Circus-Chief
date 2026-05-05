@@ -36,8 +36,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled')),
-  mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
-  thinking_enabled INTEGER NOT NULL DEFAULT 0,
+  mode TEXT NOT NULL DEFAULT 'yolo' CHECK (mode IN ('plan', 'standard', 'yolo')),
+  thinking_enabled INTEGER NOT NULL DEFAULT 1,
   archived INTEGER NOT NULL DEFAULT 0,
   git_branch TEXT,
   git_worktree TEXT,
@@ -105,15 +105,6 @@ CREATE TABLE IF NOT EXISTS canvas_items (
   width INTEGER,
   height INTEGER,
   deleted_at INTEGER,     -- null = active, timestamp = soft deleted
-  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-);
-
--- Session notes
-CREATE TABLE IF NOT EXISTS session_notes (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -270,7 +261,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON conversation_messages(session
 CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 -- Note: idx_canvas_deleted is created in migrations to handle existing databases
 -- that may not have the deleted_at column yet
-CREATE INDEX IF NOT EXISTS idx_notes_session ON session_notes(session_id);
+
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(project_id);
 -- Note: idx_sessions_next_template and idx_sessions_parent are created in migrations

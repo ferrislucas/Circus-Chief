@@ -392,6 +392,33 @@ describe('prepareSessionConfig', () => {
     );
     expect(config).not.toHaveProperty('agentType');
   });
+
+  it('resolves omitted gitMode to system default worktree', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test' },
+      null,
+      { ...systemDefaults, gitMode: 'worktree' }
+    );
+    expect(config.gitMode).toBe('worktree');
+  });
+
+  it('preserves explicit gitMode "current" over system default worktree', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test', gitMode: 'current' },
+      null,
+      { ...systemDefaults, gitMode: 'worktree' }
+    );
+    expect(config.gitMode).toBe('current');
+  });
+
+  it('preserves explicit gitMode "current" over project default worktree', () => {
+    const config = prepareSessionConfig(
+      { prompt: 'test', gitMode: 'current' },
+      { gitMode: 'worktree' },
+      { ...systemDefaults, gitMode: 'worktree' }
+    );
+    expect(config.gitMode).toBe('current');
+  });
 });
 
 // ── applyTemplateOverrides ───────────────────────────────────────────────
@@ -571,5 +598,38 @@ describe('setupAndStartSession', () => {
 
     expect(result).toHaveProperty('updatedSession');
     expect(broadcastToProject).toHaveBeenCalled();
+  });
+
+  it('passes current/no-isolation sessions through without creating a worktree', async () => {
+    const { sessions } = await import('../database.js');
+    const { setupGitForSession } = await import('../services/gitSessionSetup.js');
+    const { resolvePromptSkillOrCommand } = await import('../services/slashCommandService.js');
+
+    const mockSession = { id: 'sess-current' };
+    sessions.getById.mockReturnValue(mockSession);
+    sessions.update.mockReturnValue(mockSession);
+    setupGitForSession.mockResolvedValue({ workingDirectory: '/tmp/project', gitWorktree: null });
+    resolvePromptSkillOrCommand.mockResolvedValue(null);
+
+    vi.doMock('../services/sessionManager.js', () => ({
+      runSession: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    const result = await setupAndStartSession({
+      session: mockSession,
+      config: { prompt: 'test', startImmediately: true, scheduledAt: null, parentSessionId: null, gitMode: 'current', gitBranch: null, model: 'sonnet' },
+      project: { workingDirectory: '/tmp/project', systemPrompt: null },
+      projectId: 'proj-1',
+      files: [],
+    });
+
+    // setupGitForSession should be called with null gitMode (current normalized to null)
+    expect(setupGitForSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        gitMode: null,
+        gitBranch: null,
+      })
+    );
+    expect(result).toHaveProperty('updatedSession');
   });
 });

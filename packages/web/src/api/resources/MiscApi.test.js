@@ -128,56 +128,6 @@ describe('MiscApi', () => {
     });
   });
 
-  describe('Notes', () => {
-    describe('getSessionNotes', () => {
-      it('sends GET to /sessions/:id/notes', async () => {
-        mockFetch.mockReturnValue(mockResponse([{ id: '1', content: 'Note' }]));
-
-        await client.getSessionNotes('sess-123');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/notes', expect.any(Object));
-      });
-    });
-
-    describe('createNote', () => {
-      it('sends POST with content', async () => {
-        mockFetch.mockReturnValue(mockResponse({ id: '1' }));
-
-        await client.createNote('sess-123', 'New note');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/notes', expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ content: 'New note' }),
-        }));
-      });
-    });
-
-    describe('updateNote', () => {
-      it('sends PUT with content', async () => {
-        mockFetch.mockReturnValue(mockResponse({ id: 'note-1' }));
-
-        await client.updateNote('sess-123', 'note-1', 'Updated');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/notes/note-1', expect.objectContaining({
-          method: 'PUT',
-          body: JSON.stringify({ content: 'Updated' }),
-        }));
-      });
-    });
-
-    describe('deleteNote', () => {
-      it('sends DELETE to /sessions/:id/notes/:noteId', async () => {
-        mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
-
-        await client.deleteNote('sess-123', 'note-1');
-
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/notes/note-1', expect.objectContaining({
-          method: 'DELETE',
-        }));
-      });
-    });
-  });
-
   describe('Filesystem', () => {
     describe('browseDirectory', () => {
       it('sends GET without path when empty', async () => {

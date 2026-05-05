@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { DatabaseManager } from './DatabaseManager.js';
 
 describe('DatabaseManager', () => {
@@ -54,7 +58,6 @@ describe('DatabaseManager', () => {
       expect(tables).toContain('sessions');
       expect(tables).toContain('conversation_messages');
       expect(tables).toContain('canvas_items');
-      expect(tables).toContain('session_notes');
     });
   });
 
@@ -181,6 +184,92 @@ describe('DatabaseManager', () => {
       const tableSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'").get();
 
       expect(tableSchema.sql).toContain("'stopped'");
+    });
+
+    it('migrates existing sessions table defaults to yolo mode with thinking enabled', () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'circuschief-db-'));
+      const dbPath = join(tempDir, 'app.db');
+      const now = Date.now();
+      const legacyDb = new Database(dbPath);
+
+      legacyDb.exec(`
+        CREATE TABLE projects (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          working_directory TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE sessions (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled')),
+          mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
+          thinking_enabled INTEGER NOT NULL DEFAULT 0,
+          archived INTEGER NOT NULL DEFAULT 0,
+          git_branch TEXT,
+          git_worktree TEXT,
+          pr_url TEXT,
+          error TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE conversations (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          name TEXT,
+          is_active INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `);
+      legacyDb
+        .prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('legacy-project', 'Legacy Project', '/tmp/legacy', now, now);
+      legacyDb
+        .prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('legacy-session', 'legacy-project', 'Legacy Session', 'running', now, now);
+      legacyDb
+        .prepare('INSERT INTO conversations (id, session_id, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('legacy-conversation', 'legacy-session', 'Legacy Conversation', 1, now, now);
+      legacyDb.close();
+
+      const upgradedManager = new DatabaseManager();
+
+      try {
+        const db = upgradedManager.init(dbPath);
+        const columns = db.prepare('PRAGMA table_info(sessions)').all();
+        const modeColumn = columns.find((col) => col.name === 'mode');
+        const thinkingEnabledColumn = columns.find((col) => col.name === 'thinking_enabled');
+
+        expect(modeColumn.dflt_value).toBe("'yolo'");
+        expect(thinkingEnabledColumn.dflt_value).toBe('1');
+
+        const existingSession = db
+          .prepare('SELECT mode, thinking_enabled FROM sessions WHERE id = ?')
+          .get('legacy-session');
+        expect(existingSession).toEqual({ mode: 'standard', thinking_enabled: 0 });
+
+        const existingConversation = db
+          .prepare('SELECT session_id FROM conversations WHERE id = ?')
+          .get('legacy-conversation');
+        expect(existingConversation).toEqual({ session_id: 'legacy-session' });
+
+        db
+          .prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run('new-session', 'legacy-project', 'New Session', 'running', now, now);
+
+        const newSession = db
+          .prepare('SELECT mode, thinking_enabled FROM sessions WHERE id = ?')
+          .get('new-session');
+        expect(newSession).toEqual({ mode: 'yolo', thinking_enabled: 1 });
+      } finally {
+        upgradedManager.close();
+        rmSync(tempDir, { recursive: true, force: true });
+      }
     });
 
     it('sessions table has archived column', () => {
@@ -799,7 +888,6 @@ describe('DatabaseManager', () => {
 
       try {
         // Create old-style database with model_providers (with old schema)
-        const Database = require('better-sqlite3');
         const oldDb = new Database(dbPath);
         const now = Date.now();
 

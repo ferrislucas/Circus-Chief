@@ -3,7 +3,6 @@ import {
   seedProject,
   seedSession,
   seedCanvasItem,
-  seedSessionNote,
   cleanupCreatedResources,
   getSession,
   getProjectSessions,
@@ -17,7 +16,6 @@ import {
   updateSessionStatus,
   getCanvasItems,
   getCanvasFileContent,
-  getSessionNotes,
   waitForPageReady,
   toggleSessionStar,
   getAPIURL,
@@ -112,28 +110,6 @@ test.describe('Duplicate Session', () => {
     expect(canvasItems.length).toBe(1);
     const itemContent = await getCanvasFileContent(duplicated.id, canvasItems[0].filename);
     expect(itemContent.content).toBe('# Test Canvas Item');
-  });
-
-  test('duplicated session preserves notes', async ({ page }) => {
-    const session = await seedSession(project.id, {
-      prompt: 'Session with notes',
-      name: 'Session with notes',
-    });
-
-    // Add a note
-    await seedSessionNote(session.id, {
-      content: 'Test note content',
-    });
-
-    // Duplicate via API
-    const duplicated = await duplicateSession(session.id);
-    // Track duplicated session for cleanup
-    trackSession(duplicated.id);
-
-    // Verify note was copied
-    const notes = await getSessionNotes(duplicated.id);
-    expect(notes.length).toBe(1);
-    expect(notes[0].content).toBe('Test note content');
   });
 });
 

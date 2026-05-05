@@ -638,7 +638,7 @@ onUnmounted(() => {
 });
 
 async function handleDuplicate() {
-  if (!confirm('Duplicate this session? A new session will be created with all conversations, canvas items, and notes.')) {
+  if (!confirm('Duplicate this session? A new session will be created with all conversations and canvas items.')) {
     return;
   }
 

@@ -55,8 +55,8 @@ export function mapScheduling(row) {
 
 /** Default values for session-create config fields */
 const CONFIG_DEFAULTS = {
-  mode: 'standard',
-  thinkingEnabled: false,
+  mode: 'yolo',
+  thinkingEnabled: true,
   gitBranch: null,
   parentSessionId: null,
   status: 'starting',

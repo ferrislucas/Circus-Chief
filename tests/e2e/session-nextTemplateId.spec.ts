@@ -20,7 +20,6 @@ test.describe('Session Creation - nextTemplateId', () => {
       name: 'Template A',
       prompt: 'Prompt A',
       thinkingEnabled: true,
-      gitBranch: 'feature/a',
     });
     templateB = await seedProjectTemplate(project.id, {
       name: 'Template B',
@@ -50,7 +49,7 @@ test.describe('Session Creation - nextTemplateId', () => {
     const fetchedSession = await getSession(session.id);
     expect(fetchedSession.nextTemplateId).toBe(templateA.id);
     // Template settings should NOT be applied (no templateId)
-    expect(fetchedSession.thinkingEnabled).toBe(false);
+    expect(fetchedSession.thinkingEnabled).toBe(true);
   });
 
   test('explicit nextTemplateId overrides templateId-derived value', async () => {
