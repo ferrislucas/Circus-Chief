@@ -546,11 +546,11 @@ describe('NewSessionView - Start From Template Feature', () => {
 
     it('populates gitBranch from template', () => {
       const template = {
-        gitBranch: 'claude-tools/feature-xyz',
+        gitBranch: 'circus-chief/feature-xyz',
       };
 
       const gitBranch = template.gitBranch;
-      expect(gitBranch).toBe('claude-tools/feature-xyz');
+      expect(gitBranch).toBe('circus-chief/feature-xyz');
     });
 
     it('populates gitMode from template', () => {
@@ -621,7 +621,7 @@ describe('NewSessionView - Start From Template Feature', () => {
         thinkingEnabled: true,
         model: 'claude-sonnet-4-20250514',
         mode: 'standard',
-        gitBranch: 'claude-tools/my-feature',
+        gitBranch: 'circus-chief/my-feature',
         gitMode: 'branch',
         effortLevel: 'max',
         nextTemplateId: 'template-789',
@@ -643,7 +643,7 @@ describe('NewSessionView - Start From Template Feature', () => {
       expect(fields.thinkingEnabled).toBe(true);
       expect(fields.model).toBe('claude-sonnet-4-20250514');
       expect(fields.mode).toBe('standard');
-      expect(fields.gitBranch).toBe('claude-tools/my-feature');
+      expect(fields.gitBranch).toBe('circus-chief/my-feature');
       expect(fields.gitMode).toBe('branch');
       expect(fields.effortLevel).toBe('max');
       expect(fields.nextTemplateId).toBe('template-789');

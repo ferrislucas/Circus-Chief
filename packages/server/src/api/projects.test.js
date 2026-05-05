@@ -251,7 +251,7 @@ describe('Projects API', () => {
 
         // gitBranch should be generated for default worktree creation.
         const session = sessions.getById(res.body.id);
-        expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
+        expect(session.gitBranch).toMatch(/^circus-chief\/[0-9a-f]{4}-test-prompt$/);
       });
 
       it('succeeds for git repo when both gitMode and gitBranch are missing (defaults applied)', async () => {
@@ -263,7 +263,7 @@ describe('Projects API', () => {
 
         // System defaults use worktree mode, so gitBranch should be generated.
         const session = sessions.getById(res.body.id);
-        expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
+        expect(session.gitBranch).toMatch(/^circus-chief\/[0-9a-f]{4}-test-prompt$/);
       });
 
       it('succeeds for non-git project without gitMode/gitBranch', async () => {

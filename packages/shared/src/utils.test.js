@@ -83,39 +83,39 @@ describe('extractSlugFromPrompt', () => {
 });
 
 describe('generateWorktreeBranch', () => {
-  it('generates branch with format claude-tools/{shortId}-{slug}', () => {
+  it('generates branch with format circus-chief/{shortId}-{slug}', () => {
     const branch = generateWorktreeBranch('Implement auth', '');
-    expect(branch).toMatch(/^claude-tools\/[0-9a-f]{4}-implement-auth$/);
+    expect(branch).toMatch(/^circus-chief\/[0-9a-f]{4}-implement-auth$/);
   });
 
   it('uses session name when provided', () => {
     const branch = generateWorktreeBranch('Fix login bug', 'Some prompt text');
-    expect(branch).toMatch(/^claude-tools\/[0-9a-f]{4}-fix-login-bug$/);
+    expect(branch).toMatch(/^circus-chief\/[0-9a-f]{4}-fix-login-bug$/);
   });
 
   it('falls back to prompt when no session name', () => {
     const branch = generateWorktreeBranch('', 'Add dark mode toggle to settings');
-    expect(branch).toMatch(/^claude-tools\/[0-9a-f]{4}-add-dark-mode-toggle$/);
+    expect(branch).toMatch(/^circus-chief\/[0-9a-f]{4}-add-dark-mode-toggle$/);
   });
 
   it('uses session as default when no name or prompt', () => {
     const branch = generateWorktreeBranch('', '');
-    expect(branch).toMatch(/^claude-tools\/[0-9a-f]{4}-session$/);
+    expect(branch).toMatch(/^circus-chief\/[0-9a-f]{4}-session$/);
   });
 
   it('handles undefined parameters', () => {
     const branch = generateWorktreeBranch(undefined, undefined);
-    expect(branch).toMatch(/^claude-tools\/[0-9a-f]{4}-session$/);
+    expect(branch).toMatch(/^circus-chief\/[0-9a-f]{4}-session$/);
   });
 
   it('handles whitespace-only input', () => {
     const branch = generateWorktreeBranch('   ', '   ');
-    expect(branch).toMatch(/^claude-tools\/[0-9a-f]{4}-session$/);
+    expect(branch).toMatch(/^circus-chief\/[0-9a-f]{4}-session$/);
   });
 
   it('sanitizes special characters in session name', () => {
     const branch = generateWorktreeBranch('Fix bug #123!', '');
-    expect(branch).toMatch(/^claude-tools\/[0-9a-f]{4}-fix-bug-123$/);
+    expect(branch).toMatch(/^circus-chief\/[0-9a-f]{4}-fix-bug-123$/);
   });
 });
 
