@@ -288,8 +288,8 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
         prompt: 'System defaults test',
       });
 
-      // System defaults: mode='standard'
-      expect(session.mode).toBe('standard');
+      // System defaults: mode='yolo'
+      expect(session.mode).toBe('yolo');
     });
 
     test('partial project defaults with system fallback', async () => {
@@ -355,7 +355,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       const sessionA = await seedSession(projectA.id, { prompt: 'After reset A' });
       const sessionB = await seedSession(projectB.id, { prompt: 'After reset B' });
 
-      expect(sessionA.mode).toBe('standard'); // system default
+      expect(sessionA.mode).toBe('yolo'); // system default
       expect(sessionB.mode).toBe('plan'); // project default
     });
 
@@ -398,7 +398,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       });
 
       // Verify system defaults
-      expect(session.mode).toBe('standard');
+      expect(session.mode).toBe('yolo');
     });
 
     test('null project defaults fall back to system defaults', async () => {
@@ -413,7 +413,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       });
 
       // Should use system defaults since everything is null
-      expect(session.mode).toBe('standard');
+      expect(session.mode).toBe('yolo');
     });
   });
 
@@ -434,7 +434,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       expect(session).toBeDefined();
       expect(session.id).toBeTruthy();
       // Uses system defaults
-      expect(session.mode).toBe('standard');
+      expect(session.mode).toBe('yolo');
     });
 
     test('gitBranch without gitMode is preserved', async () => {

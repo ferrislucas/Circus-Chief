@@ -74,6 +74,19 @@ describe('CreateSessionRequest', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('validates gitMode enum values including current', () => {
+    expect(CreateSessionRequest.safeParse({ prompt: 'test', gitMode: 'branch' }).success).toBe(true);
+    expect(CreateSessionRequest.safeParse({ prompt: 'test', gitMode: 'worktree' }).success).toBe(true);
+    expect(CreateSessionRequest.safeParse({ prompt: 'test', gitMode: 'current' }).success).toBe(true);
+    expect(CreateSessionRequest.safeParse({ prompt: 'test', gitMode: 'invalid' }).success).toBe(false);
+  });
+
+  it('allows omitting gitMode', () => {
+    const result = CreateSessionRequest.safeParse({ prompt: 'test' });
+    expect(result.success).toBe(true);
+    expect(result.data.gitMode).toBeUndefined();
+  });
 });
 
 describe('UpdateSessionRequest', () => {

@@ -228,7 +228,7 @@ describe('Projects API', () => {
     });
 
     describe('git repo validation', () => {
-      it('succeeds for git repo when gitMode is missing (defaults to none)', async () => {
+      it('succeeds for git repo when gitMode is missing', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
           gitBranch: 'feature-x',
@@ -241,7 +241,7 @@ describe('Projects API', () => {
         expect(session.gitBranch).toBe('feature-x');
       });
 
-      it('succeeds for git repo when gitBranch is missing (defaults to main)', async () => {
+      it('succeeds for git repo when gitBranch is missing (generates branch for worktree)', async () => {
         const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
           prompt: 'Test prompt',
           gitMode: 'worktree',
@@ -249,9 +249,9 @@ describe('Projects API', () => {
 
         expect(res.status).toBe(201);
 
-        // gitBranch should default to 'main'
+        // gitBranch should be generated for default worktree creation.
         const session = sessions.getById(res.body.id);
-        expect(session.gitBranch).toBe('main');
+        expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
       });
 
       it('succeeds for git repo when both gitMode and gitBranch are missing (defaults applied)', async () => {
@@ -261,9 +261,9 @@ describe('Projects API', () => {
 
         expect(res.status).toBe(201);
 
-        // gitBranch should default to 'main'
+        // System defaults use worktree mode, so gitBranch should be generated.
         const session = sessions.getById(res.body.id);
-        expect(session.gitBranch).toBe('main');
+        expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
       });
 
       it('succeeds for non-git project without gitMode/gitBranch', async () => {
@@ -611,7 +611,7 @@ describe('Projects API', () => {
         const session = sessions.getById(res.body.id);
         expect(session.nextTemplateId).toBe(template.id);
         // Template settings should NOT be applied (no templateId was provided)
-        expect(session.thinkingEnabled).toBe(false); // system default
+        expect(session.thinkingEnabled).toBe(true); // system default
 
         // Clean up
         sessionTemplates.delete(template.id);
@@ -704,6 +704,59 @@ describe('Projects API', () => {
 
         // Clean up
         sessionTemplates.delete(template.id);
+      });
+    });
+
+    describe('gitMode current opt-out', () => {
+      it('creates session with gitMode current and stores gitBranch as null', async () => {
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test current mode',
+          gitMode: 'current',
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.gitBranch).toBeNull();
+        expect(res.body.gitWorktree).toBeNull();
+
+        // Verify in database
+        const session = sessions.getById(res.body.id);
+        expect(session.gitBranch).toBeNull();
+        expect(session.gitWorktree).toBeNull();
+      });
+
+      it('current mode does not create a worktree', async () => {
+        await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Test no worktree',
+          gitMode: 'current',
+        });
+
+        // setupGitForSession should have been called with null gitMode
+        expect(setupGitForSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            gitMode: null,
+          })
+        );
+      });
+
+      it('current mode overrides project default of worktree', async () => {
+        // Set project default to worktree
+        await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+          gitMode: 'worktree',
+        });
+
+        const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+          prompt: 'Override worktree default',
+          gitMode: 'current',
+        });
+
+        expect(res.status).toBe(201);
+
+        // Verify setupGitForSession was called with null gitMode (current normalized)
+        expect(setupGitForSession).toHaveBeenCalledWith(
+          expect.objectContaining({
+            gitMode: null,
+          })
+        );
       });
     });
   });
@@ -1038,6 +1091,15 @@ describe('Projects API', () => {
       expect(res.body.error).toBeDefined();
     });
 
+    it('accepts gitMode "current"', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        gitMode: 'current',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.gitMode).toBe('current');
+    });
+
     it('returns 404 for non-existent project', async () => {
       const res = await request(app).post('/api/projects/non-existent-id/session-defaults').send({
         mode: 'plan',
@@ -1257,7 +1319,7 @@ describe('Projects API', () => {
 
       const session = sessions.getById(res.body.id);
       expect(session.mode).toBe('plan'); // From project default
-      expect(session.thinkingEnabled).toBe(false); // From system default
+      expect(session.thinkingEnabled).toBe(true); // From system default
     });
 
     it('applies startImmediately default', async () => {
@@ -1317,8 +1379,8 @@ describe('Projects API', () => {
       expect(res.status).toBe(201);
 
       const session = sessions.getById(res.body.id);
-      expect(session.mode).toBe('standard'); // System default
-      expect(session.thinkingEnabled).toBe(false); // System default
+      expect(session.mode).toBe('yolo'); // System default
+      expect(session.thinkingEnabled).toBe(true); // System default
       expect(session.status).toBe('starting'); // startImmediately default is true
     });
 

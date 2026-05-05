@@ -147,7 +147,7 @@ export function prepareSessionConfig(body, projectDefs, systemDefaults) {
     providerId: resolveProviderDefault(explicitProviderId, projectProviderId, systemProviderId),
     effortLevel,
     gitBranch: resolveDefault(body.gitBranch, projectDefs?.gitBranch, null),
-    gitMode: resolveDefault(body.gitMode, projectDefs?.gitMode, null),
+    gitMode: resolveDefault(body.gitMode, projectDefs?.gitMode, systemDefaults.gitMode),
     templateId: body.templateId,
     parentSessionId: body.parentSessionId || null,
     files: [],
@@ -261,9 +261,12 @@ async function resolveSessionWorkingDirectory({ session, config, project }) {
     };
   }
 
+  // Normalize 'current' mode to null (no git isolation) for setupGitForSession
+  const normalizedGitMode = (config.gitMode === 'current') ? null : (config.gitMode || null);
+
   const gitSetup = await setupGitForSession({
     projectDir: project.workingDirectory,
-    gitMode: config.gitMode || null,
+    gitMode: normalizedGitMode,
     gitBranch: config.gitBranch || null,
     sessionId: session.id,
     worktreeBasePath: project.worktreePath || null,

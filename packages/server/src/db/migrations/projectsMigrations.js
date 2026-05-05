@@ -96,4 +96,35 @@ export const projectsMigrations = [
       }
     },
   },
+  {
+    name: 'project_session_defaults-git_mode-add-current',
+    up(db) {
+      if (!tableExists(db, 'project_session_defaults')) return;
+      // SQLite doesn't support ALTER TABLE ... ALTER CONSTRAINT, so we recreate the table
+      db.exec(`
+        CREATE TABLE project_session_defaults_new (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL UNIQUE,
+          mode TEXT CHECK(mode IN ('plan', 'standard', 'yolo')),
+          thinking_enabled INTEGER,
+          start_immediately INTEGER,
+          git_mode TEXT CHECK(git_mode IN ('branch', 'worktree', 'current')),
+          git_branch TEXT,
+          model TEXT,
+          provider_id TEXT REFERENCES providers(id),
+          effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        INSERT INTO project_session_defaults_new
+          SELECT id, project_id, mode, thinking_enabled, start_immediately, git_mode,
+                 git_branch, model, provider_id, effort_level, created_at, updated_at
+          FROM project_session_defaults;
+        DROP TABLE project_session_defaults;
+        ALTER TABLE project_session_defaults_new RENAME TO project_session_defaults;
+        CREATE INDEX IF NOT EXISTS idx_project_defaults_projectId ON project_session_defaults(project_id);
+      `);
+    },
+  },
 ];

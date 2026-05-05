@@ -3,6 +3,7 @@
  * Each export is an array of { name, up(db) } migration objects.
  */
 import { addColumnIfMissing, getColumns, getTableSql } from './migrationUtils.js';
+import { migrateSessionsDefaultModeAndThinking } from './sessionTableRecreate.js';
 
 // Table name constants for migrations
 const TABLE_SESSIONS = 'sessions';
@@ -18,8 +19,8 @@ const SESSIONS_BASE_COLUMNS = `
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled')),
-    mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
-    thinking_enabled INTEGER NOT NULL DEFAULT 0,
+    mode TEXT NOT NULL DEFAULT 'yolo' CHECK (mode IN ('plan', 'standard', 'yolo')),
+    thinking_enabled INTEGER NOT NULL DEFAULT 1,
     git_branch TEXT,
     git_worktree TEXT,
     pr_url TEXT,
@@ -289,4 +290,11 @@ export const sessionsMigrations = [
     name: 'sessions-add-agent_type',
     up(db) { addColumnIfMissing(db, TABLE_SESSIONS, 'agent_type', "TEXT DEFAULT 'claude-code'"); },
   },
+
+  // --- Default mode / thinking changes ---
+  {
+    name: 'sessions-migrate-default-mode-thinking',
+    up(db) { migrateSessionsDefaultModeAndThinking(db); },
+  },
+
 ];

@@ -206,6 +206,9 @@ export const allMigrations = validateMigrations([
   k.get('kanban_lanes-add-on_enter_prompt'),
   k.get('kanban_lanes-add-agent-settings'),
 
+  // --- Sessions default mode / thinking defaults (table recreation) ---
+  s.get('sessions-migrate-default-mode-thinking'),
+
   // --- Seed default global quick responses ---
   m.get('quick_responses-seed-defaults'),
 
@@ -214,4 +217,7 @@ export const allMigrations = validateMigrations([
 
   // --- Update built-in Opus model to 4.7 ---
   pr.get('providers-update-built-in-opus-4-7'),
+
+  // --- Project session defaults: add 'current' git mode ---
+  p.get('project_session_defaults-git_mode-add-current'),
 ]);

@@ -47,13 +47,15 @@ describe('validateGitSettings', () => {
     expect(config.gitMode).toBeUndefined();
   });
 
-  it('defaults gitBranch to main for git repo when gitBranch is missing', async () => {
+  it('generates gitBranch for git repo when worktree gitBranch is missing', async () => {
     isGitRepo.mockResolvedValue(true);
 
-    const config = { gitMode: 'worktree' };
+    const config = { gitMode: 'worktree', prompt: 'Test prompt' };
     const result = await validateGitSettings(config, project);
 
-    expect(result).toEqual({ config: { gitMode: 'worktree', gitBranch: 'main' }, error: null });
+    expect(result.error).toBeNull();
+    expect(result.config).toMatchObject({ gitMode: 'worktree', prompt: 'Test prompt' });
+    expect(result.config.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
     expect(config.gitBranch).toBeUndefined();
   });
 
@@ -83,5 +85,26 @@ describe('validateGitSettings', () => {
 
     expect(result).toEqual({ config: { gitMode: 'none', gitBranch: 'main' }, error: null });
     expect(isGitRepo).not.toHaveBeenCalled();
+  });
+
+  describe('current mode', () => {
+    it('passes through current mode without generating a branch', async () => {
+      const config = { gitMode: 'current' };
+      const result = await validateGitSettings(config, project);
+
+      expect(result.error).toBeNull();
+      expect(result.config.gitMode).toBe('current');
+      expect(result.config.gitBranch).toBeNull();
+      // Should not call isGitRepo - current mode short-circuits
+      expect(isGitRepo).not.toHaveBeenCalled();
+    });
+
+    it('sets gitBranch to null even when a branch is provided', async () => {
+      const config = { gitMode: 'current', gitBranch: 'some-branch' };
+      const result = await validateGitSettings(config, project);
+
+      expect(result.config.gitMode).toBe('current');
+      expect(result.config.gitBranch).toBeNull();
+    });
   });
 });
