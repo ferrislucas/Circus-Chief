@@ -118,11 +118,16 @@ const emit = defineEmits(['update:modelValue']);
 // Input value synced with v-model
 const inputValue = ref(props.modelValue);
 
-// Watch for external changes to modelValue
+// Watch for external changes to modelValue.
+// Guard prevents re-assigning when the value hasn't changed — without this,
+// iOS/Safari resets the cursor to position 0 on every keystroke because
+// the parent echo's the emitted value back through props.modelValue.
 watch(
   () => props.modelValue,
   (newVal) => {
-    inputValue.value = newVal;
+    if (newVal !== inputValue.value) {
+      inputValue.value = newVal;
+    }
   }
 );
 
