@@ -163,6 +163,7 @@ export const allMigrations = validateMigrations([
   m.get('session_templates-add-model'),
   m.get('session_templates-add-mode'),
   m.get('session_templates-add-effort_level'),
+  m.get('session_templates-add-quick-response-fields'),
 
   // --- Conversation messages model ---
   c.get('conversation_messages-add-model'),
@@ -211,6 +212,9 @@ export const allMigrations = validateMigrations([
 
   // --- Seed default global quick responses ---
   m.get('quick_responses-seed-defaults'),
+
+  // --- Convert legacy quick responses into template-backed quick responses ---
+  m.get('session_templates-convert-quick-responses'),
 
   // --- Seed default global session templates ---
   m.get('session_templates-seed-defaults'),

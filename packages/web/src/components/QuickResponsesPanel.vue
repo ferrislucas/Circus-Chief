@@ -31,12 +31,12 @@
         <span class="panel-title">Quick Responses</span>
       </div>
       <button
-        v-if="isExpanded"
+        v-if="isExpanded && projectId"
         type="button"
         class="settings-button"
-        title="Manage quick responses"
-        aria-label="Manage quick responses"
-        @click.stop="$emit('openSettings')"
+        title="Manage templates"
+        aria-label="Manage templates"
+        @click.stop="openTemplates"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -66,7 +66,7 @@
       v-else-if="!hasResponses && isExpanded"
       class="empty-state"
     >
-      <span class="empty-text">No quick responses yet</span>
+      <span class="empty-text">No quick response templates yet</span>
     </div>
 
     <!-- Responses content (collapsible) -->
@@ -86,13 +86,13 @@
             :key="response.id"
             type="button"
             class="response-button project-response"
-            :class="{ 'auto-submit': response.autoSubmit }"
-            :title="response.content"
+            :class="{ 'auto-submit': response.quickResponseAutoSubmit }"
+            :title="response.prompt"
             @click.stop="handleClick(response)"
           >
-            <span class="button-label">{{ response.label }}</span>
+            <span class="button-label">{{ response.name }}</span>
             <span
-              v-if="response.autoSubmit"
+              v-if="response.quickResponseAutoSubmit"
               class="auto-icon"
               title="Auto-submit"
             >&#9889;</span>
@@ -112,13 +112,13 @@
             :key="response.id"
             type="button"
             class="response-button global-response"
-            :class="{ 'auto-submit': response.autoSubmit }"
-            :title="response.content"
+            :class="{ 'auto-submit': response.quickResponseAutoSubmit }"
+            :title="response.prompt"
             @click.stop="handleClick(response)"
           >
-            <span class="button-label">{{ response.label }}</span>
+            <span class="button-label">{{ response.name }}</span>
             <span
-              v-if="response.autoSubmit"
+              v-if="response.quickResponseAutoSubmit"
               class="auto-icon"
               title="Auto-submit"
             >&#9889;</span>
@@ -131,7 +131,8 @@
 
 <script setup>
 import { ref, computed, defineOptions } from 'vue';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import { useRouter } from 'vue-router';
+import { useTemplatesStore } from '../stores/templates.js';
 
 defineOptions({
   name: 'QuickResponsesPanel',
@@ -142,17 +143,22 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  projectId: {
+    type: String,
+    default: null,
+  },
 });
 
-const emit = defineEmits(['insert', 'openSettings']);
+const emit = defineEmits(['insert']);
 
-const store = useQuickResponsesStore();
+const router = useRouter();
+const store = useTemplatesStore();
 const isExpanded = ref(false);
 
 const loading = computed(() => store.loading);
-const projectResponses = computed(() => store.projectResponses);
-const globalResponses = computed(() => store.globalResponses);
-const hasResponses = computed(() => store.hasResponses);
+const projectResponses = computed(() => store.quickResponseTemplates.project);
+const globalResponses = computed(() => store.quickResponseTemplates.global);
+const hasResponses = computed(() => store.hasQuickResponseTemplates);
 
 function toggle() {
   isExpanded.value = !isExpanded.value;
@@ -160,11 +166,16 @@ function toggle() {
 
 function handleClick(response) {
   emit('insert', {
-    content: response.content,
-    autoSubmit: response.autoSubmit,
+    content: response.prompt,
+    autoSubmit: response.quickResponseAutoSubmit,
   });
   // Auto-collapse panel after selecting a response
   isExpanded.value = false;
+}
+
+function openTemplates() {
+  if (!props.projectId) return;
+  router.push(`/projects/${props.projectId}/templates`);
 }
 </script>
 

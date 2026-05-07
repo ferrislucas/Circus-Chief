@@ -26,6 +26,10 @@ CREATE TABLE IF NOT EXISTS session_templates (
   model TEXT,
   mode TEXT DEFAULT 'yolo' CHECK(mode IN ('plan', 'standard', 'yolo')),
   effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
+  show_in_quick_responses INTEGER NOT NULL DEFAULT 0,
+  quick_response_auto_submit INTEGER NOT NULL DEFAULT 0,
+  quick_response_sort_order INTEGER NOT NULL DEFAULT 0,
+  legacy_quick_response_id TEXT UNIQUE,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

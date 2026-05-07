@@ -149,6 +149,27 @@
           >
         </div>
 
+        <div class="form-group">
+          <label class="form-check">
+            <input
+              v-model="formData.showInQuickResponses"
+              type="checkbox"
+            >
+            <span>Show in Quick Responses</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-check">
+            <input
+              v-model="formData.quickResponseAutoSubmit"
+              type="checkbox"
+              :disabled="!formData.showInQuickResponses"
+            >
+            <span>Auto-submit from Quick Responses</span>
+          </label>
+        </div>
+
         <div class="form-actions">
           <button
             type="button"
@@ -232,6 +253,14 @@
               >
                 Chains to: {{ getTemplateName(template.nextTemplateId) }}
               </span>
+              <span
+                v-if="template.showInQuickResponses"
+                class="meta-badge"
+              >Quick Response</span>
+              <span
+                v-if="template.quickResponseAutoSubmit"
+                class="meta-badge"
+              >Auto-submit</span>
             </div>
           </router-link>
         </div>
@@ -285,6 +314,14 @@
               >
                 Chains to: {{ getTemplateName(template.nextTemplateId) }}
               </span>
+              <span
+                v-if="template.showInQuickResponses"
+                class="meta-badge"
+              >Quick Response</span>
+              <span
+                v-if="template.quickResponseAutoSubmit"
+                class="meta-badge"
+              >Auto-submit</span>
             </div>
           </router-link>
         </div>
@@ -336,6 +373,8 @@ const formData = ref({
   gitBranch: '',
   model: null,
   mode: null,
+  showInQuickResponses: false,
+  quickResponseAutoSubmit: false,
 });
 
 const loading = computed(() => templatesStore.loading);
@@ -393,6 +432,8 @@ function resetForm() {
     gitBranch: '',
     model: null,
     mode: null,
+    showInQuickResponses: false,
+    quickResponseAutoSubmit: false,
   };
 }
 
@@ -418,6 +459,10 @@ async function handleSubmit() {
       gitBranch: formData.value.gitBranch || undefined,
       model: formData.value.model,                      // null = inherit
       mode: formData.value.mode,                        // null = inherit
+      showInQuickResponses: formData.value.showInQuickResponses,
+      quickResponseAutoSubmit: formData.value.showInQuickResponses
+        ? formData.value.quickResponseAutoSubmit
+        : false,
     };
 
     if (formData.value.isGlobal) {
@@ -435,6 +480,15 @@ async function handleSubmit() {
     saving.value = false;
   }
 }
+
+watch(
+  () => formData.value.showInQuickResponses,
+  (showInQuickResponses) => {
+    if (!showInQuickResponses) {
+      formData.value.quickResponseAutoSubmit = false;
+    }
+  }
+);
 
 // Expose for testing
 defineExpose({

@@ -30,7 +30,10 @@ Create a draft pr and ensure all changes are committed and pushed.`,
  */
 function seedDefaultSessionTemplates(db) {
   const count = db.prepare(
-    'SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL'
+    `SELECT COUNT(*) AS cnt
+     FROM session_templates
+     WHERE project_id IS NULL
+       AND legacy_quick_response_id IS NULL`
   ).get().cnt;
   if (count > 0) return;
 
@@ -45,8 +48,10 @@ function seedDefaultSessionTemplates(db) {
       id, project_id, name, prompt,
       next_template_id, thinking_enabled,
       git_branch, git_mode, model, mode, effort_level, target_lane_id,
+      show_in_quick_responses, quick_response_auto_submit,
+      quick_response_sort_order, legacy_quick_response_id,
       created_at, updated_at
-    ) VALUES (?, NULL, ?, ?, NULL, 1, NULL, NULL, NULL, 'yolo', NULL, NULL, ?, ?)
+    ) VALUES (?, NULL, ?, ?, NULL, 1, NULL, NULL, NULL, 'yolo', NULL, NULL, 0, 0, 0, NULL, ?, ?)
   `);
 
   const now = Date.now();
@@ -88,6 +93,38 @@ function seedDefaultQuickResponses(db) {
   }
 }
 
+function convertQuickResponsesToTemplates(db) {
+  const rows = db.prepare('SELECT * FROM quick_responses ORDER BY sort_order ASC, created_at ASC').all();
+  const exists = db.prepare(
+    'SELECT 1 FROM session_templates WHERE legacy_quick_response_id = ? LIMIT 1'
+  );
+  const insert = db.prepare(`
+    INSERT INTO session_templates (
+      id, project_id, name, prompt,
+      next_template_id, thinking_enabled,
+      git_branch, git_mode, model, mode, effort_level, target_lane_id,
+      show_in_quick_responses, quick_response_auto_submit,
+      quick_response_sort_order, legacy_quick_response_id,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 1, ?, ?, ?, ?, ?)
+  `);
+
+  for (const row of rows) {
+    if (exists.get(row.id)) continue;
+    insert.run(
+      randomUUID(),
+      row.project_id || null,
+      row.label,
+      row.content,
+      row.auto_submit ? 1 : 0,
+      row.sort_order ?? 0,
+      row.id,
+      row.created_at,
+      row.updated_at
+    );
+  }
+}
+
 /** @type {Array<{name: string, up: (db: import('better-sqlite3').Database) => void}>} */
 export const miscMigrations = [
   // --- Command buttons ---
@@ -119,6 +156,20 @@ export const miscMigrations = [
         db, 'session_templates', 'effort_level',
         "TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto'))"
       );
+    },
+  },
+  {
+    name: 'session_templates-add-quick-response-fields',
+    up(db) {
+      addColumnIfMissing(db, 'session_templates', 'show_in_quick_responses', 'INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'session_templates', 'quick_response_auto_submit', 'INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'session_templates', 'quick_response_sort_order', 'INTEGER NOT NULL DEFAULT 0');
+      addColumnIfMissing(db, 'session_templates', 'legacy_quick_response_id', 'TEXT');
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_templates_legacy_quick_response_id
+        ON session_templates(legacy_quick_response_id)
+        WHERE legacy_quick_response_id IS NOT NULL
+      `);
     },
   },
 
@@ -177,6 +228,11 @@ export const miscMigrations = [
   {
     name: 'quick_responses-seed-defaults',
     up(db) { seedDefaultQuickResponses(db); },
+  },
+
+  {
+    name: 'session_templates-convert-quick-responses',
+    up(db) { convertQuickResponsesToTemplates(db); },
   },
 
   // --- Seed default global session templates ---

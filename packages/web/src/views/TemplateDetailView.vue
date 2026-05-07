@@ -150,6 +150,27 @@
           >
         </div>
 
+        <div class="form-group">
+          <label class="form-check">
+            <input
+              v-model="formData.showInQuickResponses"
+              type="checkbox"
+            >
+            <span>Show in Quick Responses</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="form-check">
+            <input
+              v-model="formData.quickResponseAutoSubmit"
+              type="checkbox"
+              :disabled="!formData.showInQuickResponses"
+            >
+            <span>Auto-submit from Quick Responses</span>
+          </label>
+        </div>
+
         <!-- Form Actions -->
         <div class="form-actions">
           <button
@@ -223,7 +244,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
@@ -254,6 +275,8 @@ const formData = ref({
   model: null,
   mode: null,
   effortLevel: null,
+  showInQuickResponses: false,
+  quickResponseAutoSubmit: false,
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -282,6 +305,8 @@ const loadTemplate = async () => {
         model: template.model,                      // Preserve null (inherit) or model ID
         mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
         effortLevel: template.effortLevel ?? null,
+        showInQuickResponses: template.showInQuickResponses,
+        quickResponseAutoSubmit: template.quickResponseAutoSubmit,
       };
     }
   } catch (err) {
@@ -305,6 +330,10 @@ const onSubmit = async () => {
       model: formData.value.model,                      // null = inherit
       mode: formData.value.mode,                        // null = inherit
       effortLevel: formData.value.effortLevel,          // null = inherit
+      showInQuickResponses: formData.value.showInQuickResponses,
+      quickResponseAutoSubmit: formData.value.showInQuickResponses
+        ? formData.value.quickResponseAutoSubmit
+        : false,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);
@@ -318,6 +347,15 @@ const onSubmit = async () => {
     isSaving.value = false;
   }
 };
+
+watch(
+  () => formData.value.showInQuickResponses,
+  (showInQuickResponses) => {
+    if (!showInQuickResponses) {
+      formData.value.quickResponseAutoSubmit = false;
+    }
+  }
+);
 
 const onCancel = () => {
   router.back();
@@ -472,6 +510,19 @@ onMounted(async () => {
   height: 18px;
   cursor: pointer;
   accent-color: var(--color-primary);
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.form-check input {
+  cursor: pointer;
 }
 
 .form-error-message {

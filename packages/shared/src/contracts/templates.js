@@ -11,6 +11,9 @@ export const CreateSessionTemplateRequest = z.object({
   mode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
   effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
   targetLaneId: z.string().uuid().nullable().optional(), // Lane to place session in when created from this template
+  showInQuickResponses: z.boolean().optional(),
+  quickResponseAutoSubmit: z.boolean().optional(),
+  quickResponseSortOrder: z.number().int().optional(),
 });
 
 export const UpdateSessionTemplateRequest = z.object({
@@ -24,6 +27,9 @@ export const UpdateSessionTemplateRequest = z.object({
   mode: z.enum(['plan', 'standard', 'yolo']).nullable().optional(),
   effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable().optional(),
   targetLaneId: z.string().uuid().nullable().optional(),
+  showInQuickResponses: z.boolean().optional(),
+  quickResponseAutoSubmit: z.boolean().optional(),
+  quickResponseSortOrder: z.number().int().optional(),
 });
 
 export const SessionTemplateResponse = z.object({
@@ -39,6 +45,10 @@ export const SessionTemplateResponse = z.object({
   mode: z.string().nullable(),
   effortLevel: z.enum(['low', 'medium', 'high', 'max', 'auto']).nullable(),
   targetLaneId: z.string().uuid().nullable(),
+  showInQuickResponses: z.boolean(),
+  quickResponseAutoSubmit: z.boolean(),
+  quickResponseSortOrder: z.number(),
+  legacyQuickResponseId: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

@@ -4,7 +4,13 @@ import { createPinia, setActivePinia } from 'pinia';
 import { nextTick } from 'vue';
 
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
+import { useTemplatesStore } from '../stores/templates.js';
+
+const pushMock = vi.fn();
+
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: pushMock }),
+}));
 
 describe('QuickResponsesPanel', () => {
   let store;
@@ -13,13 +19,27 @@ describe('QuickResponsesPanel', () => {
   beforeEach(() => {
     pinia = createPinia();
     setActivePinia(pinia);
-    store = useQuickResponsesStore();
+    store = useTemplatesStore();
     // Clear the store state
-    store.projectResponses = [];
-    store.globalResponses = [];
+    store.projectTemplates = [];
+    store.globalTemplates = [];
     store.loading = false;
     store.error = null;
+    pushMock.mockClear();
   });
+
+  function template(overrides = {}) {
+    return {
+      id: '1',
+      name: 'Test',
+      prompt: 'test content',
+      showInQuickResponses: true,
+      quickResponseAutoSubmit: false,
+      quickResponseSortOrder: 0,
+      createdAt: 1,
+      ...overrides,
+    };
+  }
 
   function mountComponent(props = {}) {
     return mount(QuickResponsesPanel, {
@@ -58,7 +78,7 @@ describe('QuickResponsesPanel', () => {
   });
 
   describe('store integration', () => {
-    it('uses the quick responses store', () => {
+    it('uses the templates store', () => {
       const wrapper = mountComponent();
       expect(wrapper.vm).toBeDefined();
       // The component successfully mounts, which means it uses the store
@@ -66,7 +86,7 @@ describe('QuickResponsesPanel', () => {
   });
 
   describe('events', () => {
-    it('defines insert and openSettings events', () => {
+    it('defines insert events', () => {
       const wrapper = mountComponent();
       expect(wrapper.emitted()).toBeDefined();
     });
@@ -79,22 +99,22 @@ describe('QuickResponsesPanel', () => {
       expect(store.loading).toBe(true);
     });
 
-    it('reads projectResponses from store', () => {
-      store.projectResponses = [{ id: '1', label: 'Test' }];
+    it('reads project quick response templates from store', () => {
+      store.projectTemplates = [template()];
       mountComponent();
-      expect(store.projectResponses).toHaveLength(1);
+      expect(store.quickResponseTemplates.project).toHaveLength(1);
     });
 
-    it('reads globalResponses from store', () => {
-      store.globalResponses = [{ id: '2', label: 'Global' }];
+    it('reads global quick response templates from store', () => {
+      store.globalTemplates = [template({ id: '2', name: 'Global' })];
       mountComponent();
-      expect(store.globalResponses).toHaveLength(1);
+      expect(store.quickResponseTemplates.global).toHaveLength(1);
     });
 
-    it('reads hasResponses from store', () => {
-      store.projectResponses = [{ id: '1', label: 'Test' }];
+    it('reads hasQuickResponseTemplates from store', () => {
+      store.projectTemplates = [template()];
       mountComponent();
-      expect(store.hasResponses).toBe(true);
+      expect(store.hasQuickResponseTemplates).toBe(true);
     });
   });
 
@@ -110,7 +130,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('shows panel when there are responses regardless of showEmpty', () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent({ showEmpty: false });
       expect(wrapper.find('.quick-responses-panel').exists()).toBe(true);
     });
@@ -120,20 +140,20 @@ describe('QuickResponsesPanel', () => {
       // Expand the panel
       await triggerClick(wrapper, '.toggle-button');
       expect(wrapper.find('.empty-state').exists()).toBe(true);
-      expect(wrapper.find('.empty-text').text()).toBe('No quick responses yet');
+      expect(wrapper.find('.empty-text').text()).toBe('No quick response templates yet');
     });
   });
 
   describe('collapsible behavior', () => {
     it('starts in collapsed state', () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
       // Empty state should not be visible in collapsed state
       expect(wrapper.find('.responses-content').exists()).toBe(false);
     });
 
     it('expands when toggle button is clicked', async () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       // Initially collapsed
@@ -145,7 +165,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('collapses when toggle button is clicked again', async () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       // Expand
@@ -158,7 +178,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('sets aria-expanded attribute correctly', async () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
       const toggleButton = wrapper.find('.toggle-button');
 
@@ -171,9 +191,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('auto-collapses after clicking a quick response', async () => {
-      store.projectResponses = [
-        { id: '1', label: 'Test', content: 'test content', autoSubmit: false }
-      ];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       // Expand panel
@@ -189,12 +207,14 @@ describe('QuickResponsesPanel', () => {
 
     it('handles response click with correct data structure', async () => {
       const testResponse = {
-        id: '1',
-        label: 'Test Response',
-        content: 'test content here',
-        autoSubmit: true
+        ...template({
+          id: '1',
+          name: 'Test Response',
+          prompt: 'test content here',
+          quickResponseAutoSubmit: true,
+        }),
       };
-      store.projectResponses = [testResponse];
+      store.projectTemplates = [testResponse];
       const wrapper = mountComponent();
 
       // Expand panel
@@ -211,7 +231,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('chevron icon rotates when expanded', async () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
       const toggleButton = wrapper.find('.toggle-button');
 
@@ -224,7 +244,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('header is always visible when panel is shown', async () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       // Panel header and toggle button should always be visible
@@ -234,8 +254,18 @@ describe('QuickResponsesPanel', () => {
       expect(wrapper.find('.settings-button').exists()).toBe(false);
     });
 
+    it('navigates to project templates from the settings button', async () => {
+      store.projectTemplates = [template()];
+      const wrapper = mountComponent({ projectId: 'project-123' });
+
+      await triggerClick(wrapper, '.toggle-button');
+      await triggerClick(wrapper, '.settings-button');
+
+      expect(pushMock).toHaveBeenCalledWith('/projects/project-123/templates');
+    });
+
     it('uses v-if to remove content from DOM when collapsed', () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       // When collapsed, .responses-content element should NOT be in DOM
@@ -244,7 +274,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('expands when clicking on the panel itself (not just the toggle button)', async () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       // Initially collapsed
@@ -256,7 +286,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('has cursor-pointer class to indicate panel is clickable', () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       const panel = wrapper.find('.quick-responses-panel');
@@ -264,7 +294,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('collapses when clicking on the panel while already expanded', async () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       // Expand via toggle button
@@ -277,7 +307,7 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('toggle button has @click.stop to prevent panel toggle', () => {
-      store.projectResponses = [{ id: '1', label: 'Test', content: 'test content' }];
+      store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
       // Verify toggle button exists

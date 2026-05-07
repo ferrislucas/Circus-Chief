@@ -160,6 +160,36 @@ describe('SessionTemplateRepository', () => {
       });
       expect(template.effortLevel).toBeNull();
     });
+
+    it('defaults quick response fields when not provided', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'No Quick Response',
+        prompt: 'Prompt',
+      });
+
+      expect(template.showInQuickResponses).toBe(false);
+      expect(template.quickResponseAutoSubmit).toBe(false);
+      expect(template.quickResponseSortOrder).toBe(0);
+      expect(template.legacyQuickResponseId).toBeNull();
+    });
+
+    it('creates template with quick response fields', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'Quick Response',
+        prompt: 'Prompt',
+        showInQuickResponses: true,
+        quickResponseAutoSubmit: true,
+        quickResponseSortOrder: 4,
+        legacyQuickResponseId: 'legacy-response-id',
+      });
+
+      expect(template.showInQuickResponses).toBe(true);
+      expect(template.quickResponseAutoSubmit).toBe(true);
+      expect(template.quickResponseSortOrder).toBe(4);
+      expect(template.legacyQuickResponseId).toBe('legacy-response-id');
+    });
   });
 
   describe('getById', () => {
@@ -382,6 +412,36 @@ describe('SessionTemplateRepository', () => {
       const template = repo.create({ projectId: null, name: 'Test', prompt: 'Prompt', effortLevel: 'high' });
       const updated = repo.update(template.id, { effortLevel: null });
       expect(updated.effortLevel).toBeNull();
+    });
+
+    it('updates quick response fields', () => {
+      const template = repo.create({ projectId: null, name: 'Test', prompt: 'Prompt' });
+      const updated = repo.update(template.id, {
+        showInQuickResponses: true,
+        quickResponseAutoSubmit: true,
+        quickResponseSortOrder: 9,
+      });
+
+      expect(updated.showInQuickResponses).toBe(true);
+      expect(updated.quickResponseAutoSubmit).toBe(true);
+      expect(updated.quickResponseSortOrder).toBe(9);
+    });
+
+    it('toggles quick response booleans off', () => {
+      const template = repo.create({
+        projectId: null,
+        name: 'Test',
+        prompt: 'Prompt',
+        showInQuickResponses: true,
+        quickResponseAutoSubmit: true,
+      });
+      const updated = repo.update(template.id, {
+        showInQuickResponses: false,
+        quickResponseAutoSubmit: false,
+      });
+
+      expect(updated.showInQuickResponses).toBe(false);
+      expect(updated.quickResponseAutoSubmit).toBe(false);
     });
 
     it('updates multiple fields at once', () => {

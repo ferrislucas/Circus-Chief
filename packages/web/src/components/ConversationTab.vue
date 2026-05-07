@@ -69,7 +69,6 @@
       @auto-send-toggle="handleAutoSendToggle"
       @input="handleInput"
       @quick-response-insert="handleQuickResponseInsert"
-      @open-quick-response-settings="quickResponseSettingsOpen = true"
       @update:attached-files="attachedFiles = $event"
       @open-slash-command="showSlashCommandWizard = true"
       @thinking-toggle="handleThinkingToggle"
@@ -82,13 +81,6 @@
     <SchedulingInfo
       v-if="sessionsStore.currentSession"
       :session="sessionsStore.currentSession"
-    />
-
-    <!-- Quick Response Settings Modal -->
-    <QuickResponseSettings
-      :is-open="quickResponseSettingsOpen"
-      :project-id="sessionsStore.currentSession?.projectId"
-      @close="quickResponseSettingsOpen = false"
     />
 
     <!-- Schedule Session Modal -->
@@ -133,13 +125,11 @@ import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
 import InputForm from './InputForm.vue';
 import RunningState from './RunningState.vue';
-import QuickResponseSettings from './QuickResponseSettings.vue';
 import ScheduleSessionModal from './ScheduleSessionModal.vue';
 import AutoRescheduleModal from './AutoRescheduleModal.vue';
 import SchedulingInfo from './SchedulingInfo.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import StaleBadge from './StaleBadge.vue';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useProjectsStore } from '../stores/projects.js';
 
 const props = defineProps({
@@ -163,7 +153,6 @@ const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
-const quickResponsesStore = useQuickResponsesStore();
 const projectsStore = useProjectsStore();
 const { getModelDisplayName } = useModelInfo();
 const { isStale } = useConnectionStatus();
@@ -179,7 +168,6 @@ const {
 
 // Local state
 const input = ref('');
-const quickResponseSettingsOpen = ref(false);
 const showScheduleModal = ref(false);
 const showAutoRescheduleModal = ref(false);
 const showSlashCommandWizard = ref(false);
@@ -336,7 +324,7 @@ onMounted(async () => {
 
   if (sessionsStore.currentSession?.projectId) {
     const projectId = sessionsStore.currentSession.projectId;
-    quickResponsesStore.fetchForProject(projectId);
+    templatesStore.fetchProjectTemplates(projectId);
 
     try {
       await projectsStore.fetchProject(projectId);

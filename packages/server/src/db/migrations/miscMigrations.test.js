@@ -7,6 +7,7 @@ import { OPENAI_MODELS } from '@circuschief/shared';
 
 const seedMigration = miscMigrations.find(m => m.name === 'quick_responses-seed-defaults');
 const seedTemplatesMigration = miscMigrations.find(m => m.name === 'session_templates-seed-defaults');
+const convertQuickResponsesMigration = miscMigrations.find(m => m.name === 'session_templates-convert-quick-responses');
 
 const expectedDefaults = [
   { label: 'Put a plan on the canvas', content: 'Put a plan on the canvas to get this done', autoSubmit: false, sortOrder: 0 },
@@ -103,6 +104,81 @@ describe('quick_responses-seed-defaults migration', () => {
   });
 });
 
+describe('session_templates-convert-quick-responses migration', () => {
+  it('converts legacy quick responses into quick response templates', () => {
+    const db = getDatabase();
+    db.prepare('DELETE FROM session_templates').run();
+    db.prepare('DELETE FROM quick_responses').run();
+
+    const projectRepo = new ProjectRepository();
+    const project = projectRepo.create('Quick Response Project', '/tmp/quick-response-project');
+    const now = Date.now();
+
+    db.prepare(
+      `INSERT INTO quick_responses (id, project_id, label, content, auto_submit, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, NULL, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      'project-quick-response',
+      project.id,
+      'Project Response',
+      'Project content',
+      1,
+      7,
+      now - 2,
+      now - 1,
+      'global-quick-response',
+      'Global Response',
+      'Global content',
+      0,
+      2,
+      now - 4,
+      now - 3
+    );
+
+    convertQuickResponsesMigration.up(db);
+
+    const rows = db
+      .prepare('SELECT * FROM session_templates ORDER BY quick_response_sort_order')
+      .all();
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      project_id: null,
+      name: 'Global Response',
+      prompt: 'Global content',
+      show_in_quick_responses: 1,
+      quick_response_auto_submit: 0,
+      quick_response_sort_order: 2,
+      legacy_quick_response_id: 'global-quick-response',
+      thinking_enabled: null,
+      mode: null,
+    });
+    expect(rows[1]).toMatchObject({
+      project_id: project.id,
+      name: 'Project Response',
+      prompt: 'Project content',
+      show_in_quick_responses: 1,
+      quick_response_auto_submit: 1,
+      quick_response_sort_order: 7,
+      legacy_quick_response_id: 'project-quick-response',
+      next_template_id: null,
+    });
+
+    const legacyCount = db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt;
+    expect(legacyCount).toBe(2);
+  });
+
+  it('is idempotent when rerun', () => {
+    const db = getDatabase();
+    const countBefore = db.prepare('SELECT COUNT(*) AS cnt FROM session_templates').get().cnt;
+
+    convertQuickResponsesMigration.up(db);
+
+    const countAfter = db.prepare('SELECT COUNT(*) AS cnt FROM session_templates').get().cnt;
+    expect(countAfter).toBe(countBefore);
+  });
+});
+
 const expectedSessionTemplateNames = [
   'Review the plan',
   'Implement the plan on the canvas',
@@ -119,7 +195,7 @@ describe('session_templates-seed-defaults migration', () => {
   it('seeds exactly 3 global session templates on a fresh DB', () => {
     const db = getDatabase();
     const rows = db
-      .prepare('SELECT * FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT * FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .all();
 
     expect(rows).toHaveLength(3);
@@ -131,7 +207,7 @@ describe('session_templates-seed-defaults migration', () => {
   it('stores each prompt verbatim (golden strings)', () => {
     const db = getDatabase();
     const rows = db
-      .prepare('SELECT name, prompt FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT name, prompt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .all();
 
     for (const row of rows) {
@@ -142,7 +218,7 @@ describe('session_templates-seed-defaults migration', () => {
   it('uses the expected default column values on every seeded row', () => {
     const db = getDatabase();
     const rows = db
-      .prepare('SELECT * FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT * FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .all();
 
     for (const row of rows) {
@@ -155,13 +231,17 @@ describe('session_templates-seed-defaults migration', () => {
       expect(row.model).toBeNull();
       expect(row.effort_level).toBeNull();
       expect(row.target_lane_id).toBeNull();
+      expect(row.show_in_quick_responses).toBe(0);
+      expect(row.quick_response_auto_submit).toBe(0);
+      expect(row.quick_response_sort_order).toBe(0);
+      expect(row.legacy_quick_response_id).toBeNull();
     }
   });
 
   it('populates created_at and updated_at as numeric timestamps near now', () => {
     const db = getDatabase();
     const rows = db
-      .prepare('SELECT created_at, updated_at FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT created_at, updated_at FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .all();
     const now = Date.now();
 
@@ -176,7 +256,7 @@ describe('session_templates-seed-defaults migration', () => {
   it('assigns non-null, distinct string IDs to each seeded row', () => {
     const db = getDatabase();
     const rows = db
-      .prepare('SELECT id FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT id FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .all();
 
     expect(rows).toHaveLength(3);
@@ -191,14 +271,14 @@ describe('session_templates-seed-defaults migration', () => {
   it('is idempotent when re-run on an already-seeded DB', () => {
     const db = getDatabase();
     const countBefore = db
-      .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .get().cnt;
     expect(countBefore).toBe(3);
 
     seedTemplatesMigration.up(db);
 
     const countAfter = db
-      .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .get().cnt;
     expect(countAfter).toBe(3);
   });
@@ -248,7 +328,7 @@ describe('session_templates-seed-defaults migration', () => {
 
     const total = db.prepare('SELECT COUNT(*) AS cnt FROM session_templates').get().cnt;
     const globals = db
-      .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .get().cnt;
     const scoped = db
       .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NOT NULL')
@@ -265,7 +345,7 @@ describe('session_templates-seed-defaults migration', () => {
     // having to invoke seedTemplatesMigration manually.
     const db = getDatabase();
     const count = db
-      .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL')
+      .prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL')
       .get().cnt;
     expect(count).toBe(3);
   });
@@ -277,6 +357,8 @@ describe('session_templates-seed-defaults migration', () => {
       'id', 'project_id', 'name', 'prompt',
       'next_template_id', 'thinking_enabled',
       'git_branch', 'git_mode', 'model', 'mode', 'effort_level', 'target_lane_id',
+      'show_in_quick_responses', 'quick_response_auto_submit',
+      'quick_response_sort_order', 'legacy_quick_response_id',
       'created_at', 'updated_at',
     ]);
 
