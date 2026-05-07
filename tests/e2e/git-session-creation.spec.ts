@@ -77,7 +77,7 @@ test.describe('Git-backed project session creation', () => {
     const fetchedSession = await getSession(session.id);
     expect(fetchedSession).toBeTruthy();
     // Worktree defaults should generate a unique branch when none is provided.
-    expect(fetchedSession.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-api-test-without-git$/);
+    expect(fetchedSession.gitBranch).toMatch(/^circus-chief\/[0-9a-f]{4}-api-test-without-git$/);
   });
 
   test('system defaults apply worktree mode with generated branch when no git settings provided', async () => {
@@ -102,7 +102,7 @@ test.describe('Git-backed project session creation', () => {
 
     // gitMode should default to 'worktree' from system defaults
     // and gitBranch should be auto-generated (not 'main')
-    expect(session.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-build-new-feature$/);
+    expect(session.gitBranch).toMatch(/^circus-chief\/[0-9a-f]{4}-build-new-feature$/);
   });
 
   test('creates session with gitMode current via API', async () => {

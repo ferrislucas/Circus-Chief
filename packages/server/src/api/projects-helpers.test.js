@@ -55,7 +55,7 @@ describe('validateGitSettings', () => {
 
     expect(result.error).toBeNull();
     expect(result.config).toMatchObject({ gitMode: 'worktree', prompt: 'Test prompt' });
-    expect(result.config.gitBranch).toMatch(/^claude-tools\/[0-9a-f]{4}-test-prompt$/);
+    expect(result.config.gitBranch).toMatch(/^circus-chief\/[0-9a-f]{4}-test-prompt$/);
     expect(config.gitBranch).toBeUndefined();
   });
 

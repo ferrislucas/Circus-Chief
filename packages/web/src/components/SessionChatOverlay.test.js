@@ -22,7 +22,7 @@ Object.defineProperty(window, 'scrollTo', {
 
 // Mock @circuschief/shared
 vi.mock('@circuschief/shared', () => ({
-  generateWorktreeBranch: vi.fn(() => 'claude-tools/abcd-new-session'),
+  generateWorktreeBranch: vi.fn(() => 'circus-chief/abcd-new-session'),
 }));
 
 // Mock sessions store
