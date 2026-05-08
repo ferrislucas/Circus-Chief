@@ -42,6 +42,26 @@ yarn workspace @circuschief/web preview     # Preview production build
 yarn workspace @circuschief/web test        # Unit tests
 ```
 
+### Database Utilities
+
+These commands operate on the active SQLite database. By default that is
+`~/.circuschief/circuschief.db`; set `DB_PATH=/path/to/db.sqlite` to target a
+specific database.
+
+```bash
+yarn workspace @circuschief/server db:backup
+yarn workspace @circuschief/server db:inspect-schema
+yarn workspace @circuschief/server db:inspect-schema -- --fresh
+yarn workspace @circuschief/server db:validate-baseline
+```
+
+| Command | Description |
+|---------|-------------|
+| `db:backup` | Copies the active database plus any SQLite `-wal`/`-shm` sidecar files into `~/.circuschief/backups` with a timestamped `.bak` suffix. |
+| `db:inspect-schema` | Prints tables, indexes, foreign keys, and selected `PRAGMA` output for the active database. |
+| `db:inspect-schema -- --fresh` | Prints the same schema details for a temporary database initialized from the current baseline schema and seed data. |
+| `db:validate-baseline` | Compares the active database against a fresh baseline and fails if required tables, columns, indexes, or built-in provider seed rows drift. |
+
 ## Testing
 
 ### Unit Tests
