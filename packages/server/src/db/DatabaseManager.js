@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import crypto from 'crypto';
 import { allMigrations } from './migrations/index.js';
+import { seedBaselineData } from './seedBaselineData.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,7 +33,10 @@ export class DatabaseManager {
     const schema = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
     this.#db.exec(schema);
 
-    // Run migrations for existing databases
+    // Seed required baseline data before future migrations run.
+    seedBaselineData(this.#db);
+
+    // Run post-baseline migrations for existing databases.
     this.#runMigrations();
 
     return this.#db;
