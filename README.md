@@ -59,6 +59,7 @@ npx circuschief
 | Flag | Description |
 |------|-------------|
 | `-p, --port <number>` | Port to listen on (default: `5000`) |
+| `--no-analytics` | Disable anonymous usage analytics |
 | `-h, --help` | Show help message |
 | `-v, --version` | Show version number |
 
