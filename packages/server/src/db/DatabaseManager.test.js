@@ -1,9 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
 import { DatabaseManager } from './DatabaseManager.js';
+import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
 
 describe('DatabaseManager', () => {
   let manager;
@@ -58,6 +55,38 @@ describe('DatabaseManager', () => {
       expect(tables).toContain('sessions');
       expect(tables).toContain('conversation_messages');
       expect(tables).toContain('canvas_items');
+    });
+
+    it('repairs missing session parent links from inherited worktree paths', () => {
+      const db = manager.get();
+      const projectId = 'project-1';
+      const parentId = '11111111-1111-4111-8111-111111111111';
+      const childId = '22222222-2222-4222-8222-222222222222';
+      const otherProjectSessionId = '33333333-3333-4333-8333-333333333333';
+
+      db.prepare(
+        'INSERT INTO projects (id, name, working_directory) VALUES (?, ?, ?)'
+      ).run(projectId, 'Project', '/repo');
+      db.prepare(
+        'INSERT INTO projects (id, name, working_directory) VALUES (?, ?, ?)'
+      ).run('project-2', 'Other Project', '/other');
+
+      const insertSession = db.prepare(`
+        INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, git_worktree)
+        VALUES (?, ?, ?, 'waiting', 'yolo', 1, ?)
+      `);
+      insertSession.run(parentId, projectId, 'Root', `/repo/.worktrees/${parentId}`);
+      insertSession.run(childId, projectId, 'Child', `/repo/.worktrees/${parentId}`);
+      insertSession.run(otherProjectSessionId, 'project-2', 'Other', `/repo/.worktrees/${parentId}`);
+
+      repairMissingSessionParentsFromWorktree.up(db);
+
+      expect(db.prepare('SELECT parent_session_id FROM sessions WHERE id = ?').get(childId).parent_session_id)
+        .toBe(parentId);
+      expect(db.prepare('SELECT parent_session_id FROM sessions WHERE id = ?').get(parentId).parent_session_id)
+        .toBeNull();
+      expect(db.prepare('SELECT parent_session_id FROM sessions WHERE id = ?').get(otherProjectSessionId).parent_session_id)
+        .toBeNull();
     });
   });
 
@@ -184,92 +213,6 @@ describe('DatabaseManager', () => {
       const tableSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'").get();
 
       expect(tableSchema.sql).toContain("'stopped'");
-    });
-
-    it('migrates existing sessions table defaults to yolo mode with thinking enabled', () => {
-      const tempDir = mkdtempSync(join(tmpdir(), 'circuschief-db-'));
-      const dbPath = join(tempDir, 'app.db');
-      const now = Date.now();
-      const legacyDb = new Database(dbPath);
-
-      legacyDb.exec(`
-        CREATE TABLE projects (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          working_directory TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-
-        CREATE TABLE sessions (
-          id TEXT PRIMARY KEY,
-          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-          name TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'starting' CHECK (status IN ('starting', 'running', 'waiting', 'stopped', 'completed', 'error', 'scheduled')),
-          mode TEXT NOT NULL DEFAULT 'standard' CHECK (mode IN ('plan', 'standard', 'yolo')),
-          thinking_enabled INTEGER NOT NULL DEFAULT 0,
-          archived INTEGER NOT NULL DEFAULT 0,
-          git_branch TEXT,
-          git_worktree TEXT,
-          pr_url TEXT,
-          error TEXT,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-
-        CREATE TABLE conversations (
-          id TEXT PRIMARY KEY,
-          session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-          name TEXT,
-          is_active INTEGER NOT NULL DEFAULT 0,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-      `);
-      legacyDb
-        .prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-        .run('legacy-project', 'Legacy Project', '/tmp/legacy', now, now);
-      legacyDb
-        .prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run('legacy-session', 'legacy-project', 'Legacy Session', 'running', now, now);
-      legacyDb
-        .prepare('INSERT INTO conversations (id, session_id, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run('legacy-conversation', 'legacy-session', 'Legacy Conversation', 1, now, now);
-      legacyDb.close();
-
-      const upgradedManager = new DatabaseManager();
-
-      try {
-        const db = upgradedManager.init(dbPath);
-        const columns = db.prepare('PRAGMA table_info(sessions)').all();
-        const modeColumn = columns.find((col) => col.name === 'mode');
-        const thinkingEnabledColumn = columns.find((col) => col.name === 'thinking_enabled');
-
-        expect(modeColumn.dflt_value).toBe("'yolo'");
-        expect(thinkingEnabledColumn.dflt_value).toBe('1');
-
-        const existingSession = db
-          .prepare('SELECT mode, thinking_enabled FROM sessions WHERE id = ?')
-          .get('legacy-session');
-        expect(existingSession).toEqual({ mode: 'standard', thinking_enabled: 0 });
-
-        const existingConversation = db
-          .prepare('SELECT session_id FROM conversations WHERE id = ?')
-          .get('legacy-conversation');
-        expect(existingConversation).toEqual({ session_id: 'legacy-session' });
-
-        db
-          .prepare('INSERT INTO sessions (id, project_id, name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-          .run('new-session', 'legacy-project', 'New Session', 'running', now, now);
-
-        const newSession = db
-          .prepare('SELECT mode, thinking_enabled FROM sessions WHERE id = ?')
-          .get('new-session');
-        expect(newSession).toEqual({ mode: 'yolo', thinking_enabled: 1 });
-      } finally {
-        upgradedManager.close();
-        rmSync(tempDir, { recursive: true, force: true });
-      }
     });
 
     it('sessions table has archived column', () => {
@@ -838,122 +781,7 @@ describe('DatabaseManager', () => {
     });
   });
 
-  describe('model_providers to providers migration', () => {
-    it('handles missing model_providers table gracefully', () => {
-      // Simulate a new installation where model_providers never existed
-      const db = manager.get();
-
-      // Verify providers table exists
-      const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name);
-      expect(tables).toContain('providers');
-      expect(tables).not.toContain('model_providers');
-
-      // Should not throw during init (migration already handled this case)
-      expect(() => {
-        const newManager = new DatabaseManager();
-        newManager.init(':memory:');
-        newManager.close();
-      }).not.toThrow();
-    });
-
-    it('handles both tables existing with model_providers already empty', () => {
-      const db = manager.get();
-
-      // Create old model_providers table (empty)
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS model_providers (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          base_url TEXT,
-          auth_token TEXT,
-          is_built_in INTEGER NOT NULL DEFAULT 0,
-          created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL
-        );
-      `);
-
-      // Re-init should handle this gracefully
-      expect(() => {
-        const newManager = new DatabaseManager();
-        newManager.init(':memory:');
-        newManager.close();
-      }).not.toThrow();
-    });
-
-    it('migrates data from model_providers to providers when both exist', () => {
-      // Use a temporary file database to preserve state between manager instances
-      const os = require('os');
-      const fs = require('fs');
-      const dbPath = `${os.tmpdir()}/test-migration-${Date.now()}.db`;
-
-      try {
-        // Create old-style database with model_providers (with old schema)
-        const oldDb = new Database(dbPath);
-        const now = Date.now();
-
-        oldDb.exec(`
-          CREATE TABLE model_providers (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            base_url TEXT,
-            auth_token TEXT,
-            api_timeout_ms INTEGER,
-            additional_env_vars TEXT,
-            is_built_in INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-          );
-        `);
-
-        oldDb.prepare(
-          `INSERT INTO model_providers (id, name, base_url, is_built_in, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).run('old-provider-1', 'Custom Provider', 'https://api.example.com', 0, now, now);
-
-        oldDb.close();
-
-        // Init with new DatabaseManager (drops model_providers table)
-        const newManager = new DatabaseManager();
-        newManager.init(dbPath);
-        const newDb = newManager.get();
-
-        // Verify model_providers was dropped
-        const tables = newDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name);
-        expect(tables).toContain('providers');
-        expect(tables).not.toContain('model_providers');
-
-        newManager.close();
-      } finally {
-        // Cleanup
-        if (fs.existsSync(dbPath)) {
-          fs.unlinkSync(dbPath);
-        }
-      }
-    });
-
-    it('does not throw when model_providers is dropped between check and query', () => {
-      // This test simulates the race condition
-      const db = manager.get();
-
-      // Create model_providers table
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS model_providers (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL
-        );
-      `);
-
-      // The migration should handle this gracefully
-      // even if the table disappears between check and query
-      expect(() => {
-        db.exec('DROP TABLE model_providers;');
-        // Next init should not throw
-        const newManager = new DatabaseManager();
-        newManager.init(':memory:');
-        newManager.close();
-      }).not.toThrow();
-    });
-
+  describe('provider baseline schema', () => {
     it('provider_models references providers not model_providers', () => {
       const db = manager.get();
 

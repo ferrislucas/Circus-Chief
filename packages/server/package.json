@@ -11,6 +11,9 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "build": "echo 'No build step required'",
+    "db:backup": "node src/scripts/backupDatabase.js",
+    "db:inspect-schema": "node src/scripts/inspectDatabaseSchema.js",
+    "db:validate-baseline": "node src/scripts/validateDatabaseBaseline.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"

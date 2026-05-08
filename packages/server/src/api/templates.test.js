@@ -11,7 +11,7 @@ describe('Templates API', () => {
   beforeEach(() => {
     // Remove the default seeded global templates so these tests see a clean
     // session_templates table. Those defaults are covered by
-    // miscMigrations.test.js ('session_templates-seed-defaults migration').
+    // seedBaselineData.test.js.
     getDatabase().prepare('DELETE FROM session_templates').run();
 
     app = express();

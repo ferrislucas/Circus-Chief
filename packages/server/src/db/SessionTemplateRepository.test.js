@@ -12,7 +12,7 @@ describe('SessionTemplateRepository', () => {
   beforeEach(() => {
     // Remove the default seeded global templates so these tests see a clean
     // session_templates table. Those defaults are exercised by
-    // miscMigrations.test.js ('session_templates-seed-defaults migration').
+    // seedBaselineData.test.js.
     getDatabase().prepare('DELETE FROM session_templates').run();
 
     projectRepo = new ProjectRepository();

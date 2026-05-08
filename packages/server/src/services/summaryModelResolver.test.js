@@ -93,6 +93,7 @@ describe('summaryModelResolver', () => {
       selectionReason: 'recent-built-in-provider',
     });
 
+    sessions.db.prepare('DELETE FROM sessions WHERE provider_id = ?').run(provider.id);
     modelProviders.delete(provider.id);
   });
 
