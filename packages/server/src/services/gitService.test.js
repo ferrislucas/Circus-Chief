@@ -915,10 +915,11 @@ describe('gitService', () => {
 
     it('does not append a trailer when commit attribution env is missing or blank', async () => {
       await ensureWorktreeCommitAttributionHook(worktreePath);
+      const { CIRCUSCHIEF_COMMIT_ATTRIBUTION: _commitAttribution, ...envWithoutAttribution } = process.env;
 
       await writeFile(join(worktreePath, 'no-env.txt'), 'hello');
       execSync('git add no-env.txt', { cwd: worktreePath });
-      execSync('git commit -m "No env commit"', { cwd: worktreePath });
+      execSync('git commit -m "No env commit"', { cwd: worktreePath, env: envWithoutAttribution });
 
       let body = execSync('git log -1 --format=%B', { cwd: worktreePath }).toString();
       expect(body).not.toContain('Co-authored-by:');

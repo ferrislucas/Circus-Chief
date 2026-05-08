@@ -1,0 +1,185 @@
+import { describe, it, expect } from 'vitest';
+import { OPENAI_MODELS } from '@circuschief/shared';
+import { DatabaseManager } from './DatabaseManager.js';
+import {
+  BUILT_IN_ANTHROPIC_MODELS,
+  BUILT_IN_ANTHROPIC_PROVIDER,
+  BUILT_IN_OPENAI_MODELS,
+  BUILT_IN_OPENAI_PROVIDER,
+  DEFAULT_QUICK_RESPONSES,
+  DEFAULT_SESSION_TEMPLATES,
+  seedBaselineData,
+} from './seedBaselineData.js';
+
+function withDb(fn) {
+  const manager = new DatabaseManager();
+  const db = manager.init(':memory:');
+  try {
+    return fn(db);
+  } finally {
+    manager.close();
+  }
+}
+
+describe('seedBaselineData', () => {
+  it('creates built-in providers with expected null endpoint fields', () => {
+    withDb((db) => {
+      const anthropic = db.prepare('SELECT * FROM providers WHERE id = ?').get(BUILT_IN_ANTHROPIC_PROVIDER.id);
+      expect(anthropic).toMatchObject({
+        name: BUILT_IN_ANTHROPIC_PROVIDER.name,
+        kind: BUILT_IN_ANTHROPIC_PROVIDER.kind,
+        is_built_in: 1,
+        base_url: null,
+        auth_token: null,
+        commit_attribution_override: null,
+      });
+
+      const openai = db.prepare('SELECT * FROM providers WHERE id = ?').get(BUILT_IN_OPENAI_PROVIDER.id);
+      expect(openai).toMatchObject({
+        name: BUILT_IN_OPENAI_PROVIDER.name,
+        kind: BUILT_IN_OPENAI_PROVIDER.kind,
+        is_built_in: 1,
+        base_url: null,
+        auth_token: null,
+        commit_attribution_override: null,
+      });
+    });
+  });
+
+  it('creates expected built-in Anthropic provider models', () => {
+    withDb((db) => {
+      const rows = db.prepare(
+        'SELECT id, provider_id, model_id, display_name, description, tier FROM provider_models WHERE provider_id = ? ORDER BY id'
+      ).all(BUILT_IN_ANTHROPIC_PROVIDER.id);
+
+      expect(rows).toEqual(BUILT_IN_ANTHROPIC_MODELS
+        .map((model) => ({
+          id: model.id,
+          provider_id: model.providerId,
+          model_id: model.modelId,
+          display_name: model.displayName,
+          description: model.description,
+          tier: model.tier,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)));
+    });
+  });
+
+  it('creates one OpenAI provider model per OPENAI_MODELS entry', () => {
+    withDb((db) => {
+      const rows = db.prepare(
+        'SELECT id, provider_id, model_id, display_name, description, tier FROM provider_models WHERE provider_id = ? ORDER BY id'
+      ).all(BUILT_IN_OPENAI_PROVIDER.id);
+
+      expect(rows).toHaveLength(OPENAI_MODELS.length);
+      expect(rows).toEqual(BUILT_IN_OPENAI_MODELS
+        .map((model) => ({
+          id: model.id,
+          provider_id: model.providerId,
+          model_id: model.modelId,
+          display_name: model.displayName,
+          description: model.description,
+          tier: model.tier,
+        }))
+        .sort((a, b) => a.id.localeCompare(b.id)));
+    });
+  });
+
+  it('creates default global quick responses in sort order', () => {
+    withDb((db) => {
+      const rows = db.prepare(
+        'SELECT project_id, label, content, auto_submit, category, sort_order FROM quick_responses ORDER BY sort_order'
+      ).all();
+
+      expect(rows).toHaveLength(DEFAULT_QUICK_RESPONSES.length);
+      expect(rows.map((row) => ({
+        projectId: row.project_id,
+        label: row.label,
+        content: row.content,
+        autoSubmit: row.auto_submit === 1,
+        category: row.category,
+        sortOrder: row.sort_order,
+      }))).toEqual(DEFAULT_QUICK_RESPONSES.map((row) => ({
+        projectId: null,
+        label: row.label,
+        content: row.content,
+        autoSubmit: row.autoSubmit,
+        category: null,
+        sortOrder: row.sortOrder,
+      })));
+    });
+  });
+
+  it('creates expected default global session templates with golden prompts', () => {
+    withDb((db) => {
+      const rows = db.prepare(
+        'SELECT project_id, name, prompt, thinking_enabled, mode, next_template_id, git_branch, git_mode, model, effort_level, target_lane_id FROM session_templates WHERE project_id IS NULL ORDER BY name'
+      ).all();
+
+      expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
+      for (const expected of DEFAULT_SESSION_TEMPLATES) {
+        const actual = rows.find((row) => row.name === expected.name);
+        expect(actual).toMatchObject({
+          project_id: null,
+          prompt: expected.prompt,
+          thinking_enabled: 1,
+          mode: 'yolo',
+          next_template_id: null,
+          git_branch: null,
+          git_mode: null,
+          model: null,
+          effort_level: null,
+          target_lane_id: null,
+        });
+      }
+    });
+  });
+
+  it('does not duplicate rows when rerun', () => {
+    withDb((db) => {
+      seedBaselineData(db);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM providers').get().cnt).toBe(2);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM provider_models').get().cnt)
+        .toBe(BUILT_IN_ANTHROPIC_MODELS.length + BUILT_IN_OPENAI_MODELS.length);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt)
+        .toBe(DEFAULT_QUICK_RESPONSES.length);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL').get().cnt)
+        .toBe(DEFAULT_SESSION_TEMPLATES.length);
+    });
+  });
+
+  it('keeps quick response empty-table behavior', () => {
+    withDb((db) => {
+      db.prepare('DELETE FROM quick_responses').run();
+      const now = Date.now();
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('project-quick-response', 'Project', '/tmp/project', now, now);
+      db.prepare(
+        'INSERT INTO quick_responses (id, project_id, label, content, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run('project-response', 'project-quick-response', 'Project', 'Project', 0, now, now);
+
+      seedBaselineData(db);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt).toBe(1);
+    });
+  });
+
+  it('seeds global templates when only project-scoped templates exist', () => {
+    withDb((db) => {
+      db.prepare('DELETE FROM session_templates').run();
+      const now = Date.now();
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('project-template-owner', 'Project', '/tmp/project', now, now);
+      db.prepare(
+        `INSERT INTO session_templates (
+          id, project_id, name, prompt, thinking_enabled, mode, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, 1, 'yolo', ?, ?)`
+      ).run('project-template', 'project-template-owner', 'Project Template', 'Project prompt', now, now);
+
+      seedBaselineData(db);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL').get().cnt)
+        .toBe(DEFAULT_SESSION_TEMPLATES.length);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NOT NULL').get().cnt)
+        .toBe(1);
+    });
+  });
+});
