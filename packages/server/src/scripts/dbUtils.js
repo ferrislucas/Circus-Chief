@@ -1,7 +1,6 @@
-import { existsSync, mkdirSync, copyFileSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { mkdtempSync, rmSync } from 'node:fs';
 import { getDefaultDbPath } from '../config.js';
 import { DatabaseManager } from '../db/DatabaseManager.js';
 

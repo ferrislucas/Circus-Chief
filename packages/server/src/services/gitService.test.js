@@ -915,7 +915,7 @@ describe('gitService', () => {
 
     it('does not append a trailer when commit attribution env is missing or blank', async () => {
       await ensureWorktreeCommitAttributionHook(worktreePath);
-      const { CIRCUSCHIEF_COMMIT_ATTRIBUTION, ...envWithoutAttribution } = process.env;
+      const { CIRCUSCHIEF_COMMIT_ATTRIBUTION: _commitAttribution, ...envWithoutAttribution } = process.env;
 
       await writeFile(join(worktreePath, 'no-env.txt'), 'hello');
       execSync('git add no-env.txt', { cwd: worktreePath });

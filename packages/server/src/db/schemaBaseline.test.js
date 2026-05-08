@@ -239,7 +239,9 @@ describe('schema baseline', () => {
     }
   });
 
-  it('has an empty post-baseline migration list', () => {
-    expect(allMigrations).toEqual([]);
+  it('keeps only intentional post-baseline migrations', () => {
+    expect(allMigrations.map((migration) => migration.name)).toEqual([
+      'repair-missing-session-parents-from-worktree',
+    ]);
   });
 });

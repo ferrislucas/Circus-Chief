@@ -115,15 +115,7 @@ function compareIndexes(actualDb, expectedDb, errors) {
   }
 }
 
-function compareSeedRows(actualDb, errors) {
-  const tables = new Set(actualDb.prepare(
-    "SELECT name FROM sqlite_master WHERE type = 'table'"
-  ).all().map((row) => row.name));
-  if (!tables.has('providers') || !tables.has('provider_models') || !tables.has('quick_responses') || !tables.has('session_templates')) {
-    errors.push('Required seed tables are missing');
-    return;
-  }
-
+function validateProviders(actualDb, errors) {
   for (const provider of [BUILT_IN_ANTHROPIC_PROVIDER, BUILT_IN_OPENAI_PROVIDER]) {
     const row = actualDb.prepare(
       'SELECT id, name, kind, base_url, auth_token, commit_attribution_override FROM providers WHERE id = ?'
@@ -139,7 +131,9 @@ function compareSeedRows(actualDb, errors) {
       errors.push(`Provider nullable seed columns mismatch: ${provider.id}`);
     }
   }
+}
 
+function validateProviderModels(actualDb, errors) {
   for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS]) {
     const row = actualDb.prepare(
       'SELECT provider_id, model_id, display_name, description, tier FROM provider_models WHERE id = ?'
@@ -159,7 +153,18 @@ function compareSeedRows(actualDb, errors) {
       errors.push(`Provider model seed mismatch: ${model.id}`);
     }
   }
+}
 
+function compareSeedRows(actualDb, errors) {
+  const tables = new Set(actualDb.prepare(
+    "SELECT name FROM sqlite_master WHERE type = 'table'"
+  ).all().map((row) => row.name));
+  if (!tables.has('providers') || !tables.has('provider_models') || !tables.has('quick_responses') || !tables.has('session_templates')) {
+    errors.push('Required seed tables are missing');
+    return;
+  }
+  validateProviders(actualDb, errors);
+  validateProviderModels(actualDb, errors);
 }
 
 export function validateDatabaseBaseline(actualDb) {
