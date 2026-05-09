@@ -451,11 +451,12 @@ describe('ConversationTab - Model Initialization Bug', () => {
       await flushAll(wrapper);
 
       // startSession should receive the dropdown model ('opus'), not the stale pendingModel ('sonnet')
+      // ModelSelector now resolves the provider when the model is selected
       expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
         'sess-123',
         'Test prompt',
         'opus',
-        null
+        'anthropic'
       );
     });
   });
