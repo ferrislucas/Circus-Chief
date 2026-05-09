@@ -301,12 +301,22 @@ function syncSelectionFromProviders() {
 }
 
 function applyResolvedModel(resolvedModel) {
-  if (selectedModel.value === resolvedModel) return;
+  const resolvedProviderId = findVisibleOption(resolvedModel, props.providerId)?.provider.id || null;
+  if (selectedModel.value === resolvedModel) {
+    if (selectedProviderId.value !== resolvedProviderId) {
+      selectedProviderId.value = resolvedProviderId;
+      emit('update:providerId', resolvedProviderId);
+    }
+    return;
+  }
   selectedModel.value = resolvedModel;
-  selectedProviderId.value = findVisibleOption(resolvedModel, props.providerId)?.provider.id || null;
+  selectedProviderId.value = resolvedProviderId;
   // Emit the resolved value back to parent if it changed
   if (resolvedModel !== props.modelValue) {
     emit('update:modelValue', resolvedModel);
+  }
+  if (resolvedProviderId !== props.providerId) {
+    emit('update:providerId', resolvedProviderId);
   }
 }
 
