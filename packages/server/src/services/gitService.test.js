@@ -16,8 +16,10 @@ import {
   getCurrentBranch,
   getGitAuthor,
   getOriginDefaultBranch,
+  getRepositoryUrl,
   getUntrackedFiles,
   ensureWorktreeCommitAttributionHook,
+  normalizeGitRemoteUrl,
   pinAuthorInWorktree,
   isGitRepo,
   setLogger,
@@ -1080,6 +1082,107 @@ describe('gitService', () => {
         const result = await detectWorktreePath(nonGitDir);
         expect(result.worktreePath).toBe(join(nonGitDir, '.worktrees'));
         expect(result.source).toBe('default');
+      } finally {
+        await rm(nonGitDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('normalizeGitRemoteUrl', () => {
+    it('normalizes HTTPS URL with .git suffix', () => {
+      expect(normalizeGitRemoteUrl('https://github.com/owner/repo.git'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('passes through already-clean HTTPS URL', () => {
+      expect(normalizeGitRemoteUrl('https://github.com/owner/repo'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes SSH shorthand with .git suffix', () => {
+      expect(normalizeGitRemoteUrl('git@github.com:owner/repo.git'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes SSH shorthand without .git suffix', () => {
+      expect(normalizeGitRemoteUrl('git@github.com:owner/repo'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes ssh:// protocol URL', () => {
+      expect(normalizeGitRemoteUrl('ssh://git@github.com/owner/repo.git'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes SSH GitLab URL', () => {
+      expect(normalizeGitRemoteUrl('git@gitlab.com:owner/repo.git'))
+        .toBe('https://gitlab.com/owner/repo');
+    });
+
+    it('normalizes HTTPS GitLab URL', () => {
+      expect(normalizeGitRemoteUrl('https://gitlab.com/owner/repo.git'))
+        .toBe('https://gitlab.com/owner/repo');
+    });
+
+    it('normalizes HTTPS Bitbucket URL', () => {
+      expect(normalizeGitRemoteUrl('https://bitbucket.org/owner/repo.git'))
+        .toBe('https://bitbucket.org/owner/repo');
+    });
+
+    it('returns null for empty string', () => {
+      expect(normalizeGitRemoteUrl('')).toBeNull();
+    });
+
+    it('returns null for null', () => {
+      expect(normalizeGitRemoteUrl(null)).toBeNull();
+    });
+
+    it('returns null for undefined', () => {
+      expect(normalizeGitRemoteUrl(undefined)).toBeNull();
+    });
+
+    it('returns null for garbage string', () => {
+      expect(normalizeGitRemoteUrl('not-a-valid-url')).toBeNull();
+    });
+  });
+
+  describe('getRepositoryUrl', () => {
+    it('detects and normalizes origin HTTPS remote', async () => {
+      execSync('git remote remove origin', { cwd: testDir });
+      execSync('git remote add origin https://github.com/owner/repo.git', { cwd: testDir });
+
+      const url = await getRepositoryUrl(testDir);
+      expect(url).toBe('https://github.com/owner/repo');
+    });
+
+    it('detects and normalizes SSH remote', async () => {
+      execSync('git remote remove origin', { cwd: testDir });
+      execSync('git remote add origin git@github.com:owner/repo.git', { cwd: testDir });
+
+      const url = await getRepositoryUrl(testDir);
+      expect(url).toBe('https://github.com/owner/repo');
+    });
+
+    it('falls back to first remote when origin does not exist', async () => {
+      execSync('git remote remove origin', { cwd: testDir });
+      execSync('git remote add upstream https://github.com/other/repo.git', { cwd: testDir });
+
+      const url = await getRepositoryUrl(testDir);
+      expect(url).toBe('https://github.com/other/repo');
+    });
+
+    it('returns null for git repo without remotes', async () => {
+      execSync('git remote remove origin', { cwd: testDir });
+
+      const url = await getRepositoryUrl(testDir);
+      expect(url).toBeNull();
+    });
+
+    it('returns null for non-git directory', async () => {
+      const nonGitDir = await mkdtemp(join(tmpdir(), 'non-git-repourl-'));
+      try {
+        const url = await getRepositoryUrl(nonGitDir);
+        expect(url).toBeNull();
       } finally {
         await rm(nonGitDir, { recursive: true, force: true });
       }

@@ -21,6 +21,7 @@ import { validateGitSettings, buildRunsBySession } from './projects-helpers.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import { access, constants } from 'fs/promises';
 import { dirname, isAbsolute } from 'path';
+import { getRepositoryUrl } from '../services/gitService.js';
 
 // Error message constants
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
@@ -65,17 +66,31 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, kanbanEnabled } = result.data;
+  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, kanbanEnabled, repoUrl } = result.data;
 
   const pathError = await validateWorktreePath(worktreePath);
   if (pathError) {
     return res.status(400).json({ error: pathError });
   }
 
+  // Resolve repoUrl:
+  // - string: use as-is (explicitly provided)
+  // - null: suppress detection (explicitly sent as null)
+  // - undefined: auto-detect from git remote
+  let resolvedRepoUrl = repoUrl;
+  if (resolvedRepoUrl === undefined) {
+    try {
+      resolvedRepoUrl = await getRepositoryUrl(workingDirectory);
+    } catch {
+      resolvedRepoUrl = null;
+    }
+  }
+
   const createOptions = {
     onSessionCreated: onSessionCreated || null,
     onSessionDeleted: onSessionDeleted || null,
     worktreePath: worktreePath || null,
+    repoUrl: resolvedRepoUrl,
   };
   if (kanbanEnabled !== undefined) {
     createOptions.kanbanEnabled = kanbanEnabled;

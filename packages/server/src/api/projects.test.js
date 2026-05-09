@@ -806,6 +806,148 @@ describe('Projects API', () => {
     });
   });
 
+  describe('POST /api/projects repoUrl auto-detection', () => {
+    it('creates a project with repoUrl detected from origin HTTPS remote', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-repourl-https-'));
+      try {
+        execSync('git init', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.email "test@test.com"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.name "Test"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git remote add origin https://github.com/owner/repo.git', { cwd: newDir, stdio: 'ignore' });
+
+        const res = await request(app).post('/api/projects').send({
+          name: 'HTTPS Remote Project',
+          workingDirectory: newDir,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.repoUrl).toBe('https://github.com/owner/repo');
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+
+    it('creates a project with repoUrl detected and normalized from SSH remote', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-repourl-ssh-'));
+      try {
+        execSync('git init', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.email "test@test.com"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.name "Test"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git remote add origin git@github.com:owner/repo.git', { cwd: newDir, stdio: 'ignore' });
+
+        const res = await request(app).post('/api/projects').send({
+          name: 'SSH Remote Project',
+          workingDirectory: newDir,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.repoUrl).toBe('https://github.com/owner/repo');
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+
+    it('uses explicit repoUrl string from the request instead of detected remote', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-repourl-explicit-'));
+      try {
+        execSync('git init', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.email "test@test.com"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.name "Test"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git remote add origin https://github.com/owner/repo.git', { cwd: newDir, stdio: 'ignore' });
+
+        const res = await request(app).post('/api/projects').send({
+          name: 'Explicit URL Project',
+          workingDirectory: newDir,
+          repoUrl: 'https://custom.url/repo',
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.repoUrl).toBe('https://custom.url/repo');
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+
+    it('explicitly sends repoUrl: null to suppress detection', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-repourl-null-'));
+      try {
+        execSync('git init', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.email "test@test.com"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.name "Test"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git remote add origin https://github.com/owner/repo.git', { cwd: newDir, stdio: 'ignore' });
+
+        const res = await request(app).post('/api/projects').send({
+          name: 'Null URL Project',
+          workingDirectory: newDir,
+          repoUrl: null,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.repoUrl).toBeNull();
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+
+    it('omits repoUrl entirely for a git repo without remotes', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-repourl-noremote-'));
+      try {
+        execSync('git init', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.email "test@test.com"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.name "Test"', { cwd: newDir, stdio: 'ignore' });
+        // No remotes added
+
+        const res = await request(app).post('/api/projects').send({
+          name: 'No Remote Project',
+          workingDirectory: newDir,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.repoUrl).toBeNull();
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+
+    it('omits repoUrl entirely for a non-git directory', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-repourl-nongit-'));
+      try {
+        // No git init — plain directory
+
+        const res = await request(app).post('/api/projects').send({
+          name: 'Non-Git Project',
+          workingDirectory: newDir,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.repoUrl).toBeNull();
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+
+    it('omits repoUrl for a git repo with a non-origin remote', async () => {
+      const newDir = mkdtempSync(join(tmpdir(), 'projects-repourl-upstream-'));
+      try {
+        execSync('git init', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.email "test@test.com"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git config user.name "Test"', { cwd: newDir, stdio: 'ignore' });
+        execSync('git remote add upstream https://github.com/other/repo.git', { cwd: newDir, stdio: 'ignore' });
+        // No origin remote
+
+        const res = await request(app).post('/api/projects').send({
+          name: 'Upstream Remote Project',
+          workingDirectory: newDir,
+        });
+
+        expect(res.status).toBe(201);
+        expect(res.body.repoUrl).toBe('https://github.com/other/repo');
+      } finally {
+        rmSync(newDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe('GET /api/projects', () => {
     it('returns all projects', async () => {
       const res = await request(app).get('/api/projects');

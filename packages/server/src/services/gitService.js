@@ -531,6 +531,98 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
 }
 
 /**
+ * Normalize a git remote URL into a clean HTTPS browser URL.
+ *
+ * Supported forms:
+ *   - https://github.com/owner/repo.git -> https://github.com/owner/repo
+ *   - https://github.com/owner/repo     -> https://github.com/owner/repo (already clean)
+ *   - git@github.com:owner/repo.git    -> https://github.com/owner/repo
+ *   - ssh://git@github.com/owner/repo.git -> https://github.com/owner/repo
+ *   - git@gitlab.com:owner/repo.git    -> https://gitlab.com/owner/repo
+ *   - https://gitlab.com/owner/repo.git -> https://gitlab.com/owner/repo
+ *   - https://bitbucket.org/owner/repo.git -> https://bitbucket.org/owner/repo
+ *
+ * Returns null for empty, null, undefined, or unrecognizable inputs.
+ *
+ * @param {string|null|undefined} remoteUrl
+ * @returns {string|null}
+ */
+export function normalizeGitRemoteUrl(remoteUrl) {
+  if (!remoteUrl || typeof remoteUrl !== 'string') {
+    return null;
+  }
+
+  const trimmed = remoteUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  // SSH form: git@host:owner/repo.git or git@host:owner/repo
+  const sshMatch = trimmed.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshMatch) {
+    return `https://${sshMatch[1]}/${sshMatch[2]}`;
+  }
+
+  // SSH protocol form: ssh://git@host/owner/repo.git
+  const sshProtocolMatch = trimmed.match(/^ssh:\/\/git@([^/]+)\/(.+?)(?:\.git)?$/);
+  if (sshProtocolMatch) {
+    return `https://${sshProtocolMatch[1]}/${sshProtocolMatch[2]}`;
+  }
+
+  // HTTPS form: https://host/owner/repo.git or https://host/owner/repo
+  const httpsMatch = trimmed.match(/^https:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
+  if (httpsMatch) {
+    return `https://${httpsMatch[1]}/${httpsMatch[2]}`;
+  }
+
+  // Unrecognized format
+  return null;
+}
+
+/**
+ * Auto-detect the repository URL from a directory's git remotes.
+ *
+ * Prefers the "origin" remote. Falls back to the first configured remote.
+ * Normalizes SSH and HTTPS URLs into clean HTTPS browser URLs.
+ * Returns null if the directory is not a git repo or has no usable remotes.
+ *
+ * @param {string} directory
+ * @returns {Promise<string|null>}
+ */
+export async function getRepositoryUrl(directory) {
+  try {
+    // Try origin first
+    let rawUrl;
+    try {
+      rawUrl = await git(directory, 'config --get remote.origin.url');
+    } catch {
+      // No origin remote, try listing all remotes
+    }
+
+    // Fall back to first remote if origin doesn't exist
+    if (!rawUrl) {
+      try {
+        const remotes = await git(directory, 'remote');
+        const firstRemote = remotes.split('\n').find((r) => r.trim());
+        if (firstRemote) {
+          rawUrl = await git(directory, `config --get remote.${firstRemote.trim()}.url`);
+        }
+      } catch {
+        // No remotes at all
+      }
+    }
+
+    if (!rawUrl) {
+      return null;
+    }
+
+    return normalizeGitRemoteUrl(rawUrl);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Detect the worktree path for a directory by inspecting existing worktrees.
  * If external worktrees exist, uses the parent directory of the first one.
  * Otherwise, falls back to {directory}/.worktrees.
