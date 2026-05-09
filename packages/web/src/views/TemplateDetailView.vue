@@ -259,9 +259,7 @@ const formData = ref({
 const projectId = computed(() => route.params.projectId);
 const templateId = computed(() => route.params.templateId);
 
-const availableNextTemplates = computed(() => {
-  return [...templatesStore.projectTemplates, ...templatesStore.globalTemplates];
-});
+const availableNextTemplates = computed(() => [...templatesStore.projectTemplates, ...templatesStore.globalTemplates]);
 
 const loadTemplate = async () => {
   isLoading.value = true;
