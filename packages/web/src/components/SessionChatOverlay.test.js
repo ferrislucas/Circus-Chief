@@ -269,6 +269,14 @@ describe('SessionChatOverlay', () => {
     return sessionChatOverlaySource.slice(start, end + 2);
   }
 
+  function getStyleBlocks(selector) {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`${escaped}\\s*\\{[^}]*\\}`, 'g');
+    const blocks = sessionChatOverlaySource.match(pattern) || [];
+    expect(blocks.length).toBeGreaterThan(0);
+    return blocks;
+  }
+
   async function waitForTransition() {
     // In jsdom, CSS transitions don't actually run, so we manually
     // trigger the afterLeave hook to simulate the transition completing
@@ -1561,26 +1569,46 @@ describe('SessionChatOverlay', () => {
       const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
       expect(backdrop).toBeTruthy();
       expect(backdrop.style.top).toBe('');
+      expect(backdrop.style.right).toBe('');
+      expect(backdrop.style.bottom).toBe('');
       expect(backdrop.style.left).toBe('');
       expect(backdrop.style.width).toBe('');
       expect(backdrop.style.height).toBe('');
       wrapper.unmount();
     });
 
-    it('backdrop stylesheet uses fixed viewport geometry by default', () => {
+    it('backdrop stylesheet keeps the shell fixed to the full layout viewport', () => {
       const block = getStyleBlock('.overlay-backdrop');
       expect(block).toMatch(/position:\s*fixed/);
       expect(block).toMatch(/inset:\s*0/);
+      expect(block).toMatch(/min-height:\s*100vh/);
+      expect(block).toMatch(/min-height:\s*100dvh/);
       expect(block).toMatch(/z-index:\s*1200/);
-      expect(block).not.toMatch(/--viewport-offset-top/);
-      expect(block).not.toMatch(/--visual-viewport-height/);
-      expect(block).not.toMatch(/top:\s*var\(/);
-      expect(block).not.toMatch(/height:\s*var\(/);
     });
 
-    it('backdrop stylesheet opts tablet-sized viewports into visual viewport geometry', () => {
-      expect(sessionChatOverlaySource).toMatch(
-        /@media\s*\(min-width:\s*700px\)\s*and\s*\(min-height:\s*700px\)\s*\{[\s\S]*?\.overlay-backdrop\s*\{[\s\S]*?top:\s*var\(--viewport-offset-top,\s*0px\);[\s\S]*?height:\s*var\(--visual-viewport-height,\s*100dvh\);/
+    it('no backdrop stylesheet block uses visual viewport shell geometry', () => {
+      const blocks = getStyleBlocks('.overlay-backdrop');
+      for (const block of blocks) {
+        expect(block).not.toMatch(/--viewport-offset-top/);
+        expect(block).not.toMatch(/--visual-viewport-height/);
+        expect(block).not.toMatch(/height:\s*var\(/);
+        expect(block).not.toMatch(/top:\s*var\(/);
+        expect(block).not.toMatch(/bottom:\s*auto/);
+        expect(block).not.toMatch(/(?:^|[;\s])top\s*:/);
+        expect(block).not.toMatch(/(?:^|[;\s])right\s*:/);
+        expect(block).not.toMatch(/(?:^|[;\s])bottom\s*:/);
+        expect(block).not.toMatch(/(?:^|[;\s])left\s*:/);
+        expect(block).not.toMatch(/(?:^|[;\s])height\s*:/);
+        expect(block).not.toMatch(/(?:^|[;\s])width\s*:/);
+      }
+    });
+
+    it('source has no tablet media-query backdrop rule using visual viewport variables', () => {
+      expect(sessionChatOverlaySource).not.toMatch(
+        /@media\s*\(min-width:\s*700px\)\s*and\s*\(min-height:\s*700px\)\s*\{[\s\S]*?\.overlay-backdrop\s*\{[\s\S]*?--viewport-offset-top/
+      );
+      expect(sessionChatOverlaySource).not.toMatch(
+        /@media\s*\(min-width:\s*700px\)\s*and\s*\(min-height:\s*700px\)\s*\{[\s\S]*?\.overlay-backdrop\s*\{[\s\S]*?--visual-viewport-height/
       );
     });
 
@@ -1589,18 +1617,26 @@ describe('SessionChatOverlay', () => {
       expect(block).toMatch(/position:\s*absolute/);
       expect(block).toMatch(/inset:\s*0 0 0 auto/);
       expect(block).toMatch(/height:\s*100%/);
+      expect(block).toMatch(/min-height:\s*100%/);
+      expect(block).toMatch(/min-height:\s*100dvh/);
       expect(block).not.toMatch(/position:\s*fixed/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
       expect(block).not.toMatch(/top:\s*var\(/);
-      expect(block).not.toMatch(/min-height:\s*100vh/);
-      expect(block).not.toMatch(/min-height:\s*100dvh/);
     });
 
-    it('overlay shell keeps visual viewport variables out of phone-sized default geometry', () => {
+    it('overlay content has a viewport-height floor for Safari tablet layout', () => {
+      const block = getStyleBlock('.overlay-content');
+      expect(block).toMatch(/min-height:\s*100%/);
+      expect(block).toMatch(/min-height:\s*100dvh/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
+      expect(block).not.toMatch(/--visual-viewport-height/);
+    });
+
+    it('overlay shell keeps visual viewport variables out of all shell geometry', () => {
       const shellBlocks = [
-        getStyleBlock('.overlay-backdrop'),
-        getStyleBlock('.overlay-panel-wrapper'),
+        ...getStyleBlocks('.overlay-backdrop'),
+        ...getStyleBlocks('.overlay-panel-wrapper'),
       ].join('\n');
       expect(shellBlocks).not.toMatch(/--viewport-offset-top/);
       expect(shellBlocks).not.toMatch(/--visual-viewport-height/);
