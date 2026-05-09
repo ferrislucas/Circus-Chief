@@ -665,3 +665,220 @@ describe('TemplateDetailView - New Form Fields', () => {
     });
   });
 });
+
+describe('TemplateDetailView - Self-Chaining Support', () => {
+  let pinia;
+  let router;
+  let templatesStore;
+  let uiStore;
+  let providersStore;
+
+  beforeEach(async () => {
+    pinia = createPinia();
+    setActivePinia(pinia);
+
+    router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects/:projectId/templates', component: { template: '<div></div>' } },
+        { path: '/projects/:projectId/templates/:templateId', component: TemplateDetailView },
+      ],
+    });
+
+    templatesStore = useTemplatesStore();
+    uiStore = useUiStore();
+    providersStore = useProvidersStore();
+
+    vi.spyOn(uiStore, 'success').mockImplementation(() => {});
+    vi.spyOn(uiStore, 'error').mockImplementation(() => {});
+
+    providersStore.providers = [];
+
+    // Set up fetchProjectTemplates spy that seeds the store
+    vi.spyOn(templatesStore, 'fetchProjectTemplates').mockImplementation(async () => {
+      // Seeds both the current template and another template into the store
+      templatesStore.projectTemplates = [
+        {
+          id: 'template-1',
+          name: 'Self-Chain Template',
+          prompt: 'Template being edited',
+          projectId: 'proj-1',
+        },
+        {
+          id: 'template-other',
+          name: 'Another Template',
+          prompt: 'Another template',
+          projectId: 'proj-1',
+        },
+      ];
+      templatesStore.globalTemplates = [
+        {
+          id: 'global-1',
+          name: 'Global Template',
+          prompt: 'Global',
+          projectId: null,
+        },
+      ];
+    });
+
+    vi.spyOn(templatesStore, 'updateTemplate').mockResolvedValue({
+      id: 'template-1',
+      name: 'Self-Chain Template',
+      prompt: 'Template being edited',
+    });
+    vi.spyOn(templatesStore, 'deleteTemplate').mockResolvedValue(undefined);
+
+    api.getTemplate.mockResolvedValue({
+      id: 'template-1',
+      name: 'Self-Chain Template',
+      prompt: 'Template being edited',
+      projectId: 'proj-1',
+      nextTemplateId: null,
+      thinkingEnabled: null,
+      model: null,
+      mode: null,
+      effortLevel: null,
+    });
+
+    await router.push({ path: '/projects/proj-1/templates/template-1' });
+    await router.isReady();
+  });
+
+  it('calls fetchProjectTemplates on mount for direct edit-page loads', async () => {
+    mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+
+    await flushPromises();
+    await nextTick();
+
+    expect(templatesStore.fetchProjectTemplates).toHaveBeenCalledWith('proj-1');
+  });
+
+  it('includes the current template being edited in the Next Template dropdown', async () => {
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+
+    await flushPromises();
+    await nextTick();
+
+    const nextTemplateSelect = wrapper.find('#nextTemplate');
+    expect(nextTemplateSelect.exists()).toBe(true);
+
+    // The current template (template-1) should appear as an option
+    const options = nextTemplateSelect.findAll('option');
+    const optionValues = options.map((o) => o.attributes('value'));
+    expect(optionValues).toContain('template-1');
+  });
+
+  it('lists project templates before global templates in the dropdown', async () => {
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+
+    await flushPromises();
+    await nextTick();
+
+    const nextTemplateSelect = wrapper.find('#nextTemplate');
+    const options = nextTemplateSelect.findAll('option');
+    // First option is None (value=null), then project templates, then global templates
+    const optionValues = options.map((o) => o.attributes('value')).filter((v) => v !== undefined);
+    const projectTemplateIdx = optionValues.indexOf('template-1');
+    const otherProjectTemplateIdx = optionValues.indexOf('template-other');
+    const globalTemplateIdx = optionValues.indexOf('global-1');
+    // Both project templates should appear before global templates
+    expect(projectTemplateIdx).toBeGreaterThanOrEqual(0);
+    expect(otherProjectTemplateIdx).toBeGreaterThanOrEqual(0);
+    expect(globalTemplateIdx).toBeGreaterThan(otherProjectTemplateIdx);
+  });
+
+  it('submits with nextTemplateId equal to the current template ID when self-selected', async () => {
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+
+    await flushPromises();
+    await nextTick();
+
+    // Select the current template as the next template
+    const nextTemplateSelect = wrapper.find('#nextTemplate');
+    await nextTemplateSelect.setValue('template-1');
+    await nextTick();
+
+    const form = wrapper.find('form');
+    await form.trigger('submit.prevent');
+    await flushPromises();
+
+    expect(templatesStore.updateTemplate).toHaveBeenCalledWith(
+      'template-1',
+      expect.objectContaining({ nextTemplateId: 'template-1' }),
+    );
+  });
+
+  it('initializes dropdown to template own ID when nextTemplateId equals templateId', async () => {
+    // Load a template whose nextTemplateId is its own ID
+    api.getTemplate.mockResolvedValueOnce({
+      id: 'template-1',
+      name: 'Self-Chain Template',
+      prompt: 'Template being edited',
+      projectId: 'proj-1',
+      nextTemplateId: 'template-1', // self-reference
+      thinkingEnabled: null,
+      model: null,
+      mode: null,
+      effortLevel: null,
+    });
+
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+
+    await flushPromises();
+    await nextTick();
+    await flushPromises();
+    await nextTick();
+
+    const nextTemplateSelect = wrapper.find('#nextTemplate');
+    // The select value should be template-1 (the self-reference)
+    expect(nextTemplateSelect.element.value).toBe('template-1');
+  });
+
+  it('submits with nextTemplateId: null when None is selected to clear an existing chain', async () => {
+    // Load a template with an existing nextTemplateId
+    api.getTemplate.mockResolvedValueOnce({
+      id: 'template-1',
+      name: 'Self-Chain Template',
+      prompt: 'Template being edited',
+      projectId: 'proj-1',
+      nextTemplateId: 'template-other',
+      thinkingEnabled: null,
+      model: null,
+      mode: null,
+      effortLevel: null,
+    });
+
+    const wrapper = mount(TemplateDetailView, {
+      global: { plugins: [pinia, router] },
+    });
+
+    await flushPromises();
+    await nextTick();
+    await flushPromises();
+    await nextTick();
+
+    // Select None
+    const nextTemplateSelect = wrapper.find('#nextTemplate');
+    await nextTemplateSelect.setValue('');
+    await nextTick();
+
+    const form = wrapper.find('form');
+    await form.trigger('submit.prevent');
+    await flushPromises();
+
+    expect(templatesStore.updateTemplate).toHaveBeenCalledWith(
+      'template-1',
+      expect.objectContaining({ nextTemplateId: null }),
+    );
+  });
+});

@@ -260,6 +260,41 @@ describe('Templates API', () => {
       expect(res.body.gitBranch).toBe('develop');
       expect(res.body.gitMode).toBe('worktree');
     });
+
+    it('accepts the template own ID as nextTemplateId (self-reference)', async () => {
+      const template = sessionTemplates.create({
+        projectId: null,
+        name: 'Self-Chain Template',
+        prompt: 'Prompt',
+      });
+
+      const res = await request(app).patch(`/api/templates/${template.id}`).send({
+        nextTemplateId: template.id,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.nextTemplateId).toBe(template.id);
+    });
+
+    it('clears nextTemplateId when set to null explicitly', async () => {
+      const template = sessionTemplates.create({
+        projectId: null,
+        name: 'Chain Template',
+        prompt: 'Prompt',
+      });
+      // First set to self-reference
+      await request(app).patch(`/api/templates/${template.id}`).send({
+        nextTemplateId: template.id,
+      });
+
+      // Now clear it
+      const res = await request(app).patch(`/api/templates/${template.id}`).send({
+        nextTemplateId: null,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.nextTemplateId).toBeNull();
+    });
   });
 
   describe('DELETE /api/templates/:id', () => {

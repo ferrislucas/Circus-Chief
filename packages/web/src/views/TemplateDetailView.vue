@@ -259,11 +259,7 @@ const formData = ref({
 const projectId = computed(() => route.params.projectId);
 const templateId = computed(() => route.params.templateId);
 
-const availableNextTemplates = computed(() => {
-  const all = [...templatesStore.projectTemplates, ...templatesStore.globalTemplates];
-  // Exclude the current template being edited
-  return all.filter((t) => t.id !== templateId.value);
-});
+const availableNextTemplates = computed(() => [...templatesStore.projectTemplates, ...templatesStore.globalTemplates]);
 
 const loadTemplate = async () => {
   isLoading.value = true;
@@ -276,7 +272,7 @@ const loadTemplate = async () => {
         name: template.name,
         prompt: template.prompt,
         isGlobal: !template.projectId,
-        nextTemplateId: template.nextTemplateId || null,
+        nextTemplateId: template.nextTemplateId ?? null,
         thinkingEnabled: template.thinkingEnabled,  // Preserve null (inherit), true, or false
         gitBranch: template.gitBranch || '',
         model: template.model,                      // Preserve null (inherit) or model ID
@@ -299,7 +295,7 @@ const onSubmit = async () => {
     const data = {
       name: formData.value.name,
       prompt: formData.value.prompt,
-      nextTemplateId: formData.value.nextTemplateId || undefined,
+      nextTemplateId: formData.value.nextTemplateId ?? null,
       thinkingEnabled: formData.value.thinkingEnabled,  // null = inherit, true/false = explicit
       gitBranch: formData.value.gitBranch || undefined,
       model: formData.value.model,                      // null = inherit
@@ -345,7 +341,13 @@ const confirmDelete = async () => {
 };
 
 onMounted(async () => {
-  await loadTemplate();
+  await Promise.all([
+    loadTemplate(),
+    templatesStore.fetchProjectTemplates(projectId.value).catch((err) => {
+      error.value = `Failed to load available templates: ${err.message}`;
+      uiStore.error(err.message);
+    }),
+  ]);
 });
 </script>
 
