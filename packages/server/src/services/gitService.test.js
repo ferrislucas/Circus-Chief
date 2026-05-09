@@ -1144,6 +1144,36 @@ describe('gitService', () => {
     it('returns null for garbage string', () => {
       expect(normalizeGitRemoteUrl('not-a-valid-url')).toBeNull();
     });
+
+    it('strips query string from HTTPS URL', () => {
+      expect(normalizeGitRemoteUrl('https://github.com/owner/repo.git?foo=bar'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('strips fragment from SSH shorthand', () => {
+      expect(normalizeGitRemoteUrl('git@github.com:owner/repo.git#branch'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes HTTP URL with .git suffix', () => {
+      expect(normalizeGitRemoteUrl('http://git.example.com/owner/repo.git'))
+        .toBe('http://git.example.com/owner/repo');
+    });
+
+    it('passes through already-clean HTTP URL', () => {
+      expect(normalizeGitRemoteUrl('http://git.example.com/owner/repo'))
+        .toBe('http://git.example.com/owner/repo');
+    });
+
+    it('normalizes git:// protocol URL with .git suffix', () => {
+      expect(normalizeGitRemoteUrl('git://github.com/owner/repo.git'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes git:// protocol URL without .git suffix', () => {
+      expect(normalizeGitRemoteUrl('git://gitlab.com/owner/repo'))
+        .toBe('https://gitlab.com/owner/repo');
+    });
   });
 
   describe('getRepositoryUrl', () => {
@@ -1186,6 +1216,24 @@ describe('gitService', () => {
       } finally {
         await rm(nonGitDir, { recursive: true, force: true });
       }
+    });
+
+    it('detects repo URL from worktree via .git fast-path', async () => {
+      // Replace the default local bare-repo origin with an HTTPS remote
+      execSync('git remote remove origin', { cwd: testDir });
+      execSync('git remote add origin https://github.com/owner/repo.git', { cwd: testDir });
+
+      // Create a git worktree from the test directory
+      const worktreePath = join(testDir, '.worktrees', 'repo-url-test');
+      await createWorktreeForBranch(testDir, 'repo-url-test', worktreePath, { skipFetch: true });
+
+      // In a worktree, .git is a *file* (containing a gitdir reference), not a directory.
+      // The fs.access() fast-path works for both, but this path was previously untested.
+      const url = await getRepositoryUrl(worktreePath);
+      expect(url).toBe('https://github.com/owner/repo');
+
+      // Clean up worktree before the shared afterEach deletes testDir
+      execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
     });
   });
 });

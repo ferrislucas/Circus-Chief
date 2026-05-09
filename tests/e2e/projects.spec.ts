@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { mkdirSync, mkdtempSync } from 'fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'fs';
+import { execSync } from 'child_process';
 import { cleanupAll, getProject, seedProject, API_URL } from './helpers';
 
 test.describe('Project Management', () => {
@@ -178,5 +179,33 @@ test.describe('Project Management', () => {
     const project = await getProject(projectId!);
     expect(project).not.toBeNull();
     expect(project.systemPrompt).toBe(customPrompt);
+  });
+
+  test('auto-detects repoUrl from git remote on project creation', async () => {
+    // Create a temp directory with a git repo and HTTPS origin
+    const tmpDir = mkdtempSync('/tmp/e2e-repourl-');
+    try {
+      execSync('git init', { cwd: tmpDir });
+      execSync('git remote add origin https://github.com/e2e-test/e2e-repo.git', { cwd: tmpDir });
+
+      // Create project via the API
+      const response = await fetch(`${API_URL}/api/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'repoUrl detection test',
+          workingDirectory: tmpDir,
+        }),
+      });
+
+      expect(response.ok).toBe(true);
+      const project = await response.json();
+      expect(project.repoUrl).toBe('https://github.com/e2e-test/e2e-repo');
+
+      // Clean up the project via API
+      await fetch(`${API_URL}/api/projects/${project.id}`, { method: 'DELETE' });
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

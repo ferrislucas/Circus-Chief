@@ -542,6 +542,10 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
  *   - git@gitlab.com:owner/repo.git    -> https://gitlab.com/owner/repo
  *   - https://gitlab.com/owner/repo.git -> https://gitlab.com/owner/repo
  *   - https://bitbucket.org/owner/repo.git -> https://bitbucket.org/owner/repo
+ *   - http://git.example.com/owner/repo.git -> http://git.example.com/owner/repo
+ *   - git://github.com/owner/repo.git  -> https://github.com/owner/repo
+ *
+ * Query strings and fragments are stripped before matching.
  *
  * Returns null for empty, null, undefined, or unrecognizable inputs.
  *
@@ -558,22 +562,41 @@ export function normalizeGitRemoteUrl(remoteUrl) {
     return null;
   }
 
+  // Strip query strings and fragments before matching
+  // (defensive: malformed remote configs shouldn't silently fail)
+  const cleaned = trimmed.replace(/[?#].*$/, '');
+
   // SSH form: git@host:owner/repo.git or git@host:owner/repo
-  const sshMatch = trimmed.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+  const sshMatch = cleaned.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
   if (sshMatch) {
     return `https://${sshMatch[1]}/${sshMatch[2]}`;
   }
 
   // SSH protocol form: ssh://git@host/owner/repo.git
-  const sshProtocolMatch = trimmed.match(/^ssh:\/\/git@([^/]+)\/(.+?)(?:\.git)?$/);
+  const sshProtocolMatch = cleaned.match(/^ssh:\/\/git@([^/]+)\/(.+?)(?:\.git)?$/);
   if (sshProtocolMatch) {
     return `https://${sshProtocolMatch[1]}/${sshProtocolMatch[2]}`;
   }
 
   // HTTPS form: https://host/owner/repo.git or https://host/owner/repo
-  const httpsMatch = trimmed.match(/^https:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
+  const httpsMatch = cleaned.match(/^https:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
   if (httpsMatch) {
     return `https://${httpsMatch[1]}/${httpsMatch[2]}`;
+  }
+
+  // HTTP form: http://host/owner/repo.git or http://host/owner/repo
+  // Preserve the http:// scheme (unlike SSH→HTTPS conversion, HTTP remotes
+  // are intentional and the server may not support HTTPS).
+  const httpMatch = cleaned.match(/^http:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
+  if (httpMatch) {
+    return `http://${httpMatch[1]}/${httpMatch[2]}`;
+  }
+
+  // git:// protocol form: git://host/owner/repo.git or git://host/owner/repo
+  // Convert to HTTPS (same output as SSH).
+  const gitProtocolMatch = cleaned.match(/^git:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
+  if (gitProtocolMatch) {
+    return `https://${gitProtocolMatch[1]}/${gitProtocolMatch[2]}`;
   }
 
   // Unrecognized format
@@ -612,10 +635,14 @@ export async function getRepositoryUrl(directory) {
     // Fall back to first remote if origin doesn't exist
     if (!rawUrl) {
       try {
-        const remotes = await git(directory, 'remote', { timeout: 5000 });
-        const firstRemote = remotes.split('\n').find((r) => r.trim());
-        if (firstRemote) {
-          rawUrl = await git(directory, `config --get remote.${firstRemote.trim()}.url`, { timeout: 5000 });
+        const remoteVerbose = await git(directory, 'remote -v', { timeout: 5000 });
+        const firstLine = remoteVerbose.split('\n').find((r) => r.trim());
+        if (firstLine) {
+          // git remote -v outputs: "remote_name\turl (fetch)"
+          const parts = firstLine.split('\t');
+          if (parts.length >= 2) {
+            rawUrl = parts[1].replace(/ \((?:fetch|push)\)$/, '');
+          }
         }
       } catch {
         // No remotes at all
