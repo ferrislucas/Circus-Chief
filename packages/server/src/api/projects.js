@@ -1,26 +1,18 @@
 import { Router } from 'express';
-import { projects, sessions, sessionTemplates, projectDefaults, commandRuns } from '../database.js';
+import { projects, sessions, commandRuns } from '../database.js';
 import { commandRunner } from '../services/commandRunner.js';
-import { CreateProjectRequest, UpdateProjectRequest, ProjectSessionDefaultsRequest } from '@circuschief/shared/contracts/projects';
-import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
-import { CreateSessionTemplateRequest } from '@circuschief/shared/contracts/templates';
-import { broadcastToProject } from '../websocket.js';
+import { CreateProjectRequest, UpdateProjectRequest } from '@circuschief/shared/contracts/projects';
 import projectCommandButtonsRouter from './projects-commandButtons.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import projectSessionDefaultsRouter from './projects-session-defaults.js';
+import projectTemplatesRouter from './projects-templates.js';
 import { handleUploadError, uploadMiddleware } from '../middleware/upload.js';
-import {
-  generateInitialName,
-  prepareSessionConfig,
-  applyTemplateOverrides,
-  resolveNextTemplateId,
-  determineInitialStatus,
-  buildSchedulingUpdate,
-  setupAndStartSession,
-} from './projects-session-helpers.js';
-import { validateGitSettings, buildRunsBySession } from './projects-helpers.js';
+import { determineInitialStatus } from './projects-session-helpers.js';
+import { buildRunsBySession } from './projects-helpers.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import { access, constants } from 'fs/promises';
 import { dirname, isAbsolute } from 'path';
+import { getRepositoryUrl } from '../services/gitService.js';
+import { validateAndPrepareSessionConfig, createSessionRow, startSessionOrFail } from './projects-session-create.js';
 
 // Error message constants
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
@@ -65,17 +57,31 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, kanbanEnabled } = result.data;
+  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, kanbanEnabled, repoUrl } = result.data;
 
   const pathError = await validateWorktreePath(worktreePath);
   if (pathError) {
     return res.status(400).json({ error: pathError });
   }
 
+  // Resolve repoUrl:
+  // - string: use as-is (explicitly provided)
+  // - null: suppress detection (explicitly sent as null)
+  // - undefined: auto-detect from git remote
+  let resolvedRepoUrl = repoUrl;
+  if (resolvedRepoUrl === undefined) {
+    try {
+      resolvedRepoUrl = await getRepositoryUrl(workingDirectory);
+    } catch {
+      resolvedRepoUrl = null;
+    }
+  }
+
   const createOptions = {
     onSessionCreated: onSessionCreated || null,
     onSessionDeleted: onSessionDeleted || null,
     worktreePath: worktreePath || null,
+    repoUrl: resolvedRepoUrl,
   };
   if (kanbanEnabled !== undefined) {
     createOptions.kanbanEnabled = kanbanEnabled;
@@ -198,98 +204,6 @@ router.get('/:id/sessions', (req, res) => {
   }
 });
 
-/**
- * Validate and prepare the session configuration from the request body.
- * Returns { config, nextTemplateId } on success, or { error, status } on failure.
- */
-async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, project) {
-  const projectDefs = projectDefaults.getByProjectId(projectId);
-  const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
-  const config = prepareSessionConfig(reqBody, projectDefs, systemDefaults);
-  config.files = reqFiles || [];
-
-  if (!config.prompt) {
-    return { error: 'Prompt is required', status: 400 };
-  }
-
-  if (config.parentSessionId) {
-    const parentSession = sessions.getById(config.parentSessionId);
-    if (!parentSession) {
-      return { error: 'Parent session not found', status: 404 };
-    }
-    if (parentSession.projectId !== projectId) {
-      return { error: 'Parent session does not belong to this project', status: 400 };
-    }
-  }
-
-  // Apply template overrides and resolve nextTemplateId
-  applyTemplateOverrides(config);
-  const { nextTemplateId, error: nextTemplateError } = resolveNextTemplateId(reqBody, config.nextTemplateId || null);
-  if (nextTemplateError) {
-    return { error: nextTemplateError, status: 400 };
-  }
-  config.nextTemplateId = nextTemplateId;
-
-  // Validate git settings for git repos
-  const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
-  if (gitError) {
-    return { error: gitError, status: 400 };
-  }
-  Object.assign(config, updatedConfig);
-
-  return { config, nextTemplateId };
-}
-
-/**
- * Create the session row and apply any post-create updates.
- * Returns the created session (already persisted in DB).
- */
-function createSessionRow(projectId, config, nextTemplateId, initialStatus) {
-  const sessionName = config.name || generateInitialName(config.prompt);
-  const session = sessions.create(projectId, sessionName, config.prompt, {
-    mode: config.mode,
-    thinkingEnabled: config.thinkingEnabled,
-    gitBranch: config.gitBranch,
-    parentSessionId: config.parentSessionId,
-    status: initialStatus,
-    model: config.model,
-    providerId: config.providerId,
-    effortLevel: config.effortLevel,
-    agentType: config.agentType,
-  });
-
-  const postCreateUpdate = {
-    ...(nextTemplateId ? { nextTemplateId } : {}),
-    ...buildSchedulingUpdate(config, initialStatus),
-  };
-  if (Object.keys(postCreateUpdate).length > 0) {
-    sessions.update(session.id, postCreateUpdate);
-  }
-  return session;
-}
-
-/**
- * Run setupAndStartSession and translate any failure into an error response,
- * marking the session as errored and broadcasting the update.
- */
-async function startSessionOrFail(req, res, { session, config, project }) {
-  try {
-    const { updatedSession } = await setupAndStartSession({
-      session, config, project, projectId: req.params.id, files: config.files,
-    });
-    return res.status(201).json(updatedSession);
-  } catch (error) {
-    console.error('Git setup error:', error);
-    const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
-    broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: req.params.id,
-      sessionId: session.id,
-      session: updatedSession,
-    });
-    return res.status(500).json({ error: `Git setup failed: ${error.message}` });
-  }
-}
-
 // POST /api/projects/:id/sessions - Create session
 // Supports both JSON and multipart/form-data (for file attachments)
 router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, async (req, res) => {
@@ -335,79 +249,13 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
   }
 });
 
-// GET /api/projects/:id/templates - List available templates for project (project + global)
-router.get('/:id/templates', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const available = sessionTemplates.getAvailableForProject(req.params.id);
-  res.json(available);
-});
-
-// POST /api/projects/:id/templates - Create project template
-router.post('/:id/templates', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const result = CreateSessionTemplateRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const template = sessionTemplates.create({
-    projectId: req.params.id,
-    ...result.data,
-  });
-  res.status(201).json(template);
-});
+// Template routes are mounted as a sub-router
+router.use('/:id/templates', projectTemplatesRouter);
 
 // Command button routes are mounted as a sub-router
 router.use('/:id/command-buttons', projectCommandButtonsRouter);
 
-// GET /api/projects/:id/session-defaults - Get session defaults for project
-router.get('/:id/session-defaults', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const defaults = projectDefaults.getByProjectId(req.params.id);
-  if (!defaults) {
-    return res.json(null);
-  }
-
-  res.json(defaults);
-});
-
-// POST /api/projects/:id/session-defaults - Update/create session defaults for project
-router.post('/:id/session-defaults', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  const result = ProjectSessionDefaultsRequest.safeParse(req.body);
-  if (!result.success) {
-    return res.status(400).json({ error: result.error.issues[0].message });
-  }
-
-  const updated = projectDefaults.upsert(req.params.id, result.data);
-  res.status(200).json(updated);
-});
-
-// DELETE /api/projects/:id/session-defaults - Reset session defaults for project
-router.delete('/:id/session-defaults', (req, res) => {
-  const project = projects.getById(req.params.id);
-  if (!project) {
-    return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
-  }
-
-  projectDefaults.resetToDefaults(req.params.id);
-  res.json({ message: 'Session defaults reset to system defaults' });
-});
+// Session defaults routes are mounted as a sub-router
+router.use('/:id/session-defaults', projectSessionDefaultsRouter);
 
 export default router;

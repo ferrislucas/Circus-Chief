@@ -16,8 +16,10 @@ import {
   getCurrentBranch,
   getGitAuthor,
   getOriginDefaultBranch,
+  getRepositoryUrl,
   getUntrackedFiles,
   ensureWorktreeCommitAttributionHook,
+  normalizeGitRemoteUrl,
   pinAuthorInWorktree,
   isGitRepo,
   setLogger,
@@ -1083,6 +1085,155 @@ describe('gitService', () => {
       } finally {
         await rm(nonGitDir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('normalizeGitRemoteUrl', () => {
+    it('normalizes HTTPS URL with .git suffix', () => {
+      expect(normalizeGitRemoteUrl('https://github.com/owner/repo.git'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('passes through already-clean HTTPS URL', () => {
+      expect(normalizeGitRemoteUrl('https://github.com/owner/repo'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes SSH shorthand with .git suffix', () => {
+      expect(normalizeGitRemoteUrl('git@github.com:owner/repo.git'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes SSH shorthand without .git suffix', () => {
+      expect(normalizeGitRemoteUrl('git@github.com:owner/repo'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes ssh:// protocol URL', () => {
+      expect(normalizeGitRemoteUrl('ssh://git@github.com/owner/repo.git'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes SSH GitLab URL', () => {
+      expect(normalizeGitRemoteUrl('git@gitlab.com:owner/repo.git'))
+        .toBe('https://gitlab.com/owner/repo');
+    });
+
+    it('normalizes HTTPS GitLab URL', () => {
+      expect(normalizeGitRemoteUrl('https://gitlab.com/owner/repo.git'))
+        .toBe('https://gitlab.com/owner/repo');
+    });
+
+    it('normalizes HTTPS Bitbucket URL', () => {
+      expect(normalizeGitRemoteUrl('https://bitbucket.org/owner/repo.git'))
+        .toBe('https://bitbucket.org/owner/repo');
+    });
+
+    it('returns null for empty string', () => {
+      expect(normalizeGitRemoteUrl('')).toBeNull();
+    });
+
+    it('returns null for null', () => {
+      expect(normalizeGitRemoteUrl(null)).toBeNull();
+    });
+
+    it('returns null for undefined', () => {
+      expect(normalizeGitRemoteUrl(undefined)).toBeNull();
+    });
+
+    it('returns null for garbage string', () => {
+      expect(normalizeGitRemoteUrl('not-a-valid-url')).toBeNull();
+    });
+
+    it('strips query string from HTTPS URL', () => {
+      expect(normalizeGitRemoteUrl('https://github.com/owner/repo.git?foo=bar'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('strips fragment from SSH shorthand', () => {
+      expect(normalizeGitRemoteUrl('git@github.com:owner/repo.git#branch'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes HTTP URL with .git suffix', () => {
+      expect(normalizeGitRemoteUrl('http://git.example.com/owner/repo.git'))
+        .toBe('http://git.example.com/owner/repo');
+    });
+
+    it('passes through already-clean HTTP URL', () => {
+      expect(normalizeGitRemoteUrl('http://git.example.com/owner/repo'))
+        .toBe('http://git.example.com/owner/repo');
+    });
+
+    it('normalizes git:// protocol URL with .git suffix', () => {
+      expect(normalizeGitRemoteUrl('git://github.com/owner/repo.git'))
+        .toBe('https://github.com/owner/repo');
+    });
+
+    it('normalizes git:// protocol URL without .git suffix', () => {
+      expect(normalizeGitRemoteUrl('git://gitlab.com/owner/repo'))
+        .toBe('https://gitlab.com/owner/repo');
+    });
+  });
+
+  describe('getRepositoryUrl', () => {
+    it('detects and normalizes origin HTTPS remote', async () => {
+      execSync('git remote remove origin', { cwd: testDir });
+      execSync('git remote add origin https://github.com/owner/repo.git', { cwd: testDir });
+
+      const url = await getRepositoryUrl(testDir);
+      expect(url).toBe('https://github.com/owner/repo');
+    });
+
+    it('detects and normalizes SSH remote', async () => {
+      execSync('git remote remove origin', { cwd: testDir });
+      execSync('git remote add origin git@github.com:owner/repo.git', { cwd: testDir });
+
+      const url = await getRepositoryUrl(testDir);
+      expect(url).toBe('https://github.com/owner/repo');
+    });
+
+    it('falls back to first remote when origin does not exist', async () => {
+      execSync('git remote remove origin', { cwd: testDir });
+      execSync('git remote add upstream https://github.com/other/repo.git', { cwd: testDir });
+
+      const url = await getRepositoryUrl(testDir);
+      expect(url).toBe('https://github.com/other/repo');
+    });
+
+    it('returns null for git repo without remotes', async () => {
+      execSync('git remote remove origin', { cwd: testDir });
+
+      const url = await getRepositoryUrl(testDir);
+      expect(url).toBeNull();
+    });
+
+    it('returns null for non-git directory', async () => {
+      const nonGitDir = await mkdtemp(join(tmpdir(), 'non-git-repourl-'));
+      try {
+        const url = await getRepositoryUrl(nonGitDir);
+        expect(url).toBeNull();
+      } finally {
+        await rm(nonGitDir, { recursive: true, force: true });
+      }
+    });
+
+    it('detects repo URL from worktree via .git fast-path', async () => {
+      // Replace the default local bare-repo origin with an HTTPS remote
+      execSync('git remote remove origin', { cwd: testDir });
+      execSync('git remote add origin https://github.com/owner/repo.git', { cwd: testDir });
+
+      // Create a git worktree from the test directory
+      const worktreePath = join(testDir, '.worktrees', 'repo-url-test');
+      await createWorktreeForBranch(testDir, 'repo-url-test', worktreePath, { skipFetch: true });
+
+      // In a worktree, .git is a *file* (containing a gitdir reference), not a directory.
+      // The fs.access() fast-path works for both, but this path was previously untested.
+      const url = await getRepositoryUrl(worktreePath);
+      expect(url).toBe('https://github.com/owner/repo');
+
+      // Clean up worktree before the shared afterEach deletes testDir
+      execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
     });
   });
 });
