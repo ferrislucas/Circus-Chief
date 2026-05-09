@@ -496,7 +496,7 @@ describe('ProjectEditView with Session Defaults', () => {
       }
     });
 
-    it('only sends non-empty defaults to API', async () => {
+    it('sends the full defaults snapshot to API', async () => {
       // Set up project and defaults BEFORE mounting
       projectsStore.currentProject = {
         id: 'proj-1',
@@ -533,12 +533,18 @@ describe('ProjectEditView with Session Defaults', () => {
       await form.trigger('submit');
       await flushAll(wrapper);
 
-      // Should only send mode in the defaults (or skip if form submission didn't work)
+      // The edit form represents the complete defaults state, including false
+      // and null values that must overwrite previous values on the server.
       const calls = defaultsStore.updateDefaults.mock.calls;
       if (calls.length > 0) {
         const callArgs = calls[0];
         expect(callArgs[1]).toEqual({
           mode: 'plan',
+          thinkingEnabled: false,
+          effortLevel: null,
+          startImmediately: true,
+          gitMode: null,
+          gitBranch: null,
           model: null,
           providerId: null,
         });
@@ -589,6 +595,12 @@ describe('ProjectEditView with Session Defaults', () => {
       if (calls.length > 0) {
         const callArgs = calls[0];
         expect(callArgs[1]).toEqual({
+          mode: null,
+          thinkingEnabled: false,
+          effortLevel: null,
+          startImmediately: true,
+          gitMode: null,
+          gitBranch: null,
           model: 'claude-sonnet-4-6',
           providerId: 'anthropic-provider',
         });
