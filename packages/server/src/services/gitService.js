@@ -1,26 +1,40 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import path from 'path';
-import { realpath, access } from 'fs/promises';
 export {
   clearWorktreeCommitAttribution,
   configureWorktreeCommitAttribution,
   ensureWorktreeCommitAttributionHook,
 } from './gitCommitAttribution.js';
+export {
+  normalizeGitRemoteUrl,
+  getRepositoryUrl,
+  detectWorktreePath,
+} from './gitRepoUrl.js';
+export {
+  getDiff,
+  getStagedDiff,
+  getUntrackedFiles,
+  getDiffAgainstBranch,
+  getStagedDiffAgainstBranch,
+  getDiffBetweenRefs,
+  getModifiedFilesCount,
+} from './gitDiff.js';
+export {
+  branchExists,
+  checkoutBranch,
+  createWorktree,
+  removeWorktree,
+  createWorktreeForBranch,
+} from './gitWorktree.js';
 
 const execAsync = promisify(exec);
 
-// Cache for default branch detection per repository
-// Key: directory path, Value: { branch: string, timestamp: number }
+// Cache for default branch detection: directory -> { branch, timestamp }
 const defaultBranchCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_CACHE_SIZE = 100; // Maximum number of repositories to cache
 
-// Configurable logger for warning messages
-// Can be overridden via setLogger() for custom logging behavior
-let logger = {
-  warn: (...args) => console.warn(...args),
-};
+import { _setWorktreeLogger } from './gitWorktree.js';
 
 /**
  * Set a custom logger for git service warnings.
@@ -29,19 +43,15 @@ let logger = {
  * @param {Function} customLogger.warn - Function to handle warning messages
  */
 export function setLogger(customLogger) {
-  logger = customLogger;
+  _setWorktreeLogger(customLogger);
 }
 
-/**
- * Evict oldest entries from cache if it exceeds MAX_CACHE_SIZE.
- * Uses LRU-like eviction based on timestamp.
- */
+/** Evict oldest cache entries if size exceeds MAX_CACHE_SIZE (LRU-like). */
 function evictOldestCacheEntries() {
   if (defaultBranchCache.size <= MAX_CACHE_SIZE) {
     return;
   }
 
-  // Sort entries by timestamp and remove oldest ones
   const entries = [...defaultBranchCache.entries()];
   entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
 
@@ -52,29 +62,15 @@ function evictOldestCacheEntries() {
 }
 
 /**
- * Safely fetch from origin remote.
- * Logs a warning if fetch fails but does not throw.
- * @param {string} directory - The git repository directory
- * @returns {Promise<boolean>} - True if fetch succeeded, false otherwise
- */
-async function safeFetchOrigin(directory) {
-  try {
-    await git(directory, 'fetch origin');
-    return true;
-  } catch (err) {
-    // No origin or network unavailable, proceed without fetch
-    logger.warn('Could not fetch from origin, proceeding with local refs:', err.message);
-    return false;
-  }
-}
-
-/**
  * Execute a git command in a directory
  * @param {string} directory
  * @param {string} command
+ * @param {Object} [opts]
+ * @param {Object} [opts.env]
+ * @param {number} [opts.timeout]
  * @returns {Promise<string>}
  */
-async function git(directory, command, opts = {}) {
+export async function git(directory, command, opts = {}) {
   const execOpts = { cwd: directory };
   if (opts.env) execOpts.env = opts.env;
   if (opts.timeout) execOpts.timeout = opts.timeout;
@@ -248,241 +244,8 @@ export async function getCurrentBranch(directory) {
 }
 
 /**
- * Create a new worktree
- * @param {string} directory
- * @param {string} branch
- * @param {string} worktreePath
- * @param {Object} options
- * @param {boolean} options.skipFetch - Skip fetching from origin (default: false)
- * @returns {Promise<{path: string, branch: string}>}
- */
-export async function createWorktree(directory, branch, worktreePath, options = {}) {
-  const { skipFetch = false } = options;
-
-  // Fetch latest from origin to ensure we have up-to-date default branch
-  if (!skipFetch) {
-    await safeFetchOrigin(directory);
-  }
-
-  // Get the default branch from origin (main or master)
-  const defaultBranch = await getOriginDefaultBranch(directory);
-  // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
-  // Use --no-track to prevent the new branch from tracking the start-point (main/master)
-  await git(directory, `worktree add --no-track "${worktreePath}" -b "${branch}" ${defaultBranch}`);
-  return { path: worktreePath, branch };
-}
-
-/**
- * Remove a worktree
- * @param {string} directory
- * @param {string} path
- * @param {boolean} force - Force removal even if worktree has uncommitted changes
- */
-export async function removeWorktree(directory, worktreePath, force = false) {
-  const forceFlag = force ? '--force' : '';
-  await git(directory, `worktree remove ${forceFlag} "${worktreePath}"`);
-}
-
-/**
- * Get diff for a directory
- * @param {string} directory
- * @returns {Promise<string>}
- */
-export async function getDiff(directory) {
-  try {
-    return await git(directory, 'diff');
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get staged diff for a directory
- * @param {string} directory
- * @returns {Promise<string>}
- */
-export async function getStagedDiff(directory) {
-  try {
-    return await git(directory, 'diff --cached');
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Check if a branch exists
- * @param {string} directory
- * @param {string} branch
- * @returns {Promise<boolean>}
- */
-export async function branchExists(directory, branch) {
-  try {
-    await git(directory, `rev-parse --verify refs/heads/${branch}`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Checkout a branch, creating it if it doesn't exist
- * @param {string} directory
- * @param {string} branch
- * @returns {Promise<void>}
- */
-export async function checkoutBranch(directory, branch) {
-  const exists = await branchExists(directory, branch);
-  if (exists) {
-    await git(directory, `checkout "${branch}"`);
-  } else {
-    await git(directory, `checkout -b "${branch}"`);
-  }
-}
-
-/**
- * Create a worktree for a branch (creates branch if it doesn't exist)
- * @param {string} directory - Main repo directory
- * @param {string} branch - Branch name
- * @param {string} worktreePath - Path for the new worktree
- * @param {Object} options
- * @param {boolean} options.skipFetch - Skip fetching from origin (default: false)
- * @returns {Promise<{path: string, branch: string}>}
- */
-export async function createWorktreeForBranch(directory, branch, worktreePath, options = {}) {
-  const { skipFetch = false } = options;
-
-  // Fetch latest from origin to ensure we have up-to-date default branch
-  if (!skipFetch) {
-    await safeFetchOrigin(directory);
-  }
-
-  const exists = await branchExists(directory, branch);
-  if (exists) {
-    await git(directory, `worktree add "${worktreePath}" "${branch}"`);
-  } else {
-    // Get the default branch from origin (main or master)
-    const defaultBranch = await getOriginDefaultBranch(directory);
-    // Base new branch on origin's default branch to avoid including unrelated commits from HEAD
-    // Use --no-track to prevent the new branch from tracking the start-point (main/master)
-    await git(directory, `worktree add --no-track -b "${branch}" "${worktreePath}" ${defaultBranch}`);
-  }
-  return { path: worktreePath, branch };
-}
-
-/**
- * Get list of untracked files
- * @param {string} directory
- * @returns {Promise<string[]>}
- */
-export async function getUntrackedFiles(directory) {
-  try {
-    const output = await git(directory, 'ls-files --others --exclude-standard');
-    if (!output) return [];
-    return output.split('\n').filter((line) => line.trim());
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Get diff for a directory compared to a specific branch
- * @param {string} directory
- * @param {string} branch - Branch to compare against (e.g., 'origin/main')
- * @returns {Promise<string>}
- */
-export async function getDiffAgainstBranch(directory, branch) {
-  try {
-    return await git(directory, `diff ${branch}`);
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get staged diff for a directory compared to a specific branch
- * @param {string} directory
- * @param {string} branch - Branch to compare against (e.g., 'origin/main')
- * @returns {Promise<string>}
- */
-export async function getStagedDiffAgainstBranch(directory, branch) {
-  try {
-    return await git(directory, `diff --cached ${branch}`);
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get diff between two git refs (e.g., comparing HEAD to origin/main)
- * This shows the committed changes between two refs, ignoring working tree state
- * @param {string} directory
- * @param {string} fromRef - Base ref (e.g., 'origin/main')
- * @param {string} toRef - Target ref (e.g., 'HEAD')
- * @returns {Promise<string>}
- */
-export async function getDiffBetweenRefs(directory, fromRef, toRef) {
-  try {
-    return await git(directory, `diff ${fromRef} ${toRef}`);
-  } catch {
-    return '';
-  }
-}
-
-/**
- * Get count of files modified/added compared to a branch
- * Includes committed changes + staged + unstaged + untracked files
- * @param {string} directory - The git repository directory
- * @param {string} branch - Branch to compare against (e.g., 'origin/main')
- * @returns {Promise<number>} - Total count of unique files modified/added
- */
-export async function getModifiedFilesCount(directory, branch) {
-  try {
-    // Get all modified files in one command using --name-only
-    // This includes: committed changes vs branch + staged
-    const committedAndStaged = await git(
-      directory,
-      `diff --name-only ${branch}...HEAD`
-    );
-
-    // Get unstaged changes (working tree vs index)
-    const unstaged = await git(directory, 'diff --name-only');
-
-    // Get untracked files
-    const untracked = await getUntrackedFiles(directory);
-
-    // Combine all files into a Set to get unique count
-    const allFiles = new Set();
-
-    // Parse committed+staged files
-    if (committedAndStaged) {
-      committedAndStaged.split('\n').forEach(f => {
-        if (f.trim()) allFiles.add(f.trim());
-      });
-    }
-
-    // Parse unstaged files
-    if (unstaged) {
-      unstaged.split('\n').forEach(f => {
-        if (f.trim()) allFiles.add(f.trim());
-      });
-    }
-
-    // Add untracked files
-    untracked.forEach(f => allFiles.add(f));
-
-    return allFiles.size;
-  } catch (error) {
-    logger.warn(`Failed to get modified files count for ${directory}:`, error.message);
-    return 0;
-  }
-}
-
-/**
  * Get the git author info from the global config (~/.gitconfig).
- *
- * Uses `--global` so that a contaminated local config (e.g. one that
- * already has Claude Code's identity) is bypassed.
- *
+ * Uses `--global` so that a contaminated local config is bypassed.
  * @param {string} directory
  * @param {Object} [options]
  * @param {Object} [options.env] - Custom environment variables (useful for tests)
@@ -503,17 +266,12 @@ export async function getGitAuthor(directory, { env } = {}) {
 
 /**
  * Pin the human developer's git identity in a worktree's config.
- *
- * Reads user.name/user.email from the main project directory and writes
- * them into the worktree-specific config (--worktree). This ensures the
- * human is always the commit Author, even if the session's environment
- * tries to override it. Claude Code already adds its own Co-Authored-By
- * trailer via its system prompt, so no hook is needed.
- *
- * Only call this for worktree directories, not the main repo.
- *
+ * Reads user.name/user.email from the main project directory and writes them
+ * into the worktree-specific config (--worktree). Only call for worktree dirs.
  * @param {string} worktreePath - The worktree directory
  * @param {string} projectDir - The main project directory (to read author from)
+ * @param {Object} [options]
+ * @param {Object} [options.env] - Custom environment variables (useful for tests)
  * @returns {Promise<boolean>} - True if author was pinned
  */
 export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}) {
@@ -531,164 +289,3 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
   return true;
 }
 
-/**
- * Normalize a git remote URL into a clean HTTPS browser URL.
- *
- * Supported forms:
- *   - https://github.com/owner/repo.git -> https://github.com/owner/repo
- *   - https://github.com/owner/repo     -> https://github.com/owner/repo (already clean)
- *   - git@github.com:owner/repo.git    -> https://github.com/owner/repo
- *   - ssh://git@github.com/owner/repo.git -> https://github.com/owner/repo
- *   - git@gitlab.com:owner/repo.git    -> https://gitlab.com/owner/repo
- *   - https://gitlab.com/owner/repo.git -> https://gitlab.com/owner/repo
- *   - https://bitbucket.org/owner/repo.git -> https://bitbucket.org/owner/repo
- *   - http://git.example.com/owner/repo.git -> http://git.example.com/owner/repo
- *   - git://github.com/owner/repo.git  -> https://github.com/owner/repo
- *
- * Query strings and fragments are stripped before matching.
- *
- * Returns null for empty, null, undefined, or unrecognizable inputs.
- *
- * @param {string|null|undefined} remoteUrl
- * @returns {string|null}
- */
-export function normalizeGitRemoteUrl(remoteUrl) {
-  if (!remoteUrl || typeof remoteUrl !== 'string') {
-    return null;
-  }
-
-  const trimmed = remoteUrl.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  // Strip query strings and fragments before matching
-  // (defensive: malformed remote configs shouldn't silently fail)
-  const cleaned = trimmed.replace(/[?#].*$/, '');
-
-  // SSH form: git@host:owner/repo.git or git@host:owner/repo
-  const sshMatch = cleaned.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
-  if (sshMatch) {
-    return `https://${sshMatch[1]}/${sshMatch[2]}`;
-  }
-
-  // SSH protocol form: ssh://git@host/owner/repo.git
-  const sshProtocolMatch = cleaned.match(/^ssh:\/\/git@([^/]+)\/(.+?)(?:\.git)?$/);
-  if (sshProtocolMatch) {
-    return `https://${sshProtocolMatch[1]}/${sshProtocolMatch[2]}`;
-  }
-
-  // HTTPS form: https://host/owner/repo.git or https://host/owner/repo
-  const httpsMatch = cleaned.match(/^https:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
-  if (httpsMatch) {
-    return `https://${httpsMatch[1]}/${httpsMatch[2]}`;
-  }
-
-  // HTTP form: http://host/owner/repo.git or http://host/owner/repo
-  // Preserve the http:// scheme (unlike SSH→HTTPS conversion, HTTP remotes
-  // are intentional and the server may not support HTTPS).
-  const httpMatch = cleaned.match(/^http:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
-  if (httpMatch) {
-    return `http://${httpMatch[1]}/${httpMatch[2]}`;
-  }
-
-  // git:// protocol form: git://host/owner/repo.git or git://host/owner/repo
-  // Convert to HTTPS (same output as SSH).
-  const gitProtocolMatch = cleaned.match(/^git:\/\/([^/]+)\/(.+?)(?:\.git)?$/);
-  if (gitProtocolMatch) {
-    return `https://${gitProtocolMatch[1]}/${gitProtocolMatch[2]}`;
-  }
-
-  // Unrecognized format
-  return null;
-}
-
-/**
- * Auto-detect the repository URL from a directory's git remotes.
- *
- * Prefers the "origin" remote. Falls back to the first configured remote.
- * Normalizes SSH and HTTPS URLs into clean HTTPS browser URLs.
- * Returns null if the directory is not a git repo or has no usable remotes.
- *
- * @param {string} directory
- * @returns {Promise<string|null>}
- */
-export async function getRepositoryUrl(directory) {
-  try {
-    // Fast-path: skip entirely if the directory is not a git repo.
-    // Uses a filesystem check (.git existence) instead of spawning a git process,
-    // which avoids unnecessary child_process overhead for non-git directories.
-    try {
-      await access(path.join(directory, '.git'));
-    } catch {
-      return null;
-    }
-
-    // Try origin first (with timeout to prevent indefinite blocking under load)
-    let rawUrl;
-    try {
-      rawUrl = await git(directory, 'config --get remote.origin.url', { timeout: 5000 });
-    } catch {
-      // No origin remote, try listing all remotes
-    }
-
-    // Fall back to first remote if origin doesn't exist
-    if (!rawUrl) {
-      try {
-        const remoteVerbose = await git(directory, 'remote -v', { timeout: 5000 });
-        const firstLine = remoteVerbose.split('\n').find((r) => r.trim());
-        if (firstLine) {
-          // git remote -v outputs: "remote_name\turl (fetch)"
-          const parts = firstLine.split('\t');
-          if (parts.length >= 2) {
-            rawUrl = parts[1].replace(/ \((?:fetch|push)\)$/, '');
-          }
-        }
-      } catch {
-        // No remotes at all
-      }
-    }
-
-    if (!rawUrl) {
-      return null;
-    }
-
-    return normalizeGitRemoteUrl(rawUrl);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Detect the worktree path for a directory by inspecting existing worktrees.
- * If external worktrees exist, uses the parent directory of the first one.
- * Otherwise, falls back to {directory}/.worktrees.
- * @param {string} directory - The git repository directory
- * @returns {Promise<{worktreePath: string, source: 'detected' | 'default'}>}
- */
-export async function detectWorktreePath(directory) {
-  const isRepo = await isGitRepo(directory);
-  if (!isRepo) {
-    return { worktreePath: path.join(directory, '.worktrees'), source: 'default' };
-  }
-
-  // Resolve symlinks for consistent path comparison (e.g., /var -> /private/var on macOS)
-  let resolvedDir;
-  try {
-    resolvedDir = await realpath(directory);
-  } catch {
-    resolvedDir = path.resolve(directory);
-  }
-
-  const worktrees = await getWorktrees(directory);
-  // Filter out the main worktree (its path === directory or resolves to it)
-  const externalWorktrees = worktrees.filter(wt => path.resolve(wt.path) !== resolvedDir);
-
-  if (externalWorktrees.length > 0) {
-    // Use the parent directory of the first external worktree
-    const parentDir = path.dirname(path.resolve(externalWorktrees[0].path));
-    return { worktreePath: parentDir, source: 'detected' };
-  }
-
-  return { worktreePath: path.join(resolvedDir, '.worktrees'), source: 'default' };
-}

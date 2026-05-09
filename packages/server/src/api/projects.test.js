@@ -37,7 +37,6 @@ vi.mock('../services/gitService.js', async (importOriginal) => {
 import projectsRouter, { validateWorktreePath } from './projects.js';
 import { broadcastToProject } from '../websocket.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
-import { getRepositoryUrl } from '../services/gitService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Projects API', () => {
