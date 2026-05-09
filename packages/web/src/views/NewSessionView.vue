@@ -245,7 +245,6 @@
       :hide-builtin="true"
       @insert="handleSlashCommandInsert"
     />
-
   </div>
 </template>
 
