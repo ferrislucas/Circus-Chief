@@ -22,10 +22,22 @@ vi.mock('../services/gitSessionSetup.js', () => ({
   setupGitForSession: vi.fn().mockResolvedValue({ workingDirectory: '/tmp/test', gitWorktree: null }),
 }));
 
+// Mock gitService.getRepositoryUrl to avoid spawning git processes during most tests.
+// The real implementation is restored in the "repoUrl auto-detection" describe block
+// so those tests can exercise the actual git command logic.
+vi.mock('../services/gitService.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    getRepositoryUrl: vi.fn(actual.getRepositoryUrl),
+  };
+});
+
 // Import after mocks are set up
 import projectsRouter, { validateWorktreePath } from './projects.js';
 import { broadcastToProject } from '../websocket.js';
 import { setupGitForSession } from '../services/gitSessionSetup.js';
+import { getRepositoryUrl } from '../services/gitService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 describe('Projects API', () => {

@@ -1,7 +1,7 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
-import { realpath } from 'fs/promises';
+import { realpath, access } from 'fs/promises';
 export {
   clearWorktreeCommitAttribution,
   configureWorktreeCommitAttribution,
@@ -77,6 +77,7 @@ async function safeFetchOrigin(directory) {
 async function git(directory, command, opts = {}) {
   const execOpts = { cwd: directory };
   if (opts.env) execOpts.env = opts.env;
+  if (opts.timeout) execOpts.timeout = opts.timeout;
   const { stdout } = await execAsync(`git ${command}`, execOpts);
   return stdout.trim();
 }
@@ -591,10 +592,19 @@ export function normalizeGitRemoteUrl(remoteUrl) {
  */
 export async function getRepositoryUrl(directory) {
   try {
-    // Try origin first
+    // Fast-path: skip entirely if the directory is not a git repo.
+    // Uses a filesystem check (.git existence) instead of spawning a git process,
+    // which avoids unnecessary child_process overhead for non-git directories.
+    try {
+      await access(path.join(directory, '.git'));
+    } catch {
+      return null;
+    }
+
+    // Try origin first (with timeout to prevent indefinite blocking under load)
     let rawUrl;
     try {
-      rawUrl = await git(directory, 'config --get remote.origin.url');
+      rawUrl = await git(directory, 'config --get remote.origin.url', { timeout: 5000 });
     } catch {
       // No origin remote, try listing all remotes
     }
@@ -602,10 +612,10 @@ export async function getRepositoryUrl(directory) {
     // Fall back to first remote if origin doesn't exist
     if (!rawUrl) {
       try {
-        const remotes = await git(directory, 'remote');
+        const remotes = await git(directory, 'remote', { timeout: 5000 });
         const firstRemote = remotes.split('\n').find((r) => r.trim());
         if (firstRemote) {
-          rawUrl = await git(directory, `config --get remote.${firstRemote.trim()}.url`);
+          rawUrl = await git(directory, `config --get remote.${firstRemote.trim()}.url`, { timeout: 5000 });
         }
       } catch {
         // No remotes at all
