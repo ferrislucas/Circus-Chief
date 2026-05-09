@@ -147,7 +147,6 @@ export class SessionRepository extends BaseRepository {
     }
 
     sql += ` ORDER BY
-      starred DESC,
       COALESCE(last_activity_at, updated_at, created_at) DESC,
       updated_at DESC,
       created_at DESC,
