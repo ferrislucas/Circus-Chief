@@ -798,6 +798,35 @@ describe('ModelSelector', () => {
       expect(wrapper.attributes('data-provider-id')).toBe('custom-openai');
     });
 
+    it('emits the resolved provider when mounted with a model but no provider', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+          ],
+        },
+      ];
+
+      const onUpdateProviderId = vi.fn();
+      const wrapper = mountComponent(
+        {
+          modelValue: 'gpt-5.5',
+          providerId: null,
+          allowEmpty: true,
+        },
+        { 'onUpdate:providerId': onUpdateProviderId }
+      );
+      await flushAll(wrapper);
+
+      expect(wrapper.find('select').element.value).toBe(optionValue('openai-default', 'gpt-5.5'));
+      expect(onUpdateProviderId).toHaveBeenCalledWith('openai-default');
+    });
+
     it('shows duplicate built-in and custom options when requested', async () => {
       const localProvidersStore = useProvidersStore();
       localProvidersStore.providers = [

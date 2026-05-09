@@ -202,21 +202,16 @@ watch(() => defaultsStore.getDefaultsForProject(props.projectId), (defaults) => 
 }, { immediate: true });
 
 function collectNonDefaultValues() {
-  const data = {};
-  if (defaultMode.value) data.mode = defaultMode.value;
-  if (defaultThinkingEnabled.value) data.thinkingEnabled = true;
-  if (defaultEffortLevel.value) data.effortLevel = defaultEffortLevel.value;
-  if (!defaultStartImmediately.value) data.startImmediately = false;
-  if (defaultGitMode.value) data.gitMode = defaultGitMode.value;
-  if (defaultGitBranch.value) data.gitBranch = defaultGitBranch.value;
-  if (defaultModel.value) {
-    data.model = defaultModel.value;
-    data.providerId = defaultProviderId.value || null;
-  } else {
-    data.model = null;
-    data.providerId = null;
-  }
-  return data;
+  return {
+    mode: defaultMode.value || null,
+    thinkingEnabled: defaultThinkingEnabled.value,
+    effortLevel: defaultEffortLevel.value || null,
+    startImmediately: defaultStartImmediately.value,
+    gitMode: defaultGitMode.value || null,
+    gitBranch: defaultGitBranch.value || null,
+    model: defaultModel.value || null,
+    providerId: defaultModel.value ? (defaultProviderId.value || null) : null,
+  };
 }
 
 async function handleResetDefaults() {

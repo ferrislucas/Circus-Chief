@@ -788,6 +788,7 @@ export async function setProjectSessionDefaults(
     gitMode?: string | null;
     gitBranch?: string | null;
     model?: string | null;
+    providerId?: string | null;
     effortLevel?: string | null;
   }
 ) {

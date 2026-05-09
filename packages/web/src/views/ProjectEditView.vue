@@ -300,6 +300,10 @@ async function handleSubmit() {
   error.value = null;
 
   try {
+    // Capture child form state before updateProject toggles loading and
+    // temporarily unmounts the form via the view-level loading state.
+    const defaultsData = sessionDefaultsRef.value?.collectNonDefaultValues();
+
     // Update project
     // Save null if value equals default (to avoid storing redundant data)
     await projectsStore.updateProject(route.params.id, {
@@ -313,8 +317,7 @@ async function handleSubmit() {
       kanbanEnabled: kanbanEnabled.value,
     });
 
-    // Update defaults - collect non-default values from child component
-    const defaultsData = sessionDefaultsRef.value?.collectNonDefaultValues();
+    // Update defaults collected from child component
     if (defaultsData && Object.keys(defaultsData).length > 0) {
       await defaultsStore.updateDefaults(route.params.id, defaultsData);
     }

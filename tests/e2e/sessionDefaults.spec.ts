@@ -33,6 +33,85 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
   });
 
   // ============================================================
+  // Test Suite 0: Project Edit UI Persistence
+  // ============================================================
+
+  test.describe('Project Edit UI Persistence', () => {
+    test('saves and reloads every session default from the edit screen', async ({ page }) => {
+      const project = await seedProject('UI Defaults Persistence Test', '/tmp/ui-defaults-persistence');
+      const defaultsPosts: string[] = [];
+      page.on('request', (request) => {
+        if (request.method() === 'POST' && request.url().includes(`/api/projects/${project.id}/session-defaults`)) {
+          defaultsPosts.push(request.postData() || '');
+        }
+      });
+
+      await page.goto(`/projects/${project.id}/edit`);
+      await page.getByText('Session Defaults').click();
+
+      await page.locator('#defaultMode').selectOption('plan');
+      await page.getByLabel('Enable thinking (extended thinking) by default').check();
+      await page.locator('#defaultEffortLevel').selectOption('high');
+      await page.getByLabel('Start sessions immediately').uncheck();
+      await page.locator('#defaultGitMode').selectOption('worktree');
+      await page.locator('#defaultGitBranch').fill('feature/e2e-defaults');
+
+      const modelSelect = page.locator('#model-select');
+      const modelOption = modelSelect.locator(`option[data-model-id="${TEST_MODEL}"]`).first();
+      await expect(modelOption).toBeAttached({ timeout: 15000 });
+      const modelOptionValue = await modelOption.getAttribute('value');
+      const providerId = await modelOption.getAttribute('data-provider-id');
+      expect(modelOptionValue).toBeTruthy();
+      expect(providerId).toBeTruthy();
+
+      await modelSelect.selectOption(modelOptionValue!);
+      await expect(modelSelect).toHaveValue(modelOptionValue!);
+
+      await expect(page.locator('#defaultMode')).toHaveValue('plan');
+      await expect(page.getByLabel('Enable thinking (extended thinking) by default')).toBeChecked();
+      await expect(page.locator('#defaultEffortLevel')).toHaveValue('high');
+      await expect(page.getByLabel('Start sessions immediately')).not.toBeChecked();
+      await expect(page.locator('#defaultGitMode')).toHaveValue('worktree');
+      await expect(page.locator('#defaultGitBranch')).toHaveValue('feature/e2e-defaults');
+
+      await page.locator('button.btn-primary:has-text("Save")').click();
+      await expect(page).toHaveURL(`/projects/${project.id}/sessions`);
+
+      expect(defaultsPosts).toHaveLength(1);
+      expect(JSON.parse(defaultsPosts[0])).toMatchObject({
+        mode: 'plan',
+        thinkingEnabled: true,
+        effortLevel: 'high',
+        startImmediately: false,
+        gitMode: 'worktree',
+        gitBranch: 'feature/e2e-defaults',
+        model: TEST_MODEL,
+        providerId,
+      });
+      const defaults = await getProjectSessionDefaults(project.id);
+      expect(defaults.mode).toBe('plan');
+      expect(defaults.thinkingEnabled).toBe(true);
+      expect(defaults.effortLevel).toBe('high');
+      expect(defaults.startImmediately).toBe(false);
+      expect(defaults.gitMode).toBe('worktree');
+      expect(defaults.gitBranch).toBe('feature/e2e-defaults');
+      expect(defaults.model).toBe(TEST_MODEL);
+      expect(defaults.providerId).toBe(providerId);
+
+      await page.goto(`/projects/${project.id}/edit`);
+      await page.getByText('Session Defaults').click();
+
+      await expect(page.locator('#defaultMode')).toHaveValue('plan');
+      await expect(page.getByLabel('Enable thinking (extended thinking) by default')).toBeChecked();
+      await expect(page.locator('#defaultEffortLevel')).toHaveValue('high');
+      await expect(page.getByLabel('Start sessions immediately')).not.toBeChecked();
+      await expect(page.locator('#defaultGitMode')).toHaveValue('worktree');
+      await expect(page.locator('#defaultGitBranch')).toHaveValue('feature/e2e-defaults');
+      await expect(page.locator('#model-select')).toHaveValue(modelOptionValue!);
+    });
+  });
+
+  // ============================================================
   // Test Suite 1: API Contract Tests
   // ============================================================
 

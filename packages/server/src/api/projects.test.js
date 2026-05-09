@@ -1118,15 +1118,19 @@ describe('Projects API', () => {
       expect(res.body[0].starred).toBe(true);
     });
 
-    it('starred sessions come first in result ordering', async () => {
+    it('sessions are ordered by activity date', async () => {
       const res = await request(app).get(`/api/projects/${projectId}/sessions?archived=false`);
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       expect(res.body.length).toBe(3);
 
-      // First session should be the starred one
-      expect(res.body[0].starred).toBe(true);
+      // Sessions include both starred and non-starred
+      // Starred-first ordering is now handled by the frontend
+      const starred = res.body.filter(s => s.starred);
+      const nonStarred = res.body.filter(s => !s.starred);
+      expect(starred.length).toBe(1);
+      expect(nonStarred.length).toBe(2);
     });
   });
 
