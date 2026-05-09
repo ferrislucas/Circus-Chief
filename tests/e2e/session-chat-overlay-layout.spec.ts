@@ -2,9 +2,8 @@
  * SessionChatOverlay layout regression coverage.
  *
  * The overlay is teleported to body and scroll locking is applied to #app,
- * while tablet-sized layouts align the fixed backdrop to the visual viewport CSS variables.
- * This keeps the overlay out of the fixed app wrapper without losing the
- * iPadOS browser-chrome offset and height corrections.
+ * while the backdrop shell remains fixed to the full layout viewport. Stale
+ * visual viewport CSS variables must not move or resize that shell.
  *
  * HONEST SCOPE of the mobile projects (iphone-14, ipad-pro):
  * Playwright's mobile devices run chromium with only viewport size + UA
@@ -61,6 +60,73 @@ test.describe('SessionChatOverlay layout', () => {
     });
   }
 
+  async function injectStaleVisualViewportVariables(page: Page) {
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--viewport-offset-top', '260px');
+      document.documentElement.style.setProperty('--visual-viewport-height', '420px');
+    });
+    await page.waitForTimeout(50);
+  }
+
+  async function clearStaleVisualViewportVariables(page: Page) {
+    await page.evaluate(() => {
+      document.documentElement.style.removeProperty('--viewport-offset-top');
+      document.documentElement.style.removeProperty('--visual-viewport-height');
+    });
+  }
+
+  async function readOverlayLayout(page: Page) {
+    return page.evaluate(() => {
+      const rectFor = (selector: string) => {
+        const el = document.querySelector(selector) as HTMLElement;
+        const r = el.getBoundingClientRect();
+        return {
+          top: r.top,
+          bottom: r.bottom,
+          left: r.left,
+          right: r.right,
+          width: r.width,
+          height: r.height,
+        };
+      };
+
+      const shell = document.querySelector(
+        '[data-testid="session-chat-overlay"]'
+      ) as HTMLElement;
+      const s = shell.style;
+
+      return {
+        backdrop: rectFor('[data-testid="session-chat-overlay"]'),
+        panel: rectFor('.overlay-panel-wrapper'),
+        content: rectFor('.overlay-content'),
+        inner: { w: window.innerWidth, h: window.innerHeight },
+        inline: {
+          top: s.top,
+          right: s.right,
+          bottom: s.bottom,
+          left: s.left,
+          width: s.width,
+          height: s.height,
+        },
+      };
+    });
+  }
+
+  function expectBackdropCoversViewport(result: Awaited<ReturnType<typeof readOverlayLayout>>) {
+    expect(result.backdrop.top).toBeLessThanOrEqual(1);
+    expect(result.backdrop.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+    expect(result.backdrop.left).toBeLessThanOrEqual(1);
+    expect(result.backdrop.right).toBeGreaterThanOrEqual(result.inner.w - 1);
+    expect(result.inline).toEqual({
+      top: '',
+      right: '',
+      bottom: '',
+      left: '',
+      width: '',
+      height: '',
+    });
+  }
+
   test('backdrop covers viewport and writes no inline geometry', async ({ page }) => {
     await navigateToSession(page);
     await openOverlay(page);
@@ -81,6 +147,8 @@ test.describe('SessionChatOverlay layout', () => {
         inner: { w: window.innerWidth, h: window.innerHeight },
         inline: {
           top: s.top,
+          right: s.right,
+          bottom: s.bottom,
           left: s.left,
           width: s.width,
           height: s.height,
@@ -92,7 +160,7 @@ test.describe('SessionChatOverlay layout', () => {
     expect(result.rect.bottom).toBeGreaterThanOrEqual(result.inner.h);
     expect(result.rect.left).toBeLessThanOrEqual(0);
     expect(result.rect.right).toBeGreaterThanOrEqual(result.inner.w);
-    expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
+    expect(result.inline).toEqual({ top: '', right: '', bottom: '', left: '', width: '', height: '' });
   });
 
   test('backdrop uses position: fixed at the viewport origin by default', async ({ page }) => {
@@ -121,94 +189,60 @@ test.describe('SessionChatOverlay layout', () => {
     await navigateToSession(page);
     await openOverlay(page);
 
-    await page.evaluate(() => {
-      document.documentElement.style.setProperty('--viewport-offset-top', '260px');
-      document.documentElement.style.setProperty('--visual-viewport-height', '420px');
-    });
-    await page.waitForTimeout(50);
+    await injectStaleVisualViewportVariables(page);
 
     try {
-      const result = await page.evaluate(() => {
-        const el = document.querySelector(
-          '[data-testid="session-chat-overlay"]'
-        ) as HTMLElement;
-        const r = el.getBoundingClientRect();
-        return {
-          top: r.top,
-          bottom: r.bottom,
-          left: r.left,
-          right: r.right,
-          inner: { w: window.innerWidth, h: window.innerHeight },
-        };
-      });
-
-      expect(result.top).toBeLessThanOrEqual(1);
-      expect(result.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
-      expect(result.left).toBeLessThanOrEqual(1);
-      expect(result.right).toBeGreaterThanOrEqual(result.inner.w - 1);
+      const result = await readOverlayLayout(page);
+      expectBackdropCoversViewport(result);
+      expect(result.content.top).toBeLessThanOrEqual(1);
+      expect(result.content.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
     } finally {
-      await page.evaluate(() => {
-        document.documentElement.style.removeProperty('--viewport-offset-top');
-        document.documentElement.style.removeProperty('--visual-viewport-height');
-      });
+      await clearStaleVisualViewportVariables(page);
     }
   });
 
-  test('tablet-sized layouts let visual viewport CSS variables move and size the shell', async ({ page }) => {
+  test('744px tablet-sized layouts ignore stale visual viewport CSS variables', async ({ page }) => {
     await page.setViewportSize({ width: 744, height: 1000 });
     await navigateToSession(page);
     await openOverlay(page);
 
-    await page.evaluate(() => {
-      document.documentElement.style.setProperty('--viewport-offset-top', '260px');
-      document.documentElement.style.setProperty('--visual-viewport-height', '420px');
-    });
-    await page.waitForTimeout(50);
+    await injectStaleVisualViewportVariables(page);
 
     try {
-      const result = await page.evaluate(() => {
-        const rectFor = (selector: string) => {
-          const el = document.querySelector(selector) as HTMLElement;
-          const r = el.getBoundingClientRect();
-          return {
-            top: r.top,
-            bottom: r.bottom,
-            left: r.left,
-            right: r.right,
-            width: r.width,
-          };
-        };
+      const result = await readOverlayLayout(page);
+      expectBackdropCoversViewport(result);
+      expect(result.panel.top).toBeLessThanOrEqual(1);
+      expect(result.panel.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+      expect(result.panel.left).toBeLessThanOrEqual(1);
+      expect(result.panel.right).toBeGreaterThanOrEqual(result.inner.w - 1);
+      expect(result.panel.width).toBeGreaterThanOrEqual(result.inner.w - 1);
+      expect(result.content.top).toBeLessThanOrEqual(1);
+      expect(result.content.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+    } finally {
+      await clearStaleVisualViewportVariables(page);
+    }
+  });
 
-        return {
-          backdrop: rectFor('[data-testid="session-chat-overlay"]'),
-          panel: rectFor('.overlay-panel-wrapper'),
-          header: rectFor('.overlay-header'),
-          inner: { w: window.innerWidth, h: window.innerHeight },
-        };
-      });
+  test('800px tablet-sized layouts keep a right-aligned capped panel inside the full shell', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 1000 });
+    await navigateToSession(page);
+    await openOverlay(page);
 
-      expect(result.backdrop.top).toBeGreaterThanOrEqual(259);
-      expect(result.backdrop.top).toBeLessThanOrEqual(261);
-      expect(result.backdrop.bottom).toBeGreaterThanOrEqual(679);
-      expect(result.backdrop.bottom).toBeLessThanOrEqual(681);
-      expect(result.backdrop.left).toBeLessThanOrEqual(1);
-      expect(result.backdrop.right).toBeGreaterThanOrEqual(result.inner.w - 1);
+    await injectStaleVisualViewportVariables(page);
 
-      expect(result.panel.top).toBeGreaterThanOrEqual(259);
-      expect(result.panel.top).toBeLessThanOrEqual(261);
-      expect(result.panel.bottom).toBeGreaterThanOrEqual(679);
-      expect(result.panel.bottom).toBeLessThanOrEqual(681);
+    try {
+      const result = await readOverlayLayout(page);
+      expectBackdropCoversViewport(result);
+      expect(result.panel.top).toBeLessThanOrEqual(1);
+      expect(result.panel.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
       expect(result.panel.right).toBeGreaterThanOrEqual(result.inner.w - 1);
       expect(result.panel.right).toBeLessThanOrEqual(result.inner.w + 1);
-      expect(result.panel.width).toBeLessThanOrEqual(Math.min(result.inner.w, 900) + 1);
-
-      expect(result.header.top).toBeGreaterThanOrEqual(259);
-      expect(result.header.top).toBeLessThanOrEqual(261);
+      expect(result.panel.width).toBeLessThanOrEqual(701);
+      expect(result.panel.width).toBeGreaterThan(0);
+      expect(result.content.top).toBeLessThanOrEqual(1);
+      expect(result.content.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
     } finally {
-      await page.evaluate(() => {
-        document.documentElement.style.removeProperty('--viewport-offset-top');
-        document.documentElement.style.removeProperty('--visual-viewport-height');
-      });
+      await clearStaleVisualViewportVariables(page);
     }
   });
 
@@ -229,13 +263,13 @@ test.describe('SessionChatOverlay layout', () => {
       return {
         rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
         inner: { w: window.innerWidth, h: window.innerHeight },
-        inline: { top: s.top, left: s.left, width: s.width, height: s.height },
+        inline: { top: s.top, right: s.right, bottom: s.bottom, left: s.left, width: s.width, height: s.height },
       };
     });
 
     expect(result.rect.top).toBeLessThanOrEqual(0);
     expect(result.rect.bottom).toBeGreaterThanOrEqual(result.inner.h);
-    expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
+    expect(result.inline).toEqual({ top: '', right: '', bottom: '', left: '', width: '', height: '' });
   });
 
   test('covers viewport after focus/blur cycle on textarea', async ({ page }) => {
@@ -262,13 +296,13 @@ test.describe('SessionChatOverlay layout', () => {
       return {
         rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
         inner: { w: window.innerWidth, h: window.innerHeight },
-        inline: { top: s.top, left: s.left, width: s.width, height: s.height },
+        inline: { top: s.top, right: s.right, bottom: s.bottom, left: s.left, width: s.width, height: s.height },
       };
     });
 
     expect(result.rect.top).toBeLessThanOrEqual(0);
     expect(result.rect.bottom).toBeGreaterThanOrEqual(result.inner.h);
-    expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
+    expect(result.inline).toEqual({ top: '', right: '', bottom: '', left: '', width: '', height: '' });
   });
 
   test('covers viewport after simulated orientation change', async ({ page }) => {
@@ -291,7 +325,7 @@ test.describe('SessionChatOverlay layout', () => {
       return {
         rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
         inner: { w: window.innerWidth, h: window.innerHeight },
-        inline: { top: s.top, left: s.left, width: s.width, height: s.height },
+        inline: { top: s.top, right: s.right, bottom: s.bottom, left: s.left, width: s.width, height: s.height },
       };
     });
 
@@ -299,7 +333,7 @@ test.describe('SessionChatOverlay layout', () => {
     expect(result.rect.bottom).toBeGreaterThanOrEqual(result.inner.h);
     expect(result.rect.left).toBeLessThanOrEqual(0);
     expect(result.rect.right).toBeGreaterThanOrEqual(result.inner.w);
-    expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
+    expect(result.inline).toEqual({ top: '', right: '', bottom: '', left: '', width: '', height: '' });
   });
 
   test('covers viewport after simulated URL-bar retraction', async ({ page }) => {
@@ -322,13 +356,13 @@ test.describe('SessionChatOverlay layout', () => {
       return {
         rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
         inner: { w: window.innerWidth, h: window.innerHeight },
-        inline: { top: s.top, left: s.left, width: s.width, height: s.height },
+        inline: { top: s.top, right: s.right, bottom: s.bottom, left: s.left, width: s.width, height: s.height },
       };
     });
 
     expect(result.rect.top).toBeLessThanOrEqual(0);
     expect(result.rect.bottom).toBeGreaterThanOrEqual(result.inner.h);
-    expect(result.inline).toEqual({ top: '', left: '', width: '', height: '' });
+    expect(result.inline).toEqual({ top: '', right: '', bottom: '', left: '', width: '', height: '' });
   });
 
 });
