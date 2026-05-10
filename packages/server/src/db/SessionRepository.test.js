@@ -1517,6 +1517,70 @@ describe('SessionRepository', () => {
       expect(retrievedAfter.lastActivityAt).toBeGreaterThanOrEqual(newMessage.timestamp);
     });
 
+    it('reflects summary generation when it is newer than messages', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const now = Date.now();
+      const summaryActivity = now + 60_000;
+
+      repo.db
+        .prepare(
+          `INSERT INTO session_summaries
+           (id, session_id, short_summary, full_summary, message_count, generated_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('summary-latest-activity', session.id, 'Short', 'Full', 1, summaryActivity, now, summaryActivity);
+
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.lastActivityAt).toBe(summaryActivity);
+    });
+
+    it('reflects command runs when they are newer than messages', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const now = Date.now();
+      const startedAt = now + 30_000;
+      const completedAt = now + 45_000;
+
+      repo.db
+        .prepare(
+          `INSERT INTO command_buttons
+           (id, project_id, label, command, sort_order, show_on_list, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('button-latest-activity', projectId, 'Test command', 'echo ok', 0, 1, now, now);
+      repo.db
+        .prepare(
+          `INSERT INTO command_runs
+           (id, session_id, button_id, status, output, exit_code, started_at, completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('run-latest-activity', session.id, 'button-latest-activity', 'success', '', 0, startedAt, completedAt);
+
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.lastActivityAt).toBe(completedAt);
+    });
+
+    it('can derive lastActivityAt from summary activity when a session has no messages', () => {
+      const session = repo.create(projectId, 'Waiting', 'Prompt', {
+        status: 'waiting',
+      });
+      const now = Date.now();
+      const summaryActivity = Date.now() + 60_000;
+
+      repo.db
+        .prepare(
+          `INSERT INTO session_summaries
+           (id, session_id, short_summary, full_summary, message_count, generated_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('summary-no-message-activity', session.id, 'Short', 'Full', 0, summaryActivity, now, summaryActivity);
+
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.lastActivityAt).toBe(summaryActivity);
+    });
+
     it('returns null for lastActivityAt when there are no messages (waiting session)', () => {
       // Create a waiting session (which doesn't create initial message)
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'waiting');
