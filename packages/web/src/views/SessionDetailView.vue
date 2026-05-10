@@ -261,9 +261,12 @@ async function buildSessionChain() {
 
   const tree = collectTreeDepthFirst(root);
   tree.sort((a, b) => {
-    const aTime = a.session.lastActivityAt || a.session.updatedAt || a.session.createdAt || 0;
-    const bTime = b.session.lastActivityAt || b.session.updatedAt || b.session.createdAt || 0;
-    return bTime - aTime;
+    const aTime = a.session.lastMessageAt || 0;
+    const bTime = b.session.lastMessageAt || 0;
+    if (bTime !== aTime) return bTime - aTime;
+    const aFallback = a.session.updatedAt || a.session.createdAt || 0;
+    const bFallback = b.session.updatedAt || b.session.createdAt || 0;
+    return bFallback - aFallback;
   });
   sessionChain.value = tree;
 
@@ -281,7 +284,7 @@ async function buildSessionChain() {
  * Resolve the overlay target session ID.
  * Priority order:
  * 1. Running/starting children (most recently updated)
- * 2. Session with the most recent conversation activity (lastActivityAt)
+ * 2. Session with the most recent conversation activity (lastMessageAt)
  * 3. Current session (fallback)
  */
 function resolveOverlayTarget() {
@@ -322,8 +325,8 @@ function resolveOverlayTarget() {
 
   // No running children — select the session with the most recent conversation activity
   const withActivity = chain
-    .filter(entry => entry.session.lastActivityAt)
-    .sort((a, b) => (b.session.lastActivityAt || 0) - (a.session.lastActivityAt || 0));
+    .filter(entry => entry.session.lastMessageAt)
+    .sort((a, b) => (b.session.lastMessageAt || 0) - (a.session.lastMessageAt || 0));
 
   if (withActivity.length > 0) {
     overlaySessionId.value = withActivity[0].session.id;

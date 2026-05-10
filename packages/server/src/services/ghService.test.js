@@ -73,6 +73,7 @@ describe('ghService', () => {
               mergeable: 'MERGEABLE',
               isDraft: false,
               title: 'Test PR Title',
+              headRefName: 'feature/test-pr',
             }),
             stderr: '',
           });
@@ -109,6 +110,7 @@ describe('ghService', () => {
         ciStatus: 'success',
         ciFailures: [],
         title: 'Test PR Title',
+        headRefName: 'feature/test-pr',
       });
     });
 

@@ -117,6 +117,21 @@ export function extractPrUrlFromMessages(sessionId) {
   return null;
 }
 
+function normalizeBranchName(branch) {
+  if (!branch) return null;
+  return branch.replace(/^refs\/heads\//, '');
+}
+
+function prMatchesSessionBranch(session, prInfo) {
+  const sessionBranch = normalizeBranchName(session?.gitBranch);
+  const prBranch = normalizeBranchName(prInfo?.headRefName);
+
+  // If either side is unavailable, preserve the existing permissive behavior.
+  if (!sessionBranch || !prBranch) return true;
+
+  return sessionBranch === prBranch;
+}
+
 /**
  * Extract PR URL from recent messages immediately after a turn completes.
  * This is lightweight (no Claude API call) - just scans messages for URLs.
@@ -132,11 +147,25 @@ export async function extractPrUrlIfNeeded(sessionId) {
   // Extract PR URL from messages
   const prUrl = extractPrUrlFromMessages(sessionId);
   if (prUrl) {
+    let prInfo = null;
+    try {
+      prInfo = await ghService.getPrInfo(prUrl);
+      if (!prMatchesSessionBranch(session, prInfo)) {
+        console.log(
+          `[PrUrlService] Ignoring PR URL for session ${sessionId}: PR head branch ` +
+          `"${prInfo.headRefName}" does not match session branch "${session.gitBranch}"`
+        );
+        return;
+      }
+    } catch (error) {
+      console.warn(`[PrUrlService] Failed to inspect PR branch for ${prUrl}:`, error.message);
+    }
+
     sessions.update(sessionId, { prUrl });
     console.log(`[PrUrlService] Extracted PR URL for session ${sessionId}: ${prUrl}`);
 
     // Set session name from PR title (async, fire-and-forget)
-    await setSessionNameFromPr(sessionId, prUrl);
+    await setSessionNameFromPr(sessionId, prUrl, prInfo);
 
     // Broadcast session update so UI shows PR URL immediately
     broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
@@ -176,6 +205,16 @@ export async function enrichPrData(summaryDataInput, prUrl, projectRepoUrl, sess
   try {
     const prInfo = await ghService.getPrInfo(prUrl);
     if (prInfo) {
+      const session = sessions.getById(sessionId);
+      if (!prMatchesSessionBranch(session, prInfo)) {
+        console.log(
+          `[PrUrlService] Ignoring PR summary data for session ${sessionId}: PR head branch ` +
+          `"${prInfo.headRefName}" does not match session branch "${session?.gitBranch}"`
+        );
+        summaryData.prUrl = null;
+        return;
+      }
+
       summaryData.prState = prInfo.state;
       summaryData.prMerged = prInfo.merged;
       summaryData.hasMergeConflicts = prInfo.hasMergeConflicts;
@@ -197,17 +236,25 @@ export async function enrichPrData(summaryDataInput, prUrl, projectRepoUrl, sess
  * Set session name from PR title when PR URL is associated.
  * @param {string} sessionId - The session ID
  * @param {string} prUrl - The PR URL
+ * @param {Object|null} prInfoInput - Optional pre-fetched PR info
  */
-export async function setSessionNameFromPr(sessionId, prUrl) {
+export async function setSessionNameFromPr(sessionId, prUrl, prInfoInput = null) {
   const session = sessions.getById(sessionId);
   if (!session || session.manuallyNamed) return; // Don't overwrite if manually named
 
   try {
-    const prInfo = await ghService.getPrInfo(prUrl);
+    const prInfo = prInfoInput || await ghService.getPrInfo(prUrl);
+    if (!prMatchesSessionBranch(session, prInfo)) {
+      console.log(
+        `[PrUrlService] Not setting session ${sessionId} name from PR title: PR head branch ` +
+        `"${prInfo.headRefName}" does not match session branch "${session.gitBranch}"`
+      );
+      return;
+    }
+
     if (prInfo?.title) {
       sessions.update(sessionId, {
         name: prInfo.title,
-        manuallyNamed: true, // Protect from summary overwrites
       });
       console.log(`[PrUrlService] Set session ${sessionId} name from PR title: "${prInfo.title}"`);
 

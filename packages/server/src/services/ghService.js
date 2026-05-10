@@ -105,7 +105,7 @@ export async function getPrInfo(prUrl) {
   try {
     // First fetch basic PR info (this should always work)
     const { stdout: basicStdout } = await execAsync(
-      `gh pr view "${prUrl}" --json state,mergedAt,mergeable,isDraft,title`
+      `gh pr view "${prUrl}" --json state,mergedAt,mergeable,isDraft,title,headRefName`
     );
     const data = JSON.parse(basicStdout);
 
@@ -161,6 +161,7 @@ export async function getPrInfo(prUrl) {
       ciStatus,
       ciFailures,
       title: data.title || null,
+      headRefName: data.headRefName || null,
     };
   } catch (error) {
     console.warn('[ghService] Failed to get PR info:', error.message);

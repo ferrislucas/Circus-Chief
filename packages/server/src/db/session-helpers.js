@@ -8,6 +8,11 @@ import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 /** Reusable SQL fragment for computed activity fields on sessions */
 export const ACTIVITY_FIELDS_SQL = `
   (
+    SELECT MAX(cm.timestamp)
+    FROM conversation_messages cm
+    WHERE cm.session_id = s.id
+  ) AS last_message_at,
+  (
     SELECT MAX(activity_at)
     FROM (
       SELECT cm.timestamp AS activity_at

@@ -42,8 +42,8 @@
         <span class="picker-item-summary">{{ getSummaryText(entry.session.id) }}</span>
         <span
           class="picker-item-date"
-          :title="entry.session.lastActivityAt ? 'Last activity' : 'No activity yet'"
-        >{{ entry.session.lastActivityAt ? formatDate(entry.session.lastActivityAt) : '—' }}</span>
+          :title="chatActivityAt(entry.session) ? 'Last chat message' : 'No chat messages yet'"
+        >{{ chatActivityAt(entry.session) ? formatDate(chatActivityAt(entry.session)) : '—' }}</span>
       </div>
     </div>
   </div>
@@ -98,6 +98,10 @@ function statusLabel(session) {
 function getSummaryText(sessionId) {
   const summary = props.summaries[sessionId];
   return summary?.shortSummary || 'No summary yet';
+}
+
+function chatActivityAt(session) {
+  return session.lastMessageAt ?? null;
 }
 
 function formatDate(timestamp) {

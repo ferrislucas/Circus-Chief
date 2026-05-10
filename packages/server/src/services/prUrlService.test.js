@@ -376,6 +376,27 @@ describe('prUrlService', () => {
 
       expect(summaryData.prTitle).toBeUndefined();
     });
+
+    it('clears summary PR URL when PR branch belongs to another session', async () => {
+      const project = projects.create('Project With Branch', '/tmp/project-with-branch');
+      const session = sessions.create(project.id, 'URL Research', 'prompt', 'standard');
+      sessions.update(session.id, { gitBranch: 'circus-chief/url-research' });
+      const summaryData = { prUrl: 'https://github.com/user/repo/pull/123' };
+
+      ghService.getPrInfo.mockResolvedValue({
+        state: 'OPEN',
+        merged: false,
+        hasMergeConflicts: false,
+        ciStatus: 'passing',
+        title: 'Unrelated PR',
+        headRefName: 'circus-chief/fix-other-feature',
+      });
+
+      await enrichPrData(summaryData, 'https://github.com/user/repo/pull/123', 'https://github.com/user/repo', session.id);
+
+      expect(summaryData.prUrl).toBeNull();
+      expect(summaryData.prTitle).toBeUndefined();
+    });
   });
 
   describe('setSessionNameFromPr', () => {
@@ -400,7 +421,24 @@ describe('prUrlService', () => {
 
       const updated = sessions.getById(sessionId);
       expect(updated.name).toBe('Add new feature');
-      expect(updated.manuallyNamed).toBe(true);
+      expect(updated.manuallyNamed).toBe(false);
+    });
+
+    it('does not set session name from PR title when PR branch belongs to another session', async () => {
+      sessions.update(sessionId, { gitBranch: 'circus-chief/url-research' });
+
+      ghService.getPrInfo.mockResolvedValue({
+        title: 'Unrelated PR Title',
+        state: 'OPEN',
+        merged: false,
+        headRefName: 'circus-chief/fix-other-feature',
+      });
+
+      await setSessionNameFromPr(sessionId, 'https://github.com/org/repo/pull/123');
+
+      const updated = sessions.getById(sessionId);
+      expect(updated.name).toBe('Original Name');
+      expect(updated.manuallyNamed).toBe(false);
     });
 
     it('does not overwrite name if manuallyNamed is already true', async () => {
@@ -495,7 +533,27 @@ describe('prUrlService', () => {
       const session = sessions.getById(sessionId);
       expect(session.prUrl).toBe(prUrl);
       expect(session.name).toBe('Extracted PR Title');
-      expect(session.manuallyNamed).toBe(true);
+      expect(session.manuallyNamed).toBe(false);
+    });
+
+    it('does not extract PR URL when the PR branch does not match the session branch', async () => {
+      sessions.update(sessionId, { gitBranch: 'circus-chief/url-research' });
+      const prUrl = 'https://github.com/org/repo/pull/123';
+      messages.create(sessionId, 'assistant', `Found target session PR: ${prUrl}`);
+
+      ghService.getPrInfo.mockResolvedValue({
+        title: 'Fix session chat viewport height',
+        state: 'OPEN',
+        merged: false,
+        headRefName: 'circus-chief/fix-session-chat-viewport-height',
+      });
+
+      await extractPrUrlIfNeeded(sessionId);
+
+      const session = sessions.getById(sessionId);
+      expect(session.prUrl).toBeNull();
+      expect(session.name).toBe('Original Name');
+      expect(broadcastSessionUpdate).not.toHaveBeenCalled();
     });
 
     it('does not set name if manuallyNamed is true', async () => {

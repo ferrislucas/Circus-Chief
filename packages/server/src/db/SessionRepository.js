@@ -73,6 +73,7 @@ export class SessionRepository extends BaseRepository {
       laneTriggerDepth: row.lane_trigger_depth || 0,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      lastMessageAt: row.last_message_at ?? null,
       lastActivityAt: row.last_activity_at ?? null,
       activeTimeMs: row.active_time_ms || 0,
     };

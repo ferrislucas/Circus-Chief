@@ -16,6 +16,7 @@ describe('SessionChatPicker', () => {
           name: 'Root Session',
           status: 'completed',
           createdAt: Date.now() - 7200000,
+          lastMessageAt: Date.now() - 3600000,
           lastActivityAt: Date.now() - 3600000,
         },
         depth: 0,
@@ -26,6 +27,7 @@ describe('SessionChatPicker', () => {
           name: 'Child Session 1',
           status: 'running',
           createdAt: Date.now() - 3600000,
+          lastMessageAt: Date.now() - 1800000,
           lastActivityAt: Date.now() - 1800000,
         },
         depth: 1,
@@ -36,6 +38,7 @@ describe('SessionChatPicker', () => {
           name: 'Child Session 2',
           status: 'waiting',
           createdAt: Date.now() - 1800000,
+          lastMessageAt: Date.now() - 900000,
           lastActivityAt: Date.now() - 900000,
         },
         depth: 1,
@@ -325,16 +328,16 @@ describe('SessionChatPicker', () => {
       });
     });
 
-    it('renders lastActivityAt when present with "Last activity" tooltip', () => {
+    it('renders lastMessageAt when present with "Last chat message" tooltip', () => {
       const wrapper = mountComponent();
       const firstItem = wrapper.findAll('.picker-item')[0];
       const dateEl = firstItem.find('.picker-item-date');
-      expect(dateEl.attributes('title')).toBe('Last activity');
+      expect(dateEl.attributes('title')).toBe('Last chat message');
       expect(dateEl.text()).not.toBe('—');
       expect(dateEl.text().length).toBeGreaterThan(0);
     });
 
-    it('renders "—" placeholder with "No activity yet" tooltip when lastActivityAt is null', () => {
+    it('renders "—" placeholder with "No chat messages yet" tooltip when lastMessageAt is null', () => {
       const wrapper = mountComponent({
         sessions: [{
           session: {
@@ -342,6 +345,7 @@ describe('SessionChatPicker', () => {
             name: 'No activity',
             status: 'waiting',
             createdAt: Date.now(),
+            lastMessageAt: null,
             lastActivityAt: null,
           },
           depth: 0,
@@ -350,22 +354,22 @@ describe('SessionChatPicker', () => {
         summaries: {},
       });
       const dateEl = wrapper.find('.picker-item-date');
-      expect(dateEl.attributes('title')).toBe('No activity yet');
+      expect(dateEl.attributes('title')).toBe('No chat messages yet');
       expect(dateEl.text()).toBe('—');
     });
 
-    it('flips tooltip between "Last activity" and "No activity yet" based on value', () => {
+    it('flips tooltip between "Last chat message" and "No chat messages yet" based on value', () => {
       const wrapper = mountComponent({
         sessions: [
-          { session: { id: 'has', name: 'Has', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
-          { session: { id: 'none', name: 'None', status: 'waiting', createdAt: Date.now(), lastActivityAt: null }, depth: 0 },
+          { session: { id: 'has', name: 'Has', status: 'completed', createdAt: Date.now(), lastMessageAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
+          { session: { id: 'none', name: 'None', status: 'waiting', createdAt: Date.now(), lastMessageAt: null, lastActivityAt: Date.now() }, depth: 0 },
         ],
         activeSessionId: 'has',
         summaries: {},
       });
       const items = wrapper.findAll('.picker-item');
-      expect(items[0].find('.picker-item-date').attributes('title')).toBe('Last activity');
-      expect(items[1].find('.picker-item-date').attributes('title')).toBe('No activity yet');
+      expect(items[0].find('.picker-item-date').attributes('title')).toBe('Last chat message');
+      expect(items[1].find('.picker-item-date').attributes('title')).toBe('No chat messages yet');
     });
   });
 

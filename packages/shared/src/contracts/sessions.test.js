@@ -336,6 +336,7 @@ describe('SessionResponse', () => {
     laneTriggerDepth: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    lastMessageAt: Date.now(),
     lastActivityAt: Date.now(),
   };
 
@@ -513,6 +514,7 @@ describe('SessionListResponse', () => {
         laneTriggerDepth: 0,
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        lastMessageAt: Date.now(),
         lastActivityAt: Date.now(),
       },
     ]);

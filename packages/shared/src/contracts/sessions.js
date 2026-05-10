@@ -84,6 +84,7 @@ export const SessionResponse = z.object({
   laneTriggerDepth: z.number(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  lastMessageAt: z.number().nullable(),
   lastActivityAt: z.number().nullable(),
 });
 
