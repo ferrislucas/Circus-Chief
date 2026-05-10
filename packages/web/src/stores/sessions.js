@@ -198,6 +198,12 @@ export const useSessionsStore = defineStore('sessions', {
           grouped.push({ parent: session, children: [] });
         }
       });
+      // Sort starred sessions first, preserving the API's activity-date order within each group
+      grouped.sort((a, b) => {
+        const aStar = a.parent.starred ? 1 : 0;
+        const bStar = b.parent.starred ? 1 : 0;
+        return bStar - aStar;
+      });
       return grouped;
     },
 

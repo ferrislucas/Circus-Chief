@@ -876,3 +876,93 @@ test.describe('Template Detail View - Effort Level UI', () => {
     expect(updated.effortLevel).toBe('max');
   });
 });
+
+// ============================================================
+// Category 7: Self-Chaining Template Tests
+// ============================================================
+
+test.describe('Self-Chaining Template', () => {
+  test.use({ viewport: { width: 1280, height: 720 } });
+
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+    project = await seedProject('Self-Chain Template Test', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+  });
+
+  test('self-chain: dropdown includes current template and persists self-selection', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Self-Chain Template',
+      prompt: 'Self-referencing template',
+    });
+
+    // Navigate directly to the edit page (simulates reload / direct URL entry)
+    await page.goto(`/projects/${project.id}/templates/${template.id}`);
+
+    // Wait for the Next Template dropdown to be visible
+    const nextTemplateSelect = page.locator('#nextTemplate');
+    await expect(nextTemplateSelect).toBeVisible({ timeout: 10000 });
+
+    // Assert the dropdown contains an option for the template being edited
+    const selfOption = nextTemplateSelect.locator(`option[value="${template.id}"]`);
+    await expect(selfOption).toBeAttached({ timeout: 5000 });
+
+    // Select the template itself as the Next Template
+    await nextTemplateSelect.selectOption(template.id);
+
+    // Click Save
+    await page.click('button:has-text("Save")');
+    await expect(page.getByText('Template updated')).toBeVisible({ timeout: 10000 });
+
+    // Verify persistence via backend API
+    const saved = await getTemplate(template.id);
+    expect(saved.nextTemplateId).toBe(template.id);
+
+    // Reload the edit page and assert selection is preserved
+    await page.goto(`/projects/${project.id}/templates/${template.id}`);
+    const reloadedSelect = page.locator('#nextTemplate');
+    await expect(reloadedSelect).toBeVisible({ timeout: 10000 });
+    const selectedValue = await reloadedSelect.inputValue();
+    expect(selectedValue).toBe(template.id);
+  });
+
+  test('self-chain: clearing self-chain via UI persists null', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: '[TEST] Clear Self-Chain Template',
+      prompt: 'Template that starts self-chained',
+    });
+
+    // Set up self-chain via backend directly
+    await updateTemplate(template.id, { nextTemplateId: template.id });
+    const check = await getTemplate(template.id);
+    expect(check.nextTemplateId).toBe(template.id);
+
+    // Navigate to the edit page (simulates reload)
+    await page.goto(`/projects/${project.id}/templates/${template.id}`);
+    const nextTemplateSelect = page.locator('#nextTemplate');
+    await expect(nextTemplateSelect).toBeVisible({ timeout: 10000 });
+
+    // Verify the self-chain selection is shown
+    const selectedBefore = await nextTemplateSelect.inputValue();
+    expect(selectedBefore).toBe(template.id);
+
+    // Select None to clear the chain (the None option has :value="null" in Vue which
+    // renders without a value attribute, so select by label text)
+    await nextTemplateSelect.selectOption({ label: 'None' });
+
+    // Click Save
+    await page.click('button:has-text("Save")');
+    await expect(page.getByText('Template updated')).toBeVisible({ timeout: 10000 });
+
+    // Verify persistence via backend API - nextTemplateId should now be null
+    const cleared = await getTemplate(template.id);
+    expect(cleared.nextTemplateId).toBeNull();
+  });
+});

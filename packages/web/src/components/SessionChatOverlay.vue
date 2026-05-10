@@ -972,6 +972,8 @@ defineExpose({
 .overlay-backdrop {
   position: fixed;
   inset: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
   z-index: 1200;
   background: rgb(17, 24, 39);
   display: block;
@@ -980,22 +982,13 @@ defineExpose({
   overscroll-behavior: none;
 }
 
-@media (min-width: 700px) and (min-height: 700px) {
-  .overlay-backdrop {
-    top: var(--viewport-offset-top, 0px);
-    right: 0;
-    bottom: auto;
-    left: 0;
-    height: var(--visual-viewport-height, 100dvh);
-  }
-}
-
 .overlay-panel-wrapper {
   position: absolute;
   inset: 0 0 0 auto;
   height: 100%;
+  min-height: 100%;
+  min-height: 100dvh;
   display: flex;
-  min-height: 0;
   max-width: 900px;
   width: 100%;
   overflow: visible;
@@ -1060,6 +1053,8 @@ defineExpose({
 .overlay-content {
   flex: 1;
   width: 100%;
+  min-height: 100%;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   /* `overflow: clip` (not `hidden`) disables programmatic scrolling as

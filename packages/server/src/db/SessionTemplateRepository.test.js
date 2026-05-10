@@ -464,6 +464,17 @@ describe('SessionTemplateRepository', () => {
       expect(result.name).toBe('Test');
       expect(result.prompt).toBe('Prompt');
     });
+
+    it('allows a template to set nextTemplateId to its own ID (self-reference)', () => {
+      const template = repo.create({ projectId: null, name: 'Self-Chain', prompt: 'Prompt' });
+
+      const updated = repo.update(template.id, { nextTemplateId: template.id });
+
+      expect(updated.nextTemplateId).toBe(template.id);
+
+      const fetched = repo.getById(template.id);
+      expect(fetched.nextTemplateId).toBe(template.id);
+    });
   });
 
   describe('delete', () => {
