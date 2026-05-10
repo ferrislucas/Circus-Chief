@@ -90,6 +90,7 @@ vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: vi.fn(() => ({
     templates: [],
     fetchTemplates: vi.fn().mockResolvedValue(undefined),
+    fetchProjectTemplates: vi.fn().mockResolvedValue(undefined),
     getTemplateById: vi.fn(() => null),
   })),
 }));

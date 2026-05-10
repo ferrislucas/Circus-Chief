@@ -54,6 +54,9 @@ temp/
 # Server port file (auto-generated)
 .server-port
 
+# Worktree commit hooks (auto-generated)
+.circuschief-hooks/
+
 # DB path file for package tests (auto-generated)
 .db-path
 
