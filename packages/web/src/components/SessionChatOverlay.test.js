@@ -1625,10 +1625,21 @@ describe('SessionChatOverlay', () => {
       expect(block).not.toMatch(/top:\s*var\(/);
     });
 
-    it('overlay content has a viewport-height floor for Safari tablet layout', () => {
+    it('overlay content has a viewport-height floor and visual top offset', () => {
       const block = getStyleBlock('.overlay-content');
       expect(block).toMatch(/min-height:\s*100%/);
       expect(block).toMatch(/min-height:\s*100dvh/);
+      expect(block).toMatch(
+        /padding-top:\s*max\(0px,\s*var\(--viewport-offset-top,\s*0px\)\)/
+      );
+      expect(block).not.toMatch(/--visual-viewport-height/);
+    });
+
+    it('overlay header stays sticky within the padded content flow', () => {
+      const block = getStyleBlock('.overlay-header');
+      expect(block).toMatch(/position:\s*-webkit-sticky/);
+      expect(block).toMatch(/position:\s*sticky/);
+      expect(block).toMatch(/top:\s*0/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
     });
