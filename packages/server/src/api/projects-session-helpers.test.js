@@ -5,6 +5,7 @@ import {
   resolveDefault,
   resolveThinkingEnabled,
   resolveStartImmediately,
+  parseScheduledAt,
   parseSchedulingConfig,
   prepareSessionConfig,
   applyTemplateOverrides,
@@ -206,9 +207,29 @@ describe('resolveStartImmediately', () => {
 // ── parseSchedulingConfig ────────────────────────────────────────────────
 
 describe('parseSchedulingConfig', () => {
-  it('parses valid scheduledAt', () => {
+  it('parses valid ISO 8601 scheduledAt strings to Unix milliseconds', () => {
+    const result = parseSchedulingConfig({ scheduledAt: '2026-06-12T14:00:00Z' });
+    expect(result.scheduledAt).toBe(Date.parse('2026-06-12T14:00:00Z'));
+    expect(result.schedulingError).toBeNull();
+  });
+
+  it('rejects Unix timestamp strings for scheduledAt', () => {
     const result = parseSchedulingConfig({ scheduledAt: '1700000000000' });
-    expect(result.scheduledAt).toBe(1700000000000);
+    expect(result.scheduledAt).toBeUndefined();
+    expect(result.schedulingError).toContain('ISO 8601');
+    expect(result.schedulingError).toContain('2026-06-12T14:00:00Z');
+  });
+
+  it('rejects non-string scheduledAt values', () => {
+    const result = parseSchedulingConfig({ scheduledAt: 1700000000000 });
+    expect(result.scheduledAt).toBeUndefined();
+    expect(result.schedulingError).toContain('ISO 8601');
+  });
+
+  it('rejects invalid ISO-like scheduledAt values', () => {
+    const result = parseScheduledAt('2026-02-30T14:00:00Z');
+    expect(result.value).toBeUndefined();
+    expect(result.error).toContain('ISO 8601');
   });
 
   it('coerces autoRescheduleEnabled boolean', () => {
@@ -235,6 +256,7 @@ describe('parseSchedulingConfig', () => {
   it('returns defaults for null/empty body', () => {
     const result = parseSchedulingConfig({});
     expect(result.scheduledAt).toBeUndefined();
+    expect(result.schedulingError).toBeNull();
     expect(result.autoRescheduleEnabled).toBe(false);
     expect(result.rescheduleDelayMinutes).toBe(DEFAULT_RESCHEDULE_DELAY_MINUTES);
     expect(result.rescheduleOnTokenLimit).toBe(true);
@@ -374,11 +396,12 @@ describe('prepareSessionConfig', () => {
 
   it('includes scheduling config', () => {
     const config = prepareSessionConfig(
-      { prompt: 'test', scheduledAt: '1700000000000' },
+      { prompt: 'test', scheduledAt: '2026-06-12T14:00:00Z' },
       null,
       systemDefaults
     );
-    expect(config.scheduledAt).toBe(1700000000000);
+    expect(config.scheduledAt).toBe(Date.parse('2026-06-12T14:00:00Z'));
+    expect(config.schedulingError).toBeNull();
   });
 
   // Phase 7 regression: agent-type derivation happens in the route

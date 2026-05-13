@@ -127,6 +127,18 @@ describe('SessionsApi', () => {
       }));
     });
 
+    it('normalizes numeric scheduledAt to ISO 8601 for JSON session creation', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+      const scheduledAt = Date.parse('2026-06-12T14:00:00Z');
+
+      await client.createSession('proj-123', { prompt: 'Hello', scheduledAt });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ prompt: 'Hello', scheduledAt: '2026-06-12T14:00:00.000Z' }),
+      }));
+    });
+
     it('includes optional fields in FormData', async () => {
       mockFetch.mockReturnValue(mockResponse({ id: '1' }));
       const file = new File(['test'], 'test.txt', { type: 'text/plain' });
@@ -162,7 +174,7 @@ describe('SessionsApi', () => {
       await client.createSession('proj-123', {
         prompt: 'Hello',
         parentSessionId: 'parent-123',
-        scheduledAt: 1700000000000,
+        scheduledAt: '2026-06-12T14:00:00Z',
         autoRescheduleEnabled: true,
         rescheduleDelayMinutes: 30,
         rescheduleOnTokenLimit: true,
@@ -175,7 +187,7 @@ describe('SessionsApi', () => {
 
       const formData = mockFetch.mock.calls[0][1].body;
       expect(formData.get('parentSessionId')).toBe('parent-123');
-      expect(formData.get('scheduledAt')).toBe('1700000000000');
+      expect(formData.get('scheduledAt')).toBe('2026-06-12T14:00:00Z');
       expect(formData.get('autoRescheduleEnabled')).toBe('true');
       expect(formData.get('rescheduleDelayMinutes')).toBe('30');
       expect(formData.get('rescheduleOnTokenLimit')).toBe('true');

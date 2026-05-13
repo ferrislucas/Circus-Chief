@@ -6,6 +6,9 @@ import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
+const SCHEDULED_AT_FORMAT_MESSAGE = 'scheduledAt must be a valid ISO 8601 date-time string with a timezone, for example "2026-06-12T14:00:00Z".';
+const ISO_8601_DATE_TIME_WITH_TIMEZONE = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d{1,3})?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+
 /**
  * Generate an initial session name from the prompt
  * This will be replaced by a better name when the summary is generated
@@ -83,14 +86,57 @@ export function resolveThinkingEnabled(body, projectDefs, systemDefaults) {
   return systemDefaults.thinkingEnabled;
 }
 
+function hasValidDateParts(year, month, day) {
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+/**
+ * Parse scheduledAt from the public API contract.
+ * @param {*} value - Raw scheduledAt value
+ * @returns {{ value: number|undefined, error: string|null }}
+ */
+export function parseScheduledAt(value) {
+  if (value === undefined || value === null || value === '') {
+    return { value: undefined, error: null };
+  }
+
+  if (typeof value !== 'string') {
+    return { value: undefined, error: SCHEDULED_AT_FORMAT_MESSAGE };
+  }
+
+  const match = ISO_8601_DATE_TIME_WITH_TIMEZONE.exec(value);
+  if (!match) {
+    return { value: undefined, error: SCHEDULED_AT_FORMAT_MESSAGE };
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!hasValidDateParts(year, month, day)) {
+    return { value: undefined, error: SCHEDULED_AT_FORMAT_MESSAGE };
+  }
+
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return { value: undefined, error: SCHEDULED_AT_FORMAT_MESSAGE };
+  }
+
+  return { value: timestamp, error: null };
+}
+
 /**
  * Parse scheduling fields from request body.
  * @param {object} body - Request body
  * @returns {object} Scheduling configuration
  */
 export function parseSchedulingConfig(body) {
+  const scheduledAt = parseScheduledAt(body.scheduledAt);
   return {
-    scheduledAt: body.scheduledAt ? parseInt(body.scheduledAt, 10) : undefined,
+    scheduledAt: scheduledAt.value,
+    schedulingError: scheduledAt.error,
     autoRescheduleEnabled: body.autoRescheduleEnabled === true || body.autoRescheduleEnabled === 'true',
     rescheduleDelayMinutes: body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : DEFAULT_RESCHEDULE_DELAY_MINUTES,
     rescheduleOnTokenLimit: body.rescheduleOnTokenLimit !== false && body.rescheduleOnTokenLimit !== 'false',
