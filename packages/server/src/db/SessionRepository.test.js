@@ -1722,6 +1722,65 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('lastMessageAt', () => {
+    it('returns newest conversation message timestamp without changing broad activity semantics', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const now = Date.now();
+      const messageAt = now + 10_000;
+      const summaryActivity = now + 60_000;
+
+      repo.db
+        .prepare('UPDATE conversation_messages SET timestamp = ? WHERE session_id = ?')
+        .run(messageAt, session.id);
+      repo.db
+        .prepare(
+          `INSERT INTO session_summaries
+           (id, session_id, short_summary, full_summary, message_count, generated_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('summary-newer-than-message', session.id, 'Short', 'Full', 1, summaryActivity, now, summaryActivity);
+
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.lastMessageAt).toBe(messageAt);
+      expect(retrieved.lastActivityAt).toBe(summaryActivity);
+    });
+
+    it('returns null when a waiting or scheduled session has no messages', () => {
+      const waiting = repo.create(projectId, 'Waiting', 'Prompt', { status: 'waiting' });
+      const scheduled = repo.create(projectId, 'Scheduled', 'Prompt', { status: 'scheduled' });
+
+      expect(repo.getById(waiting.id).lastMessageAt).toBeNull();
+      expect(repo.getById(scheduled.id).lastMessageAt).toBeNull();
+    });
+
+    it('is included on mapped sessions from repository list methods', () => {
+      const parent = repo.create(projectId, 'Parent', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
+      const prSession = repo.update(parent.id, { prUrl: 'https://github.com/org/repo/pull/123' });
+      const scheduled = repo.create(projectId, 'Scheduled', 'Prompt', { status: 'scheduled' });
+      repo.update(scheduled.id, { scheduledAt: Date.now() - 1000 });
+
+      const results = [
+        repo.getById(parent.id),
+        repo.getByProjectId(projectId).find(s => s.id === parent.id),
+        repo.getActiveAndWaiting().find(s => s.id === parent.id),
+        repo.getChildSessions(parent.id).find(s => s.id === child.id),
+        repo.getSessionsWithPrUrls().find(s => s.id === prSession.id),
+        repo.getScheduledSessions().find(s => s.id === scheduled.id),
+        repo.getScheduledSessionsDue(Date.now()).find(s => s.id === scheduled.id),
+      ];
+
+      for (const session of results) {
+        expect(session).toBeDefined();
+        expect(session).toHaveProperty('lastMessageAt');
+      }
+      expect(results[0].lastMessageAt).toBeTypeOf('number');
+      expect(results[5].lastMessageAt).toBeNull();
+      expect(results[6].lastMessageAt).toBeNull();
+    });
+  });
+
   describe('activeTimeMs', () => {
     it('returns 0 for a session with no messages', () => {
       const session = repo.create(projectId, 'Test', 'Prompt', 'standard', false, null, null, 'waiting');

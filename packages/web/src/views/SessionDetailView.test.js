@@ -10,6 +10,9 @@ import { useTodosStore } from '../stores/todos.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+
+const websocketHandlers = vi.hoisted(() => new Map());
 
 // Mock components
 vi.mock('../components/ChangesTab.vue', () => ({
@@ -105,8 +108,8 @@ vi.mock('../composables/useWebSocket.js', () => {
     useWebSocket: vi.fn(() => ({
       isConnected: { value: true },
       send: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
+      on: vi.fn((type, callback) => websocketHandlers.set(type, callback)),
+      off: vi.fn((type) => websocketHandlers.delete(type)),
       disconnect: vi.fn(),
       clearSessionBuffer: vi.fn(),
       onReconnect: vi.fn(() => () => {}),
@@ -155,6 +158,7 @@ describe('SessionDetailView', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    websocketHandlers.clear();
     pinia = createPinia();
     setActivePinia(pinia);
 
@@ -3602,6 +3606,8 @@ describe('SessionDetailView', () => {
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: null,
+        updatedAt: 1000,
+        createdAt: 500,
       };
       const previousChild = {
         id: 'previous-child',
@@ -3610,6 +3616,9 @@ describe('SessionDetailView', () => {
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
         lastActivityAt: 3000,
+        lastMessageAt: 2000,
+        updatedAt: 2000,
+        createdAt: 500,
       };
       const newChild = {
         id: 'new-child',
@@ -3617,6 +3626,9 @@ describe('SessionDetailView', () => {
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
+        lastMessageAt: 4000,
+        updatedAt: 4000,
+        createdAt: 500,
       };
 
       sessionsStore.currentSession = parentSession;
@@ -3673,6 +3685,8 @@ describe('SessionDetailView', () => {
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: null,
+        updatedAt: 1000,
+        createdAt: 500,
       };
       const previousChild = {
         id: 'previous-child',
@@ -3681,6 +3695,9 @@ describe('SessionDetailView', () => {
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
         lastActivityAt: 3000,
+        lastMessageAt: 2000,
+        updatedAt: 2000,
+        createdAt: 500,
       };
       const newChild = {
         id: 'new-child',
@@ -3688,6 +3705,9 @@ describe('SessionDetailView', () => {
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: 'parent-1',
+        lastMessageAt: 4000,
+        updatedAt: 4000,
+        createdAt: 500,
       };
 
       sessionsStore.currentSession = parentSession;
@@ -3734,42 +3754,57 @@ describe('SessionDetailView', () => {
 
       expect(wrapper.vm.overlaySessionId).toBe('new-child');
       expect(wrapper.vm.sessionChain.some(entry => entry.session.id === 'new-child')).toBe(true);
+      expect(wrapper.vm.sessionChain.map(entry => entry.session.id)).toEqual([
+        'new-child',
+        'previous-child',
+        'parent-1',
+      ]);
     });
 
-    it('sorts session chain by lastActivityAt descending (most recent first)', async () => {
+    it('sorts session chain by picker recency instead of broad lastActivityAt', async () => {
       const sessionA = {
         id: 'session-a',
-        name: 'Session A (oldest)',
+        name: 'Session A (root with newer broad activity)',
         status: 'completed',
         projectId: 'proj-1',
         parentSessionId: null,
-        lastActivityAt: 1000,
+        lastActivityAt: 6000,
+        lastMessageAt: 1000,
+        updatedAt: 5400,
+        createdAt: 900,
       };
       const sessionB = {
         id: 'session-b',
-        name: 'Session B (middle)',
+        name: 'Session B (newest message)',
         status: 'running',
         projectId: 'proj-1',
         parentSessionId: 'session-a',
-        lastActivityAt: 3000,
+        lastActivityAt: 5900,
+        lastMessageAt: 5900,
+        updatedAt: 5900,
+        createdAt: 800,
       };
       const sessionC = {
         id: 'session-c',
-        name: 'Session C (newest)',
-        status: 'waiting',
-        projectId: 'proj-1',
-        parentSessionId: 'session-a',
-        lastActivityAt: 5000,
-      };
-      // Session D has no lastActivityAt, falls back to updatedAt
-      const sessionD = {
-        id: 'session-d',
-        name: 'Session D (fallback to updatedAt)',
+        name: 'Session C (updated fallback)',
         status: 'waiting',
         projectId: 'proj-1',
         parentSessionId: 'session-a',
         lastActivityAt: null,
-        updatedAt: 2000,
+        lastMessageAt: null,
+        updatedAt: 5410,
+        createdAt: 700,
+      };
+      const sessionD = {
+        id: 'session-d',
+        name: 'Session D (older updated fallback)',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'session-a',
+        lastActivityAt: null,
+        lastMessageAt: null,
+        updatedAt: 5407,
+        createdAt: 600,
       };
 
       sessionsStore.currentSession = sessionA;
@@ -3800,14 +3835,214 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      // Should contain all 4 sessions
-      expect(wrapper.vm.sessionChain.length).toBe(4);
+      expect(wrapper.vm.sessionChain.map(entry => entry.session.id)).toEqual([
+        'session-b',
+        'session-c',
+        'session-d',
+        'session-a',
+      ]);
+      expect(wrapper.vm.sessionChain.map(entry => entry.pickerTimestamp)).toEqual([5900, 5410, 5407, 5400]);
+      expect(wrapper.vm.sessionChain.map(entry => entry.pickerTimestampSource)).toEqual([
+        'lastMessageAt',
+        'updatedAt',
+        'updatedAt',
+        'updatedAt',
+      ]);
+    });
 
-      // Order should be: C (5000), B (3000), D (2000 via updatedAt fallback), A (1000)
-      expect(wrapper.vm.sessionChain[0].session.id).toBe('session-c');
-      expect(wrapper.vm.sessionChain[1].session.id).toBe('session-b');
-      expect(wrapper.vm.sessionChain[2].session.id).toBe('session-d');
-      expect(wrapper.vm.sessionChain[3].session.id).toBe('session-a');
+    it('sorts child with newest direct message above root with newer broad activity', async () => {
+      const root = {
+        id: '15a42efa-5773-4e8a-a928-09878f8b2e6c',
+        name: 'Root with summary activity',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastActivityAt: 9000,
+        lastMessageAt: 1000,
+        updatedAt: 1000,
+        createdAt: 500,
+      };
+      const child = {
+        id: 'quick-response-child',
+        name: 'Quick response auto-submit checkbox implementation',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: root.id,
+        lastActivityAt: 8000,
+        lastMessageAt: 8000,
+        updatedAt: 8000,
+        createdAt: 700,
+      };
+
+      sessionsStore.currentSession = root;
+      sessionsStore.sessions = [root, child];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === root.id ? [child] : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => root);
+      api.getProjectSessions.mockResolvedValue([root, child]);
+
+      await router.push(`/sessions/${root.id}`);
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.sessionChain[0].session.id).toBe(child.id);
+      expect(wrapper.vm.sessionChain[1].session.id).toBe(root.id);
+    });
+
+    it('ignores invalid timestamps and sorts numeric and ISO timestamp strings', async () => {
+      const root = {
+        id: '231dcaa8-bf0c-478a-9885-f30a1376dfd3',
+        name: 'Root',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        lastMessageAt: '2000',
+        updatedAt: 2000,
+        createdAt: 1000,
+      };
+      const childA = {
+        id: 'child-a',
+        name: 'Numeric fallback',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: root.id,
+        lastMessageAt: 'not-a-date',
+        updatedAt: '2026-05-12T12:00:00.000Z',
+        createdAt: null,
+      };
+      const childB = {
+        id: 'child-b',
+        name: 'Older message',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: root.id,
+        lastMessageAt: '3000',
+        updatedAt: 'invalid',
+        createdAt: '1000',
+      };
+
+      sessionsStore.currentSession = root;
+      sessionsStore.sessions = [root, childA, childB];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === root.id ? [childA, childB] : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => root);
+
+      api.getProjectSessions.mockResolvedValue([root, childA, childB]);
+
+      await router.push(`/sessions/${root.id}`);
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.sessionChain.map(entry => entry.session.id)).toEqual([
+        'child-a',
+        'child-b',
+        root.id,
+      ]);
+      expect(wrapper.vm.sessionChain[0].pickerTimestampSource).toBe('updatedAt');
+      expect(wrapper.vm.sessionChain[1].pickerTimestampSource).toBe('lastMessageAt');
+    });
+
+    it('re-sorts sessionChain after a SESSION_UPDATED event while preserving depth', async () => {
+      const root = {
+        id: 'root',
+        name: 'Root',
+        status: 'completed',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        updatedAt: 1000,
+        createdAt: 500,
+      };
+      const childA = {
+        id: 'child-a',
+        name: 'Child A',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: root.id,
+        lastMessageAt: 1000,
+        updatedAt: 1000,
+        createdAt: 500,
+      };
+      const childB = {
+        id: 'child-b',
+        name: 'Child B',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: root.id,
+        lastMessageAt: 3000,
+        updatedAt: 3000,
+        createdAt: 500,
+      };
+
+      sessionsStore.currentSession = root;
+      sessionsStore.sessions = [root, childA, childB];
+
+      vi.spyOn(sessionsStore, 'getChildSessions', 'get').mockReturnValue(
+        (parentId) => parentId === root.id ? [childA, childB] : []
+      );
+      vi.spyOn(sessionsStore, 'getRootSession', 'get').mockReturnValue(() => root);
+      api.getProjectSessions.mockResolvedValue([root, childA, childB]);
+
+      await router.push('/sessions/root');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('child-b');
+
+      const handleSessionUpdated = websocketHandlers.get(WS_MESSAGE_TYPES.SESSION_UPDATED);
+      expect(handleSessionUpdated).toBeTypeOf('function');
+      handleSessionUpdated({
+        session: {
+          ...childA,
+          lastMessageAt: 5000,
+          updatedAt: 5000,
+        },
+      });
+      await nextTick();
+
+      expect(wrapper.vm.sessionChain[0].session.id).toBe('child-a');
+      expect(wrapper.vm.sessionChain[0].depth).toBe(1);
+      expect(wrapper.vm.sessionChain[0].pickerTimestamp).toBe(5000);
+      expect(wrapper.vm.sessionChain[0].pickerTimestampSource).toBe('lastMessageAt');
     });
 
     it('fetches summaries for sessions in the chain', async () => {
