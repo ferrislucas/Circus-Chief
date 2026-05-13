@@ -1920,7 +1920,7 @@ export async function seedScheduledSession(
   const body: any = {
     prompt: data.prompt,
     startImmediately: false,
-    scheduledAt: data.scheduledAt || Date.now() + 3600000, // default 1 hour from now
+    scheduledAt: new Date(data.scheduledAt ?? Date.now() + 3600000).toISOString(), // default 1 hour from now
   };
   if (data.name) body.name = data.name;
   if (data.autoRescheduleEnabled !== undefined) body.autoRescheduleEnabled = data.autoRescheduleEnabled;
