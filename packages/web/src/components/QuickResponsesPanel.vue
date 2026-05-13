@@ -30,27 +30,43 @@
         </button>
         <span class="panel-title">Quick Responses</span>
       </div>
-      <button
-        v-if="isExpanded && projectId"
-        type="button"
-        class="settings-button"
-        title="Manage templates"
-        aria-label="Manage templates"
-        @click.stop="openTemplates"
+      <div
+        v-if="isExpanded"
+        class="header-actions"
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          viewBox="0 0 20 20"
-          fill="currentColor"
-          class="settings-icon"
+        <label
+          class="auto-submit-toggle"
+          @click.stop
         >
-          <path
-            fill-rule="evenodd"
-            d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.993 6.993 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
-            clip-rule="evenodd"
-          />
-        </svg>
-      </button>
+          <input
+            v-model="autoSubmit"
+            type="checkbox"
+            @click.stop
+          >
+          <span>Auto-submit</span>
+        </label>
+        <button
+          v-if="projectId"
+          type="button"
+          class="settings-button"
+          title="Manage templates"
+          aria-label="Manage templates"
+          @click.stop="openTemplates"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            class="settings-icon"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.993 6.993 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"
+              clip-rule="evenodd"
+            />
+          </svg>
+        </button>
+      </div>
     </div>
 
     <!-- Loading state (shown when expanded) -->
@@ -86,16 +102,10 @@
             :key="response.id"
             type="button"
             class="response-button project-response"
-            :class="{ 'auto-submit': response.quickResponseAutoSubmit }"
             :title="response.prompt"
             @click.stop="handleClick(response)"
           >
             <span class="button-label">{{ response.name }}</span>
-            <span
-              v-if="response.quickResponseAutoSubmit"
-              class="auto-icon"
-              title="Auto-submit"
-            >&#9889;</span>
           </button>
         </div>
       </div>
@@ -112,16 +122,10 @@
             :key="response.id"
             type="button"
             class="response-button global-response"
-            :class="{ 'auto-submit': response.quickResponseAutoSubmit }"
             :title="response.prompt"
             @click.stop="handleClick(response)"
           >
             <span class="button-label">{{ response.name }}</span>
-            <span
-              v-if="response.quickResponseAutoSubmit"
-              class="auto-icon"
-              title="Auto-submit"
-            >&#9889;</span>
           </button>
         </div>
       </div>
@@ -154,6 +158,7 @@ const emit = defineEmits(['insert']);
 const router = useRouter();
 const store = useTemplatesStore();
 const isExpanded = ref(false);
+const autoSubmit = ref(false);
 
 const loading = computed(() => store.loading);
 const projectResponses = computed(() => store.quickResponseTemplates.project);
@@ -167,7 +172,7 @@ function toggle() {
 function handleClick(response) {
   emit('insert', {
     content: response.prompt,
-    autoSubmit: response.quickResponseAutoSubmit,
+    autoSubmit: autoSubmit.value,
   });
   // Auto-collapse panel after selecting a response
   isExpanded.value = false;
@@ -242,6 +247,25 @@ function openTemplates() {
   text-transform: uppercase;
   color: var(--color-text-soft);
   letter-spacing: 0.05em;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.auto-submit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+  cursor: pointer;
+}
+
+.auto-submit-toggle input {
+  cursor: pointer;
 }
 
 .settings-button {
@@ -363,16 +387,6 @@ function openTemplates() {
 .global-response:hover {
   background: rgb(75 85 99 / 0.5);
   border-color: rgb(75 85 99 / 0.7);
-}
-
-/* Auto-submit indicator */
-.auto-submit {
-  border-color: rgb(245 158 11 / 0.5);
-}
-
-.auto-icon {
-  font-size: 0.75rem;
-  color: rgb(245 158 11);
 }
 
 .button-label {

@@ -41,9 +41,10 @@ describe('QuickResponsesPanel', () => {
     };
   }
 
-  function mountComponent(props = {}) {
+  function mountComponent(props = {}, attrs = {}) {
     return mount(QuickResponsesPanel, {
       props,
+      attrs,
       global: {
         plugins: [pinia],
       },
@@ -72,7 +73,8 @@ describe('QuickResponsesPanel', () => {
     });
 
     it('defaults showEmpty to true', () => {
-      const wrapper = mountComponent();
+      const onInsert = vi.fn();
+      const wrapper = mountComponent({}, { onInsert });
       expect(wrapper.props('showEmpty')).toBe(true);
     });
   });
@@ -215,7 +217,8 @@ describe('QuickResponsesPanel', () => {
         }),
       };
       store.projectTemplates = [testResponse];
-      const wrapper = mountComponent();
+      const onInsert = vi.fn();
+      const wrapper = mountComponent({}, { onInsert });
 
       // Expand panel
       await triggerClick(wrapper, '.toggle-button');
@@ -228,6 +231,10 @@ describe('QuickResponsesPanel', () => {
       // Click response and verify panel auto-collapses
       await triggerClick(wrapper, '.response-button');
       expect(wrapper.find('.responses-content').exists()).toBe(false);
+      expect(onInsert).toHaveBeenCalledWith({
+        content: 'test content here',
+        autoSubmit: false,
+      });
     });
 
     it('chevron icon rotates when expanded', async () => {
@@ -316,6 +323,85 @@ describe('QuickResponsesPanel', () => {
 
       // The toggle button should have @click.stop in template
       // (shallowMount only shows this level of DOM)
+    });
+  });
+
+  describe('panel-level auto-submit', () => {
+    it('shows the checkbox when expanded with responses and defaults unchecked', async () => {
+      store.projectTemplates = [template()];
+      const wrapper = mountComponent();
+
+      await triggerClick(wrapper, '.toggle-button');
+
+      const checkbox = wrapper.find('.auto-submit-toggle input[type="checkbox"]');
+      expect(checkbox.exists()).toBe(true);
+      expect(checkbox.element.checked).toBe(false);
+      expect(wrapper.text()).toContain('Auto-submit');
+    });
+
+    it('ignores template quickResponseAutoSubmit while the panel checkbox is unchecked', async () => {
+      store.projectTemplates = [
+        template({
+          prompt: 'old template auto-submit',
+          quickResponseAutoSubmit: true,
+        }),
+      ];
+      const onInsert = vi.fn();
+      const wrapper = mountComponent({}, { onInsert });
+
+      await triggerClick(wrapper, '.toggle-button');
+      await triggerClick(wrapper, '.response-button');
+
+      expect(onInsert).toHaveBeenCalledWith({
+        content: 'old template auto-submit',
+        autoSubmit: false,
+      });
+    });
+
+    it('emits autoSubmit true for project and global responses when checked', async () => {
+      store.projectTemplates = [template({ id: 'project-1', name: 'Project Response', prompt: 'project prompt' })];
+      store.globalTemplates = [template({ id: 'global-1', name: 'Global Response', prompt: 'global prompt' })];
+      const onInsert = vi.fn();
+      const wrapper = mountComponent({}, { onInsert });
+
+      await triggerClick(wrapper, '.toggle-button');
+      await wrapper.find('.auto-submit-toggle input[type="checkbox"]').setValue(true);
+      await nextTick();
+
+      await wrapper.find('.project-response').trigger('click');
+      await nextTick();
+      await triggerClick(wrapper, '.toggle-button');
+      await wrapper.find('.global-response').trigger('click');
+
+      expect(onInsert).toHaveBeenNthCalledWith(1, {
+        content: 'project prompt',
+        autoSubmit: true,
+      });
+      expect(onInsert).toHaveBeenNthCalledWith(2, {
+        content: 'global prompt',
+        autoSubmit: true,
+      });
+    });
+
+    it('does not collapse the panel when clicking the checkbox label', async () => {
+      store.projectTemplates = [template()];
+      const wrapper = mountComponent();
+
+      await triggerClick(wrapper, '.toggle-button');
+      await wrapper.find('.auto-submit-toggle').trigger('click');
+      await nextTick();
+
+      expect(wrapper.find('.responses-content').exists()).toBe(true);
+    });
+
+    it('does not render template-specific auto-submit styling or icons', async () => {
+      store.projectTemplates = [template({ quickResponseAutoSubmit: true })];
+      const wrapper = mountComponent();
+
+      await triggerClick(wrapper, '.toggle-button');
+
+      expect(wrapper.find('.response-button.auto-submit').exists()).toBe(false);
+      expect(wrapper.find('.auto-icon').exists()).toBe(false);
     });
   });
 });

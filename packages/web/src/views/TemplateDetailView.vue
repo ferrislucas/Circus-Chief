@@ -160,17 +160,6 @@
           </label>
         </div>
 
-        <div class="form-group">
-          <label class="form-check">
-            <input
-              v-model="formData.quickResponseAutoSubmit"
-              type="checkbox"
-              :disabled="!formData.showInQuickResponses"
-            >
-            <span>Auto-submit from Quick Responses</span>
-          </label>
-        </div>
-
         <!-- Form Actions -->
         <div class="form-actions">
           <button
@@ -244,7 +233,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useTemplatesStore } from '../stores/templates.js';
 import { useUiStore } from '../stores/ui.js';
@@ -276,7 +265,6 @@ const formData = ref({
   mode: null,
   effortLevel: null,
   showInQuickResponses: false,
-  quickResponseAutoSubmit: false,
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -302,7 +290,6 @@ const loadTemplate = async () => {
         mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
         effortLevel: template.effortLevel ?? null,
         showInQuickResponses: template.showInQuickResponses,
-        quickResponseAutoSubmit: template.quickResponseAutoSubmit,
       };
     }
   } catch (err) {
@@ -327,9 +314,6 @@ const onSubmit = async () => {
       mode: formData.value.mode,                        // null = inherit
       effortLevel: formData.value.effortLevel,          // null = inherit
       showInQuickResponses: formData.value.showInQuickResponses,
-      quickResponseAutoSubmit: formData.value.showInQuickResponses
-        ? formData.value.quickResponseAutoSubmit
-        : false,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);
@@ -343,15 +327,6 @@ const onSubmit = async () => {
     isSaving.value = false;
   }
 };
-
-watch(
-  () => formData.value.showInQuickResponses,
-  (showInQuickResponses) => {
-    if (!showInQuickResponses) {
-      formData.value.quickResponseAutoSubmit = false;
-    }
-  }
-);
 
 const onCancel = () => {
   router.back();

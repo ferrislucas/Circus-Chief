@@ -159,17 +159,6 @@
           </label>
         </div>
 
-        <div class="form-group">
-          <label class="form-check">
-            <input
-              v-model="formData.quickResponseAutoSubmit"
-              type="checkbox"
-              :disabled="!formData.showInQuickResponses"
-            >
-            <span>Auto-submit from Quick Responses</span>
-          </label>
-        </div>
-
         <div class="form-actions">
           <button
             type="button"
@@ -295,7 +284,6 @@ const formData = ref({
   model: null,
   mode: null,
   showInQuickResponses: false,
-  quickResponseAutoSubmit: false,
 });
 
 const loading = computed(() => templatesStore.loading);
@@ -349,7 +337,6 @@ function resetForm() {
     model: null,
     mode: null,
     showInQuickResponses: false,
-    quickResponseAutoSubmit: false,
   };
 }
 
@@ -376,9 +363,6 @@ async function handleSubmit() {
       model: formData.value.model,                      // null = inherit
       mode: formData.value.mode,                        // null = inherit
       showInQuickResponses: formData.value.showInQuickResponses,
-      quickResponseAutoSubmit: formData.value.showInQuickResponses
-        ? formData.value.quickResponseAutoSubmit
-        : false,
     };
 
     if (formData.value.isGlobal) {
@@ -396,15 +380,6 @@ async function handleSubmit() {
     saving.value = false;
   }
 }
-
-watch(
-  () => formData.value.showInQuickResponses,
-  (showInQuickResponses) => {
-    if (!showInQuickResponses) {
-      formData.value.quickResponseAutoSubmit = false;
-    }
-  }
-);
 
 // Expose for testing
 defineExpose({

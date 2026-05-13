@@ -43,10 +43,6 @@
         v-if="template.showInQuickResponses"
         class="meta-badge"
       >Quick Response</span>
-      <span
-        v-if="template.quickResponseAutoSubmit"
-        class="meta-badge"
-      >Auto-submit</span>
     </div>
   </router-link>
 </template>

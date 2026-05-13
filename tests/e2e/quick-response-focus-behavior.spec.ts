@@ -138,7 +138,7 @@ test.describe('Quick Response Focus Behavior', () => {
     await seedQuickResponseTemplate(project.id, {
       label: 'Auto Submit',
       content: 'Auto-submit content',
-      autoSubmit: true,
+      autoSubmit: false,
     });
 
     // Wait for templates API before interacting
@@ -157,7 +157,9 @@ test.describe('Quick Response Focus Behavior', () => {
     await panel.click();
     await page.waitForTimeout(300);
 
-    // Click the auto-submit quick response
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').check();
+
+    // Click the quick response with panel auto-submit enabled
     await page.locator('.response-button', { hasText: 'Auto Submit' }).click();
 
     // Verify form submission by checking we navigated away from new session view

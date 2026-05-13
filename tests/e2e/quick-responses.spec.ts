@@ -386,7 +386,7 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     await expect(page.locator('.responses-content')).not.toBeVisible({ timeout: 3000 });
   });
 
-  test('auto-submit response shows lightning bolt indicator', async ({ page }) => {
+  test('panel auto-submit checkbox controls old template auto-submit values', async ({ page }) => {
     const project = await seedProject('QR Panel AutoSubmit', '/tmp/qr-panel-3');
     await seedQuickResponseTemplate(project.id, {
       label: 'Auto Response',
@@ -397,13 +397,18 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
 
-    // Verify the response button has .auto-submit class (scoped to the specific response)
-    const autoBtn = page.locator('.response-button.auto-submit', { hasText: 'Auto Response' });
-    await expect(autoBtn).toBeVisible({ timeout: 5000 });
+    const checkbox = page.locator('.auto-submit-toggle input[type="checkbox"]');
+    await expect(checkbox).toBeVisible({ timeout: 5000 });
+    await expect(checkbox).not.toBeChecked();
 
-    // Verify lightning bolt icon exists
-    const autoIcon = autoBtn.locator('.auto-icon');
-    await expect(autoIcon).toBeVisible();
+    const autoBtn = page.locator('.response-button', { hasText: 'Auto Response' });
+    await expect(autoBtn).toBeVisible({ timeout: 5000 });
+    await expect(autoBtn).not.toHaveClass(/auto-submit/);
+    await expect(autoBtn.locator('.auto-icon')).toHaveCount(0);
+
+    await checkbox.check();
+    await expect(page.locator('.responses-content')).toBeVisible();
+    await expect(checkbox).toBeChecked();
   });
 
   test('panel collapse and expand toggle works', async ({ page }) => {
@@ -510,22 +515,47 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     await seedQuickResponseTemplate(project.id, {
       label: 'Auto Create',
       content: 'Auto-create this session',
+      autoSubmit: false,
+    });
+
+    await page.goto(`/projects/${project.id}/sessions/new`);
+    await waitForPageReady(page);
+
+    // Expand, enable panel auto-submit, and click response
+    const panel = page.locator('.quick-responses-panel');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await panel.click();
+    await page.waitForTimeout(300);
+
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').check();
+    await page.locator('.response-button', { hasText: 'Auto Create' }).click();
+
+    // Auto-submit should trigger form submission, which navigates away
+    await expect(page).not.toHaveURL(/\/sessions\/new/, { timeout: 10000 });
+  });
+
+  test('unchecked panel inserts without submitting even when old template auto-submit is true', async ({ page }) => {
+    const project = await seedProject('QR NewSession OldAutoNoSubmit', '/tmp/qr-new-old-auto');
+    await seedQuickResponseTemplate(project.id, {
+      label: 'Old Auto',
+      content: 'Old auto content',
       autoSubmit: true,
     });
 
     await page.goto(`/projects/${project.id}/sessions/new`);
     await waitForPageReady(page);
 
-    // Expand and click auto-submit response
     const panel = page.locator('.quick-responses-panel');
     await expect(panel).toBeVisible({ timeout: 10000 });
     await panel.click();
     await page.waitForTimeout(300);
 
-    await page.locator('.response-button', { hasText: 'Auto Create' }).click();
+    await expect(page.locator('.auto-submit-toggle input[type="checkbox"]')).not.toBeChecked();
+    await page.locator('.response-button', { hasText: 'Old Auto' }).click();
 
-    // Auto-submit should trigger form submission, which navigates away
-    await expect(page).not.toHaveURL(/\/sessions\/new/, { timeout: 10000 });
+    const textarea = page.locator('textarea#prompt');
+    await expect(textarea).toHaveValue('Old auto content', { timeout: 5000 });
+    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/sessions/new`));
   });
 
   test('settings gear opens template list from new session view', async ({ page }) => {
