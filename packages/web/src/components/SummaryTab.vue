@@ -24,6 +24,7 @@
       :has-warnings="hasWarnings"
       :scheduled-sessions="allScheduledSessions"
       :project-id="projectId"
+      @open-session-overlay="(sessionId) => emit('open-session-overlay', sessionId)"
     />
 
     <div
@@ -112,6 +113,8 @@ import {
   computeIdleSessionTime,
   formatDuration,
 } from '../composables/useSummaryHelpers.js';
+
+const emit = defineEmits(['open-session-overlay']);
 
 const props = defineProps({
   sessionId: { type: String, required: true },
