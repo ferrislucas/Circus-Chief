@@ -1,10 +1,10 @@
 <template>
   <div
-    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || loading"
+    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || loading || showNotStartedState"
     class="session-overview card"
   >
     <div
-      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading"
+      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading || showNotStartedState"
       class="overview-header"
     >
       <h3>Session Overview</h3>
@@ -25,6 +25,17 @@
     >
       <span class="loading-spinner-small" />
       <span>Loading summary...</span>
+    </div>
+    <div
+      v-else-if="showNotStartedState"
+      class="overview-summary overview-summary-empty"
+    >
+      <p class="summary-empty-text">
+        This session hasn't started yet.
+      </p>
+      <p class="summary-empty-hint">
+        Start the session or send a message to see a summary here.
+      </p>
     </div>
 
     <!-- Overview Metrics -->
@@ -204,6 +215,10 @@ defineProps({
     type: String,
     default: null,
   },
+  showNotStartedState: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 </script>
@@ -236,10 +251,28 @@ defineProps({
   font-size: 0.875rem;
 }
 
+.overview-summary-empty {
+  text-align: center;
+}
+
 .overview-summary .summary-text {
   margin: 0 0 0.5rem;
   font-size: 0.875rem;
   color: var(--color-text);
+  line-height: 1.4;
+}
+
+.summary-empty-text {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text);
+  margin: 0 0 0.5rem;
+}
+
+.summary-empty-hint {
+  font-size: 0.875rem;
+  color: var(--color-text-soft);
+  margin: 0;
   line-height: 1.4;
 }
 

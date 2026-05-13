@@ -24,6 +24,7 @@
       :has-warnings="hasWarnings"
       :scheduled-sessions="allScheduledSessions"
       :project-id="projectId"
+      :show-not-started-state="showNotStartedStateInOverview"
     />
 
     <div
@@ -52,7 +53,7 @@
 
     <!-- Empty state for sessions with no content -->
     <div
-      v-else-if="!latestResponse && !isRunning"
+      v-else-if="showStandaloneNotStartedState"
       class="summary-empty-state"
     >
       <div class="summary-empty-state-content">
@@ -62,17 +63,6 @@
         <p class="summary-empty-state-hint">
           Start the session or send a message to see a summary here.
         </p>
-        <button
-          class="btn-link summary-generate-action"
-          :disabled="generatingManual"
-          @click="handleRegenerate"
-        >
-          <span
-            v-if="generatingManual"
-            class="loading-spinner"
-          />
-          Generate summary
-        </button>
       </div>
     </div>
 
@@ -213,6 +203,14 @@ const hasMetrics = computed(() =>
   sessionCount.value > 1 || hasNonZeroTokens.value || formattedDuration.value || filesCount.value > 0
 );
 
+const isNotStartedEmptyState = computed(() => !latestResponse.value && !isRunning.value);
+const showNotStartedStateInOverview = computed(() =>
+  Boolean(isNotStartedEmptyState.value && (hasMetrics.value || allScheduledSessions.value.length > 0))
+);
+const showStandaloneNotStartedState = computed(() =>
+  Boolean(isNotStartedEmptyState.value && !showNotStartedStateInOverview.value)
+);
+
 onMounted(async () => {
   loading.value = true;
   try {
@@ -312,10 +310,6 @@ async function handleRegenerate() {
   color: var(--color-text-soft);
   margin: 0;
   line-height: 1.4;
-}
-
-.summary-generate-action {
-  margin-top: 1rem;
 }
 
 .missing-summary-action {
