@@ -42,7 +42,7 @@ describe('QuickResponseDialog', () => {
         ...props,
       },
       global: {
-        components: {
+        stubs: {
           Teleport: TeleportStub,
         },
       },
@@ -74,6 +74,17 @@ describe('QuickResponseDialog', () => {
     it('uses the quick responses store', () => {
       expect(QuickResponseDialog).toBeDefined();
       // The component uses the store via setup(), so just verify the component exists
+    });
+  });
+
+  describe('form defaults', () => {
+    it('defaults auto-submit to checked for new responses', async () => {
+      const wrapper = mountComponent();
+      await wrapper.vm.$nextTick();
+
+      const checkbox = document.body.querySelector('.checkbox-input');
+      expect(checkbox).not.toBeNull();
+      expect(checkbox.checked).toBe(true);
     });
   });
 

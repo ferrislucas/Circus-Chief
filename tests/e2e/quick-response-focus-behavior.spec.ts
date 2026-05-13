@@ -72,6 +72,8 @@ test.describe('Quick Response Focus Behavior', () => {
     await panel.click();
     await page.waitForTimeout(300);
 
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').uncheck();
+
     // Click the quick response
     await page.locator('.response-button', { hasText: 'No Auto' }).click();
 
@@ -118,6 +120,8 @@ test.describe('Quick Response Focus Behavior', () => {
     await panel.click();
     await page.waitForTimeout(300);
 
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').uncheck();
+
     // Click the quick response
     await page.locator('.response-button', { hasText: 'No Auto Conv' }).click();
 
@@ -157,8 +161,6 @@ test.describe('Quick Response Focus Behavior', () => {
     await panel.click();
     await page.waitForTimeout(300);
 
-    await page.locator('.auto-submit-toggle input[type="checkbox"]').check();
-
     // Click the quick response with panel auto-submit enabled
     await page.locator('.response-button', { hasText: 'Auto Submit' }).click();
 
@@ -193,6 +195,8 @@ test.describe('Quick Response Focus Behavior', () => {
     await expect(panel).toBeVisible();
     await panel.click();
     await page.waitForTimeout(300);
+
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').uncheck();
 
     // Click the quick response
     await page.locator('.response-button', { hasText: 'Mobile Test' }).click();

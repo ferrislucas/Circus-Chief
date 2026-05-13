@@ -158,7 +158,7 @@ const emit = defineEmits(['insert']);
 const router = useRouter();
 const store = useTemplatesStore();
 const isExpanded = ref(false);
-const autoSubmit = ref(false);
+const autoSubmit = ref(true);
 
 const loading = computed(() => store.loading);
 const projectResponses = computed(() => store.quickResponseTemplates.project);

@@ -233,7 +233,7 @@ describe('QuickResponsesPanel', () => {
       expect(wrapper.find('.responses-content').exists()).toBe(false);
       expect(onInsert).toHaveBeenCalledWith({
         content: 'test content here',
-        autoSubmit: false,
+        autoSubmit: true,
       });
     });
 
@@ -327,7 +327,7 @@ describe('QuickResponsesPanel', () => {
   });
 
   describe('panel-level auto-submit', () => {
-    it('shows the checkbox when expanded with responses and defaults unchecked', async () => {
+    it('shows the checkbox when expanded with responses and defaults checked', async () => {
       store.projectTemplates = [template()];
       const wrapper = mountComponent();
 
@@ -335,7 +335,7 @@ describe('QuickResponsesPanel', () => {
 
       const checkbox = wrapper.find('.auto-submit-toggle input[type="checkbox"]');
       expect(checkbox.exists()).toBe(true);
-      expect(checkbox.element.checked).toBe(false);
+      expect(checkbox.element.checked).toBe(true);
       expect(wrapper.text()).toContain('Auto-submit');
     });
 
@@ -350,6 +350,8 @@ describe('QuickResponsesPanel', () => {
       const wrapper = mountComponent({}, { onInsert });
 
       await triggerClick(wrapper, '.toggle-button');
+      await wrapper.find('.auto-submit-toggle input[type="checkbox"]').setValue(false);
+      await nextTick();
       await triggerClick(wrapper, '.response-button');
 
       expect(onInsert).toHaveBeenCalledWith({

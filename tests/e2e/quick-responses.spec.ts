@@ -372,6 +372,8 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
 
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').uncheck();
+
     // Click the response chip
     const responseBtn = page.locator('.response-button', { hasText: 'Insert Me' });
     await responseBtn.click();
@@ -399,16 +401,16 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
 
     const checkbox = page.locator('.auto-submit-toggle input[type="checkbox"]');
     await expect(checkbox).toBeVisible({ timeout: 5000 });
-    await expect(checkbox).not.toBeChecked();
+    await expect(checkbox).toBeChecked();
 
     const autoBtn = page.locator('.response-button', { hasText: 'Auto Response' });
     await expect(autoBtn).toBeVisible({ timeout: 5000 });
     await expect(autoBtn).not.toHaveClass(/auto-submit/);
     await expect(autoBtn.locator('.auto-icon')).toHaveCount(0);
 
-    await checkbox.check();
+    await checkbox.uncheck();
     await expect(page.locator('.responses-content')).toBeVisible();
-    await expect(checkbox).toBeChecked();
+    await expect(checkbox).not.toBeChecked();
   });
 
   test('panel collapse and expand toggle works', async ({ page }) => {
@@ -503,6 +505,7 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     await panel.click();
     await page.waitForTimeout(300);
 
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').uncheck();
     await page.locator('.response-button', { hasText: 'Insert Prompt' }).click();
 
     // Verify prompt textarea contains the content
@@ -521,13 +524,12 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     await page.goto(`/projects/${project.id}/sessions/new`);
     await waitForPageReady(page);
 
-    // Expand, enable panel auto-submit, and click response
+    // Expand and click response. Auto-submit is checked by default.
     const panel = page.locator('.quick-responses-panel');
     await expect(panel).toBeVisible({ timeout: 10000 });
     await panel.click();
     await page.waitForTimeout(300);
 
-    await page.locator('.auto-submit-toggle input[type="checkbox"]').check();
     await page.locator('.response-button', { hasText: 'Auto Create' }).click();
 
     // Auto-submit should trigger form submission, which navigates away
@@ -550,7 +552,9 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     await panel.click();
     await page.waitForTimeout(300);
 
-    await expect(page.locator('.auto-submit-toggle input[type="checkbox"]')).not.toBeChecked();
+    const checkbox = page.locator('.auto-submit-toggle input[type="checkbox"]');
+    await expect(checkbox).toBeChecked();
+    await checkbox.uncheck();
     await page.locator('.response-button', { hasText: 'Old Auto' }).click();
 
     const textarea = page.locator('textarea#prompt');
