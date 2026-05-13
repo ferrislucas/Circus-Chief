@@ -1063,6 +1063,7 @@ defineExpose({
      was a historical failure mode when `overflow: hidden` was used here. */
   overflow: clip;
   padding: 0;
+  padding-top: max(0px, var(--viewport-offset-top, 0px));
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
   position: relative;
   background: rgb(17, 24, 39);
@@ -1083,6 +1084,7 @@ defineExpose({
 }
 
 .overlay-header {
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   display: flex;
