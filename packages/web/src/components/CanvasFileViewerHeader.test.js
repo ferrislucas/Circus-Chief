@@ -99,10 +99,20 @@ describe('CanvasFileViewerHeader', () => {
     });
 
     it('displays modified timestamp in bottom container', () => {
-      const wrapper = mountComponent();
+      const updatedAt = Date.now() - 5 * 60 * 1000;
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'test-file.md',
+          type: 'markdown',
+          updatedAt,
+        },
+      });
 
       const bottomRow = wrapper.find('.viewer-header-bottom');
-      expect(bottomRow.find('.viewer-meta').exists()).toBe(true);
+      expect(wrapper.findAll('.viewer-meta')).toHaveLength(1);
+      expect(bottomRow.find('.viewer-meta').text()).toBe('Modified 5m ago');
+      expect(wrapper.find('.viewer-header-middle .viewer-meta').exists()).toBe(false);
     });
 
     it('displays untitled for missing filename', () => {

@@ -21,7 +21,6 @@
       >/</span>
       <div class="viewer-filename-wrapper">
         <span class="viewer-filename">{{ item.filename || 'Untitled' }}</span>
-        <span class="viewer-meta">{{ formatLastModified(item.updatedAt) }}</span>
       </div>
 
       <div class="header-actions">
