@@ -54,6 +54,7 @@
           v-if="activeTab === 'summary'"
           :key="route.params.id"
           :session-id="route.params.id"
+          @open-session-overlay="handleScheduledSessionClick"
         />
         <ChangesTab
           v-else-if="activeTab === 'changes'"
@@ -395,6 +396,14 @@ function handleSessionCreated(msg) {
 
 function handleOverlayOpen() {
   resolveOverlayTarget();
+  chatOverlayOpen.value = true;
+}
+
+async function handleScheduledSessionClick(sessionId) {
+  // Rebuild session chain to ensure the target session is included
+  await buildSessionChain();
+  preferredOverlaySessionId.value = sessionId;
+  overlaySessionId.value = sessionId;
   chatOverlayOpen.value = true;
 }
 
