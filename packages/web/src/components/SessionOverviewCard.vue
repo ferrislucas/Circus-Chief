@@ -152,6 +152,7 @@
           :session="s"
           :project-id="projectId"
           class="scheduled-session-card"
+          @open-session-overlay="(sessionId) => $emit('open-session-overlay', sessionId)"
         />
       </div>
     </div>
@@ -220,6 +221,8 @@ defineProps({
     default: false,
   },
 });
+
+defineEmits(['open-session-overlay']);
 
 </script>
 
