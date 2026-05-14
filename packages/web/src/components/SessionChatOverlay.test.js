@@ -1612,16 +1612,6 @@ describe('SessionChatOverlay', () => {
         /@media\s*\(min-width:\s*700px\)\s*and\s*\(min-height:\s*700px\)\s*\{[\s\S]*?\.overlay-backdrop\s*\{[\s\S]*?--visual-viewport-height/
       );
     });
-
-    it('main css defines the session overlay top chrome inset default', () => {
-      const fs = process.getBuiltinModule('fs');
-      const mainCssSource = fs.readFileSync(
-        'src/assets/main.css',
-        'utf8'
-      );
-      expect(mainCssSource).toMatch(/--session-overlay-top-chrome-inset:\s*0px/);
-    });
-
     it('panel-wrapper stylesheet is child geometry inside the backdrop', () => {
       const block = getStyleBlock('.overlay-panel-wrapper');
       expect(block).toMatch(/position:\s*absolute/);

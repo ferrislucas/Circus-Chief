@@ -34,9 +34,32 @@ function hasPhoneSignal({ platform = '', userAgent = '' }) {
   return /iPhone|iPod|Android.*Mobile|Mobile.*Android/i.test(signal);
 }
 
+function isValidTopChromeOffset(offsetTop) {
+  return offsetTop > 0 && offsetTop <= 64;
+}
+
+function isKeyboardShapedViewport(layoutHeight, visualViewportHeight) {
+  if (!(layoutHeight > 0 && visualViewportHeight > 0)) {
+    return false;
+  }
+
+  return (
+    layoutHeight - visualViewportHeight > 120 ||
+    visualViewportHeight / layoutHeight < 0.85
+  );
+}
+
+function isTabletSizedLayout(layoutWidth, layoutHeight) {
+  return (
+    layoutWidth > 0 &&
+    layoutHeight > 0 &&
+    Math.min(layoutWidth, layoutHeight) >= 700
+  );
+}
+
 export function computeSessionOverlayTopChromeInset(input = {}) {
   const offsetTop = toFiniteNumber(input.offsetTop);
-  if (!offsetTop || offsetTop < 0 || offsetTop > 64) {
+  if (!isValidTopChromeOffset(offsetTop)) {
     return 0;
   }
 
@@ -44,26 +67,18 @@ export function computeSessionOverlayTopChromeInset(input = {}) {
   const layoutHeight = toFiniteNumber(input.layoutHeight);
   const visualViewportHeight = toFiniteNumber(input.visualViewportHeight);
 
-  if (layoutHeight > 0 && visualViewportHeight > 0) {
-    if (layoutHeight - visualViewportHeight > 120) {
-      return 0;
-    }
-
-    if (visualViewportHeight / layoutHeight < 0.85) {
-      return 0;
-    }
+  if (isKeyboardShapedViewport(layoutHeight, visualViewportHeight)) {
+    return 0;
   }
 
   const tabletSignal = hasTabletSignal(input);
   const phoneSignal = hasPhoneSignal(input);
-  const tabletSized =
-    layoutWidth > 0 && layoutHeight > 0 && Math.min(layoutWidth, layoutHeight) >= 700;
 
   if (phoneSignal && !tabletSignal) {
     return 0;
   }
 
-  return tabletSized || tabletSignal ? offsetTop : 0;
+  return isTabletSizedLayout(layoutWidth, layoutHeight) || tabletSignal ? offsetTop : 0;
 }
 
 function getVisualViewportRect() {
