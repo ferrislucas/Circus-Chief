@@ -128,6 +128,7 @@ import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { api } from '../composables/useApi.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
+import { sortSessionChain } from '../utils/sessionPickerRecency.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const route = useRoute();
@@ -241,62 +242,6 @@ function collectTreeDepthFirst(root) {
   return tree;
 }
 
-function toTimestamp(value) {
-  if (value === null || value === undefined || value === '') return 0;
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  if (typeof value === 'string' && value.trim() !== '') {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric)) return numeric;
-  }
-
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getSessionPickerRecency(session) {
-  const candidates = [
-    { source: 'lastMessageAt', time: toTimestamp(session?.lastMessageAt) },
-    { source: 'updatedAt', time: toTimestamp(session?.updatedAt) },
-    { source: 'createdAt', time: toTimestamp(session?.createdAt) },
-  ];
-  const best = candidates.reduce(
-    (currentBest, candidate) => candidate.time > currentBest.time ? candidate : currentBest,
-    { source: 'none', time: 0 }
-  );
-  return best.time > 0 ? best : { source: 'none', time: 0 };
-}
-
-function getSessionPickerRecentTime(session) {
-  return getSessionPickerRecency(session).time;
-}
-
-function compareSessionChainEntries(a, b) {
-  const aSession = a?.session || {};
-  const bSession = b?.session || {};
-  const comparisons = [
-    getSessionPickerRecentTime(bSession) - getSessionPickerRecentTime(aSession),
-    toTimestamp(bSession.lastMessageAt) - toTimestamp(aSession.lastMessageAt),
-    toTimestamp(bSession.updatedAt) - toTimestamp(aSession.updatedAt),
-    toTimestamp(bSession.createdAt) - toTimestamp(aSession.createdAt),
-  ];
-  const firstDifference = comparisons.find(value => value !== 0);
-  if (firstDifference) return firstDifference;
-  return String(aSession.id || '').localeCompare(String(bSession.id || ''));
-}
-
-function withPickerTimestamp(entry) {
-  const recency = getSessionPickerRecency(entry?.session);
-  return {
-    ...entry,
-    pickerTimestamp: recency.time || null,
-    pickerTimestampSource: recency.source,
-  };
-}
-
-function sortSessionChain(entries) {
-  return [...entries].sort(compareSessionChainEntries).map(withPickerTimestamp);
-}
-
 /**
  * Build the full session tree from root, flattened depth-first with depth info.
  * Fetches project sessions and summaries for each session in the tree.
@@ -331,8 +276,8 @@ async function buildSessionChain() {
 /**
  * Resolve the overlay target session ID.
  * Priority order:
- * 1. Running/starting children (most recently updated)
- * 2. Session with the broadest recent activity signal (lastActivityAt)
+ * 1. Running/starting children (most recent picker recency)
+ * 2. Session with the most recent picker recency
  * 3. Current session (fallback)
  */
 function resolveOverlayTarget() {
@@ -362,19 +307,13 @@ function resolveOverlayTarget() {
     .filter(entry => entry.session.id !== currentSessionId.value);
 
   if (runningChildren.length > 0) {
-    // Pick the most recently updated running child
-    const sorted = [...runningChildren].sort((a, b) =>
-      new Date(b.session.updatedAt || b.session.createdAt || 0) -
-      new Date(a.session.updatedAt || a.session.createdAt || 0)
-    );
+    const sorted = sortSessionChain(runningChildren);
     overlaySessionId.value = sorted[0].session.id;
     return;
   }
 
-  // No running children — select the session with the most recent conversation activity
-  const withActivity = chain
-    .filter(entry => entry.session.lastActivityAt)
-    .sort((a, b) => (b.session.lastActivityAt || 0) - (a.session.lastActivityAt || 0));
+  const withActivity = sortSessionChain(chain)
+    .filter(entry => entry.pickerTimestamp);
 
   if (withActivity.length > 0) {
     overlaySessionId.value = withActivity[0].session.id;

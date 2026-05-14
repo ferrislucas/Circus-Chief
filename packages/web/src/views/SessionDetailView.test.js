@@ -3195,7 +3195,7 @@ describe('SessionDetailView', () => {
       // Populate the sessions store with parent and a non-running child
       sessionsStore.sessions = [
         { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-        { id: 'child-1', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
+        { id: 'child-1', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', parentSessionId: 'parent-1' },
       ];
 
       sessionsStore.currentSession = sessionsStore.sessions[0];
@@ -3223,12 +3223,12 @@ describe('SessionDetailView', () => {
       expect(wrapper.vm.overlaySessionId).toBe('parent-1');
     });
 
-    it('overlaySessionId picks the most recently updated running child', async () => {
+    it('overlaySessionId picks the running child with newest picker recency', async () => {
       // Populate the sessions store with parent and multiple children
       sessionsStore.sessions = [
         { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-        { id: 'child-1', parentId: 'parent-1', name: 'Older Running Child', status: 'running', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
-        { id: 'child-2', parentId: 'parent-1', name: 'Newer Running Child', status: 'running', updatedAt: '2025-01-02T00:00:00Z', parentSessionId: 'parent-1' },
+        { id: 'child-1', parentId: 'parent-1', name: 'Newer Message Running Child', status: 'running', lastMessageAt: '2025-01-03T00:00:00Z', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
+        { id: 'child-2', parentId: 'parent-1', name: 'Newer Updated Running Child', status: 'running', updatedAt: '2025-01-02T00:00:00Z', parentSessionId: 'parent-1' },
         { id: 'child-3', parentId: 'parent-1', name: 'Waiting Child', status: 'waiting', updatedAt: '2025-01-03T00:00:00Z', parentSessionId: 'parent-1' },
       ];
 
@@ -3253,8 +3253,8 @@ describe('SessionDetailView', () => {
       await flushPromises();
       await nextTick();
 
-      // overlaySessionId should be the most recently updated running child (child-2)
-      expect(wrapper.vm.overlaySessionId).toBe('child-2');
+      // overlaySessionId should use the same picker recency as the dropdown
+      expect(wrapper.vm.overlaySessionId).toBe('child-1');
     });
 
     it('overlaySessionId falls back to parent when getChildSessions returns empty array', async () => {
@@ -3362,8 +3362,8 @@ describe('SessionDetailView', () => {
       // Start with parent and two waiting children (no running sessions)
       sessionsStore.sessions = [
         { id: 'parent-1', name: 'Parent Session', status: 'waiting', projectId: 'proj-1', parentSessionId: null },
-        { id: 'child-1', name: 'Waiting Child 1', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
-        { id: 'child-2', name: 'Waiting Child 2', status: 'waiting', updatedAt: '2025-01-01T00:00:00Z', parentSessionId: 'parent-1' },
+        { id: 'child-1', name: 'Waiting Child 1', status: 'waiting', parentSessionId: 'parent-1' },
+        { id: 'child-2', name: 'Waiting Child 2', status: 'waiting', parentSessionId: 'parent-1' },
       ];
 
       sessionsStore.currentSession = sessionsStore.sessions[0];
@@ -3841,12 +3841,12 @@ describe('SessionDetailView', () => {
         'session-d',
         'session-a',
       ]);
-      expect(wrapper.vm.sessionChain.map(entry => entry.pickerTimestamp)).toEqual([5900, 5410, 5407, 5400]);
+      expect(wrapper.vm.sessionChain.map(entry => entry.pickerTimestamp)).toEqual([5900, 5410, 5407, 1000]);
       expect(wrapper.vm.sessionChain.map(entry => entry.pickerTimestampSource)).toEqual([
         'lastMessageAt',
         'updatedAt',
         'updatedAt',
-        'updatedAt',
+        'lastMessageAt',
       ]);
     });
 
