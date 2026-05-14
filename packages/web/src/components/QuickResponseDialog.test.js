@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
-import { defineComponent, h } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 
 // Mock the quick responses store
@@ -10,14 +9,6 @@ vi.mock('../stores/quickResponses.js', () => ({
 
 import QuickResponseDialog from './QuickResponseDialog.vue';
 import { useQuickResponsesStore } from '../stores/quickResponses.js';
-
-// Create a stub for Teleport that renders the slot using render function
-const TeleportStub = defineComponent({
-  name: 'Teleport',
-  setup(_, { slots }) {
-    return () => slots.default?.();
-  },
-});
 
 describe('QuickResponseDialog', () => {
   let mockStore;
@@ -40,11 +31,6 @@ describe('QuickResponseDialog', () => {
         isOpen: true,
         projectId: 'test-project',
         ...props,
-      },
-      global: {
-        stubs: {
-          Teleport: TeleportStub,
-        },
       },
     });
   }
@@ -82,7 +68,8 @@ describe('QuickResponseDialog', () => {
       const wrapper = mountComponent();
       await wrapper.vm.$nextTick();
 
-      const checkbox = document.body.querySelector('.checkbox-input');
+      // Content is teleported to document.body, so query from there
+      const checkbox = document.body.querySelector('input[type="checkbox"].checkbox-input');
       expect(checkbox).not.toBeNull();
       expect(checkbox.checked).toBe(true);
     });
