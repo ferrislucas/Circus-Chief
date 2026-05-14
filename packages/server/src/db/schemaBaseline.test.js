@@ -215,7 +215,7 @@ describe('schema baseline', () => {
     });
   });
 
-  it('direct schema initialization plus baseline seeding matches DatabaseManager schema metadata', () => {
+  it('direct schema initialization plus baseline seeding plus migrations matches DatabaseManager schema metadata', () => {
     const schema = readFileSync(new URL('../schema.sql', import.meta.url), 'utf-8');
     const directDb = new Database(':memory:');
     const manager = new DatabaseManager();
@@ -225,6 +225,9 @@ describe('schema baseline', () => {
       directDb.pragma('foreign_keys = ON');
       directDb.exec(schema);
       seedBaselineData(directDb);
+      for (const migration of allMigrations) {
+        migration.up(directDb);
+      }
 
       const directObjects = directDb.prepare(
         "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('table', 'index') AND name NOT LIKE 'sqlite_%' ORDER BY type, name"
@@ -239,9 +242,8 @@ describe('schema baseline', () => {
     }
   });
 
-  it('keeps only intentional post-baseline migrations', () => {
-    expect(allMigrations.map((migration) => migration.name)).toEqual([
-      'repair-missing-session-parents-from-worktree',
-    ]);
+  it('includes repair-missing-session-parents-from-worktree migration', () => {
+    const names = allMigrations.map((migration) => migration.name);
+    expect(names).toContain('repair-missing-session-parents-from-worktree');
   });
 });

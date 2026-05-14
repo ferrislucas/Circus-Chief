@@ -120,6 +120,8 @@ describe('TemplateDetailView - New Form Fields', () => {
       thinkingEnabled: false,
       model: 'claude-opus-4-20250529',
       mode: 'yolo',
+      showInQuickResponses: true,
+      quickResponseAutoSubmit: true,
     });
 
     await router.push({ path: '/projects/proj-1/templates/template-1' });
@@ -182,6 +184,19 @@ describe('TemplateDetailView - New Form Fields', () => {
       // Find EffortLevelSelector component
       const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
       expect(effortSelector.exists()).toBe(true);
+    });
+
+    it('does not render template-level quick response auto-submit control', async () => {
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.text()).not.toContain('Auto-submit from Quick Responses');
     });
   });
 
@@ -265,6 +280,35 @@ describe('TemplateDetailView - New Form Fields', () => {
       // Check that effortLevel is null
       const effortSelector = wrapper.findComponent({ name: 'EffortLevelSelector' });
       expect(effortSelector.props('modelValue')).toBeNull();
+    });
+
+    it('loads showInQuickResponses without exposing an auto-submit control', async () => {
+      api.getTemplate.mockResolvedValueOnce({
+        id: 'template-2',
+        name: 'Old Template',
+        prompt: 'Old prompt',
+        projectId: 'proj-1',
+        model: null,
+        mode: null,
+        showInQuickResponses: true,
+        quickResponseAutoSubmit: true,
+      });
+
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      const checkboxes = wrapper.findAll('input[type="checkbox"]');
+      expect(checkboxes).toHaveLength(1);
+      expect(checkboxes[0].element.checked).toBe(true);
+      expect(wrapper.text()).not.toContain('Auto-submit from Quick Responses');
     });
   });
 
@@ -388,6 +432,30 @@ describe('TemplateDetailView - New Form Fields', () => {
       expect(callArgs[1].model).toBe('claude-sonnet-4-6');
       expect(callArgs[1].mode).toBe('standard');
       expect(callArgs[1].effortLevel).toBe('high');
+    });
+
+    it('submits showInQuickResponses without quickResponseAutoSubmit', async () => {
+      const wrapper = mount(TemplateDetailView, {
+        global: {
+          plugins: [pinia, router],
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      await nextTick();
+
+      await wrapper.find('input[type="checkbox"]').setValue(true);
+
+      const form = wrapper.find('form');
+      await form.trigger('submit.prevent');
+      await flushPromises();
+
+      expect(templatesStore.updateTemplate).toHaveBeenCalled();
+      const callArgs = templatesStore.updateTemplate.mock.calls[0];
+      expect(callArgs[1].showInQuickResponses).toBe(true);
+      expect(callArgs[1]).not.toHaveProperty('quickResponseAutoSubmit');
     });
 
     it('submits form with current model value from ModelSelector', async () => {

@@ -703,7 +703,7 @@ export async function updateSessionFields(sessionId: string, fields: Record<stri
 
 export async function seedProjectTemplate(
   projectId: string,
-  data: { name: string; prompt: string; nextTemplateId?: string; thinkingEnabled?: boolean | null; gitBranch?: string; model?: string; mode?: string | null; gitMode?: string; effortLevel?: string | null }
+  data: { name: string; prompt: string; nextTemplateId?: string; thinkingEnabled?: boolean | null; gitBranch?: string; model?: string; mode?: string | null; gitMode?: string; effortLevel?: string | null; showInQuickResponses?: boolean; quickResponseAutoSubmit?: boolean; quickResponseSortOrder?: number }
 ) {
   const response = await fetch(`${API_URL}/api/projects/${projectId}/templates`, {
     method: 'POST',
@@ -724,6 +724,9 @@ export async function seedGlobalTemplate(data: {
   mode?: string | null;
   gitMode?: string;
   effortLevel?: string | null;
+  showInQuickResponses?: boolean;
+  quickResponseAutoSubmit?: boolean;
+  quickResponseSortOrder?: number;
 }) {
   const response = await fetch(`${API_URL}/api/templates`, {
     method: 'POST',
@@ -1884,6 +1887,9 @@ export async function updateTemplate(
     model?: string | null;
     mode?: string | null;
     effortLevel?: string | null;
+    showInQuickResponses?: boolean;
+    quickResponseAutoSubmit?: boolean;
+    quickResponseSortOrder?: number;
   }
 ): Promise<any> {
   const response = await fetch(`${API_URL}/api/templates/${id}`, {
