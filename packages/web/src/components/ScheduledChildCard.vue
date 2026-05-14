@@ -3,14 +3,15 @@
     <!-- Header -->
     <div class="card-header">
       <div class="session-info">
-        <router-link
-          :to="`/sessions/${session.id}`"
+        <button
           class="session-name-link"
+          data-testid="scheduled-session-name-btn"
+          @click="handleSessionClick"
         >
           <h4 class="session-name">
             {{ session.name }}
           </h4>
-        </router-link>
+        </button>
       </div>
       <span class="status-badge status-scheduled">scheduled</span>
     </div>
@@ -108,6 +109,12 @@ const loading = ref(false);
 const showEditModal = ref(false);
 const showAutoRescheduleModal = ref(false);
 
+const emit = defineEmits(['open-session-overlay']);
+
+function handleSessionClick() {
+  emit('open-session-overlay', props.session.id);
+}
+
 const scheduledTimeDisplay = computed(() => {
   const time = new Date(props.session.scheduledAt);
   return formatDistanceToNow(time, { addSuffix: true });
@@ -171,8 +178,17 @@ async function handleTemplateChange(templateId) {
 }
 
 .session-name-link {
-  text-decoration: none;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
   color: inherit;
+  display: block;
+  width: 100%;
+  text-decoration: none;
   transition: color 0.2s;
 }
 

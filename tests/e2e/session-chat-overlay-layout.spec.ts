@@ -27,6 +27,7 @@ test.describe('SessionChatOverlay layout', () => {
 
   let project: any;
   let session: any;
+  const injectedViewportOffsetTop = 260;
 
   test.beforeEach(async () => {
     project = await seedProject('Overlay Layout', '/tmp/overlay-layout');
@@ -99,6 +100,7 @@ test.describe('SessionChatOverlay layout', () => {
         backdrop: rectFor('[data-testid="session-chat-overlay"]'),
         panel: rectFor('.overlay-panel-wrapper'),
         content: rectFor('.overlay-content'),
+        header: rectFor('.overlay-header'),
         inner: { w: window.innerWidth, h: window.innerHeight },
         inline: {
           top: s.top,
@@ -184,7 +186,7 @@ test.describe('SessionChatOverlay layout', () => {
     expect(computed.left).toBe('0px');
   });
 
-  test('narrow phone-sized layouts ignore stale visual viewport CSS variables', async ({ page }) => {
+  test('narrow phone-sized shell geometry ignores stale visual viewport CSS variables', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await navigateToSession(page);
     await openOverlay(page);
@@ -201,7 +203,7 @@ test.describe('SessionChatOverlay layout', () => {
     }
   });
 
-  test('744px tablet-sized layouts ignore stale visual viewport CSS variables', async ({ page }) => {
+  test('744px tablet-sized shell geometry ignores stale visual viewport CSS variables', async ({ page }) => {
     await page.setViewportSize({ width: 744, height: 1000 });
     await navigateToSession(page);
     await openOverlay(page);
@@ -241,6 +243,27 @@ test.describe('SessionChatOverlay layout', () => {
       expect(result.panel.width).toBeGreaterThan(0);
       expect(result.content.top).toBeLessThanOrEqual(1);
       expect(result.content.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+    } finally {
+      await clearStaleVisualViewportVariables(page);
+    }
+  });
+
+  test('visual viewport top offset aligns the overlay header without moving the shell', async ({ page }) => {
+    await page.setViewportSize({ width: 744, height: 1000 });
+    await navigateToSession(page);
+    await openOverlay(page);
+
+    await injectStaleVisualViewportVariables(page);
+
+    try {
+      const result = await readOverlayLayout(page);
+      expectBackdropCoversViewport(result);
+      expect(result.panel.top).toBeLessThanOrEqual(1);
+      expect(result.panel.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+      expect(result.content.top).toBeLessThanOrEqual(1);
+      expect(result.content.bottom).toBeGreaterThanOrEqual(result.inner.h - 1);
+      expect(result.header.top).toBeGreaterThanOrEqual(injectedViewportOffsetTop - 1);
+      expect(result.header.top).toBeLessThanOrEqual(injectedViewportOffsetTop + 1);
     } finally {
       await clearStaleVisualViewportVariables(page);
     }
