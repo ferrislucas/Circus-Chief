@@ -469,9 +469,9 @@ describe('ChangesTab', () => {
 
       // Should have mode toggle buttons + Expand/Collapse button
       const buttons = toolbar.findAll('button');
-      // At least 2 buttons: Local Changes + Expand/Collapse All
+      // At least 3 buttons: Local Changes + Expand/Collapse All + Refresh
       // (Compare to branch button only shows if defaultBranch is set)
-      expect(buttons.length).toBeGreaterThanOrEqual(2);
+      expect(buttons.length).toBeGreaterThanOrEqual(3);
       expect(toolbar.text()).toContain('Local Changes');
       expect(toolbar.text()).toMatch(/Expand All|Collapse All/);
     });
@@ -507,11 +507,12 @@ describe('ChangesTab', () => {
       const toolbar = wrapper.find('.changes-toolbar');
       expect(toolbar.exists()).toBe(true);
 
-      // Should have both mode toggle buttons
+      // Should have both mode toggle buttons + refresh button
       const buttons = toolbar.findAll('button');
-      expect(buttons.length).toBeGreaterThanOrEqual(2);
+      expect(buttons.length).toBeGreaterThanOrEqual(3);
       expect(toolbar.text()).toContain('Local Changes');
       expect(toolbar.text()).toContain('Compare to main');
+      expect(toolbar.text()).toContain('Refresh');
 
       // Should NOT show the Expand/Collapse button when there are no changes
       expect(toolbar.text()).not.toContain('Expand All');
@@ -1120,7 +1121,8 @@ index 1234567..abcdefg 100644
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      const button = wrapper.find('.btn-link');
+      const buttons = wrapper.findAll('.btn-link');
+      const button = buttons.find(b => b.text().includes('Expand All') || b.text().includes('Collapse All'));
       expect(button.text()).toBe('Expand All');
     });
 
@@ -1137,8 +1139,213 @@ index 1234567..abcdefg 100644
       wrapper.vm.toggleAllFiles(); // expand all
       await flushAll(wrapper);
 
-      const button = wrapper.find('.btn-link');
+      const buttons = wrapper.findAll('.btn-link');
+      const button = buttons.find(b => b.text().includes('Expand All') || b.text().includes('Collapse All'));
       expect(button.text()).toBe('Collapse All');
+    });
+  });
+
+  describe('refresh button', () => {
+    const stagedDiffFixture = `diff --git a/file1.js b/file1.js
+index 1234567..abcdefg 100644
+--- a/file1.js
++++ b/file1.js
+@@ -1,2 +1,3 @@
+ const x = 1;
++const y = 2;`;
+
+    it('renders refresh button in toolbar when changes are present', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const refreshButton = wrapper.find('.refresh-button');
+      expect(refreshButton.exists()).toBe(true);
+      expect(refreshButton.text()).toContain('Refresh');
+    });
+
+    it('renders refresh button when no changes but defaultBranch exists', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: 'origin/main' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.refresh-button').exists()).toBe(true);
+    });
+
+    it('does not render refresh button when toolbar is hidden', async () => {
+      api.getSessionChanges.mockResolvedValue({ staged: '', unstaged: '', untracked: '' });
+      api.getSessionDefaultBranch.mockResolvedValue({ branch: null });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.find('.refresh-button').exists()).toBe(false);
+    });
+
+    it('calls fetchChanges when clicked', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      api.getSessionChanges.mockClear();
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const refreshButton = wrapper.find('.refresh-button');
+      await refreshButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(api.getSessionChanges).toHaveBeenCalledWith('test-session', 'local', null);
+      expect(api.getSessionChanges).toHaveBeenCalledTimes(1);
+    });
+
+    it('is disabled and shows spinner while refreshing', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Make next API call return a pending promise
+      let resolveRefresh;
+      api.getSessionChanges.mockImplementation(() => new Promise((resolve) => {
+        resolveRefresh = resolve;
+      }));
+
+      const refreshButton = wrapper.find('.refresh-button');
+      await refreshButton.trigger('click');
+      await nextTick();
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+
+      // Button should be disabled
+      expect(refreshButton.attributes('disabled')).toBeDefined();
+      // Spinner should be visible
+      expect(refreshButton.find('.loading-spinner').exists()).toBe(true);
+      // Static icon should not be present
+      expect(refreshButton.text()).not.toContain('↻');
+
+      // Resolve the pending promise
+      resolveRefresh({ staged: stagedDiffFixture, unstaged: '', untracked: '' });
+      await flushAll(wrapper);
+
+      // After loading completes, spinner should be gone and static icon should return
+      const refreshedButton = wrapper.find('.refresh-button');
+      expect(refreshedButton.find('.loading-spinner').exists()).toBe(false);
+      expect(refreshedButton.text()).toContain('↻');
+    });
+
+    it('updates data after refresh completes', async () => {
+      const file2Diff = `diff --git a/file2.js b/file2.js
+index 1234567..abcdefg 100644
+--- a/file2.js
++++ b/file2.js
+@@ -1,2 +1,3 @@
+ const a = 1;
++const b = 2;`;
+
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.stagedFiles[0].displayPath).toBe('file1.js');
+
+      // Mock to return different data on refresh
+      api.getSessionChanges.mockResolvedValue({
+        staged: file2Diff,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const refreshButton = wrapper.find('.refresh-button');
+      await refreshButton.trigger('click');
+      await flushAll(wrapper);
+
+      expect(wrapper.vm.stagedFiles[0].displayPath).toBe('file2.js');
+    });
+
+    it('shows initial loading state on first mount', async () => {
+      let resolvePromise;
+      api.getSessionChanges.mockImplementation(() => new Promise((resolve) => {
+        resolvePromise = resolve;
+      }));
+
+      const wrapper = mountComponent();
+
+      await nextTick();
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+
+      // Full loading state should be shown
+      expect(wrapper.find('.loading-state').exists()).toBe(true);
+      // Toolbar should NOT be shown
+      expect(wrapper.find('.changes-toolbar').exists()).toBe(false);
+
+      // Resolve the promise
+      resolvePromise({ staged: '', unstaged: '', untracked: '' });
+      await flushAll(wrapper);
+
+      // After loading, the toolbar may or may not appear depending on data
+      // but the loading state should be gone
+      expect(wrapper.find('.loading-state').exists()).toBe(false);
+    });
+
+    it('keeps toolbar visible during refresh after initial load', async () => {
+      api.getSessionChanges.mockResolvedValue({
+        staged: stagedDiffFixture,
+        unstaged: '',
+        untracked: '',
+      });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Toolbar should be visible after initial load
+      expect(wrapper.find('.changes-toolbar').exists()).toBe(true);
+
+      // Make next API call return a pending promise
+      let resolveRefresh;
+      api.getSessionChanges.mockImplementation(() => new Promise((resolve) => {
+        resolveRefresh = resolve;
+      }));
+
+      const refreshButton = wrapper.find('.refresh-button');
+      await refreshButton.trigger('click');
+      await nextTick();
+      await wrapper.vm.$forceUpdate();
+      await nextTick();
+
+      // Toolbar should STILL be visible during refresh
+      expect(wrapper.find('.changes-toolbar').exists()).toBe(true);
+      // Full loading state should NOT be shown during refresh
+      expect(wrapper.find('.loading-state').exists()).toBe(false);
+
+      // Resolve to clean up
+      resolveRefresh({ staged: stagedDiffFixture, unstaged: '', untracked: '' });
+      await flushAll(wrapper);
     });
   });
 });
