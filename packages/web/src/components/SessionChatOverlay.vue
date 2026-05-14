@@ -1063,7 +1063,6 @@ defineExpose({
      was a historical failure mode when `overflow: hidden` was used here. */
   overflow: clip;
   padding: 0;
-  padding-top: max(0px, var(--viewport-offset-top, 0px));
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
   position: relative;
   background: rgb(17, 24, 39);
@@ -1084,15 +1083,19 @@ defineExpose({
 }
 
 .overlay-header {
+  --overlay-header-base-padding-top: 0.75rem;
+
   position: -webkit-sticky;
   position: sticky;
   top: 0;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
-  padding: 0.75rem 1rem 0.375rem;
-  /* Raise top padding to clear the iPhone notch when present. */
-  padding-top: max(0.75rem, env(safe-area-inset-top));
+  padding: var(--overlay-header-base-padding-top) 1rem 0.375rem;
+  padding-top: calc(
+    max(var(--overlay-header-base-padding-top), env(safe-area-inset-top)) +
+    var(--session-overlay-top-chrome-inset, 0px)
+  );
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
@@ -1194,14 +1197,11 @@ defineExpose({
   }
 
   .overlay-header {
+    --overlay-header-base-padding-top: 1rem;
+
     padding-right: 0.5rem;
     padding-bottom: 0.375rem;
     padding-left: 0.5rem;
-    /* padding-top: keep the larger base value (the 1rem visual intent
-       of the old shorthand is already covered by the base
-       `max(0.75rem, env(safe-area-inset-top))` on devices with an
-       inset; raise the floor here for mobile without a notch). */
-    padding-top: max(1rem, env(safe-area-inset-top));
   }
 }
 
