@@ -14,37 +14,16 @@
 
 ## Features
 
-### Stay on top of your agents
-
-- **AI-generated session summaries** — scan what every session accomplished without reading the full conversation, with PRs automatically linked (requires GitHub CLI)
-- **Kanban board (experimental)** — organize sessions into workflow stages with drag-and-drop and lane automation. Disabled by default for new projects; enable it per-project from the project settings page. Expect rough edges while this feature matures.
-- **Command buttons with live status** — kick off builds, tests, or CI tasks and see pass/fail indicators right on the session list
-- **Star, archive, and filter** to keep your session list manageable
-
-### Work from anywhere
-
-- **Touch-first UI** — built for small screens with minimal typing
-- **Quick responses** — configure reusable replies and send them with a single tap
-- **Command buttons** — run shell commands without touching a keyboard, with live output streaming
-- **Slash command wizards** — tap through complex operations step by step with argument forms
-
-### Orchestration
-
-- **Session scheduling** — queue sessions to run at specific times
-- **Auto-retry on token exhaustion or provider downtime** — configurable delay, max retries, and proactive rescheduling before hitting limits
-- **Kanban lane automation (experimental)** — trigger templates automatically as sessions move between lanes (requires enabling the Kanban board for the project)
-- **Ask the agent to orchestrate (experimental)** — agents can create sessions and place them in kanban lanes via the API, so you can ask one agent to fan out work across files or folders and track it all on the board (requires enabling the Kanban board for the project)
-
-### Git-native workflow
-
-- **Worktree isolation** — each session gets its own branch and working directory so agents never step on each other
-- **Auto-links sessions to GitHub PRs** with live CI status, merge state, and conflict warnings
-
-### Share context across sessions
-
-- **Visual canvas** — a shared surface for plans, images, code, JSON, and documents that persists across sessions
-- **Inline markdown editing** — refine an agent's plan directly on the canvas without leaving the UI
-- **Version history** — track how artifacts evolve; nothing gets lost as you iterate
+- **Agents can operate Circus Chief itself.** Each agent can inspect sessions, spawn follow-ups, schedule retries, stop/restart work, and react to results.
+- **Opt-in retry on usage limits.** Toggle it on for a session and, if it hits a token cap or provider outage, it reschedules itself and picks up where it left off.
+- **Configurable, chainable templates.** Each template defines a prompt and session settings, and one template can auto-launch the next. Example pipeline: *plan → review plan → implement the plan → review implementation → open PR* — templates can invoke themselves.
+- **AI-generated summaries** on every session, so you can see what each agent is doing and where you left off without re-reading the whole transcript. You can turn this off in project settings.
+- **User-configured commands.** Add one-tap buttons for the project commands you run constantly: tests, lint, build, typecheck, CI checks. Output streams live, and pass/fail results can optionally display on the dashboard.
+- **Claude Code and Codex sessions.** Start either kind of agent from the same dashboard, with the same mobile controls, history, canvas, commands, and worktree isolation. Switch agents and/or providers freely. Invoke parallel agents against the same worktree or in their own work trees.
+- **Worktree-per-session isolation.** Every session gets its own git worktree. You can also elect to work in the main git repo, or on a specific branch of the main git repo.
+- **Shared canvas.** Markdown, images, JSON, code — agents and you edit the same artifacts. Version history included.
+- **Bring your own provider — per session.** Use subscription auth for Anthropic or OpenAI, or point sessions at third-party providers with Anthropic- or OpenAI-compatible endpoints. Claude Code and Codex are both first-class paths.
+- **Auto-linked GitHub PRs** with live CI and merge/conflict state (needs `gh`).
 
 ---
 
