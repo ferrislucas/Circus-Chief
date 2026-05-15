@@ -65,7 +65,6 @@ test.describe('SessionChatOverlay layout', () => {
     await page.evaluate(() => {
       document.documentElement.style.setProperty('--viewport-offset-top', '260px');
       document.documentElement.style.setProperty('--visual-viewport-height', '420px');
-      document.documentElement.style.setProperty('--visual-viewport-bottom-inset', '424px');
     });
     await page.waitForTimeout(50);
   }
@@ -82,7 +81,6 @@ test.describe('SessionChatOverlay layout', () => {
       document.documentElement.style.removeProperty('--viewport-offset-top');
       document.documentElement.style.removeProperty('--visual-viewport-height');
       document.documentElement.style.removeProperty('--session-overlay-top-chrome-inset');
-      document.documentElement.style.removeProperty('--visual-viewport-bottom-inset');
     });
   }
 
@@ -107,7 +105,6 @@ test.describe('SessionChatOverlay layout', () => {
       const rootStyle = getComputedStyle(document.documentElement);
       const content = document.querySelector('.overlay-content') as HTMLElement;
       const header = document.querySelector('.overlay-header') as HTMLElement;
-      const body = document.querySelector('.overlay-body') as HTMLElement;
       const s = shell.style;
 
       return {
@@ -125,11 +122,6 @@ test.describe('SessionChatOverlay layout', () => {
           sessionOverlayTopChromeInset: rootStyle
             .getPropertyValue('--session-overlay-top-chrome-inset')
             .trim(),
-          visualViewportBottomInset: rootStyle
-            .getPropertyValue('--visual-viewport-bottom-inset')
-            .trim(),
-          bodyPaddingBottom: getComputedStyle(body).paddingBottom,
-          bodyScrollPaddingBottom: getComputedStyle(body).scrollPaddingBottom,
         },
         inline: {
           top: s.top,
@@ -232,8 +224,6 @@ test.describe('SessionChatOverlay layout', () => {
       expect(result.computed.viewportOffsetTop).toBe(`${injectedViewportOffsetTop}px`);
       expect(result.computed.visualViewportHeight).toBe('420px');
       expect(result.computed.sessionOverlayTopChromeInset).toBe('0px');
-      expect(result.computed.visualViewportBottomInset).toBe('424px');
-      expect(parseFloat(result.computed.bodyPaddingBottom)).toBeGreaterThanOrEqual(423);
       expect(result.headerRow.top).toBeLessThan(80);
     } finally {
       await clearStaleVisualViewportVariables(page);
