@@ -7,6 +7,10 @@ let settleStartedAt = 0;
 let settleLastRect = null;
 let settleStableSamples = 0;
 
+const SESSION_OVERLAY_TOP_CHROME_THRESHOLD = 64;
+const KEYBOARD_HEIGHT_DELTA_THRESHOLD = 120;
+const KEYBOARD_VIEWPORT_RATIO_THRESHOLD = 0.85;
+
 function getPixelValue(value, fallback) {
   return Number.isFinite(value) ? `${value}px` : fallback;
 }
@@ -16,11 +20,67 @@ function getVisualViewportRect() {
   return { offsetTop, height };
 }
 
+export function computeSessionOverlayTopChromeInset({
+  offsetTop,
+  visualViewportHeight,
+  layoutWidth,
+  layoutHeight,
+  userAgent = '',
+  platform = '',
+  maxTouchPoints = 0,
+}) {
+  if (
+    !Number.isFinite(offsetTop) ||
+    offsetTop <= 0 ||
+    offsetTop > SESSION_OVERLAY_TOP_CHROME_THRESHOLD
+  ) {
+    return 0;
+  }
+
+  const ua = String(userAgent);
+  const devicePlatform = String(platform);
+  const touchPoints = Number(maxTouchPoints) || 0;
+  const isAndroid = /Android/i.test(ua);
+  const isAndroidMobile = isAndroid && /Mobile/i.test(ua);
+  const isIPhoneLike = /iPhone|iPod/i.test(`${ua} ${devicePlatform}`);
+  const hasPhoneSignal = isIPhoneLike || isAndroidMobile;
+
+  if (hasPhoneSignal) {
+    return 0;
+  }
+
+  const hasKeyboardShapedViewport =
+    Number.isFinite(layoutHeight) &&
+    layoutHeight > 0 &&
+    Number.isFinite(visualViewportHeight) &&
+    (layoutHeight - visualViewportHeight > KEYBOARD_HEIGHT_DELTA_THRESHOLD ||
+      visualViewportHeight / layoutHeight < KEYBOARD_VIEWPORT_RATIO_THRESHOLD);
+
+  if (hasKeyboardShapedViewport) {
+    return 0;
+  }
+
+  const isIPad =
+    /iPad/i.test(`${ua} ${devicePlatform}`) ||
+    (devicePlatform === 'MacIntel' && touchPoints > 1);
+  const isAndroidTablet = isAndroid && !/Mobile/i.test(ua);
+  const hasTabletSizedLayout =
+    Number.isFinite(layoutWidth) &&
+    Number.isFinite(layoutHeight) &&
+    Math.min(layoutWidth, layoutHeight) >= 700;
+
+  if (isIPad || isAndroidTablet || hasTabletSizedLayout) {
+    return offsetTop;
+  }
+
+  return 0;
+}
+
 function rectsMatch(a, b) {
   return a && b && a.offsetTop === b.offsetTop && a.height === b.height;
 }
 
-function writeVisualViewportVariables() {
+export function writeVisualViewportVariables() {
   if (!window.visualViewport) {
     return null;
   }
@@ -33,6 +93,19 @@ function writeVisualViewportVariables() {
   document.documentElement.style.setProperty(
     '--visual-viewport-height',
     getPixelValue(rect.height, '100dvh')
+  );
+  const sessionOverlayTopChromeInset = computeSessionOverlayTopChromeInset({
+    offsetTop: rect.offsetTop,
+    visualViewportHeight: rect.height,
+    layoutWidth: window.innerWidth,
+    layoutHeight: window.innerHeight,
+    userAgent: window.navigator?.userAgent,
+    platform: window.navigator?.platform,
+    maxTouchPoints: window.navigator?.maxTouchPoints,
+  });
+  document.documentElement.style.setProperty(
+    '--session-overlay-top-chrome-inset',
+    `${sessionOverlayTopChromeInset}px`
   );
   return rect;
 }
@@ -138,9 +211,9 @@ export function requestVisualViewportSettle(options = {}) {
  * This is needed for iOS Safari, where the browser chrome (URL bar + tab bar) can
  * physically overlap sticky-positioned elements when expanded.
  *
- * Sets --viewport-offset-top and --visual-viewport-height CSS variables on
- * document.documentElement. These can be used to align fixed and sticky elements
- * to the same visual viewport rectangle.
+ * Sets raw visual viewport CSS variables on document.documentElement, plus a
+ * session-overlay-specific sanitized top inset that avoids treating stale phone
+ * keyboard offsets as browser chrome.
  *
  * On browsers without visualViewport API, this no-ops and CSS fallbacks apply.
  */

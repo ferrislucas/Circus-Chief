@@ -1625,21 +1625,26 @@ describe('SessionChatOverlay', () => {
       expect(block).not.toMatch(/top:\s*var\(/);
     });
 
-    it('overlay content has a viewport-height floor and visual top offset', () => {
+    it('overlay content has a viewport-height floor without visual viewport padding', () => {
       const block = getStyleBlock('.overlay-content');
       expect(block).toMatch(/min-height:\s*100%/);
       expect(block).toMatch(/min-height:\s*100dvh/);
-      expect(block).toMatch(
-        /padding-top:\s*max\(0px,\s*var\(--viewport-offset-top,\s*0px\)\)/
-      );
+      expect(block).toMatch(/overflow:\s*clip/);
+      expect(block).toMatch(/padding:\s*0/);
+      expect(block).not.toMatch(/padding-top/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
     });
 
-    it('overlay header stays sticky within the padded content flow', () => {
+    it('overlay header stays sticky and consumes only the sanitized top chrome inset', () => {
       const block = getStyleBlock('.overlay-header');
+      expect(block).toMatch(/--overlay-header-base-padding-top:\s*0\.75rem/);
       expect(block).toMatch(/position:\s*-webkit-sticky/);
       expect(block).toMatch(/position:\s*sticky/);
       expect(block).toMatch(/top:\s*0/);
+      expect(block).toMatch(/padding:\s*var\(--overlay-header-base-padding-top\)\s*1rem\s*0\.375rem/);
+      expect(block).toMatch(/max\(var\(--overlay-header-base-padding-top\),\s*env\(safe-area-inset-top\)\)/);
+      expect(block).toMatch(/--session-overlay-top-chrome-inset/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
     });
