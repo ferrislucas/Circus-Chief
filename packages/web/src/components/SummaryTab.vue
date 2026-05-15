@@ -22,7 +22,9 @@
       :files-count="filesCount"
       :pr-url="prUrl"
       :has-warnings="hasWarnings"
-      :scheduled-sessions="allScheduledSessions"
+      :scheduled-sessions="scheduledChildSessions"
+      :root-is-scheduled="rootSessionIsScheduled"
+      :root-session="session"
       :project-id="projectId"
       :show-not-started-state="showNotStartedStateInOverview"
       @open-session-overlay="(sessionId) => emit('open-session-overlay', sessionId)"
@@ -142,13 +144,11 @@ const isRunning = computed(() => {
   return status === 'running' || status === 'starting';
 });
 
-const allScheduledSessions = computed(() => {
+const rootSessionIsScheduled = computed(() => session.value?.status === 'scheduled');
+
+const scheduledChildSessions = computed(() => {
   const result = [];
-  // Include parent if scheduled
-  if (session.value?.status === 'scheduled') {
-    result.push(session.value);
-  }
-  // Include all scheduled descendants
+  // Include only scheduled descendants (not the root session itself)
   const descendants = sessionsStore.getAllDescendants(props.sessionId);
   for (const d of descendants) {
     if (d.status === 'scheduled') {
@@ -208,7 +208,7 @@ const hasMetrics = computed(() =>
 
 const isNotStartedEmptyState = computed(() => !latestResponse.value && !isRunning.value);
 const showNotStartedStateInOverview = computed(() =>
-  Boolean(isNotStartedEmptyState.value && (hasMetrics.value || allScheduledSessions.value.length > 0))
+  Boolean(isNotStartedEmptyState.value && (hasMetrics.value || rootSessionIsScheduled.value || scheduledChildSessions.value.length > 0))
 );
 const showStandaloneNotStartedState = computed(() =>
   Boolean(isNotStartedEmptyState.value && !showNotStartedStateInOverview.value)

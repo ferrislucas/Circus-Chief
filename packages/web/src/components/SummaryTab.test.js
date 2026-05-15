@@ -1254,12 +1254,16 @@ describe('SummaryTab', () => {
 
       const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
       expect(overviewCard.exists()).toBe(true);
+
+      // Root session is passed separately via rootIsScheduled + rootSession props
+      expect(overviewCard.props('rootIsScheduled')).toBe(true);
+      expect(overviewCard.props('rootSession').id).toBe('sess-123');
+
+      // scheduledSessions only contains children, not the root
       const scheduledSessions = overviewCard.props('scheduledSessions');
-      expect(scheduledSessions.length).toBe(3);
-      // Parent comes first
-      expect(scheduledSessions[0].id).toBe('sess-123');
-      expect(scheduledSessions[1].id).toBe('child-1');
-      expect(scheduledSessions[2].id).toBe('child-2');
+      expect(scheduledSessions.length).toBe(2);
+      expect(scheduledSessions[0].id).toBe('child-1');
+      expect(scheduledSessions[1].id).toBe('child-2');
     });
 
     it('passes only scheduled children when parent is not scheduled', async () => {
@@ -1399,8 +1403,11 @@ describe('SummaryTab', () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      // SchedulingEditModal should not be in SummaryTab anymore
-      expect(wrapper.findComponent({ name: 'SchedulingEditModal' }).exists()).toBe(false);
+      // SchedulingEditModal should not be rendered directly in SummaryTab's template,
+      // but it may exist inside child components (SessionOverviewCard renders it for root scheduling)
+      const summaryTabDirectChildren = wrapper.find('.summary-tab');
+      const directModals = summaryTabDirectChildren.findAll(':scope > .scheduling-edit-modal, :scope > [data-testid="scheduling-edit-modal"]');
+      expect(directModals.length).toBe(0);
     });
   });
 

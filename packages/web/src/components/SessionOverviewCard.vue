@@ -1,10 +1,10 @@
 <template>
   <div
-    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || loading || showNotStartedState"
+    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || rootIsScheduled || loading || showNotStartedState"
     class="session-overview card"
   >
     <div
-      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading || showNotStartedState"
+      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || rootIsScheduled || loading || showNotStartedState"
       class="overview-header"
     >
       <h3>Session Overview</h3>
@@ -137,7 +137,87 @@
       </div>
     </div>
 
-    <!-- Scheduled sessions (parent + children) -->
+    <!-- Root Session Scheduling (only when root is scheduled) -->
+    <div
+      v-if="rootIsScheduled"
+      class="overview-root-scheduling"
+      data-testid="root-scheduling-section"
+    >
+      <h4 class="scheduled-sessions-heading">
+        This session is scheduled
+      </h4>
+      <div class="root-scheduling-content">
+        <!-- Timing info -->
+        <div class="timing-info">
+          <div class="timing-item">
+            <span class="timing-icon">⏰</span>
+            <div class="timing-details">
+              <span class="timing-text">{{ rootScheduledTimeDisplay }}</span>
+              <span class="timing-absolute">{{ rootAbsoluteTimeDisplay }}</span>
+            </div>
+            <div class="timing-actions">
+              <button
+                class="btn-link timing-action-btn"
+                :disabled="rootLoading"
+                @click="showRootEditModal = true"
+              >
+                Edit
+              </button>
+              <button
+                class="btn-link timing-action-btn btn-cancel"
+                :disabled="rootLoading"
+                @click="handleRootCancel"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="rootSession?.autoRescheduleEnabled"
+            class="timing-item"
+          >
+            <span class="timing-icon">🔄</span>
+            <div class="timing-details">
+              <span class="timing-text">Auto-reschedule</span>
+              <span class="timing-absolute">
+                Attempt {{ rootSession.rescheduleCount }}/{{ rootSession.maxRescheduleCount || '∞' }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Orchestration -->
+        <OrchestrationPanel
+          :session-id="rootSession.id"
+          :project-id="projectId"
+          :current-template-id="rootSession.nextTemplateId"
+          session-status="scheduled"
+          :is-draft="false"
+          :input-has-content="true"
+          :auto-reschedule-enabled="rootSession.autoRescheduleEnabled"
+          :hide-schedule-row="true"
+          @update:template-id="handleRootTemplateChange"
+          @open-auto-reschedule="showRootAutoRescheduleModal = true"
+          @open-schedule="() => {}"
+        />
+      </div>
+
+      <SchedulingEditModal
+        :is-open="showRootEditModal"
+        :session="rootSession"
+        @close="showRootEditModal = false"
+        @saved="() => {}"
+      />
+      <AutoRescheduleModal
+        :is-open="showRootAutoRescheduleModal"
+        :session="rootSession"
+        @close="showRootAutoRescheduleModal = false"
+        @saved="() => {}"
+      />
+    </div>
+
+    <!-- Scheduled Child Sessions -->
     <div
       v-if="scheduledSessions.length > 0"
       class="overview-scheduled-sessions"
@@ -160,10 +240,17 @@
 </template>
 
 <script setup>
+import { ref, computed } from 'vue';
+import { formatDistanceToNow, format } from 'date-fns';
 import { formatPrState, extractPrNumber } from '../composables/useSummaryHelpers.js';
+import { useSessionsStore } from '../stores/sessions.js';
+import { useUiStore } from '../stores/ui.js';
 import ScheduledChildCard from './ScheduledChildCard.vue';
+import OrchestrationPanel from './OrchestrationPanel.vue';
+import SchedulingEditModal from './SchedulingEditModal.vue';
+import AutoRescheduleModal from './AutoRescheduleModal.vue';
 
-defineProps({
+const props = defineProps({
   summary: {
     type: Object,
     default: null,
@@ -212,6 +299,14 @@ defineProps({
     type: Array,
     default: () => [],
   },
+  rootIsScheduled: {
+    type: Boolean,
+    default: false,
+  },
+  rootSession: {
+    type: Object,
+    default: null,
+  },
   projectId: {
     type: String,
     default: null,
@@ -223,6 +318,51 @@ defineProps({
 });
 
 defineEmits(['open-session-overlay']);
+
+const sessionsStore = useSessionsStore();
+const uiStore = useUiStore();
+const rootLoading = ref(false);
+const showRootEditModal = ref(false);
+const showRootAutoRescheduleModal = ref(false);
+
+const rootScheduledTimeDisplay = computed(() => {
+  if (!props.rootSession?.scheduledAt) return '';
+  const time = new Date(props.rootSession.scheduledAt);
+  return formatDistanceToNow(time, { addSuffix: true });
+});
+
+const rootAbsoluteTimeDisplay = computed(() => {
+  if (!props.rootSession?.scheduledAt) return '';
+  const time = new Date(props.rootSession.scheduledAt);
+  return format(time, 'MMM d, h:mm a');
+});
+
+async function handleRootCancel() {
+  if (!confirm('Cancel this scheduled session?')) {
+    return;
+  }
+
+  rootLoading.value = true;
+  try {
+    await sessionsStore.updateSessionFields(props.rootSession.id, {
+      status: 'stopped',
+    });
+    uiStore.success('Session cancelled');
+  } catch (error) {
+    console.error('Failed to cancel session:', error);
+    uiStore.error(`Failed to cancel session: ${error.message}`);
+  } finally {
+    rootLoading.value = false;
+  }
+}
+
+async function handleRootTemplateChange(templateId) {
+  try {
+    await sessionsStore.updateNextTemplate(props.rootSession.id, templateId);
+  } catch (err) {
+    uiStore.error(err.message);
+  }
+}
 
 </script>
 
@@ -399,6 +539,83 @@ defineEmits(['open-session-overlay']);
 
 .pr-link:hover {
   text-decoration: underline;
+}
+
+.overview-root-scheduling {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.root-scheduling-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.overview-root-scheduling .timing-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.overview-root-scheduling .timing-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.overview-root-scheduling .timing-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.overview-root-scheduling .timing-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.overview-root-scheduling .timing-text {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.overview-root-scheduling .timing-absolute {
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
+}
+
+.overview-root-scheduling .timing-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.overview-root-scheduling .btn-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 0;
+  color: var(--color-primary);
+}
+
+.overview-root-scheduling .btn-link:hover {
+  text-decoration: underline;
+}
+
+.overview-root-scheduling .btn-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.overview-root-scheduling .btn-cancel {
+  color: var(--color-error, #cf222e);
 }
 
 .overview-scheduled-sessions {
