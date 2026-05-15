@@ -81,6 +81,23 @@ export function computeSessionOverlayTopChromeInset(input = {}) {
   return isTabletSizedLayout(layoutWidth, layoutHeight) || tabletSignal ? offsetTop : 0;
 }
 
+export function computeVisualViewportBottomInset(input = {}) {
+  const layoutHeight = toFiniteNumber(input.layoutHeight);
+  const visualViewportHeight = toFiniteNumber(input.visualViewportHeight);
+  const offsetTop = toFiniteNumber(input.offsetTop) || 0;
+
+  if (!(layoutHeight > 0 && visualViewportHeight > 0)) {
+    return 0;
+  }
+
+  const bottomInset = layoutHeight - visualViewportHeight - offsetTop;
+  if (!Number.isFinite(bottomInset) || bottomInset <= 0) {
+    return 0;
+  }
+
+  return Math.round(bottomInset);
+}
+
 function getVisualViewportRect() {
   const { offsetTop, height } = window.visualViewport;
   return { offsetTop, height };
@@ -105,6 +122,11 @@ function writeVisualViewportVariables() {
     maxTouchPoints: navigator.maxTouchPoints,
     userAgent: navigator.userAgent,
   });
+  const bottomInset = computeVisualViewportBottomInset({
+    offsetTop: rect.offsetTop,
+    visualViewportHeight: rect.height,
+    layoutHeight: window.innerHeight,
+  });
   document.documentElement.style.setProperty(
     '--viewport-offset-top',
     getPixelValue(rect.offsetTop, '0px')
@@ -116,6 +138,10 @@ function writeVisualViewportVariables() {
   document.documentElement.style.setProperty(
     '--session-overlay-top-chrome-inset',
     `${overlayInset}px`
+  );
+  document.documentElement.style.setProperty(
+    '--visual-viewport-bottom-inset',
+    `${bottomInset}px`
   );
   return rect;
 }
