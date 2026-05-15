@@ -1,5 +1,31 @@
 import { z } from 'zod';
 
+const SCHEDULED_AT_FORMAT_MESSAGE = 'scheduledAt must be a valid ISO 8601 date-time string with a timezone';
+const ISO_8601_DATE_TIME_WITH_TIMEZONE = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+
+function hasValidDateParts(year, month, day) {
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+function isScheduledAtIsoString(value) {
+  const match = ISO_8601_DATE_TIME_WITH_TIMEZONE.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!hasValidDateParts(year, month, day)) return false;
+
+  return Number.isFinite(Date.parse(value));
+}
+
+const ScheduledAtIsoString = z.string().refine(isScheduledAtIsoString, {
+  message: SCHEDULED_AT_FORMAT_MESSAGE,
+});
+
 export const CreateSessionRequest = z.object({
   prompt: z.string().min(1),
   name: z.string().optional(),
@@ -11,7 +37,7 @@ export const CreateSessionRequest = z.object({
   templateId: z.string().uuid().optional(), // Template to apply on session creation
   nextTemplateId: z.string().uuid().nullable().optional(),
   // Scheduling fields
-  scheduledAt: z.number().optional(), // Unix timestamp in ms
+  scheduledAt: ScheduledAtIsoString.optional(),
   autoRescheduleEnabled: z.boolean().optional(),
   rescheduleDelayMinutes: z.number().min(5).max(1440).optional(), // 5 min to 24 hours
   rescheduleOnTokenLimit: z.boolean().optional(),

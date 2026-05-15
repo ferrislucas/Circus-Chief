@@ -87,6 +87,45 @@ describe('CreateSessionRequest', () => {
     expect(result.success).toBe(true);
     expect(result.data.gitMode).toBeUndefined();
   });
+
+  describe('scheduledAt validation', () => {
+    it('accepts ISO 8601 date-time strings with a timezone', () => {
+      expect(CreateSessionRequest.safeParse({
+        prompt: 'test',
+        scheduledAt: '2026-06-12T14:00:00Z',
+      }).success).toBe(true);
+      expect(CreateSessionRequest.safeParse({
+        prompt: 'test',
+        scheduledAt: '2026-06-12T09:00:00-05:00',
+      }).success).toBe(true);
+      expect(CreateSessionRequest.safeParse({
+        prompt: 'test',
+        scheduledAt: '2026-06-12T14:00:00.123456Z',
+      }).success).toBe(true);
+    });
+
+    it('rejects Unix millisecond timestamps', () => {
+      expect(CreateSessionRequest.safeParse({
+        prompt: 'test',
+        scheduledAt: 1700000000000,
+      }).success).toBe(false);
+      expect(CreateSessionRequest.safeParse({
+        prompt: 'test',
+        scheduledAt: '1700000000000',
+      }).success).toBe(false);
+    });
+
+    it('rejects ISO strings without a timezone and invalid calendar dates', () => {
+      expect(CreateSessionRequest.safeParse({
+        prompt: 'test',
+        scheduledAt: '2026-06-12T14:00:00',
+      }).success).toBe(false);
+      expect(CreateSessionRequest.safeParse({
+        prompt: 'test',
+        scheduledAt: '2026-02-30T14:00:00Z',
+      }).success).toBe(false);
+    });
+  });
 });
 
 describe('UpdateSessionRequest', () => {

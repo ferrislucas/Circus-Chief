@@ -56,6 +56,17 @@ function buildSessionFormData(jsonData, files) {
   return formData;
 }
 
+function normalizeCreateSessionData(data) {
+  if (!(typeof data.scheduledAt === 'number' || data.scheduledAt instanceof Date)) {
+    return data;
+  }
+
+  return {
+    ...data,
+    scheduledAt: new Date(data.scheduledAt).toISOString(),
+  };
+}
+
 /**
  * Sessions API resource mixin
  * Adds session-related methods to ApiClient
@@ -105,7 +116,7 @@ export function SessionsApi(ApiClient) {
      * @returns {Promise<Object>}
      */
     async createSession(projectId, data) {
-      const { files, ...jsonData } = data;
+      const { files, ...jsonData } = normalizeCreateSessionData(data);
 
       // Use FormData if files are attached, otherwise JSON
       if (files && files.length > 0) {

@@ -1649,6 +1649,12 @@ describe('SessionChatOverlay', () => {
       expect(block).not.toMatch(/--visual-viewport-height/);
     });
 
+    it('overlay content does not use padding-top viewport offset', () => {
+      const block = getStyleBlock('.overlay-content');
+      expect(block).not.toMatch(/padding-top:\s*max\(/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
+    });
+
     it('mobile overlay header keeps the larger base padding floor', () => {
       expect(sessionChatOverlaySource).toMatch(
         /@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\.overlay-header\s*\{[\s\S]*?--overlay-header-base-padding-top:\s*1rem/
