@@ -5,8 +5,10 @@ import {
   seedScheduledSession,
   updateSessionScheduling,
   getScheduledSessions,
+  getProjectSessions,
   waitForSessionScheduled,
   getSession,
+  API_URL,
   cleanupCreatedResources,
   cleanupAll,
   navigateAndWait,
@@ -68,6 +70,41 @@ test.describe('Category 1: Auto-Reschedule Configuration API', () => {
     expect(fetched.maxTotalTokens).toBe(500000);
     expect(fetched.rescheduleAtTokenCount).toBe(100000);
     expect(fetched.status).toBe('scheduled');
+  });
+
+  test('create session endpoint requires ISO scheduledAt strings', async () => {
+    const scheduledAt = new Date(Date.now() + 3600000).toISOString();
+    const validResponse = await fetch(`${API_URL}/api/projects/${project.id}/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: 'Create scheduled session via endpoint',
+        scheduledAt,
+        startImmediately: false,
+      }),
+    });
+
+    expect(validResponse.status).toBe(201);
+    const session = await validResponse.json();
+    expect(session.status).toBe('scheduled');
+    expect(session.scheduledAt).toBe(Date.parse(scheduledAt));
+
+    const invalidResponse = await fetch(`${API_URL}/api/projects/${project.id}/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: 'Create scheduled session with timestamp',
+        scheduledAt: String(Date.now() + 7200000),
+        startImmediately: false,
+      }),
+    });
+
+    expect(invalidResponse.status).toBe(400);
+    const body = await invalidResponse.json();
+    expect(body.error).toContain('scheduledAt must be a valid ISO 8601 date-time string');
+
+    const sessions = await getProjectSessions(project.id);
+    expect(sessions.map((item: any) => item.id)).toEqual([session.id]);
   });
 
   test('updates auto-reschedule settings via PATCH', async () => {

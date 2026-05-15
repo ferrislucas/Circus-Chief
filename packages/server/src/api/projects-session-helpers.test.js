@@ -250,6 +250,12 @@ describe('parseSchedulingConfig', () => {
     expect(result.error).toBeNull();
   });
 
+  it('accepts ISO 8601 with sub-millisecond fractional precision', () => {
+    const result = parseScheduledAt('2026-06-12T14:00:00.123456Z');
+    expect(result.value).toBe(Date.parse('2026-06-12T14:00:00.123456Z'));
+    expect(result.error).toBeNull();
+  });
+
   it('returns undefined with no error for null scheduledAt', () => {
     const result = parseScheduledAt(null);
     expect(result.value).toBeUndefined();

@@ -7,7 +7,7 @@ import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
 const SCHEDULED_AT_FORMAT_MESSAGE = 'scheduledAt must be a valid ISO 8601 date-time string with a timezone, for example "2026-06-12T14:00:00Z".';
-const ISO_8601_DATE_TIME_WITH_TIMEZONE = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d{1,3})?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+const ISO_8601_DATE_TIME_WITH_TIMEZONE = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
 
 /**
  * Generate an initial session name from the prompt
