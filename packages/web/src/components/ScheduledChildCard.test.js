@@ -88,11 +88,33 @@ describe('ScheduledChildCard.vue', () => {
     expect(wrapper.find('.status-scheduled').text()).toBe('scheduled');
   });
 
-  it('renders session name as a router-link to session detail', () => {
+  it('renders session name as a button that emits open-session-overlay on click', async () => {
+    // Note: Custom emit capture via wrapper.emitted() is unreliable with
+    // Vue 3 script setup SFCs (known Vue Test Utils limitation).
+    // Use attrs listener to capture the emitted event.
+    const overlaySpy = vi.fn();
+    const wrapper = mount(ScheduledChildCard, {
+      props: { session: baseSession, projectId: 'proj-1' },
+      attrs: { onOpenSessionOverlay: overlaySpy },
+      global: { stubs: globalStubs },
+    });
+    const button = wrapper.find('.session-name-link');
+    expect(button.exists()).toBe(true);
+    expect(button.element.tagName).toBe('BUTTON');
+    expect(button.find('.session-name').text()).toBe('Test Child');
+
+    await button.trigger('click');
+    expect(overlaySpy).toHaveBeenCalledWith('sess-1');
+  });
+
+  it('button is keyboard accessible with tabindex', async () => {
     const wrapper = mountComponent();
-    const link = wrapper.find('.session-name-link');
-    expect(link.exists()).toBe(true);
-    expect(link.find('.session-name').text()).toBe('Test Child');
+    const button = wrapper.find('.session-name-link');
+    // Native <button> elements are inherently keyboard-accessible (Enter/Space trigger click)
+    // Verify it's a button element (not a div/span that would need tabindex)
+    expect(button.element.tagName).toBe('BUTTON');
+    // Buttons are focusable by default — no tabindex needed
+    expect(button.element.getAttribute('tabindex')).toBeNull();
   });
 
   it('router-link points to the correct session URL', () => {

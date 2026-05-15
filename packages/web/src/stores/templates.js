@@ -5,6 +5,7 @@ export const useTemplatesStore = defineStore('templates', {
   state: () => ({
     projectTemplates: [],
     globalTemplates: [],
+    currentProjectId: null,
     loading: false,
     error: null,
   }),
@@ -15,6 +16,25 @@ export const useTemplatesStore = defineStore('templates', {
         state.projectTemplates.find((t) => t.id === id) ||
         state.globalTemplates.find((t) => t.id === id)
       ),
+    quickResponseTemplates: (state) => {
+      const sortTemplates = (templates) => templates
+        .filter((template) => template.showInQuickResponses)
+        .slice()
+        .sort((a, b) => (
+          (a.quickResponseSortOrder ?? 0) - (b.quickResponseSortOrder ?? 0) ||
+          (a.createdAt ?? 0) - (b.createdAt ?? 0) ||
+          a.name.localeCompare(b.name)
+        ));
+
+      return {
+        project: sortTemplates(state.projectTemplates),
+        global: sortTemplates(state.globalTemplates),
+      };
+    },
+    hasQuickResponseTemplates() {
+      return this.quickResponseTemplates.project.length > 0 ||
+        this.quickResponseTemplates.global.length > 0;
+    },
   },
 
   actions: {
@@ -25,6 +45,7 @@ export const useTemplatesStore = defineStore('templates', {
         const result = await api.getProjectTemplates(projectId);
         this.projectTemplates = result.project || [];
         this.globalTemplates = result.global || [];
+        this.currentProjectId = projectId;
       } catch (err) {
         this.error = err.message;
       } finally {

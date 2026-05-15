@@ -23,6 +23,10 @@ export class SessionTemplateRepository extends BaseRepository {
       mode: row.mode || null,
       effortLevel: row.effort_level ?? null,
       targetLaneId: row.target_lane_id || null,
+      showInQuickResponses: Boolean(row.show_in_quick_responses),
+      quickResponseAutoSubmit: Boolean(row.quick_response_auto_submit),
+      quickResponseSortOrder: row.quick_response_sort_order ?? 0,
+      legacyQuickResponseId: row.legacy_quick_response_id || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -51,13 +55,22 @@ export class SessionTemplateRepository extends BaseRepository {
     return value ? 1 : 0;
   }
 
+  static #normalizeBoolean(value) {
+    return value ? 1 : 0;
+  }
+
   create(data) {
     const id = databaseManager.generateId();
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO session_templates (id, project_id, name, prompt, next_template_id, thinking_enabled, git_branch, git_mode, model, mode, effort_level, target_lane_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO session_templates (
+          id, project_id, name, prompt, next_template_id, thinking_enabled,
+          git_branch, git_mode, model, mode, effort_level, target_lane_id,
+          show_in_quick_responses, quick_response_auto_submit,
+          quick_response_sort_order, legacy_quick_response_id,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -72,6 +85,10 @@ export class SessionTemplateRepository extends BaseRepository {
         data.mode !== undefined && data.mode !== null ? data.mode : null,
         data.effortLevel ?? null,
         data.targetLaneId || null,
+        SessionTemplateRepository.#normalizeBoolean(data.showInQuickResponses),
+        SessionTemplateRepository.#normalizeBoolean(data.quickResponseAutoSubmit),
+        data.quickResponseSortOrder ?? 0,
+        data.legacyQuickResponseId || null,
         now,
         now
       );
@@ -93,6 +110,10 @@ export class SessionTemplateRepository extends BaseRepository {
     mode: { column: 'mode', transform: (v) => v },
     effortLevel: { column: 'effort_level', transform: (v) => v },
     targetLaneId: { column: 'target_lane_id', transform: (v) => v },
+    showInQuickResponses: { column: 'show_in_quick_responses', transform: (v) => v ? 1 : 0 },
+    quickResponseAutoSubmit: { column: 'quick_response_auto_submit', transform: (v) => v ? 1 : 0 },
+    quickResponseSortOrder: { column: 'quick_response_sort_order', transform: (v) => v },
+    legacyQuickResponseId: { column: 'legacy_quick_response_id', transform: (v) => v || null },
   };
 
   /**

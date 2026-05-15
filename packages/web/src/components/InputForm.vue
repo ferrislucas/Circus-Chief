@@ -18,8 +18,8 @@
     <QuickResponsesPanel
       v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
       :show-empty="true"
+      :project-id="projectId"
       @insert="$emit('quickResponseInsert', $event)"
-      @open-settings="$emit('openQuickResponseSettings')"
     />
 
     <!-- Auto-send checkbox - only during running with content -->
@@ -176,7 +176,6 @@ const emit = defineEmits([
   'submit',
   'input',
   'quickResponseInsert',
-  'openQuickResponseSettings',
   'update:attachedFiles',
   'openSlashCommand',
   'thinkingToggle',

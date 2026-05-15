@@ -92,6 +92,46 @@ describe('Templates Store', () => {
         expect(template.name).toBe('Project Version');
       });
     });
+
+    describe('quickResponseTemplates', () => {
+      it('filters templates not shown in quick responses and preserves groups', () => {
+        const store = useTemplatesStore();
+        store.projectTemplates = [
+          { id: 'hidden-project', name: 'Hidden', showInQuickResponses: false },
+          { id: 'shown-project', name: 'Shown Project', showInQuickResponses: true, quickResponseSortOrder: 0, createdAt: 1 },
+        ];
+        store.globalTemplates = [
+          { id: 'shown-global', name: 'Shown Global', showInQuickResponses: true, quickResponseSortOrder: 0, createdAt: 1 },
+        ];
+
+        expect(store.quickResponseTemplates.project.map(t => t.id)).toEqual(['shown-project']);
+        expect(store.quickResponseTemplates.global.map(t => t.id)).toEqual(['shown-global']);
+      });
+
+      it('sorts by quick response sort order, createdAt, then name', () => {
+        const store = useTemplatesStore();
+        store.projectTemplates = [
+          { id: 'c', name: 'Charlie', showInQuickResponses: true, quickResponseSortOrder: 2, createdAt: 1 },
+          { id: 'b', name: 'Beta', showInQuickResponses: true, quickResponseSortOrder: 1, createdAt: 2 },
+          { id: 'a', name: 'Alpha', showInQuickResponses: true, quickResponseSortOrder: 1, createdAt: 2 },
+          { id: 'd', name: 'Delta', showInQuickResponses: true, quickResponseSortOrder: 1, createdAt: 1 },
+        ];
+
+        expect(store.quickResponseTemplates.project.map(t => t.id)).toEqual(['d', 'a', 'b', 'c']);
+      });
+
+      it('hasQuickResponseTemplates reflects filtered templates', () => {
+        const store = useTemplatesStore();
+        expect(store.hasQuickResponseTemplates).toBe(false);
+
+        store.globalTemplates = [
+          { id: 'hidden', name: 'Hidden', showInQuickResponses: false },
+          { id: 'shown', name: 'Shown', showInQuickResponses: true, quickResponseSortOrder: 0, createdAt: 1 },
+        ];
+
+        expect(store.hasQuickResponseTemplates).toBe(true);
+      });
+    });
   });
 
   describe('actions', () => {
@@ -109,6 +149,7 @@ describe('Templates Store', () => {
         expect(api.getProjectTemplates).toHaveBeenCalledWith('proj-123');
         expect(store.projectTemplates).toEqual(mockResult.project);
         expect(store.globalTemplates).toEqual(mockResult.global);
+        expect(store.currentProjectId).toBe('proj-123');
         expect(store.loading).toBe(false);
         expect(store.error).toBeNull();
       });

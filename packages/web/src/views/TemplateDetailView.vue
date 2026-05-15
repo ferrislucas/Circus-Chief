@@ -150,6 +150,16 @@
           >
         </div>
 
+        <div class="form-group">
+          <label class="form-check">
+            <input
+              v-model="formData.showInQuickResponses"
+              type="checkbox"
+            >
+            <span>Show in Quick Responses</span>
+          </label>
+        </div>
+
         <!-- Form Actions -->
         <div class="form-actions">
           <button
@@ -254,6 +264,7 @@ const formData = ref({
   model: null,
   mode: null,
   effortLevel: null,
+  showInQuickResponses: false,
 });
 
 const projectId = computed(() => route.params.projectId);
@@ -278,6 +289,7 @@ const loadTemplate = async () => {
         model: template.model,                      // Preserve null (inherit) or model ID
         mode: template.mode,                        // Preserve null (inherit), 'plan', 'standard', or 'yolo'
         effortLevel: template.effortLevel ?? null,
+        showInQuickResponses: template.showInQuickResponses,
       };
     }
   } catch (err) {
@@ -301,6 +313,7 @@ const onSubmit = async () => {
       model: formData.value.model,                      // null = inherit
       mode: formData.value.mode,                        // null = inherit
       effortLevel: formData.value.effortLevel,          // null = inherit
+      showInQuickResponses: formData.value.showInQuickResponses,
     };
 
     await templatesStore.updateTemplate(templateId.value, data);
@@ -474,6 +487,19 @@ onMounted(async () => {
   height: 18px;
   cursor: pointer;
   accent-color: var(--color-primary);
+}
+
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.form-check input {
+  cursor: pointer;
 }
 
 .form-error-message {

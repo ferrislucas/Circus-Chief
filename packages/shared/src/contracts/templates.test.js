@@ -26,6 +26,9 @@ describe('CreateSessionTemplateRequest', () => {
       gitMode: 'worktree',
       model: 'claude-sonnet-4-20250514',
       mode: 'plan',
+      showInQuickResponses: true,
+      quickResponseAutoSubmit: true,
+      quickResponseSortOrder: 3,
     });
     expect(result.success).toBe(true);
   });
@@ -201,6 +204,28 @@ describe('CreateSessionTemplateRequest', () => {
     expect(result.success).toBe(true);
     expect(result.data.targetLaneId).toBeUndefined();
   });
+
+  it('validates quick response options', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Quick Template',
+      prompt: 'Prompt',
+      showInQuickResponses: true,
+      quickResponseAutoSubmit: true,
+      quickResponseSortOrder: 2,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects invalid quick response option types', () => {
+    const result = CreateSessionTemplateRequest.safeParse({
+      name: 'Quick Template',
+      prompt: 'Prompt',
+      showInQuickResponses: 'true',
+      quickResponseAutoSubmit: 1,
+      quickResponseSortOrder: '2',
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('UpdateSessionTemplateRequest', () => {
@@ -306,13 +331,9 @@ describe('UpdateSessionTemplateRequest', () => {
 
   it('validates effortLevel enum in update', () => {
     for (const level of ['low', 'medium', 'high', 'max', 'auto']) {
-      expect(
-        UpdateSessionTemplateRequest.safeParse({ effortLevel: level }).success
-      ).toBe(true);
+      expect(UpdateSessionTemplateRequest.safeParse({ effortLevel: level }).success).toBe(true);
     }
-    expect(
-      UpdateSessionTemplateRequest.safeParse({ effortLevel: 'invalid' }).success
-    ).toBe(false);
+    expect(UpdateSessionTemplateRequest.safeParse({ effortLevel: 'invalid' }).success).toBe(false);
   });
 
   it('allows null effortLevel in update', () => {
@@ -342,6 +363,15 @@ describe('UpdateSessionTemplateRequest', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('validates quick response option updates', () => {
+    const result = UpdateSessionTemplateRequest.safeParse({
+      showInQuickResponses: true,
+      quickResponseAutoSubmit: false,
+      quickResponseSortOrder: 8,
+    });
+    expect(result.success).toBe(true);
+  });
 });
 
 describe('SessionTemplateResponse', () => {
@@ -358,6 +388,10 @@ describe('SessionTemplateResponse', () => {
     mode: null,
     effortLevel: null,
     targetLaneId: null,
+    showInQuickResponses: false,
+    quickResponseAutoSubmit: false,
+    quickResponseSortOrder: 0,
+    legacyQuickResponseId: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -481,6 +515,10 @@ describe('SessionTemplateListResponse', () => {
         mode: null,
         effortLevel: null,
         targetLaneId: null,
+        showInQuickResponses: false,
+        quickResponseAutoSubmit: false,
+        quickResponseSortOrder: 0,
+        legacyQuickResponseId: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -497,6 +535,10 @@ describe('SessionTemplateListResponse', () => {
         mode: 'plan',
         effortLevel: 'high',
         targetLaneId: null,
+        showInQuickResponses: false,
+        quickResponseAutoSubmit: false,
+        quickResponseSortOrder: 0,
+        legacyQuickResponseId: null,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       },
@@ -530,6 +572,10 @@ describe('AvailableTemplatesResponse', () => {
           mode: null,
           effortLevel: null,
           targetLaneId: null,
+          showInQuickResponses: false,
+          quickResponseAutoSubmit: false,
+          quickResponseSortOrder: 0,
+          legacyQuickResponseId: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -556,6 +602,10 @@ describe('AvailableTemplatesResponse', () => {
           mode: null,
           effortLevel: null,
           targetLaneId: null,
+          showInQuickResponses: false,
+          quickResponseAutoSubmit: false,
+          quickResponseSortOrder: 0,
+          legacyQuickResponseId: null,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         },
@@ -578,6 +628,10 @@ describe('AvailableTemplatesResponse', () => {
       mode: null,
       effortLevel: null,
       targetLaneId: null,
+      showInQuickResponses: false,
+      quickResponseAutoSubmit: false,
+      quickResponseSortOrder: 0,
+      legacyQuickResponseId: null,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };

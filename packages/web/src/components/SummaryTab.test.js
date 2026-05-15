@@ -966,51 +966,27 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.summary-empty-state').exists()).toBe(true);
       expect(wrapper.text()).toContain("This session hasn't started yet.");
       expect(wrapper.text()).toContain('Start the session or send a message to see a summary here.');
-      expect(wrapper.find('.summary-empty-state .summary-generate-action').exists()).toBe(true);
-      expect(wrapper.find('.summary-empty-state .summary-generate-action').text()).toContain('Generate summary');
+      expect(wrapper.find('.summary-empty-state button').exists()).toBe(false);
+      expect(wrapper.find('.summary-empty-state').text()).not.toContain('Generate summary');
     });
 
-    it('generates and renders a missing summary from the empty state', async () => {
-      api.generateSessionSummary.mockResolvedValue({
-        shortSummary: 'Generated summary',
-        fullSummary: 'Generated full summary text',
-      });
+    it('renders not-started state inside the overview card when overview content is present', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        activeTimeMs: 60000,
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      await wrapper.find('.summary-empty-state .summary-generate-action').trigger('click');
-      await flushAll(wrapper);
-
-      expect(api.generateSessionSummary).toHaveBeenCalledWith('sess-123');
-      expect(wrapper.findComponent({ name: 'SummaryContent' }).exists()).toBe(true);
-      expect(wrapper.text()).toContain('Generated full summary text');
-    });
-
-    it('disables the missing-summary generate action while generation is pending', async () => {
-      let resolveGenerate;
-      api.generateSessionSummary.mockReturnValue(new Promise((resolve) => {
-        resolveGenerate = resolve;
-      }));
-
-      const wrapper = mountComponent();
-      await flushAll(wrapper);
-
-      const generateButton = wrapper.find('.summary-empty-state .summary-generate-action');
-      await generateButton.trigger('click');
-      await nextTick();
-
-      expect(generateButton.attributes('disabled')).toBeDefined();
-      expect(generateButton.find('.loading-spinner').exists()).toBe(true);
-
-      resolveGenerate({
-        shortSummary: 'Generated summary',
-        fullSummary: 'Generated after pending',
-      });
-      await flushAll(wrapper);
-
-      expect(wrapper.findComponent({ name: 'SummaryContent' }).exists()).toBe(true);
-      expect(wrapper.text()).toContain('Generated after pending');
+      expect(wrapper.find('.session-overview').exists()).toBe(true);
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.find('.session-overview .overview-summary-empty').exists()).toBe(true);
+      expect(wrapper.find('.session-overview').text()).toContain("This session hasn't started yet.");
+      expect(wrapper.find('.session-overview .overview-summary-empty button').exists()).toBe(false);
+      expect(wrapper.find('.session-overview .overview-summary-empty').text()).not.toContain('Generate summary');
     });
 
     it('does not show empty state while loading', async () => {

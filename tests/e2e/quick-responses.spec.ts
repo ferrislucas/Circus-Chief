@@ -6,6 +6,10 @@ import {
   getQuickResponses,
   deleteQuickResponse,
   reorderQuickResponses,
+  seedProjectTemplate,
+  seedGlobalTemplate,
+  deleteTemplate,
+  updateTemplate,
   cleanupCreatedResources,
   navigateAndWait,
   waitForPageReady,
@@ -20,9 +24,14 @@ const API_URL = getAPIURL();
  * We only delete OUR global QRs to avoid interfering with parallel tests.
  */
 const createdGlobalQRIds: string[] = [];
+const createdGlobalTemplateIds: string[] = [];
 
 function trackGlobalQR(id: string) {
   createdGlobalQRIds.push(id);
+}
+
+function trackGlobalTemplate(id: string) {
+  createdGlobalTemplateIds.push(id);
 }
 
 async function cleanupTrackedGlobalQRs() {
@@ -34,6 +43,44 @@ async function cleanupTrackedGlobalQRs() {
       // Already deleted (e.g., by cascade or prior cleanup) — ignore
     }
   }
+}
+
+async function cleanupTrackedGlobalTemplates() {
+  while (createdGlobalTemplateIds.length > 0) {
+    const id = createdGlobalTemplateIds.pop()!;
+    try {
+      await deleteTemplate(id);
+    } catch {
+      // Already deleted — ignore
+    }
+  }
+}
+
+async function seedQuickResponseTemplate(
+  projectId: string,
+  data: {
+    label: string;
+    content: string;
+    autoSubmit?: boolean;
+    sortOrder?: number;
+    isGlobal?: boolean;
+  }
+) {
+  const templateData = {
+    name: data.label,
+    prompt: data.content,
+    showInQuickResponses: true,
+    quickResponseAutoSubmit: data.autoSubmit ?? false,
+    quickResponseSortOrder: data.sortOrder ?? 0,
+  };
+
+  if (data.isGlobal) {
+    const template = await seedGlobalTemplate(templateData);
+    trackGlobalTemplate(template.id);
+    return template;
+  }
+
+  return seedProjectTemplate(projectId, templateData);
 }
 
 // ============================================================
@@ -78,24 +125,24 @@ async function openAddDialog(page, section: 'project' | 'global') {
 
 // ============================================================
 // Helper: Navigate to session detail conversation view and expand panel.
-// Wait for the store to finish loading quick responses before returning.
+// Wait for the store to finish loading templates before returning.
 // ============================================================
 async function navigateToSessionAndExpandPanel(page, sessionId: string) {
-  // Set up the quick-responses API response listener BEFORE navigating.
-  // The quick-responses fetch happens late in the page lifecycle:
+  // Set up the templates API response listener BEFORE navigating.
+  // The templates fetch happens late in the page lifecycle:
   //   1. SessionDetailView.initializeSession() fetches session + conversations
   //   2. Vue re-renders, ConversationTab mounts
-  //   3. ConversationTab.onMounted fires fetchForProject() (without await)
-  // We need to catch the quick-responses response whenever it arrives.
+  //   3. ConversationTab.onMounted fires fetchProjectTemplates() (without await)
+  // We need to catch the templates response whenever it arrives.
   const apiDone = page.waitForResponse(
-    (resp) => resp.url().includes('/quick-responses') && resp.status() === 200,
+    (resp) => resp.url().includes('/templates') && resp.status() === 200,
     { timeout: 30000 }
   );
 
   await page.goto(`/sessions/${sessionId}/summary`);
   await openSessionOverlay(page);
 
-  // Wait for the quick-responses API call to complete.
+  // Wait for the templates API call to complete.
   await apiDone;
 
   // Wait for the panel to render.
@@ -119,11 +166,13 @@ async function navigateToSessionAndExpandPanel(page, sessionId: string) {
 test.beforeEach(async () => {
   await cleanupCreatedResources();
   await cleanupTrackedGlobalQRs();
+  await cleanupTrackedGlobalTemplates();
 });
 
 test.afterEach(async () => {
   await cleanupCreatedResources();
   await cleanupTrackedGlobalQRs();
+  await cleanupTrackedGlobalTemplates();
 });
 
 // ============================================================
@@ -300,14 +349,8 @@ test.describe('Category 1: Quick Response CRUD via Settings Modal', () => {
 test.describe('Category 2: Quick Response Panel in Conversation View', () => {
   test('panel displays project and global responses with correct styling', async ({ page }) => {
     const project = await seedProject('QR Panel Styling', '/tmp/qr-panel-1');
-    await seedQuickResponse(project.id, { label: 'Project Response', content: 'Project content' });
-    const globalQR1 = await seedQuickResponse(project.id, { label: 'Global Response', content: 'Global content', isGlobal: true });
-    trackGlobalQR(globalQR1.id);
-
-    // Verify via API that both responses are available before navigating
-    const available = await getQuickResponses(project.id);
-    expect(available.project.map((r: any) => r.label)).toContain('Project Response');
-    expect(available.global.map((r: any) => r.label)).toContain('Global Response');
+    await seedQuickResponseTemplate(project.id, { label: 'Project Response', content: 'Project content' });
+    await seedQuickResponseTemplate(project.id, { label: 'Global Response', content: 'Global content', isGlobal: true });
 
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
@@ -324,10 +367,12 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
 
   test('clicking a response inserts content into textarea', async ({ page }) => {
     const project = await seedProject('QR Panel Insert', '/tmp/qr-panel-2');
-    await seedQuickResponse(project.id, { label: 'Insert Me', content: 'Inserted content here' });
+    await seedQuickResponseTemplate(project.id, { label: 'Insert Me', content: 'Inserted content here' });
 
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
+
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').uncheck();
 
     // Click the response chip
     const responseBtn = page.locator('.response-button', { hasText: 'Insert Me' });
@@ -343,9 +388,9 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     await expect(page.locator('.responses-content')).not.toBeVisible({ timeout: 3000 });
   });
 
-  test('auto-submit response shows lightning bolt indicator', async ({ page }) => {
+  test('panel auto-submit checkbox controls old template auto-submit values', async ({ page }) => {
     const project = await seedProject('QR Panel AutoSubmit', '/tmp/qr-panel-3');
-    await seedQuickResponse(project.id, {
+    await seedQuickResponseTemplate(project.id, {
       label: 'Auto Response',
       content: 'Auto content',
       autoSubmit: true,
@@ -354,18 +399,23 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
 
-    // Verify the response button has .auto-submit class (scoped to the specific response)
-    const autoBtn = page.locator('.response-button.auto-submit', { hasText: 'Auto Response' });
-    await expect(autoBtn).toBeVisible({ timeout: 5000 });
+    const checkbox = page.locator('.auto-submit-toggle input[type="checkbox"]');
+    await expect(checkbox).toBeVisible({ timeout: 5000 });
+    await expect(checkbox).toBeChecked();
 
-    // Verify lightning bolt icon exists
-    const autoIcon = autoBtn.locator('.auto-icon');
-    await expect(autoIcon).toBeVisible();
+    const autoBtn = page.locator('.response-button', { hasText: 'Auto Response' });
+    await expect(autoBtn).toBeVisible({ timeout: 5000 });
+    await expect(autoBtn).not.toHaveClass(/auto-submit/);
+    await expect(autoBtn.locator('.auto-icon')).toHaveCount(0);
+
+    await checkbox.uncheck();
+    await expect(page.locator('.responses-content')).toBeVisible();
+    await expect(checkbox).not.toBeChecked();
   });
 
   test('panel collapse and expand toggle works', async ({ page }) => {
     const project = await seedProject('QR Panel Toggle', '/tmp/qr-panel-5');
-    await seedQuickResponse(project.id, { label: 'Toggle Test', content: 'Toggle content' });
+    await seedQuickResponseTemplate(project.id, { label: 'Toggle Test', content: 'Toggle content' });
 
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
 
@@ -388,52 +438,34 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     await expect(page.locator('.responses-content')).not.toBeVisible({ timeout: 3000 });
   });
 
-  test('settings gear opens settings modal from conversation view', async ({ page }) => {
+  test('settings gear opens template list from conversation view', async ({ page }) => {
     const project = await seedProject('QR Panel Settings', '/tmp/qr-panel-6');
-    await seedQuickResponse(project.id, { label: 'Gear Test', content: 'Gear content' });
+    await seedQuickResponseTemplate(project.id, { label: 'Gear Test', content: 'Gear content' });
 
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
 
     // Click the settings gear button
-    const settingsBtn = page.locator('button[aria-label="Manage quick responses"]');
+    const settingsBtn = page.locator('button[aria-label="Manage templates"]');
     await expect(settingsBtn).toBeVisible({ timeout: 5000 });
     await settingsBtn.click();
 
-    // Verify settings modal opens
-    const settingsModal = page.locator('.settings-panel[role="dialog"]');
-    await expect(settingsModal).toBeVisible({ timeout: 5000 });
-    await expect(settingsModal.locator('.settings-title')).toContainText('Quick Responses');
-
-    // Close the modal to prove it was interactable (not obscured by session overlay)
-    await page.locator('.close-button').click();
-    await expect(settingsModal).not.toBeVisible({ timeout: 3000 });
+    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/templates`), { timeout: 5000 });
   });
 
-  test('settings modal is interactable from session overlay', async ({ page }) => {
+  test('template list is reachable from session overlay', async ({ page }) => {
     const project = await seedProject('QR Overlay Interact', '/tmp/qr-overlay-interact');
-    await seedQuickResponse(project.id, { label: 'Interact Test', content: 'Test content' });
+    await seedQuickResponseTemplate(project.id, { label: 'Interact Test', content: 'Test content' });
 
     const session = await seedSession(project.id, { prompt: 'Test prompt', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
 
     // Click the settings gear button
-    const settingsBtn = page.locator('button[aria-label="Manage quick responses"]');
+    const settingsBtn = page.locator('button[aria-label="Manage templates"]');
     await expect(settingsBtn).toBeVisible({ timeout: 5000 });
     await settingsBtn.click();
 
-    // Verify settings modal opens
-    const settingsModal = page.locator('.settings-panel[role="dialog"]');
-    await expect(settingsModal).toBeVisible({ timeout: 5000 });
-
-    // Click the "+ Add" button inside the settings modal — this proves the modal
-    // is interactable (not obscured by the session overlay behind it)
-    const addBtn = settingsModal.locator('.add-button').first();
-    await addBtn.click();
-
-    // Assert the Add Quick Response dialog opens
-    const dialog = page.locator('.dialog-overlay .dialog');
-    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/templates`), { timeout: 5000 });
   });
 });
 
@@ -444,7 +476,7 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
 test.describe('Category 3: Quick Response Panel in New Session View', () => {
   test('panel displays responses in new session view', async ({ page }) => {
     const project = await seedProject('QR NewSession Display', '/tmp/qr-new-1');
-    await seedQuickResponse(project.id, { label: 'New Session QR', content: 'New session content' });
+    await seedQuickResponseTemplate(project.id, { label: 'New Session QR', content: 'New session content' });
 
     await page.goto(`/projects/${project.id}/sessions/new`);
     await waitForPageReady(page);
@@ -462,7 +494,7 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
 
   test('clicking response inserts content into prompt textarea', async ({ page }) => {
     const project = await seedProject('QR NewSession Insert', '/tmp/qr-new-2');
-    await seedQuickResponse(project.id, { label: 'Insert Prompt', content: 'Prompt content here' });
+    await seedQuickResponseTemplate(project.id, { label: 'Insert Prompt', content: 'Prompt content here' });
 
     await page.goto(`/projects/${project.id}/sessions/new`);
     await waitForPageReady(page);
@@ -473,6 +505,7 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     await panel.click();
     await page.waitForTimeout(300);
 
+    await page.locator('.auto-submit-toggle input[type="checkbox"]').uncheck();
     await page.locator('.response-button', { hasText: 'Insert Prompt' }).click();
 
     // Verify prompt textarea contains the content
@@ -482,16 +515,16 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
 
   test('auto-submit response triggers form submission in new session', async ({ page }) => {
     const project = await seedProject('QR NewSession AutoSubmit', '/tmp/qr-new-3');
-    await seedQuickResponse(project.id, {
+    await seedQuickResponseTemplate(project.id, {
       label: 'Auto Create',
       content: 'Auto-create this session',
-      autoSubmit: true,
+      autoSubmit: false,
     });
 
     await page.goto(`/projects/${project.id}/sessions/new`);
     await waitForPageReady(page);
 
-    // Expand and click auto-submit response
+    // Expand and click response. Auto-submit is checked by default.
     const panel = page.locator('.quick-responses-panel');
     await expect(panel).toBeVisible({ timeout: 10000 });
     await panel.click();
@@ -503,12 +536,38 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     await expect(page).not.toHaveURL(/\/sessions\/new/, { timeout: 10000 });
   });
 
-  test('settings gear opens settings modal from new session view', async ({ page }) => {
+  test('unchecked panel inserts without submitting even when old template auto-submit is true', async ({ page }) => {
+    const project = await seedProject('QR NewSession OldAutoNoSubmit', '/tmp/qr-new-old-auto');
+    await seedQuickResponseTemplate(project.id, {
+      label: 'Old Auto',
+      content: 'Old auto content',
+      autoSubmit: true,
+    });
+
+    await page.goto(`/projects/${project.id}/sessions/new`);
+    await waitForPageReady(page);
+
+    const panel = page.locator('.quick-responses-panel');
+    await expect(panel).toBeVisible({ timeout: 10000 });
+    await panel.click();
+    await page.waitForTimeout(300);
+
+    const checkbox = page.locator('.auto-submit-toggle input[type="checkbox"]');
+    await expect(checkbox).toBeChecked();
+    await checkbox.uncheck();
+    await page.locator('.response-button', { hasText: 'Old Auto' }).click();
+
+    const textarea = page.locator('textarea#prompt');
+    await expect(textarea).toHaveValue('Old auto content', { timeout: 5000 });
+    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/sessions/new`));
+  });
+
+  test('settings gear opens template list from new session view', async ({ page }) => {
     const project = await seedProject('QR NewSession Settings', '/tmp/qr-new-settings');
-    await seedQuickResponse(project.id, { label: 'Settings Test', content: 'Settings content' });
+    await seedQuickResponseTemplate(project.id, { label: 'Settings Test', content: 'Settings content' });
 
     const apiDone = page.waitForResponse(
-      (resp) => resp.url().includes('/quick-responses') && resp.status() === 200,
+      (resp) => resp.url().includes('/templates') && resp.status() === 200,
       { timeout: 30000 }
     );
 
@@ -525,18 +584,11 @@ test.describe('Category 3: Quick Response Panel in New Session View', () => {
     ).toBeVisible({ timeout: 5000 });
 
     // Click the settings gear button
-    const settingsBtn = page.locator('button[aria-label="Manage quick responses"]');
+    const settingsBtn = page.locator('button[aria-label="Manage templates"]');
     await expect(settingsBtn).toBeVisible({ timeout: 5000 });
     await settingsBtn.click();
 
-    // Verify settings modal opens
-    const settingsModal = page.locator('.settings-panel[role="dialog"]');
-    await expect(settingsModal).toBeVisible({ timeout: 5000 });
-    await expect(settingsModal.locator('.settings-title')).toContainText('Quick Responses');
-
-    // Verify modal can be closed
-    await page.locator('.close-button').click();
-    await expect(settingsModal).not.toBeVisible({ timeout: 3000 });
+    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/templates`), { timeout: 5000 });
   });
 });
 
@@ -549,7 +601,7 @@ test.describe('Category 4: Scope Isolation', () => {
     const projectA = await seedProject('QR Scope A', '/tmp/qr-scope-a');
     const projectB = await seedProject('QR Scope B', '/tmp/qr-scope-b');
 
-    await seedQuickResponse(projectA.id, { label: 'Only In A', content: 'Project A content' });
+    await seedQuickResponseTemplate(projectA.id, { label: 'Only In A', content: 'Project A content' });
 
     const sessionA = await seedSession(projectA.id, { prompt: 'Test A', startImmediately: false });
     const sessionB = await seedSession(projectB.id, { prompt: 'Test B', startImmediately: false });
@@ -626,9 +678,9 @@ test.describe('Category 5: Sort Ordering and Reordering', () => {
     const project = await seedProject('QR Sort Display', '/tmp/qr-sort-1');
 
     // Seed 3 responses with explicit sort orders (not in display order)
-    await seedQuickResponse(project.id, { label: 'Third', content: 'C', sortOrder: 2 });
-    await seedQuickResponse(project.id, { label: 'First', content: 'A', sortOrder: 0 });
-    await seedQuickResponse(project.id, { label: 'Second', content: 'B', sortOrder: 1 });
+    await seedQuickResponseTemplate(project.id, { label: 'Third', content: 'C', sortOrder: 2 });
+    await seedQuickResponseTemplate(project.id, { label: 'First', content: 'A', sortOrder: 0 });
+    await seedQuickResponseTemplate(project.id, { label: 'Second', content: 'B', sortOrder: 1 });
 
     const session = await seedSession(project.id, { prompt: 'Test sort', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
@@ -664,16 +716,14 @@ test.describe('Category 5: Sort Ordering and Reordering', () => {
   test('reordered responses display in new order in panel', async ({ page }) => {
     const project = await seedProject('QR Reorder Panel', '/tmp/qr-sort-3');
 
-    const r1 = await seedQuickResponse(project.id, { label: 'Uno', content: 'A', sortOrder: 0 });
-    const r2 = await seedQuickResponse(project.id, { label: 'Dos', content: 'B', sortOrder: 1 });
-    const r3 = await seedQuickResponse(project.id, { label: 'Tres', content: 'C', sortOrder: 2 });
+    const r1 = await seedQuickResponseTemplate(project.id, { label: 'Uno', content: 'A', sortOrder: 0 });
+    const r2 = await seedQuickResponseTemplate(project.id, { label: 'Dos', content: 'B', sortOrder: 1 });
+    const r3 = await seedQuickResponseTemplate(project.id, { label: 'Tres', content: 'C', sortOrder: 2 });
 
-    // Reverse order via API
-    await reorderQuickResponses(project.id, [
-      { id: r1.id, sortOrder: 2 },
-      { id: r2.id, sortOrder: 1 },
-      { id: r3.id, sortOrder: 0 },
-    ]);
+    // Reverse order via template API
+    await updateTemplate(r1.id, { quickResponseSortOrder: 2 });
+    await updateTemplate(r2.id, { quickResponseSortOrder: 1 });
+    await updateTemplate(r3.id, { quickResponseSortOrder: 0 });
 
     const session = await seedSession(project.id, { prompt: 'Test reorder', startImmediately: false });
     await navigateToSessionAndExpandPanel(page, session.id);
