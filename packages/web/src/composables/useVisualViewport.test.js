@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ref, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import {
-  computeSessionOverlayTopChromeInset,
   requestVisualViewportSettle,
   requestVisualViewportUpdate,
   useVisualViewport,
@@ -21,27 +20,10 @@ describe('useVisualViewport', () => {
   let mockVisualViewport;
   let rafSpy;
   let cancelRafSpy;
-  let originalInnerWidth;
-  let originalInnerHeight;
-  let originalNavigatorDescriptors;
 
   beforeEach(() => {
     // Save original visualViewport
     originalVisualViewport = window.visualViewport;
-    originalInnerWidth = window.innerWidth;
-    originalInnerHeight = window.innerHeight;
-    originalNavigatorDescriptors = {
-      platform: Object.getOwnPropertyDescriptor(navigator, 'platform'),
-      maxTouchPoints: Object.getOwnPropertyDescriptor(navigator, 'maxTouchPoints'),
-      userAgent: Object.getOwnPropertyDescriptor(navigator, 'userAgent'),
-    };
-
-    setWindowSize(1024, 768);
-    setNavigatorFields({
-      platform: 'MacIntel',
-      maxTouchPoints: 0,
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
-    });
 
     // Mock requestAnimationFrame and cancelAnimationFrame
     rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => setTimeout(cb, 0));
@@ -65,47 +47,7 @@ describe('useVisualViewport', () => {
     rafSpy.mockRestore();
     cancelRafSpy.mockRestore();
     vi.restoreAllMocks();
-    setWindowSize(originalInnerWidth, originalInnerHeight);
-    restoreNavigatorFields();
   });
-
-  function setWindowSize(width, height) {
-    Object.defineProperty(window, 'innerWidth', {
-      configurable: true,
-      writable: true,
-      value: width,
-    });
-    Object.defineProperty(window, 'innerHeight', {
-      configurable: true,
-      writable: true,
-      value: height,
-    });
-  }
-
-  function setNavigatorFields({ platform, maxTouchPoints, userAgent }) {
-    Object.defineProperty(navigator, 'platform', {
-      configurable: true,
-      value: platform,
-    });
-    Object.defineProperty(navigator, 'maxTouchPoints', {
-      configurable: true,
-      value: maxTouchPoints,
-    });
-    Object.defineProperty(navigator, 'userAgent', {
-      configurable: true,
-      value: userAgent,
-    });
-  }
-
-  function restoreNavigatorFields() {
-    for (const [key, descriptor] of Object.entries(originalNavigatorDescriptors)) {
-      if (descriptor) {
-        Object.defineProperty(navigator, key, descriptor);
-      } else {
-        delete navigator[key];
-      }
-    }
-  }
 
   /**
    * Helper component that uses the composable
@@ -132,19 +74,7 @@ describe('useVisualViewport', () => {
     });
   }
 
-  function expectedOverlayInset() {
-    return `${computeSessionOverlayTopChromeInset({
-      offsetTop: mockVisualViewport?.offsetTop,
-      visualViewportHeight: mockVisualViewport?.height,
-      layoutWidth: window.innerWidth,
-      layoutHeight: window.innerHeight,
-      platform: navigator.platform,
-      maxTouchPoints: navigator.maxTouchPoints,
-      userAgent: navigator.userAgent,
-    })}px`;
-  }
-
-  function expectViewportVariables(offsetTop, height, overlayInset = expectedOverlayInset()) {
+  function expectViewportVariables(offsetTop, height) {
     expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
       '--viewport-offset-top',
       offsetTop
@@ -153,107 +83,7 @@ describe('useVisualViewport', () => {
       '--visual-viewport-height',
       height
     );
-    expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-      '--session-overlay-top-chrome-inset',
-      overlayInset
-    );
   }
-
-  describe('computeSessionOverlayTopChromeInset', () => {
-    const iphoneSignal = {
-      platform: 'iPhone',
-      maxTouchPoints: 5,
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148',
-    };
-    const ipadDesktopSignal = {
-      platform: 'MacIntel',
-      maxTouchPoints: 5,
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Version/17.0 Safari/605.1.15',
-    };
-    const androidTabletSignal = {
-      platform: 'Linux armv8l',
-      maxTouchPoints: 5,
-      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-    };
-    const androidMobileSignal = {
-      platform: 'Linux armv8l',
-      maxTouchPoints: 5,
-      userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36',
-    };
-
-    it.each([
-      [
-        'rejects stale iPhone keyboard offset',
-        { layoutWidth: 390, layoutHeight: 844, offsetTop: 260, visualViewportHeight: 420, ...iphoneSignal },
-        0,
-      ],
-      [
-        'rejects plausible iPhone portrait offset',
-        { layoutWidth: 390, layoutHeight: 844, offsetTop: 32, visualViewportHeight: 844, ...iphoneSignal },
-        0,
-      ],
-      [
-        'rejects plausible iPhone landscape offset',
-        { layoutWidth: 844, layoutHeight: 390, offsetTop: 32, visualViewportHeight: 390, ...iphoneSignal },
-        0,
-      ],
-      [
-        'accepts tablet-sized layout without phone signal',
-        { layoutWidth: 744, layoutHeight: 1000, offsetTop: 32, visualViewportHeight: 1000 },
-        32,
-      ],
-      [
-        'rejects stale large tablet offset instead of clamping',
-        { layoutWidth: 744, layoutHeight: 1000, offsetTop: 260, visualViewportHeight: 1000 },
-        0,
-      ],
-      [
-        'rejects keyboard-compressed tablet height',
-        { layoutWidth: 744, layoutHeight: 1000, offsetTop: 32, visualViewportHeight: 700 },
-        0,
-      ],
-      [
-        'accepts narrow iPadOS desktop-mode signal',
-        { layoutWidth: 500, layoutHeight: 1000, offsetTop: 32, visualViewportHeight: 1000, ...ipadDesktopSignal },
-        32,
-      ],
-      [
-        'rejects narrow layout without tablet signal',
-        { layoutWidth: 500, layoutHeight: 1000, offsetTop: 32, visualViewportHeight: 1000 },
-        0,
-      ],
-      [
-        'accepts Android tablet signal',
-        { layoutWidth: 500, layoutHeight: 1000, offsetTop: 32, visualViewportHeight: 1000, ...androidTabletSignal },
-        32,
-      ],
-      [
-        'rejects Android Mobile signal',
-        { layoutWidth: 500, layoutHeight: 1000, offsetTop: 32, visualViewportHeight: 1000, ...androidMobileSignal },
-        0,
-      ],
-    ])('%s', (_name, input, expected) => {
-      expect(computeSessionOverlayTopChromeInset(input)).toBe(expected);
-    });
-
-    it.each([
-      ['negative', -1],
-      ['NaN', NaN],
-      ['null', null],
-      ['undefined', undefined],
-      ['non-numeric', 'not-a-number'],
-      ['zero', 0],
-    ])('returns 0 for %s offsetTop', (_name, offsetTop) => {
-      expect(
-        computeSessionOverlayTopChromeInset({
-          layoutWidth: 744,
-          layoutHeight: 1000,
-          visualViewportHeight: 1000,
-          offsetTop,
-        })
-      ).toBe(0);
-    });
-  });
 
   describe('Browser support detection', () => {
     it('returns without errors when visualViewport API is not supported', () => {
@@ -331,19 +161,6 @@ describe('useVisualViewport', () => {
       await nextTick();
 
       expectViewportVariables('0px', '0px');
-    });
-
-    it('writes sanitized overlay inset in the same update as raw variables', async () => {
-      setWindowSize(744, 1000);
-      mockVisualViewport.offsetTop = 32;
-      mockVisualViewport.height = 1000;
-
-      createTestComponent();
-
-      await new Promise(resolve => setTimeout(resolve, 10));
-      await nextTick();
-
-      expectViewportVariables('32px', '1000px', '32px');
     });
   });
 
@@ -542,24 +359,6 @@ describe('useVisualViewport', () => {
       expectViewportVariables('0px', '812px');
       expect(document.documentElement.style.getPropertyValue('--viewport-offset-top')).toBe('0px');
       expect(document.documentElement.style.getPropertyValue('--visual-viewport-height')).toBe('812px');
-      expect(document.documentElement.style.getPropertyValue('--session-overlay-top-chrome-inset')).toBe('0px');
-    });
-
-    it('writes sanitized overlay inset during settle sampling', async () => {
-      setWindowSize(744, 1000);
-      mockVisualViewport.offsetTop = 32;
-      mockVisualViewport.height = 1000;
-
-      requestVisualViewportSettle({
-        maxDurationMs: 60,
-        intervalMs: 10,
-        stableSampleCount: 1,
-        minDurationMs: 0,
-      });
-
-      await new Promise(resolve => setTimeout(resolve, 80));
-
-      expectViewportVariables('32px', '1000px', '32px');
     });
 
     it('requestVisualViewportSettle no-ops without visualViewport support', () => {
