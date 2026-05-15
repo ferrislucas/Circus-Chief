@@ -435,13 +435,21 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string }
+  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date }
 ) {
+  const scheduledAt =
+    data.scheduledAt instanceof Date
+      ? data.scheduledAt.toISOString()
+      : typeof data.scheduledAt === 'number'
+        ? new Date(data.scheduledAt).toISOString()
+        : data.scheduledAt;
+
   // Default gitMode/gitBranch so tests pass for git-repo-backed projects
   const payload = {
     gitMode: 'none',
     gitBranch: 'main',
     ...data,
+    ...(scheduledAt !== undefined ? { scheduledAt } : {}),
   };
   const response = await fetch(`${API_URL}/api/projects/${projectId}/sessions`, {
     method: 'POST',

@@ -58,7 +58,10 @@
             title="Refresh changes"
             @click="fetchChanges"
           >
-            <span v-if="loading" class="loading-spinner" />
+            <span
+              v-if="loading"
+              class="loading-spinner"
+            />
             <span v-else>↻</span>
             Refresh
           </button>
