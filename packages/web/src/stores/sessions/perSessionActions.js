@@ -67,25 +67,30 @@ export const perSessionActions = {
   addMessage(message) {
     // Bump list ordering for ALL inbound messages so background sessions re-sort
     // live in the project session list, not only the currently-open session.
-    this._bumpLastActivityAt(message);
+    this._bumpActivityTimestamps(message);
     if (this.currentSession && message.sessionId && message.sessionId !== this.currentSession.id) return;
     if (!this.messages.some(m => m.id === message.id)) this.messages.push(message);
   },
 
   /**
-   * Bump the `lastActivityAt` timestamp on the session lists so the session list
-   * view re-sorts and re-renders as new conversation turns arrive. Never moves
-   * the value backwards.
+   * Bump conversation-derived timestamps on the session lists so session views
+   * re-sort and re-render as new conversation turns arrive. Never moves either
+   * value backwards.
    */
-  _bumpLastActivityAt(message) {
+  _bumpActivityTimestamps(message) {
     if (!message?.sessionId) return;
     if (typeof this._updateSessionInAllLists !== 'function') return;
     const ts = message.timestamp ?? Date.now();
     const existing = this._findSessionById ? this._findSessionById(message.sessionId) : null;
-    const currentValue = existing?.lastActivityAt ?? 0;
-    if (!currentValue || ts > currentValue) {
-      this._updateSessionInAllLists(message.sessionId, { lastActivityAt: ts });
-    }
+    const updates = {};
+
+    const currentLastActivityAt = existing?.lastActivityAt ?? 0;
+    if (!currentLastActivityAt || ts > currentLastActivityAt) updates.lastActivityAt = ts;
+
+    const currentLastMessageAt = existing?.lastMessageAt ?? 0;
+    if (!currentLastMessageAt || ts > currentLastMessageAt) updates.lastMessageAt = ts;
+
+    if (Object.keys(updates).length > 0) this._updateSessionInAllLists(message.sessionId, updates);
   },
 
   // ==================== WORK LOG ACTIONS ====================

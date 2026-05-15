@@ -28,6 +28,11 @@ export const ACTIVITY_FIELDS_SQL = `
     )
     WHERE activity_at IS NOT NULL
   ) AS last_activity_at,
+  (
+    SELECT MAX(cm.timestamp)
+    FROM conversation_messages cm
+    WHERE cm.session_id = s.id
+  ) AS last_message_at,
   (CAST(
     CASE
       WHEN (SELECT MAX(cm2.timestamp) FROM conversation_messages cm2 WHERE cm2.session_id = s.id) IS NOT NULL
