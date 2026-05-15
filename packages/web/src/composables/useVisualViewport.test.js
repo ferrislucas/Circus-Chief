@@ -3,7 +3,6 @@ import { ref, nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import {
   computeSessionOverlayTopChromeInset,
-  computeVisualViewportBottomInset,
   requestVisualViewportSettle,
   requestVisualViewportUpdate,
   useVisualViewport,
@@ -158,15 +157,6 @@ describe('useVisualViewport', () => {
       '--session-overlay-top-chrome-inset',
       overlayInset
     );
-    const bottomInset = computeVisualViewportBottomInset({
-      offsetTop: mockVisualViewport?.offsetTop,
-      visualViewportHeight: mockVisualViewport?.height,
-      layoutHeight: window.innerHeight,
-    });
-    expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
-      '--visual-viewport-bottom-inset',
-      `${bottomInset}px`
-    );
   }
 
   describe('computeSessionOverlayTopChromeInset', () => {
@@ -262,38 +252,6 @@ describe('useVisualViewport', () => {
           offsetTop,
         })
       ).toBe(0);
-    });
-  });
-
-  describe('computeVisualViewportBottomInset', () => {
-    it.each([
-      [
-        'keyboard-compressed phone viewport',
-        { layoutHeight: 844, offsetTop: 0, visualViewportHeight: 500 },
-        344,
-      ],
-      [
-        'offset visual viewport',
-        { layoutHeight: 1000, offsetTop: 32, visualViewportHeight: 820 },
-        148,
-      ],
-      [
-        'full-height viewport',
-        { layoutHeight: 844, offsetTop: 0, visualViewportHeight: 844 },
-        0,
-      ],
-      [
-        'oversized visual viewport',
-        { layoutHeight: 700, offsetTop: 0, visualViewportHeight: 800 },
-        0,
-      ],
-      [
-        'missing layout height',
-        { layoutHeight: undefined, offsetTop: 0, visualViewportHeight: 500 },
-        0,
-      ],
-    ])('%s', (_name, input, expected) => {
-      expect(computeVisualViewportBottomInset(input)).toBe(expected);
     });
   });
 
@@ -585,7 +543,6 @@ describe('useVisualViewport', () => {
       expect(document.documentElement.style.getPropertyValue('--viewport-offset-top')).toBe('0px');
       expect(document.documentElement.style.getPropertyValue('--visual-viewport-height')).toBe('812px');
       expect(document.documentElement.style.getPropertyValue('--session-overlay-top-chrome-inset')).toBe('0px');
-      expect(document.documentElement.style.getPropertyValue('--visual-viewport-bottom-inset')).toBe('0px');
     });
 
     it('writes sanitized overlay inset during settle sampling', async () => {
