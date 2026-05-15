@@ -8,10 +8,11 @@
       <div
         v-if="visible"
         class="overlay-backdrop"
+        :class="{ 'overlay-keyboard-focus': keyboardFocusActive }"
         data-testid="session-chat-overlay"
         @click.self="close"
-        @focusin="() => requestVisualViewportUpdate()"
-        @focusout="() => requestVisualViewportSettle()"
+        @focusin="handleOverlayFocusIn"
+        @focusout="handleOverlayFocusOut"
       >
         <div
           class="overlay-panel-wrapper"
@@ -421,6 +422,7 @@ const closing = ref(false);
 const activeSessionId = ref(props.sessionId);
 const isMobile = ref(false);
 const isCreatingSession = ref(false);
+const keyboardFocusActive = ref(false);
 // Start as true so ConversationTab doesn't mount until loadSessionData completes.
 // This prevents a race condition where ConversationTab reads currentSession before
 // it has been set to the overlay's target session.
@@ -476,6 +478,7 @@ const nameEditInput = ref(null);
 // WebSocket subscription management (NOT useSessionInitializer)
 let currentSubscription = null;
 let wsCleanups = [];
+let keyboardFocusTimer = null;
 
 // Lightweight polling for the active session
 const {
@@ -781,6 +784,34 @@ function checkMobile() {
   isMobile.value = window.innerWidth < 768;
 }
 
+function isTextEntryElement(target) {
+  if (!(target instanceof HTMLElement)) return false;
+  return Boolean(target.closest('textarea, input, [contenteditable="true"]'));
+}
+
+function handleOverlayFocusIn(event) {
+  if (keyboardFocusTimer) {
+    clearTimeout(keyboardFocusTimer);
+    keyboardFocusTimer = null;
+  }
+  keyboardFocusActive.value = isTextEntryElement(event.target);
+  requestVisualViewportUpdate();
+  requestAnimationFrame(() => {
+    requestVisualViewportUpdate();
+    if (keyboardFocusActive.value) {
+      event.target?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+    }
+  });
+}
+
+function handleOverlayFocusOut() {
+  requestVisualViewportSettle();
+  keyboardFocusTimer = setTimeout(() => {
+    keyboardFocusActive.value = false;
+    keyboardFocusTimer = null;
+  }, 180);
+}
+
 function handleEscape(event) {
   if (event.key === 'Escape') {
     if (pickerOpen.value) {
@@ -878,6 +909,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unlockBodyScroll();
+  if (keyboardFocusTimer) {
+    clearTimeout(keyboardFocusTimer);
+    keyboardFocusTimer = null;
+  }
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
@@ -898,6 +933,7 @@ defineExpose({
   isCreatingSession,
   switchingSession,
   pickerOpen,
+  keyboardFocusActive,
   handlePickerSelect,
   overlayBodyRef,
 });
@@ -1070,15 +1106,17 @@ defineExpose({
 
 .overlay-body {
   padding: 0 1rem;
-  /* Respect iOS home-indicator / bottom URL-bar gutter. Fall-back:
-     if Phase 6 QA reveals the gutter is not visible at the right
-     time, move the inset to `.input-form` or a dedicated wrapper. */
-  padding-bottom: max(0px, env(safe-area-inset-bottom));
+  --overlay-body-bottom-gutter: max(
+    env(safe-area-inset-bottom),
+    var(--visual-viewport-bottom-inset, 0px)
+  );
+  padding-bottom: var(--overlay-body-bottom-gutter);
   flex: 1;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scroll-padding-bottom: calc(var(--overlay-body-bottom-gutter) + 8rem);
   background: rgb(17, 24, 39);
 }
 
@@ -1123,7 +1161,9 @@ defineExpose({
   font-size: 1rem;
   font-weight: 600;
   color: var(--color-primary, #06b6d4);
-  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dropdown-trigger {
@@ -1199,9 +1239,38 @@ defineExpose({
   .overlay-header {
     --overlay-header-base-padding-top: 1rem;
 
+    gap: 0.25rem;
     padding-right: 0.5rem;
     padding-bottom: 0.375rem;
     padding-left: 0.5rem;
+  }
+
+  .overlay-keyboard-focus .overlay-header {
+    --overlay-header-base-padding-top: 0.5rem;
+
+    gap: 0.125rem;
+    padding-bottom: 0.25rem;
+  }
+
+  .overlay-keyboard-focus .overlay-header-selector {
+    display: none;
+  }
+
+  .overlay-keyboard-focus .overlay-root-name {
+    font-size: 0.875rem;
+  }
+
+  .overlay-keyboard-focus .back-to-sessions-text {
+    display: none;
+  }
+
+  .overlay-keyboard-focus .back-to-sessions-link {
+    margin-right: 0.5rem;
+    padding-inline: 0.5rem;
+  }
+
+  .overlay-keyboard-focus .add-session-btn {
+    padding-inline: 0.625rem;
   }
 }
 
