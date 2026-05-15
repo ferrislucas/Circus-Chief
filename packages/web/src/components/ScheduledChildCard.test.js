@@ -95,6 +95,22 @@ describe('ScheduledChildCard.vue', () => {
     expect(link.find('.session-name').text()).toBe('Test Child');
   });
 
+  it('router-link points to the correct session URL', () => {
+    const wrapper = mountComponent();
+    const link = wrapper.find('.session-name-link');
+    expect(link.exists()).toBe(true);
+    // Without vue-router installed, the component renders as <router-link> custom element
+    // Verify the 'to' attribute contains the correct session path
+    expect(link.attributes('to')).toBe('/sessions/sess-1');
+  });
+
+  it('does not have a button-based session name link (uses router-link instead)', () => {
+    const wrapper = mountComponent();
+    // The old button approach with data-testid should not exist
+    expect(wrapper.find('[data-testid="scheduled-session-name-btn"]').exists()).toBe(false);
+    expect(wrapper.find('button.session-name-link').exists()).toBe(false);
+  });
+
   it('renders timing info with countdown and absolute time', () => {
     const wrapper = mountComponent();
     const timingText = wrapper.find('.timing-text');

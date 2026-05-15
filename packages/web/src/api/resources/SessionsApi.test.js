@@ -139,6 +139,51 @@ describe('SessionsApi', () => {
       }));
     });
 
+    it('normalizes Date object scheduledAt to ISO 8601 for JSON session creation', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+      const scheduledAt = new Date('2026-06-12T14:00:00Z');
+
+      await client.createSession('proj-123', { prompt: 'Hello', scheduledAt });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ prompt: 'Hello', scheduledAt: '2026-06-12T14:00:00.000Z' }),
+      }));
+    });
+
+    it('passes string scheduledAt through without normalization', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+      await client.createSession('proj-123', { prompt: 'Hello', scheduledAt: '2026-06-12T14:00:00Z' });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ prompt: 'Hello', scheduledAt: '2026-06-12T14:00:00Z' }),
+      }));
+    });
+
+    it('handles missing scheduledAt without modification', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+      await client.createSession('proj-123', { prompt: 'Hello' });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/sessions', expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ prompt: 'Hello' }),
+      }));
+    });
+
+    it('normalizes numeric scheduledAt to ISO 8601 in FormData path', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+      const file = new File(['test'], 'test.txt', { type: 'text/plain' });
+      const scheduledAt = Date.parse('2026-06-12T14:00:00Z');
+
+      await client.createSession('proj-123', { prompt: 'Hello', scheduledAt, files: [file] });
+
+      const formData = mockFetch.mock.calls[0][1].body;
+      expect(formData.get('scheduledAt')).toBe('2026-06-12T14:00:00.000Z');
+    });
+
     it('includes optional fields in FormData', async () => {
       mockFetch.mockReturnValue(mockResponse({ id: '1' }));
       const file = new File(['test'], 'test.txt', { type: 'text/plain' });

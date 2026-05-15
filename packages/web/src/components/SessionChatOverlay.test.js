@@ -1633,6 +1633,18 @@ describe('SessionChatOverlay', () => {
       expect(block).not.toMatch(/--visual-viewport-height/);
     });
 
+    it('overlay content does not use padding-top viewport offset', () => {
+      const block = getStyleBlock('.overlay-content');
+      expect(block).not.toMatch(/padding-top:\s*max\(/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
+    });
+
+    it('overlay header uses sticky without webkit vendor prefix', () => {
+      const block = getStyleBlock('.overlay-header');
+      expect(block).toMatch(/position:\s*sticky/);
+      expect(block).not.toMatch(/position:\s*-webkit-sticky/);
+    });
+
     it('overlay shell keeps visual viewport variables out of all shell geometry', () => {
       const shellBlocks = [
         ...getStyleBlocks('.overlay-backdrop'),

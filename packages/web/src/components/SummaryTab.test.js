@@ -1372,6 +1372,16 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
     });
 
+    it('does not define open-session-overlay emit', async () => {
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // SummaryTab should no longer emit 'open-session-overlay'
+      const emits = wrapper.vm.$options.emits;
+      // emits is undefined when no emits are defined
+      expect(emits === undefined || !emits.includes('open-session-overlay')).toBe(true);
+    });
+
     it('does not pass old isScheduled / scheduledTimeDisplay / schedulingCountdown props', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
@@ -1408,6 +1418,27 @@ describe('SummaryTab', () => {
 
       const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
       expect(overviewCard.props('projectId')).toBe('proj-42');
+    });
+
+    it('does not pass showNotStartedState prop to SessionOverviewCard', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        name: 'Parent Session',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'scheduled', scheduledAt: Date.now() + 3600000, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      expect(overviewCard.exists()).toBe(true);
+      // showNotStartedState should not be passed at all
+      expect(overviewCard.props('showNotStartedState')).toBeUndefined();
     });
 
     it('does not render SchedulingEditModal directly in SummaryTab', async () => {

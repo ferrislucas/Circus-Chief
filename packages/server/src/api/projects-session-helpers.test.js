@@ -232,6 +232,72 @@ describe('parseSchedulingConfig', () => {
     expect(result.error).toContain('ISO 8601');
   });
 
+  it('accepts ISO 8601 with positive timezone offset', () => {
+    const result = parseSchedulingConfig({ scheduledAt: '2026-06-12T19:30:00+05:30' });
+    expect(result.scheduledAt).toBe(Date.parse('2026-06-12T19:30:00+05:30'));
+    expect(result.schedulingError).toBeNull();
+  });
+
+  it('accepts ISO 8601 with negative timezone offset', () => {
+    const result = parseScheduledAt('2026-06-12T09:00:00-04:00');
+    expect(result.value).toBe(Date.parse('2026-06-12T09:00:00-04:00'));
+    expect(result.error).toBeNull();
+  });
+
+  it('accepts ISO 8601 with milliseconds', () => {
+    const result = parseScheduledAt('2026-06-12T14:00:00.123Z');
+    expect(result.value).toBe(Date.parse('2026-06-12T14:00:00.123Z'));
+    expect(result.error).toBeNull();
+  });
+
+  it('returns undefined with no error for null scheduledAt', () => {
+    const result = parseScheduledAt(null);
+    expect(result.value).toBeUndefined();
+    expect(result.error).toBeNull();
+  });
+
+  it('returns undefined with no error for empty string scheduledAt', () => {
+    const result = parseScheduledAt('');
+    expect(result.value).toBeUndefined();
+    expect(result.error).toBeNull();
+  });
+
+  it('rejects date-only strings without time component', () => {
+    const result = parseScheduledAt('2026-06-12');
+    expect(result.value).toBeUndefined();
+    expect(result.error).toContain('ISO 8601');
+  });
+
+  it('rejects ISO strings without timezone', () => {
+    const result = parseScheduledAt('2026-06-12T14:00:00');
+    expect(result.value).toBeUndefined();
+    expect(result.error).toContain('ISO 8601');
+  });
+
+  it('rejects boolean scheduledAt values', () => {
+    const result = parseScheduledAt(true);
+    expect(result.value).toBeUndefined();
+    expect(result.error).toContain('ISO 8601');
+  });
+
+  it('rejects invalid month in ISO string (month 13)', () => {
+    const result = parseScheduledAt('2026-13-01T14:00:00Z');
+    expect(result.value).toBeUndefined();
+    expect(result.error).toContain('ISO 8601');
+  });
+
+  it('rejects Feb 29 on non-leap year', () => {
+    const result = parseScheduledAt('2025-02-29T14:00:00Z');
+    expect(result.value).toBeUndefined();
+    expect(result.error).toContain('ISO 8601');
+  });
+
+  it('accepts Feb 29 on leap year', () => {
+    const result = parseScheduledAt('2028-02-29T14:00:00Z');
+    expect(result.value).toBe(Date.parse('2028-02-29T14:00:00Z'));
+    expect(result.error).toBeNull();
+  });
+
   it('coerces autoRescheduleEnabled boolean', () => {
     expect(parseSchedulingConfig({ autoRescheduleEnabled: true }).autoRescheduleEnabled).toBe(true);
     expect(parseSchedulingConfig({ autoRescheduleEnabled: 'true' }).autoRescheduleEnabled).toBe(true);

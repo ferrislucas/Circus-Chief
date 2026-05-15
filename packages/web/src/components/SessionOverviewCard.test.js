@@ -120,4 +120,42 @@ describe('SessionOverviewCard.vue', () => {
     });
   });
 
+  describe('Removed features', () => {
+    it('does not accept showNotStartedState prop', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.vm.$options.props.showNotStartedState).toBeUndefined();
+    });
+
+    it('does not render not-started empty state', () => {
+      const wrapper = mountComponent({
+        hasMetrics: true,
+        formattedDuration: '1m',
+      });
+      expect(wrapper.find('.overview-summary-empty').exists()).toBe(false);
+    });
+
+    it('does not define open-session-overlay emit', () => {
+      const wrapper = mountComponent();
+      const emits = wrapper.vm.$options.emits;
+      // emits is undefined when no emits are defined, or an array
+      if (emits) {
+        expect(emits).not.toContain('open-session-overlay');
+      }
+      // Either way, the component should not have this emit defined
+      expect(emits === undefined || !emits.includes('open-session-overlay')).toBe(true);
+    });
+
+    it('does not render the card when only loading is false and no content exists', () => {
+      // Previously would render with showNotStartedState=true, now should not
+      const wrapper = mountComponent({
+        loading: false,
+        hasPrInfo: false,
+        hasMetrics: false,
+        summary: null,
+        scheduledSessions: [],
+      });
+      expect(wrapper.find('.session-overview').exists()).toBe(false);
+    });
+  });
+
 });
