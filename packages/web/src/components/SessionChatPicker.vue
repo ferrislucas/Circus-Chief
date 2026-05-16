@@ -42,8 +42,8 @@
         <span class="picker-item-summary">{{ getSummaryText(entry.session.id) }}</span>
         <span
           class="picker-item-date"
-          :title="entry.session.lastActivityAt ? 'Last activity' : 'No activity yet'"
-        >{{ entry.session.lastActivityAt ? formatDate(entry.session.lastActivityAt) : '—' }}</span>
+          :title="getTimestampTitle(entry)"
+        >{{ entry.pickerTimestamp ? formatDate(entry.pickerTimestamp) : '—' }}</span>
       </div>
     </div>
   </div>
@@ -107,6 +107,23 @@ function formatDate(timestamp) {
   const diffMs = now - date;
   if (diffMs < 86400000) return `at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function formatFullDate(timestamp) {
+  if (!timestamp) return '';
+  return new Date(timestamp).toLocaleString();
+}
+
+function getTimestampSourceLabel(source) {
+  if (source === 'lastMessageAt') return 'Last message';
+  if (source === 'updatedAt') return 'Updated';
+  if (source === 'createdAt') return 'Created';
+  return 'No activity yet';
+}
+
+function getTimestampTitle(entry) {
+  if (!entry?.pickerTimestamp) return 'No activity yet';
+  return `${getTimestampSourceLabel(entry.pickerTimestampSource)}: ${formatFullDate(entry.pickerTimestamp)}`;
 }
 
 function handleKeydown(event) {

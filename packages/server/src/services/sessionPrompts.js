@@ -222,7 +222,7 @@ curl -X POST ${apiUrl}/api/projects/${projectId}/sessions \\
   -d '{"prompt": "Your task description here"}'
 \`\`\`
 Only \`prompt\` is required. Omitted settings are automatically derived from the project's session defaults, then system defaults, matching UI behavior.
-Optional override fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`model\`, \`providerId\`, \`gitBranch\`, \`gitMode\`, \`templateId\`, \`nextTemplateId\`, \`parentSessionId\` (to create a related follow-up session from the current session), \`startImmediately\`, \`scheduledAt\`, \`autoRescheduleEnabled\`, \`rescheduleDelayMinutes\`, \`rescheduleOnTokenLimit\`, \`rescheduleOnServiceError\`, \`maxRescheduleCount\`, \`maxTotalTokens\`, and \`rescheduleAtTokenCount\`.
+Optional override fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`model\`, \`providerId\`, \`gitBranch\`, \`gitMode\`, \`templateId\`, \`nextTemplateId\`, \`parentSessionId\` (to create a related follow-up session from the current session), \`startImmediately\`, \`scheduledAt\` (ISO 8601 date-time string with timezone, e.g. \`"2026-06-12T14:00:00Z"\`), \`autoRescheduleEnabled\`, \`rescheduleDelayMinutes\`, \`rescheduleOnTokenLimit\`, \`rescheduleOnServiceError\`, \`maxRescheduleCount\`, \`maxTotalTokens\`, and \`rescheduleAtTokenCount\`.
 
 ### Send a Follow-up Message
 \`\`\`bash

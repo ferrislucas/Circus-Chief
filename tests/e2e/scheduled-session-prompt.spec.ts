@@ -97,7 +97,7 @@ async function createScheduledSession(projectId: string, prompt: string, schedul
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt,
-      scheduledAt,
+      scheduledAt: new Date(scheduledAt).toISOString(),
       startImmediately: false,
     }),
   });

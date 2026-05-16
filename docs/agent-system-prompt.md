@@ -51,7 +51,7 @@ The prompt provides the agent with its own session ID and project ID. All endpoi
 | DELETE | `/api/sessions/{session_id}` | Delete a session |
 | PATCH | `/api/sessions/{session_id}` | Update session settings. Example body: `{"thinkingEnabled": true, "effortLevel": "high"}` |
 
-**Optional fields for session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `parentSessionId` (to create a related follow-up session from the current session), `startImmediately`, `scheduledAt`, `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, `rescheduleAtTokenCount`.
+**Optional fields for session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `parentSessionId` (to create a related follow-up session from the current session), `startImmediately`, `scheduledAt` (ISO 8601 date-time string with timezone, e.g. `"2026-06-12T14:00:00Z"`), `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, `rescheduleAtTokenCount`.
 
 ### Project Operations (always included)
 
