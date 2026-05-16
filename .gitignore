@@ -29,6 +29,8 @@ test-results/
 
 # Screenshots from Playwright
 screenshots/
+!docs/screenshots/
+!docs/screenshots/**
 
 # IDE
 .idea/
