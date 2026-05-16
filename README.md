@@ -26,6 +26,7 @@
   ![User-configured commands](docs/screenshots/06-command-buttons-desktop.png)
 - **Claude Code and Codex sessions.** Start either kind of agent from the same dashboard, with the same mobile controls, history, canvas, commands, and worktree isolation. Switch agents and/or providers freely. Invoke parallel agents against the same worktree or in their own work trees.
   ![Claude Code and Codex sessions](docs/screenshots/02-session-list-agent-control-desktop.png)
+  ![Session chat overlay](docs/screenshots/04-session-chat-overlay-desktop.png)
 - **Worktree-per-session isolation.** Every session gets its own git worktree. You can also elect to work in the main git repo, or on a specific branch of the main git repo.
   ![Worktree-per-session isolation](docs/screenshots/13-worktree-session-isolation-desktop.png)
 - **Shared canvas.** Markdown, images, JSON, code — agents and you edit the same artifacts. Version history included.
