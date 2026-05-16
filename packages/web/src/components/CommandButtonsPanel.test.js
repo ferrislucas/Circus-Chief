@@ -57,7 +57,7 @@ describe('CommandButtonsPanel', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('Loading command buttons');
+    expect(wrapper.text()).toContain('Loading Circus Commands');
     expect(wrapper.find('.loading-spinner').exists()).toBe(true);
   });
 
@@ -100,7 +100,7 @@ describe('CommandButtonsPanel', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('No command buttons configured yet');
+    expect(wrapper.text()).toContain('No Circus Commands configured yet');
   });
 
   it('renders buttons table with data', async () => {
@@ -209,7 +209,7 @@ describe('CommandButtonsPanel', () => {
 
     // Dialog appears
     expect(wrapper.find('.modal-overlay').exists()).toBe(true);
-    expect(wrapper.text()).toContain('Delete Command Button');
+    expect(wrapper.text()).toContain('Delete Circus Command');
     expect(wrapper.text()).toContain('Run Tests');
   });
 

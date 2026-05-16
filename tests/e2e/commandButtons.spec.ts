@@ -7,7 +7,7 @@ import {
   waitForSessionToExist,
 } from './helpers';
 
-test.describe('Command Buttons', () => {
+test.describe('Circus Commands', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
@@ -15,7 +15,7 @@ test.describe('Command Buttons', () => {
 
   test.beforeEach(async () => {
     await cleanupAll();
-    project = await seedProject('Command Buttons', '/tmp/test');
+    project = await seedProject('Circus Commands', '/tmp/test');
     session = await seedSession(project.id, { prompt: 'Test prompt', name: 'Test Session' });
     // Wait for session to be available
     await waitForSessionToExist(session.id);
@@ -89,7 +89,7 @@ test.describe('Command Buttons', () => {
     await navigateAndWait(page, `/sessions/${session.id}/commands`);
 
     // Should show empty state
-    await expect(page.getByText('No command buttons configured')).toBeVisible();
+    await expect(page.getByText('No Circus Commands configured')).toBeVisible();
   });
 
   test('show error state when command fails', async ({ page }) => {
@@ -129,7 +129,7 @@ test.describe('Command Buttons', () => {
     await expect(page.getByText('exit code: 0')).toBeVisible({ timeout: 5000 });
   });
 
-  test('display command buttons in table on management page', async ({ page }) => {
+  test('display Circus Commands in table on management page', async ({ page }) => {
     // Create multiple buttons via UI
     await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
     await page.fill('#label', 'Button 1');

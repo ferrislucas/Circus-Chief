@@ -2,12 +2,12 @@
   <div class="command-buttons-panel">
     <!-- Header with New Button -->
     <div class="panel-header">
-      <h3>Command Buttons</h3>
+      <h3>Circus Commands</h3>
       <router-link
         :to="`/projects/${projectId}/command-buttons/new`"
         class="btn btn-primary btn-sm"
       >
-        + New Command Button
+        + New Circus Command
       </router-link>
     </div>
 
@@ -17,7 +17,7 @@
       class="loading-state"
     >
       <span class="loading-spinner" />
-      Loading command buttons...
+      Loading Circus Commands...
     </div>
 
     <!-- Error State -->
@@ -33,7 +33,7 @@
       v-else-if="commandButtonsStore.buttons.length === 0"
       class="empty-state"
     >
-      <p>No command buttons configured yet.</p>
+      <p>No Circus Commands configured yet.</p>
       <router-link
         :to="`/projects/${projectId}/command-buttons/new`"
         class="btn btn-primary"
@@ -102,10 +102,10 @@
         @click.stop
       >
         <div class="modal-header">
-          <h4>Delete Command Button</h4>
+          <h4>Delete Circus Command</h4>
         </div>
         <div class="modal-body">
-          <p>Are you sure you want to delete the command button "<strong>{{ selectedButton.label }}</strong>"?</p>
+          <p>Are you sure you want to delete the Circus Command "<strong>{{ selectedButton.label }}</strong>"?</p>
         </div>
         <div class="modal-footer">
           <button

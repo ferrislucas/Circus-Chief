@@ -566,7 +566,7 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).toContain('## Commands API');
+        expect(result).toContain('## Circus Commands');
         expect(result).toContain('/command-buttons');
         expect(result).toContain('/runs');
         expect(result).toContain('/run');
@@ -578,7 +578,7 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).not.toContain('## Commands API');
+        expect(result).not.toContain('## Circus Commands');
       });
 
       it('section appears between Session Management and Kanban', () => {
@@ -590,7 +590,7 @@ describe('sessionPrompts', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         const sessionApiIdx = result.indexOf('## Session Management API');
-        const commandIdx = result.indexOf('## Commands API');
+        const commandIdx = result.indexOf('## Circus Commands');
         const kanbanIdx = result.indexOf('## Kanban Board API');
 
         expect(sessionApiIdx).toBeGreaterThanOrEqual(0);
@@ -631,6 +631,14 @@ describe('sessionPrompts', () => {
         expect(result).toContain('output');
         expect(result).toContain('startedAt');
         expect(result).toContain('completedAt');
+      });
+
+      it('includes discoverability note when commands exist', () => {
+        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
+
+        const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+        expect(result).toContain('When the user asks to');
       });
     });
   });

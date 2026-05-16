@@ -4,7 +4,7 @@ import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@circusc
 
 // Error message constants
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
-const ERR_BUTTON_NOT_FOUND = 'Command button not found';
+const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
 
 const router = Router({ mergeParams: true });
 

@@ -60,10 +60,10 @@ router.post('/:id/command-buttons/:buttonId/run', requireRootSessionAndProject, 
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: 'Circus Command not found' });
   }
   if (button.projectId !== req.rootSession_.projectId) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: 'Circus Command not found' });
   }
 
   // Generate run ID
@@ -185,10 +185,10 @@ router.delete('/:id/command-buttons/:buttonId/runs/all', requireRootSessionAndPr
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: 'Circus Command not found' });
   }
   if (button.projectId !== req.rootSession_.projectId) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: 'Circus Command not found' });
   }
 
   const { deletedRuns } = commandRuns.deleteByButtonAndSession(buttonId, sessionId);

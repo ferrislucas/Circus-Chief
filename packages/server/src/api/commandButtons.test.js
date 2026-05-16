@@ -232,7 +232,7 @@ describe('Command Buttons API', () => {
       const res = await request(app).get(`/api/projects/${projectId}/command-buttons/nonexistent`);
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('Command button not found');
+      expect(res.body.error).toBe('Circus Command not found');
     });
   });
 
@@ -300,7 +300,7 @@ describe('Command Buttons API', () => {
         });
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('Command button not found');
+      expect(res.body.error).toBe('Circus Command not found');
     });
 
     it('accepts showOnList in update request', async () => {
@@ -333,7 +333,7 @@ describe('Command Buttons API', () => {
       const res = await request(app).delete(`/api/projects/${projectId}/command-buttons/nonexistent`);
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('Command button not found');
+      expect(res.body.error).toBe('Circus Command not found');
     });
   });
 
@@ -365,7 +365,7 @@ describe('Command Buttons API', () => {
       );
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('Command button not found');
+      expect(res.body.error).toBe('Circus Command not found');
     });
 
     it('calls commandRunner.run with correct parameters', async () => {
@@ -896,7 +896,7 @@ describe('Command Buttons API', () => {
       );
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('Command button not found');
+      expect(res.body.error).toBe('Circus Command not found');
     });
 
     it('broadcasts COMMAND_RUN_DELETED for each deleted run', async () => {

@@ -13,9 +13,11 @@ export function buildCommandButtonApiInstructions(apiUrl, sessionId, projectId) 
     return '';
   }
 
-  return `## Commands API
+  return `## Circus Commands
 
-This project has commands configured - reusable shell commands you can execute. Use the Bash tool to run these curl commands.
+This project has Circus Commands configured - reusable shell commands you can execute. Use the Bash tool to run these curl commands.
+
+> When the user asks to "run a command", "what commands are available", "list circus commands", or similar, use the Commands API below to discover and execute them.
 
 ### List Available Commands
 \`\`\`bash

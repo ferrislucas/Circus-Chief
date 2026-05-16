@@ -15,7 +15,7 @@ This document describes the system prompt injected into every agent session and 
 | 5 | Canvas write instructions | `buildCanvasWriteSystemPrompt()` | Yes |
 | 6 | Canvas read instructions | `buildCanvasReadSystemPrompt()` | Yes |
 | 7 | Session management API | `buildSessionApiInstructions()` | Yes |
-| 8 | Commands API | `buildCommandButtonApiInstructions()` (in `commandButtonPrompts.js`) | Only when project has commands |
+| 8 | Circus Commands | `buildCommandButtonApiInstructions()` (in `commandButtonPrompts.js`) | Only when project has commands |
 | 9 | Kanban board API | `buildKanbanApiInstructions()` | Only when project has kanban enabled |
 
 The base URL used in all endpoint examples is derived from `CIRCUSCHIEF_API_URL` env var, falling back to `http://localhost:{PORT}`.
@@ -69,7 +69,7 @@ The prompt provides the agent with its own session ID and project ID. All endpoi
 | GET | `/api/sessions/{sessionId}/summary?generate=true` | Get (and generate) a session summary |
 | POST | `/api/sessions/{sessionId}/summary` | Regenerate the session summary |
 
-### Commands API (conditional)
+### Circus Commands (conditional)
 
 Included only when the project has commands configured. Built in `packages/server/src/services/commandButtonPrompts.js`.
 

@@ -17,7 +17,7 @@ import {
   API_URL,
 } from './helpers';
 
-test.describe('Command Buttons - Remove Run Feature', () => {
+test.describe('Circus Commands - Remove Run Feature', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
@@ -25,7 +25,7 @@ test.describe('Command Buttons - Remove Run Feature', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Command Buttons Remove', '/tmp/test');
+    project = await seedProject('Circus Commands Remove', '/tmp/test');
     session = await seedSession(project.id, {
       prompt: 'Test prompt for remove run',
       name: 'Remove Run Test Session',

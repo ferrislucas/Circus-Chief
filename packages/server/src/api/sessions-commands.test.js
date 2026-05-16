@@ -85,7 +85,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
         .post(`/api/sessions/${session.id}/command-buttons/non-existent/run`);
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('Command button not found');
+      expect(res.body.error).toBe('Circus Command not found');
     });
 
     it('starts a command run and returns runId', async () => {

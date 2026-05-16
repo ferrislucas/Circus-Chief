@@ -20,7 +20,7 @@
         >
           ← Back
         </router-link>
-        <h2>{{ isEditMode ? 'Edit Command Button' : 'New Command Button' }}</h2>
+        <h2>{{ isEditMode ? 'Edit Circus Command' : 'New Circus Command' }}</h2>
       </div>
 
       <!-- Form -->
@@ -144,7 +144,7 @@
         @click.stop
       >
         <div class="modal-header">
-          <h4>Delete Command Button</h4>
+          <h4>Delete Circus Command</h4>
         </div>
         <div class="modal-body">
           <p>Are you sure you want to delete "<strong>{{ formData.label }}</strong>"?</p>
@@ -264,10 +264,10 @@ const onSubmit = async () => {
 
     if (isEditMode.value) {
       await commandButtonsStore.updateButton(projectId, route.params[ROUTE_PARAMS.BUTTON_ID], buttonData);
-      uiStore.success('Command button updated');
+      uiStore.success('Circus Command updated');
     } else {
       await commandButtonsStore.createButton(projectId, buttonData);
-      uiStore.success('Command button created');
+      uiStore.success('Circus Command created');
     }
 
     router.push(`/projects/${projectId}/sessions`);
@@ -294,7 +294,7 @@ const confirmDelete = async () => {
     const buttonId = route.params[ROUTE_PARAMS.BUTTON_ID];
 
     await commandButtonsStore.deleteButton(projectId, buttonId);
-    uiStore.success('Command button deleted');
+    uiStore.success('Circus Command deleted');
     showDeleteConfirm.value = false;
 
     router.push(`/projects/${projectId}/sessions`);

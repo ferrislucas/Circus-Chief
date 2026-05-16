@@ -18,14 +18,14 @@
 
 - **AI-generated session summaries** — scan what every session accomplished without reading the full conversation, with PRs automatically linked (requires GitHub CLI)
 - **Kanban board (experimental)** — organize sessions into workflow stages with drag-and-drop and lane automation. Disabled by default for new projects; enable it per-project from the project settings page. Expect rough edges while this feature matures.
-- **Command buttons with live status** — kick off builds, tests, or CI tasks and see pass/fail indicators right on the session list
+- **Circus Commands with live status** — kick off builds, tests, or CI tasks and see pass/fail indicators right on the session list
 - **Star, archive, and filter** to keep your session list manageable
 
 ### Work from anywhere
 
 - **Touch-first UI** — built for small screens with minimal typing
 - **Quick responses** — configure reusable replies and send them with a single tap
-- **Command buttons** — run shell commands without touching a keyboard, with live output streaming
+- **Circus Commands** — run shell commands without touching a keyboard, with live output streaming
 - **Slash command wizards** — tap through complex operations step by step with argument forms
 
 ### Orchestration

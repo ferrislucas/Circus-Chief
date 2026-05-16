@@ -107,7 +107,7 @@ router.post('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const button = commandButtons.getById(req.params.id);
   if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: 'Circus Command not found' });
   }
   res.json(button);
 });
@@ -116,7 +116,7 @@ router.get('/:id', (req, res) => {
 router.patch('/:id', (req, res) => {
   const button = commandButtons.getById(req.params.id);
   if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: 'Circus Command not found' });
   }
 
   const result = UpdateCommandButtonRequest.safeParse(req.body);
@@ -139,7 +139,7 @@ router.patch('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const button = commandButtons.getById(req.params.id);
   if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: 'Circus Command not found' });
   }
 
   commandButtons.delete(req.params.id);
@@ -157,7 +157,7 @@ router.post('/run/:buttonId', (req, res) => {
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: 'Circus Command not found' });
   }
 
   const workingDirectory = session.gitWorktree || session.project?.workingDirectory || process.cwd();

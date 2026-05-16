@@ -146,7 +146,7 @@ The `seedAssistantMessage`, `seedUserMessage`, and `seedAssistantMessageWithTool
 | `seedSessionSummaryWithPR(sessionId, data)` | Summary + PR state via DB script |
 | `seedTodos(sessionId, conversationId, todos)` | Todo items via DB script |
 | `seedConversationTokens(sessionId, conversationId, tokens)` | Token usage via DB script |
-| `seedCommandButton(projectId, data)` | Command button via REST API |
+| `seedCommandButton(projectId, data)` | Circus Command via REST API |
 | `seedProjectTemplate(projectId, data)` | Project template via REST API |
 | `seedGlobalTemplate(data)` | Global template via REST API |
 | `seedScheduledSession(projectId, data)` | Scheduled session via REST API |
