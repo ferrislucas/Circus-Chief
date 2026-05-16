@@ -1,5 +1,12 @@
 # Development Guide
 
+## Tech Stack
+
+- **Frontend**: Vue.js 3 + Vite + Pinia + Vue Router
+- **Backend**: Express.js + WebSocket + SQLite
+- **Testing**: Vitest (unit) + Playwright (E2E)
+- **Package Manager**: Yarn (workspaces monorepo)
+
 ## Quick Start
 
 ```bash

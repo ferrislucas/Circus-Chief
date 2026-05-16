@@ -57,20 +57,10 @@ npx circuschief
 npx circuschief -p 8080
 ```
 
----
-
-## Tech Stack
-
-- **Frontend**: Vue.js 3 + Vite + Pinia + Vue Router
-- **Backend**: Express.js + WebSocket + SQLite
-- **Testing**: Vitest (unit) + Playwright (E2E)
-- **Package Manager**: Yarn (workspaces monorepo)
-
 ## Prerequisites
 
 - macOS or Linux
 - Node.js 20+
-- Yarn
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — required for Claude Code agents
 - [OpenAI Codex CLI](https://github.com/openai/codex) — required for Codex agents
 - [GitHub CLI](https://cli.github.com/) (optional — enables automatic PR linking)
