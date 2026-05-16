@@ -5,6 +5,7 @@ import { tmpdir, homedir } from 'os';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import {
+  _setManagedHooksPath,
   branchExists,
   checkoutBranch,
   clearDefaultBranchCache,
@@ -15,6 +16,7 @@ import {
   getCacheSize,
   getCurrentBranch,
   getGitAuthor,
+  getManagedHooksPath,
   getOriginDefaultBranch,
   getRepositoryUrl,
   getUntrackedFiles,
@@ -851,6 +853,9 @@ describe('gitService', () => {
   describe('ensureWorktreeCommitAttributionHook', () => {
     let worktreePath;
     let fakeHome;
+    let fakeHooksPath;
+    /** Snapshot of the real hooks path before any override. */
+    let realHooksPath;
 
     function createIsolatedGitEnv(fakeHomePath) {
       return {
@@ -861,13 +866,23 @@ describe('gitService', () => {
     }
 
     beforeEach(async () => {
+      // Record the production hooks path so we can restore it later.
+      realHooksPath = getManagedHooksPath();
+
       fakeHome = await mkdtemp(join(tmpdir(), 'fake-home-'));
+      fakeHooksPath = join(fakeHome, '.circuschief', 'hooks');
+      // Redirect hook writes into the fake home so tests never touch ~/.circuschief.
+      _setManagedHooksPath(fakeHooksPath);
+
       const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       worktreePath = join(testDir, '.worktrees', `attr-test-${suffix}`);
       await createWorktreeForBranch(testDir, `attr-test-branch-${suffix}`, worktreePath, { skipFetch: true });
     });
 
     afterEach(async () => {
+      // Restore the production hooks path.
+      _setManagedHooksPath(realHooksPath);
+
       if (worktreePath && existsSync(worktreePath)) {
         try {
           execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
@@ -888,8 +903,19 @@ describe('gitService', () => {
       expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
         .toThrow();
       expect(execSync('git config --worktree core.hooksPath', { cwd: worktreePath }).toString().trim())
-        .toBe(join(homedir(), '.circuschief', 'hooks'));
-      expect(existsSync(join(homedir(), '.circuschief', 'hooks', 'commit-msg'))).toBe(true);
+        .toBe(fakeHooksPath);
+      expect(existsSync(join(fakeHooksPath, 'commit-msg'))).toBe(true);
+    });
+
+    it('does not touch the real home directory hooks path', async () => {
+      const realHookFile = join(homedir(), '.circuschief', 'hooks', 'commit-msg');
+      const existedBefore = existsSync(realHookFile);
+
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      // The real home must not gain or lose the hook file.
+      const existsAfter = existsSync(realHookFile);
+      expect(existsAfter).toBe(existedBefore);
     });
 
     it('appends the configured trailer to a plain git commit', async () => {
@@ -1025,7 +1051,7 @@ describe('gitService', () => {
 
     it('clears stale managed hooks path when attribution was already unset', async () => {
       execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
-      execSync(`git config --worktree core.hooksPath ${join(homedir(), '.circuschief', 'hooks')}`, { cwd: worktreePath });
+      execSync(`git config --worktree core.hooksPath '${fakeHooksPath}'`, { cwd: worktreePath });
 
       const result = await clearWorktreeCommitAttribution(worktreePath);
 
