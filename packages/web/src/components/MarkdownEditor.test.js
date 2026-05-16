@@ -29,7 +29,7 @@ vi.mock('../stores/canvas.js', () => ({
 
 // Create a synchronous test version of MarkdownEditor that mirrors the real component's
 // logic but avoids defineAsyncComponent + Suspense (which makes unit testing challenging).
-// Uses a method for content changes (called from template @input) to make debounce testable.
+// Includes itemId-aware change tracking per the real component.
 function createTestableEditor() {
   return defineComponent({
     name: 'MarkdownEditorTestable',
@@ -42,21 +42,28 @@ function createTestableEditor() {
     emits: ['save'],
     setup(props, { emit }) {
       const editorContent = ref(props.content || '');
+
       let debounceTimer = null;
       let lastSavedContent = props.content || '';
+      let lastEmittedContent = props.content || '';
+      let lastAcceptedItemId = props.itemId;
+      let lastAcceptedContent = props.content || '';
+      let userModified = false;
+      let isProgrammaticChange = false;
 
       // Mirror the real component's editorContent watcher effect, but executed
       // synchronously on user input so tests do not need to await nextTick
-      // between typing and vi.runAllTimers(). Includes the no-op guard so that
-      // setting editorContent back to lastSavedContent does NOT schedule a
-      // save (this is what prevents a version-switch from writing the old
-      // content back as a new version).
+      // between typing and vi.runAllTimers().
       function onContentChange(newVal) {
         editorContent.value = newVal;
         if (newVal === lastSavedContent) return;
+
+        userModified = true;
+
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
           lastSavedContent = newVal;
+          lastEmittedContent = newVal;
           emit('save', newVal);
         }, 1000);
       }
@@ -67,25 +74,68 @@ function createTestableEditor() {
           debounceTimer = null;
         }
         if (editorContent.value !== lastSavedContent) {
+          lastSavedContent = editorContent.value;
+          lastEmittedContent = editorContent.value;
           emit('save', editorContent.value);
         }
       }
 
-      // External content change (e.g. version switch). Update
-      // lastSavedContent BEFORE mutating editorContent.value so the
-      // editorContent watcher's next-tick run sees them equal and exits
-      // without emitting, and any concurrent flushPendingSave() also exits.
-      watch(() => props.content, (newContent) => {
-        if (newContent === editorContent.value) return;
-        if (debounceTimer) {
-          clearTimeout(debounceTimer);
-          debounceTimer = null;
-        }
-        lastSavedContent = newContent || '';
-        editorContent.value = newContent || '';
-      });
+      // Combined watcher for itemId + content — matches real component logic
+      watch(
+        () => ({ itemId: props.itemId, content: props.content }),
+        ({ itemId: newItemId, content: newContent }) => {
+          const normalizedContent = newContent || '';
 
-      // No startEditing on mount — the store's saveMarkdownContent handles it
+          if (newItemId !== lastAcceptedItemId) {
+            // Deliberate version switch
+            if (debounceTimer) {
+              clearTimeout(debounceTimer);
+              debounceTimer = null;
+            }
+            lastAcceptedItemId = newItemId;
+            lastAcceptedContent = normalizedContent;
+            lastSavedContent = normalizedContent;
+            lastEmittedContent = normalizedContent;
+            userModified = false;
+
+            if (normalizedContent !== editorContent.value) {
+              isProgrammaticChange = true;
+              editorContent.value = normalizedContent;
+              isProgrammaticChange = false;
+            }
+            return;
+          }
+
+          // Same itemId — content changed externally
+          if (normalizedContent === editorContent.value) {
+            lastAcceptedContent = normalizedContent;
+            lastSavedContent = normalizedContent;
+            return;
+          }
+
+          if (userModified) {
+            // Buffer user-modified — ignore background churn
+            if (normalizedContent === lastEmittedContent) {
+              lastAcceptedContent = normalizedContent;
+              lastSavedContent = normalizedContent;
+            }
+            return;
+          }
+
+          // No local edits — accept external content
+          if (debounceTimer) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
+          }
+          lastAcceptedContent = normalizedContent;
+          lastSavedContent = normalizedContent;
+          lastEmittedContent = normalizedContent;
+
+          isProgrammaticChange = true;
+          editorContent.value = normalizedContent;
+          isProgrammaticChange = false;
+        }
+      );
 
       onUnmounted(() => {
         flushPendingSave();
@@ -257,7 +307,7 @@ describe('MarkdownEditor', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
-  it('updates editor content when content prop changes externally', async () => {
+  it('updates editor content when content prop changes externally (no user edits)', async () => {
     const wrapper = mountComponent({ content: 'Initial content' });
 
     await wrapper.setProps({ content: 'Updated externally' });
@@ -335,5 +385,211 @@ describe('MarkdownEditor', () => {
     wrapper.vm.flushPendingSave();
 
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  // ── New tests for itemId-aware change tracking ──────────────────────
+
+  it('dirty editor ignores a same-itemId external content update and keeps editorContent unchanged', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'original',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // User types an edit — makes buffer dirty
+    wrapper.vm.onContentChange('user typed this');
+    await nextTick();
+
+    // External background update arrives (same itemId, different content)
+    await wrapper.setProps({ content: 'background refresh content' });
+    await nextTick();
+
+    // Editor content should remain what the user typed
+    expect(wrapper.vm.editorContent).toBe('user typed this');
+  });
+
+  it('same-itemId self-originated save echo acknowledges save without rewriting buffer', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'original',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // User types and debounce fires
+    wrapper.vm.onContentChange('edited content');
+    vi.runAllTimers();
+    await nextTick();
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith('edited content');
+
+    // The save echo arrives: same itemId, content matches what was emitted
+    await wrapper.setProps({ content: 'edited content' });
+    await nextTick();
+
+    // Buffer should remain unchanged (already matches)
+    expect(wrapper.vm.editorContent).toBe('edited content');
+
+    // No additional save should be emitted
+    vi.runAllTimers();
+    await nextTick();
+    expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('same-itemId stale refresh after debounced save does not rewrite user-modified buffer', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'v1',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // User types and debounce fires
+    wrapper.vm.onContentChange('v2 from user');
+    vi.runAllTimers();
+    await nextTick();
+    expect(onSave).toHaveBeenCalledTimes(1);
+
+    // User types more (buffer is still dirty even though debounce emitted)
+    wrapper.vm.onContentChange('v3 from user');
+    await nextTick();
+
+    // A stale/stripped refresh arrives with the original content
+    await wrapper.setProps({ content: 'v1' });
+    await nextTick();
+
+    // Buffer should stay at what the user last typed
+    expect(wrapper.vm.editorContent).toBe('v3 from user');
+  });
+
+  it('same-itemId external content update is accepted when there are no local edits', async () => {
+    const wrapper = mountComponent({ content: 'initial' });
+
+    // No user edits — external content update should be accepted
+    await wrapper.setProps({ content: 'externally updated' });
+    await nextTick();
+
+    expect(wrapper.vm.editorContent).toBe('externally updated');
+  });
+
+  it('changing itemId replaces editorContent with selected version content and clears dirty state', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'original',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // User types an edit
+    wrapper.vm.onContentChange('dirty content');
+    await nextTick();
+
+    // Version switch: itemId changes
+    await wrapper.setProps({ itemId: 'item-2', content: 'version 2 content' });
+    await nextTick();
+
+    // Editor content should be replaced
+    expect(wrapper.vm.editorContent).toBe('version 2 content');
+
+    // Pending debounce should have been cleared (no save of dirty content)
+    vi.runAllTimers();
+    await nextTick();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('prop-driven version switch followed by flushPendingSave emits no save', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'a',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    await nextTick();
+
+    // Version switch via itemId change
+    await wrapper.setProps({ itemId: 'item-2', content: 'b' });
+    await nextTick();
+
+    wrapper.vm.flushPendingSave();
+
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('ignored same-itemId background updates do not create a follow-up debounced save', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'original',
+        sessionId: 'session-1',
+        filename: 'test.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // User types
+    wrapper.vm.onContentChange('user edit');
+    vi.runAllTimers();
+    await nextTick();
+    expect(onSave).toHaveBeenCalledTimes(1);
+
+    onSave.mockClear();
+
+    // Background update arrives (should be ignored because buffer is user-modified)
+    await wrapper.setProps({ content: 'stale content from server' });
+    await nextTick();
+
+    // No save should be scheduled
+    vi.runAllTimers();
+    await nextTick();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('unmount after a pending user edit emits one save and calls endEditing(filename)', async () => {
+    const onSave = vi.fn();
+    const wrapper = mount(MarkdownEditorTestable, {
+      props: {
+        content: 'original',
+        sessionId: 'session-1',
+        filename: 'notes.md',
+        itemId: 'item-1',
+        onSave,
+      },
+    });
+
+    // User types (debounce not yet fired)
+    wrapper.vm.onContentChange('pending content');
+    await nextTick();
+    expect(onSave).not.toHaveBeenCalled();
+
+    // Unmount
+    wrapper.unmount();
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith('pending content');
+    expect(mockEndEditing).toHaveBeenCalledWith('notes.md');
   });
 });

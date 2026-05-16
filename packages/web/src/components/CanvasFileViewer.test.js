@@ -502,4 +502,109 @@ describe('CanvasFileViewer', () => {
       expect(endEditingSpy).toHaveBeenCalledWith('readme.md');
     });
   });
+
+  describe('editing-change events', () => {
+    it('emits editingChange with editing:true when Edit is clicked', async () => {
+      const onEditingChange = vi.fn();
+      const wrapper = mount(CanvasFileViewer, {
+        props: {
+          item: { id: 'item-1', filename: 'readme.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+          sessionId: 'test-session',
+          versions: [],
+          showBackButton: true,
+          onEditingChange,
+        },
+        global: {
+          stubs: {
+            MarkdownViewer: MarkdownViewerStub,
+          },
+        },
+      });
+
+      wrapper.vm.toggleEditing();
+      await flushAll(wrapper);
+
+      expect(onEditingChange).toHaveBeenCalledTimes(1);
+      expect(onEditingChange).toHaveBeenCalledWith({
+        editing: true,
+        filename: 'readme.md',
+        itemId: 'item-1',
+      });
+    });
+
+    it('clicking Done emits editingChange with editing:false', async () => {
+      const onEditingChange = vi.fn();
+      const wrapper = mount(CanvasFileViewer, {
+        props: {
+          item: { id: 'item-1', filename: 'readme.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+          sessionId: 'test-session',
+          versions: [],
+          showBackButton: true,
+          onEditingChange,
+        },
+        global: {
+          stubs: {
+            MarkdownViewer: MarkdownViewerStub,
+          },
+        },
+      });
+
+      // Enter edit mode
+      wrapper.vm.toggleEditing();
+      await flushAll(wrapper);
+
+      // Exit edit mode (Done)
+      wrapper.vm.toggleEditing();
+      await flushAll(wrapper);
+
+      expect(onEditingChange).toHaveBeenCalledTimes(2);
+      expect(onEditingChange).toHaveBeenNthCalledWith(1, {
+        editing: true,
+        filename: 'readme.md',
+        itemId: 'item-1',
+      });
+      expect(onEditingChange).toHaveBeenNthCalledWith(2, {
+        editing: false,
+        filename: 'readme.md',
+        itemId: 'item-1',
+      });
+    });
+
+    it('emits editingChange with editing:false on unmount while editing and calls endEditing', async () => {
+      const { useCanvasStore } = await import('../stores/canvas.js');
+      const store = useCanvasStore();
+      const endEditingSpy = vi.spyOn(store, 'endEditing');
+
+      const onEditingChange = vi.fn();
+      const wrapper = mount(CanvasFileViewer, {
+        props: {
+          item: { id: 'item-1', filename: 'readme.md', type: 'markdown', content: '# Hello', createdAt: Date.now() },
+          sessionId: 'test-session',
+          versions: [],
+          showBackButton: true,
+          onEditingChange,
+        },
+        global: {
+          stubs: {
+            MarkdownViewer: MarkdownViewerStub,
+          },
+        },
+      });
+
+      // Enter edit mode
+      wrapper.vm.toggleEditing();
+      await flushAll(wrapper);
+
+      // Unmount
+      wrapper.unmount();
+
+      expect(onEditingChange).toHaveBeenCalledTimes(2);
+      expect(onEditingChange).toHaveBeenNthCalledWith(2, {
+        editing: false,
+        filename: 'readme.md',
+        itemId: 'item-1',
+      });
+      expect(endEditingSpy).toHaveBeenCalledWith('readme.md');
+    });
+  });
 });

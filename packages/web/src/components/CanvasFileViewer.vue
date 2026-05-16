@@ -18,6 +18,7 @@
       class="viewer-content viewer-content-editing"
     >
       <MarkdownEditor
+        ref="markdownEditorRef"
         :content="item.content || ''"
         :session-id="sessionId"
         :filename="item.filename"
@@ -150,10 +151,11 @@ const props = defineProps({
 
 const canvasStore = useCanvasStore();
 
-const emit = defineEmits(['back', 'selectVersion', 'deleteAll']);
+const emit = defineEmits(['back', 'selectVersion', 'deleteAll', 'editingChange']);
 
 const contentLoading = ref(false);
 const isEditing = ref(false);
+const markdownEditorRef = ref(null);
 
 // Watch the item's id to handle both initial load AND version switching.
 // Cannot watch just a `needsContent` computed because switching between two
@@ -172,8 +174,19 @@ watch(() => props.item.id, async () => {
 }, { immediate: true });
 
 function toggleEditing() {
-  isEditing.value = !isEditing.value;
+  if (isEditing.value) {
+    // Leaving edit mode: flush pending saves before toggling off
+    markdownEditorRef.value?.flushPendingSave?.();
+    isEditing.value = false;
+    emit('editingChange', { editing: false, filename: props.item.filename, itemId: props.item.id });
+  } else {
+    isEditing.value = true;
+    emit('editingChange', { editing: true, filename: props.item.filename, itemId: props.item.id });
+  }
 }
+
+// Expose for testing — allows parent to invoke toggleEditing if needed
+defineExpose({ toggleEditing });
 
 function handleSave(content) {
   canvasStore.saveMarkdownContent(props.sessionId, props.item.filename, content, props.item.id);
@@ -190,6 +203,7 @@ function handleDeleteAll(filename) {
 // Ensure endEditing is called when navigating away while editing
 onBeforeUnmount(() => {
   if (isEditing.value && props.item.filename) {
+    emit('editingChange', { editing: false, filename: props.item.filename, itemId: props.item.id });
     canvasStore.endEditing(props.item.filename);
   }
 });

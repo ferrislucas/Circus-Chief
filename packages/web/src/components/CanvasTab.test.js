@@ -81,7 +81,7 @@ describe('CanvasTab', () => {
   const CanvasFileViewerStub = defineComponent({
     name: 'CanvasFileViewer',
     props: ['item', 'sessionId', 'versions', 'showBackButton'],
-    emits: ['back', 'selectVersion', 'delete', 'deleteAll'],
+    emits: ['back', 'selectVersion', 'delete', 'deleteAll', 'editingChange'],
     template: `<div class="canvas-file-viewer">
       <button v-if="showBackButton" class="breadcrumb-back">← Back to list</button>
       Viewing {{ item?.filename }}
@@ -861,6 +861,146 @@ describe('CanvasTab', () => {
       await flushAll(wrapper);
 
       expect(mockReplace).toHaveBeenCalledWith({ query: { item: 'b2' } });
+    });
+  });
+
+  describe('editing suppression (activeEditingTarget)', () => {
+    it('does not auto-navigate when editing is active for the current file', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      // Simulate entering edit mode
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer.vm.$emit('editingChange', { editing: true, filename: 'doc.md', itemId: '1' });
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A new version arrives via WS
+      canvasStore.addItem({ id: '2', filename: 'doc.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      // Auto-navigation should be suppressed
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+
+    it('resumes auto-navigation after editing ends', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+
+      // Enter edit mode
+      await viewer.vm.$emit('editingChange', { editing: true, filename: 'doc.md', itemId: '1' });
+      await flushAll(wrapper);
+
+      // Exit edit mode
+      await viewer.vm.$emit('editingChange', { editing: false, filename: 'doc.md', itemId: '1' });
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A new version arrives via WS
+      canvasStore.addItem({ id: '2', filename: 'doc.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      // Auto-navigation should resume
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '2' } });
+    });
+
+    it('editing a different file does not suppress auto-navigation for the current file', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'a.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'b.md', type: 'markdown', createdAt: 1500 },
+      ]);
+      mockRoute.query = { item: '1' };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+
+      // Simulate editing a DIFFERENT file (this shouldn't happen in practice,
+      // but verifies the filename matching logic)
+      await viewer.vm.$emit('editingChange', { editing: true, filename: 'b.md', itemId: '2' });
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A new version of the CURRENTLY VIEWED file arrives
+      canvasStore.addItem({ id: '3', filename: 'a.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      // Auto-navigation should NOT be suppressed (editing a different file)
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '3' } });
+    });
+
+    it('activeEditingTarget clears when user navigates to list view', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'doc.md', type: 'markdown', createdAt: 1000 },
+      ]);
+      mockRoute.query = reactive({ item: '1' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer.vm.$emit('editingChange', { editing: true, filename: 'doc.md', itemId: '1' });
+      await flushAll(wrapper);
+
+      // Navigate to list view (clears route.query.item)
+      delete mockRoute.query.item;
+      await flushAll(wrapper);
+
+      // Re-enter the file
+      mockRoute.query.item = '1';
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A new version arrives — activeEditingTarget should have been cleared
+      canvasStore.addItem({ id: '2', filename: 'doc.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '2' } });
+    });
+
+    it('activeEditingTarget clears when switching to a different file', async () => {
+      api.getAllCanvasItems.mockResolvedValue([
+        { id: '1', filename: 'a.md', type: 'markdown', createdAt: 1000 },
+        { id: '2', filename: 'b.md', type: 'markdown', createdAt: 1500 },
+      ]);
+      mockRoute.query = reactive({ item: '1' });
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const viewer = wrapper.findComponent(CanvasFileViewerStub);
+      await viewer.vm.$emit('editingChange', { editing: true, filename: 'a.md', itemId: '1' });
+      await flushAll(wrapper);
+
+      // Switch to different file
+      mockRoute.query.item = '2';
+      await flushAll(wrapper);
+
+      mockReplace.mockClear();
+
+      // A new version of b.md arrives
+      canvasStore.addItem({ id: '3', filename: 'b.md', type: 'markdown', createdAt: 2000 });
+      await flushAll(wrapper);
+
+      // Should auto-navigate because editing target was cleared
+      expect(mockReplace).toHaveBeenCalledWith({ query: { item: '3' } });
     });
   });
 
