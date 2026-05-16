@@ -104,26 +104,31 @@ function isValidModelId(modelId) {
 // is absent so legacy providers (pre-Phase-1) keep their Claude Code grouping.
 function agentTypeFor(provider) {
   if (provider?.kind === 'openai') return 'codex';
+  if (provider?.kind === 'google') return 'gemini';
   return 'claude-code';
 }
 
 // Human-readable agent heading for optgroup labels.
 function agentLabelFor(provider) {
-  return agentTypeFor(provider) === 'codex' ? 'Codex' : 'Claude Code';
+  const type = agentTypeFor(provider);
+  if (type === 'codex') return 'Codex';
+  if (type === 'gemini') return 'Gemini';
+  return 'Claude Code';
 }
 
 // Sort providers by:
-//   1) Agent type: Claude Code first, then Codex
+//   1) Agent type: Claude Code first, then Gemini, then Codex
 //   2) Built-in before custom within the same agent
 //   3) Alphabetical by name among custom providers
+const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'codex': 2 };
 const sortedProviders = computed(() => {
   const list = [...providersStore.providers];
   list.sort((a, b) => {
     const aType = agentTypeFor(a);
     const bType = agentTypeFor(b);
-    if (aType !== bType) {
-      return aType === 'claude-code' ? -1 : 1;
-    }
+    const aWeight = AGENT_SORT_ORDER[aType] ?? 99;
+    const bWeight = AGENT_SORT_ORDER[bType] ?? 99;
+    if (aWeight !== bWeight) return aWeight - bWeight;
     if (a.isBuiltIn !== b.isBuiltIn) {
       return a.isBuiltIn ? -1 : 1;
     }

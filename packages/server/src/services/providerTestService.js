@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { spawn } from 'child_process';
 
 /**
  * Test a provider configuration by making a minimal API call.
@@ -26,6 +27,9 @@ export async function testProviderConnection(config) {
   const { kind = 'anthropic' } = config || {};
   if (kind === 'openai') {
     return testOpenAIConnection(config);
+  }
+  if (kind === 'google') {
+    return testGoogleConnection(config);
   }
   return testAnthropicConnection(config);
 }
@@ -125,6 +129,56 @@ async function testOpenAIChatEndpoint(client, config) {
     model: response?.model || testModel,
     ...(response?.usage ? { usage: response.usage } : {}),
   });
+}
+
+/**
+ * Google/Gemini connection test. Spawns `gemini -p "Hi" --output-format json`
+ * and checks for a clean exit. No SDK dependency needed.
+ * @private
+ */
+async function testGoogleConnection(config) {
+  try {
+    const env = {};
+    if (config.authToken) env.GEMINI_API_KEY = config.authToken;
+    const timeoutMs = config.apiTimeoutMs || 30000;
+    const child = spawn('gemini', ['-p', 'Hi', '--output-format', 'json'], {
+      env: { ...process.env, ...env },
+    });
+
+    return await new Promise((resolve) => {
+      let stderr = '';
+      let killed = false;
+
+      const timer = setTimeout(() => {
+        killed = true;
+        try { child.kill('SIGTERM'); } catch { /* ignore */ }
+        resolve(failureResponse(new Error(`Gemini CLI timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
+
+      child.stdout?.on('data', () => { /* drain */ });
+      child.stderr?.on('data', (d) => { stderr += d; });
+      child.on('error', (error) => {
+        clearTimeout(timer);
+        if (killed) return;
+        if (error.code === 'ENOENT') {
+          resolve(failureResponse(new Error('Gemini CLI not found. Install via: npm install -g @google/gemini-cli')));
+        } else {
+          resolve(failureResponse(error));
+        }
+      });
+      child.on('exit', (code) => {
+        clearTimeout(timer);
+        if (killed) return;
+        if (code === 0) {
+          resolve(connectionSuccess({ model: 'gemini-2.5-flash' }));
+        } else {
+          resolve(failureResponse(new Error(stderr.trim() || `Gemini CLI exited with code ${code}`)));
+        }
+      });
+    });
+  } catch (error) {
+    return failureResponse(error);
+  }
 }
 
 function connectionSuccess(details) {

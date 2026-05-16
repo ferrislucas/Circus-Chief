@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { OPENAI_MODELS } from '@circuschief/shared';
+import { OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
 
 export const BUILT_IN_ANTHROPIC_PROVIDER = {
   id: 'anthropic-default',
@@ -13,6 +13,12 @@ export const BUILT_IN_OPENAI_PROVIDER = {
   kind: 'openai',
 };
 
+export const BUILT_IN_GOOGLE_PROVIDER = {
+  id: 'google-default',
+  name: 'Google (Official)',
+  kind: 'google',
+};
+
 export const BUILT_IN_ANTHROPIC_MODELS = [
   { id: 'anthropic-haiku', providerId: BUILT_IN_ANTHROPIC_PROVIDER.id, modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
   { id: 'anthropic-sonnet', providerId: BUILT_IN_ANTHROPIC_PROVIDER.id, modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: 'Balanced', tier: 'sonnet' },
@@ -23,6 +29,15 @@ export const BUILT_IN_ANTHROPIC_MODELS = [
 export const BUILT_IN_OPENAI_MODELS = OPENAI_MODELS.map((model) => ({
   id: model.seedId,
   providerId: BUILT_IN_OPENAI_PROVIDER.id,
+  modelId: model.id,
+  displayName: model.name,
+  description: model.description,
+  tier: 'custom',
+}));
+
+export const BUILT_IN_GOOGLE_MODELS = GEMINI_MODELS.map((model) => ({
+  id: model.seedId,
+  providerId: BUILT_IN_GOOGLE_PROVIDER.id,
   modelId: model.id,
   displayName: model.name,
   description: model.description,
@@ -80,6 +95,13 @@ function seedBuiltInProviders(db) {
      VALUES (?, ?, NULL, NULL, ?, 1, ?, ?)`
   ).run(BUILT_IN_OPENAI_PROVIDER.id, BUILT_IN_OPENAI_PROVIDER.name, BUILT_IN_OPENAI_PROVIDER.kind, now, now);
 
+  db.prepare(
+    `INSERT OR IGNORE INTO providers (
+       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
+     )
+     VALUES (?, ?, NULL, NULL, ?, 1, ?, ?)`
+  ).run(BUILT_IN_GOOGLE_PROVIDER.id, BUILT_IN_GOOGLE_PROVIDER.name, BUILT_IN_GOOGLE_PROVIDER.kind, now, now);
+
   const insertModel = db.prepare(
     `INSERT OR IGNORE INTO provider_models (
        id, provider_id, model_id, display_name, description, tier, created_at
@@ -87,7 +109,7 @@ function seedBuiltInProviders(db) {
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
 
-  for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS]) {
+  for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS, ...BUILT_IN_GOOGLE_MODELS]) {
     insertModel.run(model.id, model.providerId, model.modelId, model.displayName, model.description, model.tier, now);
   }
 }
