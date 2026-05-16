@@ -10,6 +10,7 @@ let settleStableSamples = 0;
 const SESSION_OVERLAY_TOP_CHROME_THRESHOLD = 64;
 const KEYBOARD_HEIGHT_DELTA_THRESHOLD = 120;
 const KEYBOARD_VIEWPORT_RATIO_THRESHOLD = 0.85;
+const TABLET_MIN_LAYOUT_DIMENSION = 700;
 
 function getPixelValue(value, fallback) {
   return Number.isFinite(value) ? `${value}px` : fallback;
@@ -18,6 +19,50 @@ function getPixelValue(value, fallback) {
 function getVisualViewportRect() {
   const { offsetTop, height } = window.visualViewport;
   return { offsetTop, height };
+}
+
+function isValidOffsetTop(offsetTop) {
+  return (
+    Number.isFinite(offsetTop) &&
+    offsetTop > 0 &&
+    offsetTop <= SESSION_OVERLAY_TOP_CHROME_THRESHOLD
+  );
+}
+
+function getDeviceType(userAgent, platform, maxTouchPoints) {
+  const ua = String(userAgent);
+  const devicePlatform = String(platform);
+  const touchPoints = Number(maxTouchPoints) || 0;
+  const isAndroid = /Android/i.test(ua);
+  const isAndroidMobile = isAndroid && /Mobile/i.test(ua);
+  const isIPhoneLike = /iPhone|iPod/i.test(`${ua} ${devicePlatform}`);
+  const isIPad =
+    /iPad/i.test(`${ua} ${devicePlatform}`) ||
+    (devicePlatform === 'MacIntel' && touchPoints > 1);
+  const isAndroidTablet = isAndroid && !/Mobile/i.test(ua);
+
+  return {
+    isPhone: isIPhoneLike || isAndroidMobile,
+    isTablet: isIPad || isAndroidTablet,
+  };
+}
+
+function hasKeyboardShapedViewport(layoutHeight, visualViewportHeight) {
+  return (
+    Number.isFinite(layoutHeight) &&
+    layoutHeight > 0 &&
+    Number.isFinite(visualViewportHeight) &&
+    (layoutHeight - visualViewportHeight > KEYBOARD_HEIGHT_DELTA_THRESHOLD ||
+      visualViewportHeight / layoutHeight < KEYBOARD_VIEWPORT_RATIO_THRESHOLD)
+  );
+}
+
+function hasTabletSizedLayout(layoutWidth, layoutHeight) {
+  return (
+    Number.isFinite(layoutWidth) &&
+    Number.isFinite(layoutHeight) &&
+    Math.min(layoutWidth, layoutHeight) >= TABLET_MIN_LAYOUT_DIMENSION
+  );
 }
 
 export function computeSessionOverlayTopChromeInset({
@@ -29,47 +74,20 @@ export function computeSessionOverlayTopChromeInset({
   platform = '',
   maxTouchPoints = 0,
 }) {
-  if (
-    !Number.isFinite(offsetTop) ||
-    offsetTop <= 0 ||
-    offsetTop > SESSION_OVERLAY_TOP_CHROME_THRESHOLD
-  ) {
+  if (!isValidOffsetTop(offsetTop)) {
     return 0;
   }
 
-  const ua = String(userAgent);
-  const devicePlatform = String(platform);
-  const touchPoints = Number(maxTouchPoints) || 0;
-  const isAndroid = /Android/i.test(ua);
-  const isAndroidMobile = isAndroid && /Mobile/i.test(ua);
-  const isIPhoneLike = /iPhone|iPod/i.test(`${ua} ${devicePlatform}`);
-  const hasPhoneSignal = isIPhoneLike || isAndroidMobile;
-
-  if (hasPhoneSignal) {
+  const deviceType = getDeviceType(userAgent, platform, maxTouchPoints);
+  if (deviceType.isPhone) {
     return 0;
   }
 
-  const hasKeyboardShapedViewport =
-    Number.isFinite(layoutHeight) &&
-    layoutHeight > 0 &&
-    Number.isFinite(visualViewportHeight) &&
-    (layoutHeight - visualViewportHeight > KEYBOARD_HEIGHT_DELTA_THRESHOLD ||
-      visualViewportHeight / layoutHeight < KEYBOARD_VIEWPORT_RATIO_THRESHOLD);
-
-  if (hasKeyboardShapedViewport) {
+  if (hasKeyboardShapedViewport(layoutHeight, visualViewportHeight)) {
     return 0;
   }
 
-  const isIPad =
-    /iPad/i.test(`${ua} ${devicePlatform}`) ||
-    (devicePlatform === 'MacIntel' && touchPoints > 1);
-  const isAndroidTablet = isAndroid && !/Mobile/i.test(ua);
-  const hasTabletSizedLayout =
-    Number.isFinite(layoutWidth) &&
-    Number.isFinite(layoutHeight) &&
-    Math.min(layoutWidth, layoutHeight) >= 700;
-
-  if (isIPad || isAndroidTablet || hasTabletSizedLayout) {
+  if (deviceType.isTablet || hasTabletSizedLayout(layoutWidth, layoutHeight)) {
     return offsetTop;
   }
 
