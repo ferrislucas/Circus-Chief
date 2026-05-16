@@ -1,10 +1,11 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import os from 'os';
 import path from 'path';
 import { chmod, mkdir, writeFile } from 'fs/promises';
 
 const execAsync = promisify(exec);
-const MANAGED_HOOKS_PATH = '.circuschief-hooks';
+const MANAGED_HOOKS_PATH = path.join(os.homedir(), '.circuschief', 'hooks');
 const ATTRIBUTION_CONFIG_KEY = 'circuschief.commitAttribution';
 const ATTRIBUTION_ENV_KEY = 'CIRCUSCHIEF_COMMIT_ATTRIBUTION';
 
@@ -107,9 +108,8 @@ export async function ensureWorktreeCommitAttributionHook(worktreePath) {
 
   await git(worktreePath, `config --worktree core.hooksPath ${shellQuote(MANAGED_HOOKS_PATH)}`);
 
-  const hooksDir = path.join(worktreePath, MANAGED_HOOKS_PATH);
-  const hookPath = path.join(hooksDir, 'commit-msg');
-  await mkdir(hooksDir, { recursive: true });
+  const hookPath = path.join(MANAGED_HOOKS_PATH, 'commit-msg');
+  await mkdir(MANAGED_HOOKS_PATH, { recursive: true });
   await writeFile(hookPath, buildCommitMsgHook(), 'utf8');
   await chmod(hookPath, 0o755);
   return true;

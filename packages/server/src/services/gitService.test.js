@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, realpath } from 'fs/promises';
 import { existsSync } from 'fs';
-import { tmpdir } from 'os';
+import { tmpdir, homedir } from 'os';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import {
@@ -888,8 +888,8 @@ describe('gitService', () => {
       expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
         .toThrow();
       expect(execSync('git config --worktree core.hooksPath', { cwd: worktreePath }).toString().trim())
-        .toBe('.circuschief-hooks');
-      expect(existsSync(join(worktreePath, '.circuschief-hooks', 'commit-msg'))).toBe(true);
+        .toBe(join(homedir(), '.circuschief', 'hooks'));
+      expect(existsSync(join(homedir(), '.circuschief', 'hooks', 'commit-msg'))).toBe(true);
     });
 
     it('appends the configured trailer to a plain git commit', async () => {
@@ -1025,7 +1025,7 @@ describe('gitService', () => {
 
     it('clears stale managed hooks path when attribution was already unset', async () => {
       execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
-      execSync('git config --worktree core.hooksPath .circuschief-hooks', { cwd: worktreePath });
+      execSync(`git config --worktree core.hooksPath ${join(homedir(), '.circuschief', 'hooks')}`, { cwd: worktreePath });
 
       const result = await clearWorktreeCommitAttribution(worktreePath);
 
