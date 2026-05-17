@@ -6,7 +6,7 @@
 
 <p align="center">
   An open-source, touch-optimized control plane for managing AI coding agents.<br/><br/>
-  Supports Claude Code agents (any Anthropic-compatible provider) and OpenAI Codex agents (any OpenAI-compatible provider).
+  Supports Claude Code agents (any Anthropic-compatible provider), OpenAI Codex agents (any OpenAI-compatible provider), and Google Gemini CLI agents.
   Works with API key or subscription-based authorization.
 </p>
 
@@ -24,14 +24,14 @@
   ![AI-generated summaries](docs/screenshots/03-session-detail-summary-desktop.png)
 - **User-configured commands.** Add one-tap buttons for the project commands you run constantly: tests, lint, build, typecheck, CI checks. Output streams live, and pass/fail results can optionally display on the dashboard.
   ![User-configured commands](docs/screenshots/06-command-buttons-desktop.png)
-- **Claude Code and Codex sessions.** Start either kind of agent from the same dashboard, with the same mobile controls, history, canvas, commands, and worktree isolation. Switch agents and/or providers freely. Invoke parallel agents against the same worktree or in their own work trees.
+- **Claude Code, Codex, and Gemini sessions.** Start any kind of agent from the same dashboard, with the same mobile controls, history, canvas, commands, and worktree isolation. Switch agents and/or providers freely. Invoke parallel agents against the same worktree or in their own work trees.
   ![Claude Code and Codex sessions](docs/screenshots/02-session-list-agent-control-desktop.png)
   ![Session chat overlay](docs/screenshots/04-session-chat-overlay-desktop.png)
 - **Worktree-per-session isolation.** Every session gets its own git worktree. You can also elect to work in the main git repo, or on a specific branch of the main git repo.
   ![Worktree-per-session isolation](docs/screenshots/13-worktree-session-isolation-desktop.png)
 - **Shared canvas.** Markdown, images, JSON, code — agents and you edit the same artifacts. Version history included.
   ![Shared canvas](docs/screenshots/05-canvas-artifacts-desktop.png)
-- **Bring your own provider — per session.** Use subscription auth for Anthropic or OpenAI, or point sessions at third-party providers with Anthropic- or OpenAI-compatible endpoints. Claude Code and Codex are both first-class paths.
+- **Bring your own provider — per session.** Use subscription auth for Anthropic, OpenAI, or Google, or point sessions at third-party providers with Anthropic- or OpenAI-compatible endpoints. Claude Code, Codex, and Gemini CLI are all first-class paths.
   ![Bring your own provider settings, closest existing capture](docs/screenshots/08-provider-settings-desktop.png)
 - **Auto-linked GitHub PRs** with live CI and merge/conflict state (needs `gh`).
   ![Auto-linked GitHub PRs](docs/screenshots/14-github-pr-state-desktop.png)
@@ -63,6 +63,7 @@ npx circuschief -p 8080
 - Node.js 20+
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — required for Claude Code agents
 - [OpenAI Codex CLI](https://github.com/openai/codex) — required for Codex agents
+- [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) (`npm install -g @google/gemini-cli`) — required for Gemini agents
 - [GitHub CLI](https://cli.github.com/) (optional — enables automatic PR linking)
 
 ## Documentation

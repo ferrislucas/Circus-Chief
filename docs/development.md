@@ -130,7 +130,7 @@ The system prompt injected into every agent session includes documentation for a
 ├── packages/
 │   ├── server/          # Express backend
 │   │   └── src/
-│   │       └── agents/  # Agent adapters (Claude Code, Codex)
+│   │       └── agents/  # Agent adapters (Claude Code, Codex, Gemini)
 │   ├── web/             # Vue.js frontend
 │   └── shared/          # Shared types and constants
 ├── tests/
@@ -149,8 +149,9 @@ Circus Chief supports multiple agent backends through an adapter pattern:
 |------------|---------|---------------------|---------------|
 | Claude Code | `ClaudeCodeAdapter` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `anthropic` |
 | OpenAI Codex | `CodexAdapter` | [Codex CLI](https://github.com/openai/codex) | `openai` |
+| Google Gemini | `GeminiAdapter` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`npm install -g @google/gemini-cli`) | `google` |
 
-Each agent type is registered in `packages/server/src/agents/AgentGateway.js` and implements the `BaseAgent` interface. Providers are configured per-project and can be Anthropic-compatible endpoints or OpenAI-compatible endpoints.
+Each agent type is registered in `packages/server/src/agents/AgentGateway.js` and implements the `BaseAgent` interface. Providers are configured per-project and can be Anthropic-compatible endpoints, OpenAI-compatible endpoints, or Google (Gemini CLI).
 
 ### Codex Agent Details
 
@@ -170,3 +171,21 @@ The CLI path also passes configured reasoning effort and commit attribution to C
 | Resume | ❌ |
 
 Supported OpenAI models: GPT-5.5 (default), GPT-5.4, GPT-5.4 mini, GPT-5.3-Codex.
+
+### Gemini Agent Details
+
+The Gemini adapter (`packages/server/src/agents/adapters/GeminiAdapter.js`) runs the `gemini` CLI in headless mode using `--output-format stream-json`, which emits newline-delimited JSON events that map onto the shared agent event protocol. The prompt is passed via the `-p` CLI argument (not stdin). System prompts are prepended to the user prompt using the shared `composeCliPrompt` utility (`packages/server/src/agents/adapters/cliUtils.js`).
+
+Event mapping is handled by `geminiEventMapper.js`, which translates Gemini CLI `stream-json` events (`init`, `message`, `tool_use`, `tool_result`, `result`) into the internal SDK-shaped event format. Because the Gemini CLI does not support session continuation, `needsConversationContext()` returns `true`, meaning conversation history is injected into the prompt on follow-up turns.
+
+Authentication is configured via `GEMINI_API_KEY`. Additional Google Cloud variables (`GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, `GOOGLE_GENAI_USE_VERTEXAI`) can be passed through `provider.additionalEnvVars`. Three-way env isolation ensures Anthropic and OpenAI credentials are stripped from Gemini sessions, and Gemini credentials are stripped from Anthropic/OpenAI sessions.
+
+| Capability | Supported |
+|------------|-----------|
+| Streaming | ✅ |
+| Tool use | ✅ |
+| Reasoning effort | ❌ |
+| Thinking | ❌ |
+| Resume | ❌ |
+
+Supported Google models: Gemini 2.5 Pro, Gemini 2.5 Flash (default), Gemini 2.5 Flash Lite.
