@@ -20,6 +20,7 @@ import {
   getOriginDefaultBranch,
   getRepositoryUrl,
   getUntrackedFiles,
+  git,
   ensureWorktreeCommitAttributionHook,
   normalizeGitRemoteUrl,
   pinAuthorInWorktree,
@@ -192,6 +193,27 @@ describe('gitService', () => {
 
       const files = await getUntrackedFiles(testDir);
       expect(files).not.toContain('staged-file.txt');
+    });
+  });
+
+  describe('git', () => {
+    it('supports git output larger than Node exec default buffer', async () => {
+      const largeContent = `${'x'.repeat(2 * 1024 * 1024)}\n`;
+      await writeFile(join(testDir, 'README.md'), largeContent);
+
+      const diff = await git(testDir, 'diff');
+
+      expect(diff.length).toBeGreaterThan(1024 * 1024);
+      expect(diff).toContain('diff --git a/README.md b/README.md');
+    });
+
+    it('allows callers to set a smaller maxBuffer and surfaces that error', async () => {
+      const largeContent = `${'x'.repeat(2 * 1024 * 1024)}\n`;
+      await writeFile(join(testDir, 'README.md'), largeContent);
+
+      await expect(git(testDir, 'diff', { maxBuffer: 1024 })).rejects.toMatchObject({
+        code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+      });
     });
   });
 

@@ -6,11 +6,7 @@ import { git } from './gitService.js';
  * @returns {Promise<string>}
  */
 export async function getDiff(directory) {
-  try {
-    return await git(directory, 'diff');
-  } catch {
-    return '';
-  }
+  return await git(directory, 'diff');
 }
 
 /**
@@ -19,11 +15,7 @@ export async function getDiff(directory) {
  * @returns {Promise<string>}
  */
 export async function getStagedDiff(directory) {
-  try {
-    return await git(directory, 'diff --cached');
-  } catch {
-    return '';
-  }
+  return await git(directory, 'diff --cached');
 }
 
 /**
@@ -32,13 +24,9 @@ export async function getStagedDiff(directory) {
  * @returns {Promise<string[]>}
  */
 export async function getUntrackedFiles(directory) {
-  try {
-    const output = await git(directory, 'ls-files --others --exclude-standard');
-    if (!output) return [];
-    return output.split('\n').filter((line) => line.trim());
-  } catch {
-    return [];
-  }
+  const output = await git(directory, 'ls-files --others --exclude-standard');
+  if (!output) return [];
+  return output.split('\n').filter((line) => line.trim());
 }
 
 /**
@@ -48,11 +36,7 @@ export async function getUntrackedFiles(directory) {
  * @returns {Promise<string>}
  */
 export async function getDiffAgainstBranch(directory, branch) {
-  try {
-    return await git(directory, `diff ${branch}`);
-  } catch {
-    return '';
-  }
+  return await git(directory, `diff ${branch}`);
 }
 
 /**
@@ -62,11 +46,7 @@ export async function getDiffAgainstBranch(directory, branch) {
  * @returns {Promise<string>}
  */
 export async function getStagedDiffAgainstBranch(directory, branch) {
-  try {
-    return await git(directory, `diff --cached ${branch}`);
-  } catch {
-    return '';
-  }
+  return await git(directory, `diff --cached ${branch}`);
 }
 
 /**
@@ -78,11 +58,7 @@ export async function getStagedDiffAgainstBranch(directory, branch) {
  * @returns {Promise<string>}
  */
 export async function getDiffBetweenRefs(directory, fromRef, toRef) {
-  try {
-    return await git(directory, `diff ${fromRef} ${toRef}`);
-  } catch {
-    return '';
-  }
+  return await git(directory, `diff ${fromRef} ${toRef}`);
 }
 
 /**
