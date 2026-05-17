@@ -7,6 +7,9 @@ import {
   requestVisualViewportUpdate,
   useVisualViewport,
   writeVisualViewportVariables,
+  checkOverlayViewportDrift,
+  clearOverlayViewportDrift,
+  onVisualViewportChange,
 } from './useVisualViewport.js';
 
 /**
@@ -696,6 +699,410 @@ describe('useVisualViewport', () => {
       await nextTick();
 
       expectViewportVariables('0px', '5000px');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // checkOverlayViewportDrift
+  // -----------------------------------------------------------------------
+  describe('checkOverlayViewportDrift', () => {
+    let element;
+    let scrollToSpy;
+
+    beforeEach(() => {
+      element = document.createElement('div');
+      document.body.appendChild(element);
+
+      scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        writable: true,
+        value: 0,
+      });
+    });
+
+    afterEach(() => {
+      element.remove();
+      scrollToSpy.mockRestore();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        writable: true,
+        value: 0,
+      });
+    });
+
+    it('does nothing when element is null', () => {
+      checkOverlayViewportDrift(null);
+      // No error thrown
+    });
+
+    it('resets window.scrollTo(0, 0) when window.scrollY is non-zero', () => {
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        writable: true,
+        value: 50,
+      });
+      mockVisualViewport = {
+        offsetTop: 0,
+        height: 700,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      checkOverlayViewportDrift(element);
+
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
+    });
+
+    it('does not call scrollTo when window.scrollY is 0', () => {
+      mockVisualViewport = {
+        offsetTop: 0,
+        height: 700,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      checkOverlayViewportDrift(element);
+
+      expect(scrollToSpy).not.toHaveBeenCalled();
+    });
+
+    it('applies inline styles when iPad drift is detected', () => {
+      // iPad: tablet-sized layout, non-keyboard viewport, offsetTop > threshold
+      setLayoutViewport(744, 1000);
+      mockVisualViewport = {
+        offsetTop: 32,
+        height: 968,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      // Use iPad user agent
+      const originalUA = navigator.userAgent;
+      const originalPlatform = navigator.platform;
+      const originalTouch = navigator.maxTouchPoints;
+      Object.defineProperty(navigator, 'userAgent', {
+        configurable: true,
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15',
+      });
+      Object.defineProperty(navigator, 'platform', {
+        configurable: true,
+        value: 'MacIntel',
+      });
+      Object.defineProperty(navigator, 'maxTouchPoints', {
+        configurable: true,
+        value: 5,
+      });
+
+      checkOverlayViewportDrift(element);
+
+      expect(element.style.top).toBe('32px');
+      expect(element.style.bottom).toBe('auto');
+      expect(element.style.height).toBe('968px');
+
+      // Restore
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUA });
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: originalPlatform });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: originalTouch });
+    });
+
+    it('clears inline styles when no drift on iPad', () => {
+      setLayoutViewport(744, 1000);
+      mockVisualViewport = {
+        offsetTop: 0,
+        height: 1000,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      // Pre-set inline styles as if a previous correction was applied
+      element.style.top = '32px';
+      element.style.bottom = 'auto';
+      element.style.height = '968px';
+
+      const originalPlatform = navigator.platform;
+      const originalTouch = navigator.maxTouchPoints;
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+
+      checkOverlayViewportDrift(element);
+
+      expect(element.style.top).toBe('');
+      expect(element.style.bottom).toBe('');
+      expect(element.style.height).toBe('');
+
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: originalPlatform });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: originalTouch });
+    });
+
+    it('skips correction on iPhone even with non-zero offsetTop', () => {
+      setLayoutViewport(375, 812);
+      mockVisualViewport = {
+        offsetTop: 32,
+        height: 780,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      const originalUA = navigator.userAgent;
+      const originalPlatform = navigator.platform;
+      Object.defineProperty(navigator, 'userAgent', {
+        configurable: true,
+        value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+      });
+      Object.defineProperty(navigator, 'platform', {
+        configurable: true,
+        value: 'iPhone',
+      });
+
+      checkOverlayViewportDrift(element);
+
+      // Should NOT apply drift correction on phone
+      expect(element.style.top).toBe('');
+      expect(element.style.bottom).toBe('');
+      expect(element.style.height).toBe('');
+
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUA });
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: originalPlatform });
+    });
+
+    it('skips correction when keyboard is open on iPad', () => {
+      // iPad layout but keyboard-shaped viewport (height much smaller than layout)
+      setLayoutViewport(744, 1000);
+      mockVisualViewport = {
+        offsetTop: 32,
+        height: 500, // < 85% of 1000, keyboard detected
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      const originalPlatform = navigator.platform;
+      const originalTouch = navigator.maxTouchPoints;
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+
+      checkOverlayViewportDrift(element);
+
+      // Should NOT apply drift correction when keyboard is detected
+      expect(element.style.top).toBe('');
+      expect(element.style.bottom).toBe('');
+      expect(element.style.height).toBe('');
+
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: originalPlatform });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: originalTouch });
+    });
+
+    it('skips correction on Android Mobile even with non-zero offsetTop', () => {
+      setLayoutViewport(412, 915);
+      mockVisualViewport = {
+        offsetTop: 20,
+        height: 895,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      const originalUA = navigator.userAgent;
+      Object.defineProperty(navigator, 'userAgent', {
+        configurable: true,
+        value: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Mobile Safari/537.36',
+      });
+
+      checkOverlayViewportDrift(element);
+
+      expect(element.style.top).toBe('');
+      expect(element.style.bottom).toBe('');
+      expect(element.style.height).toBe('');
+
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUA });
+    });
+
+    it('applies correction on Android tablet with drift', () => {
+      setLayoutViewport(800, 1000);
+      mockVisualViewport = {
+        offsetTop: 20,
+        height: 980,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      const originalUA = navigator.userAgent;
+      Object.defineProperty(navigator, 'userAgent', {
+        configurable: true,
+        value: 'Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 Safari/537.36',
+      });
+
+      checkOverlayViewportDrift(element);
+
+      expect(element.style.top).toBe('20px');
+      expect(element.style.bottom).toBe('auto');
+      expect(element.style.height).toBe('980px');
+
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUA });
+    });
+
+    it('skips correction when offsetTop is below threshold', () => {
+      setLayoutViewport(744, 1000);
+      mockVisualViewport = {
+        offsetTop: 1, // below DRIFT_THRESHOLD_PX of 2
+        height: 999,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      const originalPlatform = navigator.platform;
+      const originalTouch = navigator.maxTouchPoints;
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+
+      checkOverlayViewportDrift(element);
+
+      expect(element.style.top).toBe('');
+
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: originalPlatform });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: originalTouch });
+    });
+
+    it('calls writeVisualViewportVariables regardless of drift state', () => {
+      mockVisualViewport = {
+        offsetTop: 0,
+        height: 700,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      vi.mocked(document.documentElement.style.setProperty).mockClear();
+
+      checkOverlayViewportDrift(element);
+
+      // writeVisualViewportVariables sets 3 CSS properties
+      expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
+        '--viewport-offset-top',
+        expect.any(String),
+      );
+    });
+
+    it('still calls writeVisualViewportVariables when visualViewport is absent', () => {
+      delete window.visualViewport;
+
+      vi.mocked(document.documentElement.style.setProperty).mockClear();
+
+      checkOverlayViewportDrift(element);
+
+      // writeVisualViewportVariables returns null when API is absent,
+      // but calling it should not throw.
+      expect(document.documentElement.style.setProperty).not.toHaveBeenCalled();
+    });
+
+    it('skips correction on small-screen desktop without phone/tablet signal', () => {
+      // Small screen that is not a phone or tablet (no touch, small layout)
+      setLayoutViewport(400, 600);
+      mockVisualViewport = {
+        offsetTop: 20,
+        height: 580,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      const originalUA = navigator.userAgent;
+      const originalPlatform = navigator.platform;
+      const originalTouch = navigator.maxTouchPoints;
+      Object.defineProperty(navigator, 'userAgent', {
+        configurable: true,
+        value: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+      });
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: 'Linux x86_64' });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 0 });
+
+      checkOverlayViewportDrift(element);
+
+      // Not tablet-sized (min dimension 400 < 700), not a tablet UA → no correction
+      expect(element.style.top).toBe('');
+
+      Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUA });
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: originalPlatform });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: originalTouch });
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // clearOverlayViewportDrift
+  // -----------------------------------------------------------------------
+  describe('clearOverlayViewportDrift', () => {
+    it('does nothing when element is null', () => {
+      clearOverlayViewportDrift(null);
+      // No error thrown
+    });
+
+    it('clears top, bottom, and height inline styles', () => {
+      const el = document.createElement('div');
+      el.style.top = '32px';
+      el.style.bottom = 'auto';
+      el.style.height = '968px';
+
+      clearOverlayViewportDrift(el);
+
+      expect(el.style.top).toBe('');
+      expect(el.style.bottom).toBe('');
+      expect(el.style.height).toBe('');
+    });
+
+    it('is safe to call on an element with no inline styles', () => {
+      const el = document.createElement('div');
+
+      clearOverlayViewportDrift(el);
+
+      expect(el.style.top).toBe('');
+      expect(el.style.bottom).toBe('');
+      expect(el.style.height).toBe('');
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // onVisualViewportChange
+  // -----------------------------------------------------------------------
+  describe('onVisualViewportChange', () => {
+    it('registers scroll and resize listeners and returns cleanup', () => {
+      mockVisualViewport = {
+        offsetTop: 0,
+        height: 700,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+
+      const callback = vi.fn();
+      const cleanup = onVisualViewportChange(callback);
+
+      expect(mockVisualViewport.addEventListener).toHaveBeenCalledWith('scroll', callback);
+      expect(mockVisualViewport.addEventListener).toHaveBeenCalledWith('resize', callback);
+
+      cleanup();
+
+      expect(mockVisualViewport.removeEventListener).toHaveBeenCalledWith('scroll', callback);
+      expect(mockVisualViewport.removeEventListener).toHaveBeenCalledWith('resize', callback);
+    });
+
+    it('returns a no-op cleanup when visualViewport is absent', () => {
+      delete window.visualViewport;
+
+      const callback = vi.fn();
+      const cleanup = onVisualViewportChange(callback);
+
+      expect(typeof cleanup).toBe('function');
+      // Should not throw
+      cleanup();
     });
   });
 });

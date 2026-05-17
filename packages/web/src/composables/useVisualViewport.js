@@ -244,6 +244,12 @@ const DRIFT_THRESHOLD_PX = 2;
  * Intended to be called periodically (setInterval) and/or on visualViewport
  * scroll/resize events while a fullscreen overlay is open.
  *
+ * The correction only applies on tablets / large-screen devices when the
+ * software keyboard is NOT open. On phones the browser-chrome drift issue
+ * doesn't occur, and when the keyboard is open the viewport offset is
+ * expected (not drift) — repositioning the overlay would fight the
+ * keyboard and push the focused input out of view.
+ *
  * @param {HTMLElement|null} element  The overlay backdrop element to pin.
  */
 export function checkOverlayViewportDrift(element) {
@@ -254,24 +260,42 @@ export function checkOverlayViewportDrift(element) {
     window.scrollTo(0, 0);
   }
 
-  // On iPad Safari the visual viewport can shift relative to the layout
-  // viewport. position:fixed follows the layout viewport, so we must
-  // compensate by pinning the overlay to the visual viewport.
-  if (window.visualViewport) {
-    const { offsetTop, height } = window.visualViewport;
+  if (!window.visualViewport) {
+    writeVisualViewportVariables();
+    return;
+  }
 
-    if (offsetTop > DRIFT_THRESHOLD_PX) {
-      // Drift detected — override CSS `inset: 0` with explicit position.
-      // Inline styles beat scoped-CSS specificity, so this wins over `inset`.
-      element.style.top = `${offsetTop}px`;
-      element.style.bottom = 'auto';
-      element.style.height = `${height}px`;
-    } else {
-      // No drift — clear inline overrides so the CSS `inset: 0` rule applies.
-      element.style.top = '';
-      element.style.bottom = '';
-      element.style.height = '';
-    }
+  const { offsetTop, height } = window.visualViewport;
+  const layoutWidth = window.innerWidth;
+  const layoutHeight = window.innerHeight;
+
+  // Use the same guard logic as computeSessionOverlayTopChromeInset:
+  // skip phones entirely, skip when the keyboard is open, and only
+  // correct on tablets / large-screen devices.
+  const deviceType = getDeviceType(
+    window.navigator?.userAgent,
+    window.navigator?.platform,
+    window.navigator?.maxTouchPoints,
+  );
+
+  const shouldCorrect =
+    !deviceType.isPhone &&
+    !hasKeyboardShapedViewport(layoutHeight, height) &&
+    (deviceType.isTablet || hasTabletSizedLayout(layoutWidth, layoutHeight)) &&
+    offsetTop > DRIFT_THRESHOLD_PX;
+
+  if (shouldCorrect) {
+    // Drift detected — override CSS `inset: 0` with explicit position.
+    // Inline styles beat scoped-CSS specificity, so this wins over `inset`.
+    element.style.top = `${offsetTop}px`;
+    element.style.bottom = 'auto';
+    element.style.height = `${height}px`;
+  } else {
+    // No drift (or phone / keyboard open) — clear inline overrides so
+    // the CSS `inset: 0` rule applies normally.
+    element.style.top = '';
+    element.style.bottom = '';
+    element.style.height = '';
   }
 
   writeVisualViewportVariables();
