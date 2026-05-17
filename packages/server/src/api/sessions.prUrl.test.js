@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import sessionsRouter from './sessions.js';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, sessionSummaries } from '../database.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -14,6 +14,16 @@ vi.mock('../websocket.js', () => ({
 vi.mock('../services/summaryService.js', () => ({
   onSessionActivity: vi.fn(),
   propagatePrUrlToParent: vi.fn(),
+}));
+
+// Mock prStatusService (needed because sessions-patch.js imports checkSessionCiStatusNow)
+vi.mock('../services/prStatusService.js', () => ({
+  checkSessionCiStatusNow: vi.fn().mockResolvedValue(false),
+}));
+
+// Mock summaryBroadcast (needed because sessions-patch.js imports broadcastSummaryUpdate)
+vi.mock('../services/summaryBroadcast.js', () => ({
+  broadcastSummaryUpdate: vi.fn(),
 }));
 
 describe('Sessions API - PR URL Endpoint', () => {
@@ -240,6 +250,207 @@ describe('Sessions API - PR URL Endpoint', () => {
 
       expect(response.body.prUrl).toBe(prUrl);
       expect(response.body.thinkingEnabled).toBe(true);
+    });
+  });
+
+  describe('PR state reset on reassociation', () => {
+    const prUrlA = 'https://github.com/owner/repo/pull/1';
+    const prUrlB = 'https://github.com/another-org/another-repo/pull/999';
+
+    // Import mocks for assertion
+    let broadcastSummaryUpdate;
+    let checkSessionCiStatusNow;
+
+    beforeEach(async () => {
+      // Dynamic import to get the mocked functions
+      const summaryBroadcast = await import('../services/summaryBroadcast.js');
+      broadcastSummaryUpdate = summaryBroadcast.broadcastSummaryUpdate;
+      const prStatusService = await import('../services/prStatusService.js');
+      checkSessionCiStatusNow = prStatusService.checkSessionCiStatusNow;
+    });
+
+    it('resets PR state when prUrl changes to a different URL', async () => {
+      // Set initial PR URL and create summary with merged state
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      sessionSummaries.upsert(session.id, {
+        shortSummary: 'Test',
+        fullSummary: 'Test summary',
+        prState: 'merged',
+        prMerged: true,
+        ciStatus: 'success',
+        ciFailures: ['test-1'],
+        hasMergeConflicts: false,
+      });
+
+      // Change to a different PR URL
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlB })
+        .expect(200);
+
+      // Verify PR state was reset in the DB
+      const summary = sessionSummaries.getBySessionId(session.id);
+      expect(summary.prState).toBeNull();
+      expect(summary.prMerged).toBe(false);
+      expect(summary.ciStatus).toBeNull();
+      expect(summary.ciFailures).toEqual([]);
+      expect(summary.hasMergeConflicts).toBe(false);
+    });
+
+    it('does not reset PR state when prUrl is set for the first time', async () => {
+      // Create summary with no PR fields
+      sessionSummaries.upsert(session.id, {
+        shortSummary: 'Test',
+        fullSummary: 'Test summary',
+      });
+
+      // Set PR URL for the first time
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      // Verify summary was not modified (no reset needed for first-time set)
+      const summary = sessionSummaries.getBySessionId(session.id);
+      expect(summary.prState).toBeNull();
+      expect(summary.prMerged).toBeFalsy(); // null in SQLite when never set
+      expect(summary.shortSummary).toBe('Test');
+    });
+
+    it('does not reset PR state when prUrl is omitted from the patch', async () => {
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      sessionSummaries.upsert(session.id, {
+        shortSummary: 'Test',
+        fullSummary: 'Test summary',
+        prState: 'merged',
+        prMerged: true,
+        ciStatus: 'success',
+        ciFailures: ['test-1'],
+        hasMergeConflicts: true,
+      });
+
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ thinkingEnabled: true })
+        .expect(200);
+
+      const summary = sessionSummaries.getBySessionId(session.id);
+      expect(summary.prState).toBe('merged');
+      expect(summary.prMerged).toBe(true);
+      expect(summary.ciStatus).toBe('success');
+      expect(summary.ciFailures).toEqual(['test-1']);
+      expect(summary.hasMergeConflicts).toBe(true);
+    });
+
+    it('resets PR state when prUrl is cleared (set to null)', async () => {
+      // Set initial PR URL and create summary with merged state
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      sessionSummaries.upsert(session.id, {
+        shortSummary: 'Test',
+        fullSummary: 'Test summary',
+        prState: 'merged',
+        prMerged: true,
+      });
+
+      // Clear the PR URL
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: null })
+        .expect(200);
+
+      // Verify PR state was reset
+      const summary = sessionSummaries.getBySessionId(session.id);
+      expect(summary.prMerged).toBe(false);
+      expect(summary.prState).toBeNull();
+    });
+
+    it('broadcasts summary update when PR state is reset', async () => {
+      // Set initial PR URL and create summary with merged state
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      sessionSummaries.upsert(session.id, {
+        shortSummary: 'Test',
+        fullSummary: 'Test summary',
+        prState: 'merged',
+      });
+
+      // Change to a different PR URL
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlB })
+        .expect(200);
+
+      // Verify broadcastSummaryUpdate was called with reset state
+      expect(broadcastSummaryUpdate).toHaveBeenCalledWith(
+        session.id,
+        project.id,
+        expect.objectContaining({
+          prState: null,
+        })
+      );
+    });
+
+    it('triggers immediate PR status check when prUrl is set to a new value', async () => {
+      // Set initial PR URL
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      // Change to a different PR URL
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlB })
+        .expect(200);
+
+      // Verify checkSessionCiStatusNow was called
+      expect(checkSessionCiStatusNow).toHaveBeenCalledWith(session.id);
+    });
+
+    it('triggers immediate PR status check when prUrl is set for the first time', async () => {
+      // Session has no prUrl initially
+      // Set PR URL for the first time
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      // Verify checkSessionCiStatusNow was called
+      expect(checkSessionCiStatusNow).toHaveBeenCalledWith(session.id);
+    });
+
+    it('does not trigger PR status check when prUrl is cleared', async () => {
+      // Set initial PR URL
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      checkSessionCiStatusNow.mockClear();
+
+      // Clear the PR URL
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: null })
+        .expect(200);
+
+      // Verify checkSessionCiStatusNow was NOT called
+      expect(checkSessionCiStatusNow).not.toHaveBeenCalled();
     });
   });
 });

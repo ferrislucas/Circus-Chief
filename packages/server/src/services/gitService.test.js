@@ -1078,6 +1078,21 @@ describe('gitService', () => {
         ensureWorktreeCommitAttributionHook(worktreePath)
       ).rejects.toThrow('already has core.hooksPath set to "custom-hooks"');
     });
+
+    it('auto-upgrades legacy .circuschief-hooks path to new managed path', async () => {
+      // Simulate a worktree that has the old-style relative hooks path from before
+      // the migration in commit 4b1437e1 (which moved hooks to ~/.circuschief/hooks).
+      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
+      execSync('git config --worktree core.hooksPath .circuschief-hooks', { cwd: worktreePath });
+
+      const result = await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      expect(result).toBe(true);
+      // Should have been upgraded to the new managed hooks path
+      expect(execSync('git config --worktree core.hooksPath', { cwd: worktreePath }).toString().trim())
+        .toBe(fakeHooksPath);
+      expect(existsSync(join(fakeHooksPath, 'commit-msg'))).toBe(true);
+    });
   });
 
   describe('detectWorktreePath', () => {
