@@ -1,9 +1,11 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 export {
+  _setManagedHooksPath,
   clearWorktreeCommitAttribution,
   configureWorktreeCommitAttribution,
   ensureWorktreeCommitAttributionHook,
+  getManagedHooksPath,
 } from './gitCommitAttribution.js';
 export {
   normalizeGitRemoteUrl,
