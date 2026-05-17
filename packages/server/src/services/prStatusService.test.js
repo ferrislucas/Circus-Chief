@@ -217,6 +217,34 @@ describe('prStatusService', () => {
       expect(result).toHaveLength(1);
       expect(result[0].sessionId).toBe(sessionId);
     });
+
+    it('includes session after PR state is reset from merged to null', () => {
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
+
+      // Create summary with merged PR state (would normally exclude from polling)
+      sessionSummaries.upsert(sessionId, {
+        shortSummary: 'Test',
+        fullSummary: 'Test summary',
+        prState: 'merged',
+      });
+
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
+
+      // Verify session is excluded when PR is merged
+      const resultBefore = getSessionsToCheck();
+      expect(resultBefore).toEqual([]);
+
+      // Reset PR state (simulating what happens when user reassociates PR)
+      sessionSummaries.upsert(sessionId, {
+        prState: null,
+        prMerged: false,
+      });
+
+      // Verify session is now included in polling after reset
+      const resultAfter = getSessionsToCheck();
+      expect(resultAfter).toHaveLength(1);
+      expect(resultAfter[0].sessionId).toBe(sessionId);
+    });
   });
 
   describe('checkSessionCiStatusNow', () => {
