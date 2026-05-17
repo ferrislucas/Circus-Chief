@@ -6,11 +6,17 @@ let settleTimerId = null;
 let settleStartedAt = 0;
 let settleLastRect = null;
 let settleStableSamples = 0;
+let isSessionOverlayPromptFocused = false;
 
 const SESSION_OVERLAY_TOP_CHROME_THRESHOLD = 64;
 const KEYBOARD_HEIGHT_DELTA_THRESHOLD = 120;
 const KEYBOARD_VIEWPORT_RATIO_THRESHOLD = 0.85;
 const TABLET_MIN_LAYOUT_DIMENSION = 700;
+const KEYBOARD_ACCESSORY_ALLOWANCE_PX = 64;
+const KEYBOARD_BOTTOM_INSET_MAX_PX = 420;
+const MIN_USABLE_OVERLAY_HEIGHT_PX = 320;
+const MIN_USABLE_SHORT_OVERLAY_HEIGHT_PX = 240;
+const MIN_VISIBLE_COMPOSER_AREA_PX = 160;
 
 function getPixelValue(value, fallback) {
   return Number.isFinite(value) ? `${value}px` : fallback;
@@ -94,6 +100,75 @@ export function computeSessionOverlayTopChromeInset({
   return 0;
 }
 
+export function computeSessionOverlayKeyboardBottomInset({
+  isOverlayPromptFocused,
+  layoutWidth,
+  layoutHeight,
+  visualViewportHeight,
+  visualViewportOffsetTop = 0,
+  userAgent = '',
+  platform = '',
+  maxTouchPoints = 0,
+  accessoryAllowance = KEYBOARD_ACCESSORY_ALLOWANCE_PX,
+  absoluteMax = KEYBOARD_BOTTOM_INSET_MAX_PX,
+  minUsableOverlayHeight = MIN_USABLE_OVERLAY_HEIGHT_PX,
+  minUsableShortOverlayHeight = MIN_USABLE_SHORT_OVERLAY_HEIGHT_PX,
+  minVisibleComposerArea = MIN_VISIBLE_COMPOSER_AREA_PX,
+}) {
+  if (!isOverlayPromptFocused) {
+    return 0;
+  }
+
+  if (
+    !Number.isFinite(layoutWidth) ||
+    !Number.isFinite(layoutHeight) ||
+    !Number.isFinite(visualViewportHeight) ||
+    !Number.isFinite(visualViewportOffsetTop) ||
+    layoutWidth <= 0 ||
+    layoutHeight <= 0 ||
+    visualViewportHeight <= 0
+  ) {
+    return 0;
+  }
+
+  const deviceType = getDeviceType(userAgent, platform, maxTouchPoints);
+  const hasExplicitTouchSignal = Number(maxTouchPoints) > 0;
+  if (deviceType.isPhone || !deviceType.isTablet || !hasExplicitTouchSignal) {
+    return 0;
+  }
+
+  if (!hasKeyboardShapedViewport(layoutHeight, visualViewportHeight)) {
+    return 0;
+  }
+
+  const keyboardOverlap = layoutHeight - (visualViewportHeight + visualViewportOffsetTop);
+  if (!Number.isFinite(keyboardOverlap) || keyboardOverlap <= 0) {
+    return 0;
+  }
+
+  const minOverlayHeight =
+    layoutHeight <= 500 ? minUsableShortOverlayHeight : minUsableOverlayHeight;
+  const maxByOverlayHeight = layoutHeight - minOverlayHeight;
+  const maxByComposerArea = visualViewportHeight - minVisibleComposerArea;
+  const maxInset = Math.max(
+    0,
+    Math.min(absoluteMax, maxByOverlayHeight, maxByComposerArea)
+  );
+
+  return Math.max(0, Math.min(keyboardOverlap + accessoryAllowance, maxInset));
+}
+
+export function setSessionOverlayPromptFocus(focused) {
+  isSessionOverlayPromptFocused = Boolean(focused);
+  if (!isSessionOverlayPromptFocused) {
+    document.documentElement.style.setProperty(
+      '--session-overlay-keyboard-bottom-inset',
+      '0px'
+    );
+  }
+  requestVisualViewportUpdate();
+}
+
 function rectsMatch(a, b) {
   return a && b && a.offsetTop === b.offsetTop && a.height === b.height;
 }
@@ -124,6 +199,20 @@ export function writeVisualViewportVariables() {
   document.documentElement.style.setProperty(
     '--session-overlay-top-chrome-inset',
     `${sessionOverlayTopChromeInset}px`
+  );
+  const sessionOverlayKeyboardBottomInset = computeSessionOverlayKeyboardBottomInset({
+    isOverlayPromptFocused: isSessionOverlayPromptFocused,
+    layoutWidth: window.innerWidth,
+    layoutHeight: window.innerHeight,
+    visualViewportHeight: rect.height,
+    visualViewportOffsetTop: rect.offsetTop,
+    userAgent: window.navigator?.userAgent,
+    platform: window.navigator?.platform,
+    maxTouchPoints: window.navigator?.maxTouchPoints,
+  });
+  document.documentElement.style.setProperty(
+    '--session-overlay-keyboard-bottom-inset',
+    `${sessionOverlayKeyboardBottomInset}px`
   );
   return rect;
 }
