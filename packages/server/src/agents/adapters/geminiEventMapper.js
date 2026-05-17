@@ -31,16 +31,16 @@ export function createGeminiEventMapper({ model } = {}) {
       return handleInit(geminiEvent, model);
     }
     if (type === 'message') {
-      return handleMessage(geminiEvent);
+      return handleMessage(geminiEvent, state);
     }
     if (type === 'tool_use') {
-      return handleToolUse(geminiEvent, state);
+      return [...state.flushAccumulatedText(), ...handleToolUse(geminiEvent, state)];
     }
     if (type === 'tool_result') {
-      return handleToolResult(geminiEvent, state);
+      return [...state.flushAccumulatedText(), ...handleToolResult(geminiEvent, state)];
     }
     if (type === 'result') {
-      return state.onResult(geminiEvent);
+      return [...state.flushAccumulatedText(), ...state.onResult(geminiEvent)];
     }
 
     // Unknown event type — warn once
@@ -69,12 +69,27 @@ class GeminiMapperState {
     this.lastUsage = null;
     this.terminated = false;
     this.pendingToolUse = new Map();
+    this.accumulatedText = '';
+  }
+
+  /**
+   * Flush any accumulated delta text as a synthetic `assistant` event.
+   * Returns an array (possibly empty) of events to prepend.
+   */
+  flushAccumulatedText() {
+    if (!this.accumulatedText) return [];
+    const text = this.accumulatedText;
+    this.accumulatedText = '';
+    return [{
+      type: 'assistant',
+      message: { content: [{ type: 'text', text }] },
+    }];
   }
 
   finalize() {
     if (this.terminated) return [];
     this.terminated = true;
-    return [this.buildResultEvent()];
+    return [...this.flushAccumulatedText(), this.buildResultEvent()];
   }
 
   onResult(evt) {
@@ -112,15 +127,16 @@ function handleInit(evt, constructorModel) {
   }];
 }
 
-function handleMessage(evt) {
+function handleMessage(evt, state) {
   // Ignore user message echoes
   if (evt.role === 'user') return [];
 
   if (evt.role === 'assistant') {
     const text = evt.content || '';
 
-    // Delta (streaming partial)
+    // Delta (streaming partial) — accumulate for later persistence AND emit for live streaming
     if (evt.delta) {
+      state.accumulatedText += text;
       return [{
         type: 'stream_event',
         event: {
@@ -130,8 +146,9 @@ function handleMessage(evt) {
       }];
     }
 
-    // Full message (non-delta)
-    return [{
+    // Full message (non-delta) — flush any prior accumulated text first, then emit this message
+    const flush = state.flushAccumulatedText();
+    return [...flush, {
       type: 'assistant',
       message: { content: [{ type: 'text', text }] },
     }];

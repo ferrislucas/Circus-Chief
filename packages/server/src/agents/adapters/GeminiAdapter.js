@@ -85,7 +85,7 @@ export class GeminiAdapter extends BaseAgent {
     const spawnFn = this._spawnGemini ?? createGeminiSpawner();
     const { cwd, env, abortController, model, systemPrompt } = options;
     const composedPrompt = composeCliPrompt(systemPrompt, queryParams.prompt);
-    const args = ['-p', composedPrompt, '--output-format', 'stream-json', '-m', model];
+    const args = ['-p', composedPrompt, '--output-format', 'stream-json', '--skip-trust', '-m', model];
 
     try {
       return spawnFn({ command: 'gemini', args, cwd, env, signal: abortController?.signal });

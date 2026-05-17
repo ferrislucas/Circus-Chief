@@ -50,6 +50,55 @@ describe('geminiEventMapper', () => {
       const result = mapper.map({ type: 'message', role: 'user', content: 'hello' });
       expect(result).toEqual([]);
     });
+
+    it('accumulates multiple delta messages into combined text for later flush', () => {
+      mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'foo' });
+      mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'bar' });
+      // Flush via result
+      const result = mapper.map({ type: 'result', status: 'success', stats: { input_tokens: 5, output_tokens: 10 } });
+      expect(result[0]).toEqual({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'foobar' }] },
+      });
+      expect(result[1]).toMatchObject({ type: 'result', subtype: 'success' });
+    });
+
+    it('flushes accumulated delta text before tool_use', () => {
+      mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'thinking...' });
+      const result = mapper.map({ type: 'tool_use', tool_name: 'Bash', tool_id: 't1', parameters: { command: 'ls' } });
+      expect(result[0]).toEqual({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'thinking...' }] },
+      });
+      expect(result[1]).toMatchObject({ type: 'tool_result', tool_name: 'Bash' });
+    });
+
+    it('flushes accumulated delta text before tool_result', () => {
+      mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'some text' });
+      const result = mapper.map({ type: 'tool_result', tool_id: 'x', output: 'output' });
+      expect(result[0]).toEqual({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'some text' }] },
+      });
+      expect(result[1]).toMatchObject({ type: 'tool_result' });
+    });
+
+    it('non-delta message after deltas flushes accumulated text first', () => {
+      mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'streamed ' });
+      const result = mapper.map({ type: 'message', role: 'assistant', delta: false, content: 'full message' });
+      // Should flush accumulated + return the non-delta message (avoiding duplicate)
+      // The non-delta replaces the accumulated text
+      expect(result).toEqual([
+        {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'streamed ' }] },
+        },
+        {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'full message' }] },
+        },
+      ]);
+    });
   });
 
   describe('tool events', () => {
@@ -108,6 +157,23 @@ describe('geminiEventMapper', () => {
         usage: { input_tokens: 0, output_tokens: 0 },
       }]);
     });
+
+    it('flushes accumulated delta text as assistant event before result', () => {
+      mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'Hello ' });
+      mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'world' });
+      const result = mapper.finalize();
+      expect(result).toEqual([
+        {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: 'Hello world' }] },
+        },
+        {
+          type: 'result',
+          subtype: 'success',
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      ]);
+    });
   });
 
   describe('unknown events', () => {
@@ -132,6 +198,18 @@ describe('geminiEventMapper', () => {
     it('clears state so finalize emits a new result event', () => {
       mapper.map({ type: 'result', status: 'success', stats: { input_tokens: 10, output_tokens: 5 } });
       mapper.reset();
+      const result = mapper.finalize();
+      expect(result).toEqual([{
+        type: 'result',
+        subtype: 'success',
+        usage: { input_tokens: 0, output_tokens: 0 },
+      }]);
+    });
+
+    it('clears accumulated delta text on reset', () => {
+      mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'accumulated text' });
+      mapper.reset();
+      // After reset, finalize should NOT include an assistant event
       const result = mapper.finalize();
       expect(result).toEqual([{
         type: 'result',
