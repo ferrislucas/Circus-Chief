@@ -6,6 +6,9 @@ import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 
+// Error message constants
+const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
+
 const router = Router();
 
 /**
@@ -60,10 +63,10 @@ router.post('/:id/command-buttons/:buttonId/run', requireRootSessionAndProject, 
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
-    return res.status(404).json({ error: 'Circus Command not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
   if (button.projectId !== req.rootSession_.projectId) {
-    return res.status(404).json({ error: 'Circus Command not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 
   // Generate run ID
@@ -185,10 +188,10 @@ router.delete('/:id/command-buttons/:buttonId/runs/all', requireRootSessionAndPr
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
-    return res.status(404).json({ error: 'Circus Command not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
   if (button.projectId !== req.rootSession_.projectId) {
-    return res.status(404).json({ error: 'Circus Command not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 
   const { deletedRuns } = commandRuns.deleteByButtonAndSession(buttonId, sessionId);

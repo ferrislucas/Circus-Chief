@@ -8,6 +8,7 @@ import { databaseManager } from '../db/DatabaseManager.js';
 
 // Error message constants
 const ERR_SESSION_NOT_FOUND = 'Session not found';
+const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
 
 const router = Router({ mergeParams: true });
 
@@ -107,7 +108,7 @@ router.post('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const button = commandButtons.getById(req.params.id);
   if (!button) {
-    return res.status(404).json({ error: 'Circus Command not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
   res.json(button);
 });
@@ -116,7 +117,7 @@ router.get('/:id', (req, res) => {
 router.patch('/:id', (req, res) => {
   const button = commandButtons.getById(req.params.id);
   if (!button) {
-    return res.status(404).json({ error: 'Circus Command not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 
   const result = UpdateCommandButtonRequest.safeParse(req.body);
@@ -139,7 +140,7 @@ router.patch('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const button = commandButtons.getById(req.params.id);
   if (!button) {
-    return res.status(404).json({ error: 'Circus Command not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 
   commandButtons.delete(req.params.id);
@@ -157,7 +158,7 @@ router.post('/run/:buttonId', (req, res) => {
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
-    return res.status(404).json({ error: 'Circus Command not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 
   const workingDirectory = session.gitWorktree || session.project?.workingDirectory || process.cwd();
