@@ -372,6 +372,9 @@ import { SESSIONS_STORE_KEY, TODOS_STORE_KEY } from '../composables/useOverlaySt
 import {
   requestVisualViewportSettle,
   requestVisualViewportUpdate,
+  checkOverlayViewportDrift,
+  clearOverlayViewportDrift,
+  onVisualViewportChange,
 } from '../composables/useVisualViewport.js';
 
 import ConversationTab from './ConversationTab.vue';
@@ -855,6 +858,55 @@ function unlockBodyScroll() {
   window.scrollTo(0, savedScrollY);
 }
 
+// ---------------------------------------------------------------------------
+// iPad viewport-drift watchdog
+//
+// On iPad Safari the visual viewport can shift relative to the layout viewport
+// when the browser chrome (URL bar / tab bar) collapses or expands, during
+// scroll-bounce, or after tab switches. `position: fixed` elements follow the
+// *layout* viewport, so they drift off-screen even though JS APIs like
+// `getBoundingClientRect` and `window.scrollY` still report 0.
+//
+// The correction logic lives in `checkOverlayViewportDrift` (exported from
+// useVisualViewport.js) which reads `visualViewport.offsetTop` and pins the
+// overlay element to the visual viewport via inline styles when drift is found.
+// Here we just manage the periodic timer and event wiring.
+// ---------------------------------------------------------------------------
+const DRIFT_CHECK_INTERVAL_MS = 3000;
+let driftCheckTimer = null;
+let driftViewportCleanup = null;
+
+function getBackdropEl() {
+  return document.querySelector('[data-testid="session-chat-overlay"]');
+}
+
+function runDriftCheck() {
+  checkOverlayViewportDrift(getBackdropEl());
+}
+
+function startDriftCheck() {
+  stopDriftCheck();
+  // Run once immediately so we don't wait a full interval for the first check.
+  runDriftCheck();
+  driftCheckTimer = setInterval(runDriftCheck, DRIFT_CHECK_INTERVAL_MS);
+  // Also listen to visualViewport events for faster drift correction.
+  // The 3-second interval is a safety net; these events fire immediately
+  // when Safari's chrome changes and cause most drift episodes.
+  driftViewportCleanup = onVisualViewportChange(runDriftCheck);
+}
+
+function stopDriftCheck() {
+  if (driftCheckTimer) {
+    clearInterval(driftCheckTimer);
+    driftCheckTimer = null;
+  }
+  if (driftViewportCleanup) {
+    driftViewportCleanup();
+    driftViewportCleanup = null;
+  }
+  clearOverlayViewportDrift(getBackdropEl());
+}
+
 // Lifecycle
 onMounted(async () => {
   lockBodyScroll();
@@ -864,6 +916,7 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
+  startDriftCheck();
 
   // Load data for the active session, then reveal ConversationTab.
   // switchingSession starts as true, so ConversationTab won't mount until
@@ -877,6 +930,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopDriftCheck();
   unlockBodyScroll();
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
