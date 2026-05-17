@@ -232,6 +232,17 @@ function handleEditingChange({ editing, filename, itemId }) {
     activeEditingTarget.value = { filename, itemId };
   } else {
     activeEditingTarget.value = null;
+    // The auto-nav watcher was suppressed while editing. Now that editing has
+    // stopped, selectedVersions won't change again, so the watcher won't
+    // re-fire. Manually run the same logic to navigate to the latest version.
+    if (!userPinnedVersionId.value && selectedVersions.value.length > 0) {
+      const latest = selectedVersions.value[0];
+      if (latest && latest.id !== selectedItemId.value) {
+        router.replace({
+          query: { ...route.query, item: latest.id }
+        });
+      }
+    }
   }
 }
 
