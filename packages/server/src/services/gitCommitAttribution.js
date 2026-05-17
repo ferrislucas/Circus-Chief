@@ -27,6 +27,12 @@ export function _setManagedHooksPath(overridePath) {
   _managedHooksPath = overridePath ?? DEFAULT_MANAGED_HOOKS_PATH;
 }
 
+/**
+ * Legacy managed hooks path (pre-migration). Used by ensureWorktreeCommitAttributionHook()
+ * to recognize and auto-upgrade worktrees that still have the old relative path set.
+ */
+const LEGACY_MANAGED_HOOKS_PATH = '.circuschief-hooks';
+
 const ATTRIBUTION_CONFIG_KEY = 'circuschief.commitAttribution';
 const ATTRIBUTION_ENV_KEY = 'CIRCUSCHIEF_COMMIT_ATTRIBUTION';
 
@@ -118,7 +124,7 @@ export async function ensureWorktreeCommitAttributionHook(worktreePath) {
   await git(worktreePath, 'config extensions.worktreeConfig true');
 
   const currentHooksPath = await gitConfigValue(worktreePath, 'core.hooksPath');
-  if (currentHooksPath && currentHooksPath !== managedHooksPath) {
+  if (currentHooksPath && currentHooksPath !== managedHooksPath && currentHooksPath !== LEGACY_MANAGED_HOOKS_PATH) {
     throw new Error(
       `Cannot install managed commit attribution hook: worktree already has core.hooksPath set to "${currentHooksPath}"`
     );
