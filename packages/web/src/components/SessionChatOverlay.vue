@@ -597,7 +597,7 @@ async function addChildSession() {
     });
 
     // Add to main store's session list (not the overlay's isolated state)
-    mainSessionsStore.sessions.unshift(newSession);
+    mainSessionsStore.addSessionToList(newSession);
 
     // Notify parent to rebuild session chain so it includes the new child.
     // Pass the full session so the parent does not have to wait for the
