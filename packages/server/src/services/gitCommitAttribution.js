@@ -1,10 +1,32 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import os from 'os';
 import path from 'path';
 import { chmod, mkdir, writeFile } from 'fs/promises';
 
 const execAsync = promisify(exec);
-const MANAGED_HOOKS_PATH = '.circuschief-hooks';
+
+const DEFAULT_MANAGED_HOOKS_PATH = path.join(os.homedir(), '.circuschief', 'hooks');
+let _managedHooksPath = DEFAULT_MANAGED_HOOKS_PATH;
+
+/**
+ * Get the managed hooks directory path.
+ * Production code uses the real home directory; tests can override via _setManagedHooksPath().
+ * @returns {string}
+ */
+export function getManagedHooksPath() {
+  return _managedHooksPath;
+}
+
+/**
+ * Override the managed hooks path (for testing only).
+ * Restores the default when called with no arguments.
+ * @param {string} [overridePath]
+ */
+export function _setManagedHooksPath(overridePath) {
+  _managedHooksPath = overridePath ?? DEFAULT_MANAGED_HOOKS_PATH;
+}
+
 const ATTRIBUTION_CONFIG_KEY = 'circuschief.commitAttribution';
 const ATTRIBUTION_ENV_KEY = 'CIRCUSCHIEF_COMMIT_ATTRIBUTION';
 
@@ -54,9 +76,10 @@ git interpret-trailers --trailer "$trailer" --in-place "$msg_file"
 }
 
 export async function clearWorktreeCommitAttribution(worktreePath) {
+  const managedHooksPath = getManagedHooksPath();
   const currentAttribution = await gitConfigValue(worktreePath, ATTRIBUTION_CONFIG_KEY);
   const currentHooksPath = await gitConfigValue(worktreePath, 'core.hooksPath');
-  if (!currentAttribution && currentHooksPath !== MANAGED_HOOKS_PATH) {
+  if (!currentAttribution && currentHooksPath !== managedHooksPath) {
     return false;
   }
 
@@ -70,7 +93,7 @@ export async function clearWorktreeCommitAttribution(worktreePath) {
     }
   }
 
-  if (currentHooksPath === MANAGED_HOOKS_PATH) {
+  if (currentHooksPath === managedHooksPath) {
     try {
       await git(worktreePath, 'config --worktree --unset core.hooksPath');
     } catch {
@@ -90,10 +113,12 @@ export async function clearWorktreeCommitAttribution(worktreePath) {
  * @returns {Promise<boolean>} True when a hook is installed or updated
  */
 export async function ensureWorktreeCommitAttributionHook(worktreePath) {
+  const managedHooksPath = getManagedHooksPath();
+
   await git(worktreePath, 'config extensions.worktreeConfig true');
 
   const currentHooksPath = await gitConfigValue(worktreePath, 'core.hooksPath');
-  if (currentHooksPath && currentHooksPath !== MANAGED_HOOKS_PATH) {
+  if (currentHooksPath && currentHooksPath !== managedHooksPath) {
     throw new Error(
       `Cannot install managed commit attribution hook: worktree already has core.hooksPath set to "${currentHooksPath}"`
     );
@@ -105,11 +130,10 @@ export async function ensureWorktreeCommitAttributionHook(worktreePath) {
     // Unset is idempotent for stale worktrees that never stored attribution.
   }
 
-  await git(worktreePath, `config --worktree core.hooksPath ${shellQuote(MANAGED_HOOKS_PATH)}`);
+  await git(worktreePath, `config --worktree core.hooksPath ${shellQuote(managedHooksPath)}`);
 
-  const hooksDir = path.join(worktreePath, MANAGED_HOOKS_PATH);
-  const hookPath = path.join(hooksDir, 'commit-msg');
-  await mkdir(hooksDir, { recursive: true });
+  const hookPath = path.join(managedHooksPath, 'commit-msg');
+  await mkdir(managedHooksPath, { recursive: true });
   await writeFile(hookPath, buildCommitMsgHook(), 'utf8');
   await chmod(hookPath, 0o755);
   return true;
