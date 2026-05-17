@@ -224,6 +224,88 @@ export function requestVisualViewportSettle(options = {}) {
   settleRafId = requestAnimationFrame(sample);
 }
 
+// ---------------------------------------------------------------------------
+// Overlay viewport-drift correction
+//
+// On iPad Safari the visual viewport can shift relative to the layout viewport
+// when the browser chrome (URL bar / tab bar) collapses or expands, during
+// scroll-bounce, or after tab switches. `position: fixed` elements follow the
+// *layout* viewport, so they drift off-screen even though JS APIs like
+// `getBoundingClientRect` and `window.scrollY` still report 0.
+//
+// `checkOverlayViewportDrift` reads `visualViewport.offsetTop` and pins the
+// overlay element to the visual viewport via inline styles when drift > threshold.
+// ---------------------------------------------------------------------------
+const DRIFT_THRESHOLD_PX = 2;
+
+/**
+ * Check for visual-viewport drift and correct the given element's position.
+ *
+ * Intended to be called periodically (setInterval) and/or on visualViewport
+ * scroll/resize events while a fullscreen overlay is open.
+ *
+ * @param {HTMLElement|null} element  The overlay backdrop element to pin.
+ */
+export function checkOverlayViewportDrift(element) {
+  if (!element) return;
+
+  // Force window scroll to 0 — page should never scroll while overlay is open.
+  if (window.scrollY !== 0) {
+    window.scrollTo(0, 0);
+  }
+
+  // On iPad Safari the visual viewport can shift relative to the layout
+  // viewport. position:fixed follows the layout viewport, so we must
+  // compensate by pinning the overlay to the visual viewport.
+  if (window.visualViewport) {
+    const { offsetTop, height } = window.visualViewport;
+
+    if (offsetTop > DRIFT_THRESHOLD_PX) {
+      // Drift detected — override CSS `inset: 0` with explicit position.
+      // Inline styles beat scoped-CSS specificity, so this wins over `inset`.
+      element.style.top = `${offsetTop}px`;
+      element.style.bottom = 'auto';
+      element.style.height = `${height}px`;
+    } else {
+      // No drift — clear inline overrides so the CSS `inset: 0` rule applies.
+      element.style.top = '';
+      element.style.bottom = '';
+      element.style.height = '';
+    }
+  }
+
+  writeVisualViewportVariables();
+}
+
+/**
+ * Clear any inline position overrides applied by `checkOverlayViewportDrift`.
+ *
+ * @param {HTMLElement|null} element  The overlay backdrop element.
+ */
+export function clearOverlayViewportDrift(element) {
+  if (!element) return;
+  element.style.top = '';
+  element.style.bottom = '';
+  element.style.height = '';
+}
+
+/**
+ * Subscribe a callback to `visualViewport` scroll/resize events.
+ * Returns a teardown function that removes both listeners.
+ *
+ * @param {() => void} callback
+ * @returns {() => void} cleanup function
+ */
+export function onVisualViewportChange(callback) {
+  if (!window.visualViewport) return () => {};
+  window.visualViewport.addEventListener('scroll', callback);
+  window.visualViewport.addEventListener('resize', callback);
+  return () => {
+    window.visualViewport.removeEventListener('scroll', callback);
+    window.visualViewport.removeEventListener('resize', callback);
+  };
+}
+
 /**
  * Vue composable that tracks the visual viewport rectangle and updates CSS variables.
  * This is needed for iOS Safari, where the browser chrome (URL bar + tab bar) can
