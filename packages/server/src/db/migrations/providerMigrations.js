@@ -228,4 +228,23 @@ export const providerMigrations = [
     name: 'providers-seed-built-in-google',
     up(db) { seedBuiltInGoogleProvider(db); },
   },
+  {
+    name: 'providers-update-gemini-flash-lite-model',
+    up(db) {
+      // The preview model 'gemini-2.5-flash-lite-preview-06-17' has been
+      // removed by Google. Update to the stable GA model ID.
+      db.prepare(
+        `UPDATE provider_models
+         SET model_id = ?, description = ?
+         WHERE id = ? AND provider_id = ?`
+      ).run('gemini-2.5-flash-lite', 'Lightweight & cost-efficient', 'google-gemini-2-5-flash-lite', 'google-default');
+
+      // Also update any sessions that were using the old model ID
+      db.prepare(
+        `UPDATE sessions
+         SET model = ?
+         WHERE model = ?`
+      ).run('gemini-2.5-flash-lite', 'gemini-2.5-flash-lite-preview-06-17');
+    },
+  },
 ];

@@ -261,6 +261,9 @@ export const allMigrations = validateMigrations([
   // --- Seed built-in Google provider + Gemini models ---
   pr.get('providers-seed-built-in-google'),
 
+  // --- Update expired Gemini Flash Lite preview model to stable GA ---
+  pr.get('providers-update-gemini-flash-lite-model'),
+
   // --- Project session defaults: add 'current' git mode ---
   p.get('project_session_defaults-git_mode-add-current'),
 

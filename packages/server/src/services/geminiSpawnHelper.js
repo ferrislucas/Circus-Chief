@@ -32,6 +32,10 @@ export function createGeminiSpawner() {
     // Ensure PATH includes the directory containing Node
     const robustEnv = createRobustEnv(env);
 
+    // Trust the workspace automatically in headless/automated mode.
+    // Without this, Gemini CLI refuses to run in untrusted directories.
+    robustEnv.GEMINI_CLI_TRUST_WORKSPACE = 'true';
+
     return spawn(actualCommand, args, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
