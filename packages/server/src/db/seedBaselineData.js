@@ -95,13 +95,6 @@ function seedBuiltInProviders(db) {
      VALUES (?, ?, NULL, NULL, ?, 1, ?, ?)`
   ).run(BUILT_IN_OPENAI_PROVIDER.id, BUILT_IN_OPENAI_PROVIDER.name, BUILT_IN_OPENAI_PROVIDER.kind, now, now);
 
-  db.prepare(
-    `INSERT OR IGNORE INTO providers (
-       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
-     )
-     VALUES (?, ?, NULL, NULL, ?, 1, ?, ?)`
-  ).run(BUILT_IN_GOOGLE_PROVIDER.id, BUILT_IN_GOOGLE_PROVIDER.name, BUILT_IN_GOOGLE_PROVIDER.kind, now, now);
-
   const insertModel = db.prepare(
     `INSERT OR IGNORE INTO provider_models (
        id, provider_id, model_id, display_name, description, tier, created_at
@@ -109,7 +102,14 @@ function seedBuiltInProviders(db) {
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
 
-  for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS, ...BUILT_IN_GOOGLE_MODELS]) {
+  // Note: Google provider and models are NOT seeded here because seedBaselineData
+  // runs before migrations. On existing databases the providers table still has
+  // CHECK(kind IN ('anthropic','openai')), so an INSERT with kind='google' would
+  // be silently ignored by INSERT OR IGNORE, and the subsequent model inserts
+  // would fail with a FOREIGN KEY constraint. The 'providers-seed-built-in-google'
+  // migration handles seeding Google for both fresh and existing databases after
+  // the 'providers-widen-kind-check-google' migration has widened the CHECK constraint.
+  for (const model of [...BUILT_IN_ANTHROPIC_MODELS, ...BUILT_IN_OPENAI_MODELS]) {
     insertModel.run(model.id, model.providerId, model.modelId, model.displayName, model.description, model.tier, now);
   }
 }

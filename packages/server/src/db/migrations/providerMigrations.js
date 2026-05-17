@@ -188,29 +188,40 @@ export const providerMigrations = [
     up(db) {
       // SQLite CHECK constraints are baked into the table definition and can't
       // be altered in-place. Recreate the table with the wider CHECK.
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS providers_new (
-          id TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          base_url TEXT,
-          auth_token TEXT,
-          api_timeout_ms INTEGER,
-          additional_env_vars TEXT,
-          commit_attribution_override TEXT,
-          is_built_in INTEGER NOT NULL DEFAULT 0,
-          kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai','google')),
-          created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-          updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-        );
+      //
+      // IMPORTANT: Disable foreign key enforcement during the table swap.
+      // provider_models has ON DELETE CASCADE referencing providers. SQLite
+      // fires that cascade when DROP TABLE deletes parent rows, which would
+      // wipe all provider_models data. Disabling FK enforcement prevents the
+      // cascade. We re-enable it immediately after the rename.
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS providers_new (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            base_url TEXT,
+            auth_token TEXT,
+            api_timeout_ms INTEGER,
+            additional_env_vars TEXT,
+            commit_attribution_override TEXT,
+            is_built_in INTEGER NOT NULL DEFAULT 0,
+            kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai','google')),
+            created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+            updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+          );
 
-        INSERT OR IGNORE INTO providers_new SELECT * FROM providers;
+          INSERT OR IGNORE INTO providers_new SELECT * FROM providers;
 
-        DROP TABLE providers;
+          DROP TABLE providers;
 
-        ALTER TABLE providers_new RENAME TO providers;
+          ALTER TABLE providers_new RENAME TO providers;
 
-        CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
-      `);
+          CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
+        `);
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
     },
   },
   {

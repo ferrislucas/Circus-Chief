@@ -255,6 +255,12 @@ export const allMigrations = validateMigrations([
   // --- Update built-in Opus model to 4.7 ---
   pr.get('providers-update-built-in-opus-4-7'),
 
+  // --- Widen providers kind CHECK constraint to include 'google' ---
+  pr.get('providers-widen-kind-check-google'),
+
+  // --- Seed built-in Google provider + Gemini models ---
+  pr.get('providers-seed-built-in-google'),
+
   // --- Project session defaults: add 'current' git mode ---
   p.get('project_session_defaults-git_mode-add-current'),
 
