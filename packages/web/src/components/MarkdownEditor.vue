@@ -107,6 +107,34 @@ function flushPendingSave() {
 
 defineExpose({ flushPendingSave });
 
+// ── Change-tracking helpers ───────────────────────────────────────────
+
+function clearPendingDebounce() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+}
+
+function updateBookkeeping(content) {
+  lastAcceptedContent = content;
+  lastSavedContent = content;
+  lastEmittedContent = content;
+}
+
+function handleVersionSwitch(newItemId, normalizedContent) {
+  clearPendingDebounce();
+  lastAcceptedItemId = newItemId;
+  updateBookkeeping(normalizedContent);
+  userModified = false;
+
+  if (normalizedContent !== editorContent.value) {
+    isProgrammaticChange = true;
+    editorContent.value = normalizedContent;
+    isProgrammaticChange = false;
+  }
+}
+
 // ── Combined watcher for itemId + content ─────────────────────────────
 // Distinguishes between:
 //   1. itemId change → deliberate version switch → always accept & replace buffer
@@ -118,54 +146,31 @@ watch(
     const normalizedContent = newContent || '';
 
     if (newItemId !== lastAcceptedItemId) {
-      // ── Case 1: deliberate version switch ──
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-        debounceTimer = null;
-      }
-      lastAcceptedItemId = newItemId;
-      lastAcceptedContent = normalizedContent;
-      lastSavedContent = normalizedContent;
-      lastEmittedContent = normalizedContent;
-      userModified = false;
-
-      if (normalizedContent !== editorContent.value) {
-        isProgrammaticChange = true;
-        editorContent.value = normalizedContent;
-        isProgrammaticChange = false;
-      }
+      handleVersionSwitch(newItemId, normalizedContent);
       return;
     }
 
     // Same itemId — content changed externally (WS echo, store refresh, etc.)
     if (normalizedContent === editorContent.value) {
-      // Content already matches the buffer — just update bookkeeping
       lastAcceptedContent = normalizedContent;
       lastSavedContent = normalizedContent;
       return;
     }
 
     if (userModified) {
-      // ── Case 3: buffer has been user-modified — ignore background churn ──
+      // Buffer has been user-modified — ignore background churn.
       // If the incoming content matches what we last emitted (self-originated
       // save echo), update bookkeeping but don't touch the buffer.
       if (normalizedContent === lastEmittedContent) {
         lastAcceptedContent = normalizedContent;
         lastSavedContent = normalizedContent;
       }
-      // Otherwise it's a stale or stripped refresh — ignore entirely.
       return;
     }
 
-    // ── Case 2: no local edits — accept external content ──
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-      debounceTimer = null;
-    }
-    lastAcceptedContent = normalizedContent;
-    lastSavedContent = normalizedContent;
-    lastEmittedContent = normalizedContent;
-
+    // No local edits — accept external content
+    clearPendingDebounce();
+    updateBookkeeping(normalizedContent);
     isProgrammaticChange = true;
     editorContent.value = normalizedContent;
     isProgrammaticChange = false;
