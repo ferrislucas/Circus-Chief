@@ -321,6 +321,35 @@ describe('Sessions API - PR URL Endpoint', () => {
       expect(summary.shortSummary).toBe('Test');
     });
 
+    it('does not reset PR state when prUrl is omitted from the patch', async () => {
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ prUrl: prUrlA })
+        .expect(200);
+
+      sessionSummaries.upsert(session.id, {
+        shortSummary: 'Test',
+        fullSummary: 'Test summary',
+        prState: 'merged',
+        prMerged: true,
+        ciStatus: 'success',
+        ciFailures: ['test-1'],
+        hasMergeConflicts: true,
+      });
+
+      await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ thinkingEnabled: true })
+        .expect(200);
+
+      const summary = sessionSummaries.getBySessionId(session.id);
+      expect(summary.prState).toBe('merged');
+      expect(summary.prMerged).toBe(true);
+      expect(summary.ciStatus).toBe('success');
+      expect(summary.ciFailures).toEqual(['test-1']);
+      expect(summary.hasMergeConflicts).toBe(true);
+    });
+
     it('resets PR state when prUrl is cleared (set to null)', async () => {
       // Set initial PR URL and create summary with merged state
       await request(app)

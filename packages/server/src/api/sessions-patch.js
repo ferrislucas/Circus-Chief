@@ -237,7 +237,8 @@ router.patch('/:id', requireSession, (req, res) => {
 
   // Reset PR state when URL changes to a different PR or is cleared
   const previousPrUrl = req.session_.prUrl;
-  const prUrlChanged = previousPrUrl && previousPrUrl !== updateData.prUrl;
+  const prUrlProvided = Object.prototype.hasOwnProperty.call(updateData, 'prUrl');
+  const prUrlChanged = prUrlProvided && previousPrUrl && previousPrUrl !== updateData.prUrl;
 
   if (prUrlChanged) {
     resetPrStateForSession(req.params.id, req.session_.projectId);
