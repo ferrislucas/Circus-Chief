@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import { sessions, sessionTemplates, modelProviders } from '../database.js';
+import { sessions, sessionTemplates, modelProviders, sessionSummaries } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from '../services/summaryService.js';
 import { setSessionNameFromPr } from '../services/prUrlService.js';
+import { checkSessionCiStatusNow } from '../services/prStatusService.js';
+import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
 
 const router = Router();
@@ -195,6 +197,30 @@ function broadcastSessionUpdate(sessionId, projectId, updated, updateData) {
   });
 }
 
+/**
+ * Reset all PR state fields in the session summary when the PR URL changes or is cleared.
+ * This ensures stale PR state (e.g., "merged") doesn't persist for a different PR
+ * and doesn't block summary regeneration.
+ * @param {string} sessionId
+ * @param {string|null} projectId - For broadcasting to project subscribers
+ */
+function resetPrStateForSession(sessionId, projectId) {
+  const existingSummary = sessionSummaries.getBySessionId(sessionId);
+  if (!existingSummary) return;
+
+  sessionSummaries.upsert(sessionId, {
+    prState: null,
+    prMerged: false,
+    hasMergeConflicts: false,
+    ciStatus: null,
+    ciFailures: [],
+  });
+
+  // Broadcast the reset to both session and project subscribers
+  const updatedSummary = sessionSummaries.getBySessionId(sessionId);
+  broadcastSummaryUpdate(sessionId, projectId, updatedSummary);
+}
+
 // PATCH /api/sessions/:id - Update session settings
 router.patch('/:id', requireSession, (req, res) => {
   const { updateData, error } = buildUpdateData(req.body);
@@ -209,6 +235,15 @@ router.patch('/:id', requireSession, (req, res) => {
 
   const updated = sessions.update(req.params.id, updateData);
 
+  // Reset PR state when URL changes to a different PR or is cleared
+  const previousPrUrl = req.session_.prUrl;
+  const prUrlProvided = Object.prototype.hasOwnProperty.call(updateData, 'prUrl');
+  const prUrlChanged = prUrlProvided && previousPrUrl && previousPrUrl !== updateData.prUrl;
+
+  if (prUrlChanged) {
+    resetPrStateForSession(req.params.id, req.session_.projectId);
+  }
+
   // Propagate PR URL to parent session if set (not when clearing)
   if (updateData.prUrl) {
     summaryService.propagatePrUrlToParent(req.params.id, updateData.prUrl);
@@ -217,6 +252,11 @@ router.patch('/:id', requireSession, (req, res) => {
     // The response returns immediately; client gets name update via WebSocket
     setSessionNameFromPr(req.params.id, updateData.prUrl).catch(err => {
       console.error(`[Sessions API] Failed to set session name from PR:`, err);
+    });
+
+    // Trigger immediate PR status check for the new/changed URL
+    checkSessionCiStatusNow(req.params.id).catch(err => {
+      console.error(`[Sessions API] Failed to check PR status after URL change:`, err);
     });
   }
 
