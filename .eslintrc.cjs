@@ -106,7 +106,7 @@ module.exports = {
     // Also allow modifying Pinia stores, Vue refs, and DOM elements passed as parameters.
     'no-param-reassign': [
       'error',
-      { props: true, ignorePropertyModificationsFor: ['req', 'res', 'store', 'textarea', 'textareaRef', 'formState'] },
+      { props: true, ignorePropertyModificationsFor: ['req', 'res', 'store', 'textarea', 'textareaRef', 'formState', 'element'] },
     ],
     'no-shadow': 'error',
     'no-return-await': 'error',
