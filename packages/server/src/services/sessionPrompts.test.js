@@ -475,7 +475,7 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig('child-789', 'proj-xyz', null, 'standard');
 
-        const basePromptIdx = result.indexOf('You are Claude Code');
+        const basePromptIdx = result.indexOf('You are an AI coding assistant');
         const childCtxIdx = result.indexOf('## Child Session');
         const worktreeIdx = result.indexOf('## Git Worktree Session');
 
