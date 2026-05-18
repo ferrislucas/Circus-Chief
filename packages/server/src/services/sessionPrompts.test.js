@@ -26,6 +26,7 @@ import {
   getApiBaseUrl,
   buildPromptWithAttachments,
   getSessionAttachmentsContext,
+  getGeminiApprovalModeForSession,
   getPermissionModeForSession,
   PLAN_MODE_PROMPT,
   buildSystemPromptConfig,
@@ -218,6 +219,28 @@ describe('sessionPrompts', () => {
 
     it('returns default for unknown string', () => {
       expect(getPermissionModeForSession('anything-else')).toBe('default');
+    });
+  });
+
+  // ── getGeminiApprovalModeForSession ──────────────────────────────────
+
+  describe('getGeminiApprovalModeForSession', () => {
+    it('maps plan to plan', () => {
+      expect(getGeminiApprovalModeForSession('plan')).toBe('plan');
+    });
+
+    it('maps standard to auto_edit', () => {
+      expect(getGeminiApprovalModeForSession('standard')).toBe('auto_edit');
+    });
+
+    it('maps yolo to yolo', () => {
+      expect(getGeminiApprovalModeForSession('yolo')).toBe('yolo');
+    });
+
+    it('maps undefined, null, and unknown values to auto_edit', () => {
+      expect(getGeminiApprovalModeForSession(undefined)).toBe('auto_edit');
+      expect(getGeminiApprovalModeForSession(null)).toBe('auto_edit');
+      expect(getGeminiApprovalModeForSession('anything-else')).toBe('auto_edit');
     });
   });
 

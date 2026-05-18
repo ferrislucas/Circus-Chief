@@ -30,7 +30,7 @@
 # from, regardless of the caller's cwd.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-PORT_FILE=".server-port"
+PORT_FILE="$PROJECT_ROOT/.server-port"
 MAIN_PORT=5000
 WORKTREE_PORT_START=5001
 
@@ -183,7 +183,7 @@ VCR_MODE="${VCR_MODE:-}" yarn build
 echo "$SELECTED_PORT" > "$PORT_FILE"
 
 # Write VCR mode for pw.sh to detect mismatches
-echo "${VCR_MODE:-}" > ".vcr-mode"
+echo "${VCR_MODE:-}" > "$PROJECT_ROOT/.vcr-mode"
 
 # Forward DB_PATH explicitly so inherited env can't be accidentally overridden
 # by something in the user's shell.

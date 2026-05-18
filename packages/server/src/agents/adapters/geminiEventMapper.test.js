@@ -83,16 +83,12 @@ describe('geminiEventMapper', () => {
       expect(result[1]).toMatchObject({ type: 'tool_result' });
     });
 
-    it('non-delta message after deltas flushes accumulated text first', () => {
+    it('mixed delta plus full-message output persists only the full assistant message', () => {
       mapper.map({ type: 'message', role: 'assistant', delta: true, content: 'streamed ' });
       const result = mapper.map({ type: 'message', role: 'assistant', delta: false, content: 'full message' });
-      // Should flush accumulated + return the non-delta message (avoiding duplicate)
-      // The non-delta replaces the accumulated text
+      const assistantEvents = result.filter((event) => event.type === 'assistant');
+      expect(assistantEvents).toHaveLength(1);
       expect(result).toEqual([
-        {
-          type: 'assistant',
-          message: { content: [{ type: 'text', text: 'streamed ' }] },
-        },
         {
           type: 'assistant',
           message: { content: [{ type: 'text', text: 'full message' }] },

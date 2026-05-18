@@ -86,6 +86,14 @@ class GeminiMapperState {
     }];
   }
 
+  appendDeltaText(text) {
+    this.accumulatedText += text;
+  }
+
+  clearAccumulatedText() {
+    this.accumulatedText = '';
+  }
+
   finalize() {
     if (this.terminated) return [];
     this.terminated = true;
@@ -136,7 +144,7 @@ function handleMessage(evt, state) {
 
     // Delta (streaming partial) — accumulate for later persistence AND emit for live streaming
     if (evt.delta) {
-      state.accumulatedText += text;
+      state.appendDeltaText(text);
       return [{
         type: 'stream_event',
         event: {
@@ -146,9 +154,11 @@ function handleMessage(evt, state) {
       }];
     }
 
-    // Full message (non-delta) — flush any prior accumulated text first, then emit this message
-    const flush = state.flushAccumulatedText();
-    return [...flush, {
+    // Full message (non-delta) replaces any prior streamed delta accumulation.
+    // Some Gemini streams include both live deltas and a final full message; only
+    // the full message should be persisted in that mixed case.
+    state.clearAccumulatedText();
+    return [{
       type: 'assistant',
       message: { content: [{ type: 'text', text }] },
     }];

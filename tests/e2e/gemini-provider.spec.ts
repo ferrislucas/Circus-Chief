@@ -27,6 +27,9 @@ test.describe('Gemini provider flow', () => {
   });
 
   test('Built-in Google provider model can start a Gemini session', async ({ page }) => {
+    const infoRes = await fetch(`${API_URL}/api/server-info`);
+    const info = await infoRes.json();
+    const captureEnabled = Boolean(info.e2eSpawnCaptureEnabled);
     const project = await seedProject('Gemini Provider Project', process.cwd());
 
     // Verify the built-in Google provider exists
@@ -63,25 +66,29 @@ test.describe('Gemini provider flow', () => {
     await page.locator('.btn-submit').click();
 
     // Wait for navigation to session detail
-    await expect(page).toHaveURL(/\/sessions\//, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/sessions\/(?!new$)[^/]+$/, { timeout: 15000 });
+    const sessionId = page.url().match(/\/sessions\/([^/?#]+)/)?.[1];
+    expect(sessionId).toBeTruthy();
 
     // Verify session was created with correct agent type
     const sessions = await getProjectSessions(project.id);
-    const session = sessions.find((s: any) => s.prompt === GEMINI_PROMPT);
+    const session = sessions.find((s: any) => s.id === sessionId);
     expect(session).toBeTruthy();
     expect(session.agentType).toBe('gemini');
 
-    // Wait for session to complete (spawn capture provides mock response)
-    await waitForStatus(session.id, 'waiting', 60000);
+    if (captureEnabled) {
+      // Wait for session to complete (spawn capture provides mock response)
+      await waitForStatus(session.id, 'waiting', 60000);
 
-    // Verify messages were persisted
-    const messages = await getSessionMessages(session.id);
-    expect(
-      messages.some((m: any) => m.role === 'assistant' && m.content.includes('E2E spawn capture response.'))
-    ).toBe(true);
+      // Verify messages were persisted
+      const messages = await getSessionMessages(session.id);
+      expect(
+        messages.some((m: any) => m.role === 'assistant' && m.content.includes('E2E spawn capture response.'))
+      ).toBe(true);
+    }
   });
 
-  test('Gemini spawn includes GEMINI_CLI_TRUST_WORKSPACE env var', async () => {
+  test('Gemini spawn includes trust env and approval mode', async () => {
     // This test only runs when E2E_AGENT_SPAWN_CAPTURE_FILE is set
     const captureFile = process.env.E2E_AGENT_SPAWN_CAPTURE_FILE;
 
@@ -117,7 +124,7 @@ test.describe('Gemini provider flow', () => {
     // Wait for session to complete
     await waitForStatus(session.id, 'waiting', 60000);
 
-    // Read the spawn capture file and verify GEMINI_CLI_TRUST_WORKSPACE is set
+    // Read the spawn capture file and verify Gemini launch options
     expect(existsSync(captureFile!)).toBe(true);
     const captureContent = readFileSync(captureFile!, 'utf8');
     const lines = captureContent.trim().split('\n');
@@ -130,5 +137,6 @@ test.describe('Gemini provider flow', () => {
     expect(geminiRecord).toBeTruthy();
     expect(geminiRecord.env.GEMINI_CLI_TRUST_WORKSPACE).toBe('true');
     expect(geminiRecord.options.outputFormat).toBe('stream-json');
+    expect(geminiRecord.options.approvalMode).toBe('auto_edit');
   });
 });

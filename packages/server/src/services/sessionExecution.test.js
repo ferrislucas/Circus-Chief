@@ -503,6 +503,49 @@ describe('buildQueryParams agent-aware', () => {
     const result = buildQueryParams(args);
     expect(result.options.systemPrompt).toContain('Plan Mode Active');
   });
+
+  it('gemini: options has cwd, abortController, env, model, systemPrompt, approvalMode and omits Claude/Codex fields', () => {
+    const args = { ...baseArgs(), agentType: 'gemini', model: 'gemini-2.5-pro' };
+    const result = buildQueryParams(args);
+
+    expect(result.options.cwd).toBe('/tmp/test');
+    expect(result.options.abortController).toBeInstanceOf(AbortController);
+    expect(result.options.env).toEqual({ OPENAI_API_KEY: 'sk-test' });
+    expect(result.options.model).toBe('gemini-2.5-pro');
+    expect(typeof result.options.systemPrompt).toBe('string');
+    expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
+    expect(result.options.approvalMode).toBe('auto_edit');
+
+    expect(result.options.permissionMode).toBeUndefined();
+    expect(result.options.settingSources).toBeUndefined();
+    expect(result.options.includePartialMessages).toBeUndefined();
+    expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
+    expect(result.options.resume).toBeUndefined();
+    expect(result.options.sandboxMode).toBeUndefined();
+    expect(result.options.effortLevel).toBeUndefined();
+  });
+
+  it.each([
+    ['plan', 'plan'],
+    ['standard', 'auto_edit'],
+    ['yolo', 'yolo'],
+  ])('gemini: maps session.mode "%s" to approvalMode "%s"', (mode, approvalMode) => {
+    const args = {
+      ...baseArgs(),
+      agentType: 'gemini',
+      model: 'gemini-2.5-pro',
+      session: { mode, projectId: 'proj-1' },
+    };
+
+    expect(buildQueryParams(args).options.approvalMode).toBe(approvalMode);
+  });
+
+  it('gemini: VCR mode forces gemini-2.5-flash', () => {
+    process.env.VCR_MODE = '1';
+    const args = { ...baseArgs(), agentType: 'gemini', model: 'gemini-2.5-pro' };
+    const result = buildQueryParams(args);
+    expect(result.options.model).toBe('gemini-2.5-flash');
+  });
 });
 
 // ── createAgentForSession config forwarding ────────────────────────────────

@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mkdirSync, mkdtempSync, rmSync } from 'fs';
 import { execSync } from 'child_process';
+import { DEFAULT_SYSTEM_PROMPT } from '../../packages/shared/src/constants';
 import { cleanupAll, getProject, seedProject, API_URL } from './helpers';
 
 test.describe('Project Management', () => {
@@ -117,8 +118,7 @@ test.describe('Project Management', () => {
     // Verify the textarea is reset to the default system prompt
     const textareaValue = await page.inputValue('textarea[id="systemPrompt"]');
     expect(textareaValue).not.toBe('Custom system prompt for testing');
-    // The default prompt should contain the standard Claude Code introduction
-    expect(textareaValue).toContain('You are Claude Code');
+    expect(textareaValue).toBe(DEFAULT_SYSTEM_PROMPT);
 
     await page.click('button.btn-primary:has-text("Save")');
 

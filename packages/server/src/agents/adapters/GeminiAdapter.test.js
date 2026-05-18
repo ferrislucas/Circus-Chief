@@ -118,7 +118,7 @@ describe('GeminiAdapter', () => {
       });
     });
 
-    it('yields text delta and assistant on message', async () => {
+    it('mixed delta plus full-message output yields live stream and one persisted assistant', async () => {
       const mockChild = createMockChild();
       const spawnFn = vi.fn(() => mockChild);
 
@@ -141,9 +141,36 @@ describe('GeminiAdapter', () => {
       expect(deltaEvent).toBeTruthy();
       expect(deltaEvent.event.delta.text).toBe('Hello');
 
-      const assistantEvent = events.find((e) => e.type === 'assistant');
-      expect(assistantEvent).toBeTruthy();
-      expect(assistantEvent.message.content[0].text).toBe('Hello there!');
+      const assistantEvents = events.filter((e) => e.type === 'assistant');
+      expect(assistantEvents).toHaveLength(1);
+      expect(assistantEvents[0].message.content[0].text).toBe('Hello there!');
+    });
+
+    it.each([
+      ['plan', 'plan'],
+      ['standard', 'auto_edit'],
+      ['yolo', 'yolo'],
+    ])('spawns gemini with skip-trust and approval mode for %s mode', async (_mode, approvalMode) => {
+      const mockChild = createMockChild();
+      const spawnFn = vi.fn(() => mockChild);
+
+      const adapter = new GeminiAdapter({ spawnGeminiProcess: spawnFn });
+      const gen = adapter.execute(
+        { prompt: 'Hi', options: { model: 'gemini-2.5-flash', approvalMode } },
+        {},
+      );
+      const eventPromise = collectEvents(gen);
+
+      setTimeout(() => {
+        mockChild.emit('exit', 0);
+      }, 10);
+
+      await eventPromise;
+
+      const callArgs = spawnFn.mock.calls[0][0].args;
+      expect(callArgs).toContain('--skip-trust');
+      expect(callArgs).toContain(`--approval-mode=${approvalMode}`);
+      expect(callArgs).not.toContain('--yolo');
     });
 
     it('yields tool_result on tool events', async () => {

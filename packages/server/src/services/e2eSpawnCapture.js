@@ -88,6 +88,7 @@ function summarizeSpawnOptions(agentType, spawnOptions) {
     return {
       model: valueAfter(args, '-m'),
       outputFormat: valueAfter(args, '--output-format'),
+      approvalMode: optionValue(args, '--approval-mode'),
       prompt: valueAfter(args, '-p'),
     };
   }
@@ -103,6 +104,14 @@ function valueAfter(args, flag) {
   const index = args.indexOf(flag);
   if (index === -1) return null;
   return args[index + 1] ?? null;
+}
+
+function optionValue(args, flag) {
+  const separateValue = valueAfter(args, flag);
+  if (separateValue !== null) return separateValue;
+  const prefix = `${flag}=`;
+  const arg = args.find((value) => value.startsWith(prefix));
+  return arg ? arg.slice(prefix.length) : null;
 }
 
 function valuesAfter(args, flag) {

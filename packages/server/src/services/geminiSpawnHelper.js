@@ -21,11 +21,6 @@ import {
 export function createGeminiSpawner() {
   return (options) => {
     const { command, args, cwd, env, signal } = options;
-    if (isE2ESpawnCaptureEnabled()) {
-      captureSpawnAttempt('gemini', options);
-      return createCapturedSpawnProcess('gemini');
-    }
-
     // Replace 'node' with the absolute path to the current Node executable
     const actualCommand = command === 'node' ? process.execPath : command;
 
@@ -35,6 +30,11 @@ export function createGeminiSpawner() {
     // Trust the workspace automatically in headless/automated mode.
     // Without this, Gemini CLI refuses to run in untrusted directories.
     robustEnv.GEMINI_CLI_TRUST_WORKSPACE = 'true';
+
+    if (isE2ESpawnCaptureEnabled()) {
+      captureSpawnAttempt('gemini', { ...options, env: robustEnv });
+      return createCapturedSpawnProcess('gemini');
+    }
 
     return spawn(actualCommand, args, {
       cwd,

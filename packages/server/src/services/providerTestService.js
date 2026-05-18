@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { spawn } from 'child_process';
+import { createGeminiSpawner } from './geminiSpawnHelper.js';
 
 /**
  * Test a provider configuration by making a minimal API call.
@@ -23,13 +23,13 @@ import { spawn } from 'child_process';
  * @param {number} [config.apiTimeoutMs] - API timeout in milliseconds
  * @returns {Promise<{success: boolean, message: string, details?: Object}>}
  */
-export async function testProviderConnection(config) {
+export async function testProviderConnection(config, deps = {}) {
   const { kind = 'anthropic' } = config || {};
   if (kind === 'openai') {
     return testOpenAIConnection(config);
   }
   if (kind === 'google') {
-    return testGoogleConnection(config);
+    return testGoogleConnection(config, deps);
   }
   return testAnthropicConnection(config);
 }
@@ -136,13 +136,17 @@ async function testOpenAIChatEndpoint(client, config) {
  * and checks for a clean exit. No SDK dependency needed.
  * @private
  */
-async function testGoogleConnection(config) {
+async function testGoogleConnection(config, deps = {}) {
   try {
     const env = {};
     if (config.authToken) env.GEMINI_API_KEY = config.authToken;
     const timeoutMs = config.apiTimeoutMs || 30000;
-    const child = spawn('gemini', ['-p', 'Hi', '--output-format', 'json'], {
-      env: { ...process.env, ...env },
+    const spawnGeminiProcess = deps.spawnGeminiProcess || createGeminiSpawner();
+    const child = spawnGeminiProcess({
+      command: 'gemini',
+      args: ['-p', 'Hi', '--output-format', 'json', '--skip-trust', '--approval-mode=auto_edit', '-m', 'gemini-2.5-flash'],
+      cwd: config.workingDirectory,
+      env,
     });
 
     return await new Promise((resolve) => {

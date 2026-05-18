@@ -1,6 +1,7 @@
 import { createClaudeCodeSpawner } from './nodeSpawnHelper.js';
 import {
   buildSystemPromptConfig,
+  getGeminiApprovalModeForSession,
   getPermissionModeForSession,
   getSandboxModeForSession,
 } from './sessionPrompts.js';
@@ -86,6 +87,7 @@ function buildGeminiQueryParams({
       abortController: controller,
       env: sessionEnv,
       model: effectiveModel,
+      approvalMode: getGeminiApprovalModeForSession(session?.mode),
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
     },
   };

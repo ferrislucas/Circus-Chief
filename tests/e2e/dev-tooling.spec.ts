@@ -301,20 +301,20 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     // (a) Curl check against the port from .server-port
     expect(funcBody).toMatch(/curl.*localhost.*\$.*port/i);
 
-    // (b) rm -f when curl fails (stale port file removal)
-    expect(funcBody).toContain('rm -f');
+    // (b) stale worktree marker cleanup when curl fails (stale port file removal)
+    expect(funcBody).toContain('clear_worktree_server_markers');
 
     // (c) Call to start-server.sh to start a new server
     expect(funcBody).toContain('start-server.sh');
 
-    // Verify order: curl check comes before rm, which comes before start-server.sh
+    // Verify order: curl check comes before cleanup, which comes before start-server.sh
     const curlPos = funcBody.search(/curl/);
-    const rmPos = funcBody.indexOf('rm -f');
+    const cleanupPos = funcBody.indexOf('clear_worktree_server_markers');
     const startPos = funcBody.indexOf('start-server.sh');
 
     expect(curlPos).toBeGreaterThan(-1);
-    expect(rmPos).toBeGreaterThan(curlPos);
-    expect(startPos).toBeGreaterThan(rmPos);
+    expect(cleanupPos).toBeGreaterThan(curlPos);
+    expect(startPos).toBeGreaterThan(cleanupPos);
   });
 
   // Test 16
