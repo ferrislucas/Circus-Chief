@@ -1744,6 +1744,30 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
+    it('prompt focus schedules an initial prompt visibility adjustment', async () => {
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 1);
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+      requestAnimationFrameSpy.mockClear();
+
+      await wrapper.findComponent({ name: 'ConversationTab' }).vm.$emit('prompt-focus', new FocusEvent('focus'));
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+
+      requestAnimationFrameSpy.mockRestore();
+      wrapper.unmount();
+    });
+
+    it('runDriftCheck skips repeated prompt visibility checks while text editing is active', () => {
+      expect(sessionChatOverlaySource).toMatch(/isActiveTextEditing/);
+      expect(sessionChatOverlaySource).toMatch(
+        /if\s*\(\s*isOverlayPromptFocused\.value\s*&&\s*!isActiveTextEditing\(\)\s*\)\s*\{\s*requestPromptVisibilityCheck\(\);/s,
+      );
+    });
+
     it('content, header, and body declare solid backgrounds', () => {
       for (const selector of ['.overlay-content', '.overlay-header', '.overlay-body']) {
         const block = getStyleBlock(selector);

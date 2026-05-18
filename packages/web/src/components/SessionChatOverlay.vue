@@ -379,6 +379,7 @@ import {
   requestVisualViewportUpdate,
   checkOverlayViewportDrift,
   clearOverlayViewportDrift,
+  isActiveTextEditing,
   onVisualViewportChange,
   setSessionOverlayPromptFocus,
 } from '../composables/useVisualViewport.js';
@@ -948,7 +949,7 @@ function getBackdropEl() {
 
 function runDriftCheck() {
   checkOverlayViewportDrift(getBackdropEl());
-  if (isOverlayPromptFocused.value) {
+  if (isOverlayPromptFocused.value && !isActiveTextEditing()) {
     requestPromptVisibilityCheck();
   }
 }

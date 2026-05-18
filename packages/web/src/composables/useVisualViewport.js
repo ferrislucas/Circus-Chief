@@ -69,6 +69,47 @@ function hasTabletSizedLayout(layoutWidth, layoutHeight) {
   );
 }
 
+const TEXT_LIKE_INPUT_TYPES = new Set([
+  '',
+  'text',
+  'search',
+  'email',
+  'url',
+  'tel',
+  'password',
+  'number',
+]);
+
+export function isTextEditingElement(element) {
+  if (!element || element.nodeType !== 1) {
+    return false;
+  }
+
+  const editableElement = element.closest?.('[contenteditable]');
+  if (editableElement) {
+    const contentEditable = editableElement.getAttribute('contenteditable');
+    return contentEditable === null || contentEditable.toLowerCase() !== 'false';
+  }
+
+  const tagName = element.tagName?.toLowerCase();
+  if (tagName === 'textarea') {
+    return true;
+  }
+
+  if (tagName !== 'input') {
+    return false;
+  }
+
+  return TEXT_LIKE_INPUT_TYPES.has((element.getAttribute('type') || '').toLowerCase());
+}
+
+export function isActiveTextEditing() {
+  if (typeof document === 'undefined') {
+    return false;
+  }
+  return isTextEditingElement(document.activeElement);
+}
+
 export function computeSessionOverlayTopChromeInset({
   offsetTop,
   visualViewportHeight,
@@ -283,6 +324,11 @@ const DRIFT_THRESHOLD_PX = 2;
  */
 export function checkOverlayViewportDrift(element) {
   if (!element) return;
+
+  if (isActiveTextEditing()) {
+    writeVisualViewportVariables();
+    return;
+  }
 
   // Force window scroll to 0 — page should never scroll while overlay is open.
   if (window.scrollY !== 0) {

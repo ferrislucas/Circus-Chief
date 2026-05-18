@@ -12,6 +12,8 @@ import {
   checkOverlayViewportDrift,
   clearOverlayViewportDrift,
   onVisualViewportChange,
+  isActiveTextEditing,
+  isTextEditingElement,
 } from './useVisualViewport.js';
 
 /**
@@ -264,6 +266,79 @@ describe('useVisualViewport', () => {
           platform: 'Linux x86_64',
         })
       ).toBe(32);
+    });
+  });
+
+  describe('text editing detection', () => {
+    it('returns true for textarea elements', () => {
+      expect(isTextEditingElement(document.createElement('textarea'))).toBe(true);
+    });
+
+    it.each([
+      [null],
+      [''],
+      ['text'],
+      ['search'],
+      ['email'],
+      ['url'],
+      ['tel'],
+      ['password'],
+      ['number'],
+    ])('returns true for text-like input type %s', (type) => {
+      const input = document.createElement('input');
+      if (type !== null) {
+        input.setAttribute('type', type);
+      }
+
+      expect(isTextEditingElement(input)).toBe(true);
+    });
+
+    it('returns true for contenteditable elements and descendants', () => {
+      const editor = document.createElement('div');
+      editor.setAttribute('contenteditable', 'true');
+      const child = document.createElement('span');
+      editor.appendChild(child);
+
+      expect(isTextEditingElement(editor)).toBe(true);
+      expect(isTextEditingElement(child)).toBe(true);
+    });
+
+    it.each([
+      'checkbox',
+      'radio',
+      'range',
+      'button',
+      'submit',
+      'reset',
+      'file',
+      'color',
+      'date',
+      'datetime-local',
+      'month',
+      'time',
+      'week',
+      'hidden',
+      'image',
+    ])('returns false for non-text input type %s', (type) => {
+      const input = document.createElement('input');
+      input.setAttribute('type', type);
+
+      expect(isTextEditingElement(input)).toBe(false);
+    });
+
+    it('isActiveTextEditing follows document.activeElement', () => {
+      const textarea = document.createElement('textarea');
+      const button = document.createElement('button');
+      document.body.append(textarea, button);
+
+      textarea.focus();
+      expect(isActiveTextEditing()).toBe(true);
+
+      button.focus();
+      expect(isActiveTextEditing()).toBe(false);
+
+      textarea.remove();
+      button.remove();
     });
   });
 
@@ -900,6 +975,55 @@ describe('useVisualViewport', () => {
       checkOverlayViewportDrift(element);
 
       expect(scrollToSpy).toHaveBeenCalledWith(0, 0);
+    });
+
+    it('does not reset window scroll while an editable control is focused', () => {
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        writable: true,
+        value: 50,
+      });
+      mockVisualViewport = {
+        offsetTop: 32,
+        height: 968,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+      const textarea = document.createElement('textarea');
+      document.body.appendChild(textarea);
+      textarea.focus();
+
+      checkOverlayViewportDrift(element);
+
+      expect(scrollToSpy).not.toHaveBeenCalled();
+
+      textarea.remove();
+    });
+
+    it('does not set or clear drift styles while an editable control is focused', () => {
+      mockVisualViewport = {
+        offsetTop: 32,
+        height: 968,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      window.visualViewport = mockVisualViewport;
+      element.style.top = '12px';
+      element.style.bottom = 'auto';
+      element.style.height = '700px';
+      const input = document.createElement('input');
+      input.type = 'text';
+      document.body.appendChild(input);
+      input.focus();
+
+      checkOverlayViewportDrift(element);
+
+      expect(element.style.top).toBe('12px');
+      expect(element.style.bottom).toBe('auto');
+      expect(element.style.height).toBe('700px');
+
+      input.remove();
     });
 
     it('does not call scrollTo when window.scrollY is 0', () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import ResizableTextarea from './ResizableTextarea.vue';
+import resizableTextareaSource from './ResizableTextarea.vue?raw';
 
 describe('ResizableTextarea', () => {
   let wrapper;
@@ -316,21 +317,20 @@ describe('ResizableTextarea', () => {
       expect(handle.exists()).toBe(true);
     });
 
-    it('has touchstart event listener on resize handle', async () => {
-      wrapper = mount(ResizableTextarea);
-      const handle = wrapper.find('.resize-handle');
-
-      expect(handle.exists()).toBe(true);
+    it('does not bind touch resize to the handle', () => {
+      expect(resizableTextareaSource).not.toMatch(/@touchstart/);
     });
   });
 
   describe('mobile support', () => {
-    it('supports touch events for mobile', () => {
+    it('hides the custom resize handle on coarse pointers', () => {
       wrapper = mount(ResizableTextarea);
       const handle = wrapper.find('.resize-handle');
 
-      // Verify that touch-action: none is set for mobile
       expect(handle.exists()).toBe(true);
+      expect(resizableTextareaSource).toMatch(/@media\s*\(pointer:\s*coarse\)/);
+      expect(resizableTextareaSource).toMatch(/\.resize-handle\s*\{[\s\S]*?display:\s*none/);
+      expect(resizableTextareaSource).not.toMatch(/touch-action:\s*none/);
     });
   });
 
