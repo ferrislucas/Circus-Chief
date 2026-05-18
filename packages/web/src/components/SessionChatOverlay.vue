@@ -57,7 +57,10 @@
           </div>
 
           <!-- Existing overlay-content -->
-          <div class="overlay-content session-chat-overlay">
+          <div
+            class="overlay-content session-chat-overlay"
+            :class="{ 'session-chat-overlay--composer-focused': isOverlayPromptFocused }"
+          >
             <!-- Header (no padding constraints) -->
             <div
               class="overlay-header"
@@ -337,6 +340,8 @@
                 :scroll-container-ref="overlayBodyRef"
                 :hide-new-conversation="true"
                 initial-scroll-target="latest-agent-turn"
+                @prompt-focus="handleOverlayPromptFocus"
+                @prompt-blur="handleOverlayPromptBlur"
               />
             </div>
           </div><!-- end overlay-content -->
@@ -375,6 +380,7 @@ import {
   checkOverlayViewportDrift,
   clearOverlayViewportDrift,
   onVisualViewportChange,
+  setSessionOverlayPromptFocus,
 } from '../composables/useVisualViewport.js';
 
 import ConversationTab from './ConversationTab.vue';
@@ -428,6 +434,9 @@ const isCreatingSession = ref(false);
 // This prevents a race condition where ConversationTab reads currentSession before
 // it has been set to the overlay's target session.
 const switchingSession = ref(true);
+const isOverlayPromptFocused = ref(false);
+let overlayPromptBlurTimer = null;
+let promptVisibilityRaf = null;
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
@@ -808,6 +817,63 @@ function handleHeaderTouchmove(event) {
   event.preventDefault();
 }
 
+function clearPromptBlurTimer() {
+  if (overlayPromptBlurTimer) {
+    clearTimeout(overlayPromptBlurTimer);
+    overlayPromptBlurTimer = null;
+  }
+}
+
+function clearPromptVisibilityRaf() {
+  if (promptVisibilityRaf) {
+    cancelAnimationFrame(promptVisibilityRaf);
+    promptVisibilityRaf = null;
+  }
+}
+
+function requestPromptVisibilityCheck() {
+  clearPromptVisibilityRaf();
+  promptVisibilityRaf = requestAnimationFrame(() => {
+    promptVisibilityRaf = null;
+    const body = overlayBodyRef.value;
+    const textarea = body?.querySelector?.('.input-form textarea');
+    const sendButton = body?.querySelector?.('.btn-send-full');
+    const spacer = body?.querySelector?.('.session-overlay-keyboard-spacer');
+    if (!body || !textarea) return;
+
+    const bodyRect = body.getBoundingClientRect();
+    const targetRect = (sendButton || textarea).getBoundingClientRect();
+    const spacerHeight = spacer?.getBoundingClientRect?.().height || 0;
+    const visibleBottom = bodyRect.bottom - spacerHeight;
+    if (targetRect.bottom > visibleBottom) {
+      body.scrollTop += targetRect.bottom - visibleBottom + 12;
+    }
+  });
+}
+
+function handleOverlayPromptFocus() {
+  clearPromptBlurTimer();
+  isOverlayPromptFocused.value = true;
+  setSessionOverlayPromptFocus(true);
+  requestVisualViewportUpdate();
+  requestVisualViewportSettle({ maxDurationMs: 700, minDurationMs: 200 });
+  requestPromptVisibilityCheck();
+}
+
+function handleOverlayPromptBlur(event) {
+  clearPromptBlurTimer();
+  requestVisualViewportSettle({ maxDurationMs: 350, minDurationMs: 100 });
+  overlayPromptBlurTimer = setTimeout(() => {
+    overlayPromptBlurTimer = null;
+    if (document.activeElement === event?.target) {
+      return;
+    }
+    isOverlayPromptFocused.value = false;
+    setSessionOverlayPromptFocus(false);
+    requestVisualViewportSettle({ maxDurationMs: 350, minDurationMs: 100 });
+  }, 80);
+}
+
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
 // On iOS Safari, `overflow: hidden` alone is insufficient: it doesn't reset
 // the existing scroll offset and touch gestures can still move the body.
@@ -882,6 +948,9 @@ function getBackdropEl() {
 
 function runDriftCheck() {
   checkOverlayViewportDrift(getBackdropEl());
+  if (isOverlayPromptFocused.value) {
+    requestPromptVisibilityCheck();
+  }
 }
 
 function startDriftCheck() {
@@ -931,6 +1000,10 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopDriftCheck();
+  clearPromptBlurTimer();
+  clearPromptVisibilityRaf();
+  isOverlayPromptFocused.value = false;
+  setSessionOverlayPromptFocus(false);
   unlockBodyScroll();
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
@@ -1239,6 +1312,11 @@ defineExpose({
 
 .session-chat-overlay :deep(.conversation-controls-row > *) {
   pointer-events: auto;
+}
+
+.session-chat-overlay--composer-focused :deep(.session-overlay-keyboard-spacer) {
+  flex-basis: var(--session-overlay-keyboard-bottom-inset, 0px);
+  height: var(--session-overlay-keyboard-bottom-inset, 0px);
 }
 
 @media (max-width: 768px) {
