@@ -162,6 +162,7 @@ vi.mock('./ConversationTab.vue', () => ({
   default: defineComponent({
     name: 'ConversationTab',
     props: ['sessionId'],
+    emits: ['prompt-focus', 'prompt-blur'],
     render() {
       return h('div', { class: 'conversation-tab-mock', 'data-session-id': this.sessionId }, 'ConversationTab');
     },
@@ -1653,9 +1654,43 @@ describe('SessionChatOverlay', () => {
       const shellBlocks = [
         ...getStyleBlocks('.overlay-backdrop'),
         ...getStyleBlocks('.overlay-panel-wrapper'),
+        ...getStyleBlocks('.overlay-content'),
+        ...getStyleBlocks('.overlay-header'),
       ].join('\n');
       expect(shellBlocks).not.toMatch(/--viewport-offset-top/);
       expect(shellBlocks).not.toMatch(/--visual-viewport-height/);
+      expect(shellBlocks).not.toMatch(/--session-overlay-keyboard-bottom-inset/);
+    });
+
+    it('only the composer spacer consumes the session keyboard bottom inset', () => {
+      const spacerBlock = getStyleBlock('.session-chat-overlay--composer-focused :deep(.session-overlay-keyboard-spacer)');
+      expect(spacerBlock).toMatch(/--session-overlay-keyboard-bottom-inset/);
+
+      for (const selector of ['.overlay-backdrop', '.overlay-panel-wrapper', '.overlay-content', '.overlay-header', '.overlay-body']) {
+        const blocks = getStyleBlocks(selector).join('\n');
+        expect(blocks).not.toMatch(/--session-overlay-keyboard-bottom-inset/);
+      }
+    });
+
+    it('prompt focus toggles only the composer-focused overlay class', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+      const content = document.querySelector('.session-chat-overlay');
+      const conversationTab = wrapper.findComponent({ name: 'ConversationTab' });
+
+      expect(content.classList.contains('session-chat-overlay--composer-focused')).toBe(false);
+
+      await conversationTab.vm.$emit('prompt-focus', new FocusEvent('focus'));
+      await nextTick();
+      expect(content.classList.contains('session-chat-overlay--composer-focused')).toBe(true);
+
+      await conversationTab.vm.$emit('prompt-blur', new FocusEvent('blur'));
+      await new Promise(r => setTimeout(r, 100));
+      await nextTick();
+      expect(content.classList.contains('session-chat-overlay--composer-focused')).toBe(false);
+
+      wrapper.unmount();
     });
 
     it('content, header, and body declare solid backgrounds', () => {

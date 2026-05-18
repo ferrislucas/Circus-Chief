@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { nextTick } from 'vue';
 import { mount } from '@vue/test-utils';
 import {
+  computeSessionOverlayKeyboardBottomInset,
   computeSessionOverlayTopChromeInset,
   requestVisualViewportSettle,
   requestVisualViewportUpdate,
+  setSessionOverlayPromptFocus,
   useVisualViewport,
   writeVisualViewportVariables,
   checkOverlayViewportDrift,
@@ -115,6 +117,13 @@ describe('useVisualViewport', () => {
     expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
       '--session-overlay-top-chrome-inset',
       sessionOverlayTopChromeInset
+    );
+  }
+
+  function expectKeyboardInset(value) {
+    expect(document.documentElement.style.setProperty).toHaveBeenCalledWith(
+      '--session-overlay-keyboard-bottom-inset',
+      value
     );
   }
 
@@ -258,6 +267,120 @@ describe('useVisualViewport', () => {
     });
   });
 
+  describe('computeSessionOverlayKeyboardBottomInset', () => {
+    const focusedIPad = {
+      isOverlayPromptFocused: true,
+      layoutWidth: 744,
+      layoutHeight: 1000,
+      visualViewportHeight: 700,
+      visualViewportOffsetTop: 20,
+      platform: 'MacIntel',
+      maxTouchPoints: 5,
+    };
+
+    it('returns 0 when the overlay prompt is not focused', () => {
+      expect(
+        computeSessionOverlayKeyboardBottomInset({
+          ...focusedIPad,
+          isOverlayPromptFocused: false,
+        })
+      ).toBe(0);
+    });
+
+    it('returns 0 for phone-class keyboard-shaped viewports', () => {
+      for (const [layoutWidth, layoutHeight, visualViewportHeight] of [
+        [390, 844, 500],
+        [375, 812, 420],
+        [360, 640, 360],
+        [320, 568, 320],
+      ]) {
+        expect(
+          computeSessionOverlayKeyboardBottomInset({
+            isOverlayPromptFocused: true,
+            layoutWidth,
+            layoutHeight,
+            visualViewportHeight,
+            visualViewportOffsetTop: 0,
+            userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
+            platform: 'iPhone',
+            maxTouchPoints: 5,
+          })
+        ).toBe(0);
+      }
+    });
+
+    it('returns 0 for non-touch tablet-sized layouts', () => {
+      expect(
+        computeSessionOverlayKeyboardBottomInset({
+          ...focusedIPad,
+          platform: 'Linux x86_64',
+          maxTouchPoints: 0,
+        })
+      ).toBe(0);
+    });
+
+    it('returns 0 when focused without a keyboard-shaped viewport', () => {
+      expect(
+        computeSessionOverlayKeyboardBottomInset({
+          ...focusedIPad,
+          visualViewportHeight: 950,
+        })
+      ).toBe(0);
+    });
+
+    it('adds accessory allowance to the keyboard overlap on iPad-like touch devices', () => {
+      expect(
+        computeSessionOverlayKeyboardBottomInset(focusedIPad)
+      ).toBe(344);
+    });
+
+    it('includes visualViewport offsetTop in the overlap calculation', () => {
+      expect(
+        computeSessionOverlayKeyboardBottomInset({
+          ...focusedIPad,
+          visualViewportHeight: 620,
+          visualViewportOffsetTop: 80,
+        })
+      ).toBe(364);
+    });
+
+    it('clamps stale or extreme values to the absolute maximum', () => {
+      expect(
+        computeSessionOverlayKeyboardBottomInset({
+          ...focusedIPad,
+          visualViewportHeight: 700,
+          visualViewportOffsetTop: 0,
+          absoluteMax: 300,
+        })
+      ).toBe(300);
+    });
+
+    it('clamps short landscape-like values to preserve usable overlay height', () => {
+      expect(
+        computeSessionOverlayKeyboardBottomInset({
+          ...focusedIPad,
+          layoutWidth: 800,
+          layoutHeight: 430,
+          visualViewportHeight: 200,
+          visualViewportOffsetTop: 0,
+          absoluteMax: 420,
+        })
+      ).toBe(40);
+    });
+
+    it('clamps portrait-like values to preserve usable overlay height', () => {
+      expect(
+        computeSessionOverlayKeyboardBottomInset({
+          ...focusedIPad,
+          layoutHeight: 700,
+          visualViewportHeight: 300,
+          visualViewportOffsetTop: 0,
+          absoluteMax: 420,
+        })
+      ).toBe(140);
+    });
+  });
+
   describe('Browser support detection', () => {
     it('returns without errors when visualViewport API is not supported', () => {
       // Remove visualViewport to simulate unsupported browser
@@ -345,6 +468,29 @@ describe('useVisualViewport', () => {
 
       expect(rect).toEqual({ offsetTop: 32, height: 968 });
       expectViewportVariables('32px', '968px', '32px');
+      expectKeyboardInset('0px');
+    });
+
+    it('writes and clears the session overlay keyboard bottom inset', () => {
+      setLayoutViewport(744, 1000);
+      const originalPlatform = navigator.platform;
+      const originalTouch = navigator.maxTouchPoints;
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+      mockVisualViewport.offsetTop = 20;
+      mockVisualViewport.height = 600;
+
+      setSessionOverlayPromptFocus(true);
+      writeVisualViewportVariables();
+
+      expectKeyboardInset('420px');
+      expect(document.documentElement.style.getPropertyValue('--session-overlay-top-chrome-inset')).toBe('0px');
+
+      setSessionOverlayPromptFocus(false);
+
+      expectKeyboardInset('0px');
+      Object.defineProperty(navigator, 'platform', { configurable: true, value: originalPlatform });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: originalTouch });
     });
   });
 

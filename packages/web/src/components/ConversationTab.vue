@@ -75,6 +75,8 @@
       @open-schedule="showScheduleModal = true"
       @open-auto-reschedule="showAutoRescheduleModal = true"
       @template-change="handleTemplateChange"
+      @prompt-focus="$emit('prompt-focus', $event)"
+      @prompt-blur="$emit('prompt-blur', $event)"
     />
 
     <!-- Scheduling Info Panel (scheduled countdown + auto-reschedule status) -->
@@ -148,6 +150,8 @@ const props = defineProps({
     validator: (v) => ['bottom', 'latest-agent-turn'].includes(v),
   },
 });
+
+defineEmits(['prompt-focus', 'prompt-blur']);
 
 const sessionsStore = useInjectedSessionsStore();
 const uiStore = useUiStore();
