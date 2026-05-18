@@ -370,10 +370,8 @@ function handleSessionCreated(msg) {
   );
   if (!isChildOfTree) return;
 
-  // Add to store so getters work (push directly to sessions array)
-  if (!sessionsStore.getSessionById(newSession.id)) {
-    sessionsStore.sessions.push(newSession);
-  }
+  // Add to store so getters work
+  sessionsStore.addSessionToList(newSession);
 
   // Update overlay target BEFORE the async chain rebuild so it's set immediately
   if (newSession.status === 'running' || newSession.status === 'starting') {
@@ -408,8 +406,8 @@ async function handleOverlaySessionCreated(session) {
   preferredOverlaySession.value = createdSession || null;
   overlaySessionId.value = sessionId;
 
-  if (createdSession && !sessionsStore.getSessionById(sessionId)) {
-    sessionsStore.sessions.unshift(createdSession);
+  if (createdSession) {
+    sessionsStore.addSessionToList(createdSession);
   }
 
   await buildSessionChain();
