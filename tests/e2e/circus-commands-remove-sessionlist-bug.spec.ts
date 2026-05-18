@@ -11,7 +11,7 @@ import {
   getSession,
 } from './helpers';
 
-test.describe('Command Buttons - Remove Run from Session List', () => {
+test.describe('Circus Commands - Remove Run from Session List', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project;

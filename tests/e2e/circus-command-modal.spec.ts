@@ -10,7 +10,7 @@ import {
   waitForCommandRunComplete,
 } from './helpers';
 
-test.describe('Command Button Status Modal', () => {
+test.describe('Circus Command Status Modal', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;

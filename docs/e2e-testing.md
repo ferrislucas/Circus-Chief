@@ -146,7 +146,7 @@ The `seedAssistantMessage`, `seedUserMessage`, and `seedAssistantMessageWithTool
 | `seedSessionSummaryWithPR(sessionId, data)` | Summary + PR state via DB script |
 | `seedTodos(sessionId, conversationId, todos)` | Todo items via DB script |
 | `seedConversationTokens(sessionId, conversationId, tokens)` | Token usage via DB script |
-| `seedCommandButton(projectId, data)` | Command button via REST API |
+| `seedCommandButton(projectId, data)` | Circus Command via REST API |
 | `seedProjectTemplate(projectId, data)` | Project template via REST API |
 | `seedGlobalTemplate(data)` | Global template via REST API |
 | `seedScheduledSession(projectId, data)` | Scheduled session via REST API |
@@ -368,7 +368,7 @@ Ask yourself: **Does this test need the LLM to actually respond?**
 
 Follow existing conventions:
 - Feature tests: `feature-name.spec.ts` (e.g., `canvas.spec.ts`, `templates.spec.ts`)
-- Sub-feature tests: `feature-subfeature.spec.ts` (e.g., `command-buttons-extended.spec.ts`)
+- Sub-feature tests: `feature-subfeature.spec.ts` (e.g., `circus-commands-extended.spec.ts`)
 - UI-focused tests: `ui-ux.spec.ts`, `session-detail-scroll.spec.ts`
 
 ### Common Patterns

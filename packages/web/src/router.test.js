@@ -5,11 +5,11 @@ describe('Router Configuration', () => {
   it('should have command-button routes with projectId parameter', () => {
     const routes = [
       {
-        path: '/projects/:projectId/command-buttons/new',
+        path: '/projects/:projectId/circus-commands/new',
         params: { projectId: 'test-project' },
       },
       {
-        path: '/projects/:projectId/command-buttons/:buttonId',
+        path: '/projects/:projectId/circus-commands/:buttonId',
         params: { projectId: 'test-project', buttonId: 'btn-1' },
       },
     ];
@@ -27,8 +27,8 @@ describe('Router Configuration', () => {
       '/projects/:id/sessions': 'id', // Should be projectId
       '/projects/:id/sessions/new': 'id', // Should be projectId
       '/projects/:id/edit': 'id', // Should be projectId
-      '/projects/:projectId/command-buttons/new': 'projectId', // ✅ Correct
-      '/projects/:projectId/command-buttons/:buttonId': 'projectId', // ✅ Correct
+      '/projects/:projectId/circus-commands/new': 'projectId', // ✅ Correct
+      '/projects/:projectId/circus-commands/:buttonId': 'projectId', // ✅ Correct
       '/sessions/:id/:tab?': 'id', // This is correct for sessions
     };
 
