@@ -53,6 +53,7 @@ const mockSessionsStore = {
   addConversation: vi.fn(),
   updateConversation: vi.fn(),
   createSession: vi.fn(),
+  addSessionToList: vi.fn(),
 };
 
 vi.mock('../stores/sessions.js', () => ({
@@ -218,6 +219,12 @@ describe('SessionChatOverlay', () => {
     await router.isReady();
 
     mockSessionsStore.currentSession = { ...rootSession };
+    mockSessionsStore.sessions = [];
+    mockSessionsStore.addSessionToList.mockImplementation((session) => {
+      if (!mockSessionsStore.sessions.some(s => s.id === session.id)) {
+        mockSessionsStore.sessions.unshift(session);
+      }
+    });
     mockSessionsStore.getSessionById.mockReturnValue(null);
     mockSessionsStore.getSessionPath.mockReturnValue([rootSession]);
     mockSessionsStore.getRootSession.mockReturnValue(rootSession);
@@ -920,6 +927,50 @@ describe('SessionChatOverlay', () => {
       const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
       expect(btn).toBeTruthy();
       expect(btn.textContent.trim()).toContain('New Session');
+      wrapper.unmount();
+    });
+
+    it('uses addSessionToList when creating a child session', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
+      api.createSession.mockResolvedValue(newSession);
+
+      const onSessionCreated = vi.fn();
+      const wrapper = mount(SessionChatOverlay, {
+        props: { sessionId: 'sess-root' },
+        attrs: { onSessionCreated },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
+      await nextTick();
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(mockSessionsStore.addSessionToList).toHaveBeenCalledWith(newSession);
+      expect(mockSessionsStore.sessions.filter(s => s.id === newSession.id)).toHaveLength(1);
+      expect(onSessionCreated).toHaveBeenCalledWith(newSession);
+      wrapper.unmount();
+    });
+
+    it('does not duplicate a child session already present in the main store', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.sessions = [newSession];
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
+      api.createSession.mockResolvedValue(newSession);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(mockSessionsStore.addSessionToList).toHaveBeenCalledWith(newSession);
+      expect(mockSessionsStore.sessions.filter(s => s.id === newSession.id)).toHaveLength(1);
       wrapper.unmount();
     });
 
