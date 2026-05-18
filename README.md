@@ -73,6 +73,7 @@ npx circuschief -p 8080
 
 ## License and Trademarks
 
-Circus Chief is licensed under the [Apache License 2.0](LICENSE). See
-[NOTICE](NOTICE) for attribution and trademark notices, and
-[TRADEMARKS.md](TRADEMARKS.md) for the project trademark policy.
+Circus Chief is licensed under the [Apache License 2.0](LICENSE), including
+its warranty and liability disclaimers. See [NOTICE](NOTICE) for attribution
+and trademark notices, and [TRADEMARKS.md](TRADEMARKS.md) for the project
+trademark policy covering Circus Chief, Circus Time, and Circus Search.

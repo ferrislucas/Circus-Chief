@@ -1,8 +1,8 @@
 # Trademark Policy
 
 This policy describes how the names, logos, and brand assets for Circus Chief
-may be used. It is intended to clarify the trademark reservation already
-recognized by the Apache License 2.0.
+and related Circus products may be used. It is intended to clarify the
+trademark reservation already recognized by the Apache License 2.0.
 
 This policy is not a trademark registration notice and is not legal advice.
 
@@ -12,6 +12,7 @@ The protected marks include:
 
 - Circus Chief
 - Circus Time
+- Circus Search
 - The Circus Chief logo and related visual brand assets
 - Any confusingly similar names, logos, or brand presentations
 
@@ -50,6 +51,8 @@ about the source, sponsorship, or status of your work. For example, you may not:
   or paid advertisements that imply official ownership or endorsement.
 - Use "Circus Time" for an unofficial recurring-task add-on, license system,
   store listing, or related commercial product.
+- Use "Circus Search" for an unofficial search product, hosted service,
+  add-on, store listing, or related commercial product.
 
 ## Forks and Modified Versions
 
@@ -61,7 +64,6 @@ Acceptable descriptions include phrases such as:
 
 - "Based on Circus Chief"
 - "A modified build of Circus Chief"
-- "Compatible with Circus Chief"
 
 Avoid names, logos, and UI branding that make the fork appear to be the
 official Circus Chief product.
@@ -72,7 +74,8 @@ You may describe an add-on or integration as compatible with Circus Chief if
 that statement is accurate. You may not name, brand, or market an add-on in a
 way that suggests it is official unless you have written permission.
 
-Circus Time is reserved for the official recurring-tasks add-on.
+Circus Time is reserved for the official recurring-tasks add-on. Circus Search
+is reserved for the official search product.
 
 ## Questions and Permission
 

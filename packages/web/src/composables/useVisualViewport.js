@@ -1,4 +1,7 @@
 import { onMounted, onUnmounted } from 'vue';
+import { computeSessionOverlayKeyboardBottomInset } from './sessionOverlayKeyboardInset.js';
+
+export { computeSessionOverlayKeyboardBottomInset } from './sessionOverlayKeyboardInset.js';
 
 let rafId = null;
 let settleRafId = null;
@@ -6,6 +9,7 @@ let settleTimerId = null;
 let settleStartedAt = 0;
 let settleLastRect = null;
 let settleStableSamples = 0;
+let isSessionOverlayPromptFocused = false;
 
 const SESSION_OVERLAY_TOP_CHROME_THRESHOLD = 64;
 const KEYBOARD_HEIGHT_DELTA_THRESHOLD = 120;
@@ -94,6 +98,17 @@ export function computeSessionOverlayTopChromeInset({
   return 0;
 }
 
+export function setSessionOverlayPromptFocus(focused) {
+  isSessionOverlayPromptFocused = Boolean(focused);
+  if (!isSessionOverlayPromptFocused) {
+    document.documentElement.style.setProperty(
+      '--session-overlay-keyboard-bottom-inset',
+      '0px'
+    );
+  }
+  requestVisualViewportUpdate();
+}
+
 function rectsMatch(a, b) {
   return a && b && a.offsetTop === b.offsetTop && a.height === b.height;
 }
@@ -124,6 +139,20 @@ export function writeVisualViewportVariables() {
   document.documentElement.style.setProperty(
     '--session-overlay-top-chrome-inset',
     `${sessionOverlayTopChromeInset}px`
+  );
+  const sessionOverlayKeyboardBottomInset = computeSessionOverlayKeyboardBottomInset({
+    isOverlayPromptFocused: isSessionOverlayPromptFocused,
+    layoutWidth: window.innerWidth,
+    layoutHeight: window.innerHeight,
+    visualViewportHeight: rect.height,
+    visualViewportOffsetTop: rect.offsetTop,
+    userAgent: window.navigator?.userAgent,
+    platform: window.navigator?.platform,
+    maxTouchPoints: window.navigator?.maxTouchPoints,
+  });
+  document.documentElement.style.setProperty(
+    '--session-overlay-keyboard-bottom-inset',
+    `${sessionOverlayKeyboardBottomInset}px`
   );
   return rect;
 }

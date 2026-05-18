@@ -1144,6 +1144,19 @@ describe('Sessions Store', () => {
 
         expect(children).toEqual([]);
       });
+
+      it('deduplicates children with the same id within sessions', () => {
+        const store = useSessionsStore();
+        const parent = { id: 'parent-1', name: 'Parent', parentSessionId: null };
+        const child = { id: 'child-1', name: 'Child', parentSessionId: 'parent-1' };
+        const duplicateChild = { ...child, name: 'Duplicate Child' };
+        store.sessions = [parent, child, duplicateChild];
+
+        const children = store.getChildSessions(parent.id);
+
+        expect(children).toHaveLength(1);
+        expect(children.map((c) => c.id)).toEqual(['child-1']);
+      });
     });
 
     describe('hasChildren getter', () => {
@@ -5108,6 +5121,22 @@ describe('Sessions Store', () => {
 
         expect(result).toBe('idle');
       });
+    });
+  });
+
+  describe('addSessionToList', () => {
+    it('does not add duplicate sessions with the same id', () => {
+      const store = useSessionsStore();
+      const existingSession = { id: 'existing-session', name: 'Existing', status: 'completed' };
+      const newSession = { id: 'new-session', name: 'New', status: 'running' };
+      store.sessions = [existingSession];
+
+      store.addSessionToList(newSession);
+      store.addSessionToList(newSession);
+
+      expect(store.sessions.filter(s => s.id === newSession.id)).toHaveLength(1);
+      expect(store.sessions).toHaveLength(2);
+      expect(store.activeSessions.filter(s => s.id === newSession.id)).toHaveLength(1);
     });
   });
 
