@@ -65,10 +65,10 @@ describe('gitDiff', () => {
       ]);
     });
 
-    it('propagates git failures', async () => {
+    it('returns an empty array when git fails', async () => {
       git.mockRejectedValue(new Error('untracked failed'));
 
-      await expect(getUntrackedFiles('/repo')).rejects.toThrow('untracked failed');
+      await expect(getUntrackedFiles('/repo')).resolves.toEqual([]);
     });
   });
 

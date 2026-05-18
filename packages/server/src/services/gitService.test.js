@@ -527,11 +527,7 @@ describe('gitService', () => {
       execSync('git add staged-file.txt', { cwd: testDir });
 
       const count = await getModifiedFilesCount(testDir, defaultBranch);
-      // Note: git diff --name-only without --staged doesn't show staged files
-      // So staged-only files won't be counted (they would need to be in unstaged or untracked)
-      // However, this will be picked up by getUntrackedFiles since it was never committed
-      // Actually, once added, it's no longer untracked. So it won't be counted at all.
-      expect(count).toBe(0);
+      expect(count).toBe(1);
     });
 
     it('counts unstaged modified files', async () => {
@@ -568,9 +564,8 @@ describe('gitService', () => {
       await writeFile(join(testDir, 'untracked.txt'), 'content');
 
       const count = await getModifiedFilesCount(testDir, defaultBranch);
-      // Should count: committed.txt, README.md, untracked.txt = 3 unique files
-      // Note: staged.txt is not counted because it's not in committed/unstaged/untracked
-      expect(count).toBe(3);
+      // Should count: committed.txt, staged.txt, README.md, untracked.txt = 4 unique files
+      expect(count).toBe(4);
     });
 
     it('counts file only once when it appears in multiple states', async () => {
