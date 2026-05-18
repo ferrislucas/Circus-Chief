@@ -17,12 +17,12 @@ const routes = [
     component: () => import('./views/ProjectEditView.vue'),
   },
   {
-    path: '/projects/:projectId/command-buttons/new',
+    path: '/projects/:projectId/circus-commands/new',
     name: 'CommandButtonNew',
     component: () => import('./views/CommandButtonDetailView.vue'),
   },
   {
-    path: '/projects/:projectId/command-buttons/:buttonId',
+    path: '/projects/:projectId/circus-commands/:buttonId',
     name: 'CommandButtonEdit',
     component: () => import('./views/CommandButtonDetailView.vue'),
   },

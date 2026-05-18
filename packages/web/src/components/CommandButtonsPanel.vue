@@ -4,7 +4,7 @@
     <div class="panel-header">
       <h3>Circus Commands</h3>
       <router-link
-        :to="`/projects/${projectId}/command-buttons/new`"
+        :to="`/projects/${projectId}/circus-commands/new`"
         class="btn btn-primary btn-sm"
       >
         + New Circus Command
@@ -35,7 +35,7 @@
     >
       <p>No Circus Commands configured yet.</p>
       <router-link
-        :to="`/projects/${projectId}/command-buttons/new`"
+        :to="`/projects/${projectId}/circus-commands/new`"
         class="btn btn-primary"
       >
         Create First Button
@@ -151,7 +151,7 @@ const truncateCommand = (command) => {
 };
 
 const onRowClick = (button) => {
-  router.push(`/projects/${props.projectId}/command-buttons/${button.id}`);
+  router.push(`/projects/${props.projectId}/circus-commands/${button.id}`);
 };
 
 const onDeleteClick = (button) => {

@@ -368,7 +368,7 @@ Ask yourself: **Does this test need the LLM to actually respond?**
 
 Follow existing conventions:
 - Feature tests: `feature-name.spec.ts` (e.g., `canvas.spec.ts`, `templates.spec.ts`)
-- Sub-feature tests: `feature-subfeature.spec.ts` (e.g., `command-buttons-extended.spec.ts`)
+- Sub-feature tests: `feature-subfeature.spec.ts` (e.g., `circus-commands-extended.spec.ts`)
 - UI-focused tests: `ui-ux.spec.ts`, `session-detail-scroll.spec.ts`
 
 ### Common Patterns

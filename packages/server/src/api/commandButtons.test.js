@@ -80,7 +80,7 @@ describe('Command Buttons API', () => {
     buttonId = button.id;
 
     // Mount the routers AFTER creating test data
-    app.use('/api/projects/:projectId/command-buttons', commandButtonsRouter);
+    app.use('/api/projects/:projectId/circus-commands', commandButtonsRouter);
     app.use('/api/sessions', sessionsRouter);
   });
 
@@ -90,11 +90,11 @@ describe('Command Buttons API', () => {
     }
   });
 
-  describe('GET /api/projects/:projectId/command-buttons', () => {
+  describe('GET /api/projects/:projectId/circus-commands', () => {
     it('returns empty array when no buttons exist for project', async () => {
       const newProject = projects.create('Empty Project', tempDir);
 
-      const res = await request(app).get(`/api/projects/${newProject.id}/command-buttons`);
+      const res = await request(app).get(`/api/projects/${newProject.id}/circus-commands`);
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
@@ -109,7 +109,7 @@ describe('Command Buttons API', () => {
         command: 'echo another',
       });
 
-      const res = await request(app).get(`/api/projects/${projectId}/command-buttons`);
+      const res = await request(app).get(`/api/projects/${projectId}/circus-commands`);
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
@@ -126,7 +126,7 @@ describe('Command Buttons API', () => {
         command: 'echo other',
       });
 
-      const res = await request(app).get(`/api/projects/${projectId}/command-buttons`);
+      const res = await request(app).get(`/api/projects/${projectId}/circus-commands`);
 
       expect(res.status).toBe(200);
       expect(res.body.length).toBe(1);
@@ -134,10 +134,10 @@ describe('Command Buttons API', () => {
     });
   });
 
-  describe('POST /api/projects/:projectId/command-buttons', () => {
+  describe('POST /api/projects/:projectId/circus-commands', () => {
     it('creates command button with valid data', async () => {
       const res = await request(app)
-        .post(`/api/projects/${projectId}/command-buttons`)
+        .post(`/api/projects/${projectId}/circus-commands`)
         .send({
           label: 'New Button',
           command: 'npm run build',
@@ -152,7 +152,7 @@ describe('Command Buttons API', () => {
 
     it('creates button with sortOrder', async () => {
       const res = await request(app)
-        .post(`/api/projects/${projectId}/command-buttons`)
+        .post(`/api/projects/${projectId}/circus-commands`)
         .send({
           label: 'Ordered Button',
           command: 'echo ordered',
@@ -165,7 +165,7 @@ describe('Command Buttons API', () => {
 
     it('rejects request without label', async () => {
       const res = await request(app)
-        .post(`/api/projects/${projectId}/command-buttons`)
+        .post(`/api/projects/${projectId}/circus-commands`)
         .send({
           command: 'echo test',
         });
@@ -176,7 +176,7 @@ describe('Command Buttons API', () => {
 
     it('rejects request without command', async () => {
       const res = await request(app)
-        .post(`/api/projects/${projectId}/command-buttons`)
+        .post(`/api/projects/${projectId}/circus-commands`)
         .send({
           label: 'No Command',
         });
@@ -187,7 +187,7 @@ describe('Command Buttons API', () => {
 
     it('rejects request with invalid label type', async () => {
       const res = await request(app)
-        .post(`/api/projects/${projectId}/command-buttons`)
+        .post(`/api/projects/${projectId}/circus-commands`)
         .send({
           label: 123,
           command: 'echo test',
@@ -198,7 +198,7 @@ describe('Command Buttons API', () => {
 
     it('creates button with showOnList field in response', async () => {
       const res = await request(app)
-        .post(`/api/projects/${projectId}/command-buttons`)
+        .post(`/api/projects/${projectId}/circus-commands`)
         .send({
           label: 'Test Button',
           command: 'echo test',
@@ -210,9 +210,9 @@ describe('Command Buttons API', () => {
     });
   });
 
-  describe('GET /api/projects/:projectId/command-buttons/:id', () => {
+  describe('GET /api/projects/:projectId/circus-commands/:id', () => {
     it('returns button by id', async () => {
-      const res = await request(app).get(`/api/projects/${projectId}/command-buttons/${buttonId}`);
+      const res = await request(app).get(`/api/projects/${projectId}/circus-commands/${buttonId}`);
 
       expect(res.status).toBe(200);
       expect(res.body.id).toBe(buttonId);
@@ -221,7 +221,7 @@ describe('Command Buttons API', () => {
     });
 
     it('returns showOnList field', async () => {
-      const res = await request(app).get(`/api/projects/${projectId}/command-buttons/${buttonId}`);
+      const res = await request(app).get(`/api/projects/${projectId}/circus-commands/${buttonId}`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('showOnList');
@@ -229,17 +229,17 @@ describe('Command Buttons API', () => {
     });
 
     it('returns 404 for non-existent button', async () => {
-      const res = await request(app).get(`/api/projects/${projectId}/command-buttons/nonexistent`);
+      const res = await request(app).get(`/api/projects/${projectId}/circus-commands/nonexistent`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Circus Command not found');
     });
   });
 
-  describe('PATCH /api/projects/:projectId/command-buttons/:id', () => {
+  describe('PATCH /api/projects/:projectId/circus-commands/:id', () => {
     it('updates button label', async () => {
       const res = await request(app)
-        .patch(`/api/projects/${projectId}/command-buttons/${buttonId}`)
+        .patch(`/api/projects/${projectId}/circus-commands/${buttonId}`)
         .send({
           label: 'Updated Button',
           command: 'echo test',
@@ -256,7 +256,7 @@ describe('Command Buttons API', () => {
 
     it('updates button command', async () => {
       const res = await request(app)
-        .patch(`/api/projects/${projectId}/command-buttons/${buttonId}`)
+        .patch(`/api/projects/${projectId}/circus-commands/${buttonId}`)
         .send({
           label: 'Test Button',
           command: 'npm run test',
@@ -268,7 +268,7 @@ describe('Command Buttons API', () => {
 
     it('updates sortOrder', async () => {
       const res = await request(app)
-        .patch(`/api/projects/${projectId}/command-buttons/${buttonId}`)
+        .patch(`/api/projects/${projectId}/circus-commands/${buttonId}`)
         .send({
           label: 'Test Button',
           command: 'echo test',
@@ -281,7 +281,7 @@ describe('Command Buttons API', () => {
 
     it('allows partial updates with just command', async () => {
       const res = await request(app)
-        .patch(`/api/projects/${projectId}/command-buttons/${buttonId}`)
+        .patch(`/api/projects/${projectId}/circus-commands/${buttonId}`)
         .send({
           command: 'echo updated',
         });
@@ -293,7 +293,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 for non-existent button', async () => {
       const res = await request(app)
-        .patch(`/api/projects/${projectId}/command-buttons/nonexistent`)
+        .patch(`/api/projects/${projectId}/circus-commands/nonexistent`)
         .send({
           label: 'Updated',
           command: 'echo updated',
@@ -305,7 +305,7 @@ describe('Command Buttons API', () => {
 
     it('accepts showOnList in update request', async () => {
       const res = await request(app)
-        .patch(`/api/projects/${projectId}/command-buttons/${buttonId}`)
+        .patch(`/api/projects/${projectId}/circus-commands/${buttonId}`)
         .send({
           label: 'Test Button',
           command: 'echo test',
@@ -318,9 +318,9 @@ describe('Command Buttons API', () => {
     });
   });
 
-  describe('DELETE /api/projects/:projectId/command-buttons/:id', () => {
+  describe('DELETE /api/projects/:projectId/circus-commands/:id', () => {
     it('deletes command button', async () => {
-      const res = await request(app).delete(`/api/projects/${projectId}/command-buttons/${buttonId}`);
+      const res = await request(app).delete(`/api/projects/${projectId}/circus-commands/${buttonId}`);
 
       expect(res.status).toBe(204);
 
@@ -330,17 +330,17 @@ describe('Command Buttons API', () => {
     });
 
     it('returns 404 for non-existent button', async () => {
-      const res = await request(app).delete(`/api/projects/${projectId}/command-buttons/nonexistent`);
+      const res = await request(app).delete(`/api/projects/${projectId}/circus-commands/nonexistent`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Circus Command not found');
     });
   });
 
-  describe('POST /api/sessions/:sessionId/command-buttons/:buttonId/run', () => {
+  describe('POST /api/sessions/:sessionId/circus-commands/:buttonId/run', () => {
     it('returns immediately with runId', async () => {
       const res = await request(app).post(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/run`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/run`
       );
 
       expect(res.status).toBe(200);
@@ -352,7 +352,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 for non-existent session', async () => {
       const res = await request(app).post(
-        `/api/sessions/nonexistent/command-buttons/${buttonId}/run`
+        `/api/sessions/nonexistent/circus-commands/${buttonId}/run`
       );
 
       expect(res.status).toBe(404);
@@ -361,7 +361,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 for non-existent button', async () => {
       const res = await request(app).post(
-        `/api/sessions/${sessionId}/command-buttons/nonexistent/run`
+        `/api/sessions/${sessionId}/circus-commands/nonexistent/run`
       );
 
       expect(res.status).toBe(404);
@@ -370,7 +370,7 @@ describe('Command Buttons API', () => {
 
     it('calls commandRunner.run with correct parameters', async () => {
       const res = await request(app).post(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/run`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/run`
       );
 
       expect(res.status).toBe(200);
@@ -399,7 +399,7 @@ describe('Command Buttons API', () => {
       });
 
       await request(app).post(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/run`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/run`
       );
 
       // Wait for async execution
@@ -418,7 +418,7 @@ describe('Command Buttons API', () => {
         callbacks.onComplete(0, 'output');
       });
 
-      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
 
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -444,7 +444,7 @@ describe('Command Buttons API', () => {
         callbacks.onComplete(1, 'error output');
       });
 
-      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
 
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -461,7 +461,7 @@ describe('Command Buttons API', () => {
     it('broadcasts error when commandRunner throws', async () => {
       commandRunner.run.mockRejectedValue(new Error('Command failed'));
 
-      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
 
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -484,7 +484,7 @@ describe('Command Buttons API', () => {
         callbacks.onError('Something went wrong');
       });
 
-      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
 
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -499,7 +499,7 @@ describe('Command Buttons API', () => {
 
     it('broadcasts initial running status to project immediately', async () => {
       await request(app).post(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/run`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/run`
       );
 
       // Wait a bit for async execution to start
@@ -528,7 +528,7 @@ describe('Command Buttons API', () => {
       });
 
       await request(app).post(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/run`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/run`
       );
 
       // Wait for async execution
@@ -553,7 +553,7 @@ describe('Command Buttons API', () => {
         callbacks.onComplete(0, 'output');
       });
 
-      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
 
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -580,7 +580,7 @@ describe('Command Buttons API', () => {
         callbacks.onComplete(1, 'error output');
       });
 
-      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
 
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -607,7 +607,7 @@ describe('Command Buttons API', () => {
     it('broadcasts error to project when commandRunner throws', async () => {
       commandRunner.run.mockRejectedValue(new Error('Command execution failed'));
 
-      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
 
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -632,7 +632,7 @@ describe('Command Buttons API', () => {
         callbacks.onError('Command runner error');
       });
 
-      await request(app).post(`/api/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      await request(app).post(`/api/sessions/${sessionId}/circus-commands/${buttonId}/run`);
 
       // Wait for async execution
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -653,11 +653,11 @@ describe('Command Buttons API', () => {
     });
   });
 
-  describe('GET /api/sessions/:sessionId/command-buttons/runs', () => {
+  describe('GET /api/sessions/:sessionId/circus-commands/runs', () => {
     it('returns empty array when no active runs', async () => {
       commandRunner.getRunsBySession.mockReturnValue([]);
 
-      const res = await request(app).get(`/api/sessions/${sessionId}/command-buttons/runs`);
+      const res = await request(app).get(`/api/sessions/${sessionId}/circus-commands/runs`);
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
@@ -675,7 +675,7 @@ describe('Command Buttons API', () => {
       ];
       commandRunner.getRunsBySession.mockReturnValue(mockRuns);
 
-      const res = await request(app).get(`/api/sessions/${sessionId}/command-buttons/runs`);
+      const res = await request(app).get(`/api/sessions/${sessionId}/circus-commands/runs`);
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual(mockRuns);
@@ -683,14 +683,14 @@ describe('Command Buttons API', () => {
     });
 
     it('returns 404 for non-existent session', async () => {
-      const res = await request(app).get(`/api/sessions/nonexistent/command-buttons/runs`);
+      const res = await request(app).get(`/api/sessions/nonexistent/circus-commands/runs`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Session not found');
     });
   });
 
-  describe('POST /api/sessions/:sessionId/command-buttons/runs/:runId/kill', () => {
+  describe('POST /api/sessions/:sessionId/circus-commands/runs/:runId/kill', () => {
     it('kills running command', async () => {
       commandRunner.getRunsBySession.mockReturnValue([
         { runId: 'run-123', buttonId, status: 'running' },
@@ -698,7 +698,7 @@ describe('Command Buttons API', () => {
       commandRunner.kill.mockReturnValue(true);
 
       const res = await request(app).post(
-        `/api/sessions/${sessionId}/command-buttons/runs/run-123/kill`
+        `/api/sessions/${sessionId}/circus-commands/runs/run-123/kill`
       );
 
       expect(res.status).toBe(200);
@@ -711,7 +711,7 @@ describe('Command Buttons API', () => {
       commandRunner.kill.mockReturnValue(false);
 
       const res = await request(app).post(
-        `/api/sessions/${sessionId}/command-buttons/runs/nonexistent/kill`
+        `/api/sessions/${sessionId}/circus-commands/runs/nonexistent/kill`
       );
 
       expect(res.status).toBe(404);
@@ -720,7 +720,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 for non-existent session', async () => {
       const res = await request(app).post(
-        `/api/sessions/nonexistent/command-buttons/runs/run-123/kill`
+        `/api/sessions/nonexistent/circus-commands/runs/run-123/kill`
       );
 
       expect(res.status).toBe(404);
@@ -728,7 +728,7 @@ describe('Command Buttons API', () => {
     });
   });
 
-  describe('DELETE /api/sessions/:sessionId/command-buttons/runs/:runId', () => {
+  describe('DELETE /api/sessions/:sessionId/circus-commands/runs/:runId', () => {
     beforeEach(() => {
       vi.clearAllMocks();
       // Restore default mock implementations after clearAllMocks
@@ -742,7 +742,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('run-to-delete', 0, 'output');
 
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/runs/run-to-delete`
+        `/api/sessions/${sessionId}/circus-commands/runs/run-to-delete`
       );
 
       expect(res.status).toBe(204);
@@ -750,7 +750,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 when session not found', async () => {
       const res = await request(app).delete(
-        `/api/sessions/nonexistent/command-buttons/runs/run-123`
+        `/api/sessions/nonexistent/circus-commands/runs/run-123`
       );
 
       expect(res.status).toBe(404);
@@ -759,7 +759,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 when run not found', async () => {
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/runs/nonexistent`
+        `/api/sessions/${sessionId}/circus-commands/runs/nonexistent`
       );
 
       expect(res.status).toBe(404);
@@ -777,7 +777,7 @@ describe('Command Buttons API', () => {
 
       // Try to delete via the first session
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/runs/run-other`
+        `/api/sessions/${sessionId}/circus-commands/runs/run-other`
       );
 
       expect(res.status).toBe(404);
@@ -793,7 +793,7 @@ describe('Command Buttons API', () => {
       commandRunner.isRunning.mockReturnValue(true);
 
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/runs/run-running`
+        `/api/sessions/${sessionId}/circus-commands/runs/run-running`
       );
 
       expect(res.status).toBe(409);
@@ -806,7 +806,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('run-broadcast', 0, 'output');
 
       await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/runs/run-broadcast`
+        `/api/sessions/${sessionId}/circus-commands/runs/run-broadcast`
       );
 
       // Verify session broadcast
@@ -839,14 +839,14 @@ describe('Command Buttons API', () => {
       commandRuns.complete('run-verify-delete', 0, 'output');
 
       await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/runs/run-verify-delete`
+        `/api/sessions/${sessionId}/circus-commands/runs/run-verify-delete`
       );
 
       expect(commandRuns.getById('run-verify-delete')).toBeNull();
     });
   });
 
-  describe('DELETE /api/sessions/:sessionId/command-buttons/:buttonId/runs/all', () => {
+  describe('DELETE /api/sessions/:sessionId/circus-commands/:buttonId/runs/all', () => {
     beforeEach(() => {
       vi.clearAllMocks();
       commandRunner.isRunning.mockReturnValue(false);
@@ -862,7 +862,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('bulk-run-3', 1, 'error output');
 
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/runs/all`
       );
 
       expect(res.status).toBe(204);
@@ -875,7 +875,7 @@ describe('Command Buttons API', () => {
 
     it('returns 204 even when no runs exist (idempotent)', async () => {
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/runs/all`
       );
 
       expect(res.status).toBe(204);
@@ -883,7 +883,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 when session not found', async () => {
       const res = await request(app).delete(
-        `/api/sessions/nonexistent/command-buttons/${buttonId}/runs/all`
+        `/api/sessions/nonexistent/circus-commands/${buttonId}/runs/all`
       );
 
       expect(res.status).toBe(404);
@@ -892,7 +892,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 when button not found', async () => {
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/nonexistent/runs/all`
+        `/api/sessions/${sessionId}/circus-commands/nonexistent/runs/all`
       );
 
       expect(res.status).toBe(404);
@@ -907,7 +907,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('bulk-bc-2', 0, 'output2');
 
       await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/runs/all`
       );
 
       // Verify session broadcasts
@@ -938,7 +938,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('bulk-completed', 0, 'output');
 
       const res = await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/runs/all`
       );
 
       expect(res.status).toBe(204);
@@ -965,7 +965,7 @@ describe('Command Buttons API', () => {
       commandRuns.complete('bulk-del-2', 0, 'output');
 
       await request(app).delete(
-        `/api/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`
+        `/api/sessions/${sessionId}/circus-commands/${buttonId}/runs/all`
       );
 
       expect(commandRuns.getById('bulk-del-1')).toBeNull();
@@ -973,7 +973,7 @@ describe('Command Buttons API', () => {
     });
   });
 
-  describe('GET /api/sessions/:sessionId/command-buttons/runs/:runId', () => {
+  describe('GET /api/sessions/:sessionId/circus-commands/runs/:runId', () => {
     beforeEach(() => {
       // Clear mocks before each test
       vi.clearAllMocks();
@@ -993,7 +993,7 @@ describe('Command Buttons API', () => {
       commandRunner.getRunsBySession.mockReturnValue([activeRun]);
 
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/${runId}`
+        `/api/sessions/${sessionId}/circus-commands/runs/${runId}`
       );
 
       expect(res.status).toBe(200);
@@ -1010,7 +1010,7 @@ describe('Command Buttons API', () => {
       // We need to patch the database import, but since it's already imported,
       // we'll test the fallback behavior
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/test-run-2`
+        `/api/sessions/${sessionId}/circus-commands/runs/test-run-2`
       );
 
       // If the run isn't found in active runs, it should try the database
@@ -1024,7 +1024,7 @@ describe('Command Buttons API', () => {
       commandRunner.getRunsBySession.mockReturnValue([]);
 
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/nonexistent-run`
+        `/api/sessions/${sessionId}/circus-commands/runs/nonexistent-run`
       );
 
       expect(res.status).toBe(404);
@@ -1036,7 +1036,7 @@ describe('Command Buttons API', () => {
       commandRunner.getRunsBySession.mockReturnValue([]);
 
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/test-run-3`
+        `/api/sessions/${sessionId}/circus-commands/runs/test-run-3`
       );
 
       expect(res.status).toBe(404);
@@ -1045,7 +1045,7 @@ describe('Command Buttons API', () => {
 
     it('returns 404 for non-existent session', async () => {
       const res = await request(app).get(
-        `/api/sessions/nonexistent-session/command-buttons/runs/run-123`
+        `/api/sessions/nonexistent-session/circus-commands/runs/run-123`
       );
 
       expect(res.status).toBe(404);
@@ -1067,7 +1067,7 @@ describe('Command Buttons API', () => {
       commandRunner.getRunsBySession.mockReturnValue([runData]);
 
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/${runId}`
+        `/api/sessions/${sessionId}/circus-commands/runs/${runId}`
       );
 
       expect(res.status).toBe(200);
@@ -1094,7 +1094,7 @@ describe('Command Buttons API', () => {
       commandRunner.getRunsBySession.mockReturnValue([failedRun]);
 
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/${runId}`
+        `/api/sessions/${sessionId}/circus-commands/runs/${runId}`
       );
 
       expect(res.status).toBe(200);
@@ -1117,7 +1117,7 @@ describe('Command Buttons API', () => {
       commandRunner.getRunsBySession.mockReturnValue([killedRun]);
 
       const res = await request(app).get(
-        `/api/sessions/${sessionId}/command-buttons/runs/${runId}`
+        `/api/sessions/${sessionId}/circus-commands/runs/${runId}`
       );
 
       expect(res.status).toBe(200);

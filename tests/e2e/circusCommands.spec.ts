@@ -27,7 +27,7 @@ test.describe('Circus Commands', () => {
 
   test('see real-time command output', async ({ page }) => {
     // Create a button via UI
-    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/circus-commands/new`);
     await page.fill('#label', 'Multi-line Output');
     await page.fill('#command', 'echo "Line 1" && echo "Line 2" && echo "Line 3"');
     await page.click('button:has-text("Create")');
@@ -53,7 +53,7 @@ test.describe('Circus Commands', () => {
 
   test('navigate between tabs with output persisting', async ({ page }) => {
     // Create a button via UI
-    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/circus-commands/new`);
     await page.fill('#label', 'Tab Test');
     await page.fill('#command', 'echo "Persist output"');
     await page.click('button:has-text("Create")');
@@ -94,7 +94,7 @@ test.describe('Circus Commands', () => {
 
   test('show error state when command fails', async ({ page }) => {
     // Create a command button with a failing command via UI
-    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/circus-commands/new`);
     await page.fill('#label', 'Failing Command');
     await page.fill('#command', 'exit 1');
     await page.click('button:has-text("Create")');
@@ -113,7 +113,7 @@ test.describe('Circus Commands', () => {
 
   test('show success state when command succeeds', async ({ page }) => {
     // Create a command button that succeeds via UI
-    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/circus-commands/new`);
     await page.fill('#label', 'Successful Command');
     await page.fill('#command', 'echo "Success"');
     await page.click('button:has-text("Create")');
@@ -131,20 +131,20 @@ test.describe('Circus Commands', () => {
 
   test('display Circus Commands in table on management page', async ({ page }) => {
     // Create multiple buttons via UI
-    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/circus-commands/new`);
     await page.fill('#label', 'Button 1');
     await page.fill('#command', 'command 1');
     await page.click('button:has-text("Create")');
 
     // Create second button
-    await navigateAndWait(page, `/projects/${project.id}/command-buttons/new`);
+    await navigateAndWait(page, `/projects/${project.id}/circus-commands/new`);
     await page.fill('#label', 'Button 2');
     await page.fill('#command', 'command 2');
     await page.click('button:has-text("Create")');
 
     // Navigate to commands panel
-    await navigateAndWait(page, `/projects/${project.id}/sessions`);
-    await page.click('text=Commands');
+    await navigateAndWait(page, `/projects/${project.id}/commands`);
+    await expect(page.getByRole('heading', { name: 'Circus Commands', exact: true })).toBeVisible();
 
     // Should see both buttons in table
     await expect(page.getByText('Button 1')).toBeVisible();

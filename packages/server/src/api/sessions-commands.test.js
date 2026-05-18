@@ -65,13 +65,13 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
     });
   }
 
-  describe('GET /api/sessions/:id/command-buttons', () => {
+  describe('GET /api/sessions/:id/circus-commands', () => {
     it('returns buttons for the workflow root project through a child session', async () => {
       const child = createChildSession();
       const button = commandButtons.create({ projectId: project.id, label: 'Test Button', command: 'echo hello' });
 
       const res = await request(app)
-        .get(`/api/sessions/${child.id}/command-buttons`);
+        .get(`/api/sessions/${child.id}/circus-commands`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
@@ -79,10 +79,10 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
     });
   });
 
-  describe('POST /api/sessions/:id/command-buttons/:buttonId/run', () => {
+  describe('POST /api/sessions/:id/circus-commands/:buttonId/run', () => {
     it('returns 404 when button does not exist', async () => {
       const res = await request(app)
-        .post(`/api/sessions/${session.id}/command-buttons/non-existent/run`);
+        .post(`/api/sessions/${session.id}/circus-commands/non-existent/run`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Circus Command not found');
@@ -92,7 +92,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       const button = commandButtons.create({ projectId: project.id, label: 'Test Button', command: 'echo hello' });
 
       const res = await request(app)
-        .post(`/api/sessions/${session.id}/command-buttons/${button.id}/run`);
+        .post(`/api/sessions/${session.id}/circus-commands/${button.id}/run`);
 
       expect(res.status).toBe(200);
       expect(res.body.runId).toBeDefined();
@@ -106,7 +106,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       const button = commandButtons.create({ projectId: project.id, label: 'Test Button', command: 'echo hello' });
 
       const res = await request(app)
-        .post(`/api/sessions/${child.id}/command-buttons/${button.id}/run`);
+        .post(`/api/sessions/${child.id}/circus-commands/${button.id}/run`);
 
       expect(res.status).toBe(200);
       expect(commandRunner.run).toHaveBeenCalledWith(
@@ -124,7 +124,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       const button = commandButtons.create({ projectId: otherProject.id, label: 'Other Button', command: 'echo no' });
 
       const res = await request(app)
-        .post(`/api/sessions/${session.id}/command-buttons/${button.id}/run`);
+        .post(`/api/sessions/${session.id}/circus-commands/${button.id}/run`);
 
       expect(res.status).toBe(404);
       expect(commandRunner.run).not.toHaveBeenCalled();
@@ -132,20 +132,20 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
 
     it('returns 404 for non-existent session', async () => {
       const res = await request(app)
-        .post('/api/sessions/non-existent/command-buttons/btn-1/run');
+        .post('/api/sessions/non-existent/circus-commands/btn-1/run');
 
       expect(res.status).toBe(404);
     });
   });
 
-  describe('GET /api/sessions/:id/command-buttons/runs', () => {
+  describe('GET /api/sessions/:id/circus-commands/runs', () => {
     it('returns active runs for the session', async () => {
       commandRunner.getRunsBySession.mockReturnValue([
         { runId: 'r1', buttonId: 'b1', status: 'running' },
       ]);
 
       const res = await request(app)
-        .get(`/api/sessions/${session.id}/command-buttons/runs`);
+        .get(`/api/sessions/${session.id}/circus-commands/runs`);
 
       expect(res.status).toBe(200);
       expect(res.body).toHaveLength(1);
@@ -159,7 +159,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       ]);
 
       const res = await request(app)
-        .get(`/api/sessions/${child.id}/command-buttons/runs`);
+        .get(`/api/sessions/${child.id}/circus-commands/runs`);
 
       expect(res.status).toBe(200);
       expect(commandRunner.getRunsBySession).toHaveBeenCalledWith(session.id);
@@ -170,7 +170,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRunner.getRunsBySession.mockReturnValue([]);
 
       const res = await request(app)
-        .get(`/api/sessions/${session.id}/command-buttons/runs`);
+        .get(`/api/sessions/${session.id}/circus-commands/runs`);
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual([]);
@@ -178,13 +178,13 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
 
     it('returns 404 for non-existent session', async () => {
       const res = await request(app)
-        .get('/api/sessions/non-existent/command-buttons/runs');
+        .get('/api/sessions/non-existent/circus-commands/runs');
 
       expect(res.status).toBe(404);
     }, 30000);
   });
 
-  describe('GET /api/sessions/:id/command-buttons/runs/:runId', () => {
+  describe('GET /api/sessions/:id/circus-commands/runs/:runId', () => {
     it('returns running command from memory', async () => {
       commandRunner.isRunning.mockReturnValue(true);
       commandRunner.getRunsBySession.mockReturnValue([
@@ -192,7 +192,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       ]);
 
       const res = await request(app)
-        .get(`/api/sessions/${session.id}/command-buttons/runs/r1`);
+        .get(`/api/sessions/${session.id}/circus-commands/runs/r1`);
 
       expect(res.status).toBe(200);
       expect(res.body.runId).toBe('r1');
@@ -206,7 +206,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRuns.complete('root-complete', 0, 'done');
 
       const res = await request(app)
-        .get(`/api/sessions/${child.id}/command-buttons/runs/root-complete`);
+        .get(`/api/sessions/${child.id}/circus-commands/runs/root-complete`);
 
       expect(res.status).toBe(200);
       expect(res.body.runId).toBe('root-complete');
@@ -220,7 +220,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRuns.complete('child-complete', 0, 'done');
 
       const res = await request(app)
-        .get(`/api/sessions/${child.id}/command-buttons/runs/child-complete`);
+        .get(`/api/sessions/${child.id}/circus-commands/runs/child-complete`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Run not found');
@@ -230,21 +230,21 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRunner.isRunning.mockReturnValue(false);
 
       const res = await request(app)
-        .get(`/api/sessions/${session.id}/command-buttons/runs/non-existent`);
+        .get(`/api/sessions/${session.id}/circus-commands/runs/non-existent`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Run not found');
     });
   });
 
-  describe('DELETE /api/sessions/:id/command-buttons/runs/:runId', () => {
+  describe('DELETE /api/sessions/:id/circus-commands/runs/:runId', () => {
     it('returns 204 when run is deleted successfully', async () => {
       const button = commandButtons.create({ projectId: project.id, label: 'Del Button', command: 'echo del' });
       commandRuns.create({ id: 'run-del', sessionId: session.id, buttonId: button.id });
       commandRuns.complete('run-del', 0, 'output');
 
       const res = await request(app)
-        .delete(`/api/sessions/${session.id}/command-buttons/runs/run-del`);
+        .delete(`/api/sessions/${session.id}/circus-commands/runs/run-del`);
 
       expect(res.status).toBe(204);
       expect(commandRuns.getById('run-del')).toBeNull();
@@ -252,7 +252,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
 
     it('returns 404 when run not found', async () => {
       const res = await request(app)
-        .delete(`/api/sessions/${session.id}/command-buttons/runs/non-existent`);
+        .delete(`/api/sessions/${session.id}/circus-commands/runs/non-existent`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Run not found');
@@ -265,7 +265,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRunner.isRunning.mockReturnValue(true);
 
       const res = await request(app)
-        .delete(`/api/sessions/${session.id}/command-buttons/runs/run-active`);
+        .delete(`/api/sessions/${session.id}/circus-commands/runs/run-active`);
 
       expect(res.status).toBe(409);
       expect(res.body.error).toBe('Cannot delete a running command. Kill it first.');
@@ -279,7 +279,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRunner.isRunning.mockReturnValue(false);
 
       const res = await request(app)
-        .delete(`/api/sessions/${child.id}/command-buttons/runs/root-del`);
+        .delete(`/api/sessions/${child.id}/circus-commands/runs/root-del`);
 
       expect(res.status).toBe(204);
       expect(commandRuns.getById('root-del')).toBeNull();
@@ -297,13 +297,13 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
 
     it('returns 404 for non-existent session', async () => {
       const res = await request(app)
-        .delete('/api/sessions/non-existent/command-buttons/runs/run-1');
+        .delete('/api/sessions/non-existent/circus-commands/runs/run-1');
 
       expect(res.status).toBe(404);
     });
   });
 
-  describe('DELETE /api/sessions/:id/command-buttons/:buttonId/runs/all', () => {
+  describe('DELETE /api/sessions/:id/circus-commands/:buttonId/runs/all', () => {
     it('deletes only completed root-session runs for a button through a child session', async () => {
       const child = createChildSession();
       const button = commandButtons.create({ projectId: project.id, label: 'Bulk Button', command: 'echo bulk' });
@@ -314,7 +314,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRuns.complete('child-1', 0, 'child');
 
       const res = await request(app)
-        .delete(`/api/sessions/${child.id}/command-buttons/${button.id}/runs/all`);
+        .delete(`/api/sessions/${child.id}/circus-commands/${button.id}/runs/all`);
 
       expect(res.status).toBe(204);
       expect(commandRuns.getById('root-1')).toBeNull();
@@ -323,7 +323,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
     });
   });
 
-  describe('POST /api/sessions/:id/command-buttons/runs/:runId/kill', () => {
+  describe('POST /api/sessions/:id/circus-commands/runs/:runId/kill', () => {
     it('kills a running command', async () => {
       commandRunner.getRunsBySession.mockReturnValue([
         { runId: 'r1', buttonId: 'b1', status: 'running' },
@@ -331,7 +331,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRunner.kill.mockReturnValue(true);
 
       const res = await request(app)
-        .post(`/api/sessions/${session.id}/command-buttons/runs/r1/kill`);
+        .post(`/api/sessions/${session.id}/circus-commands/runs/r1/kill`);
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
@@ -346,7 +346,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRunner.kill.mockReturnValue(true);
 
       const res = await request(app)
-        .post(`/api/sessions/${child.id}/command-buttons/runs/root-active/kill`);
+        .post(`/api/sessions/${child.id}/circus-commands/runs/root-active/kill`);
 
       expect(res.status).toBe(200);
       expect(commandRunner.getRunsBySession).toHaveBeenCalledWith(session.id);
@@ -358,7 +358,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRunner.getRunsBySession.mockReturnValue([]); // no active runs for root
 
       const res = await request(app)
-        .post(`/api/sessions/${child.id}/command-buttons/runs/unknown-run/kill`);
+        .post(`/api/sessions/${child.id}/circus-commands/runs/unknown-run/kill`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Run not found or already completed');
@@ -369,7 +369,7 @@ describe('Sessions API - Command Routes (sessions-commands.js)', () => {
       commandRunner.kill.mockReturnValue(false);
 
       const res = await request(app)
-        .post(`/api/sessions/${session.id}/command-buttons/runs/non-existent/kill`);
+        .post(`/api/sessions/${session.id}/circus-commands/runs/non-existent/kill`);
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('Run not found or already completed');

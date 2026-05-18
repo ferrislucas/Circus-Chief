@@ -911,7 +911,7 @@ export async function seedCommandButton(
   projectId: string,
   data: { label: string; command: string; sortOrder?: number; showOnList?: boolean }
 ) {
-  const url = `${API_URL}/api/projects/${projectId}/command-buttons`;
+  const url = `${API_URL}/api/projects/${projectId}/circus-commands`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -928,7 +928,7 @@ export async function seedCommandButton(
  * Run a command button and return the run ID
  */
 export async function runCommandButton(sessionId: string, buttonId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/${buttonId}/run`, {
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/circus-commands/${buttonId}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -943,7 +943,7 @@ export async function runCommandButton(sessionId: string, buttonId: string) {
  * Get a specific command run by ID
  */
 export async function getCommandRun(sessionId: string, runId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs/${runId}`);
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/circus-commands/runs/${runId}`);
   if (!response.ok) return null;
   return response.json();
 }
@@ -952,7 +952,7 @@ export async function getCommandRun(sessionId: string, runId: string) {
  * Get all command runs for a session
  */
 export async function getCommandRuns(sessionId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs`);
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/circus-commands/runs`);
   if (!response.ok) return [];
   return response.json();
 }
@@ -986,12 +986,12 @@ export async function waitForCommandRunComplete(
 }
 
 /**
- * Kill a running command via POST /api/sessions/:sessionId/command-buttons/runs/:runId/kill.
+ * Kill a running command via POST /api/sessions/:sessionId/circus-commands/runs/:runId/kill.
  * Returns the full fetch Response so callers can check response.ok / response.status
  * for both success and 404 (already-completed) cases.
  */
 export async function killCommandRun(sessionId: string, runId: string): Promise<Response> {
-  return fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs/${runId}/kill`, {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/circus-commands/runs/${runId}/kill`, {
     method: 'POST',
   });
 }
@@ -1014,7 +1014,7 @@ export async function runCommandButtonAndWait(
  * Returns the fetch response for testing error cases.
  */
 export async function deleteCommandRun(sessionId: string, runId: string): Promise<Response> {
-  return fetch(`${API_URL}/api/sessions/${sessionId}/command-buttons/runs/${runId}`, {
+  return fetch(`${API_URL}/api/sessions/${sessionId}/circus-commands/runs/${runId}`, {
     method: 'DELETE',
   });
 }

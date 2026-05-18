@@ -567,7 +567,7 @@ describe('sessionPrompts', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain('## Circus Commands');
-        expect(result).toContain('/command-buttons');
+        expect(result).toContain('/circus-commands');
         expect(result).toContain('/runs');
         expect(result).toContain('/run');
         expect(result).toContain('/kill');
@@ -605,7 +605,7 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).toContain(`/api/sessions/${sessionId}/command-buttons/runs/<run_id>/kill`);
+        expect(result).toContain(`/api/sessions/${sessionId}/circus-commands/runs/<run_id>/kill`);
       });
 
       it('uses session-scoped command routes without tree traversal terms', () => {
@@ -613,8 +613,8 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).toContain(`curl http://localhost:5000/api/sessions/${sessionId}/command-buttons`);
-        expect(result).not.toContain(`/api/projects/${projectId}/command-buttons`);
+        expect(result).toContain(`curl http://localhost:5000/api/sessions/${sessionId}/circus-commands`);
+        expect(result).not.toContain(`/api/projects/${projectId}/circus-commands`);
         expect(result).not.toContain('Root Session ID');
         expect(result).not.toContain('Parent Session ID');
       });

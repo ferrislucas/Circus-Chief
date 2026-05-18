@@ -197,7 +197,7 @@ test.describe('Circus Commands - Remove Run Feature', () => {
       });
 
       // Step 2: Start the command (don't wait for completion)
-      const response = await fetch(`${API_URL}/api/sessions/${session.id}/command-buttons/${button.id}/run`, {
+      const response = await fetch(`${API_URL}/api/sessions/${session.id}/circus-commands/${button.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -225,7 +225,7 @@ test.describe('Circus Commands - Remove Run Feature', () => {
 
       // Step 8: Wait for command to complete (or kill it)
       // We'll kill it to speed up the test
-      await fetch(`${API_URL}/api/sessions/${session.id}/command-buttons/runs/${runId}/kill`, {
+      await fetch(`${API_URL}/api/sessions/${session.id}/circus-commands/runs/${runId}/kill`, {
         method: 'POST',
       });
 

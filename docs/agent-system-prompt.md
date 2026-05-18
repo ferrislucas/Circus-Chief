@@ -75,11 +75,11 @@ Included only when the project has commands configured. Built in `packages/serve
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/sessions/{sessionId}/command-buttons` | List available commands |
-| POST | `/api/sessions/{sessionId}/command-buttons/{button_id}/run` | Run a command. Response: `{ runId, buttonId, status: "running", output: "" }` |
-| GET | `/api/sessions/{sessionId}/command-buttons/runs/{run_id}` | Check run status & output. Response: `{ runId, buttonId, status, exitCode, output, startedAt, completedAt }` |
-| GET | `/api/sessions/{sessionId}/command-buttons/runs` | List all command runs |
-| POST | `/api/sessions/{sessionId}/command-buttons/runs/{run_id}/kill` | Kill a running command |
+| GET | `/api/sessions/{sessionId}/circus-commands` | List available commands |
+| POST | `/api/sessions/{sessionId}/circus-commands/{button_id}/run` | Run a command. Response: `{ runId, buttonId, status: "running", output: "" }` |
+| GET | `/api/sessions/{sessionId}/circus-commands/runs/{run_id}` | Check run status & output. Response: `{ runId, buttonId, status, exitCode, output, startedAt, completedAt }` |
+| GET | `/api/sessions/{sessionId}/circus-commands/runs` | List all command runs |
+| POST | `/api/sessions/{sessionId}/circus-commands/runs/{run_id}/kill` | Kill a running command |
 
 ### Kanban Board API (conditional)
 
