@@ -593,6 +593,57 @@ test.describe('Canvas Markdown Editor', () => {
     await expect(details).not.toHaveAttribute('open', '', { timeout: 5000 });
   });
 
+  test('Editor cursor stays stable when background WS version arrives during editing', async ({ page }) => {
+    // Regression test: typing in the markdown editor should not reset the
+    // cursor or replace the buffer when a new version echoes back over WS.
+    await seedCanvasItem(session.id, {
+      type: 'markdown',
+      content: '# Stable Cursor Test',
+      filename: 'cursor-stable.md',
+    });
+
+    await navigateAndWait(page, `/sessions/${session.id}/canvas`, {
+      waitFor: '.file-row',
+      timeout: 15000,
+    });
+
+    // Open file and enter edit mode
+    await page.locator('.file-row').first().click();
+    await page.waitForTimeout(500);
+    await page.locator('.btn-edit-toggle').click();
+    await expect(page.locator('.viewer-content-editing')).toBeVisible({ timeout: 10000 });
+
+    const editor = page.locator('.canvas-md-editor textarea, .md-editor textarea, .cm-content').first();
+    await expect(editor).toBeVisible({ timeout: 10000 });
+
+    // Type first edit and let debounce fire (creates v2)
+    await editor.fill('# Edit 1');
+    await expect.poll(
+      async () => {
+        const items = await getAllCanvasItems(session.id);
+        return items.filter((i: any) => i.filename === 'cursor-stable.md').length;
+      },
+      { timeout: 5000, message: 'server should have 2 versions after first edit' }
+    ).toBe(2);
+
+    // Now type a second edit — the WS echo of the first edit (v2) might have
+    // arrived, but the editor content should not be replaced.
+    await editor.fill('# Edit 2');
+    await expect.poll(
+      async () => {
+        const items = await getAllCanvasItems(session.id);
+        return items.filter((i: any) => i.filename === 'cursor-stable.md').length;
+      },
+      { timeout: 5000, message: 'server should have 3 versions after second edit' }
+    ).toBe(3);
+
+    // The editor should still show the user's latest content, NOT the v2 echo
+    // If the cursor reset bug were present, the editor would revert to "# Edit 1"
+    // after the first save's echo arrived.
+    const editorValue = await editor.inputValue().catch(() => editor.textContent());
+    expect(editorValue).toContain('Edit 2');
+  });
+
   test('PUT update preserves version count (API-level)', async () => {
     // Seed 2 versions of same markdown file via API
     const v1 = await seedCanvasItem(session.id, {
