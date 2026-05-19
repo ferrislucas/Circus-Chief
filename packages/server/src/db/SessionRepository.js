@@ -37,6 +37,10 @@ export class SessionRepository extends BaseRepository {
     super('sessions', SessionRepository.#mapSession);
   }
 
+  static #buildSortDate(row) {
+    return row.last_activity_at ?? row.updated_at ?? row.created_at ?? null;
+  }
+
   static #mapSession(row) {
     return {
       id: row.id,
@@ -74,7 +78,7 @@ export class SessionRepository extends BaseRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       lastActivityAt: row.last_activity_at ?? null,
-      sortDate: row.last_activity_at ?? row.updated_at ?? row.created_at ?? null,
+      sortDate: SessionRepository.#buildSortDate(row),
       lastMessageAt: row.last_message_at ?? null,
       activeTimeMs: row.active_time_ms || 0,
     };

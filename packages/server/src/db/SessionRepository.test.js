@@ -1773,7 +1773,7 @@ describe('SessionRepository', () => {
 
     it('is included in all repository list methods', () => {
       const parent = repo.create(projectId, 'Parent', 'Prompt');
-      const child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
+      const _child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
       repo.update(parent.id, { prUrl: 'https://github.com/org/repo/pull/123' });
       const scheduled = repo.create(projectId, 'Scheduled', 'Prompt', { status: 'scheduled' });
       repo.update(scheduled.id, { scheduledAt: Date.now() + 1000 });
