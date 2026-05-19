@@ -6,6 +6,9 @@ import { requireRootSessionAndProject } from '../middleware/sessionLookup.js';
 import { commandRunner } from '../services/commandRunner.js';
 import { databaseManager } from '../db/DatabaseManager.js';
 
+// Error message constants
+const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
+
 const router = Router();
 
 /**
@@ -46,13 +49,13 @@ function broadcastCommandError(ctx, errorMessage) {
   broadcastToProject(projectId, WS_MESSAGE_TYPES.COMMAND_RUN_ERROR, { projectId, sessionId, runId, buttonId, error: errorMessage });
 }
 
-// GET /api/sessions/:id/command-buttons - List command buttons for the workflow project
-router.get('/:id/command-buttons', requireRootSessionAndProject, (req, res) => {
+// GET /api/sessions/:id/circus-commands - List command buttons for the workflow project
+router.get('/:id/circus-commands', requireRootSessionAndProject, (req, res) => {
   res.json(commandButtons.getByProjectId(req.rootSession_.projectId));
 });
 
-// POST /api/sessions/:id/command-buttons/:buttonId/run - Execute button command
-router.post('/:id/command-buttons/:buttonId/run', requireRootSessionAndProject, (req, res) => {
+// POST /api/sessions/:id/circus-commands/:buttonId/run - Execute button command
+router.post('/:id/circus-commands/:buttonId/run', requireRootSessionAndProject, (req, res) => {
   const sessionId = req.rootSessionId;
   const buttonId = req.params.buttonId;
 
@@ -60,10 +63,10 @@ router.post('/:id/command-buttons/:buttonId/run', requireRootSessionAndProject, 
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
   if (button.projectId !== req.rootSession_.projectId) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 
   // Generate run ID
@@ -105,16 +108,16 @@ router.post('/:id/command-buttons/:buttonId/run', requireRootSessionAndProject, 
   })();
 });
 
-// GET /api/sessions/:id/command-buttons/runs - Get active runs for session
-router.get('/:id/command-buttons/runs', requireRootSessionAndProject, (req, res) => {
+// GET /api/sessions/:id/circus-commands/runs - Get active runs for session
+router.get('/:id/circus-commands/runs', requireRootSessionAndProject, (req, res) => {
   const sessionId = req.rootSessionId;
 
   const activeRuns = commandRunner.getRunsBySession(sessionId);
   res.json(activeRuns);
 });
 
-// GET /api/sessions/:id/command-buttons/runs/:runId - Get single run by ID
-router.get('/:id/command-buttons/runs/:runId', requireRootSessionAndProject, (req, res) => {
+// GET /api/sessions/:id/circus-commands/runs/:runId - Get single run by ID
+router.get('/:id/circus-commands/runs/:runId', requireRootSessionAndProject, (req, res) => {
   const { runId } = req.params;
   const sessionId = req.rootSessionId;
 
@@ -144,8 +147,8 @@ router.get('/:id/command-buttons/runs/:runId', requireRootSessionAndProject, (re
   });
 });
 
-// DELETE /api/sessions/:id/command-buttons/runs/:runId - Delete a command run record
-router.delete('/:id/command-buttons/runs/:runId', requireRootSessionAndProject, (req, res) => {
+// DELETE /api/sessions/:id/circus-commands/runs/:runId - Delete a command run record
+router.delete('/:id/circus-commands/runs/:runId', requireRootSessionAndProject, (req, res) => {
   const sessionId = req.rootSessionId;
   const { runId } = req.params;
 
@@ -178,17 +181,17 @@ router.delete('/:id/command-buttons/runs/:runId', requireRootSessionAndProject, 
   res.status(204).send();
 });
 
-// DELETE /api/sessions/:id/command-buttons/:buttonId/runs/all - Delete all runs for a button in a session
-router.delete('/:id/command-buttons/:buttonId/runs/all', requireRootSessionAndProject, (req, res) => {
+// DELETE /api/sessions/:id/circus-commands/:buttonId/runs/all - Delete all runs for a button in a session
+router.delete('/:id/circus-commands/:buttonId/runs/all', requireRootSessionAndProject, (req, res) => {
   const sessionId = req.rootSessionId;
   const { buttonId } = req.params;
 
   const button = commandButtons.getById(buttonId);
   if (!button) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
   if (button.projectId !== req.rootSession_.projectId) {
-    return res.status(404).json({ error: 'Command button not found' });
+    return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 
   const { deletedRuns } = commandRuns.deleteByButtonAndSession(buttonId, sessionId);
@@ -213,8 +216,8 @@ router.delete('/:id/command-buttons/:buttonId/runs/all', requireRootSessionAndPr
   res.status(204).send();
 });
 
-// POST /api/sessions/:id/command-buttons/runs/:runId/kill - Kill running command
-router.post('/:id/command-buttons/runs/:runId/kill', requireRootSessionAndProject, (req, res) => {
+// POST /api/sessions/:id/circus-commands/runs/:runId/kill - Kill running command
+router.post('/:id/circus-commands/runs/:runId/kill', requireRootSessionAndProject, (req, res) => {
   const sessionId = req.rootSessionId;
   const runId = req.params.runId;
 

@@ -27,7 +27,7 @@ vi.mock('../components/PathChooser.vue', () => ({
 }));
 
 vi.mock('@circuschief/shared/constants', () => ({
-  DEFAULT_SYSTEM_PROMPT: 'You are Claude Code, an AI coding assistant.',
+  DEFAULT_SYSTEM_PROMPT: 'You are an AI coding assistant.',
 }));
 
 // Helper to flush all async updates

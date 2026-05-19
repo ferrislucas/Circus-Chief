@@ -57,7 +57,10 @@
           </div>
 
           <!-- Existing overlay-content -->
-          <div class="overlay-content session-chat-overlay">
+          <div
+            class="overlay-content session-chat-overlay"
+            :class="{ 'session-chat-overlay--composer-focused': isOverlayPromptFocused }"
+          >
             <!-- Header (no padding constraints) -->
             <div
               class="overlay-header"
@@ -337,6 +340,8 @@
                 :scroll-container-ref="overlayBodyRef"
                 :hide-new-conversation="true"
                 initial-scroll-target="latest-agent-turn"
+                @prompt-focus="handleOverlayPromptFocus"
+                @prompt-blur="handleOverlayPromptBlur"
               />
             </div>
           </div><!-- end overlay-content -->
@@ -372,6 +377,11 @@ import { SESSIONS_STORE_KEY, TODOS_STORE_KEY } from '../composables/useOverlaySt
 import {
   requestVisualViewportSettle,
   requestVisualViewportUpdate,
+  checkOverlayViewportDrift,
+  clearOverlayViewportDrift,
+  isActiveTextEditing,
+  onVisualViewportChange,
+  setSessionOverlayPromptFocus,
 } from '../composables/useVisualViewport.js';
 
 import ConversationTab from './ConversationTab.vue';
@@ -425,6 +435,9 @@ const isCreatingSession = ref(false);
 // This prevents a race condition where ConversationTab reads currentSession before
 // it has been set to the overlay's target session.
 const switchingSession = ref(true);
+const isOverlayPromptFocused = ref(false);
+let overlayPromptBlurTimer = null;
+let promptVisibilityRaf = null;
 
 // Overlay body ref for scroll container override
 const overlayBodyRef = ref(null);
@@ -594,7 +607,7 @@ async function addChildSession() {
     });
 
     // Add to main store's session list (not the overlay's isolated state)
-    mainSessionsStore.sessions.unshift(newSession);
+    mainSessionsStore.addSessionToList(newSession);
 
     // Notify parent to rebuild session chain so it includes the new child.
     // Pass the full session so the parent does not have to wait for the
@@ -805,6 +818,63 @@ function handleHeaderTouchmove(event) {
   event.preventDefault();
 }
 
+function clearPromptBlurTimer() {
+  if (overlayPromptBlurTimer) {
+    clearTimeout(overlayPromptBlurTimer);
+    overlayPromptBlurTimer = null;
+  }
+}
+
+function clearPromptVisibilityRaf() {
+  if (promptVisibilityRaf) {
+    cancelAnimationFrame(promptVisibilityRaf);
+    promptVisibilityRaf = null;
+  }
+}
+
+function requestPromptVisibilityCheck() {
+  clearPromptVisibilityRaf();
+  promptVisibilityRaf = requestAnimationFrame(() => {
+    promptVisibilityRaf = null;
+    const body = overlayBodyRef.value;
+    const textarea = body?.querySelector?.('.input-form textarea');
+    const sendButton = body?.querySelector?.('.btn-send-full');
+    const spacer = body?.querySelector?.('.session-overlay-keyboard-spacer');
+    if (!body || !textarea) return;
+
+    const bodyRect = body.getBoundingClientRect();
+    const targetRect = (sendButton || textarea).getBoundingClientRect();
+    const spacerHeight = spacer?.getBoundingClientRect?.().height || 0;
+    const visibleBottom = bodyRect.bottom - spacerHeight;
+    if (targetRect.bottom > visibleBottom) {
+      body.scrollTop += targetRect.bottom - visibleBottom + 12;
+    }
+  });
+}
+
+function handleOverlayPromptFocus() {
+  clearPromptBlurTimer();
+  isOverlayPromptFocused.value = true;
+  setSessionOverlayPromptFocus(true);
+  requestVisualViewportUpdate();
+  requestVisualViewportSettle({ maxDurationMs: 700, minDurationMs: 200 });
+  requestPromptVisibilityCheck();
+}
+
+function handleOverlayPromptBlur(event) {
+  clearPromptBlurTimer();
+  requestVisualViewportSettle({ maxDurationMs: 350, minDurationMs: 100 });
+  overlayPromptBlurTimer = setTimeout(() => {
+    overlayPromptBlurTimer = null;
+    if (document.activeElement === event?.target) {
+      return;
+    }
+    isOverlayPromptFocused.value = false;
+    setSessionOverlayPromptFocus(false);
+    requestVisualViewportSettle({ maxDurationMs: 350, minDurationMs: 100 });
+  }, 80);
+}
+
 // Body scroll lock — iOS-compatible "fixed wrapper" pattern.
 // On iOS Safari, `overflow: hidden` alone is insufficient: it doesn't reset
 // the existing scroll offset and touch gestures can still move the body.
@@ -855,6 +925,58 @@ function unlockBodyScroll() {
   window.scrollTo(0, savedScrollY);
 }
 
+// ---------------------------------------------------------------------------
+// iPad viewport-drift watchdog
+//
+// On iPad Safari the visual viewport can shift relative to the layout viewport
+// when the browser chrome (URL bar / tab bar) collapses or expands, during
+// scroll-bounce, or after tab switches. `position: fixed` elements follow the
+// *layout* viewport, so they drift off-screen even though JS APIs like
+// `getBoundingClientRect` and `window.scrollY` still report 0.
+//
+// The correction logic lives in `checkOverlayViewportDrift` (exported from
+// useVisualViewport.js) which reads `visualViewport.offsetTop` and pins the
+// overlay element to the visual viewport via inline styles when drift is found.
+// Here we just manage the periodic timer and event wiring.
+// ---------------------------------------------------------------------------
+const DRIFT_CHECK_INTERVAL_MS = 3000;
+let driftCheckTimer = null;
+let driftViewportCleanup = null;
+
+function getBackdropEl() {
+  return document.querySelector('[data-testid="session-chat-overlay"]');
+}
+
+function runDriftCheck() {
+  checkOverlayViewportDrift(getBackdropEl());
+  if (isOverlayPromptFocused.value && !isActiveTextEditing()) {
+    requestPromptVisibilityCheck();
+  }
+}
+
+function startDriftCheck() {
+  stopDriftCheck();
+  // Run once immediately so we don't wait a full interval for the first check.
+  runDriftCheck();
+  driftCheckTimer = setInterval(runDriftCheck, DRIFT_CHECK_INTERVAL_MS);
+  // Also listen to visualViewport events for faster drift correction.
+  // The 3-second interval is a safety net; these events fire immediately
+  // when Safari's chrome changes and cause most drift episodes.
+  driftViewportCleanup = onVisualViewportChange(runDriftCheck);
+}
+
+function stopDriftCheck() {
+  if (driftCheckTimer) {
+    clearInterval(driftCheckTimer);
+    driftCheckTimer = null;
+  }
+  if (driftViewportCleanup) {
+    driftViewportCleanup();
+    driftViewportCleanup = null;
+  }
+  clearOverlayViewportDrift(getBackdropEl());
+}
+
 // Lifecycle
 onMounted(async () => {
   lockBodyScroll();
@@ -864,6 +986,7 @@ onMounted(async () => {
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
+  startDriftCheck();
 
   // Load data for the active session, then reveal ConversationTab.
   // switchingSession starts as true, so ConversationTab won't mount until
@@ -877,6 +1000,11 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopDriftCheck();
+  clearPromptBlurTimer();
+  clearPromptVisibilityRaf();
+  isOverlayPromptFocused.value = false;
+  setSessionOverlayPromptFocus(false);
   unlockBodyScroll();
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
@@ -1084,7 +1212,6 @@ defineExpose({
 
 .overlay-header {
   --overlay-header-base-padding-top: 0.75rem;
-
   position: -webkit-sticky;
   position: sticky;
   top: 0;
@@ -1094,7 +1221,7 @@ defineExpose({
   padding: var(--overlay-header-base-padding-top) 1rem 0.375rem;
   padding-top: calc(
     max(var(--overlay-header-base-padding-top), env(safe-area-inset-top)) +
-    var(--session-overlay-top-chrome-inset, 0px)
+      var(--session-overlay-top-chrome-inset, 0px)
   );
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0;
@@ -1188,6 +1315,11 @@ defineExpose({
   pointer-events: auto;
 }
 
+.session-chat-overlay--composer-focused :deep(.session-overlay-keyboard-spacer) {
+  flex-basis: var(--session-overlay-keyboard-bottom-inset, 0px);
+  height: var(--session-overlay-keyboard-bottom-inset, 0px);
+}
+
 @media (max-width: 768px) {
   .overlay-body {
     padding-left: 0.5rem;
@@ -1198,7 +1330,6 @@ defineExpose({
 
   .overlay-header {
     --overlay-header-base-padding-top: 1rem;
-
     padding-right: 0.5rem;
     padding-bottom: 0.375rem;
     padding-left: 0.5rem;

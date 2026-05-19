@@ -47,29 +47,7 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
-      - name: Run unit tests
-        run: |
-          yarn workspace @circuschief/shared test
-          yarn workspace @circuschief/server test
-          yarn workspace @circuschief/web test
-
-  coverage:
-    name: Coverage
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'yarn'
-
-      - name: Install dependencies
-        run: yarn install --frozen-lockfile
-
-      - name: Run coverage
+      - name: Run unit tests with coverage
         run: |
           yarn workspace @circuschief/shared test:coverage
           yarn workspace @circuschief/server test:coverage

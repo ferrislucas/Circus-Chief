@@ -34,7 +34,7 @@ describe('AgentGateway', () => {
   it('throws descriptive error for unknown agent type', () => {
     const gateway = new AgentGateway();
     expect(() => gateway.createAgent('nonexistent')).toThrow(
-      'Unknown agent type: "nonexistent". Available: claude-code, codex'
+      'Unknown agent type: "nonexistent". Available: claude-code, codex, gemini'
     );
   });
 
@@ -53,11 +53,11 @@ describe('AgentGateway', () => {
 
   it('lists all registered agent types', () => {
     const gateway = new AgentGateway();
-    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex']);
+    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini']);
 
     class FakeAdapter extends BaseAgent {}
     gateway.registerAdapter('fake', FakeAdapter);
-    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'fake']);
+    expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini', 'fake']);
   });
 
   it('returns capabilities for registered agent types', () => {
@@ -119,7 +119,7 @@ describe('AgentGateway', () => {
     it('getAllAgentCapabilities() returns entries for every registered adapter', () => {
       const gateway = new AgentGateway();
       const all = gateway.getAllAgentCapabilities();
-      expect(all).toHaveLength(2);
+      expect(all).toHaveLength(3);
       const byType = Object.fromEntries(all.map((e) => [e.agentType, e.capabilities]));
       expect(byType['claude-code']).toEqual({
         streaming: true, thinking: true, reasoningEffort: true, toolUse: true, resume: true,
@@ -127,11 +127,14 @@ describe('AgentGateway', () => {
       expect(byType['codex']).toEqual({
         streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false,
       });
+      expect(byType['gemini']).toEqual({
+        streaming: true, thinking: false, reasoningEffort: false, toolUse: true, resume: false,
+      });
     });
 
-    it('getAvailableAgents() includes both claude-code and codex', () => {
+    it('getAvailableAgents() includes claude-code, codex, and gemini', () => {
       const gateway = new AgentGateway();
-      expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex']);
+      expect(gateway.getAvailableAgents()).toEqual(['claude-code', 'codex', 'gemini']);
     });
   });
 });

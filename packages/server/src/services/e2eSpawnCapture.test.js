@@ -104,6 +104,41 @@ describe('e2eSpawnCapture', () => {
     });
   });
 
+  it('captures Gemini spawn attempts with summarized options', () => {
+    const captureFile = join(tempDir, 'capture.jsonl');
+    process.env.E2E_AGENT_SPAWN_CAPTURE_FILE = captureFile;
+
+    captureSpawnAttempt('gemini', {
+      command: 'gemini',
+      args: [
+        '-p',
+        'Hi',
+        '--output-format',
+        'stream-json',
+        '--skip-trust',
+        '--approval-mode=auto_edit',
+        '-m',
+        'gemini-2.5-flash',
+      ],
+      cwd: tempDir,
+      env: { GEMINI_CLI_TRUST_WORKSPACE: 'true' },
+    });
+
+    const record = JSON.parse(readFileSync(captureFile, 'utf8').trim());
+    expect(record).toMatchObject({
+      agentType: 'gemini',
+      command: 'gemini',
+      cwd: tempDir,
+      env: { GEMINI_CLI_TRUST_WORKSPACE: 'true' },
+      options: {
+        model: 'gemini-2.5-flash',
+        outputFormat: 'stream-json',
+        approvalMode: 'auto_edit',
+        prompt: 'Hi',
+      },
+    });
+  });
+
   it('returns a process-like stub that can be killed', async () => {
     const processStub = createCapturedSpawnProcess('codex');
     const events = collectProcessEvents(processStub);

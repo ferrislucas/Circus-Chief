@@ -3761,6 +3761,153 @@ describe('SessionDetailView', () => {
       ]);
     });
 
+    it('handleOverlaySessionCreated inserts the created session through addSessionToList', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        updatedAt: 1000,
+        createdAt: 500,
+      };
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        updatedAt: 2000,
+        createdAt: 1500,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession];
+      api.getProjectSessions.mockResolvedValue([parentSession]);
+      const addSessionToListSpy = vi.spyOn(sessionsStore, 'addSessionToList');
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      wrapper.vm.chatOverlayOpen = true;
+      await nextTick();
+
+      const treeOverlay = wrapper.findComponent({ name: 'SessionChatOverlay' });
+      treeOverlay.vm.$emit('session-created', childSession);
+      await flushPromises();
+      await nextTick();
+
+      expect(addSessionToListSpy).toHaveBeenCalledWith(childSession);
+      expect(wrapper.vm.sessionChain.filter(entry => entry.session.id === childSession.id)).toHaveLength(1);
+    });
+
+    it('handleSessionCreated inserts a websocket-created child through addSessionToList', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        updatedAt: 1000,
+        createdAt: 500,
+      };
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        updatedAt: 2000,
+        createdAt: 1500,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession];
+      api.getProjectSessions.mockResolvedValue([parentSession]);
+      const addSessionToListSpy = vi.spyOn(sessionsStore, 'addSessionToList');
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const handleSessionCreated = websocketHandlers.get(WS_MESSAGE_TYPES.SESSION_CREATED);
+      expect(handleSessionCreated).toBeTypeOf('function');
+      handleSessionCreated({ projectId: 'proj-1', session: childSession });
+      await flushPromises();
+      await nextTick();
+
+      expect(addSessionToListSpy).toHaveBeenCalledWith(childSession);
+      expect(wrapper.vm.sessionChain.filter(entry => entry.session.id === childSession.id)).toHaveLength(1);
+    });
+
+    it('session chain contains one entry per session id even if the store has duplicates', async () => {
+      const parentSession = {
+        id: 'parent-1',
+        name: 'Parent Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: null,
+        updatedAt: 1000,
+        createdAt: 500,
+      };
+      const duplicateChild = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'parent-1',
+        updatedAt: 2000,
+        createdAt: 1500,
+      };
+
+      sessionsStore.currentSession = parentSession;
+      sessionsStore.sessions = [parentSession, duplicateChild, { ...duplicateChild }];
+      api.getProjectSessions.mockResolvedValue([parentSession, duplicateChild, { ...duplicateChild }]);
+
+      await router.push('/sessions/parent-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true, ChangesTab: true, CanvasTab: true,
+            SummaryTab: true, CommandsTab: true, PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.sessionChain.filter(entry => entry.session.id === duplicateChild.id)).toHaveLength(1);
+    });
+
     it('sorts session chain by picker recency instead of broad lastActivityAt', async () => {
       const sessionA = {
         id: 'session-a',

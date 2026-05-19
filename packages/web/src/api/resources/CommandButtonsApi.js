@@ -11,7 +11,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Array>}
      */
     async getCommandButtons(projectId) {
-      return this._get(`/projects/${projectId}/command-buttons`);
+      return this._get(`/projects/${projectId}/circus-commands`);
     },
 
     /**
@@ -21,7 +21,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Object>}
      */
     async createCommandButton(projectId, data) {
-      return this._post(`/projects/${projectId}/command-buttons`, data);
+      return this._post(`/projects/${projectId}/circus-commands`, data);
     },
 
     /**
@@ -31,7 +31,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Object>}
      */
     async getCommandButton(projectId, buttonId) {
-      return this._get(`/projects/${projectId}/command-buttons/${buttonId}`);
+      return this._get(`/projects/${projectId}/circus-commands/${buttonId}`);
     },
 
     /**
@@ -42,7 +42,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Object>}
      */
     async updateCommandButton(projectId, buttonId, data) {
-      return this._patch(`/projects/${projectId}/command-buttons/${buttonId}`, data);
+      return this._patch(`/projects/${projectId}/circus-commands/${buttonId}`, data);
     },
 
     /**
@@ -52,7 +52,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<void>}
      */
     async deleteCommandButton(projectId, buttonId) {
-      return this._delete(`/projects/${projectId}/command-buttons/${buttonId}`);
+      return this._delete(`/projects/${projectId}/circus-commands/${buttonId}`);
     },
 
     /**
@@ -62,7 +62,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Object>}
      */
     async runCommandButton(sessionId, buttonId) {
-      return this._post(`/sessions/${sessionId}/command-buttons/${buttonId}/run`);
+      return this._post(`/sessions/${sessionId}/circus-commands/${buttonId}/run`);
     },
 
     /**
@@ -71,7 +71,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Array>}
      */
     async getActiveRuns(sessionId) {
-      return this._get(`/sessions/${sessionId}/command-buttons/runs`);
+      return this._get(`/sessions/${sessionId}/circus-commands/runs`);
     },
 
     /**
@@ -81,7 +81,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Object>}
      */
     async getCommandRun(sessionId, runId) {
-      return this._get(`/sessions/${sessionId}/command-buttons/runs/${runId}`);
+      return this._get(`/sessions/${sessionId}/circus-commands/runs/${runId}`);
     },
 
     /**
@@ -90,7 +90,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Array>}
      */
     async getLatestRunsForProject(projectId) {
-      return this._get(`/projects/${projectId}/command-buttons/latest-runs`);
+      return this._get(`/projects/${projectId}/circus-commands/latest-runs`);
     },
 
     /**
@@ -100,7 +100,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<Object>}
      */
     async killCommandRun(sessionId, runId) {
-      return this._post(`/sessions/${sessionId}/command-buttons/runs/${runId}/kill`);
+      return this._post(`/sessions/${sessionId}/circus-commands/runs/${runId}/kill`);
     },
 
     /**
@@ -110,7 +110,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<null>}
      */
     async deleteCommandRun(sessionId, runId) {
-      return this._delete(`/sessions/${sessionId}/command-buttons/runs/${runId}`);
+      return this._delete(`/sessions/${sessionId}/circus-commands/runs/${runId}`);
     },
 
     /**
@@ -120,7 +120,7 @@ export function CommandButtonsApi(ApiClient) {
      * @returns {Promise<null>}
      */
     async deleteAllRunsForButton(sessionId, buttonId) {
-      return this._delete(`/sessions/${sessionId}/command-buttons/${buttonId}/runs/all`);
+      return this._delete(`/sessions/${sessionId}/circus-commands/${buttonId}/runs/all`);
     },
   });
 }

@@ -1,9 +1,11 @@
 import { exec } from 'child_process';
 import { promisify } from 'util';
 export {
+  _setManagedHooksPath,
   clearWorktreeCommitAttribution,
   configureWorktreeCommitAttribution,
   ensureWorktreeCommitAttributionHook,
+  getManagedHooksPath,
 } from './gitCommitAttribution.js';
 export {
   normalizeGitRemoteUrl,
@@ -28,6 +30,7 @@ export {
 } from './gitWorktree.js';
 
 const execAsync = promisify(exec);
+export const DEFAULT_GIT_MAX_BUFFER = 100 * 1024 * 1024;
 
 // Cache for default branch detection: directory -> { branch, timestamp }
 const defaultBranchCache = new Map();
@@ -68,10 +71,14 @@ function evictOldestCacheEntries() {
  * @param {Object} [opts]
  * @param {Object} [opts.env]
  * @param {number} [opts.timeout]
+ * @param {number} [opts.maxBuffer]
  * @returns {Promise<string>}
  */
 export async function git(directory, command, opts = {}) {
-  const execOpts = { cwd: directory };
+  const execOpts = {
+    cwd: directory,
+    maxBuffer: opts.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
+  };
   if (opts.env) execOpts.env = opts.env;
   if (opts.timeout) execOpts.timeout = opts.timeout;
   const { stdout } = await execAsync(`git ${command}`, execOpts);
@@ -288,4 +295,3 @@ export async function pinAuthorInWorktree(worktreePath, projectDir, { env } = {}
 
   return true;
 }
-

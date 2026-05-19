@@ -26,6 +26,10 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
     return { error: 'Prompt is required', status: 400 };
   }
 
+  if (config.schedulingError) {
+    return { error: config.schedulingError, status: 400 };
+  }
+
   if (config.parentSessionId) {
     const parentSession = sessions.getById(config.parentSessionId);
     if (!parentSession) {

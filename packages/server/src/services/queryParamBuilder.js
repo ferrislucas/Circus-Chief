@@ -1,6 +1,7 @@
 import { createClaudeCodeSpawner } from './nodeSpawnHelper.js';
 import {
   buildSystemPromptConfig,
+  getGeminiApprovalModeForSession,
   getPermissionModeForSession,
   getSandboxModeForSession,
 } from './sessionPrompts.js';
@@ -65,6 +66,34 @@ function buildCodexQueryParams({
 }
 
 /**
+ * Build query parameters for the Gemini adapter.
+ *
+ * Gemini CLI is prompt-driven via `-p` flag. It does not need Claude-specific
+ * options (permissionMode, settingSources, resume) or Codex-specific options
+ * (sandboxMode, effortLevel).
+ *
+ * @returns {Object}
+ */
+function buildGeminiQueryParams({
+  prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
+}) {
+  const isVCR = Boolean(process.env.VCR_MODE);
+  const effectiveModel = isVCR ? 'gemini-2.5-flash' : model;
+
+  return {
+    prompt,
+    options: {
+      cwd: workingDirectory,
+      abortController: controller,
+      env: sessionEnv,
+      model: effectiveModel,
+      approvalMode: getGeminiApprovalModeForSession(session?.mode),
+      systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+    },
+  };
+}
+
+/**
  * Build query parameters for executing a session via the configured agent.
  * Shared by runSession, continueSession, and continueSessionWithExistingMessage.
  *
@@ -78,13 +107,16 @@ function buildCodexQueryParams({
  * @param {string|null} options.model - Model to use
  * @param {Object} options.sessionEnv - Environment variables for the session
  * @param {string|null} [options.resumeSessionId] - Session ID to resume (null for new session)
- * @param {string} [options.agentType] - 'claude-code' (default) | 'codex'
+ * @param {string} [options.agentType] - 'claude-code' (default) | 'codex' | 'gemini'
  * @returns {Object} Query parameters for agent.execute()
  */
 export function buildQueryParams(options) {
   const { agentType = 'claude-code' } = options || {};
   if (agentType === 'codex') {
     return buildCodexQueryParams(options);
+  }
+  if (agentType === 'gemini') {
+    return buildGeminiQueryParams(options);
   }
   return buildClaudeCodeQueryParams(options);
 }

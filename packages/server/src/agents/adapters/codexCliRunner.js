@@ -1,5 +1,6 @@
 import readline from 'readline';
 import { createCodexEventMapper } from './codexEventMapper.js';
+import { composeCliPrompt } from './cliUtils.js';
 
 export async function *executeCodexCli(child, queryParams, options, markCliUnavailable) {
   const state = new CliState(options.model, markCliUnavailable);
@@ -74,14 +75,6 @@ function writePromptToStdin(child, prompt) {
   try {
     if (child.stdin) child.stdin.end(prompt ?? '');
   } catch { /* ignore */ }
-}
-
-function composeCliPrompt(systemPrompt, prompt) {
-  const user = prompt ?? '';
-  if (typeof systemPrompt === 'string' && systemPrompt.length > 0) {
-    return `SYSTEM PROMPT:\n${systemPrompt}\n\nUSER:\n${user}`;
-  }
-  return user;
 }
 
 function attachStdoutReader(child, state) {

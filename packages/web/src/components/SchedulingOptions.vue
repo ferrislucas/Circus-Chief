@@ -14,7 +14,7 @@
         v-model="localScheduling.scheduledAtLocal"
         type="datetime-local"
         class="form-input"
-        @change="updateScheduledAt"
+        @input="updateScheduledAt"
       >
       <p class="form-help">
         Leave empty to start immediately
@@ -185,12 +185,12 @@ const localScheduling = reactive({
   rescheduleAtTokenCount: props.modelValue.rescheduleAtTokenCount ?? null,
 });
 
-// Convert local datetime string to scheduledAt timestamp
-function updateScheduledAt() {
-  if (localScheduling.scheduledAtLocal) {
-    // Convert local datetime string to UTC timestamp
-    const date = new Date(localScheduling.scheduledAtLocal);
-    localScheduling.scheduledAt = date.getTime();
+// Convert local datetime string to an ISO string for session creation.
+function updateScheduledAt(event) {
+  const scheduledAtLocal = event?.target?.value ?? localScheduling.scheduledAtLocal;
+  if (scheduledAtLocal) {
+    const date = new Date(scheduledAtLocal);
+    localScheduling.scheduledAt = date.toISOString();
   } else {
     localScheduling.scheduledAt = null;
   }

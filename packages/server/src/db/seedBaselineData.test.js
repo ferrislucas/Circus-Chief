@@ -6,6 +6,7 @@ import {
   BUILT_IN_ANTHROPIC_PROVIDER,
   BUILT_IN_OPENAI_MODELS,
   BUILT_IN_OPENAI_PROVIDER,
+  BUILT_IN_GOOGLE_MODELS,
   DEFAULT_QUICK_RESPONSES,
   DEFAULT_SESSION_TEMPLATES,
   seedBaselineData,
@@ -138,9 +139,9 @@ describe('seedBaselineData', () => {
   it('does not duplicate rows when rerun', () => {
     withDb((db) => {
       seedBaselineData(db);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM providers').get().cnt).toBe(2);
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM providers').get().cnt).toBe(3);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM provider_models').get().cnt)
-        .toBe(BUILT_IN_ANTHROPIC_MODELS.length + BUILT_IN_OPENAI_MODELS.length);
+        .toBe(BUILT_IN_ANTHROPIC_MODELS.length + BUILT_IN_OPENAI_MODELS.length + BUILT_IN_GOOGLE_MODELS.length);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt)
         .toBe(DEFAULT_QUICK_RESPONSES.length);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL').get().cnt)

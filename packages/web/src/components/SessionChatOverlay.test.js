@@ -53,6 +53,7 @@ const mockSessionsStore = {
   addConversation: vi.fn(),
   updateConversation: vi.fn(),
   createSession: vi.fn(),
+  addSessionToList: vi.fn(),
 };
 
 vi.mock('../stores/sessions.js', () => ({
@@ -162,6 +163,7 @@ vi.mock('./ConversationTab.vue', () => ({
   default: defineComponent({
     name: 'ConversationTab',
     props: ['sessionId'],
+    emits: ['prompt-focus', 'prompt-blur'],
     render() {
       return h('div', { class: 'conversation-tab-mock', 'data-session-id': this.sessionId }, 'ConversationTab');
     },
@@ -217,6 +219,12 @@ describe('SessionChatOverlay', () => {
     await router.isReady();
 
     mockSessionsStore.currentSession = { ...rootSession };
+    mockSessionsStore.sessions = [];
+    mockSessionsStore.addSessionToList.mockImplementation((session) => {
+      if (!mockSessionsStore.sessions.some(s => s.id === session.id)) {
+        mockSessionsStore.sessions.unshift(session);
+      }
+    });
     mockSessionsStore.getSessionById.mockReturnValue(null);
     mockSessionsStore.getSessionPath.mockReturnValue([rootSession]);
     mockSessionsStore.getRootSession.mockReturnValue(rootSession);
@@ -922,6 +930,50 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
+    it('uses addSessionToList when creating a child session', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
+      api.createSession.mockResolvedValue(newSession);
+
+      const onSessionCreated = vi.fn();
+      const wrapper = mount(SessionChatOverlay, {
+        props: { sessionId: 'sess-root' },
+        attrs: { onSessionCreated },
+        global: { plugins: [router] },
+        attachTo: document.body,
+      });
+      await nextTick();
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(mockSessionsStore.addSessionToList).toHaveBeenCalledWith(newSession);
+      expect(mockSessionsStore.sessions.filter(s => s.id === newSession.id)).toHaveLength(1);
+      expect(onSessionCreated).toHaveBeenCalledWith(newSession);
+      wrapper.unmount();
+    });
+
+    it('does not duplicate a child session already present in the main store', async () => {
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      mockSessionsStore.sessions = [newSession];
+      mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
+      api.createSession.mockResolvedValue(newSession);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
+      btn.click();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 50));
+
+      expect(mockSessionsStore.addSessionToList).toHaveBeenCalledWith(newSession);
+      expect(mockSessionsStore.sessions.filter(s => s.id === newSession.id)).toHaveLength(1);
+      wrapper.unmount();
+    });
+
     it('inherits git settings from parent session with worktree', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
@@ -1591,7 +1643,6 @@ describe('SessionChatOverlay', () => {
       for (const block of blocks) {
         expect(block).not.toMatch(/--viewport-offset-top/);
         expect(block).not.toMatch(/--visual-viewport-height/);
-        expect(block).not.toMatch(/--session-overlay-top-chrome-inset/);
         expect(block).not.toMatch(/height:\s*var\(/);
         expect(block).not.toMatch(/top:\s*var\(/);
         expect(block).not.toMatch(/bottom:\s*auto/);
@@ -1612,6 +1663,7 @@ describe('SessionChatOverlay', () => {
         /@media\s*\(min-width:\s*700px\)\s*and\s*\(min-height:\s*700px\)\s*\{[\s\S]*?\.overlay-backdrop\s*\{[\s\S]*?--visual-viewport-height/
       );
     });
+
     it('panel-wrapper stylesheet is child geometry inside the backdrop', () => {
       const block = getStyleBlock('.overlay-panel-wrapper');
       expect(block).toMatch(/position:\s*absolute/);
@@ -1622,47 +1674,104 @@ describe('SessionChatOverlay', () => {
       expect(block).not.toMatch(/position:\s*fixed/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
-      expect(block).not.toMatch(/--session-overlay-top-chrome-inset/);
       expect(block).not.toMatch(/top:\s*var\(/);
     });
 
-    it('overlay content has a viewport-height floor without viewport-driven padding', () => {
-      const blocks = getStyleBlocks('.overlay-content');
-      for (const block of blocks) {
-        expect(block).toMatch(/min-height:\s*100%/);
-        expect(block).toMatch(/min-height:\s*100dvh/);
-        expect(block).toMatch(/padding:\s*0/);
-        expect(block).not.toMatch(/--viewport-offset-top/);
-        expect(block).not.toMatch(/--visual-viewport-height/);
-        expect(block).not.toMatch(/--session-overlay-top-chrome-inset/);
-      }
-    });
-
-    it('overlay header consumes only the sanitized session chrome inset', () => {
-      const block = getStyleBlock('.overlay-header');
-      expect(block).toMatch(/position:\s*-webkit-sticky/);
-      expect(block).toMatch(/position:\s*sticky/);
-      expect(block).toMatch(/top:\s*0/);
-      expect(block).toMatch(/--overlay-header-base-padding-top:\s*0\.75rem/);
-      expect(block).toMatch(/--session-overlay-top-chrome-inset/);
+    it('overlay content has a viewport-height floor without visual viewport padding', () => {
+      const block = getStyleBlock('.overlay-content');
+      expect(block).toMatch(/min-height:\s*100%/);
+      expect(block).toMatch(/min-height:\s*100dvh/);
+      expect(block).toMatch(/overflow:\s*clip/);
+      expect(block).toMatch(/padding:\s*0/);
+      expect(block).not.toMatch(/padding-top/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
     });
 
-    it('mobile overlay header keeps the larger base padding floor', () => {
-      expect(sessionChatOverlaySource).toMatch(
-        /@media\s*\(max-width:\s*768px\)\s*\{[\s\S]*?\.overlay-header\s*\{[\s\S]*?--overlay-header-base-padding-top:\s*1rem/
-      );
+    it('overlay header stays sticky and consumes only the sanitized top chrome inset', () => {
+      const block = getStyleBlock('.overlay-header');
+      expect(block).toMatch(/--overlay-header-base-padding-top:\s*0\.75rem/);
+      expect(block).toMatch(/position:\s*-webkit-sticky/);
+      expect(block).toMatch(/position:\s*sticky/);
+      expect(block).toMatch(/top:\s*0/);
+      expect(block).toMatch(/padding:\s*var\(--overlay-header-base-padding-top\)\s*1rem\s*0\.375rem/);
+      expect(block).toMatch(/max\(var\(--overlay-header-base-padding-top\),\s*env\(safe-area-inset-top\)\)/);
+      expect(block).toMatch(/--session-overlay-top-chrome-inset/);
+      expect(block).not.toMatch(/--viewport-offset-top/);
+      expect(block).not.toMatch(/--visual-viewport-height/);
     });
 
     it('overlay shell keeps visual viewport variables out of all shell geometry', () => {
       const shellBlocks = [
         ...getStyleBlocks('.overlay-backdrop'),
         ...getStyleBlocks('.overlay-panel-wrapper'),
+        ...getStyleBlocks('.overlay-content'),
+        ...getStyleBlocks('.overlay-header'),
       ].join('\n');
       expect(shellBlocks).not.toMatch(/--viewport-offset-top/);
       expect(shellBlocks).not.toMatch(/--visual-viewport-height/);
-      expect(shellBlocks).not.toMatch(/--session-overlay-top-chrome-inset/);
+      expect(shellBlocks).not.toMatch(/--session-overlay-keyboard-bottom-inset/);
+    });
+
+    it('only the composer spacer consumes the session keyboard bottom inset', () => {
+      const spacerBlock = getStyleBlock('.session-chat-overlay--composer-focused :deep(.session-overlay-keyboard-spacer)');
+      expect(spacerBlock).toMatch(/--session-overlay-keyboard-bottom-inset/);
+
+      for (const selector of ['.overlay-backdrop', '.overlay-panel-wrapper', '.overlay-content', '.overlay-header', '.overlay-body']) {
+        const blocks = getStyleBlocks(selector).join('\n');
+        expect(blocks).not.toMatch(/--session-overlay-keyboard-bottom-inset/);
+      }
+    });
+
+    it('prompt focus toggles only the composer-focused overlay class', async () => {
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+      const content = document.querySelector('.session-chat-overlay');
+      const conversationTab = wrapper.findComponent({ name: 'ConversationTab' });
+
+      expect(content.classList.contains('session-chat-overlay--composer-focused')).toBe(false);
+
+      await conversationTab.vm.$emit('prompt-focus', new FocusEvent('focus'));
+      await nextTick();
+      expect(content.classList.contains('session-chat-overlay--composer-focused')).toBe(true);
+
+      const blurredPrompt = document.createElement('textarea');
+      Object.defineProperty(document, 'activeElement', {
+        configurable: true,
+        value: document.body,
+      });
+      await conversationTab.vm.$emit('prompt-blur', { target: blurredPrompt });
+      await nextTick();
+      await vi.waitFor(() => {
+        expect(document.querySelector('.session-chat-overlay').classList.contains('session-chat-overlay--composer-focused')).toBe(false);
+      });
+
+      wrapper.unmount();
+    });
+
+    it('prompt focus schedules an initial prompt visibility adjustment', async () => {
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 1);
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+      requestAnimationFrameSpy.mockClear();
+
+      await wrapper.findComponent({ name: 'ConversationTab' }).vm.$emit('prompt-focus', new FocusEvent('focus'));
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+
+      requestAnimationFrameSpy.mockRestore();
+      wrapper.unmount();
+    });
+
+    it('runDriftCheck skips repeated prompt visibility checks while text editing is active', () => {
+      expect(sessionChatOverlaySource).toMatch(/isActiveTextEditing/);
+      expect(sessionChatOverlaySource).toMatch(
+        /if\s*\(\s*isOverlayPromptFocused\.value\s*&&\s*!isActiveTextEditing\(\)\s*\)\s*\{\s*requestPromptVisibilityCheck\(\);/s,
+      );
     });
 
     it('content, header, and body declare solid backgrounds', () => {

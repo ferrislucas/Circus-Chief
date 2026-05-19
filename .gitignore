@@ -29,6 +29,8 @@ test-results/
 
 # Screenshots from Playwright
 screenshots/
+!docs/screenshots/
+!docs/screenshots/**
 
 # IDE
 .idea/
@@ -53,9 +55,6 @@ temp/
 
 # Server port file (auto-generated)
 .server-port
-
-# Worktree commit hooks (auto-generated)
-.circuschief-hooks/
 
 # DB path file for package tests (auto-generated)
 .db-path

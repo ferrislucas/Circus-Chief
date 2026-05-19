@@ -24,7 +24,7 @@ describe('Agents API', () => {
       expect(Array.isArray(res.body)).toBe(true);
 
       const agentTypes = res.body.map((a) => a.agentType).sort();
-      expect(agentTypes).toEqual(['claude-code', 'codex']);
+      expect(agentTypes).toEqual(['claude-code', 'codex', 'gemini']);
 
       const claude = res.body.find((a) => a.agentType === 'claude-code');
       const codex = res.body.find((a) => a.agentType === 'codex');

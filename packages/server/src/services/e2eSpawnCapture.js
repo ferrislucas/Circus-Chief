@@ -49,9 +49,12 @@ export function createCapturedSpawnProcess(agentType) {
     });
   };
 
-  if (agentType === 'claude-code') {
+  if (agentType === 'claude-code' || agentType === 'gemini') {
+    // Claude Code and Gemini don't pass prompts via stdin (they use CLI args).
+    // Complete after a short delay to simulate process execution.
     setTimeout(complete, 10);
   } else {
+    // Codex passes the prompt via stdin; complete when stdin is closed.
     stdin.once('finish', complete);
   }
 
@@ -59,12 +62,15 @@ export function createCapturedSpawnProcess(agentType) {
 }
 
 function summarizeSpawnEnv(env = {}) {
-  if (!Object.prototype.hasOwnProperty.call(env, 'CIRCUSCHIEF_COMMIT_ATTRIBUTION')) {
-    return {};
+  const summary = {};
+  if (Object.prototype.hasOwnProperty.call(env, 'CIRCUSCHIEF_COMMIT_ATTRIBUTION')) {
+    summary.CIRCUSCHIEF_COMMIT_ATTRIBUTION = env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
   }
-  return {
-    CIRCUSCHIEF_COMMIT_ATTRIBUTION: env.CIRCUSCHIEF_COMMIT_ATTRIBUTION,
-  };
+  if (Object.prototype.hasOwnProperty.call(env, 'GEMINI_CLI_TRUST_WORKSPACE')) {
+    summary.GEMINI_CLI_TRUST_WORKSPACE = env.GEMINI_CLI_TRUST_WORKSPACE;
+  }
+  if (Object.keys(summary).length === 0) return {};
+  return summary;
 }
 
 function summarizeSpawnOptions(agentType, spawnOptions) {
@@ -75,6 +81,15 @@ function summarizeSpawnOptions(agentType, spawnOptions) {
       settings: valueAfter(args, '--settings'),
       permissionMode: valueAfter(args, '--permission-mode'),
       settingSources: valueAfter(args, '--setting-sources'),
+    };
+  }
+
+  if (agentType === 'gemini') {
+    return {
+      model: valueAfter(args, '-m'),
+      outputFormat: valueAfter(args, '--output-format'),
+      approvalMode: optionValue(args, '--approval-mode'),
+      prompt: valueAfter(args, '-p'),
     };
   }
 
@@ -89,6 +104,14 @@ function valueAfter(args, flag) {
   const index = args.indexOf(flag);
   if (index === -1) return null;
   return args[index + 1] ?? null;
+}
+
+function optionValue(args, flag) {
+  const separateValue = valueAfter(args, flag);
+  if (separateValue !== null) return separateValue;
+  const prefix = `${flag}=`;
+  const arg = args.find((value) => value.startsWith(prefix));
+  return arg ? arg.slice(prefix.length) : null;
 }
 
 function valuesAfter(args, flag) {
@@ -112,6 +135,24 @@ function writeCapturedAgentEvents(agentType, stdout) {
     writeJsonLine(stdout, {
       type: 'turn.completed',
       usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 },
+    });
+    return;
+  }
+
+  if (agentType === 'gemini') {
+    // Gemini CLI stream-json format: init → message → result
+    writeJsonLine(stdout, {
+      type: 'init',
+      session_id: `e2e-gemini-${Date.now()}`,
+    });
+    writeJsonLine(stdout, {
+      type: 'message',
+      role: 'assistant',
+      content: 'E2E spawn capture response.',
+    });
+    writeJsonLine(stdout, {
+      type: 'result',
+      stats: { input_tokens: 0, output_tokens: 0 },
     });
     return;
   }

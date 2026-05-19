@@ -191,6 +191,10 @@ cleanup_test_server() {
         fi
     fi
 
+    clear_worktree_server_markers
+}
+
+clear_worktree_server_markers() {
     rm -f "$PROJECT_ROOT/.server-port" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
 }
 
@@ -244,7 +248,7 @@ detect_or_start_server() {
                 print_warning "  server cwd:  $server_cwd"
                 print_warning "  our root:    $PROJECT_ROOT"
                 print_info "Removing stale .server-port and starting a new server..."
-                rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
+                clear_worktree_server_markers
             elif [ "$db_mismatch" = true ]; then
                 print_info "Restarting server with correct DB/scheduler isolation..."
                 local bad_pid
@@ -257,13 +261,13 @@ detect_or_start_server() {
                         ((wait_count++))
                     done
                 fi
-                rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
+                clear_worktree_server_markers
             else
                 # Server belongs to us - always restart it
                 if [ "$detected_port" = "5000" ]; then
                     # Never kill port 5000 - just start a new server on a different port
                     print_warning "Server on port 5000 is protected. Starting on a new port..."
-                    rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
+                    clear_worktree_server_markers
                 else
                     print_info "Restarting server on port $detected_port..."
                     local server_pid
@@ -277,12 +281,12 @@ detect_or_start_server() {
                             ((wait_count++))
                         done
                     fi
-                    rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
+                    clear_worktree_server_markers
                 fi
             fi
         else
             print_warning "Server not running on port $detected_port (stale .server-port file)"
-            rm -f "$port_file" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
+            clear_worktree_server_markers
         fi
     fi
 

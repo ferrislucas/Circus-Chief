@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, realpath } from 'fs/promises';
 import { existsSync } from 'fs';
-import { tmpdir } from 'os';
+import { tmpdir, homedir } from 'os';
 import { join } from 'path';
 import { execSync } from 'child_process';
 import {
+  _setManagedHooksPath,
   branchExists,
   checkoutBranch,
   clearDefaultBranchCache,
@@ -15,9 +16,11 @@ import {
   getCacheSize,
   getCurrentBranch,
   getGitAuthor,
+  getManagedHooksPath,
   getOriginDefaultBranch,
   getRepositoryUrl,
   getUntrackedFiles,
+  git,
   ensureWorktreeCommitAttributionHook,
   normalizeGitRemoteUrl,
   pinAuthorInWorktree,
@@ -190,6 +193,27 @@ describe('gitService', () => {
 
       const files = await getUntrackedFiles(testDir);
       expect(files).not.toContain('staged-file.txt');
+    });
+  });
+
+  describe('git', () => {
+    it('supports git output larger than Node exec default buffer', async () => {
+      const largeContent = `${'x'.repeat(2 * 1024 * 1024)}\n`;
+      await writeFile(join(testDir, 'README.md'), largeContent);
+
+      const diff = await git(testDir, 'diff');
+
+      expect(diff.length).toBeGreaterThan(1024 * 1024);
+      expect(diff).toContain('diff --git a/README.md b/README.md');
+    });
+
+    it('allows callers to set a smaller maxBuffer and surfaces that error', async () => {
+      const largeContent = `${'x'.repeat(2 * 1024 * 1024)}\n`;
+      await writeFile(join(testDir, 'README.md'), largeContent);
+
+      await expect(git(testDir, 'diff', { maxBuffer: 1024 })).rejects.toMatchObject({
+        code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+      });
     });
   });
 
@@ -503,11 +527,7 @@ describe('gitService', () => {
       execSync('git add staged-file.txt', { cwd: testDir });
 
       const count = await getModifiedFilesCount(testDir, defaultBranch);
-      // Note: git diff --name-only without --staged doesn't show staged files
-      // So staged-only files won't be counted (they would need to be in unstaged or untracked)
-      // However, this will be picked up by getUntrackedFiles since it was never committed
-      // Actually, once added, it's no longer untracked. So it won't be counted at all.
-      expect(count).toBe(0);
+      expect(count).toBe(1);
     });
 
     it('counts unstaged modified files', async () => {
@@ -544,9 +564,8 @@ describe('gitService', () => {
       await writeFile(join(testDir, 'untracked.txt'), 'content');
 
       const count = await getModifiedFilesCount(testDir, defaultBranch);
-      // Should count: committed.txt, README.md, untracked.txt = 3 unique files
-      // Note: staged.txt is not counted because it's not in committed/unstaged/untracked
-      expect(count).toBe(3);
+      // Should count: committed.txt, staged.txt, README.md, untracked.txt = 4 unique files
+      expect(count).toBe(4);
     });
 
     it('counts file only once when it appears in multiple states', async () => {
@@ -851,6 +870,9 @@ describe('gitService', () => {
   describe('ensureWorktreeCommitAttributionHook', () => {
     let worktreePath;
     let fakeHome;
+    let fakeHooksPath;
+    /** Snapshot of the real hooks path before any override. */
+    let realHooksPath;
 
     function createIsolatedGitEnv(fakeHomePath) {
       return {
@@ -861,13 +883,23 @@ describe('gitService', () => {
     }
 
     beforeEach(async () => {
+      // Record the production hooks path so we can restore it later.
+      realHooksPath = getManagedHooksPath();
+
       fakeHome = await mkdtemp(join(tmpdir(), 'fake-home-'));
+      fakeHooksPath = join(fakeHome, '.circuschief', 'hooks');
+      // Redirect hook writes into the fake home so tests never touch ~/.circuschief.
+      _setManagedHooksPath(fakeHooksPath);
+
       const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       worktreePath = join(testDir, '.worktrees', `attr-test-${suffix}`);
       await createWorktreeForBranch(testDir, `attr-test-branch-${suffix}`, worktreePath, { skipFetch: true });
     });
 
     afterEach(async () => {
+      // Restore the production hooks path.
+      _setManagedHooksPath(realHooksPath);
+
       if (worktreePath && existsSync(worktreePath)) {
         try {
           execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
@@ -888,8 +920,19 @@ describe('gitService', () => {
       expect(() => execSync('git config --worktree circuschief.commitAttribution', { cwd: worktreePath }))
         .toThrow();
       expect(execSync('git config --worktree core.hooksPath', { cwd: worktreePath }).toString().trim())
-        .toBe('.circuschief-hooks');
-      expect(existsSync(join(worktreePath, '.circuschief-hooks', 'commit-msg'))).toBe(true);
+        .toBe(fakeHooksPath);
+      expect(existsSync(join(fakeHooksPath, 'commit-msg'))).toBe(true);
+    });
+
+    it('does not touch the real home directory hooks path', async () => {
+      const realHookFile = join(homedir(), '.circuschief', 'hooks', 'commit-msg');
+      const existedBefore = existsSync(realHookFile);
+
+      await ensureWorktreeCommitAttributionHook(worktreePath);
+
+      // The real home must not gain or lose the hook file.
+      const existsAfter = existsSync(realHookFile);
+      expect(existsAfter).toBe(existedBefore);
     });
 
     it('appends the configured trailer to a plain git commit', async () => {
@@ -1025,7 +1068,7 @@ describe('gitService', () => {
 
     it('clears stale managed hooks path when attribution was already unset', async () => {
       execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
-      execSync('git config --worktree core.hooksPath .circuschief-hooks', { cwd: worktreePath });
+      execSync(`git config --worktree core.hooksPath '${fakeHooksPath}'`, { cwd: worktreePath });
 
       const result = await clearWorktreeCommitAttribution(worktreePath);
 
@@ -1056,19 +1099,20 @@ describe('gitService', () => {
       ).rejects.toThrow('already has core.hooksPath set to "custom-hooks"');
     });
 
-    it('clears inherited worktree-level hooksPath before installing managed hook', async () => {
-      // Simulate a worktree that inherited hooksPath from its parent worktree.
-      // The function should clear it and install the managed hook successfully.
+    it('auto-upgrades legacy .circuschief-hooks path to new managed path', async () => {
+      // Simulate a worktree that has the old-style relative hooks path from before
+      // the migration in commit 4b1437e1 (which moved hooks to ~/.circuschief/hooks).
       execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
-      execSync('git config --worktree core.hooksPath /some/inherited/path', { cwd: worktreePath });
+      execSync('git config --worktree core.hooksPath .circuschief-hooks', { cwd: worktreePath });
 
-      // Should NOT throw — it clears the inherited worktree-level value
       const result = await ensureWorktreeCommitAttributionHook(worktreePath);
-      expect(result).toBe(true);
 
-      // The managed hook should now be installed
-      const hooksPath = execSync('git config --get core.hooksPath', { cwd: worktreePath }).toString().trim();
-      expect(hooksPath).toBe('.circuschief-hooks');
+      expect(result).toBe(true);
+      // Should have been upgraded to the new managed hooks path
+      expect(execSync('git config --worktree core.hooksPath', { cwd: worktreePath }).toString().trim())
+        .toBe(fakeHooksPath);
+      expect(existsSync(join(fakeHooksPath, 'commit-msg'))).toBe(true);
+    });
     });
   });
 

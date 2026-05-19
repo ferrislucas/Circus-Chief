@@ -1,0 +1,53 @@
+{
+  "prompt": "Gemini E2E smoke: reply with exactly \"Gemini E2E response.\"",
+  "model": "gemini-2.5-flash",
+  "events": [
+    {
+      "type": "system",
+      "subtype": "init",
+      "session_id": "8786d369-2d03-40e6-9506-78009e514c8b",
+      "model": "gemini-2.5-flash"
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "delta": {
+          "type": "text_delta",
+          "text": "Gemini E2E response"
+        }
+      }
+    },
+    {
+      "type": "stream_event",
+      "event": {
+        "type": "content_block_delta",
+        "delta": {
+          "type": "text_delta",
+          "text": "."
+        }
+      }
+    },
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Gemini E2E response."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "usage": {
+        "input_tokens": 12294,
+        "output_tokens": 7
+      }
+    }
+  ],
+  "key": "runSession-e11ab8cd798a920a",
+  "recordedAt": "2026-05-19T00:36:28.237Z"
+}

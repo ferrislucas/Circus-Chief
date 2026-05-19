@@ -394,7 +394,10 @@ test.describe('Settings', () => {
       await expect(builtInCards.locator('button:has-text("Edit")')).toHaveCount(0);
       await expect(builtInCards.locator('button:has-text("Delete")')).toHaveCount(0);
       await expect(builtInCards.locator('button:has-text("Test")')).toHaveCount(0);
-      await expect(builtInCards.locator('button:has-text("Settings")')).toHaveCount(2);
+
+      const builtInCount = await builtInCards.count();
+      expect(builtInCount).toBeGreaterThan(0);
+      await expect(builtInCards.locator('button:has-text("Settings")')).toHaveCount(builtInCount);
     });
 
     test('add provider button is visible', async ({ page }) => {
