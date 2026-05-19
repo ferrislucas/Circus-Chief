@@ -92,11 +92,26 @@ export async function clearWorktreeCommitAttribution(worktreePath) {
 export async function ensureWorktreeCommitAttributionHook(worktreePath) {
   await git(worktreePath, 'config extensions.worktreeConfig true');
 
+  // Clear any inherited worktree-level hooksPath before checking.
+  // When a session worktree is created inside another worktree (e.g. E2E tests
+  // running inside a Circus Chief-managed worktree), the new worktree may
+  // inherit the parent's core.hooksPath.  Since we are about to install our
+  // own managed hook, clear any stale inherited value first.
   const currentHooksPath = await gitConfigValue(worktreePath, 'core.hooksPath');
   if (currentHooksPath && currentHooksPath !== MANAGED_HOOKS_PATH) {
-    throw new Error(
-      `Cannot install managed commit attribution hook: worktree already has core.hooksPath set to "${currentHooksPath}"`
-    );
+    try {
+      await git(worktreePath, 'config --worktree --unset core.hooksPath');
+    } catch {
+      // If unset fails, fall through to the safety check below.
+    }
+    // Re-read after clearing — if a non-worktree-level config is still
+    // present (e.g. local/common config), that's a genuine conflict.
+    const afterClear = await gitConfigValue(worktreePath, 'core.hooksPath');
+    if (afterClear && afterClear !== MANAGED_HOOKS_PATH) {
+      throw new Error(
+        `Cannot install managed commit attribution hook: worktree already has core.hooksPath set to "${afterClear}"`
+      );
+    }
   }
 
   try {

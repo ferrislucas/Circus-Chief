@@ -1044,13 +1044,31 @@ describe('gitService', () => {
       expect(existsSync(join(worktreePath, '.circuschief-hooks', 'commit-msg'))).toBe(false);
     });
 
-    it('fails visibly instead of overwriting an unrelated hooks path', async () => {
-      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
-      execSync('git config --worktree core.hooksPath custom-hooks', { cwd: worktreePath });
+    it('fails visibly instead of overwriting an unrelated hooks path in common config', async () => {
+      // Set hooksPath in the common (local) config, not worktree-level.
+      // Worktree-level hooksPath is automatically cleared (it's typically inherited
+      // from the parent worktree), but common-level config is a genuine user choice
+      // and must not be silently overwritten.
+      execSync('git config core.hooksPath custom-hooks', { cwd: worktreePath });
 
       await expect(
         ensureWorktreeCommitAttributionHook(worktreePath)
       ).rejects.toThrow('already has core.hooksPath set to "custom-hooks"');
+    });
+
+    it('clears inherited worktree-level hooksPath before installing managed hook', async () => {
+      // Simulate a worktree that inherited hooksPath from its parent worktree.
+      // The function should clear it and install the managed hook successfully.
+      execSync('git config extensions.worktreeConfig true', { cwd: worktreePath });
+      execSync('git config --worktree core.hooksPath /some/inherited/path', { cwd: worktreePath });
+
+      // Should NOT throw — it clears the inherited worktree-level value
+      const result = await ensureWorktreeCommitAttributionHook(worktreePath);
+      expect(result).toBe(true);
+
+      // The managed hook should now be installed
+      const hooksPath = execSync('git config --get core.hooksPath', { cwd: worktreePath }).toString().trim();
+      expect(hooksPath).toBe('.circuschief-hooks');
     });
   });
 
