@@ -4728,11 +4728,11 @@ describe('Sessions Store', () => {
         expect(store.messages).toHaveLength(1);
       });
 
-      it('bumps lastActivityAt and lastMessageAt on the session in the list when a new message arrives', () => {
+      it('bumps lastActivityAt, lastMessageAt, and sortDate on the session in the list when a new message arrives', () => {
         const store = useSessionsStore();
         store.sessions = [
-          { id: 'session-1', name: 'S1', lastActivityAt: 1000, lastMessageAt: 900 },
-          { id: 'session-2', name: 'S2', lastActivityAt: 2000, lastMessageAt: 2000 },
+          { id: 'session-1', name: 'S1', lastActivityAt: 1000, lastMessageAt: 900, sortDate: 1000 },
+          { id: 'session-2', name: 'S2', lastActivityAt: 2000, lastMessageAt: 2000, sortDate: 2000 },
         ];
         store.currentSession = { id: 'session-1' };
 
@@ -4741,15 +4741,17 @@ describe('Sessions Store', () => {
         const updated = store.sessions.find((s) => s.id === 'session-1');
         expect(updated.lastActivityAt).toBe(5000);
         expect(updated.lastMessageAt).toBe(5000);
+        expect(updated.sortDate).toBe(5000);
         // Unrelated sessions are not affected.
         const other = store.sessions.find((s) => s.id === 'session-2');
         expect(other.lastActivityAt).toBe(2000);
         expect(other.lastMessageAt).toBe(2000);
+        expect(other.sortDate).toBe(2000);
       });
 
-      it('never moves lastActivityAt or lastMessageAt backwards', () => {
+      it('never moves lastActivityAt, lastMessageAt, or sortDate backwards', () => {
         const store = useSessionsStore();
-        store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 5000, lastMessageAt: 4500 }];
+        store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 5000, lastMessageAt: 4500, sortDate: 5000 }];
         store.currentSession = { id: 'session-1' };
 
         store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'stale', timestamp: 1000 });
@@ -4757,13 +4759,14 @@ describe('Sessions Store', () => {
         const updated = store.sessions.find((s) => s.id === 'session-1');
         expect(updated.lastActivityAt).toBe(5000);
         expect(updated.lastMessageAt).toBe(4500);
+        expect(updated.sortDate).toBe(5000);
       });
 
-      it('bumps lastActivityAt and lastMessageAt for a different session than the current one', () => {
+      it('bumps lastActivityAt, lastMessageAt, and sortDate for a different session than the current one', () => {
         const store = useSessionsStore();
         store.sessions = [
-          { id: 'session-a', name: 'A', lastActivityAt: 1000, lastMessageAt: 1000 },
-          { id: 'session-b', name: 'B', lastActivityAt: 2000, lastMessageAt: 1500 },
+          { id: 'session-a', name: 'A', lastActivityAt: 1000, lastMessageAt: 1000, sortDate: 1000 },
+          { id: 'session-b', name: 'B', lastActivityAt: 2000, lastMessageAt: 1500, sortDate: 2000 },
         ];
         store.currentSession = { id: 'session-a' };
 
@@ -4773,6 +4776,7 @@ describe('Sessions Store', () => {
         const b = store.sessions.find((s) => s.id === 'session-b');
         expect(b.lastActivityAt).toBe(9000);
         expect(b.lastMessageAt).toBe(9000);
+        expect(b.sortDate).toBe(9000);
         // The guard still prevents the message from being appended to the current session's messages.
         expect(store.messages).toHaveLength(0);
       });
@@ -4787,6 +4791,7 @@ describe('Sessions Store', () => {
         const updated = store.sessions.find((s) => s.id === 'session-1');
         expect(updated.lastActivityAt).toBe(4000);
         expect(updated.lastMessageAt).toBe(4000);
+        expect(updated.sortDate).toBe(4000);
       });
     });
 
