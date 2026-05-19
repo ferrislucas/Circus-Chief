@@ -55,8 +55,14 @@ export const useSessionsStore = defineStore('sessions', {
     _findChildren: (state) => (parentId) => {
       const fromSessions = state.sessions.filter(s => s.parentSessionId === parentId);
       const fromActive = state.activeSessions.filter(s => s.parentSessionId === parentId);
-      const seen = new Set(fromSessions.map(s => s.id));
-      const merged = [...fromSessions];
+      const seen = new Set();
+      const merged = [];
+      for (const s of fromSessions) {
+        if (!seen.has(s.id)) {
+          merged.push(s);
+          seen.add(s.id);
+        }
+      }
       for (const s of fromActive) {
         if (!seen.has(s.id)) { merged.push(s); seen.add(s.id); }
       }

@@ -8,6 +8,7 @@ describe('SessionChatPicker', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    const now = Date.now();
 
     sessions = [
       {
@@ -15,9 +16,11 @@ describe('SessionChatPicker', () => {
           id: 'root-1',
           name: 'Root Session',
           status: 'completed',
-          createdAt: Date.now() - 7200000,
-          lastActivityAt: Date.now() - 3600000,
+          createdAt: now - 7200000,
+          lastActivityAt: now - 3600000,
         },
+        pickerTimestamp: now - 3600000,
+        pickerTimestampSource: 'lastMessageAt',
         depth: 0,
       },
       {
@@ -25,9 +28,11 @@ describe('SessionChatPicker', () => {
           id: 'child-1',
           name: 'Child Session 1',
           status: 'running',
-          createdAt: Date.now() - 3600000,
-          lastActivityAt: Date.now() - 1800000,
+          createdAt: now - 3600000,
+          lastActivityAt: now - 1800000,
         },
+        pickerTimestamp: now - 1800000,
+        pickerTimestampSource: 'lastMessageAt',
         depth: 1,
       },
       {
@@ -35,9 +40,11 @@ describe('SessionChatPicker', () => {
           id: 'child-2',
           name: 'Child Session 2',
           status: 'waiting',
-          createdAt: Date.now() - 1800000,
-          lastActivityAt: Date.now() - 900000,
+          createdAt: now - 1800000,
+          lastActivityAt: now - 900000,
         },
+        pickerTimestamp: now - 900000,
+        pickerTimestampSource: 'lastMessageAt',
         depth: 1,
       },
     ];
@@ -177,6 +184,16 @@ describe('SessionChatPicker', () => {
       expect(items[0].find('.picker-item-name').text()).toBe('Root Session');
       expect(items[1].find('.picker-item-name').text()).toBe('Child Session 1');
       expect(items[2].find('.picker-item-name').text()).toBe('Child Session 2');
+    });
+
+    it('renders items in the same order as the sessions prop', () => {
+      const unorderedSessions = [
+        { session: { id: 'older', name: 'Older', status: 'completed' }, pickerTimestamp: 1000, pickerTimestampSource: 'lastMessageAt', depth: 0 },
+        { session: { id: 'newer', name: 'Newer', status: 'completed' }, pickerTimestamp: 9000, pickerTimestampSource: 'lastMessageAt', depth: 0 },
+      ];
+      const wrapper = mountComponent({ sessions: unorderedSessions, activeSessionId: 'older' });
+      const names = wrapper.findAll('.picker-item-name').map(item => item.text());
+      expect(names).toEqual(['Older', 'Newer']);
     });
 
     it('truncates long session names with CSS', () => {
@@ -325,16 +342,16 @@ describe('SessionChatPicker', () => {
       });
     });
 
-    it('renders lastActivityAt when present with "Last activity" tooltip', () => {
+    it('renders pickerTimestamp with source-specific tooltip', () => {
       const wrapper = mountComponent();
       const firstItem = wrapper.findAll('.picker-item')[0];
       const dateEl = firstItem.find('.picker-item-date');
-      expect(dateEl.attributes('title')).toBe('Last activity');
+      expect(dateEl.attributes('title')).toContain('Last message:');
       expect(dateEl.text()).not.toBe('—');
       expect(dateEl.text().length).toBeGreaterThan(0);
     });
 
-    it('renders "—" placeholder with "No activity yet" tooltip when lastActivityAt is null', () => {
+    it('renders "—" placeholder with "No activity yet" tooltip when pickerTimestamp is null', () => {
       const wrapper = mountComponent({
         sessions: [{
           session: {
@@ -344,6 +361,8 @@ describe('SessionChatPicker', () => {
             createdAt: Date.now(),
             lastActivityAt: null,
           },
+          pickerTimestamp: null,
+          pickerTimestampSource: 'none',
           depth: 0,
         }],
         activeSessionId: 's-null',
@@ -354,18 +373,39 @@ describe('SessionChatPicker', () => {
       expect(dateEl.text()).toBe('—');
     });
 
-    it('flips tooltip between "Last activity" and "No activity yet" based on value', () => {
+    it('shows timestamp source labels for message, updated, created, and none entries', () => {
+      const timestamp = Date.now();
       const wrapper = mountComponent({
         sessions: [
-          { session: { id: 'has', name: 'Has', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
-          { session: { id: 'none', name: 'None', status: 'waiting', createdAt: Date.now(), lastActivityAt: null }, depth: 0 },
+          { session: { id: 'message', name: 'Message', status: 'completed' }, pickerTimestamp: timestamp, pickerTimestampSource: 'lastMessageAt', depth: 0 },
+          { session: { id: 'updated', name: 'Updated', status: 'completed' }, pickerTimestamp: timestamp, pickerTimestampSource: 'updatedAt', depth: 0 },
+          { session: { id: 'created', name: 'Created', status: 'completed' }, pickerTimestamp: timestamp, pickerTimestampSource: 'createdAt', depth: 0 },
+          { session: { id: 'none', name: 'None', status: 'waiting' }, pickerTimestamp: null, pickerTimestampSource: 'none', depth: 0 },
         ],
-        activeSessionId: 'has',
+        activeSessionId: 'message',
         summaries: {},
       });
       const items = wrapper.findAll('.picker-item');
-      expect(items[0].find('.picker-item-date').attributes('title')).toBe('Last activity');
-      expect(items[1].find('.picker-item-date').attributes('title')).toBe('No activity yet');
+      expect(items[0].find('.picker-item-date').attributes('title')).toContain('Last message:');
+      expect(items[1].find('.picker-item-date').attributes('title')).toContain('Updated:');
+      expect(items[2].find('.picker-item-date').attributes('title')).toContain('Created:');
+      expect(items[3].find('.picker-item-date').attributes('title')).toBe('No activity yet');
+    });
+
+    it('uses full timestamp titles when visible labels are the same minute', () => {
+      const base = new Date('2026-05-12T12:34:05.000Z').getTime();
+      const wrapper = mountComponent({
+        sessions: [
+          { session: { id: 'first', name: 'First', status: 'completed', lastActivityAt: 1 }, pickerTimestamp: base, pickerTimestampSource: 'lastMessageAt', depth: 0 },
+          { session: { id: 'second', name: 'Second', status: 'completed', lastActivityAt: 2 }, pickerTimestamp: base + 30_000, pickerTimestampSource: 'lastMessageAt', depth: 0 },
+        ],
+        activeSessionId: 'first',
+        summaries: {},
+      });
+      const dates = wrapper.findAll('.picker-item-date');
+      expect(dates[0].text()).toBe(dates[1].text());
+      expect(dates[0].attributes('title')).not.toBe(dates[1].attributes('title'));
+      expect(dates[0].attributes('title')).not.toContain('Last activity');
     });
   });
 

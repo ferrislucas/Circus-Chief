@@ -47,11 +47,19 @@ const props = defineProps({
   }
 });
 
-const emit = defineEmits(['update:modelValue', 'input']);
+const emit = defineEmits(['update:modelValue', 'input', 'focus', 'blur']);
 
 function handleInput(event) {
   emit('update:modelValue', event.target.value);
   emit('input', event);
+}
+
+function handleFocus(event) {
+  emit('focus', event);
+}
+
+function handleBlur(event) {
+  emit('blur', event);
 }
 
 const textareaRef = ref(null);
@@ -164,6 +172,13 @@ defineExpose({
 onUnmounted(() => {
   // Cleanup any lingering event listeners
   isResizing = false;
+  textareaRef.value?.removeEventListener('focus', handleFocus);
+  textareaRef.value?.removeEventListener('blur', handleBlur);
+});
+
+onMounted(() => {
+  textareaRef.value?.addEventListener('focus', handleFocus);
+  textareaRef.value?.addEventListener('blur', handleBlur);
 });
 </script>
 

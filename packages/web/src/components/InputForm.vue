@@ -3,23 +3,29 @@
     class="input-form"
     @submit.prevent="handleSubmit"
   >
-    <ResizableTextarea
-      ref="textareaRef"
-      :model-value="modelValue"
-      class="form-input form-textarea"
-      :placeholder="placeholderText"
-      :min-height="80"
-      @update:model-value="$emit('update:modelValue', $event)"
-      @input="$emit('input', $event)"
-      @keydown="handleKeydown"
-    />
+    <div
+      class="prompt-textarea-region"
+      @focusin="handlePromptFocus"
+      @focusout="handlePromptBlur"
+    >
+      <ResizableTextarea
+        ref="textareaRef"
+        :model-value="modelValue"
+        class="form-input form-textarea"
+        :placeholder="placeholderText"
+        :min-height="80"
+        @update:model-value="$emit('update:modelValue', $event)"
+        @input="$emit('input', $event)"
+        @keydown="handleKeydown"
+      />
+    </div>
 
     <!-- Quick Responses Panel - shows below the textarea when not running or for draft sessions -->
     <QuickResponsesPanel
       v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
       :show-empty="true"
+      :project-id="projectId"
       @insert="$emit('quickResponseInsert', $event)"
-      @open-settings="$emit('openQuickResponseSettings')"
     />
 
     <!-- Auto-send checkbox - only during running with content -->
@@ -130,6 +136,11 @@
       @open-auto-reschedule="$emit('openAutoReschedule')"
       @update:template-id="$emit('templateChange', $event)"
     />
+
+    <div
+      class="session-overlay-keyboard-spacer"
+      aria-hidden="true"
+    />
   </form>
 </template>
 
@@ -176,7 +187,6 @@ const emit = defineEmits([
   'submit',
   'input',
   'quickResponseInsert',
-  'openQuickResponseSettings',
   'update:attachedFiles',
   'openSlashCommand',
   'thinkingToggle',
@@ -187,6 +197,8 @@ const emit = defineEmits([
   'update:selectedModel',
   'update:selectedProviderId',
   'autoSendToggle',
+  'prompt-focus',
+  'prompt-blur',
 ]);
 
 const textareaRef = ref(null);
@@ -207,6 +219,14 @@ const handleKeydown = useSubmitShortcut(() => {
 
 function handleSubmit() {
   emit('submit');
+}
+
+function handlePromptFocus(event) {
+  emit('prompt-focus', event);
+}
+
+function handlePromptBlur(event) {
+  emit('prompt-blur', event);
 }
 
 /**
@@ -231,6 +251,12 @@ defineExpose({
 
 .input-form textarea {
   width: 100%;
+}
+
+.session-overlay-keyboard-spacer {
+  flex: 0 0 0;
+  height: 0;
+  pointer-events: none;
 }
 
 .input-controls {

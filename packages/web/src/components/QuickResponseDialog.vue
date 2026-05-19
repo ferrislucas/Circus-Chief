@@ -201,7 +201,7 @@ const form = ref({
   label: '',
   content: '',
   category: '',
-  autoSubmit: false,
+  autoSubmit: true,
   isGlobal: false,
 });
 
@@ -247,7 +247,7 @@ watch(() => props.isOpen, (open) => {
         label: '',
         content: '',
         category: '',
-        autoSubmit: false,
+        autoSubmit: true,
         isGlobal: props.defaultIsGlobal,
       };
     }

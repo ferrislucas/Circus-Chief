@@ -220,6 +220,20 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
   });
 
   describe('Form Submission', () => {
+    it('does not render template-level quick response auto-submit control', async () => {
+      const wrapper = mount(TemplatesPanel, {
+        props: { projectId: 'proj-1' },
+        global: {
+          plugins: [pinia],
+          stubs: { 'router-link': true },
+        },
+      });
+
+      await wrapper.find('[data-testid="new-template-btn"]').trigger('click');
+
+      expect(wrapper.text()).not.toContain('Auto-submit from Quick Responses');
+    });
+
     it('includes model in createProjectTemplate call', async () => {
       templatesStoreMock.createProjectTemplate.mockResolvedValue({});
 
@@ -254,6 +268,31 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           mode: 'plan',
         })
       );
+    });
+
+    it('includes showInQuickResponses but omits quickResponseAutoSubmit in create payload', async () => {
+      templatesStoreMock.createProjectTemplate.mockResolvedValue({});
+
+      const wrapper = mount(TemplatesPanel, {
+        props: { projectId: 'proj-1' },
+        global: {
+          plugins: [pinia],
+          stubs: { 'router-link': true },
+        },
+      });
+
+      await wrapper.find('[data-testid="new-template-btn"]').trigger('click');
+
+      wrapper.vm.formData.name = 'Quick Template';
+      wrapper.vm.formData.prompt = 'Quick prompt';
+      wrapper.vm.formData.showInQuickResponses = true;
+
+      await wrapper.find('form').trigger('submit');
+      await wrapper.vm.$nextTick();
+
+      const payload = templatesStoreMock.createProjectTemplate.mock.calls[0][1];
+      expect(payload.showInQuickResponses).toBe(true);
+      expect(payload).not.toHaveProperty('quickResponseAutoSubmit');
     });
 
     it('includes mode in createGlobalTemplate call', async () => {
@@ -580,6 +619,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
         model: null,
         mode: null,
       });
+      expect(wrapper.vm.formData).not.toHaveProperty('quickResponseAutoSubmit');
     });
   });
 

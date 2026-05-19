@@ -1,7 +1,7 @@
 <template>
   <div class="changes-tab">
     <div
-      v-if="loading"
+      v-if="initialLoading"
       class="loading-state"
     >
       <span class="loading-spinner" />
@@ -9,7 +9,7 @@
     </div>
 
     <div
-      v-else-if="error"
+      v-else-if="error && !hasLoaded"
       class="error-message"
     >
       {{ error }}
@@ -43,14 +43,29 @@
             Compare to {{ branchLabel }}
           </button>
         </div>
-        <button
-          v-if="hasChanges"
-          class="btn-link"
-          :disabled="loading"
-          @click="toggleAllFiles"
-        >
-          {{ allExpanded ? 'Collapse All' : 'Expand All' }}
-        </button>
+        <div class="toolbar-actions">
+          <button
+            v-if="hasChanges"
+            class="btn-link"
+            :disabled="loading"
+            @click="toggleAllFiles"
+          >
+            {{ allExpanded ? 'Collapse All' : 'Expand All' }}
+          </button>
+          <button
+            class="btn-link refresh-button"
+            :disabled="loading"
+            title="Refresh changes"
+            @click="fetchChanges"
+          >
+            <span
+              v-if="loading"
+              class="loading-spinner"
+            />
+            <span v-else>↻</span>
+            Refresh
+          </button>
+        </div>
       </div>
 
       <!-- Empty state: Show when no changes in current mode -->
@@ -159,6 +174,9 @@ const loading = ref(false);
 const error = ref(null);
 const compareMode = ref('local');
 const defaultBranch = ref(null);
+const hasLoaded = ref(false);
+
+const initialLoading = computed(() => loading.value && !hasLoaded.value);
 
 // Per-mode state tracking for expand/collapse
 // Keys in expandedFiles are "section:filepath", e.g., "staged:src/api.js"
@@ -322,6 +340,7 @@ async function fetchChanges() {
 
     // Initialize mode state for the current mode after data is available
     initializeModeState(compareMode.value);
+    hasLoaded.value = true;
   } catch (err) {
     error.value = err.message;
   } finally {
@@ -503,5 +522,17 @@ defineExpose({
   letter-spacing: 0.05em;
   color: var(--color-text-soft);
   margin: 0;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.refresh-button .loading-spinner {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-width: 1.5px;
 }
 </style>

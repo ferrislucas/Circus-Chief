@@ -172,6 +172,31 @@ describe('Projects API', () => {
       expect(res.status).toBe(400);
     });
 
+    it('accepts ISO 8601 scheduledAt strings and stores Unix milliseconds', async () => {
+      const scheduledAt = '2026-06-12T14:00:00Z';
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Scheduled prompt',
+        scheduledAt,
+      });
+
+      expect(res.status).toBe(201);
+      expect(res.body.scheduledAt).toBe(Date.parse(scheduledAt));
+      expect(res.body.status).toBe('scheduled');
+    });
+
+    it('rejects Unix timestamp scheduledAt values with a format error', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Scheduled prompt',
+        scheduledAt: '1700000000000',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('scheduledAt must be a valid ISO 8601 date-time string');
+      expect(res.body.error).toContain('2026-06-12T14:00:00Z');
+      expect(setupGitForSession).not.toHaveBeenCalled();
+      expect(sessions.getByProjectId(projectId)).toHaveLength(0);
+    });
+
     it('returns 404 when parentSessionId references a missing session', async () => {
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Child prompt',

@@ -15,7 +15,7 @@ This document describes the system prompt injected into every agent session and 
 | 5 | Canvas write instructions | `buildCanvasWriteSystemPrompt()` | Yes |
 | 6 | Canvas read instructions | `buildCanvasReadSystemPrompt()` | Yes |
 | 7 | Session management API | `buildSessionApiInstructions()` | Yes |
-| 8 | Commands API | `buildCommandButtonApiInstructions()` (in `commandButtonPrompts.js`) | Only when project has commands |
+| 8 | Circus Commands | `buildCommandButtonApiInstructions()` (in `commandButtonPrompts.js`) | Only when project has commands |
 | 9 | Kanban board API | `buildKanbanApiInstructions()` | Only when project has kanban enabled |
 
 The base URL used in all endpoint examples is derived from `CIRCUSCHIEF_API_URL` env var, falling back to `http://localhost:{PORT}`.
@@ -51,7 +51,7 @@ The prompt provides the agent with its own session ID and project ID. All endpoi
 | DELETE | `/api/sessions/{session_id}` | Delete a session |
 | PATCH | `/api/sessions/{session_id}` | Update session settings. Example body: `{"thinkingEnabled": true, "effortLevel": "high"}` |
 
-**Optional fields for session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `parentSessionId` (to create a related follow-up session from the current session), `startImmediately`, `scheduledAt`, `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, `rescheduleAtTokenCount`.
+**Optional fields for session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `parentSessionId` (to create a related follow-up session from the current session), `startImmediately`, `scheduledAt` (ISO 8601 date-time string with timezone, e.g. `"2026-06-12T14:00:00Z"`), `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, `rescheduleAtTokenCount`.
 
 ### Project Operations (always included)
 
@@ -69,17 +69,17 @@ The prompt provides the agent with its own session ID and project ID. All endpoi
 | GET | `/api/sessions/{sessionId}/summary?generate=true` | Get (and generate) a session summary |
 | POST | `/api/sessions/{sessionId}/summary` | Regenerate the session summary |
 
-### Commands API (conditional)
+### Circus Commands (conditional)
 
 Included only when the project has commands configured. Built in `packages/server/src/services/commandButtonPrompts.js`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/sessions/{sessionId}/command-buttons` | List available commands |
-| POST | `/api/sessions/{sessionId}/command-buttons/{button_id}/run` | Run a command. Response: `{ runId, buttonId, status: "running", output: "" }` |
-| GET | `/api/sessions/{sessionId}/command-buttons/runs/{run_id}` | Check run status & output. Response: `{ runId, buttonId, status, exitCode, output, startedAt, completedAt }` |
-| GET | `/api/sessions/{sessionId}/command-buttons/runs` | List all command runs |
-| POST | `/api/sessions/{sessionId}/command-buttons/runs/{run_id}/kill` | Kill a running command |
+| GET | `/api/sessions/{sessionId}/circus-commands` | List available commands |
+| POST | `/api/sessions/{sessionId}/circus-commands/{button_id}/run` | Run a command. Response: `{ runId, buttonId, status: "running", output: "" }` |
+| GET | `/api/sessions/{sessionId}/circus-commands/runs/{run_id}` | Check run status & output. Response: `{ runId, buttonId, status, exitCode, output, startedAt, completedAt }` |
+| GET | `/api/sessions/{sessionId}/circus-commands/runs` | List all command runs |
+| POST | `/api/sessions/{sessionId}/circus-commands/runs/{run_id}/kill` | Kill a running command |
 
 ### Kanban Board API (conditional)
 

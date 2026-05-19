@@ -566,8 +566,8 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).toContain('## Commands API');
-        expect(result).toContain('/command-buttons');
+        expect(result).toContain('## Circus Commands');
+        expect(result).toContain('/circus-commands');
         expect(result).toContain('/runs');
         expect(result).toContain('/run');
         expect(result).toContain('/kill');
@@ -578,7 +578,7 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).not.toContain('## Commands API');
+        expect(result).not.toContain('## Circus Commands');
       });
 
       it('section appears between Session Management and Kanban', () => {
@@ -590,7 +590,7 @@ describe('sessionPrompts', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         const sessionApiIdx = result.indexOf('## Session Management API');
-        const commandIdx = result.indexOf('## Commands API');
+        const commandIdx = result.indexOf('## Circus Commands');
         const kanbanIdx = result.indexOf('## Kanban Board API');
 
         expect(sessionApiIdx).toBeGreaterThanOrEqual(0);
@@ -605,7 +605,7 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).toContain(`/api/sessions/${sessionId}/command-buttons/runs/<run_id>/kill`);
+        expect(result).toContain(`/api/sessions/${sessionId}/circus-commands/runs/<run_id>/kill`);
       });
 
       it('uses session-scoped command routes without tree traversal terms', () => {
@@ -613,8 +613,8 @@ describe('sessionPrompts', () => {
 
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).toContain(`curl http://localhost:5000/api/sessions/${sessionId}/command-buttons`);
-        expect(result).not.toContain(`/api/projects/${projectId}/command-buttons`);
+        expect(result).toContain(`curl http://localhost:5000/api/sessions/${sessionId}/circus-commands`);
+        expect(result).not.toContain(`/api/projects/${projectId}/circus-commands`);
         expect(result).not.toContain('Root Session ID');
         expect(result).not.toContain('Parent Session ID');
       });
@@ -631,6 +631,14 @@ describe('sessionPrompts', () => {
         expect(result).toContain('output');
         expect(result).toContain('startedAt');
         expect(result).toContain('completedAt');
+      });
+
+      it('includes discoverability note when commands exist', () => {
+        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
+
+        const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+        expect(result).toContain('When the user asks to');
       });
     });
   });

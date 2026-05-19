@@ -84,8 +84,8 @@
       <!-- Quick Responses Panel -->
       <QuickResponsesPanel
         :show-empty="true"
+        :project-id="route.params.id"
         @insert="handleQuickResponseInsert"
-        @open-settings="quickResponseSettingsOpen = true"
       />
 
       <SessionFormOptions
@@ -245,13 +245,6 @@
       :hide-builtin="true"
       @insert="handleSlashCommandInsert"
     />
-
-    <!-- Quick Response Settings Modal -->
-    <QuickResponseSettings
-      :is-open="quickResponseSettingsOpen"
-      :project-id="route.params.id"
-      @close="quickResponseSettingsOpen = false"
-    />
   </div>
 </template>
 
@@ -279,9 +272,7 @@ import ResizableTextarea from '../components/ResizableTextarea.vue';
 import SlashCommandButton from '../components/SlashCommandButton.vue';
 import SlashCommandWizard from '../components/SlashCommandWizard.vue';
 import { useProjectsStore } from '../stores/projects.js';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import QuickResponsesPanel from '../components/QuickResponsesPanel.vue';
-import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -307,7 +298,6 @@ let debounceTimer = null;
 let branchDebounceTimer = null;
 const loading = ref(false);
 const showSlashCommandWizard = ref(false);
-const quickResponseSettingsOpen = ref(false);
 
 // Rec 9: Responsive textarea min height
 const textareaMinHeight = computed(() => window.innerWidth <= 480 ? 80 : 120);
@@ -436,8 +426,6 @@ onMounted(async () => {
   }
 
   templatesStore.fetchProjectTemplates(projectId);
-  const quickResponsesStore = useQuickResponsesStore();
-  quickResponsesStore.fetchForProject(projectId);
   if (route.query.parentSessionId) parentSessionId.value = route.query.parentSessionId;
 });
 

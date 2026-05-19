@@ -129,6 +129,7 @@ import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { api } from '../composables/useApi.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
+import { sortSessionChain } from '../utils/sessionPickerRecency.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const route = useRoute();
@@ -257,15 +258,10 @@ async function buildSessionChain() {
   if (session?.projectId) await mergeProjectSessionsToStore(session.projectId);
 
   const { root, earlyReturn } = findRootSession(sessionId);
-  if (earlyReturn) { sessionChain.value = earlyReturn; return; }
+  if (earlyReturn) { sessionChain.value = sortSessionChain(earlyReturn); return; }
   if (!root) return;
 
-  const tree = collectTreeDepthFirst(root);
-  tree.sort((a, b) => {
-    const aTime = a.session.lastActivityAt || a.session.updatedAt || a.session.createdAt || 0;
-    const bTime = b.session.lastActivityAt || b.session.updatedAt || b.session.createdAt || 0;
-    return bTime - aTime;
-  });
+  const tree = sortSessionChain(collectTreeDepthFirst(root));
   sessionChain.value = tree;
 
   // Fetch summaries for all sessions in the tree (non-blocking)
@@ -281,8 +277,8 @@ async function buildSessionChain() {
 /**
  * Resolve the overlay target session ID.
  * Priority order:
- * 1. Running/starting children (most recently updated)
- * 2. Session with the most recent conversation activity (lastActivityAt)
+ * 1. Running/starting children (most recent picker recency)
+ * 2. Session with the most recent picker recency
  * 3. Current session (fallback)
  */
 function resolveOverlayTarget() {
@@ -312,19 +308,13 @@ function resolveOverlayTarget() {
     .filter(entry => entry.session.id !== currentSessionId.value);
 
   if (runningChildren.length > 0) {
-    // Pick the most recently updated running child
-    const sorted = [...runningChildren].sort((a, b) =>
-      new Date(b.session.updatedAt || b.session.createdAt || 0) -
-      new Date(a.session.updatedAt || a.session.createdAt || 0)
-    );
+    const sorted = sortSessionChain(runningChildren);
     overlaySessionId.value = sorted[0].session.id;
     return;
   }
 
-  // No running children — select the session with the most recent conversation activity
-  const withActivity = chain
-    .filter(entry => entry.session.lastActivityAt)
-    .sort((a, b) => (b.session.lastActivityAt || 0) - (a.session.lastActivityAt || 0));
+  const withActivity = sortSessionChain(chain)
+    .filter(entry => entry.pickerTimestamp);
 
   if (withActivity.length > 0) {
     overlaySessionId.value = withActivity[0].session.id;
@@ -349,13 +339,13 @@ function handleSessionUpdated(msg) {
     entry => entry.session.id === updatedSession.id
   );
   if (idx >= 0) {
-    // Replace the stale snapshot with the updated one, preserving depth
-    sessionChain.value[idx] = {
+    const updatedEntries = [...sessionChain.value];
+    // Replace the stale snapshot with the updated one, preserving depth.
+    updatedEntries[idx] = {
       ...sessionChain.value[idx],
       session: updatedSession,
     };
-    // Trigger Vue reactivity by replacing the array ref
-    sessionChain.value = [...sessionChain.value];
+    sessionChain.value = sortSessionChain(updatedEntries);
   }
 }
 
@@ -380,10 +370,8 @@ function handleSessionCreated(msg) {
   );
   if (!isChildOfTree) return;
 
-  // Add to store so getters work (push directly to sessions array)
-  if (!sessionsStore.getSessionById(newSession.id)) {
-    sessionsStore.sessions.push(newSession);
-  }
+  // Add to store so getters work
+  sessionsStore.addSessionToList(newSession);
 
   // Update overlay target BEFORE the async chain rebuild so it's set immediately
   if (newSession.status === 'running' || newSession.status === 'starting') {
@@ -418,8 +406,8 @@ async function handleOverlaySessionCreated(session) {
   preferredOverlaySession.value = createdSession || null;
   overlaySessionId.value = sessionId;
 
-  if (createdSession && !sessionsStore.getSessionById(sessionId)) {
-    sessionsStore.sessions.unshift(createdSession);
+  if (createdSession) {
+    sessionsStore.addSessionToList(createdSession);
   }
 
   await buildSessionChain();
@@ -430,10 +418,10 @@ async function handleOverlaySessionCreated(session) {
     const parentEntry = sessionChain.value.find(
       entry => entry.session.id === preferredOverlaySession.value.parentSessionId
     );
-    sessionChain.value = [
+    sessionChain.value = sortSessionChain([
       { session: preferredOverlaySession.value, depth: parentEntry ? parentEntry.depth + 1 : 0 },
       ...sessionChain.value,
-    ];
+    ]);
   }
   resolveOverlayTarget();
 }

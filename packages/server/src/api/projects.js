@@ -253,7 +253,7 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
 router.use('/:id/templates', projectTemplatesRouter);
 
 // Command button routes are mounted as a sub-router
-router.use('/:id/command-buttons', projectCommandButtonsRouter);
+router.use('/:id/circus-commands', projectCommandButtonsRouter);
 
 // Session defaults routes are mounted as a sub-router
 router.use('/:id/session-defaults', projectSessionDefaultsRouter);

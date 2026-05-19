@@ -22,24 +22,24 @@ describe('CommandButtonsApi', () => {
     });
 
   describe('getCommandButtons', () => {
-    it('sends GET to /projects/:id/command-buttons', async () => {
+    it('sends GET to /projects/:id/circus-commands', async () => {
       mockFetch.mockReturnValue(mockResponse([{ id: 'btn-1' }]));
 
       const result = await client.getCommandButtons('proj-123');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/command-buttons', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/circus-commands', expect.any(Object));
       expect(result).toHaveLength(1);
     });
   });
 
   describe('createCommandButton', () => {
-    it('sends POST to /projects/:id/command-buttons', async () => {
+    it('sends POST to /projects/:id/circus-commands', async () => {
       const data = { label: 'Run Tests', command: 'yarn test' };
       mockFetch.mockReturnValue(mockResponse({ id: 'btn-1', ...data }));
 
       await client.createCommandButton('proj-123', data);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/command-buttons', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/circus-commands', expect.objectContaining({
         method: 'POST',
         body: JSON.stringify(data),
       }));
@@ -47,24 +47,24 @@ describe('CommandButtonsApi', () => {
   });
 
   describe('getCommandButton', () => {
-    it('sends GET to /projects/:id/command-buttons/:buttonId', async () => {
+    it('sends GET to /projects/:id/circus-commands/:buttonId', async () => {
       mockFetch.mockReturnValue(mockResponse({ id: 'btn-1', label: 'Build' }));
 
       const result = await client.getCommandButton('proj-123', 'btn-1');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/command-buttons/btn-1', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/circus-commands/btn-1', expect.any(Object));
       expect(result.label).toBe('Build');
     });
   });
 
   describe('updateCommandButton', () => {
-    it('sends PATCH to /projects/:id/command-buttons/:buttonId', async () => {
+    it('sends PATCH to /projects/:id/circus-commands/:buttonId', async () => {
       const data = { label: 'Updated' };
       mockFetch.mockReturnValue(mockResponse({ id: 'btn-1', ...data }));
 
       await client.updateCommandButton('proj-123', 'btn-1', data);
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/command-buttons/btn-1', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/circus-commands/btn-1', expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify(data),
       }));
@@ -72,12 +72,12 @@ describe('CommandButtonsApi', () => {
   });
 
   describe('deleteCommandButton', () => {
-    it('sends DELETE to /projects/:id/command-buttons/:buttonId', async () => {
+    it('sends DELETE to /projects/:id/circus-commands/:buttonId', async () => {
       mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
 
       await client.deleteCommandButton('proj-123', 'btn-1');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/command-buttons/btn-1', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/circus-commands/btn-1', expect.objectContaining({
         method: 'DELETE',
       }));
     });
@@ -89,7 +89,7 @@ describe('CommandButtonsApi', () => {
 
       const result = await client.runCommandButton('sess-123', 'btn-1');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/btn-1/run', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/btn-1/run', expect.objectContaining({
         method: 'POST',
       }));
       expect(result.runId).toBe('run-1');
@@ -97,7 +97,7 @@ describe('CommandButtonsApi', () => {
   });
 
   describe('getActiveRuns', () => {
-    it('sends GET to /sessions/:id/command-buttons/runs', async () => {
+    it('sends GET to /sessions/:id/circus-commands/runs', async () => {
       const runs = [
         { runId: 'run-1', status: 'running' },
         { runId: 'run-2', status: 'success' },
@@ -106,19 +106,19 @@ describe('CommandButtonsApi', () => {
 
       const result = await client.getActiveRuns('sess-123');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/runs', expect.any(Object));
       expect(result).toHaveLength(2);
     });
   });
 
   describe('getCommandRun', () => {
-    it('sends GET to /sessions/:id/command-buttons/runs/:runId', async () => {
+    it('sends GET to /sessions/:id/circus-commands/runs/:runId', async () => {
       const run = { runId: 'run-1', status: 'success', exitCode: 0 };
       mockFetch.mockReturnValue(mockResponse(run));
 
       const result = await client.getCommandRun('sess-123', 'run-1');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs/run-1', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/runs/run-1', expect.any(Object));
       expect(result.status).toBe('success');
     });
 
@@ -130,12 +130,12 @@ describe('CommandButtonsApi', () => {
   });
 
   describe('getLatestRunsForProject', () => {
-    it('sends GET to /projects/:id/command-buttons/latest-runs', async () => {
+    it('sends GET to /projects/:id/circus-commands/latest-runs', async () => {
       mockFetch.mockReturnValue(mockResponse([]));
 
       await client.getLatestRunsForProject('proj-123');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/command-buttons/latest-runs', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith('/api/projects/proj-123/circus-commands/latest-runs', expect.any(Object));
     });
   });
 
@@ -145,7 +145,7 @@ describe('CommandButtonsApi', () => {
 
       const result = await client.killCommandRun('sess-123', 'run-1');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs/run-1/kill', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/runs/run-1/kill', expect.objectContaining({
         method: 'POST',
       }));
       expect(result.success).toBe(true);
@@ -153,24 +153,24 @@ describe('CommandButtonsApi', () => {
   });
 
   describe('deleteCommandRun', () => {
-    it('sends DELETE to /sessions/:id/command-buttons/runs/:runId', async () => {
+    it('sends DELETE to /sessions/:id/circus-commands/runs/:runId', async () => {
       mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
 
       await client.deleteCommandRun('sess-123', 'run-1');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs/run-1', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/runs/run-1', expect.objectContaining({
         method: 'DELETE',
       }));
     });
   });
 
   describe('deleteAllRunsForButton', () => {
-    it('sends DELETE to /sessions/:id/command-buttons/:buttonId/runs/all', async () => {
+    it('sends DELETE to /sessions/:id/circus-commands/:buttonId/runs/all', async () => {
       mockFetch.mockReturnValue(mockResponse(null, { status: 204 }));
 
       await client.deleteAllRunsForButton('sess-123', 'btn-1');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/btn-1/runs/all', expect.objectContaining({
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/btn-1/runs/all', expect.objectContaining({
         method: 'DELETE',
       }));
     });

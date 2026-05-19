@@ -16,7 +16,7 @@ import {
 } from './helpers';
 
 /**
- * Extended Command Buttons E2E Tests
+ * Extended Circus Commands E2E Tests
  *
  * Covers:
  * - Category 1: Kill Running Commands (API + UI)

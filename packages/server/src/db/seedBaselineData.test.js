@@ -113,7 +113,7 @@ describe('seedBaselineData', () => {
   it('creates expected default global session templates with golden prompts', () => {
     withDb((db) => {
       const rows = db.prepare(
-        'SELECT project_id, name, prompt, thinking_enabled, mode, next_template_id, git_branch, git_mode, model, effort_level, target_lane_id FROM session_templates WHERE project_id IS NULL ORDER BY name'
+        'SELECT project_id, name, prompt, thinking_enabled, mode, next_template_id, git_branch, git_mode, model, effort_level, target_lane_id FROM session_templates WHERE project_id IS NULL AND (legacy_quick_response_id IS NULL) ORDER BY name'
       ).all();
 
       expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
@@ -143,7 +143,7 @@ describe('seedBaselineData', () => {
         .toBe(BUILT_IN_ANTHROPIC_MODELS.length + BUILT_IN_OPENAI_MODELS.length);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt)
         .toBe(DEFAULT_QUICK_RESPONSES.length);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL').get().cnt)
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL').get().cnt)
         .toBe(DEFAULT_SESSION_TEMPLATES.length);
     });
   });
@@ -176,7 +176,7 @@ describe('seedBaselineData', () => {
       ).run('project-template', 'project-template-owner', 'Project Template', 'Project prompt', now, now);
 
       seedBaselineData(db);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL').get().cnt)
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL').get().cnt)
         .toBe(DEFAULT_SESSION_TEMPLATES.length);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NOT NULL').get().cnt)
         .toBe(1);

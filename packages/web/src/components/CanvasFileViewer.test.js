@@ -251,7 +251,7 @@ describe('CanvasFileViewer', () => {
         },
       });
 
-      const metaElement = wrapper.find('.viewer-meta');
+      const metaElement = wrapper.find('.viewer-header-bottom .viewer-meta');
       expect(metaElement.exists()).toBe(true);
       expect(metaElement.text()).toBe('');
     });
@@ -269,7 +269,7 @@ describe('CanvasFileViewer', () => {
         },
       });
 
-      const metaElement = wrapper.find('.viewer-meta');
+      const metaElement = wrapper.find('.viewer-header-bottom .viewer-meta');
       expect(metaElement.exists()).toBe(true);
       expect(metaElement.text()).toBe('Modified just now');
     });
@@ -288,7 +288,7 @@ describe('CanvasFileViewer', () => {
         },
       });
 
-      const metaElement = wrapper.find('.viewer-meta');
+      const metaElement = wrapper.find('.viewer-header-bottom .viewer-meta');
       expect(metaElement.text()).toBe('Modified 5m ago');
     });
 
@@ -306,7 +306,7 @@ describe('CanvasFileViewer', () => {
         },
       });
 
-      const metaElement = wrapper.find('.viewer-meta');
+      const metaElement = wrapper.find('.viewer-header-bottom .viewer-meta');
       expect(metaElement.text()).toBe('Modified 2h ago');
     });
 
@@ -324,7 +324,7 @@ describe('CanvasFileViewer', () => {
         },
       });
 
-      const metaElement = wrapper.find('.viewer-meta');
+      const metaElement = wrapper.find('.viewer-header-bottom .viewer-meta');
       expect(metaElement.text()).toBe('Modified 3d ago');
     });
 
@@ -342,7 +342,7 @@ describe('CanvasFileViewer', () => {
         },
       });
 
-      const metaElement = wrapper.find('.viewer-meta');
+      const metaElement = wrapper.find('.viewer-header-bottom .viewer-meta');
       expect(metaElement.text()).toBe('Modified 1m ago');
     });
 
@@ -360,7 +360,7 @@ describe('CanvasFileViewer', () => {
         },
       });
 
-      const metaElement = wrapper.find('.viewer-meta');
+      const metaElement = wrapper.find('.viewer-header-bottom .viewer-meta');
       expect(metaElement.text()).toBe('Modified 1h ago');
     });
 
@@ -378,7 +378,7 @@ describe('CanvasFileViewer', () => {
       });
 
       // Initially shows "just now"
-      expect(wrapper.find('.viewer-meta').text()).toBe('Modified just now');
+      expect(wrapper.find('.viewer-header-bottom .viewer-meta').text()).toBe('Modified just now');
 
       // Update to an older timestamp
       const oneHourAgo = now - 60 * 60 * 1000;
@@ -395,7 +395,7 @@ describe('CanvasFileViewer', () => {
       await flushAll(wrapper);
 
       // Should now show "1h ago"
-      expect(wrapper.find('.viewer-meta').text()).toBe('Modified 1h ago');
+      expect(wrapper.find('.viewer-header-bottom .viewer-meta').text()).toBe('Modified 1h ago');
     });
   });
 

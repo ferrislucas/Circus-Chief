@@ -11,9 +11,9 @@ import {
 } from './helpers';
 
 /**
- * Tests for command button status indicators on the session LIST view.
+ * Tests for Circus Command status indicators on the session LIST view.
  *
- * This test verifies that when a command button is run (via API),
+ * This test verifies that when a Circus Command is run (via API),
  * the status indicator updates in REAL-TIME on the session list view,
  * without requiring a page refresh.
  *
@@ -21,7 +21,7 @@ import {
  * was not reactively updating when latestCommandRuns changed because Vue
  * wasn't tracking the dependency properly.
  */
-test.describe('Session List Command Button Indicators', () => {
+test.describe('Session List Circus Command Indicators', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;

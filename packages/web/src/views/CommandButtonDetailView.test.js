@@ -95,7 +95,7 @@ describe('CommandButtonDetailView', () => {
       },
     });
 
-    expect(wrapper.text()).toContain('New Command Button');
+    expect(wrapper.text()).toContain('New Circus Command');
     expect(wrapper.find('form').exists()).toBe(true);
   });
 

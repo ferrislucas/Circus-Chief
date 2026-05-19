@@ -17,7 +17,7 @@ import {
   API_URL,
 } from './helpers';
 
-test.describe('Command Buttons - Remove Run Feature', () => {
+test.describe('Circus Commands - Remove Run Feature', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
@@ -25,7 +25,7 @@ test.describe('Command Buttons - Remove Run Feature', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Command Buttons Remove', '/tmp/test');
+    project = await seedProject('Circus Commands Remove', '/tmp/test');
     session = await seedSession(project.id, {
       prompt: 'Test prompt for remove run',
       name: 'Remove Run Test Session',
@@ -197,7 +197,7 @@ test.describe('Command Buttons - Remove Run Feature', () => {
       });
 
       // Step 2: Start the command (don't wait for completion)
-      const response = await fetch(`${API_URL}/api/sessions/${session.id}/command-buttons/${button.id}/run`, {
+      const response = await fetch(`${API_URL}/api/sessions/${session.id}/circus-commands/${button.id}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -225,7 +225,7 @@ test.describe('Command Buttons - Remove Run Feature', () => {
 
       // Step 8: Wait for command to complete (or kill it)
       // We'll kill it to speed up the test
-      await fetch(`${API_URL}/api/sessions/${session.id}/command-buttons/runs/${runId}/kill`, {
+      await fetch(`${API_URL}/api/sessions/${session.id}/circus-commands/runs/${runId}/kill`, {
         method: 'POST',
       });
 

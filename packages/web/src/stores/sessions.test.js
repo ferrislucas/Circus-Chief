@@ -1144,6 +1144,19 @@ describe('Sessions Store', () => {
 
         expect(children).toEqual([]);
       });
+
+      it('deduplicates children with the same id within sessions', () => {
+        const store = useSessionsStore();
+        const parent = { id: 'parent-1', name: 'Parent', parentSessionId: null };
+        const child = { id: 'child-1', name: 'Child', parentSessionId: 'parent-1' };
+        const duplicateChild = { ...child, name: 'Duplicate Child' };
+        store.sessions = [parent, child, duplicateChild];
+
+        const children = store.getChildSessions(parent.id);
+
+        expect(children).toHaveLength(1);
+        expect(children.map((c) => c.id)).toEqual(['child-1']);
+      });
     });
 
     describe('hasChildren getter', () => {
@@ -4728,11 +4741,11 @@ describe('Sessions Store', () => {
         expect(store.messages).toHaveLength(1);
       });
 
-      it('bumps lastActivityAt on the session in the list when a new message arrives', () => {
+      it('bumps lastActivityAt and lastMessageAt on the session in the list when a new message arrives', () => {
         const store = useSessionsStore();
         store.sessions = [
-          { id: 'session-1', name: 'S1', lastActivityAt: 1000 },
-          { id: 'session-2', name: 'S2', lastActivityAt: 2000 },
+          { id: 'session-1', name: 'S1', lastActivityAt: 1000, lastMessageAt: 900 },
+          { id: 'session-2', name: 'S2', lastActivityAt: 2000, lastMessageAt: 2000 },
         ];
         store.currentSession = { id: 'session-1' };
 
@@ -4740,40 +4753,44 @@ describe('Sessions Store', () => {
 
         const updated = store.sessions.find((s) => s.id === 'session-1');
         expect(updated.lastActivityAt).toBe(5000);
+        expect(updated.lastMessageAt).toBe(5000);
         // Unrelated sessions are not affected.
         const other = store.sessions.find((s) => s.id === 'session-2');
         expect(other.lastActivityAt).toBe(2000);
+        expect(other.lastMessageAt).toBe(2000);
       });
 
-      it('never moves lastActivityAt backwards', () => {
+      it('never moves lastActivityAt or lastMessageAt backwards', () => {
         const store = useSessionsStore();
-        store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 5000 }];
+        store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 5000, lastMessageAt: 4500 }];
         store.currentSession = { id: 'session-1' };
 
         store.addMessage({ id: 'msg-1', sessionId: 'session-1', content: 'stale', timestamp: 1000 });
 
         const updated = store.sessions.find((s) => s.id === 'session-1');
         expect(updated.lastActivityAt).toBe(5000);
+        expect(updated.lastMessageAt).toBe(4500);
       });
 
-      it('bumps lastActivityAt for a different session than the current one', () => {
+      it('bumps lastActivityAt and lastMessageAt for a different session than the current one', () => {
         const store = useSessionsStore();
         store.sessions = [
-          { id: 'session-a', name: 'A', lastActivityAt: 1000 },
-          { id: 'session-b', name: 'B', lastActivityAt: 2000 },
+          { id: 'session-a', name: 'A', lastActivityAt: 1000, lastMessageAt: 1000 },
+          { id: 'session-b', name: 'B', lastActivityAt: 2000, lastMessageAt: 1500 },
         ];
         store.currentSession = { id: 'session-a' };
 
         store.addMessage({ id: 'msg-b', sessionId: 'session-b', content: 'background', timestamp: 9000 });
 
-        // lastActivityAt on the background session is still updated for list re-sorting.
+        // Timestamps on the background session are still updated for list re-sorting.
         const b = store.sessions.find((s) => s.id === 'session-b');
         expect(b.lastActivityAt).toBe(9000);
+        expect(b.lastMessageAt).toBe(9000);
         // The guard still prevents the message from being appended to the current session's messages.
         expect(store.messages).toHaveLength(0);
       });
 
-      it('bumps lastActivityAt when currentSession is null', () => {
+      it('adds lastMessageAt to existing sessions that do not have it yet', () => {
         const store = useSessionsStore();
         store.sessions = [{ id: 'session-1', name: 'S1', lastActivityAt: 1000 }];
         store.currentSession = null;
@@ -4782,6 +4799,7 @@ describe('Sessions Store', () => {
 
         const updated = store.sessions.find((s) => s.id === 'session-1');
         expect(updated.lastActivityAt).toBe(4000);
+        expect(updated.lastMessageAt).toBe(4000);
       });
     });
 
@@ -5103,6 +5121,22 @@ describe('Sessions Store', () => {
 
         expect(result).toBe('idle');
       });
+    });
+  });
+
+  describe('addSessionToList', () => {
+    it('does not add duplicate sessions with the same id', () => {
+      const store = useSessionsStore();
+      const existingSession = { id: 'existing-session', name: 'Existing', status: 'completed' };
+      const newSession = { id: 'new-session', name: 'New', status: 'running' };
+      store.sessions = [existingSession];
+
+      store.addSessionToList(newSession);
+      store.addSessionToList(newSession);
+
+      expect(store.sessions.filter(s => s.id === newSession.id)).toHaveLength(1);
+      expect(store.sessions).toHaveLength(2);
+      expect(store.activeSessions.filter(s => s.id === newSession.id)).toHaveLength(1);
     });
   });
 

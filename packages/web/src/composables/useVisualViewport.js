@@ -1,4 +1,7 @@
 import { onMounted, onUnmounted } from 'vue';
+import { computeSessionOverlayKeyboardBottomInset } from './sessionOverlayKeyboardInset.js';
+
+export { computeSessionOverlayKeyboardBottomInset } from './sessionOverlayKeyboardInset.js';
 
 let rafId = null;
 let settleRafId = null;
@@ -6,6 +9,12 @@ let settleTimerId = null;
 let settleStartedAt = 0;
 let settleLastRect = null;
 let settleStableSamples = 0;
+let isSessionOverlayPromptFocused = false;
+
+const SESSION_OVERLAY_TOP_CHROME_THRESHOLD = 64;
+const KEYBOARD_HEIGHT_DELTA_THRESHOLD = 120;
+const KEYBOARD_VIEWPORT_RATIO_THRESHOLD = 0.85;
+const TABLET_MIN_LAYOUT_DIMENSION = 700;
 
 function getPixelValue(value, fallback) {
   return Number.isFinite(value) ? `${value}px` : fallback;
@@ -16,11 +25,95 @@ function getVisualViewportRect() {
   return { offsetTop, height };
 }
 
+function isValidOffsetTop(offsetTop) {
+  return (
+    Number.isFinite(offsetTop) &&
+    offsetTop > 0 &&
+    offsetTop <= SESSION_OVERLAY_TOP_CHROME_THRESHOLD
+  );
+}
+
+function getDeviceType(userAgent, platform, maxTouchPoints) {
+  const ua = String(userAgent);
+  const devicePlatform = String(platform);
+  const touchPoints = Number(maxTouchPoints) || 0;
+  const isAndroid = /Android/i.test(ua);
+  const isAndroidMobile = isAndroid && /Mobile/i.test(ua);
+  const isIPhoneLike = /iPhone|iPod/i.test(`${ua} ${devicePlatform}`);
+  const isIPad =
+    /iPad/i.test(`${ua} ${devicePlatform}`) ||
+    (devicePlatform === 'MacIntel' && touchPoints > 1);
+  const isAndroidTablet = isAndroid && !/Mobile/i.test(ua);
+
+  return {
+    isPhone: isIPhoneLike || isAndroidMobile,
+    isTablet: isIPad || isAndroidTablet,
+  };
+}
+
+function hasKeyboardShapedViewport(layoutHeight, visualViewportHeight) {
+  return (
+    Number.isFinite(layoutHeight) &&
+    layoutHeight > 0 &&
+    Number.isFinite(visualViewportHeight) &&
+    (layoutHeight - visualViewportHeight > KEYBOARD_HEIGHT_DELTA_THRESHOLD ||
+      visualViewportHeight / layoutHeight < KEYBOARD_VIEWPORT_RATIO_THRESHOLD)
+  );
+}
+
+function hasTabletSizedLayout(layoutWidth, layoutHeight) {
+  return (
+    Number.isFinite(layoutWidth) &&
+    Number.isFinite(layoutHeight) &&
+    Math.min(layoutWidth, layoutHeight) >= TABLET_MIN_LAYOUT_DIMENSION
+  );
+}
+
+export function computeSessionOverlayTopChromeInset({
+  offsetTop,
+  visualViewportHeight,
+  layoutWidth,
+  layoutHeight,
+  userAgent = '',
+  platform = '',
+  maxTouchPoints = 0,
+}) {
+  if (!isValidOffsetTop(offsetTop)) {
+    return 0;
+  }
+
+  const deviceType = getDeviceType(userAgent, platform, maxTouchPoints);
+  if (deviceType.isPhone) {
+    return 0;
+  }
+
+  if (hasKeyboardShapedViewport(layoutHeight, visualViewportHeight)) {
+    return 0;
+  }
+
+  if (deviceType.isTablet || hasTabletSizedLayout(layoutWidth, layoutHeight)) {
+    return offsetTop;
+  }
+
+  return 0;
+}
+
+export function setSessionOverlayPromptFocus(focused) {
+  isSessionOverlayPromptFocused = Boolean(focused);
+  if (!isSessionOverlayPromptFocused) {
+    document.documentElement.style.setProperty(
+      '--session-overlay-keyboard-bottom-inset',
+      '0px'
+    );
+  }
+  requestVisualViewportUpdate();
+}
+
 function rectsMatch(a, b) {
   return a && b && a.offsetTop === b.offsetTop && a.height === b.height;
 }
 
-function writeVisualViewportVariables() {
+export function writeVisualViewportVariables() {
   if (!window.visualViewport) {
     return null;
   }
@@ -33,6 +126,33 @@ function writeVisualViewportVariables() {
   document.documentElement.style.setProperty(
     '--visual-viewport-height',
     getPixelValue(rect.height, '100dvh')
+  );
+  const sessionOverlayTopChromeInset = computeSessionOverlayTopChromeInset({
+    offsetTop: rect.offsetTop,
+    visualViewportHeight: rect.height,
+    layoutWidth: window.innerWidth,
+    layoutHeight: window.innerHeight,
+    userAgent: window.navigator?.userAgent,
+    platform: window.navigator?.platform,
+    maxTouchPoints: window.navigator?.maxTouchPoints,
+  });
+  document.documentElement.style.setProperty(
+    '--session-overlay-top-chrome-inset',
+    `${sessionOverlayTopChromeInset}px`
+  );
+  const sessionOverlayKeyboardBottomInset = computeSessionOverlayKeyboardBottomInset({
+    isOverlayPromptFocused: isSessionOverlayPromptFocused,
+    layoutWidth: window.innerWidth,
+    layoutHeight: window.innerHeight,
+    visualViewportHeight: rect.height,
+    visualViewportOffsetTop: rect.offsetTop,
+    userAgent: window.navigator?.userAgent,
+    platform: window.navigator?.platform,
+    maxTouchPoints: window.navigator?.maxTouchPoints,
+  });
+  document.documentElement.style.setProperty(
+    '--session-overlay-keyboard-bottom-inset',
+    `${sessionOverlayKeyboardBottomInset}px`
   );
   return rect;
 }
@@ -133,14 +253,120 @@ export function requestVisualViewportSettle(options = {}) {
   settleRafId = requestAnimationFrame(sample);
 }
 
+// ---------------------------------------------------------------------------
+// Overlay viewport-drift correction
+//
+// On iPad Safari the visual viewport can shift relative to the layout viewport
+// when the browser chrome (URL bar / tab bar) collapses or expands, during
+// scroll-bounce, or after tab switches. `position: fixed` elements follow the
+// *layout* viewport, so they drift off-screen even though JS APIs like
+// `getBoundingClientRect` and `window.scrollY` still report 0.
+//
+// `checkOverlayViewportDrift` reads `visualViewport.offsetTop` and pins the
+// overlay element to the visual viewport via inline styles when drift > threshold.
+// ---------------------------------------------------------------------------
+const DRIFT_THRESHOLD_PX = 2;
+
+/**
+ * Check for visual-viewport drift and correct the given element's position.
+ *
+ * Intended to be called periodically (setInterval) and/or on visualViewport
+ * scroll/resize events while a fullscreen overlay is open.
+ *
+ * The correction only applies on tablets / large-screen devices when the
+ * software keyboard is NOT open. On phones the browser-chrome drift issue
+ * doesn't occur, and when the keyboard is open the viewport offset is
+ * expected (not drift) — repositioning the overlay would fight the
+ * keyboard and push the focused input out of view.
+ *
+ * @param {HTMLElement|null} element  The overlay backdrop element to pin.
+ */
+export function checkOverlayViewportDrift(element) {
+  if (!element) return;
+
+  // Force window scroll to 0 — page should never scroll while overlay is open.
+  if (window.scrollY !== 0) {
+    window.scrollTo(0, 0);
+  }
+
+  if (!window.visualViewport) {
+    writeVisualViewportVariables();
+    return;
+  }
+
+  const { offsetTop, height } = window.visualViewport;
+  const layoutWidth = window.innerWidth;
+  const layoutHeight = window.innerHeight;
+
+  // Use the same guard logic as computeSessionOverlayTopChromeInset:
+  // skip phones entirely, skip when the keyboard is open, and only
+  // correct on tablets / large-screen devices.
+  const deviceType = getDeviceType(
+    window.navigator?.userAgent,
+    window.navigator?.platform,
+    window.navigator?.maxTouchPoints,
+  );
+
+  const shouldCorrect =
+    !deviceType.isPhone &&
+    !hasKeyboardShapedViewport(layoutHeight, height) &&
+    (deviceType.isTablet || hasTabletSizedLayout(layoutWidth, layoutHeight)) &&
+    offsetTop > DRIFT_THRESHOLD_PX;
+
+  if (shouldCorrect) {
+    // Drift detected — override CSS `inset: 0` with explicit position.
+    // Inline styles beat scoped-CSS specificity, so this wins over `inset`.
+    element.style.top = `${offsetTop}px`;
+    element.style.bottom = 'auto';
+    element.style.height = `${height}px`;
+  } else {
+    // No drift (or phone / keyboard open) — clear inline overrides so
+    // the CSS `inset: 0` rule applies normally.
+    element.style.top = '';
+    element.style.bottom = '';
+    element.style.height = '';
+  }
+
+  writeVisualViewportVariables();
+}
+
+/**
+ * Clear any inline position overrides applied by `checkOverlayViewportDrift`.
+ *
+ * @param {HTMLElement|null} element  The overlay backdrop element.
+ */
+export function clearOverlayViewportDrift(element) {
+  if (!element) return;
+  element.style.top = '';
+  element.style.bottom = '';
+  element.style.height = '';
+}
+
+/**
+ * Subscribe a callback to `visualViewport` scroll/resize events.
+ * Returns a teardown function that removes both listeners.
+ *
+ * @param {() => void} callback
+ * @returns {() => void} cleanup function
+ */
+export function onVisualViewportChange(callback) {
+  if (!window.visualViewport) return () => {};
+  window.visualViewport.addEventListener('scroll', callback);
+  window.visualViewport.addEventListener('resize', callback);
+  return () => {
+    window.visualViewport.removeEventListener('scroll', callback);
+    window.visualViewport.removeEventListener('resize', callback);
+  };
+}
+
 /**
  * Vue composable that tracks the visual viewport rectangle and updates CSS variables.
  * This is needed for iOS Safari, where the browser chrome (URL bar + tab bar) can
  * physically overlap sticky-positioned elements when expanded.
  *
- * Sets --viewport-offset-top and --visual-viewport-height CSS variables on
- * document.documentElement. These can be used to align fixed and sticky elements
- * to the same visual viewport rectangle.
+ * Sets raw visual viewport CSS variables on document.documentElement, plus a
+ * session-overlay-specific sanitized top inset that avoids treating stale phone
+ * keyboard offsets as browser chrome.
  *
  * On browsers without visualViewport API, this no-ops and CSS fallbacks apply.
  */
