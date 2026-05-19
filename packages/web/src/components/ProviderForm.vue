@@ -56,6 +56,9 @@
               <option value="openai">
                 OpenAI / Codex
               </option>
+              <option value="google">
+                Google (Gemini CLI)
+              </option>
             </select>
             <p
               v-if="isEditing"
@@ -308,17 +311,21 @@ const {
   { attributionOnlyRef: toRef(props, 'attributionOnly') },
 );
 
-const baseUrlEnvName = computed(() =>
-  form.value.kind === 'openai' ? 'OPENAI_BASE_URL' : 'ANTHROPIC_BASE_URL',
-);
-const authTokenEnvName = computed(() =>
-  form.value.kind === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_AUTH_TOKEN',
-);
-const baseUrlPlaceholder = computed(() =>
-  form.value.kind === 'openai'
-    ? 'https://api.openai.com/v1'
-    : 'https://bedrock-runtime.us-east-1.amazonaws.com',
-);
+const baseUrlEnvName = computed(() => {
+  if (form.value.kind === 'openai') return 'OPENAI_BASE_URL';
+  if (form.value.kind === 'google') return 'Not used by Gemini CLI';
+  return 'ANTHROPIC_BASE_URL';
+});
+const authTokenEnvName = computed(() => {
+  if (form.value.kind === 'openai') return 'OPENAI_API_KEY';
+  if (form.value.kind === 'google') return 'GEMINI_API_KEY';
+  return 'ANTHROPIC_AUTH_TOKEN';
+});
+const baseUrlPlaceholder = computed(() => {
+  if (form.value.kind === 'openai') return 'https://api.openai.com/v1';
+  if (form.value.kind === 'google') return 'Leave blank \u2014 Gemini CLI uses its own endpoint';
+  return 'https://bedrock-runtime.us-east-1.amazonaws.com';
+});
 
 function close() {
   emit('close');

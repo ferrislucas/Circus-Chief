@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { createGeminiSpawner } from './geminiSpawnHelper.js';
 
 /**
  * Test a provider configuration by making a minimal API call.
@@ -22,10 +23,13 @@ import OpenAI from 'openai';
  * @param {number} [config.apiTimeoutMs] - API timeout in milliseconds
  * @returns {Promise<{success: boolean, message: string, details?: Object}>}
  */
-export async function testProviderConnection(config) {
+export async function testProviderConnection(config, deps = {}) {
   const { kind = 'anthropic' } = config || {};
   if (kind === 'openai') {
     return testOpenAIConnection(config);
+  }
+  if (kind === 'google') {
+    return testGoogleConnection(config, deps);
   }
   return testAnthropicConnection(config);
 }
@@ -125,6 +129,60 @@ async function testOpenAIChatEndpoint(client, config) {
     model: response?.model || testModel,
     ...(response?.usage ? { usage: response.usage } : {}),
   });
+}
+
+/**
+ * Google/Gemini connection test. Spawns `gemini -p "Hi" --output-format json`
+ * and checks for a clean exit. No SDK dependency needed.
+ * @private
+ */
+async function testGoogleConnection(config, deps = {}) {
+  try {
+    const env = {};
+    if (config.authToken) env.GEMINI_API_KEY = config.authToken;
+    const timeoutMs = config.apiTimeoutMs || 30000;
+    const spawnGeminiProcess = deps.spawnGeminiProcess || createGeminiSpawner();
+    const child = spawnGeminiProcess({
+      command: 'gemini',
+      args: ['-p', 'Hi', '--output-format', 'json', '--skip-trust', '--approval-mode=auto_edit', '-m', 'gemini-2.5-flash'],
+      cwd: config.workingDirectory,
+      env,
+    });
+
+    return await new Promise((resolve) => {
+      let stderr = '';
+      let killed = false;
+
+      const timer = setTimeout(() => {
+        killed = true;
+        try { child.kill('SIGTERM'); } catch { /* ignore */ }
+        resolve(failureResponse(new Error(`Gemini CLI timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
+
+      child.stdout?.on('data', () => { /* drain */ });
+      child.stderr?.on('data', (d) => { stderr += d; });
+      child.on('error', (error) => {
+        clearTimeout(timer);
+        if (killed) return;
+        if (error.code === 'ENOENT') {
+          resolve(failureResponse(new Error('Gemini CLI not found. Install via: npm install -g @google/gemini-cli')));
+        } else {
+          resolve(failureResponse(error));
+        }
+      });
+      child.on('exit', (code) => {
+        clearTimeout(timer);
+        if (killed) return;
+        if (code === 0) {
+          resolve(connectionSuccess({ model: 'gemini-2.5-flash' }));
+        } else {
+          resolve(failureResponse(new Error(stderr.trim() || `Gemini CLI exited with code ${code}`)));
+        }
+      });
+    });
+  } catch (error) {
+    return failureResponse(error);
+  }
 }
 
 function connectionSuccess(details) {

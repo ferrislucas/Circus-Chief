@@ -5,10 +5,11 @@ import { normalizeCommitAttributionOverride } from '@circuschief/shared/contract
 
 /**
  * Valid values for `providers.kind`. Maps 1:1 to an agent adapter:
- *   - 'anthropic' → 'claude-code'
+ *   - 'anthropic' ��� 'claude-code'
  *   - 'openai'    → 'codex'
+ *   - 'google'    → 'gemini'
  */
-export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
+export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google']);
 
 /**
  * Mapping from provider kind to the agent adapter that should drive sessions
@@ -17,6 +18,7 @@ export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
 export const AGENT_TYPE_BY_KIND = Object.freeze({
   anthropic: 'claude-code',
   openai: 'codex',
+  google: 'gemini',
 });
 
 const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride']);

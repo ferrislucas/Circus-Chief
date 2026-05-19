@@ -1,12 +1,23 @@
 import readline from 'readline';
-import { createCodexEventMapper } from './codexEventMapper.js';
-import { composeCliPrompt } from './cliUtils.js';
+import { createGeminiEventMapper } from './geminiEventMapper.js';
 
-export async function *executeCodexCli(child, queryParams, options, markCliUnavailable) {
+/**
+ * Execute the Gemini CLI child process and yield SDK-shaped events.
+ *
+ * Unlike Codex, the prompt is NOT passed via stdin — it's passed as the `-p`
+ * CLI argument by GeminiAdapter._spawnGeminiChild(). This runner only reads
+ * stdout/stderr and handles process lifecycle.
+ *
+ * @param {import('child_process').ChildProcess} child
+ * @param {Object} queryParams
+ * @param {Object} options
+ * @param {Function} markCliUnavailable
+ * @yields {Object} SDK-shaped events
+ */
+export async function *executeGeminiCli(child, queryParams, options, markCliUnavailable) {
   const state = new CliState(options.model, markCliUnavailable);
 
   attachAbortHandling(child, options.abortController, state);
-  writePromptToStdin(child, composeCliPrompt(options.systemPrompt, queryParams.prompt));
   attachStdoutReader(child, state);
   attachStderrReader(child, state);
   attachProcessLifecycleHandlers(child, state);
@@ -25,7 +36,7 @@ class CliState {
     this.ended = false;
     this.resolveNext = null;
     this.rejectAll = null;
-    this.mapper = createCodexEventMapper({ model });
+    this.mapper = createGeminiEventMapper({ model });
     this.rl = null;
     this.killTimer = null;
     this.onAbort = null;
@@ -71,12 +82,6 @@ function attachAbortHandling(child, abortController, state) {
   abortController?.signal?.addEventListener('abort', onAbort);
 }
 
-function writePromptToStdin(child, prompt) {
-  try {
-    if (child.stdin) child.stdin.end(prompt ?? '');
-  } catch { /* ignore */ }
-}
-
 function attachStdoutReader(child, state) {
   const rl = readline.createInterface({ input: child.stdout });
   state.assign({ rl });
@@ -90,7 +95,7 @@ function handleCliStdoutLine(line, state) {
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    return;
+    return; // Ignore malformed JSON lines
   }
   try {
     const mapped = state.mapper.map(parsed);
@@ -122,8 +127,8 @@ function attachProcessLifecycleHandlers(child, state) {
 }
 
 function makeCliNotFoundError() {
-  const error = new Error('Codex CLI not found');
-  error.code = 'CODEX_CLI_NOT_FOUND';
+  const error = new Error('Gemini CLI not found');
+  error.code = 'GEMINI_CLI_NOT_FOUND';
   return error;
 }
 
@@ -141,8 +146,8 @@ function makeCliExitError(code, stderrBuffer) {
   const stderrTrimmed = stderrBuffer.trim();
   const error = stderrTrimmed.length > 0
     ? new Error(stderrTrimmed)
-    : new Error(`Codex CLI exited with code ${code}`);
-  error.code = 'CODEX_CLI_EXIT';
+    : new Error(`Gemini CLI exited with code ${code}`);
+  error.code = 'GEMINI_CLI_EXIT';
   error.exitCode = code;
   return error;
 }

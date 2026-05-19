@@ -1,5 +1,6 @@
 import { sessions, messages, attachments, conversations } from '../database.js';
 import { createCodexSpawner } from './codexSpawnHelper.js';
+import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
@@ -36,6 +37,9 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 function buildAgentConfig(agentType) {
   if (agentType === 'codex') {
     return { spawnCodexProcess: createCodexSpawner() };
+  }
+  if (agentType === 'gemini') {
+    return { spawnGeminiProcess: createGeminiSpawner() };
   }
   return {};
 }

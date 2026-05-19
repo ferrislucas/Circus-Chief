@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS providers (
   additional_env_vars TEXT,
   commit_attribution_override TEXT,
   is_built_in INTEGER NOT NULL DEFAULT 0,
-  kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai')),
+  kind TEXT NOT NULL DEFAULT 'anthropic' CHECK(kind IN ('anthropic','openai','google')),
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

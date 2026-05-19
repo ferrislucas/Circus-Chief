@@ -218,6 +218,9 @@ function getBuiltInProviderDescription(provider) {
   if (provider.kind === 'openai') {
     return 'Uses official OpenAI API';
   }
+  if (provider.kind === 'google') {
+    return 'Uses Google Gemini CLI';
+  }
 
   return 'Uses official Anthropic API';
 }

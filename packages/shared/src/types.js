@@ -142,6 +142,13 @@ export const OPENAI_MODELS = [
 ];
 export const DEFAULT_OPENAI_MODEL = 'gpt-5.5';
 
+export const GEMINI_MODELS = [
+  { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Most capable reasoning model', seedId: 'google-gemini-2-5-pro' },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', description: 'Fast & cost-efficient', seedId: 'google-gemini-2-5-flash' },
+  { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', description: 'Lightweight & cost-efficient', seedId: 'google-gemini-2-5-flash-lite' },
+];
+export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
+
 /**
  * @typedef {Object} KanbanBoard
  * @property {string} id

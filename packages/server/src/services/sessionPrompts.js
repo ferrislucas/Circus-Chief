@@ -134,6 +134,28 @@ export function getSandboxModeForSession(mode) {
   }
 }
 
+/**
+ * Map session mode to Gemini CLI --approval-mode.
+ *
+ *   plan     -> plan
+ *   standard -> auto_edit
+ *   yolo     -> yolo
+ *
+ * @param {string} mode - Session mode ('plan', 'standard', 'yolo')
+ * @returns {string} Gemini CLI approval mode
+ */
+export function getGeminiApprovalModeForSession(mode) {
+  switch (mode) {
+    case 'plan':
+      return 'plan';
+    case 'yolo':
+      return 'yolo';
+    case 'standard':
+    default:
+      return 'auto_edit';
+  }
+}
+
 /** Plan mode system prompt instructions */
 export const PLAN_MODE_PROMPT = `## Plan Mode Active
 

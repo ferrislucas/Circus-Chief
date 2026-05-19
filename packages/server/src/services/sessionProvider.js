@@ -41,6 +41,7 @@ export function resolveAgentTypeFromModel(modelId) {
   // Fallback for test doubles that don't implement getAgentTypeForProvider:
   // derive from kind directly.
   if (provider.kind === 'openai') return 'codex';
+  if (provider.kind === 'google') return 'gemini';
   return 'claude-code';
 }
 
@@ -62,7 +63,9 @@ export function buildProviderEnv(provider) {
   const kind = provider.kind || 'anthropic';
   const env = kind === 'openai'
     ? buildOpenAIProviderEnv(provider)
-    : buildAnthropicProviderEnv(provider);
+    : kind === 'google'
+      ? buildGoogleProviderEnv(provider)
+      : buildAnthropicProviderEnv(provider);
 
   if (provider.apiTimeoutMs) {
     env.API_TIMEOUT_MS = String(provider.apiTimeoutMs);
@@ -75,6 +78,12 @@ export function buildProviderEnv(provider) {
 
   logProviderEnv(provider, kind, env);
 
+  return env;
+}
+
+function buildGoogleProviderEnv(provider) {
+  const env = {};
+  if (provider.authToken) env.GEMINI_API_KEY = provider.authToken;
   return env;
 }
 
@@ -115,6 +124,14 @@ function logProviderEnv(provider, kind, env) {
     console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (openai) env vars:`, {
       OPENAI_BASE_URL: env.OPENAI_BASE_URL,
       OPENAI_API_KEY: env.OPENAI_API_KEY ? '[SET]' : '[NOT SET]',
+      API_TIMEOUT_MS: env.API_TIMEOUT_MS,
+    });
+    return;
+  }
+
+  if (kind === 'google') {
+    console.log(`[SessionManager] buildProviderEnv: Provider "${provider.name}" (google) env vars:`, {
+      GEMINI_API_KEY: env.GEMINI_API_KEY ? '[SET]' : '[NOT SET]',
       API_TIMEOUT_MS: env.API_TIMEOUT_MS,
     });
     return;
@@ -164,8 +181,11 @@ export function buildSessionEnv(provider, thinkingEnabled = false, effortLevel =
     stripProviderRuntimeEnv(sessionEnv);
   } else if (kind === 'openai') {
     applyOpenAISessionEnv(sessionEnv, providerEnv);
+  } else if (kind === 'google') {
+    applyGoogleSessionEnv(sessionEnv, providerEnv);
   } else {
     stripOpenAIHostEnv(sessionEnv);
+    stripGoogleHostEnv(sessionEnv);
   }
 
   // Claude-only session env vars. Only set for Anthropic-kind providers
@@ -194,10 +214,22 @@ function stripProviderRuntimeEnv(env) {
   delete target.ANTHROPIC_BASE_URL;
   delete target.OPENAI_API_KEY;
   delete target.OPENAI_BASE_URL;
+  delete target.GEMINI_API_KEY;
+  delete target.GOOGLE_CLOUD_PROJECT;
+  delete target.GOOGLE_CLOUD_LOCATION;
+  delete target.GOOGLE_GENAI_USE_VERTEXAI;
+}
+
+function applyGoogleSessionEnv(sessionEnv, providerEnv) {
+  stripAnthropicHostEnv(sessionEnv);
+  stripOpenAIHostEnv(sessionEnv);
+  // Apply provider-specific env vars
+  Object.assign(sessionEnv, providerEnv);
 }
 
 function applyOpenAISessionEnv(sessionEnv, providerEnv) {
   stripAnthropicHostEnv(sessionEnv);
+  stripGoogleHostEnv(sessionEnv);
   if (!providerEnv.OPENAI_API_KEY) {
     replaceWithCodexCliEnv(sessionEnv, providerEnv);
     return;
@@ -233,4 +265,12 @@ function stripOpenAIHostEnv(env) {
   const target = env;
   delete target.OPENAI_API_KEY;
   delete target.OPENAI_BASE_URL;
+}
+
+function stripGoogleHostEnv(env) {
+  const target = env;
+  delete target.GEMINI_API_KEY;
+  delete target.GOOGLE_CLOUD_PROJECT;
+  delete target.GOOGLE_CLOUD_LOCATION;
+  delete target.GOOGLE_GENAI_USE_VERTEXAI;
 }

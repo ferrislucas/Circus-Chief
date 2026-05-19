@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +67,20 @@ describe('start-server.sh --dry-run DB_PATH resolution', () => {
   it('caller-provided DB_PATH wins over the VCR default', () => {
     const { stdout } = runDryRun({ VCR_MODE: 'replay', DB_PATH: '/x/y/custom.db' });
     expect(stdout).toContain('DB_PATH=/x/y/custom.db');
+  });
+
+  it('writes marker files under PROJECT_ROOT even when launched from another cwd', () => {
+    const otherCwd = mkdtempSync(join(tmpdir(), 'cc-start-server-cwd-'));
+    try {
+      runDryRun({ VCR_MODE: 'replay', DB_PATH: '' }, { cwd: otherCwd });
+
+      expect(readFileSync(join(fakeRoot, '.db-path'), 'utf-8').trim()).toBe(
+        `${fakeRoot}/.circuschief-test.db`,
+      );
+      expect(existsSync(join(otherCwd, '.db-path'))).toBe(false);
+    } finally {
+      rmSync(otherCwd, { recursive: true, force: true });
+    }
   });
 
   it('no VCR_MODE and no caller DB_PATH leaves DB_PATH empty (server falls back to default)', () => {

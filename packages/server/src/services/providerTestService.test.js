@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { EventEmitter } from 'events';
 
 /**
  * We mock the `@anthropic-ai/sdk` and `openai` packages at module scope. Each
@@ -27,6 +28,14 @@ vi.mock('openai', () => {
 
 import { testProviderConnection } from './providerTestService.js';
 
+function createMockGeminiChild() {
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.kill = vi.fn();
+  return child;
+}
+
 function apiError({ status, code, type, message }) {
   const err = new Error(message || 'API error');
   if (status !== undefined) err.status = status;
@@ -37,6 +46,7 @@ function apiError({ status, code, type, message }) {
 
 describe('providerTestService', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -225,6 +235,88 @@ describe('providerTestService', () => {
       expect(result.success).toBe(false);
       expect(result.details.code).toBe(500);
       expect(result.details.type).toBe('server_error');
+    });
+  });
+
+  // ── Google/Gemini kind ────────────────────────────────────────────────
+
+  describe("kind='google'", () => {
+    it('success uses injected Gemini spawner with trust, approval mode, API key, and cwd', async () => {
+      const child = createMockGeminiChild();
+      const spawnGeminiProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({
+        kind: 'google',
+        authToken: 'gemini-key',
+        workingDirectory: '/tmp/gemini-workdir',
+      }, { spawnGeminiProcess });
+
+      child.emit('exit', 0);
+      const result = await promise;
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Connection successful',
+        details: { model: 'gemini-2.5-flash' },
+      });
+      expect(spawnGeminiProcess).toHaveBeenCalledWith({
+        command: 'gemini',
+        args: ['-p', 'Hi', '--output-format', 'json', '--skip-trust', '--approval-mode=auto_edit', '-m', 'gemini-2.5-flash'],
+        cwd: '/tmp/gemini-workdir',
+        env: { GEMINI_API_KEY: 'gemini-key' },
+      });
+    });
+
+    it('non-zero exit maps stderr into failure shape', async () => {
+      const child = createMockGeminiChild();
+      const spawnGeminiProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({ kind: 'google' }, { spawnGeminiProcess });
+
+      child.stderr.emit('data', Buffer.from('bad auth\n'));
+      child.emit('exit', 1);
+      const result = await promise;
+
+      expect(result).toEqual({
+        success: false,
+        message: 'bad auth',
+        details: { code: undefined, type: 'Error' },
+      });
+    });
+
+    it('ENOENT maps to install-help failure message', async () => {
+      const child = createMockGeminiChild();
+      const spawnGeminiProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({ kind: 'google' }, { spawnGeminiProcess });
+      const error = new Error('spawn gemini ENOENT');
+      error.code = 'ENOENT';
+      child.emit('error', error);
+      const result = await promise;
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Gemini CLI not found. Install via: npm install -g @google/gemini-cli',
+        details: { code: undefined, type: 'Error' },
+      });
+    });
+
+    it('timeout kills the process and returns failure shape', async () => {
+      vi.useFakeTimers();
+      const child = createMockGeminiChild();
+      const spawnGeminiProcess = vi.fn(() => child);
+
+      const promise = testProviderConnection({ kind: 'google', apiTimeoutMs: 25 }, { spawnGeminiProcess });
+      await vi.advanceTimersByTimeAsync(25);
+      const result = await promise;
+
+      expect(child.kill).toHaveBeenCalledWith('SIGTERM');
+      expect(result).toEqual({
+        success: false,
+        message: 'Gemini CLI timed out after 25ms',
+        details: { code: undefined, type: 'Error' },
+      });
+      vi.useRealTimers();
     });
   });
 });

@@ -50,10 +50,11 @@ describe('pw.sh server-reuse verification', () => {
     const verifyFn = extract('verify_server_isolation');
     const setupFn = extract('setup_isolated_test_db');
     const cleanupFn = extract('cleanup_test_server');
+    const clearMarkersFn = extract('clear_worktree_server_markers');
 
     writeFileSync(
       helperScript,
-      `#!/bin/bash\nprint_error() { echo "ERROR: $1" >&2; }\nprint_info() { echo "INFO: $1" >&2; }\nprint_warning() { echo "WARN: $1" >&2; }\n${parseFn}\n${verifyFn}\n${setupFn}\n${cleanupFn}\n`,
+      `#!/bin/bash\nprint_error() { echo "ERROR: $1" >&2; }\nprint_info() { echo "INFO: $1" >&2; }\nprint_warning() { echo "WARN: $1" >&2; }\n${parseFn}\n${verifyFn}\n${setupFn}\n${clearMarkersFn}\n${cleanupFn}\n`,
       { mode: 0o755 },
     );
   });
