@@ -85,7 +85,10 @@ export const perSessionActions = {
     const updates = {};
 
     const currentLastActivityAt = existing?.lastActivityAt ?? 0;
-    if (!currentLastActivityAt || ts > currentLastActivityAt) updates.lastActivityAt = ts;
+    if (!currentLastActivityAt || ts > currentLastActivityAt) {
+      updates.lastActivityAt = ts;
+      updates.sortDate = ts;
+    }
 
     const currentLastMessageAt = existing?.lastMessageAt ?? 0;
     if (!currentLastMessageAt || ts > currentLastMessageAt) updates.lastMessageAt = ts;

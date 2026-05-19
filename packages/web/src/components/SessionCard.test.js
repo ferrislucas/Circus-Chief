@@ -197,11 +197,12 @@ describe('SessionCard', () => {
       expect(html).toContain('to="/sessions/session-123"');
     });
 
-    it('renders formatted date based on lastActivityAt', () => {
+    it('renders formatted date based on sortDate', () => {
       const wrapper = mountComponent({
         session: {
           ...baseSession,
           lastActivityAt: '2024-01-15T11:45:00Z',
+          sortDate: new Date('2024-01-15T11:45:00Z').getTime(),
         },
       });
       const dateText = wrapper.find('.session-date').text();
@@ -297,13 +298,14 @@ describe('SessionCard', () => {
   });
 
   describe('date display logic', () => {
-    it('shows lastActivityAt when available', () => {
+    it('shows sortDate when available', () => {
       const wrapper = mountComponent({
         session: {
           ...baseSession,
           createdAt: '2024-01-10T09:00:00Z',
           updatedAt: '2024-01-15T14:00:00Z',
           lastActivityAt: '2024-01-20T16:30:00Z',
+          sortDate: new Date('2024-01-20T16:30:00Z').getTime(),
         },
         showProject: false,
       });
@@ -311,8 +313,8 @@ describe('SessionCard', () => {
       expect(dateText).toMatch(/Jan.*20.*2024/);
     });
 
-    it('uses lastActivityAt even when updatedAt/createdAt are more recent', () => {
-      // Ensures we prefer last activity over updatedAt, which can be bumped by
+    it('uses sortDate even when updatedAt/createdAt are more recent', () => {
+      // Ensures we prefer sortDate over updatedAt, which can be bumped by
       // unrelated events (token usage updates, status changes, etc.).
       const wrapper = mountComponent({
         session: {
@@ -320,6 +322,7 @@ describe('SessionCard', () => {
           createdAt: '2024-01-10T09:00:00Z',
           updatedAt: '2024-05-15T14:00:00Z',
           lastActivityAt: '2024-01-20T16:30:00Z',
+          sortDate: new Date('2024-01-20T16:30:00Z').getTime(),
         },
         showProject: false,
       });
@@ -327,28 +330,32 @@ describe('SessionCard', () => {
       expect(dateText).toMatch(/Jan.*20.*2024/);
     });
 
-    it('renders a placeholder and "No activity yet" tooltip when lastActivityAt is null', () => {
+    it('shows date when sortDate is present (createdAt fallback from server)', () => {
+      // When sortDate is present (which it always is from the server since it
+      // falls back to createdAt), a date is always shown — never a placeholder.
       const wrapper = mountComponent({
         session: {
           ...baseSession,
           createdAt: '2024-01-10T09:00:00Z',
           updatedAt: '2024-01-15T14:00:00Z',
           lastActivityAt: null,
+          sortDate: new Date('2024-01-10T09:00:00Z').getTime(),
         },
         showProject: true,
       });
       const dateEl = wrapper.find('.session-date');
-      expect(dateEl.text()).toBe('—');
-      expect(dateEl.attributes('title')).toBe('No activity yet');
+      expect(dateEl.text()).toMatch(/Jan.*10.*2024/);
+      expect(dateEl.attributes('title')).toBe('Last activity');
     });
 
-    it('sets "Last activity" tooltip when lastActivityAt is present', () => {
+    it('sets "Last activity" tooltip when sortDate is present', () => {
       const wrapper = mountComponent({
         session: {
           ...baseSession,
           createdAt: '2024-01-10T09:00:00Z',
           updatedAt: '2024-01-15T14:00:00Z',
           lastActivityAt: '2024-01-20T16:30:00Z',
+          sortDate: new Date('2024-01-20T16:30:00Z').getTime(),
         },
         showProject: false,
       });

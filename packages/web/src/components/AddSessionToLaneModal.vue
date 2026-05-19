@@ -82,8 +82,8 @@
                 >{{ session.mode }}</span>
                 <span
                   class="session-date"
-                  :title="session.lastActivityAt ? 'Last activity' : 'No activity yet'"
-                >{{ formatDate(session.lastActivityAt || session.updatedAt || session.createdAt) }}</span>
+                  :title="session.sortDate ? 'Last activity' : 'No activity yet'"
+                >{{ formatDate(session.sortDate) }}</span>
               </div>
             </div>
           </div>

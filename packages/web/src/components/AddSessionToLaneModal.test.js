@@ -54,7 +54,7 @@ describe('AddSessionToLaneModal.vue', () => {
   }
 
   describe('session date rendering', () => {
-    it('renders lastActivityAt when present with "Last activity" tooltip', async () => {
+    it('renders sortDate when present with "Last activity" tooltip', async () => {
       const activity = new Date('2024-06-15T12:00:00Z').getTime();
       const wrapper = await mountWithSessions([
         {
@@ -63,6 +63,7 @@ describe('AddSessionToLaneModal.vue', () => {
           status: 'running',
           mode: 'standard',
           lastActivityAt: activity,
+          sortDate: activity,
           updatedAt: activity - 10_000,
           createdAt: activity - 20_000,
           parentSessionId: null,
@@ -75,7 +76,7 @@ describe('AddSessionToLaneModal.vue', () => {
       expect(dateEl.text().length).toBeGreaterThan(0);
     });
 
-    it('falls back to updatedAt / createdAt when lastActivityAt is null', async () => {
+    it('uses sortDate directly when lastActivityAt is null', async () => {
       const updated = new Date('2024-06-15T12:00:00Z').getTime();
       const wrapper = await mountWithSessions([
         {
@@ -84,6 +85,7 @@ describe('AddSessionToLaneModal.vue', () => {
           status: 'waiting',
           mode: 'standard',
           lastActivityAt: null,
+          sortDate: updated,
           updatedAt: updated,
           createdAt: updated - 10_000,
           parentSessionId: null,
@@ -92,9 +94,9 @@ describe('AddSessionToLaneModal.vue', () => {
 
       const dateEl = wrapper.find('.session-date');
       expect(dateEl.exists()).toBe(true);
-      // Tooltip reflects "No activity yet" because lastActivityAt is null.
-      expect(dateEl.attributes('title')).toBe('No activity yet');
-      // But date text is populated from the updatedAt fallback.
+      // sortDate is present, so tooltip shows "Last activity"
+      expect(dateEl.attributes('title')).toBe('Last activity');
+      // Date text is populated from sortDate.
       expect(dateEl.text().length).toBeGreaterThan(0);
     });
 
@@ -107,6 +109,7 @@ describe('AddSessionToLaneModal.vue', () => {
           status: 'running',
           mode: 'standard',
           lastActivityAt: ts,
+          sortDate: ts,
           updatedAt: ts,
           createdAt: ts,
           parentSessionId: null,
@@ -117,6 +120,7 @@ describe('AddSessionToLaneModal.vue', () => {
           status: 'waiting',
           mode: 'standard',
           lastActivityAt: null,
+          sortDate: null,
           updatedAt: ts,
           createdAt: ts,
           parentSessionId: null,

@@ -85,6 +85,7 @@ export const SessionResponse = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
   lastActivityAt: z.number().nullable(),
+  sortDate: z.number(),
 });
 
 export const SessionListResponse = z.array(SessionResponse);

@@ -186,46 +186,49 @@ describe('WorkflowSessionItem', () => {
       expect(dateText).toBeTruthy();
     });
 
-    it('shows lastActivityAt for non-scheduled sessions when available', () => {
+    it('shows sortDate for non-scheduled sessions when available', () => {
       const lastActivityTime = Date.now() - 1800000; // 30 minutes ago
       const wrapper = mountComponent({
         status: 'running',
         createdAt: Date.now() - 3600000, // 1 hour ago
         updatedAt: Date.now() - 2700000, // 45 minutes ago
         lastActivityAt: lastActivityTime, // 30 minutes ago (most recent)
+        sortDate: lastActivityTime,
       });
 
       const dateText = wrapper.find('.workflow-session-date').text();
       expect(dateText).toBeTruthy();
-      // Should show the more recent lastActivityAt time
+      // Should show the more recent sortDate time
     });
 
-    it('falls back to updatedAt when lastActivityAt is not available', () => {
+    it('uses sortDate which falls back to updatedAt when lastActivityAt is null', () => {
       const updatedTime = Date.now() - 1800000; // 30 minutes ago
       const wrapper = mountComponent({
         status: 'completed',
         createdAt: Date.now() - 3600000, // 1 hour ago
         updatedAt: updatedTime,
         lastActivityAt: null,
+        sortDate: updatedTime,
       });
 
       const dateText = wrapper.find('.workflow-session-date').text();
       expect(dateText).toBeTruthy();
-      // Should show updatedAt time
+      // Should show sortDate (= updatedAt fallback)
     });
 
-    it('falls back to createdAt when both lastActivityAt and updatedAt are not available', () => {
+    it('uses sortDate which falls back to createdAt when both lastActivityAt and updatedAt are not available', () => {
       const createdTime = Date.now() - 3600000; // 1 hour ago
       const wrapper = mountComponent({
         status: 'completed',
         createdAt: createdTime,
         updatedAt: createdTime,
         lastActivityAt: null,
+        sortDate: createdTime,
       });
 
       const dateText = wrapper.find('.workflow-session-date').text();
       expect(dateText).toBeTruthy();
-      // Should show createdAt time
+      // Should show sortDate (= createdAt fallback)
     });
 
     it('shows time for sessions with activity today', () => {
@@ -234,6 +237,7 @@ describe('WorkflowSessionItem', () => {
         status: 'completed',
         createdAt: justNow,
         lastActivityAt: justNow,
+        sortDate: justNow,
       });
 
       const dateText = wrapper.find('.workflow-session-date').text();
@@ -247,6 +251,7 @@ describe('WorkflowSessionItem', () => {
         status: 'completed',
         createdAt: yesterday,
         lastActivityAt: yesterday,
+        sortDate: yesterday,
       });
 
       const dateText = wrapper.find('.workflow-session-date').text();
@@ -254,12 +259,13 @@ describe('WorkflowSessionItem', () => {
       expect(dateText).toMatch(/[A-Z][a-z]{2} \d{1,2}/);
     });
 
-    it('renders em-dash placeholder when no activity timestamp is available', () => {
+    it('renders em-dash placeholder when no sortDate is available', () => {
       const wrapper = mountComponent({
         status: 'completed',
         createdAt: null,
         updatedAt: null,
         lastActivityAt: null,
+        sortDate: null,
       });
 
       const dateEl = wrapper.find('.workflow-session-date');

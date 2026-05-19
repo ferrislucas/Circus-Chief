@@ -132,15 +132,15 @@ const displayDate = computed(() => {
   if (props.session.status === 'scheduled' && props.session.scheduledAt) {
     return props.session.scheduledAt;
   }
-  // For all other sessions, show last activity time
-  return props.session.lastActivityAt ?? null;
+  // For all other sessions, show sort date (falls back to updated_at/created_at)
+  return props.session.sortDate ?? null;
 });
 
 const dateTitle = computed(() => {
   if (props.session.status === 'scheduled' && props.session.scheduledAt) {
     return 'Scheduled to run';
   }
-  return props.session.lastActivityAt ? 'Last activity' : 'No activity yet';
+  return props.session.sortDate ? 'Last activity' : 'No activity yet';
 });
 
 const nextTemplateName = computed(() => {

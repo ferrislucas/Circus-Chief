@@ -337,6 +337,7 @@ describe('SessionResponse', () => {
     createdAt: Date.now(),
     updatedAt: Date.now(),
     lastActivityAt: Date.now(),
+    sortDate: Date.now(),
   };
 
   it('validates complete session response', () => {
@@ -473,6 +474,17 @@ describe('SessionResponse', () => {
     const result = SessionResponse.safeParse(withoutLaneTriggerDepth);
     expect(result.success).toBe(false);
   });
+
+  it('requires sortDate field', () => {
+    const { sortDate: _sortDate, ...withoutSortDate } = validSession;
+    const result = SessionResponse.safeParse(withoutSortDate);
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects null sortDate', () => {
+    const result = SessionResponse.safeParse({ ...validSession, sortDate: null });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('SessionListResponse', () => {
@@ -514,6 +526,7 @@ describe('SessionListResponse', () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         lastActivityAt: Date.now(),
+        sortDate: Date.now(),
       },
     ]);
     expect(result.success).toBe(true);

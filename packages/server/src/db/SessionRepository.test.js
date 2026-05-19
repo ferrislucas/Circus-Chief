@@ -1483,6 +1483,7 @@ describe('SessionRepository', () => {
 
       expect(retrieved.lastActivityAt).toBeDefined();
       expect(retrieved.lastActivityAt).toBeTypeOf('number');
+      expect(retrieved.sortDate).toBe(retrieved.lastActivityAt);
     });
 
     it('populates lastActivityAt on session objects returned by getByProjectId', () => {
@@ -1590,6 +1591,8 @@ describe('SessionRepository', () => {
       // Option A: sessions with zero messages surface null so the UI can display
       // a meaningful "No activity yet" placeholder.
       expect(retrieved.lastActivityAt).toBeNull();
+      // sortDate falls back to createdAt
+      expect(retrieved.sortDate).toBe(retrieved.createdAt);
     });
 
     it('returns null for lastActivityAt when there are no messages (scheduled session)', () => {
@@ -1599,6 +1602,8 @@ describe('SessionRepository', () => {
       const retrieved = repo.getById(session.id);
 
       expect(retrieved.lastActivityAt).toBeNull();
+      // sortDate falls back to createdAt
+      expect(retrieved.sortDate).toBe(retrieved.createdAt);
     });
 
     it('is included in getActiveAndWaiting results', () => {
@@ -1719,6 +1724,93 @@ describe('SessionRepository', () => {
       const sessions = repo.getSessionsWithPrUrls();
       const ids = sessions.map((s) => s.id);
       expect(ids).toEqual([s1.id, s3.id, s2.id]);
+    });
+  });
+
+  describe('sortDate', () => {
+    it('equals createdAt for a waiting session with no messages, summaries, or commands', () => {
+      const session = repo.create(projectId, 'Waiting', 'Prompt', { status: 'waiting' });
+      const retrieved = repo.getById(session.id);
+
+      expect(retrieved.sortDate).toBe(retrieved.createdAt);
+      expect(retrieved.sortDate).toBeTypeOf('number');
+    });
+
+    it('equals lastActivityAt when messages exist', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt');
+      const retrieved = repo.getById(session.id);
+
+      // Session has an initial message, so lastActivityAt is set
+      expect(retrieved.lastActivityAt).toBeDefined();
+      expect(retrieved.sortDate).toBe(retrieved.lastActivityAt);
+    });
+
+    it('equals updatedAt when lastActivityAt is null but updated_at differs from created_at', () => {
+      const session = repo.create(projectId, 'Test', 'Prompt', { status: 'waiting' });
+      const retrievedBefore = repo.getById(session.id);
+
+      // Manually update updated_at to be different from created_at
+      const newUpdatedAt = retrievedBefore.createdAt + 60_000;
+      repo.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(newUpdatedAt, session.id);
+
+      const retrieved = repo.getById(session.id);
+      expect(retrieved.lastActivityAt).toBeNull();
+      expect(retrieved.sortDate).toBe(newUpdatedAt);
+    });
+
+    it('is always a number (never null) for all real sessions', () => {
+      // Create different types of sessions
+      const active = repo.create(projectId, 'Active', 'Prompt');
+      const waiting = repo.create(projectId, 'Waiting', 'Prompt', { status: 'waiting' });
+      const scheduled = repo.create(projectId, 'Scheduled', 'Prompt', { status: 'scheduled' });
+
+      for (const s of [active, waiting, scheduled]) {
+        const retrieved = repo.getById(s.id);
+        expect(retrieved.sortDate).toBeTypeOf('number');
+        expect(retrieved.sortDate).not.toBeNull();
+      }
+    });
+
+    it('is included in all repository list methods', () => {
+      const parent = repo.create(projectId, 'Parent', 'Prompt');
+      const child = repo.create(projectId, 'Child', 'Prompt', { parentSessionId: parent.id });
+      repo.update(parent.id, { prUrl: 'https://github.com/org/repo/pull/123' });
+      const scheduled = repo.create(projectId, 'Scheduled', 'Prompt', { status: 'scheduled' });
+      repo.update(scheduled.id, { scheduledAt: Date.now() + 1000 });
+
+      // getById
+      const byId = repo.getById(parent.id);
+      expect(byId.sortDate).toBeTypeOf('number');
+
+      // getByProjectId
+      const byProject = repo.getByProjectId(projectId).find(s => s.id === parent.id);
+      expect(byProject.sortDate).toBeTypeOf('number');
+
+      // getActiveAndWaiting (parent has messages so will be running after update)
+      repo.update(parent.id, { status: 'running' });
+      const active = repo.getActiveAndWaiting().find(s => s.id === parent.id);
+      expect(active).toBeDefined();
+      expect(active.sortDate).toBeTypeOf('number');
+
+      // getChildSessions
+      const children = repo.getChildSessions(parent.id);
+      expect(children).toHaveLength(1);
+      expect(children[0].sortDate).toBeTypeOf('number');
+
+      // getSessionsWithPrUrls
+      const withPr = repo.getSessionsWithPrUrls().find(s => s.id === parent.id);
+      expect(withPr.sortDate).toBeTypeOf('number');
+
+      // getScheduledSessions
+      const scheduledSessions = repo.getScheduledSessions();
+      const sched = scheduledSessions.find(s => s.id === scheduled.id);
+      expect(sched).toBeDefined();
+      expect(sched.sortDate).toBeTypeOf('number');
+
+      // getScheduledSessionsDue
+      const due = repo.getScheduledSessionsDue(Date.now() + 10000).find(s => s.id === scheduled.id);
+      expect(due).toBeDefined();
+      expect(due.sortDate).toBeTypeOf('number');
     });
   });
 

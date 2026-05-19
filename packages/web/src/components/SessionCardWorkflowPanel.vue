@@ -17,8 +17,8 @@
             <span class="workflow-session-summary">{{ rootSummaryText }}</span>
             <span
               class="workflow-session-date"
-              :title="session.lastActivityAt ? 'Last activity' : 'No activity yet'"
-            >{{ session.lastActivityAt ? formatDate(session.lastActivityAt) : '—' }}</span>
+              :title="session.sortDate ? 'Last activity' : 'No activity yet'"
+            >{{ session.sortDate ? formatDate(session.sortDate) : '—' }}</span>
           </div>
         </router-link>
       </div>

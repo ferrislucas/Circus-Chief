@@ -46,9 +46,9 @@ describe('SessionCardWorkflowPanel.vue', () => {
   });
 
   describe('root session date rendering', () => {
-    it('renders lastActivityAt when present with "Last activity" tooltip', () => {
+    it('renders sortDate when present with "Last activity" tooltip', () => {
       const ts = new Date('2024-06-15T12:00:00Z').getTime();
-      const wrapper = mountPanel({ lastActivityAt: ts });
+      const wrapper = mountPanel({ lastActivityAt: ts, sortDate: ts });
 
       const dateEl = wrapper.find('.workflow-session-date');
       expect(dateEl.exists()).toBe(true);
@@ -57,8 +57,8 @@ describe('SessionCardWorkflowPanel.vue', () => {
       expect(dateEl.text().length).toBeGreaterThan(0);
     });
 
-    it('renders "—" placeholder with "No activity yet" tooltip when lastActivityAt is null', () => {
-      const wrapper = mountPanel({ lastActivityAt: null });
+    it('renders "—" placeholder with "No activity yet" tooltip when sortDate is null', () => {
+      const wrapper = mountPanel({ lastActivityAt: null, sortDate: null });
 
       const dateEl = wrapper.find('.workflow-session-date');
       expect(dateEl.exists()).toBe(true);
@@ -67,12 +67,12 @@ describe('SessionCardWorkflowPanel.vue', () => {
     });
 
     it('flips tooltip between "Last activity" and "No activity yet" based on value', () => {
-      const withActivity = mountPanel({ lastActivityAt: Date.now() });
+      const withActivity = mountPanel({ lastActivityAt: Date.now(), sortDate: Date.now() });
       expect(
         withActivity.find('.workflow-session-date').attributes('title')
       ).toBe('Last activity');
 
-      const withoutActivity = mountPanel({ lastActivityAt: null });
+      const withoutActivity = mountPanel({ lastActivityAt: null, sortDate: null });
       expect(
         withoutActivity.find('.workflow-session-date').attributes('title')
       ).toBe('No activity yet');
