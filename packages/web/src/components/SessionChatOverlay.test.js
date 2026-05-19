@@ -1736,10 +1736,16 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       expect(content.classList.contains('session-chat-overlay--composer-focused')).toBe(true);
 
-      await conversationTab.vm.$emit('prompt-blur', new FocusEvent('blur'));
-      await new Promise(r => setTimeout(r, 100));
+      const blurredPrompt = document.createElement('textarea');
+      Object.defineProperty(document, 'activeElement', {
+        configurable: true,
+        value: document.body,
+      });
+      await conversationTab.vm.$emit('prompt-blur', { target: blurredPrompt });
       await nextTick();
-      expect(content.classList.contains('session-chat-overlay--composer-focused')).toBe(false);
+      await vi.waitFor(() => {
+        expect(document.querySelector('.session-chat-overlay').classList.contains('session-chat-overlay--composer-focused')).toBe(false);
+      });
 
       wrapper.unmount();
     });

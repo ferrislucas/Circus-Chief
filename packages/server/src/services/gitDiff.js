@@ -6,11 +6,7 @@ import { git } from './gitService.js';
  * @returns {Promise<string>}
  */
 export async function getDiff(directory) {
-  try {
-    return await git(directory, 'diff');
-  } catch {
-    return '';
-  }
+  return git(directory, 'diff');
 }
 
 /**
@@ -19,11 +15,7 @@ export async function getDiff(directory) {
  * @returns {Promise<string>}
  */
 export async function getStagedDiff(directory) {
-  try {
-    return await git(directory, 'diff --cached');
-  } catch {
-    return '';
-  }
+  return git(directory, 'diff --cached');
 }
 
 /**
@@ -36,7 +28,8 @@ export async function getUntrackedFiles(directory) {
     const output = await git(directory, 'ls-files --others --exclude-standard');
     if (!output) return [];
     return output.split('\n').filter((line) => line.trim());
-  } catch {
+  } catch (error) {
+    console.warn(`Failed to get untracked files for ${directory}:`, error.message);
     return [];
   }
 }
@@ -48,11 +41,7 @@ export async function getUntrackedFiles(directory) {
  * @returns {Promise<string>}
  */
 export async function getDiffAgainstBranch(directory, branch) {
-  try {
-    return await git(directory, `diff ${branch}`);
-  } catch {
-    return '';
-  }
+  return git(directory, `diff ${branch}`);
 }
 
 /**
@@ -62,11 +51,7 @@ export async function getDiffAgainstBranch(directory, branch) {
  * @returns {Promise<string>}
  */
 export async function getStagedDiffAgainstBranch(directory, branch) {
-  try {
-    return await git(directory, `diff --cached ${branch}`);
-  } catch {
-    return '';
-  }
+  return git(directory, `diff --cached ${branch}`);
 }
 
 /**
@@ -78,11 +63,16 @@ export async function getStagedDiffAgainstBranch(directory, branch) {
  * @returns {Promise<string>}
  */
 export async function getDiffBetweenRefs(directory, fromRef, toRef) {
-  try {
-    return await git(directory, `diff ${fromRef} ${toRef}`);
-  } catch {
-    return '';
-  }
+  return git(directory, `diff ${fromRef} ${toRef}`);
+}
+
+function addGitPathOutput(files, output) {
+  if (!output) return;
+
+  output.split('\n').forEach((file) => {
+    const trimmed = file.trim();
+    if (trimmed) files.add(trimmed);
+  });
 }
 
 /**
@@ -94,35 +84,20 @@ export async function getDiffBetweenRefs(directory, fromRef, toRef) {
  */
 export async function getModifiedFilesCount(directory, branch) {
   try {
-    // Get all modified files in one command using --name-only
-    // This includes: committed changes vs branch + staged
-    const committedAndStaged = await git(
+    const committed = await git(
       directory,
       `diff --name-only ${branch}...HEAD`
     );
 
-    // Get unstaged changes (working tree vs index)
+    const staged = await git(directory, 'diff --cached --name-only');
     const unstaged = await git(directory, 'diff --name-only');
-
-    // Get untracked files
     const untracked = await getUntrackedFiles(directory);
 
-    // Combine all files into a Set to get unique count
     const allFiles = new Set();
-
-    if (committedAndStaged) {
-      committedAndStaged.split('\n').forEach(f => {
-        if (f.trim()) allFiles.add(f.trim());
-      });
-    }
-
-    if (unstaged) {
-      unstaged.split('\n').forEach(f => {
-        if (f.trim()) allFiles.add(f.trim());
-      });
-    }
-
-    untracked.forEach(f => allFiles.add(f));
+    addGitPathOutput(allFiles, committed);
+    addGitPathOutput(allFiles, staged);
+    addGitPathOutput(allFiles, unstaged);
+    untracked.forEach((file) => allFiles.add(file));
 
     return allFiles.size;
   } catch (error) {
