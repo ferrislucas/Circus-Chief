@@ -10,7 +10,6 @@
       class="resize-handle"
       aria-hidden="true"
       @mousedown="startResize"
-      @touchstart.prevent="startResize"
     >
       <svg
         width="16"
@@ -212,7 +211,6 @@ onMounted(() => {
   color: var(--color-text-soft, #6b7280);
   opacity: 0.5;
   transition: opacity 0.15s;
-  touch-action: none; /* Critical for mobile - prevents scroll interference */
   user-select: none;
   -webkit-user-select: none;
   border-radius: 4px;
@@ -224,14 +222,9 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.05);
 }
 
-/* Ensure the handle is visible on mobile */
 @media (pointer: coarse) {
   .resize-handle {
-    width: 32px;
-    height: 32px;
-    bottom: 2px;
-    right: 2px;
-    opacity: 0.6;
+    display: none;
   }
 }
 </style>

@@ -20,6 +20,7 @@ import {
   getOriginDefaultBranch,
   getRepositoryUrl,
   getUntrackedFiles,
+  git,
   ensureWorktreeCommitAttributionHook,
   normalizeGitRemoteUrl,
   pinAuthorInWorktree,
@@ -192,6 +193,27 @@ describe('gitService', () => {
 
       const files = await getUntrackedFiles(testDir);
       expect(files).not.toContain('staged-file.txt');
+    });
+  });
+
+  describe('git', () => {
+    it('supports git output larger than Node exec default buffer', async () => {
+      const largeContent = `${'x'.repeat(2 * 1024 * 1024)}\n`;
+      await writeFile(join(testDir, 'README.md'), largeContent);
+
+      const diff = await git(testDir, 'diff');
+
+      expect(diff.length).toBeGreaterThan(1024 * 1024);
+      expect(diff).toContain('diff --git a/README.md b/README.md');
+    });
+
+    it('allows callers to set a smaller maxBuffer and surfaces that error', async () => {
+      const largeContent = `${'x'.repeat(2 * 1024 * 1024)}\n`;
+      await writeFile(join(testDir, 'README.md'), largeContent);
+
+      await expect(git(testDir, 'diff', { maxBuffer: 1024 })).rejects.toMatchObject({
+        code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+      });
     });
   });
 
@@ -505,11 +527,7 @@ describe('gitService', () => {
       execSync('git add staged-file.txt', { cwd: testDir });
 
       const count = await getModifiedFilesCount(testDir, defaultBranch);
-      // Note: git diff --name-only without --staged doesn't show staged files
-      // So staged-only files won't be counted (they would need to be in unstaged or untracked)
-      // However, this will be picked up by getUntrackedFiles since it was never committed
-      // Actually, once added, it's no longer untracked. So it won't be counted at all.
-      expect(count).toBe(0);
+      expect(count).toBe(1);
     });
 
     it('counts unstaged modified files', async () => {
@@ -546,9 +564,8 @@ describe('gitService', () => {
       await writeFile(join(testDir, 'untracked.txt'), 'content');
 
       const count = await getModifiedFilesCount(testDir, defaultBranch);
-      // Should count: committed.txt, README.md, untracked.txt = 3 unique files
-      // Note: staged.txt is not counted because it's not in committed/unstaged/untracked
-      expect(count).toBe(3);
+      // Should count: committed.txt, staged.txt, README.md, untracked.txt = 4 unique files
+      expect(count).toBe(4);
     });
 
     it('counts file only once when it appears in multiple states', async () => {

@@ -117,6 +117,7 @@
         @back="handleBack"
         @select-version="handleSelectVersion"
         @delete-all="handleDeleteAll"
+        @editing-change="handleEditingChange"
       />
 
       <!-- List view (multiple files, none selected) -->
@@ -221,6 +222,30 @@ function handleBack() {
 // override an explicit pin.
 const userPinnedVersionId = ref(null);
 
+// Track whether the viewer is in active markdown editing mode. While editing,
+// latest-version auto-navigation is suppressed to prevent the editor buffer
+// from being replaced by a background store update.
+const activeEditingTarget = ref(null);
+
+function handleEditingChange({ editing, filename, itemId }) {
+  if (editing) {
+    activeEditingTarget.value = { filename, itemId };
+  } else {
+    activeEditingTarget.value = null;
+    // The auto-nav watcher was suppressed while editing. Now that editing has
+    // stopped, selectedVersions won't change again, so the watcher won't
+    // re-fire. Manually run the same logic to navigate to the latest version.
+    if (!userPinnedVersionId.value && selectedVersions.value.length > 0) {
+      const latest = selectedVersions.value[0];
+      if (latest && latest.id !== selectedItemId.value) {
+        router.replace({
+          query: { ...route.query, item: latest.id }
+        });
+      }
+    }
+  }
+}
+
 function handleSelectVersion(itemId) {
   const latestId = selectedVersions.value[0]?.id;
   // Picking the latest version is equivalent to "unpin"
@@ -240,6 +265,15 @@ watch(
     if (!oldKey) return;                    // initial empty → populated
     if (newKey === oldKey) return;          // no change in the id list
     if (userPinnedVersionId.value) return;  // user is browsing history
+
+    // Suppress auto-navigation while the user is actively editing this file.
+    // Saves create new versions, and WS echoes add them to selectedVersions,
+    // but the editor buffer and route should remain stable.
+    if (activeEditingTarget.value) {
+      const currentFilename = selectedItem.value.filename || selectedItem.value.id;
+      if (activeEditingTarget.value.filename === currentFilename) return;
+    }
+
     const latest = selectedVersions.value[0];
     if (latest && latest.id !== selectedItemId.value) {
       router.replace({
@@ -261,10 +295,12 @@ watch(
   (newFilename, oldFilename) => {
     if (newFilename === null) {
       userPinnedVersionId.value = null;
+      activeEditingTarget.value = null;
       return;
     }
     if (oldFilename !== undefined && oldFilename !== null && newFilename !== oldFilename) {
       userPinnedVersionId.value = null;
+      activeEditingTarget.value = null;
     }
   }
 );

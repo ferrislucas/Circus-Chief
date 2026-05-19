@@ -38,16 +38,46 @@
   padding: 0;
 }
 
-/* Prevent double-tap and pinch zoom on iOS/iPadOS */
+/* Preserve native text-editing gestures while keeping fast taps on controls. */
 html {
-  touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
 
-/* Ensure interactive elements also respect this */
-button, a, input, select, textarea {
+button,
+a,
+select,
+input[type="button"],
+input[type="checkbox"],
+input[type="color"],
+input[type="date"],
+input[type="datetime-local"],
+input[type="file"],
+input[type="hidden"],
+input[type="image"],
+input[type="month"],
+input[type="radio"],
+input[type="range"],
+input[type="reset"],
+input[type="submit"],
+input[type="time"],
+input[type="week"] {
   touch-action: manipulation;
+}
+
+textarea,
+input:not([type]),
+input[type=""],
+input[type="text"],
+input[type="search"],
+input[type="email"],
+input[type="url"],
+input[type="tel"],
+input[type="password"],
+input[type="number"],
+[contenteditable],
+[contenteditable] * {
+  touch-action: auto;
 }
 
 body {

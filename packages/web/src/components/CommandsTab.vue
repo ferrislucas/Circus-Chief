@@ -2,7 +2,7 @@
   <div class="commands-tab">
     <!-- Header with Configure Link -->
     <div class="tab-header">
-      <h3>Command Buttons</h3>
+      <h3>Circus Commands</h3>
       <router-link
         :to="`/projects/${projectId}/commands`"
         class="btn btn-sm btn-outline-secondary"
@@ -17,7 +17,7 @@
       class="loading-state"
     >
       <span class="loading-spinner" />
-      Loading command buttons...
+      Loading Circus Commands...
     </div>
 
     <!-- Error Banner (shown alongside list, not instead of it) -->
@@ -40,12 +40,12 @@
       class="empty-state"
       data-testid="commands-tab-empty"
     >
-      <p>No command buttons configured for this project.</p>
+      <p>No Circus Commands configured for this project.</p>
       <router-link
         :to="`/projects/${projectId}/commands`"
         class="btn btn-primary"
       >
-        Configure Command Buttons
+        Configure Circus Commands
       </router-link>
     </div>
 

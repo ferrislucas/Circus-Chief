@@ -429,6 +429,20 @@ describe('CommandsTab', () => {
     });
   });
 
+  describe('heading text', () => {
+    it('displays "Circus Commands" heading', async () => {
+      const wrapper = mount(CommandsTab, {
+        props: { projectId: 'proj-1', sessionId: 'session-1' },
+        global: {
+          plugins: [pinia],
+          stubs: { CommandButtonItem: true, LoadingSpinner: true },
+        },
+      });
+      await flushPromises();
+      expect(wrapper.text()).toContain('Circus Commands');
+    });
+  });
+
   describe('connection status - command buttons enabled when connected', () => {
     it('command buttons are NOT disabled when connected (isStale=false)', async () => {
       commandButtonsStore.buttons = [

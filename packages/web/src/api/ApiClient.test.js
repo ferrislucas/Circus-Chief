@@ -1411,7 +1411,7 @@ describe('ApiClient', () => {
 
         const result = await client.getActiveRuns('sess-123');
 
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs', expect.any(Object));
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/runs', expect.any(Object));
         expect(result).toEqual(mockRuns);
       });
 
@@ -1464,7 +1464,7 @@ describe('ApiClient', () => {
 
         const result = await client.getCommandRun('sess-123', 'run-123');
 
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs/run-123', expect.any(Object));
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/runs/run-123', expect.any(Object));
         expect(result).toEqual(mockRun);
       });
 
@@ -1557,7 +1557,7 @@ describe('ApiClient', () => {
 
         const result = await client.killCommandRun('sess-123', 'run-123');
 
-        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/command-buttons/runs/run-123/kill', {
+        expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/circus-commands/runs/run-123/kill', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: undefined,

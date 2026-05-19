@@ -57,18 +57,33 @@ const emit = defineEmits(['save']);
 const canvasStore = useCanvasStore();
 const editorContent = ref(props.content || '');
 
-// Debounced save — 1 second after last edit
+// ── Edit-session bookkeeping ──────────────────────────────────────────
+// Tracks whether the user has modified the buffer since the last accepted
+// external content. This lets us distinguish a background store refresh
+// (which should be ignored) from a deliberate version switch via itemId
+// change (which should replace the buffer).
 let debounceTimer = null;
 let lastSavedContent = props.content || '';
+let lastEmittedContent = props.content || '';
+let lastAcceptedItemId = props.itemId;
+let lastAcceptedContent = props.content || '';
+let userModified = false;
+// Guard to prevent programmatic editorContent assignments from scheduling saves
+let isProgrammaticChange = false;
 
 watch(editorContent, (newVal) => {
-  // Skip no-op assignments and externally-driven updates (version switch) —
-  // otherwise a programmatic editorContent.value = props.content would trigger
-  // a spurious save that creates a new version of the old content.
+  // Skip programmatic assignments (version switch, external content acceptance)
+  if (isProgrammaticChange) return;
+  // Skip no-op assignments
   if (newVal === lastSavedContent) return;
+
+  // Mark buffer as user-modified
+  userModified = true;
+
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     lastSavedContent = newVal;
+    lastEmittedContent = newVal;
     emit('save', newVal);
   }, 1000);
 });
@@ -84,25 +99,83 @@ function flushPendingSave() {
     debounceTimer = null;
   }
   if (editorContent.value !== lastSavedContent) {
+    lastSavedContent = editorContent.value;
+    lastEmittedContent = editorContent.value;
     emit('save', editorContent.value);
   }
 }
 
 defineExpose({ flushPendingSave });
 
-// Watch for external content changes (e.g., version switch). We update
-// lastSavedContent BEFORE mutating editorContent.value so both the
-// editorContent watcher's next-tick run and any concurrent flushPendingSave
-// call see editorContent.value === lastSavedContent and exit without emitting.
-watch(() => props.content, (newContent) => {
-  if (newContent === editorContent.value) return;
+// ── Change-tracking helpers ───────────────────────────────────────────
+
+function clearPendingDebounce() {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
     debounceTimer = null;
   }
-  lastSavedContent = newContent || '';
-  editorContent.value = newContent || '';
-});
+}
+
+function updateBookkeeping(content) {
+  lastAcceptedContent = content;
+  lastSavedContent = content;
+  lastEmittedContent = content;
+}
+
+function handleVersionSwitch(newItemId, normalizedContent) {
+  clearPendingDebounce();
+  lastAcceptedItemId = newItemId;
+  updateBookkeeping(normalizedContent);
+  userModified = false;
+
+  if (normalizedContent !== editorContent.value) {
+    isProgrammaticChange = true;
+    editorContent.value = normalizedContent;
+    isProgrammaticChange = false;
+  }
+}
+
+// ── Combined watcher for itemId + content ─────────────────────────────
+// Distinguishes between:
+//   1. itemId change → deliberate version switch → always accept & replace buffer
+//   2. Same itemId, content change, buffer NOT user-modified → accept new content
+//   3. Same itemId, content change, buffer IS user-modified → ignore background churn
+watch(
+  () => ({ itemId: props.itemId, content: props.content }),
+  ({ itemId: newItemId, content: newContent }) => {
+    const normalizedContent = newContent || '';
+
+    if (newItemId !== lastAcceptedItemId) {
+      handleVersionSwitch(newItemId, normalizedContent);
+      return;
+    }
+
+    // Same itemId — content changed externally (WS echo, store refresh, etc.)
+    if (normalizedContent === editorContent.value) {
+      lastAcceptedContent = normalizedContent;
+      lastSavedContent = normalizedContent;
+      return;
+    }
+
+    if (userModified) {
+      // Buffer has been user-modified — ignore background churn.
+      // If the incoming content matches what we last emitted (self-originated
+      // save echo), update bookkeeping but don't touch the buffer.
+      if (normalizedContent === lastEmittedContent) {
+        lastAcceptedContent = normalizedContent;
+        lastSavedContent = normalizedContent;
+      }
+      return;
+    }
+
+    // No local edits — accept external content
+    clearPendingDebounce();
+    updateBookkeeping(normalizedContent);
+    isProgrammaticChange = true;
+    editorContent.value = normalizedContent;
+    isProgrammaticChange = false;
+  }
+);
 
 // No startEditing on mount — the store's saveMarkdownContent handles registering
 // the editing session. This ensures that when the user returns to edit after

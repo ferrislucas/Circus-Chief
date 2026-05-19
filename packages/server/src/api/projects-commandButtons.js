@@ -4,11 +4,11 @@ import { CreateCommandButtonRequest, UpdateCommandButtonRequest } from '@circusc
 
 // Error message constants
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
-const ERR_BUTTON_NOT_FOUND = 'Command button not found';
+const ERR_BUTTON_NOT_FOUND = 'Circus Command not found';
 
 const router = Router({ mergeParams: true });
 
-// GET /api/projects/:id/command-buttons - List all command buttons for project
+// GET /api/projects/:id/circus-commands - List all command buttons for project
 router.get('/', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
@@ -19,7 +19,7 @@ router.get('/', (req, res) => {
   res.json(buttons);
 });
 
-// POST /api/projects/:id/command-buttons - Create new command button
+// POST /api/projects/:id/circus-commands - Create new command button
 router.post('/', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
@@ -42,7 +42,7 @@ router.post('/', (req, res) => {
   res.status(201).json(button);
 });
 
-// GET /api/projects/:id/command-buttons/:buttonId - Get single button
+// GET /api/projects/:id/circus-commands/:buttonId - Get single button
 router.get('/:buttonId', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
@@ -56,7 +56,7 @@ router.get('/:buttonId', (req, res) => {
   res.json(button);
 });
 
-// PATCH /api/projects/:id/command-buttons/:buttonId - Update button
+// PATCH /api/projects/:id/circus-commands/:buttonId - Update button
 router.patch('/:buttonId', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
@@ -77,7 +77,7 @@ router.patch('/:buttonId', (req, res) => {
   res.json(updated);
 });
 
-// DELETE /api/projects/:id/command-buttons/:buttonId - Delete button
+// DELETE /api/projects/:id/circus-commands/:buttonId - Delete button
 router.delete('/:buttonId', (req, res) => {
   const project = projects.getById(req.params.id);
   if (!project) {
