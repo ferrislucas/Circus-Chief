@@ -63,7 +63,7 @@ npx circuschief -p 8080
 - Node.js 20+
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) — required for Claude Code agents
 - [OpenAI Codex CLI](https://github.com/openai/codex) — required for Codex agents
-- [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) (`npm install -g @google/gemini-cli`) — required for Gemini agents
+- [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) — required for Gemini agents
 - [GitHub CLI](https://cli.github.com/) (optional — enables automatic PR linking)
 
 ## Documentation
