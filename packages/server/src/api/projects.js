@@ -10,7 +10,7 @@ import { determineInitialStatus } from './projects-session-helpers.js';
 import { buildRunsBySession } from './projects-helpers.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import { access, constants } from 'fs/promises';
-import { dirname, isAbsolute } from 'path';
+import { dirname, isAbsolute, join } from 'path';
 import { getRepositoryUrl } from '../services/gitService.js';
 import { validateAndPrepareSessionConfig, createSessionRow, startSessionOrFail } from './projects-session-create.js';
 
@@ -40,6 +40,20 @@ export async function validateWorktreePath(worktreePath) {
   }
 
   return null; // valid
+}
+
+function prepareProjectUpdate(project, data) {
+  const update = { ...data };
+
+  if (
+    update.workingDirectory !== undefined
+    && update.worktreePath !== undefined
+    && update.worktreePath === join(project.workingDirectory, '.worktrees')
+  ) {
+    update.worktreePath = join(update.workingDirectory, '.worktrees');
+  }
+
+  return update;
 }
 
 const router = Router();
@@ -112,14 +126,16 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  if (result.data.worktreePath !== undefined) {
-    const pathError = await validateWorktreePath(result.data.worktreePath);
+  const update = prepareProjectUpdate(project, result.data);
+
+  if (update.worktreePath !== undefined) {
+    const pathError = await validateWorktreePath(update.worktreePath);
     if (pathError) {
       return res.status(400).json({ error: pathError });
     }
   }
 
-  const updated = projects.update(req.params.id, result.data);
+  const updated = projects.update(req.params.id, update);
   res.json(updated);
 });
 
