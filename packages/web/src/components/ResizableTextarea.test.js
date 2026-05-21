@@ -264,20 +264,32 @@ describe('ResizableTextarea', () => {
       expect(textarea.exists()).toBe(true);
     });
 
-    it('textarea initially has no explicit height style', async () => {
+    it('textarea applies minHeight without an explicit height style', async () => {
       wrapper = mount(ResizableTextarea);
       await wrapper.vm.$nextTick();
 
       const textarea = wrapper.find('textarea');
       const style = textarea.attributes('style');
-      // Initially, currentHeight is null so no height style is set
-      expect(style).toBeUndefined();
+      expect(style).toContain('min-height: 80px');
+      expect(style).not.toMatch(/(^|;\s*)height:/);
     });
 
     it('textarea wrapper has proper CSS classes', () => {
       wrapper = mount(ResizableTextarea);
       const wrapper_el = wrapper.find('.resizable-textarea-wrapper');
       expect(wrapper_el.exists()).toBe(true);
+    });
+
+    it('forwards field classes to the textarea only', () => {
+      wrapper = mount(ResizableTextarea, {
+        attrs: {
+          id: 'prompt',
+          class: 'form-input form-textarea'
+        }
+      });
+
+      expect(wrapper.find('.resizable-textarea-wrapper').classes()).not.toContain('form-textarea');
+      expect(wrapper.find('textarea#prompt.form-input.form-textarea').exists()).toBe(true);
     });
   });
 

@@ -4,6 +4,7 @@
       ref="textareaRef"
       v-bind="$attrs"
       :value="modelValue"
+      :style="textareaStyle"
       @input="handleInput"
     />
     <div
@@ -29,7 +30,11 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
+
+defineOptions({
+  inheritAttrs: false
+});
 
 const props = defineProps({
   modelValue: {
@@ -63,6 +68,10 @@ function handleBlur(event) {
 
 const textareaRef = ref(null);
 let isResizing = false;
+
+const textareaStyle = computed(() => ({
+  minHeight: `${props.minHeight}px`
+}));
 
 // Watch for external modelValue changes and update textarea
 watch(() => props.modelValue, (newValue) => {
