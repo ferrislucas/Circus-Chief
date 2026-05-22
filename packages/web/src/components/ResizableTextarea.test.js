@@ -257,11 +257,12 @@ describe('ResizableTextarea', () => {
   });
 
   describe('textarea styling', () => {
-    it('textarea has resize: none in styles', () => {
+    it('textarea keeps native vertical resizing enabled in styles', () => {
       wrapper = mount(ResizableTextarea);
-      // Check that the style scoped class is applied
       const textarea = wrapper.find('textarea');
       expect(textarea.exists()).toBe(true);
+      expect(resizableTextareaSource).toMatch(/resize:\s*vertical/);
+      expect(resizableTextareaSource).not.toMatch(/resize:\s*none/);
     });
 
     it('textarea applies minHeight without an explicit height style', async () => {
@@ -322,27 +323,30 @@ describe('ResizableTextarea', () => {
       expect(handle.attributes('aria-hidden')).toBe('true');
     });
 
-    it('has mousedown event listener on resize handle', async () => {
+    it('has pointer resize event listener on resize handle', async () => {
       wrapper = mount(ResizableTextarea);
       const handle = wrapper.find('.resize-handle');
 
       expect(handle.exists()).toBe(true);
+      expect(resizableTextareaSource).toMatch(/@pointerdown="startResize"/);
     });
 
-    it('does not bind touch resize to the handle', () => {
+    it('uses pointer events instead of separate touch handlers', () => {
       expect(resizableTextareaSource).not.toMatch(/@touchstart/);
+      expect(resizableTextareaSource).not.toMatch(/touchmove/);
+      expect(resizableTextareaSource).toMatch(/pointermove/);
     });
   });
 
   describe('mobile support', () => {
-    it('hides the custom resize handle on coarse pointers', () => {
+    it('keeps the custom resize handle available on coarse pointers', () => {
       wrapper = mount(ResizableTextarea);
       const handle = wrapper.find('.resize-handle');
 
       expect(handle.exists()).toBe(true);
-      expect(resizableTextareaSource).toMatch(/@media\s*\(pointer:\s*coarse\)/);
-      expect(resizableTextareaSource).toMatch(/\.resize-handle\s*\{[\s\S]*?display:\s*none/);
-      expect(resizableTextareaSource).not.toMatch(/touch-action:\s*none/);
+      expect(resizableTextareaSource).not.toMatch(/@media\s*\(pointer:\s*coarse\)/);
+      expect(resizableTextareaSource).not.toMatch(/display:\s*none/);
+      expect(resizableTextareaSource).toMatch(/touch-action:\s*none/);
     });
   });
 

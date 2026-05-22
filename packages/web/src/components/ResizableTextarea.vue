@@ -10,7 +10,7 @@
     <div
       class="resize-handle"
       aria-hidden="true"
-      @mousedown="startResize"
+      @pointerdown="startResize"
     >
       <svg
         width="16"
@@ -83,19 +83,19 @@ watch(() => props.modelValue, (newValue) => {
 function startResize(event) {
   if (!textareaRef.value) return;
 
+  event.preventDefault();
+  const handle = event.currentTarget;
+  handle.setPointerCapture?.(event.pointerId);
   isResizing = true;
 
-  const startY = event.type.startsWith('touch')
-    ? event.touches[0].clientY
-    : event.clientY;
+  const startY = event.clientY;
   const startHeight = textareaRef.value.offsetHeight;
 
   const doResize = (e) => {
     if (!isResizing) return;
 
-    const currentY = e.type.startsWith('touch')
-      ? e.touches[0].clientY
-      : e.clientY;
+    e.preventDefault();
+    const currentY = e.clientY;
 
     let newHeight = startHeight + (currentY - startY);
 
@@ -109,20 +109,17 @@ function startResize(event) {
     textareaRef.value.style.height = `${newHeight  }px`;
   };
 
-  const stopResize = () => {
+  const stopResize = (e) => {
     isResizing = false;
-    document.removeEventListener('mousemove', doResize);
-    document.removeEventListener('mouseup', stopResize);
-    document.removeEventListener('touchmove', doResize);
-    document.removeEventListener('touchend', stopResize);
-    document.removeEventListener('touchcancel', stopResize);
+    handle.releasePointerCapture?.(e.pointerId);
+    document.removeEventListener('pointermove', doResize);
+    document.removeEventListener('pointerup', stopResize);
+    document.removeEventListener('pointercancel', stopResize);
   };
 
-  document.addEventListener('mousemove', doResize);
-  document.addEventListener('mouseup', stopResize);
-  document.addEventListener('touchmove', doResize, { passive: false });
-  document.addEventListener('touchend', stopResize);
-  document.addEventListener('touchcancel', stopResize);
+  document.addEventListener('pointermove', doResize);
+  document.addEventListener('pointerup', stopResize);
+  document.addEventListener('pointercancel', stopResize);
 }
 
 // Expose imperative DOM operations for parent components.
@@ -198,10 +195,9 @@ onMounted(() => {
 }
 
 .resizable-textarea-wrapper textarea {
-  /* Disable native resize since we're handling it */
-  resize: none;
+  resize: vertical;
   /* Add padding at bottom for the resize handle */
-  padding-bottom: 24px;
+  padding-bottom: 28px;
   /* Ensure textarea fills the wrapper */
   width: 100%;
   box-sizing: border-box;
@@ -211,29 +207,31 @@ onMounted(() => {
   position: absolute;
   bottom: 4px;
   right: 4px;
-  width: 24px;
-  height: 24px;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
   cursor: ns-resize;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--color-text-soft, #6b7280);
-  opacity: 0.5;
-  transition: opacity 0.15s;
+  color: var(--color-text, #c9d1d9);
+  opacity: 0.85;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    opacity 0.15s;
   user-select: none;
   -webkit-user-select: none;
   border-radius: 4px;
+  border: 1px solid var(--color-border, #30363d);
+  background: var(--color-background-soft, #161b22);
+  touch-action: none;
 }
 
 .resize-handle:hover,
 .resize-handle:active {
   opacity: 1;
-  background: rgba(255, 255, 255, 0.05);
-}
-
-@media (pointer: coarse) {
-  .resize-handle {
-    display: none;
-  }
+  border-color: var(--color-primary, #58a6ff);
+  background: var(--color-background-mute, #21262d);
 }
 </style>
