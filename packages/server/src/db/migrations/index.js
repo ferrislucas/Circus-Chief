@@ -264,6 +264,9 @@ export const allMigrations = validateMigrations([
   // --- Update expired Gemini Flash Lite preview model to stable GA ---
   pr.get('providers-update-gemini-flash-lite-model'),
 
+  // --- Backfill official OpenAI commit attribution ---
+  pr.get('providers-backfill-built-in-openai-attribution'),
+
   // --- Project session defaults: add 'current' git mode ---
   p.get('project_session_defaults-git_mode-add-current'),
 

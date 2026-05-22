@@ -4,6 +4,7 @@ import { providerMigrations } from './providerMigrations.js';
 import { getDatabase, ProjectRepository } from '../index.js';
 import { allMigrations } from './index.js';
 import { OPENAI_MODELS } from '@circuschief/shared';
+import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
 const seedMigration = miscMigrations.find(m => m.name === 'quick_responses-seed-defaults');
 const seedTemplatesMigration = miscMigrations.find(m => m.name === 'session_templates-seed-defaults');
@@ -379,6 +380,7 @@ describe('session_templates-seed-defaults migration', () => {
 
 const addKindMigration = providerMigrations.find(m => m.name === 'providers-add-kind');
 const seedOpenAIMigration = providerMigrations.find(m => m.name === 'providers-seed-built-in-openai');
+const backfillOpenAIAttributionMigration = providerMigrations.find(m => m.name === 'providers-backfill-built-in-openai-attribution');
 
 describe('providers-add-kind migration', () => {
   it('exists in the migrations module', () => {
@@ -443,7 +445,7 @@ describe('providers-add-kind migration', () => {
 });
 
 describe('providers-seed-built-in-openai migration', () => {
-  it('fresh DB has one built-in OpenAI provider with null auth/base URL', () => {
+  it('fresh DB has one built-in OpenAI provider with default attribution and null auth/base URL', () => {
     const db = getDatabase();
     const rows = db
       .prepare('SELECT * FROM providers WHERE id = ?')
@@ -456,6 +458,7 @@ describe('providers-seed-built-in-openai migration', () => {
       is_built_in: 1,
       base_url: null,
       auth_token: null,
+      commit_attribution_override: BUILT_IN_OPENAI_COMMIT_ATTRIBUTION,
     });
   });
 
@@ -504,5 +507,44 @@ describe('providers-seed-built-in-openai migration', () => {
 
     expect(openAISeedIdx).toBeGreaterThan(kindIdx);
     expect(openAISeedIdx).toBeGreaterThan(historicalSeedIdx);
+  });
+});
+
+describe('providers-backfill-built-in-openai-attribution migration', () => {
+  it('fills null attribution on the built-in OpenAI provider', () => {
+    const db = getDatabase();
+    db.prepare(
+      'UPDATE providers SET commit_attribution_override = NULL WHERE id = ?'
+    ).run('openai-default');
+
+    backfillOpenAIAttributionMigration.up(db);
+
+    const row = db.prepare(
+      'SELECT commit_attribution_override FROM providers WHERE id = ?'
+    ).get('openai-default');
+    expect(row.commit_attribution_override).toBe(BUILT_IN_OPENAI_COMMIT_ATTRIBUTION);
+  });
+
+  it('preserves an existing built-in OpenAI attribution override', () => {
+    const db = getDatabase();
+    const customAttribution = 'Co-authored-by: Custom Codex <custom@example.com>';
+    db.prepare(
+      'UPDATE providers SET commit_attribution_override = ? WHERE id = ?'
+    ).run(customAttribution, 'openai-default');
+
+    backfillOpenAIAttributionMigration.up(db);
+
+    const row = db.prepare(
+      'SELECT commit_attribution_override FROM providers WHERE id = ?'
+    ).get('openai-default');
+    expect(row.commit_attribution_override).toBe(customAttribution);
+  });
+
+  it('is registered after the built-in OpenAI seed migration', () => {
+    const names = allMigrations.map(m => m.name);
+    const openAISeedIdx = names.indexOf('providers-seed-built-in-openai');
+    const attributionBackfillIdx = names.indexOf('providers-backfill-built-in-openai-attribution');
+
+    expect(attributionBackfillIdx).toBeGreaterThan(openAISeedIdx);
   });
 });
