@@ -54,8 +54,8 @@ test.describe('Codex provider flow', () => {
     // Wait for the model row input to appear (Vue re-render after add)
     const modelIdInput = modal.locator('.model-row .col-model-id.model-input').first();
     await expect(modelIdInput).toBeVisible();
-    await modelIdInput.fill('gpt-4o');
-    await modal.locator('.model-row .col-display-name.model-input').first().fill('GPT-4o');
+    await modelIdInput.fill('gpt-4o-mini');
+    await modal.locator('.model-row .col-display-name.model-input').first().fill('GPT-4o mini');
     await modal.locator('.model-row .tier-select').first().selectOption('custom');
 
     await modal.locator('.modal-footer .btn-primary').click();
@@ -73,7 +73,7 @@ test.describe('Codex provider flow', () => {
     });
 
     // Option values use providerId::modelId format
-    const codexOptionKey = `${provider.id}::gpt-4o`;
+    const codexOptionKey = `${provider.id}::gpt-4o-mini`;
     const hasCodexOption = await page.locator('#model-select').evaluate((select: HTMLSelectElement, { expectedName, expectedKey }: { expectedName: string, expectedKey: string }) => {
       return Array.from(select.querySelectorAll('optgroup')).some((group) => (
         group.label === `Codex · ${expectedName}` &&
@@ -88,7 +88,7 @@ test.describe('Codex provider flow', () => {
       page.locator('.thinking-toggle').filter({ hasText: 'Enable Thinking' }).locator('input')
     ).toBeDisabled();
 
-    await page.locator('#prompt textarea').first().fill(CODEX_PROMPT);
+    await page.locator('textarea#prompt').fill(CODEX_PROMPT);
     await page.locator('.btn-submit').click();
 
     await expect(page).toHaveURL(/\/sessions\//, { timeout: 15000 });

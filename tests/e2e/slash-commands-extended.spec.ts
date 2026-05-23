@@ -692,7 +692,7 @@ test.describe('Slash Commands Extended', () => {
       // Prompt textarea should contain the command text
       // In insert mode, no-arg commands produce "/{name}" via buildInsertString
       // The textarea is inside a ResizableTextarea component; target the actual <textarea>
-      const textarea = page.locator('.form-textarea textarea');
+      const textarea = page.locator('textarea.form-textarea');
       await expect(textarea).toHaveValue('/test-greet');
     });
 
@@ -718,7 +718,7 @@ test.describe('Slash Commands Extended', () => {
 
       // Prompt textarea should contain the substituted command text
       // In insert mode, buildInsertString produces '/{name} {arg_values}'
-      const textarea = page.locator('.form-textarea textarea');
+      const textarea = page.locator('textarea.form-textarea');
       const promptValue = await textarea.inputValue();
       expect(promptValue).toContain('/test-summarize');
       expect(promptValue).toContain('AI Ethics');
