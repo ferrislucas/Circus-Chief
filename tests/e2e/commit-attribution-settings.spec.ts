@@ -62,7 +62,7 @@ test.describe('Commit attribution provider settings', () => {
   test('built-in OpenAI override persists after reload and clears to null', async ({ page }) => {
     const openai = await builtInProvider('openai');
 
-    await saveBuiltInAttribution(page, openai.name, CODEX_ATTRIBUTION);
+    await saveBuiltInAttribution(page, openai.name, CODEX_ATTRIBUTION, OFFICIAL_CODEX_ATTRIBUTION);
     await page.reload();
     await expectBuiltInAttributionModal(page, openai.name, CODEX_ATTRIBUTION);
 
@@ -280,8 +280,8 @@ async function expectBuiltInAttributionModal(page: any, providerName: string, ex
   await expect(modal.locator('button:has-text("Delete")')).toHaveCount(0);
 }
 
-async function saveBuiltInAttribution(page: any, providerName: string, value: string) {
-  await expectBuiltInAttributionModal(page, providerName, '');
+async function saveBuiltInAttribution(page: any, providerName: string, value: string, initialValue = '') {
+  await expectBuiltInAttributionModal(page, providerName, initialValue);
   await page.locator('#commit-attribution-override').fill(value);
   await page.locator('.modal-footer .btn-primary').click();
   await expect(page.locator('.modal')).toBeHidden();

@@ -295,17 +295,20 @@ describe('SessionChatOverlay', () => {
   }
 
   function mockRect(el, rect) {
-    el.getBoundingClientRect = vi.fn(() => ({
-      top: rect.top,
-      bottom: rect.bottom,
-      left: rect.left ?? 0,
-      right: rect.right ?? 0,
-      width: rect.width ?? 0,
-      height: rect.height ?? rect.bottom - rect.top,
-      x: rect.left ?? 0,
-      y: rect.top,
-      toJSON: () => {},
-    }));
+    Object.defineProperty(el, 'getBoundingClientRect', {
+      configurable: true,
+      value: vi.fn(() => ({
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left ?? 0,
+        right: rect.right ?? 0,
+        width: rect.width ?? 0,
+        height: rect.height ?? rect.bottom - rect.top,
+        x: rect.left ?? 0,
+        y: rect.top,
+        toJSON: () => {},
+      })),
+    });
   }
 
   function getStyleBlock(selector) {
