@@ -1,13 +1,13 @@
-<p align="center">
-  <img src="packages/web/public/circus-chief-logo.gif" alt="Circus Chief" width="200" />
-</p>
-
 <h1 align="center">Circus Chief</h1>
 
 <p align="center">
   An open-source, touch-optimized control plane for managing AI coding agents.<br/><br/>
   Supports Claude Code agents (any Anthropic-compatible provider), OpenAI Codex agents (any OpenAI-compatible provider), and Google Gemini CLI agents.
   Works with API key or subscription-based authorization.
+</p>
+
+<p align="center">
+  <img src="packages/web/public/circus-chief-logo.gif" alt="Circus Chief" width="200" />
 </p>
 
 ---
