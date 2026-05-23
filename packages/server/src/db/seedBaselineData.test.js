@@ -4,6 +4,7 @@ import { DatabaseManager } from './DatabaseManager.js';
 import {
   BUILT_IN_ANTHROPIC_MODELS,
   BUILT_IN_ANTHROPIC_PROVIDER,
+  BUILT_IN_OPENAI_COMMIT_ATTRIBUTION,
   BUILT_IN_OPENAI_MODELS,
   BUILT_IN_OPENAI_PROVIDER,
   BUILT_IN_GOOGLE_MODELS,
@@ -42,7 +43,7 @@ describe('seedBaselineData', () => {
         is_built_in: 1,
         base_url: null,
         auth_token: null,
-        commit_attribution_override: null,
+        commit_attribution_override: BUILT_IN_OPENAI_COMMIT_ATTRIBUTION,
       });
     });
   });
