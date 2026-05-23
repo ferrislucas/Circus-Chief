@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="packages/web/public/logo.png" alt="Circus Chief" width="200" />
+  <img src="packages/web/public/circus-chief-logo.gif" alt="Circus Chief" width="200" />
 </p>
 
 <h1 align="center">Circus Chief</h1>
