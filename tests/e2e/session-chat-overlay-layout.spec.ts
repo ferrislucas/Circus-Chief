@@ -119,6 +119,10 @@ test.describe('SessionChatOverlay layout', () => {
           contentPaddingTop: getComputedStyle(content).paddingTop,
           headerPaddingTop: getComputedStyle(header).paddingTop,
         },
+        scrollTop: {
+          content: content.scrollTop,
+          body: (document.querySelector('.overlay-body') as HTMLElement)?.scrollTop ?? 0,
+        },
         inner: { w: window.innerWidth, h: window.innerHeight },
         inline: {
           top: s.top,
@@ -155,6 +159,14 @@ test.describe('SessionChatOverlay layout', () => {
   function expectHeaderAtViewportTop(result: Awaited<ReturnType<typeof readOverlayLayout>>) {
     expect(result.header.top).toBeGreaterThanOrEqual(-1);
     expect(result.header.top).toBeLessThanOrEqual(1);
+  }
+
+  function expectHeaderFullyVisible(result: Awaited<ReturnType<typeof readOverlayLayout>>) {
+    expect(result.header.top).toBeGreaterThanOrEqual(result.backdrop.top - 1);
+    if (result.header.height <= result.backdrop.height) {
+      expect(result.header.bottom).toBeLessThanOrEqual(result.backdrop.bottom + 1);
+    }
+    expect(result.scrollTop.content).toBe(0);
   }
 
   test('backdrop covers viewport and writes no inline geometry', async ({ page }) => {
@@ -362,6 +374,7 @@ test.describe('SessionChatOverlay layout', () => {
     expectBackdropCoversViewport(result);
     expectContentCoversViewport(result);
     expectHeaderAtViewportTop(result);
+    expectHeaderFullyVisible(result);
     expect(result.headerRow.top).toBeLessThan(80);
     expect(result.computed.contentPaddingTop).toBe('0px');
   });
@@ -385,8 +398,37 @@ test.describe('SessionChatOverlay layout', () => {
     expectBackdropCoversViewport(result);
     expectContentCoversViewport(result);
     expectHeaderAtViewportTop(result);
+    expectHeaderFullyVisible(result);
     expect(result.headerRow.top).toBeLessThan(80);
     expect(result.computed.contentPaddingTop).toBe('0px');
+  });
+
+  test('keeps the full header visible after switching to a child session', async ({ page }) => {
+    const child = await seedSession(project.id, {
+      prompt: 'Child layout regression',
+      name: 'Layout Child',
+      parentSessionId: session.id,
+    });
+    await waitForSessionToExist(child.id);
+    seedConversationHistory(child.id, 20);
+
+    await navigateToSession(page);
+    await openOverlay(page);
+
+    const dropdown = page.locator('[data-testid="session-tree-dropdown"]');
+    await expect(dropdown).toBeVisible({ timeout: 10000 });
+    await dropdown.locator('.dropdown-trigger').click();
+    const picker = page.locator('[data-testid="session-chat-picker"]');
+    await expect(picker).toBeVisible({ timeout: 5000 });
+    await picker.locator('[role="option"]').filter({ hasText: 'Layout Child' }).click();
+    await expect(picker).not.toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="session-chat-overlay"] .conversation-tab')).toBeVisible({ timeout: 10000 });
+    await page.waitForTimeout(400);
+
+    const result = await readOverlayLayout(page);
+    expectBackdropCoversViewport(result);
+    expectContentCoversViewport(result);
+    expectHeaderFullyVisible(result);
   });
 
   test('covers viewport after simulated orientation change', async ({ page }) => {
