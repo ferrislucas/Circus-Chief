@@ -58,11 +58,13 @@
 
           <!-- Existing overlay-content -->
           <div
+            ref="overlayContentRef"
             class="overlay-content session-chat-overlay"
             :class="{ 'session-chat-overlay--composer-focused': isOverlayPromptFocused }"
           >
             <!-- Header (no padding constraints) -->
             <div
+              ref="overlayHeaderRef"
               class="overlay-header"
               @touchmove="handleHeaderTouchmove"
             >
@@ -330,8 +332,11 @@ const switchingSession = ref(true);
 const isOverlayPromptFocused = ref(false);
 let overlayPromptBlurTimer = null;
 let promptVisibilityRaf = null;
+let headerVisibilityRaf = null;
 
-// Overlay body ref for scroll container override
+// Overlay refs for shell/header correction and scroll container override
+const overlayContentRef = ref(null);
+const overlayHeaderRef = ref(null);
 const overlayBodyRef = ref(null);
 
 // Template ref to the ConversationTab for flushing drafts before session switch
@@ -532,6 +537,8 @@ async function switchToSession(newSessionId) {
   } finally {
     // Always hide spinner — even if something unexpected throws
     switchingSession.value = false;
+    await nextTick();
+    scheduleEnsureOverlayHeaderVisible();
   }
 }
 
@@ -665,6 +672,70 @@ function clearPromptVisibilityRaf() {
   }
 }
 
+function clearHeaderVisibilityRaf() {
+  if (headerVisibilityRaf) {
+    cancelAnimationFrame(headerVisibilityRaf);
+    headerVisibilityRaf = null;
+  }
+}
+
+function getVisibleOverlayBounds() {
+  const backdropRect = getBackdropEl()?.getBoundingClientRect?.();
+  if (backdropRect) {
+    return {
+      top: backdropRect.top,
+      bottom: backdropRect.bottom,
+    };
+  }
+
+  return {
+    top: 0,
+    bottom: window.innerHeight,
+  };
+}
+
+function ensureOverlayHeaderVisible() {
+  const header = overlayHeaderRef.value;
+  if (!header) {
+    return { checked: false, corrected: false, reason: 'missing-header' };
+  }
+
+  const content = overlayContentRef.value;
+  const bounds = getVisibleOverlayBounds();
+  const visibleHeight = bounds.bottom - bounds.top;
+  const headerRect = header.getBoundingClientRect();
+  const canFit = headerRect.height <= visibleHeight;
+  const isAboveVisibleBounds = headerRect.top < bounds.top - 1;
+  const isBelowVisibleBounds = canFit && headerRect.bottom > bounds.bottom + 1;
+  const hasOuterScroll = Boolean(content && content.scrollTop > 0);
+  const hasHeaderScroll = header.scrollTop > 0;
+
+  if (!isAboveVisibleBounds && !isBelowVisibleBounds && !hasOuterScroll && !hasHeaderScroll) {
+    return { checked: true, corrected: false, reason: 'visible' };
+  }
+
+  if (hasOuterScroll) {
+    content.scrollTop = 0;
+  }
+  if (hasHeaderScroll) {
+    header.scrollTop = 0;
+  }
+
+  return {
+    checked: true,
+    corrected: hasOuterScroll || hasHeaderScroll,
+    reason: canFit ? 'outside-visible-bounds' : 'header-taller-than-bounds',
+  };
+}
+
+function scheduleEnsureOverlayHeaderVisible() {
+  clearHeaderVisibilityRaf();
+  headerVisibilityRaf = requestAnimationFrame(() => {
+    headerVisibilityRaf = null;
+    ensureOverlayHeaderVisible();
+  });
+}
+
 function requestPromptVisibilityCheck() {
   clearPromptVisibilityRaf();
   promptVisibilityRaf = requestAnimationFrame(() => {
@@ -697,6 +768,7 @@ function handleOverlayPromptFocus() {
 function handleOverlayPromptBlur(event) {
   clearPromptBlurTimer();
   requestVisualViewportSettle({ maxDurationMs: 350, minDurationMs: 100 });
+  scheduleEnsureOverlayHeaderVisible();
   overlayPromptBlurTimer = setTimeout(() => {
     overlayPromptBlurTimer = null;
     if (document.activeElement === event?.target) {
@@ -705,6 +777,7 @@ function handleOverlayPromptBlur(event) {
     isOverlayPromptFocused.value = false;
     setSessionOverlayPromptFocus(false);
     requestVisualViewportSettle({ maxDurationMs: 350, minDurationMs: 100 });
+    scheduleEnsureOverlayHeaderVisible();
   }, 80);
 }
 
@@ -782,6 +855,7 @@ function getBackdropEl() {
 
 function runDriftCheck() {
   checkOverlayViewportDrift(getBackdropEl());
+  ensureOverlayHeaderVisible();
   if (isOverlayPromptFocused.value && !isActiveTextEditing()) {
     requestPromptVisibilityCheck();
   }
@@ -815,11 +889,14 @@ onMounted(async () => {
   lockBodyScroll();
   requestVisualViewportUpdate();
   requestVisualViewportSettle();
+  scheduleEnsureOverlayHeaderVisible();
   document.addEventListener('keydown', handleEscape);
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
   startDriftCheck();
+  await nextTick();
+  scheduleEnsureOverlayHeaderVisible();
 
   // Load data for the active session, then reveal ConversationTab.
   // switchingSession starts as true, so ConversationTab won't mount until
@@ -829,6 +906,8 @@ onMounted(async () => {
     setupSubscription(activeSessionId.value);
   } finally {
     switchingSession.value = false;
+    await nextTick();
+    scheduleEnsureOverlayHeaderVisible();
   }
 });
 
@@ -836,6 +915,7 @@ onUnmounted(() => {
   stopDriftCheck();
   clearPromptBlurTimer();
   clearPromptVisibilityRaf();
+  clearHeaderVisibilityRaf();
   isOverlayPromptFocused.value = false;
   setSessionOverlayPromptFocus(false);
   unlockBodyScroll();
@@ -860,7 +940,12 @@ defineExpose({
   switchingSession,
   pickerOpen,
   handlePickerSelect,
+  overlayContentRef,
+  overlayHeaderRef,
   overlayBodyRef,
+  ensureOverlayHeaderVisible,
+  scheduleEnsureOverlayHeaderVisible,
+  clearHeaderVisibilityRaf,
 });
 </script>
 

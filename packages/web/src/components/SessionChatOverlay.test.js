@@ -20,6 +20,24 @@ Object.defineProperty(window, 'scrollTo', {
   value: vi.fn(),
 });
 
+if (!window.requestAnimationFrame) {
+  Object.defineProperty(window, 'requestAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (callback) => window.setTimeout(() => callback(performance.now()), 0),
+  });
+}
+globalThis.requestAnimationFrame = window.requestAnimationFrame;
+
+if (!window.cancelAnimationFrame) {
+  Object.defineProperty(window, 'cancelAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (id) => window.clearTimeout(id),
+  });
+}
+globalThis.cancelAnimationFrame = window.cancelAnimationFrame;
+
 // Mock @circuschief/shared
 vi.mock('@circuschief/shared', () => ({
   generateWorktreeBranch: vi.fn(() => 'circus-chief/abcd-new-session'),
@@ -266,6 +284,30 @@ describe('SessionChatOverlay', () => {
         plugins: [router],
       },
       attachTo: document.body,
+    });
+  }
+
+  async function mountOverlaySettled(propsOverrides = {}) {
+    const wrapper = mountOverlay(propsOverrides);
+    await nextTick();
+    await new Promise(r => setTimeout(r, 10));
+    return wrapper;
+  }
+
+  function mockRect(el, rect) {
+    Object.defineProperty(el, 'getBoundingClientRect', {
+      configurable: true,
+      value: vi.fn(() => ({
+        top: rect.top,
+        bottom: rect.bottom,
+        left: rect.left ?? 0,
+        right: rect.right ?? 0,
+        width: rect.width ?? 0,
+        height: rect.height ?? rect.bottom - rect.top,
+        x: rect.left ?? 0,
+        y: rect.top,
+        toJSON: () => {},
+      })),
     });
   }
 
@@ -1871,6 +1913,242 @@ describe('SessionChatOverlay', () => {
       expect(wrapper.vm.overlayBodyRef).toBeDefined();
       expect(typeof wrapper.vm.afterLeave).toBe('function');
       wrapper.unmount();
+    });
+  });
+
+  describe('overlay header visibility guard', () => {
+    it('does nothing when the header is fully inside the backdrop bounds', async () => {
+      const wrapper = await mountOverlaySettled();
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
+      const content = document.querySelector('.overlay-content');
+      const header = document.querySelector('.overlay-header');
+      const body = document.querySelector('.overlay-body');
+      mockRect(backdrop, { top: 0, bottom: 600, height: 600 });
+      mockRect(header, { top: 0, bottom: 120, height: 120 });
+      content.scrollTop = 0;
+      header.scrollTop = 0;
+      body.scrollTop = 240;
+
+      const result = wrapper.vm.ensureOverlayHeaderVisible();
+
+      expect(result).toEqual({ checked: true, corrected: false, reason: 'visible' });
+      expect(body.scrollTop).toBe(240);
+      wrapper.unmount();
+    });
+
+    it('resets accidental overlay-content scroll without changing overlay-body scroll', async () => {
+      const wrapper = await mountOverlaySettled();
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
+      const content = document.querySelector('.overlay-content');
+      const header = document.querySelector('.overlay-header');
+      const body = document.querySelector('.overlay-body');
+      mockRect(backdrop, { top: 0, bottom: 600, height: 600 });
+      mockRect(header, { top: -40, bottom: 80, height: 120 });
+      content.scrollTop = 80;
+      body.scrollTop = 320;
+
+      const result = wrapper.vm.ensureOverlayHeaderVisible();
+
+      expect(result.checked).toBe(true);
+      expect(result.corrected).toBe(true);
+      expect(content.scrollTop).toBe(0);
+      expect(body.scrollTop).toBe(320);
+      wrapper.unmount();
+    });
+
+    it('resets accidental overlay-header scroll', async () => {
+      const wrapper = await mountOverlaySettled();
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
+      const header = document.querySelector('.overlay-header');
+      mockRect(backdrop, { top: 0, bottom: 600, height: 600 });
+      mockRect(header, { top: 0, bottom: 120, height: 120 });
+      header.scrollTop = 24;
+
+      const result = wrapper.vm.ensureOverlayHeaderVisible();
+
+      expect(result.checked).toBe(true);
+      expect(result.corrected).toBe(true);
+      expect(header.scrollTop).toBe(0);
+      wrapper.unmount();
+    });
+
+    it('returns an unchecked status when the header ref is missing', async () => {
+      const wrapper = await mountOverlaySettled();
+      wrapper.vm.overlayHeaderRef = null;
+
+      expect(wrapper.vm.ensureOverlayHeaderVisible()).toEqual({
+        checked: false,
+        corrected: false,
+        reason: 'missing-header',
+      });
+      wrapper.unmount();
+    });
+
+    it('falls back to window bounds when the backdrop is missing', async () => {
+      const wrapper = await mountOverlaySettled();
+      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
+      const header = document.querySelector('.overlay-header');
+      backdrop.remove();
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        writable: true,
+        value: 700,
+      });
+      mockRect(header, { top: 10, bottom: 110, height: 100 });
+
+      expect(wrapper.vm.ensureOverlayHeaderVisible()).toEqual({
+        checked: true,
+        corrected: false,
+        reason: 'visible',
+      });
+      wrapper.unmount();
+    });
+
+    it('mount schedules checks before and after ConversationTab is revealed', async () => {
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 1);
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(requestAnimationFrameSpy.mock.calls.length).toBeGreaterThanOrEqual(3);
+
+      requestAnimationFrameSpy.mockRestore();
+      wrapper.unmount();
+    });
+
+    it('session switch schedules a check after the new ConversationTab mount tick', async () => {
+      const childSession = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'waiting',
+        parentSessionId: 'sess-root',
+        projectId: 'proj-123',
+      };
+      mockSessionsStore.getSessionById.mockImplementation((id) => {
+        if (id === 'sess-root') return rootSession;
+        if (id === 'child-1') return childSession;
+        return null;
+      });
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 1);
+      const wrapper = await mountOverlaySettled({
+        sessionChain: [{ session: rootSession, depth: 0 }, { session: childSession, depth: 1 }],
+      });
+      requestAnimationFrameSpy.mockClear();
+
+      await wrapper.vm.handlePickerSelect('child-1');
+      await nextTick();
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(wrapper.vm.activeSessionId).toBe('child-1');
+      expect(requestAnimationFrameSpy).toHaveBeenCalled();
+
+      requestAnimationFrameSpy.mockRestore();
+      wrapper.unmount();
+    });
+
+    it('prompt blur schedules an immediate header visibility check', async () => {
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 1);
+      const wrapper = await mountOverlaySettled();
+      requestAnimationFrameSpy.mockClear();
+
+      await wrapper.findComponent({ name: 'ConversationTab' }).vm.$emit('prompt-blur', {
+        target: document.createElement('textarea'),
+      });
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+
+      requestAnimationFrameSpy.mockRestore();
+      wrapper.unmount();
+    });
+
+    it('delayed prompt blur schedules a second check only after focus leaves the textarea', async () => {
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 1);
+      const wrapper = await mountOverlaySettled();
+      const textarea = document.createElement('textarea');
+      Object.defineProperty(document, 'activeElement', {
+        configurable: true,
+        value: document.body,
+      });
+      requestAnimationFrameSpy.mockClear();
+
+      await wrapper.findComponent({ name: 'ConversationTab' }).vm.$emit('prompt-blur', {
+        target: textarea,
+      });
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
+
+      await new Promise(r => setTimeout(r, 90));
+
+      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(2);
+
+      requestAnimationFrameSpy.mockRestore();
+      wrapper.unmount();
+    });
+
+    it('focus returning before delayed blur does not clear composer focus state', async () => {
+      const wrapper = await mountOverlaySettled();
+      const conversationTab = wrapper.findComponent({ name: 'ConversationTab' });
+      const textarea = document.createElement('textarea');
+
+      await conversationTab.vm.$emit('prompt-focus', new FocusEvent('focus'));
+      await nextTick();
+      Object.defineProperty(document, 'activeElement', {
+        configurable: true,
+        value: textarea,
+      });
+      await conversationTab.vm.$emit('prompt-blur', { target: textarea });
+      await new Promise(r => setTimeout(r, 90));
+      await nextTick();
+
+      expect(document.querySelector('.session-chat-overlay').classList.contains('session-chat-overlay--composer-focused')).toBe(true);
+
+      wrapper.unmount();
+    });
+
+    it('blur-triggered header checks do not mutate overlay-body scrollTop', async () => {
+      const wrapper = await mountOverlaySettled();
+      const body = document.querySelector('.overlay-body');
+      body.scrollTop = 500;
+
+      await wrapper.findComponent({ name: 'ConversationTab' }).vm.$emit('prompt-blur', {
+        target: document.createElement('textarea'),
+      });
+
+      expect(body.scrollTop).toBe(500);
+      wrapper.unmount();
+    });
+
+    it('unmount cancels header RAF, prompt visibility RAF, and delayed blur timer', async () => {
+      const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
+      const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 123);
+      const wrapper = await mountOverlaySettled();
+      const conversationTab = wrapper.findComponent({ name: 'ConversationTab' });
+
+      requestAnimationFrameSpy.mockClear();
+      await conversationTab.vm.$emit('prompt-focus', new FocusEvent('focus'));
+      await conversationTab.vm.$emit('prompt-blur', {
+        target: document.createElement('textarea'),
+      });
+
+      wrapper.unmount();
+
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(123);
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
     });
   });
 
