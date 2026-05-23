@@ -1489,13 +1489,13 @@
   dependencies:
     "@rolldown/pluginutils" "1.0.0-rc.2"
 
-"@vitest/coverage-v8@^4.0.16":
-  version "4.1.2"
-  resolved "https://registry.yarnpkg.com/@vitest/coverage-v8/-/coverage-v8-4.1.2.tgz#2617f76d12065d2caadedb92bb7bb86cd2af1131"
-  integrity sha512-sPK//PHO+kAkScb8XITeB1bf7fsk85Km7+rt4eeuRR3VS1/crD47cmV5wicisJmjNdfeokTZwjMk4Mj2d58Mgg==
+"@vitest/coverage-v8@4.1.0":
+  version "4.1.0"
+  resolved "https://registry.yarnpkg.com/@vitest/coverage-v8/-/coverage-v8-4.1.0.tgz#7ef70bc23e588564fd0ff7e755cbdcd627de8e6c"
+  integrity sha512-nDWulKeik2bL2Va/Wl4x7DLuTKAXa906iRFooIRPR+huHkcvp9QDkPQ2RJdmjOFrqOqvNfoSQLF68deE3xC3CQ==
   dependencies:
     "@bcoe/v8-coverage" "^1.0.2"
-    "@vitest/utils" "4.1.2"
+    "@vitest/utils" "4.1.0"
     ast-v8-to-istanbul "^1.0.0"
     istanbul-lib-coverage "^3.2.2"
     istanbul-lib-report "^3.0.1"
@@ -1503,7 +1503,7 @@
     magicast "^0.5.2"
     obug "^2.1.1"
     std-env "^4.0.0-rc.1"
-    tinyrainbow "^3.1.0"
+    tinyrainbow "^3.0.3"
 
 "@vitest/expect@4.1.0":
   version "4.1.0"
@@ -1532,13 +1532,6 @@
   integrity sha512-3RZLZlh88Ib0J7NQTRATfc/3ZPOnSUn2uDBUoGNn5T36+bALixmzphN26OUD3LRXWkJu4H0s5vvUeqBiw+kS0A==
   dependencies:
     tinyrainbow "^3.0.3"
-
-"@vitest/pretty-format@4.1.2":
-  version "4.1.2"
-  resolved "https://registry.yarnpkg.com/@vitest/pretty-format/-/pretty-format-4.1.2.tgz#c2671aa1c931dc8f2759589fc87ea4b2602892c5"
-  integrity sha512-dwQga8aejqeuB+TvXCMzSQemvV9hNEtDDpgUKDzOmNQayl2OG241PSWeJwKRH3CiC+sESrmoFd49rfnq7T4RnA==
-  dependencies:
-    tinyrainbow "^3.1.0"
 
 "@vitest/runner@4.1.0":
   version "4.1.0"
@@ -1571,15 +1564,6 @@
     "@vitest/pretty-format" "4.1.0"
     convert-source-map "^2.0.0"
     tinyrainbow "^3.0.3"
-
-"@vitest/utils@4.1.2":
-  version "4.1.2"
-  resolved "https://registry.yarnpkg.com/@vitest/utils/-/utils-4.1.2.tgz#32be8f42eb6683a598b1c61d7ec9f55596c60ecb"
-  integrity sha512-xw2/TiX82lQHA06cgbqRKFb5lCAy3axQ4H4SoUFhUsg+wztiet+co86IAMDtF6Vm1hc7J6j09oh/rgDn+JdKIQ==
-  dependencies:
-    "@vitest/pretty-format" "4.1.2"
-    convert-source-map "^2.0.0"
-    tinyrainbow "^3.1.0"
 
 "@vue/compiler-core@3.5.29":
   version "3.5.29"
