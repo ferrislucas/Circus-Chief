@@ -33,11 +33,11 @@
 
         <div class="form-group">
           <label class="form-label">Prompt</label>
-          <textarea
+          <ResizableTextarea
             v-model="formData.prompt"
             class="form-input form-textarea"
             placeholder="Session prompt. Use {{rootSession.summary}} to reference root session data."
-            rows="4"
+            :min-height="120"
             required
           />
           <InterpolationHelp />
@@ -261,6 +261,7 @@ import { useUiStore } from '../stores/ui.js';
 import { useProvidersStore } from '../stores/providers.js';
 import ModelSelector from './ModelSelector.vue';
 import InterpolationHelp from './InterpolationHelp.vue';
+import ResizableTextarea from './ResizableTextarea.vue';
 import TemplateCard from './TemplateCard.vue';
 
 const props = defineProps({

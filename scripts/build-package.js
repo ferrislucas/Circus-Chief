@@ -117,6 +117,9 @@ cpSync(join(ROOT, 'packages/shared/package.json'), join(DIST, 'packages/shared/p
 console.log('Copying packages/server/bin...');
 cpSync(join(ROOT, 'packages/server/bin'), join(DIST, 'packages/server/bin'), { recursive: true });
 
+console.log('Copying README.md...');
+cpSync(join(ROOT, 'README.md'), join(DIST, 'README.md'));
+
 // --- 4. Rewrite @circuschief/shared imports to relative paths ---
 console.log('Rewriting @circuschief/shared imports...');
 
