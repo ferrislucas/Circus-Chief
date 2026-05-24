@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   seedProject,
   seedSession,
@@ -39,7 +39,7 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await cleanupCreatedResources();
   });
 
-  async function openOverlayAndPicker(page: any, sessionId: string) {
+  async function openOverlayAndPicker(page: Page, sessionId: string) {
     await navigateAndWait(page, `/sessions/${sessionId}`, {
       waitFor: '.session-detail',
       timeout: 15000,
@@ -61,6 +61,39 @@ test.describe('Session Tree Picker Shows All Children', () => {
     return { overlay, picker };
   }
 
+  async function expectOptionsToBeHitTestVisible(page: Page, picker: Locator) {
+    const visibility = await picker.locator('[role="option"]').evaluateAll((options) => {
+      return options.map((option, index) => {
+        const rect = option.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const topElement = document.elementFromPoint(x, y);
+        const isHitTestVisible = Boolean(topElement && option.contains(topElement));
+
+        return {
+          index,
+          name: option.querySelector('.picker-item-name')?.textContent?.trim() || '',
+          isHitTestVisible,
+          topClass: topElement instanceof HTMLElement ? topElement.className : '',
+          center: { x, y },
+          rect: {
+            top: rect.top,
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+          },
+        };
+      });
+    });
+
+    expect(visibility.filter(item => !item.isHitTestVisible)).toEqual([]);
+
+    const headerOverflow = await page.locator('.overlay-header').evaluate((header) => {
+      return window.getComputedStyle(header).overflow;
+    });
+    expect(headerOverflow).toBe('visible');
+  }
+
   test('picker shows all 4 child sessions plus parent (5 total)', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
@@ -77,6 +110,15 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await expect(picker).toContainText('Child Session 2');
     await expect(picker).toContainText('Child Session 3');
     await expect(picker).toContainText('Child Session 4');
+  });
+
+  test('picker options are visually available and not clipped by overlay header', async ({ page }) => {
+    const { picker } = await openOverlayAndPicker(page, parentSession.id);
+
+    const items = picker.locator('[role="option"]');
+    await expect(items).toHaveCount(5, { timeout: 10000 });
+
+    await expectOptionsToBeHitTestVisible(page, picker);
   });
 
   test('picker items have uniform padding (flat layout)', async ({ page }) => {

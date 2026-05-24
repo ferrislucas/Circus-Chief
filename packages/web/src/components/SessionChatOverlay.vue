@@ -979,7 +979,7 @@ defineExpose({
   max-width: 100%;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .overlay-header-row {

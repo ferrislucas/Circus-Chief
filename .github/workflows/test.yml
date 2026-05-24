@@ -52,3 +52,22 @@ jobs:
           yarn workspace @circuschief/shared test:coverage
           yarn workspace @circuschief/server test:coverage
           yarn workspace @circuschief/web test:coverage
+
+  e2e-regressions:
+    name: E2E Regressions
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Run session picker regression tests
+        run: yarn test:e2e tests/e2e/session-chat-picker-all-children.spec.ts
