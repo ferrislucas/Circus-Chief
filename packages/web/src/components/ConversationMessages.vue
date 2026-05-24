@@ -118,7 +118,10 @@ defineExpose({ scrollToBottom, scrollToSendButton, scrollToClaudesTurn });
 .messages {
   padding: 0.25rem 0;
   position: relative;
+  max-width: 100%;
+  min-width: 0;
   max-height: 65vh;
+  overflow-x: hidden;
   overflow-y: auto;
   scroll-behavior: smooth;
 }

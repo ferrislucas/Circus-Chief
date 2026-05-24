@@ -7,7 +7,6 @@
 
   /* Visual viewport offset for iOS Safari browser chrome (URL bar, tab bar) */
   --viewport-offset-top: 0px;
-  --session-overlay-top-chrome-inset: 0px;
 
   --color-background: #0d1117;
   --color-background-soft: #161b22;
@@ -42,6 +41,12 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+}
+
+html.session-overlay-open,
+body.session-overlay-open {
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 button,
