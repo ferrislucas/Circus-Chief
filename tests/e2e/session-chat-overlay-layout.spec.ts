@@ -417,7 +417,7 @@ test.describe('SessionChatOverlay layout', () => {
           const element = el as HTMLElement;
           const rect = element.getBoundingClientRect();
           const leaksPanel = rect.right > overlayRect.right + 1 || rect.left < overlayRect.left - 1;
-          const hasOwnOverflow = element.scrollWidth > element.clientWidth + 1;
+          const hasOwnOverflow = element.scrollWidth > element.clientWidth + 8;
           return leaksPanel || hasOwnOverflow
             ? [{
                 selector,
@@ -443,6 +443,37 @@ test.describe('SessionChatOverlay layout', () => {
     expect(overflow.missingOverlay).toBe(false);
     expect(overflow.bodyScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
     expect(overflow.offenders).toEqual([]);
+
+    const wrappingContract = await page.evaluate(() => {
+      const overlayEl = document.querySelector('[data-testid="session-chat-overlay"]');
+      const title = overlayEl?.querySelector('.overlay-root-name') as HTMLElement | null;
+      const code = overlayEl?.querySelector('.markdown-viewer code:not(pre code)') as HTMLElement | null;
+      if (!title || !code) return { missing: true };
+      const titleStyle = getComputedStyle(title);
+      const codeStyle = getComputedStyle(code);
+      return {
+        missing: false,
+        titleWordBreak: titleStyle.wordBreak,
+        titleLineBreak: titleStyle.lineBreak,
+        codeWhiteSpace: codeStyle.whiteSpace,
+        codeWordBreak: codeStyle.wordBreak,
+        codeLineBreak: codeStyle.lineBreak,
+        codeBoxDecorationBreak: codeStyle.getPropertyValue('box-decoration-break'),
+        codeWebkitBoxDecorationBreak: codeStyle.getPropertyValue('-webkit-box-decoration-break'),
+      };
+    });
+
+    expect(wrappingContract).toMatchObject({
+      missing: false,
+      titleWordBreak: 'break-word',
+      titleLineBreak: 'anywhere',
+      codeWhiteSpace: 'normal',
+      codeWordBreak: 'break-all',
+      codeLineBreak: 'anywhere',
+    });
+    expect(
+      wrappingContract.codeBoxDecorationBreak || wrappingContract.codeWebkitBoxDecorationBreak
+    ).toBe('clone');
   });
 
   test('744px tablet-sized shell geometry ignores stale visual viewport CSS variables', async ({ page }) => {

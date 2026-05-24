@@ -975,10 +975,12 @@ defineExpose({
   align-items: center;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
 }
 
 .overlay-header-selector {
   position: relative;
+  min-width: 0;
 }
 
 .overlay-header-actions {
@@ -986,13 +988,16 @@ defineExpose({
 }
 
 .overlay-root-name {
+  display: block;
   font-size: 1rem;
   font-weight: 600;
   color: var(--color-primary, #06b6d4);
   min-width: 0;
   max-width: 100%;
+  white-space: normal;
   overflow-wrap: anywhere;
-  word-break: normal;
+  word-break: break-word;
+  line-break: anywhere;
 }
 
 .dropdown-trigger {
@@ -1000,6 +1005,7 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  min-width: 0;
   padding: 0.625rem 0.75rem;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
@@ -1015,6 +1021,7 @@ defineExpose({
 }
 
 .dropdown-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1045,6 +1052,15 @@ defineExpose({
 .session-chat-overlay :deep(.markdown-viewer) {
   max-width: 100%;
   min-width: 0;
+}
+
+.session-chat-overlay :deep(.markdown-viewer code:not(pre code)) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  line-break: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 /* In the overlay the .conversation-controls-row (token panel + scroll-to-
@@ -1100,7 +1116,9 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   flex: 1;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
 }
 
 .add-session-btn {

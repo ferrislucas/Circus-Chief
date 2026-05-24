@@ -148,8 +148,11 @@ const renderedContent = computed(() => renderMarkdown(props.content));
   padding: 0.2em 0.4em;
   background-color: var(--color-background-mute);
   border-radius: 3px;
+  white-space: normal;
   overflow-wrap: anywhere;
-  word-break: break-word;
+  word-break: break-all;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 /* Code - blocks */
