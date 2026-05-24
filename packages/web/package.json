@@ -14,7 +14,7 @@
   "dependencies": {
     "@circuschief/shared": "1.0.0",
     "ansi-to-html": "^0.7.2",
-    "dompurify": "^3.3.1",
+    "dompurify": "^3.4.0",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
     "md-editor-v3": "^6.4.0",
