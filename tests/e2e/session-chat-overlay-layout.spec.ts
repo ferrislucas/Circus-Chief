@@ -1,21 +1,20 @@
 /**
  * SessionChatOverlay layout regression coverage.
  *
- * The overlay is teleported to body and scroll locking is applied to #app,
- * while the backdrop shell remains fixed to the full layout viewport. Stale
- * visual viewport CSS variables must not move or resize that shell.
+ * The overlay is teleported to body but must be independent of document scroll
+ * and SessionDetailView sticky state. Opening the overlay must not pin #app,
+ * reset window scroll, mutate body inline scroll-lock styles, or write inline
+ * geometry to the fixed backdrop. The fixed shell owns the viewport, and
+ * .overlay-body is the only internal scroll container.
  *
- * HONEST SCOPE of the mobile projects (iphone-14, ipad-pro):
- * Playwright's mobile devices run chromium with only viewport size + UA
- * changes. They do NOT emulate Safari WebKit, iOS URL-bar retraction, or
- * the visual-viewport / layout-viewport divergence that the JS sync was
- * fighting. These cases are smoke tests against narrow-viewport CSS
- * layout; real iOS validation is manual QA (see the plan's Phase 6).
+ * Playwright's mobile projects are Chromium viewports, not real iOS Safari.
+ * They verify layout contracts but do not replace manual WebKit QA.
  */
 import { test, expect, Page } from '@playwright/test';
 import {
   seedProject,
   seedSession,
+  seedAssistantMessage,
   seedConversationHistory,
   cleanupCreatedResources,
   navigateAndWait,
@@ -73,18 +72,66 @@ test.describe('SessionChatOverlay layout', () => {
     await page.evaluate(() => {
       document.documentElement.style.removeProperty('--viewport-offset-top');
       document.documentElement.style.removeProperty('--visual-viewport-height');
-      document.documentElement.style.removeProperty('--session-overlay-top-chrome-inset');
     });
   }
 
-  async function injectSessionOverlayTopChromeInset(page: Page, insetPx: number) {
-    await page.evaluate((inset) => {
-      document.documentElement.style.setProperty(
-        '--session-overlay-top-chrome-inset',
-        `${inset}px`
-      );
-    }, insetPx);
-    await page.waitForTimeout(50);
+  async function installScrollToSpy(page: Page) {
+    await page.evaluate(() => {
+      const win = window as any;
+      if (win.__overlayOriginalScrollTo) return;
+      win.__overlayOriginalScrollTo = window.scrollTo.bind(window);
+      win.__overlayScrollToCalls = [];
+      window.scrollTo = (...args: any[]) => {
+        win.__overlayScrollToCalls.push(args);
+        return win.__overlayOriginalScrollTo(...args);
+      };
+    });
+  }
+
+  async function clearScrollToSpy(page: Page) {
+    await page.evaluate(() => {
+      (window as any).__overlayScrollToCalls = [];
+    });
+  }
+
+  async function readScrollToCalls(page: Page) {
+    return page.evaluate(() => (window as any).__overlayScrollToCalls || []);
+  }
+
+  async function scrollUntilSessionTabsStuck(page: Page) {
+    await page.evaluate(() => {
+      if (document.querySelector('[data-testid="sticky-tabs-scroll-spacer"]')) return;
+      const tabContent = document.querySelector('.tab-content') as HTMLElement | null;
+      if (!tabContent) return;
+      const spacer = document.createElement('div');
+      spacer.dataset.testid = 'sticky-tabs-scroll-spacer';
+      spacer.style.height = '1600px';
+      spacer.style.pointerEvents = 'none';
+      tabContent.appendChild(spacer);
+    });
+
+    await page.evaluate(() => {
+      const tabs = document.querySelector('.tabs') as HTMLElement | null;
+      if (!tabs) return;
+      const stickyTop = Number.parseFloat(getComputedStyle(tabs).top) || 0;
+      const naturalTop = tabs.getBoundingClientRect().top + window.scrollY;
+      const targetScrollY = Math.max(0, Math.ceil(naturalTop - stickyTop + 24));
+      window.scrollTo(0, targetScrollY);
+    });
+    await page.waitForTimeout(100);
+
+    return page.evaluate(() => {
+      const tabs = document.querySelector('.tabs') as HTMLElement | null;
+      if (!tabs) return null;
+      const rect = tabs.getBoundingClientRect();
+      const stickyTop = Number.parseFloat(getComputedStyle(tabs).top) || 0;
+      return {
+        scrollY: window.scrollY,
+        tabsTop: rect.top,
+        stickyTop,
+        stuck: Math.abs(rect.top - stickyTop) <= 2,
+      };
+    });
   }
 
   async function readOverlayLayout(page: Page) {
@@ -105,8 +152,12 @@ test.describe('SessionChatOverlay layout', () => {
       const shell = document.querySelector(
         '[data-testid="session-chat-overlay"]'
       ) as HTMLElement;
+      const app = document.getElementById('app') as HTMLElement | null;
+      const body = document.body;
+      const html = document.documentElement;
       const content = document.querySelector('.overlay-content') as HTMLElement;
       const header = document.querySelector('.overlay-header') as HTMLElement;
+      const overlayBody = document.querySelector('.overlay-body') as HTMLElement;
       const s = shell.style;
 
       return {
@@ -115,13 +166,32 @@ test.describe('SessionChatOverlay layout', () => {
         content: rectFor('.overlay-content'),
         header: rectFor('.overlay-header'),
         headerRow: rectFor('.overlay-header-row'),
+        appInline: {
+          position: app?.style.position || '',
+          top: app?.style.top || '',
+          left: app?.style.left || '',
+          right: app?.style.right || '',
+          width: app?.style.width || '',
+        },
+        bodyInline: {
+          position: body.style.position || '',
+          top: body.style.top || '',
+          overflow: body.style.overflow || '',
+        },
+        classes: {
+          htmlLocked: html.classList.contains('session-overlay-open'),
+          bodyLocked: body.classList.contains('session-overlay-open'),
+        },
         computed: {
           contentPaddingTop: getComputedStyle(content).paddingTop,
           headerPaddingTop: getComputedStyle(header).paddingTop,
+          headerPosition: getComputedStyle(header).position,
+          contentDisplay: getComputedStyle(content).display,
+          bodyOverflowY: getComputedStyle(overlayBody).overflowY,
         },
         scrollTop: {
           content: content.scrollTop,
-          body: (document.querySelector('.overlay-body') as HTMLElement)?.scrollTop ?? 0,
+          body: overlayBody?.scrollTop ?? 0,
         },
         inner: { w: window.innerWidth, h: window.innerHeight },
         inline: {
@@ -166,6 +236,30 @@ test.describe('SessionChatOverlay layout', () => {
     if (result.header.height <= result.backdrop.height) {
       expect(result.header.bottom).toBeLessThanOrEqual(result.backdrop.bottom + 1);
     }
+    expect(result.scrollTop.content).toBe(0);
+  }
+
+  function expectPageWasNotPinned(result: Awaited<ReturnType<typeof readOverlayLayout>>) {
+    expect(result.appInline).toEqual({
+      position: '',
+      top: '',
+      left: '',
+      right: '',
+      width: '',
+    });
+    expect(result.bodyInline).toEqual({
+      position: '',
+      top: '',
+      overflow: '',
+    });
+  }
+
+  function expectOverlayArchitecture(result: Awaited<ReturnType<typeof readOverlayLayout>>) {
+    expect(result.classes.htmlLocked).toBe(true);
+    expect(result.classes.bodyLocked).toBe(true);
+    expect(result.computed.headerPosition).not.toBe('sticky');
+    expect(result.computed.contentDisplay).toBe('grid');
+    expect(result.computed.bodyOverflowY).toMatch(/auto|scroll/);
     expect(result.scrollTop.content).toBe(0);
   }
 
@@ -275,6 +369,119 @@ test.describe('SessionChatOverlay layout', () => {
     }
   });
 
+  test('phone layout wraps long title text and inline code without horizontal bleed', async ({ page }) => {
+    const longSession = await seedSession(project.id, {
+      prompt: 'Long content layout regression',
+      name: 'Ensure session overlay header stays visible with a very long title',
+    });
+    await waitForSessionToExist(longSession.id);
+    seedAssistantMessage(
+      longSession.id,
+      [
+        'Changed:',
+        '',
+        '- Rewrote overlay shell CSS to fixed backdrop, fixed-height grid content, normal-flow header, and `.overlay-body-with-an-extra-long-inline-token-that-must-wrap-inside-the-panel` as the only internal vertical scroll container.',
+        '- Simplified `useVisualViewport.js-and-sessionOverlayViewport.js-with-an-extra-long-inline-token-that-must-wrap` to raw viewport variables plus keyboard inset only.',
+        '- Added global `html/body.session-overlay-open-with-a-very-long-token` lock CSS.',
+      ].join('\n')
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await navigateAndWait(page, `/sessions/${longSession.id}`, {
+      waitFor: '.session-detail',
+      timeout: 15000,
+    });
+    const overlay = await openOverlay(page);
+    await expect(overlay.locator('.markdown-viewer', { hasText: 'Changed:' })).toBeVisible({ timeout: 10000 });
+
+    const overflow = await page.evaluate(() => {
+      const overlayEl = document.querySelector('[data-testid="session-chat-overlay"]') as HTMLElement | null;
+      if (!overlayEl) return { missingOverlay: true, offenders: [] };
+      const overlayRect = overlayEl.getBoundingClientRect();
+      const selectors = [
+        '.overlay-content',
+        '.overlay-header',
+        '.overlay-root-name',
+        '.overlay-body',
+        '.conversation-tab',
+        '.messages',
+        '.message',
+        '.message-content',
+        '.markdown-viewer',
+        '.markdown-viewer p',
+        '.markdown-viewer li',
+        '.markdown-viewer code:not(pre code)',
+      ];
+      const offenders = selectors.flatMap((selector) =>
+        Array.from(document.querySelectorAll(selector)).flatMap((el) => {
+          const element = el as HTMLElement;
+          const rect = element.getBoundingClientRect();
+          const leaksPanel = rect.right > overlayRect.right + 1 || rect.left < overlayRect.left - 1;
+          const hasOwnOverflow = element.scrollWidth > element.clientWidth + 8;
+          return leaksPanel || hasOwnOverflow
+            ? [{
+                selector,
+                text: element.textContent?.trim().slice(0, 80) || '',
+                clientWidth: element.clientWidth,
+                scrollWidth: element.scrollWidth,
+                left: rect.left,
+                right: rect.right,
+                overlayLeft: overlayRect.left,
+                overlayRight: overlayRect.right,
+              }]
+            : [];
+        })
+      );
+      return {
+        missingOverlay: false,
+        bodyScrollWidth: document.body.scrollWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
+        viewportWidth: window.innerWidth,
+        overlayLeft: overlayRect.left,
+        overlayRight: overlayRect.right,
+        offenders,
+      };
+    });
+
+    expect(overflow.missingOverlay).toBe(false);
+    expect(overflow.bodyScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
+    expect(overflow.documentScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
+    expect(overflow.overlayLeft).toBeGreaterThanOrEqual(-1);
+    expect(overflow.overlayRight).toBeLessThanOrEqual(overflow.viewportWidth + 1);
+    expect(overflow.offenders).toEqual([]);
+
+    const wrappingContract = await page.evaluate(() => {
+      const overlayEl = document.querySelector('[data-testid="session-chat-overlay"]');
+      const title = overlayEl?.querySelector('.overlay-root-name') as HTMLElement | null;
+      const code = overlayEl?.querySelector('.markdown-viewer code:not(pre code)') as HTMLElement | null;
+      if (!title || !code) return { missing: true };
+      const titleStyle = getComputedStyle(title);
+      const codeStyle = getComputedStyle(code);
+      return {
+        missing: false,
+        titleWordBreak: titleStyle.wordBreak,
+        titleLineBreak: titleStyle.lineBreak,
+        codeWhiteSpace: codeStyle.whiteSpace,
+        codeWordBreak: codeStyle.wordBreak,
+        codeLineBreak: codeStyle.lineBreak,
+        codeBoxDecorationBreak: codeStyle.getPropertyValue('box-decoration-break'),
+        codeWebkitBoxDecorationBreak: codeStyle.getPropertyValue('-webkit-box-decoration-break'),
+      };
+    });
+
+    expect(wrappingContract).toMatchObject({
+      missing: false,
+      titleWordBreak: 'break-word',
+      titleLineBreak: 'anywhere',
+      codeWhiteSpace: 'normal',
+      codeWordBreak: 'break-all',
+      codeLineBreak: 'anywhere',
+    });
+    expect(
+      wrappingContract.codeBoxDecorationBreak || wrappingContract.codeWebkitBoxDecorationBreak
+    ).toBe('clone');
+  });
+
   test('744px tablet-sized shell geometry ignores stale visual viewport CSS variables', async ({ page }) => {
     await page.setViewportSize({ width: 744, height: 1000 });
     await navigateToSession(page);
@@ -341,42 +548,46 @@ test.describe('SessionChatOverlay layout', () => {
     }
   });
 
-  test('sanitized tablet top chrome inset pads header content without moving the shell', async ({ page }) => {
-    await page.setViewportSize({ width: 744, height: 1000 });
+  test('opens from sticky SessionDetailView tabs without moving the page or hiding the header', async ({ page }) => {
     await navigateToSession(page);
+    const stickyState = await scrollUntilSessionTabsStuck(page);
+    expect(stickyState).not.toBeNull();
+    expect(stickyState!.scrollY).toBeGreaterThan(0);
+    expect(stickyState!.stuck).toBe(true);
+    const beforeOpenScrollY = stickyState!.scrollY;
+
+    await installScrollToSpy(page);
+    await clearScrollToSpy(page);
+
     await openOverlay(page);
 
-    const before = await readOverlayLayout(page);
-    await injectSessionOverlayTopChromeInset(page, 32);
-
-    try {
-      const after = await readOverlayLayout(page);
-      expectBackdropCoversViewport(after);
-      expectContentCoversViewport(after);
-      expectHeaderAtViewportTop(after);
-      expect(after.computed.contentPaddingTop).toBe('0px');
-      expect(after.headerRow.top - before.headerRow.top).toBeGreaterThanOrEqual(31);
-      expect(after.headerRow.top - before.headerRow.top).toBeLessThanOrEqual(34);
-    } finally {
-      await clearStaleVisualViewportVariables(page);
-    }
-  });
-
-  test('covers viewport after SessionDetailView scroll', async ({ page }) => {
-    await navigateToSession(page);
-    // Scroll SessionDetailView before opening the overlay. The app scroll
-    // lock is applied to #app, while the teleported backdrop remains fixed
-    // against the viewport.
-    await page.evaluate(() => window.scrollTo(0, 400));
-    await openOverlay(page);
+    expect(await readScrollToCalls(page)).toEqual([]);
+    const afterOpenScrollY = await page.evaluate(() => window.scrollY);
+    expect(Math.abs(afterOpenScrollY - beforeOpenScrollY)).toBeLessThanOrEqual(1);
 
     const result = await readOverlayLayout(page);
     expectBackdropCoversViewport(result);
     expectContentCoversViewport(result);
     expectHeaderAtViewportTop(result);
     expectHeaderFullyVisible(result);
+    expectPageWasNotPinned(result);
+    expectOverlayArchitecture(result);
     expect(result.headerRow.top).toBeLessThan(80);
     expect(result.computed.contentPaddingTop).toBe('0px');
+  });
+
+  test('closing overlay returns to the same SessionDetailView scroll position', async ({ page }) => {
+    await navigateToSession(page);
+    const stickyState = await scrollUntilSessionTabsStuck(page);
+    expect(stickyState).not.toBeNull();
+    const beforeScrollY = stickyState!.scrollY;
+
+    await openOverlay(page);
+    await page.locator('[data-testid="session-chat-overlay-close-handle"]').click();
+    await expect(page.locator('[data-testid="session-chat-overlay"]')).toBeHidden();
+
+    const afterScrollY = await page.evaluate(() => window.scrollY);
+    expect(Math.abs(afterScrollY - beforeScrollY)).toBeLessThanOrEqual(1);
   });
 
   test('covers viewport after focus/blur cycle on textarea', async ({ page }) => {

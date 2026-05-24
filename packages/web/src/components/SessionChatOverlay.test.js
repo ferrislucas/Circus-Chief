@@ -294,23 +294,6 @@ describe('SessionChatOverlay', () => {
     return wrapper;
   }
 
-  function mockRect(el, rect) {
-    Object.defineProperty(el, 'getBoundingClientRect', {
-      configurable: true,
-      value: vi.fn(() => ({
-        top: rect.top,
-        bottom: rect.bottom,
-        left: rect.left ?? 0,
-        right: rect.right ?? 0,
-        width: rect.width ?? 0,
-        height: rect.height ?? rect.bottom - rect.top,
-        x: rect.left ?? 0,
-        y: rect.top,
-        toJSON: () => {},
-      })),
-    });
-  }
-
   function getStyleBlock(selector) {
     const start = sessionChatOverlaySource.indexOf(`${selector} {`);
     expect(start).toBeGreaterThanOrEqual(0);
@@ -1671,13 +1654,15 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('backdrop stylesheet keeps the shell fixed to the full layout viewport', () => {
+    it('backdrop stylesheet keeps the shell fixed to the full viewport', () => {
       const block = getStyleBlock('.overlay-backdrop');
       expect(block).toMatch(/position:\s*fixed/);
       expect(block).toMatch(/inset:\s*0/);
-      expect(block).toMatch(/min-height:\s*100vh/);
-      expect(block).toMatch(/min-height:\s*100dvh/);
+      expect(block).toMatch(/width:\s*100vw/);
+      expect(block).toMatch(/max-width:\s*100vw/);
       expect(block).toMatch(/z-index:\s*1200/);
+      expect(block).toMatch(/touch-action:\s*none/);
+      expect(block).not.toMatch(/min-height:\s*100dvh/);
     });
 
     it('no backdrop stylesheet block uses visual viewport shell geometry', () => {
@@ -1693,7 +1678,6 @@ describe('SessionChatOverlay', () => {
         expect(block).not.toMatch(/(?:^|[;\s])bottom\s*:/);
         expect(block).not.toMatch(/(?:^|[;\s])left\s*:/);
         expect(block).not.toMatch(/(?:^|[;\s])height\s*:/);
-        expect(block).not.toMatch(/(?:^|[;\s])width\s*:/);
       }
     });
 
@@ -1710,37 +1694,61 @@ describe('SessionChatOverlay', () => {
       const block = getStyleBlock('.overlay-panel-wrapper');
       expect(block).toMatch(/position:\s*absolute/);
       expect(block).toMatch(/inset:\s*0 0 0 auto/);
+      expect(block).toMatch(/width:\s*100%/);
+      expect(block).toMatch(/max-width:\s*900px/);
+      expect(block).toMatch(/min-width:\s*0/);
       expect(block).toMatch(/height:\s*100%/);
-      expect(block).toMatch(/min-height:\s*100%/);
-      expect(block).toMatch(/min-height:\s*100dvh/);
+      expect(block).toMatch(/min-height:\s*0/);
+      expect(block).toMatch(/overflow:\s*hidden/);
       expect(block).not.toMatch(/position:\s*fixed/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
       expect(block).not.toMatch(/top:\s*var\(/);
     });
 
-    it('overlay content has a viewport-height floor without visual viewport padding', () => {
+    it('overlay content is a fixed-height grid without visual viewport padding', () => {
       const block = getStyleBlock('.overlay-content');
-      expect(block).toMatch(/min-height:\s*100%/);
-      expect(block).toMatch(/min-height:\s*100dvh/);
-      expect(block).toMatch(/overflow:\s*clip/);
+      expect(block).toMatch(/height:\s*100%/);
+      expect(block).toMatch(/min-height:\s*0/);
+      expect(block).toMatch(/display:\s*grid/);
+      expect(block).toMatch(/grid-template-rows:\s*auto minmax\(0,\s*1fr\)/);
+      expect(block).toMatch(/overflow:\s*hidden/);
       expect(block).toMatch(/padding:\s*0/);
+      expect(block).not.toMatch(/min-height:\s*100dvh/);
       expect(block).not.toMatch(/padding-top/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
     });
 
-    it('overlay header stays sticky and consumes only the sanitized top chrome inset', () => {
+    it('overlay header is normal flow and does not consume a top chrome inset', () => {
       const block = getStyleBlock('.overlay-header');
       expect(block).toMatch(/--overlay-header-base-padding-top:\s*0\.75rem/);
-      expect(block).toMatch(/position:\s*-webkit-sticky/);
-      expect(block).toMatch(/position:\s*sticky/);
-      expect(block).toMatch(/top:\s*0/);
-      expect(block).toMatch(/padding:\s*var\(--overlay-header-base-padding-top\)\s*1rem\s*0\.375rem/);
+      expect(block).toMatch(/position:\s*relative/);
+      expect(block).toMatch(/top:\s*auto/);
       expect(block).toMatch(/max\(var\(--overlay-header-base-padding-top\),\s*env\(safe-area-inset-top\)\)/);
-      expect(block).toMatch(/--session-overlay-top-chrome-inset/);
+      expect(block).not.toMatch(/position:\s*-webkit-sticky/);
+      expect(block).not.toMatch(/position:\s*sticky/);
+      expect(block).not.toMatch(/--session-overlay-top-chrome-inset/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
+    });
+
+    it('overlay body is the only vertical scroll container', () => {
+      const block = getStyleBlock('.overlay-body');
+      expect(block).toMatch(/overflow-y:\s*auto/);
+      expect(block).toMatch(/-webkit-overflow-scrolling:\s*touch/);
+      expect(block).toMatch(/touch-action:\s*pan-y/);
+      expect(getStyleBlock('.overlay-content')).toMatch(/overflow:\s*hidden/);
+      expect(sessionChatOverlaySource).toMatch(/\.session-chat-overlay :deep\(\.messages\)/);
+      expect(getStyleBlock('.session-chat-overlay :deep(.messages)')).toMatch(/overflow-y:\s*visible !important/);
+    });
+
+    it('conversation tab is not an overflow ancestor for sticky scroll controls', () => {
+      const block = getStyleBlock('.session-chat-overlay :deep(.conversation-tab)');
+      expect(block).toMatch(/width:\s*100%/);
+      expect(block).toMatch(/max-width:\s*100%/);
+      expect(block).toMatch(/min-width:\s*0/);
+      expect(block).not.toMatch(/overflow/);
     });
 
     it('overlay shell keeps visual viewport variables out of all shell geometry', () => {
@@ -1809,11 +1817,12 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('runDriftCheck skips repeated prompt visibility checks while text editing is active', () => {
-      expect(sessionChatOverlaySource).toMatch(/isActiveTextEditing/);
-      expect(sessionChatOverlaySource).toMatch(
-        /if\s*\(\s*isOverlayPromptFocused\.value\s*&&\s*!isActiveTextEditing\(\)\s*\)\s*\{\s*requestPromptVisibilityCheck\(\);/s,
-      );
+    it('has no overlay drift watchdog or header visibility repair source', () => {
+      expect(sessionChatOverlaySource).not.toMatch(/DRIFT_CHECK_INTERVAL_MS/);
+      expect(sessionChatOverlaySource).not.toMatch(/checkOverlayViewportDrift/);
+      expect(sessionChatOverlaySource).not.toMatch(/ensureOverlayHeaderVisible/);
+      expect(sessionChatOverlaySource).not.toMatch(/scheduleEnsureOverlayHeaderVisible/);
+      expect(sessionChatOverlaySource).not.toMatch(/clearHeaderVisibilityRaf/);
     });
 
     it('content, header, and body declare solid backgrounds', () => {
@@ -1836,26 +1845,69 @@ describe('SessionChatOverlay', () => {
       expect(sessionChatOverlaySource).not.toMatch(/focusOutRaf/);
     });
 
-    it('lockBodyScroll does not call window.scrollTo(0, 0) at mount time', async () => {
-      const spy = vi.spyOn(window, 'scrollTo');
-      const wrapper = mountOverlay();
-      await nextTick();
-
-      // scrollTo may be invoked elsewhere (e.g. Vue router in some setups),
-      // but Phase 3 removed the explicit lockBodyScroll scrollTo(0, 0) call.
-      const calledWithZeroZero = spy.mock.calls.some(
-        (args) => args[0] === 0 && args[1] === 0,
-      );
-      expect(calledWithZeroZero).toBe(false);
-
-      spy.mockRestore();
-      wrapper.unmount();
-    });
-
-    it('locks body scroll and pins #app while mounted', async () => {
+    it('locks background scroll with classes without moving the page app', async () => {
       const app = document.createElement('div');
       app.id = 'app';
       document.body.appendChild(app);
+      const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 123,
+      });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      expect(document.documentElement.classList.contains('session-overlay-open')).toBe(true);
+      expect(document.body.classList.contains('session-overlay-open')).toBe(true);
+      expect(app.style.position).toBe('');
+      expect(app.style.top).toBe('');
+      expect(app.style.left).toBe('');
+      expect(app.style.right).toBe('');
+      expect(app.style.width).toBe('');
+      expect(document.body.style.position).toBe('');
+      expect(document.body.style.top).toBe('');
+      expect(document.body.style.overflow).toBe('');
+      expect(scrollToSpy).not.toHaveBeenCalled();
+
+      wrapper.unmount();
+      expect(document.documentElement.classList.contains('session-overlay-open')).toBe(false);
+      expect(document.body.classList.contains('session-overlay-open')).toBe(false);
+      expect(app.style.position).toBe('');
+      expect(app.style.top).toBe('');
+
+      scrollToSpy.mockRestore();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+      app.remove();
+    });
+
+    it('restores saved scroll on unmount only if background scroll changed while locked', async () => {
+      let currentScrollY = 123;
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        get: () => currentScrollY,
+      });
+      const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation((x, y) => {
+        currentScrollY = y;
+      });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      currentScrollY = 150;
+      wrapper.unmount();
+
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 123);
+      scrollToSpy.mockRestore();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+    });
+
+    it('does not call scrollTo on unmount when page scroll did not change', async () => {
       Object.defineProperty(window, 'scrollY', {
         configurable: true,
         value: 123,
@@ -1864,29 +1916,14 @@ describe('SessionChatOverlay', () => {
 
       const wrapper = mountOverlay();
       await nextTick();
-
-      expect(document.body.style.overflow).toBe('hidden');
-      expect(app.style.position).toBe('fixed');
-      expect(app.style.top).toBe('-123px');
-      expect(app.style.left).toBe('0px');
-      expect(app.style.right).toBe('0px');
-      expect(app.style.width).toBe('100%');
-
       wrapper.unmount();
-      expect(document.body.style.overflow).toBe('');
-      expect(app.style.position).toBe('');
-      expect(app.style.top).toBe('');
-      expect(app.style.left).toBe('');
-      expect(app.style.right).toBe('');
-      expect(app.style.width).toBe('');
-      expect(scrollToSpy).toHaveBeenCalledWith(0, 123);
 
+      expect(scrollToSpy).not.toHaveBeenCalled();
       scrollToSpy.mockRestore();
       Object.defineProperty(window, 'scrollY', {
         configurable: true,
         value: 0,
       });
-      app.remove();
     });
 
     it('does not expose dead focus or visual viewport settling state', async () => {
@@ -1909,187 +1946,11 @@ describe('SessionChatOverlay', () => {
       expect(wrapper.vm.applyLayoutViewport).toBeUndefined();
       expect(wrapper.vm.markRecentBlur).toBeUndefined();
       expect(wrapper.vm.isRecentBlur).toBeUndefined();
-      // But the surviving API is still present.
+      expect(wrapper.vm.ensureOverlayHeaderVisible).toBeUndefined();
+      expect(wrapper.vm.scheduleEnsureOverlayHeaderVisible).toBeUndefined();
+      expect(wrapper.vm.clearHeaderVisibilityRaf).toBeUndefined();
       expect(wrapper.vm.overlayBodyRef).toBeDefined();
       expect(typeof wrapper.vm.afterLeave).toBe('function');
-      wrapper.unmount();
-    });
-  });
-
-  describe('overlay header visibility guard', () => {
-    it('does nothing when the header is fully inside the backdrop bounds', async () => {
-      const wrapper = await mountOverlaySettled();
-      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
-      const content = document.querySelector('.overlay-content');
-      const header = document.querySelector('.overlay-header');
-      const body = document.querySelector('.overlay-body');
-      mockRect(backdrop, { top: 0, bottom: 600, height: 600 });
-      mockRect(header, { top: 0, bottom: 120, height: 120 });
-      content.scrollTop = 0;
-      header.scrollTop = 0;
-      body.scrollTop = 240;
-
-      const result = wrapper.vm.ensureOverlayHeaderVisible();
-
-      expect(result).toEqual({ checked: true, corrected: false, reason: 'visible' });
-      expect(body.scrollTop).toBe(240);
-      wrapper.unmount();
-    });
-
-    it('resets accidental overlay-content scroll without changing overlay-body scroll', async () => {
-      const wrapper = await mountOverlaySettled();
-      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
-      const content = document.querySelector('.overlay-content');
-      const header = document.querySelector('.overlay-header');
-      const body = document.querySelector('.overlay-body');
-      mockRect(backdrop, { top: 0, bottom: 600, height: 600 });
-      mockRect(header, { top: -40, bottom: 80, height: 120 });
-      content.scrollTop = 80;
-      body.scrollTop = 320;
-
-      const result = wrapper.vm.ensureOverlayHeaderVisible();
-
-      expect(result.checked).toBe(true);
-      expect(result.corrected).toBe(true);
-      expect(content.scrollTop).toBe(0);
-      expect(body.scrollTop).toBe(320);
-      wrapper.unmount();
-    });
-
-    it('resets accidental overlay-header scroll', async () => {
-      const wrapper = await mountOverlaySettled();
-      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
-      const header = document.querySelector('.overlay-header');
-      mockRect(backdrop, { top: 0, bottom: 600, height: 600 });
-      mockRect(header, { top: 0, bottom: 120, height: 120 });
-      header.scrollTop = 24;
-
-      const result = wrapper.vm.ensureOverlayHeaderVisible();
-
-      expect(result.checked).toBe(true);
-      expect(result.corrected).toBe(true);
-      expect(header.scrollTop).toBe(0);
-      wrapper.unmount();
-    });
-
-    it('returns an unchecked status when the header ref is missing', async () => {
-      const wrapper = await mountOverlaySettled();
-      wrapper.vm.overlayHeaderRef = null;
-
-      expect(wrapper.vm.ensureOverlayHeaderVisible()).toEqual({
-        checked: false,
-        corrected: false,
-        reason: 'missing-header',
-      });
-      wrapper.unmount();
-    });
-
-    it('falls back to window bounds when the backdrop is missing', async () => {
-      const wrapper = await mountOverlaySettled();
-      const backdrop = document.querySelector('[data-testid="session-chat-overlay"]');
-      const header = document.querySelector('.overlay-header');
-      backdrop.remove();
-      Object.defineProperty(window, 'innerHeight', {
-        configurable: true,
-        writable: true,
-        value: 700,
-      });
-      mockRect(header, { top: 10, bottom: 110, height: 100 });
-
-      expect(wrapper.vm.ensureOverlayHeaderVisible()).toEqual({
-        checked: true,
-        corrected: false,
-        reason: 'visible',
-      });
-      wrapper.unmount();
-    });
-
-    it('mount schedules checks before and after ConversationTab is revealed', async () => {
-      const requestAnimationFrameSpy = vi
-        .spyOn(window, 'requestAnimationFrame')
-        .mockImplementation(() => 1);
-
-      const wrapper = mountOverlay();
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      expect(requestAnimationFrameSpy.mock.calls.length).toBeGreaterThanOrEqual(3);
-
-      requestAnimationFrameSpy.mockRestore();
-      wrapper.unmount();
-    });
-
-    it('session switch schedules a check after the new ConversationTab mount tick', async () => {
-      const childSession = {
-        id: 'child-1',
-        name: 'Child Session',
-        status: 'waiting',
-        parentSessionId: 'sess-root',
-        projectId: 'proj-123',
-      };
-      mockSessionsStore.getSessionById.mockImplementation((id) => {
-        if (id === 'sess-root') return rootSession;
-        if (id === 'child-1') return childSession;
-        return null;
-      });
-      const requestAnimationFrameSpy = vi
-        .spyOn(window, 'requestAnimationFrame')
-        .mockImplementation(() => 1);
-      const wrapper = await mountOverlaySettled({
-        sessionChain: [{ session: rootSession, depth: 0 }, { session: childSession, depth: 1 }],
-      });
-      requestAnimationFrameSpy.mockClear();
-
-      await wrapper.vm.handlePickerSelect('child-1');
-      await nextTick();
-      await new Promise(r => setTimeout(r, 10));
-
-      expect(wrapper.vm.activeSessionId).toBe('child-1');
-      expect(requestAnimationFrameSpy).toHaveBeenCalled();
-
-      requestAnimationFrameSpy.mockRestore();
-      wrapper.unmount();
-    });
-
-    it('prompt blur schedules an immediate header visibility check', async () => {
-      const requestAnimationFrameSpy = vi
-        .spyOn(window, 'requestAnimationFrame')
-        .mockImplementation(() => 1);
-      const wrapper = await mountOverlaySettled();
-      requestAnimationFrameSpy.mockClear();
-
-      await wrapper.findComponent({ name: 'ConversationTab' }).vm.$emit('prompt-blur', {
-        target: document.createElement('textarea'),
-      });
-
-      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
-
-      requestAnimationFrameSpy.mockRestore();
-      wrapper.unmount();
-    });
-
-    it('delayed prompt blur schedules a second check only after focus leaves the textarea', async () => {
-      const requestAnimationFrameSpy = vi
-        .spyOn(window, 'requestAnimationFrame')
-        .mockImplementation(() => 1);
-      const wrapper = await mountOverlaySettled();
-      const textarea = document.createElement('textarea');
-      Object.defineProperty(document, 'activeElement', {
-        configurable: true,
-        value: document.body,
-      });
-      requestAnimationFrameSpy.mockClear();
-
-      await wrapper.findComponent({ name: 'ConversationTab' }).vm.$emit('prompt-blur', {
-        target: textarea,
-      });
-      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(1);
-
-      await new Promise(r => setTimeout(r, 90));
-
-      expect(requestAnimationFrameSpy).toHaveBeenCalledTimes(2);
-
-      requestAnimationFrameSpy.mockRestore();
       wrapper.unmount();
     });
 
@@ -2113,7 +1974,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('blur-triggered header checks do not mutate overlay-body scrollTop', async () => {
+    it('blur handling does not mutate overlay-body scrollTop', async () => {
       const wrapper = await mountOverlaySettled();
       const body = document.querySelector('.overlay-body');
       body.scrollTop = 500;
@@ -2126,7 +1987,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('unmount cancels header RAF, prompt visibility RAF, and delayed blur timer', async () => {
+    it('unmount cancels prompt visibility RAF and delayed blur timer', async () => {
       const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
       const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
       const requestAnimationFrameSpy = vi
