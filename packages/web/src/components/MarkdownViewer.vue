@@ -24,8 +24,10 @@ const renderedContent = computed(() => renderMarkdown(props.content));
 <style scoped>
 .markdown-viewer {
   line-height: 1.6;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
+  overflow-x: hidden;
   overflow-wrap: anywhere;
   word-break: normal;
 }
@@ -87,8 +89,10 @@ const renderedContent = computed(() => renderMarkdown(props.content));
 .markdown-viewer :deep(p) {
   margin-top: 0;
   margin-bottom: 1em;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Links */
@@ -107,6 +111,9 @@ const renderedContent = computed(() => renderMarkdown(props.content));
   margin-top: 0;
   margin-bottom: 1em;
   padding-left: 2em;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .markdown-viewer :deep(ul) {
@@ -120,6 +127,8 @@ const renderedContent = computed(() => renderMarkdown(props.content));
 .markdown-viewer :deep(li) {
   margin-bottom: 0.25em;
   min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .markdown-viewer :deep(li > ul),

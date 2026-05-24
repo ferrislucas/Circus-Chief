@@ -1658,6 +1658,8 @@ describe('SessionChatOverlay', () => {
       const block = getStyleBlock('.overlay-backdrop');
       expect(block).toMatch(/position:\s*fixed/);
       expect(block).toMatch(/inset:\s*0/);
+      expect(block).toMatch(/width:\s*100vw/);
+      expect(block).toMatch(/max-width:\s*100vw/);
       expect(block).toMatch(/z-index:\s*1200/);
       expect(block).toMatch(/touch-action:\s*none/);
       expect(block).not.toMatch(/min-height:\s*100dvh/);
@@ -1676,7 +1678,6 @@ describe('SessionChatOverlay', () => {
         expect(block).not.toMatch(/(?:^|[;\s])bottom\s*:/);
         expect(block).not.toMatch(/(?:^|[;\s])left\s*:/);
         expect(block).not.toMatch(/(?:^|[;\s])height\s*:/);
-        expect(block).not.toMatch(/(?:^|[;\s])width\s*:/);
       }
     });
 
@@ -1693,9 +1694,12 @@ describe('SessionChatOverlay', () => {
       const block = getStyleBlock('.overlay-panel-wrapper');
       expect(block).toMatch(/position:\s*absolute/);
       expect(block).toMatch(/inset:\s*0 0 0 auto/);
-      expect(block).toMatch(/width:\s*min\(100%,\s*900px\)/);
+      expect(block).toMatch(/width:\s*100%/);
+      expect(block).toMatch(/max-width:\s*900px/);
+      expect(block).toMatch(/min-width:\s*0/);
       expect(block).toMatch(/height:\s*100%/);
       expect(block).toMatch(/min-height:\s*0/);
+      expect(block).toMatch(/overflow:\s*hidden/);
       expect(block).not.toMatch(/position:\s*fixed/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);

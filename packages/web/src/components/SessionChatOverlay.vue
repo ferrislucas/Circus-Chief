@@ -851,6 +851,8 @@ defineExpose({
 .overlay-backdrop {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  max-width: 100vw;
   z-index: 1200;
   background: rgb(17, 24, 39);
   display: block;
@@ -862,11 +864,13 @@ defineExpose({
 .overlay-panel-wrapper {
   position: absolute;
   inset: 0 0 0 auto;
-  width: min(100%, 900px);
+  width: 100%;
+  max-width: 900px;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   display: flex;
-  overflow: visible;
+  overflow: hidden;
   overscroll-behavior: none;
 }
 
@@ -927,6 +931,8 @@ defineExpose({
 
 .overlay-content {
   width: 100%;
+  max-width: 100vw;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   display: grid;
@@ -939,12 +945,15 @@ defineExpose({
 }
 
 .overlay-body {
+  width: 100%;
+  max-width: 100%;
   padding: 0 1rem;
   /* Respect iOS home-indicator / bottom URL-bar gutter. Fall-back:
      if Phase 6 QA reveals the gutter is not visible at the right
      time, move the inset to `.input-form` or a dedicated wrapper. */
   padding-bottom: max(0px, env(safe-area-inset-bottom));
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -967,7 +976,10 @@ defineExpose({
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
 }
 
 .overlay-header-row {
@@ -985,6 +997,7 @@ defineExpose({
 
 .overlay-header-actions {
   justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .overlay-root-name {
@@ -1038,6 +1051,7 @@ defineExpose({
    This prevents two nested scroll containers from fighting each other during
    streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-chat-overlay :deep(.messages) {
+  width: 100%;
   max-width: 100%;
   min-width: 0;
   max-height: none !important;
@@ -1050,11 +1064,15 @@ defineExpose({
 .session-chat-overlay :deep(.message),
 .session-chat-overlay :deep(.message-content),
 .session-chat-overlay :deep(.markdown-viewer) {
+  width: 100%;
   max-width: 100%;
   min-width: 0;
+  overflow-x: hidden;
 }
 
 .session-chat-overlay :deep(.markdown-viewer code:not(pre code)) {
+  display: inline;
+  max-width: 100%;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-all;
@@ -1107,7 +1125,7 @@ defineExpose({
 
 @media (min-width: 769px) and (max-width: 1024px) {
   .overlay-panel-wrapper {
-    width: min(100%, 700px);
+    max-width: 700px;
   }
 }
 
@@ -1132,6 +1150,11 @@ defineExpose({
   color: var(--color-text-soft, #9ca3af);
   font-size: 0.8125rem;
   white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s, border-color 0.15s;
 }
@@ -1161,6 +1184,8 @@ defineExpose({
   text-decoration: none;
   transition: color 0.15s, background-color 0.15s;
   flex-shrink: 0;
+  min-width: 0;
+  max-width: 50%;
   margin-right: 1.5rem;
   padding: 0.25rem 0.75rem;
   min-height: 44px;
@@ -1176,5 +1201,9 @@ defineExpose({
 .back-to-sessions-text {
   font-size: 0.8125rem;
   margin-left: 0.25rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

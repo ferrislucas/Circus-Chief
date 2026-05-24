@@ -435,13 +435,19 @@ test.describe('SessionChatOverlay layout', () => {
       return {
         missingOverlay: false,
         bodyScrollWidth: document.body.scrollWidth,
+        documentScrollWidth: document.documentElement.scrollWidth,
         viewportWidth: window.innerWidth,
+        overlayLeft: overlayRect.left,
+        overlayRight: overlayRect.right,
         offenders,
       };
     });
 
     expect(overflow.missingOverlay).toBe(false);
     expect(overflow.bodyScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
+    expect(overflow.documentScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
+    expect(overflow.overlayLeft).toBeGreaterThanOrEqual(-1);
+    expect(overflow.overlayRight).toBeLessThanOrEqual(overflow.viewportWidth + 1);
     expect(overflow.offenders).toEqual([]);
 
     const wrappingContract = await page.evaluate(() => {

@@ -29,9 +29,10 @@ defineProps({
   border-radius: var(--border-radius);
   background-color: var(--color-background-soft);
   border: 1px solid var(--color-border);
+  width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .message-assistant {
@@ -58,8 +59,10 @@ defineProps({
 }
 
 .message-content {
+  width: 100%;
   max-width: 100%;
   min-width: 0;
+  overflow-x: hidden;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: normal;
