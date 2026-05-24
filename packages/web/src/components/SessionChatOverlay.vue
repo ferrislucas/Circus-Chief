@@ -10,8 +10,6 @@
         class="overlay-backdrop"
         data-testid="session-chat-overlay"
         @click.self="close"
-        @focusin="() => requestVisualViewportUpdate()"
-        @focusout="() => requestVisualViewportSettle()"
       >
         <div
           class="overlay-panel-wrapper"
@@ -58,127 +56,21 @@
 
           <!-- Existing overlay-content -->
           <div
+            ref="overlayContentRef"
             class="overlay-content session-chat-overlay"
             :class="{ 'session-chat-overlay--composer-focused': isOverlayPromptFocused }"
           >
             <!-- Header (no padding constraints) -->
             <div
+              ref="overlayHeaderRef"
               class="overlay-header"
               @touchmove="handleHeaderTouchmove"
             >
               <!-- Row 1: Session Name -->
               <div class="overlay-header-row">
-                <!-- Editing mode -->
-                <template v-if="isEditingName">
-                  <div class="name-edit-form">
-                    <input
-                      ref="nameEditInput"
-                      v-model="editNameValue"
-                      type="text"
-                      class="name-edit-input"
-                      placeholder="Session name"
-                      @keydown.enter.prevent="saveSessionName"
-                      @keyup.escape="cancelEditName"
-                    >
-                    <button
-                      class="btn-icon pr-edit-btn pr-save-btn"
-                      title="Save"
-                      @click="saveSessionName"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
-                    </button>
-                    <button
-                      class="btn-icon pr-edit-btn pr-cancel-btn"
-                      title="Cancel"
-                      @click="cancelEditName"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <line
-                          x1="18"
-                          y1="6"
-                          x2="6"
-                          y2="18"
-                        />
-                        <line
-                          x1="6"
-                          y1="6"
-                          x2="18"
-                          y2="18"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      v-if="editNameValue"
-                      class="btn-icon pr-edit-btn pr-clear-btn"
-                      title="Clear name"
-                      @click="clearSessionName"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      </svg>
-                    </button>
-                  </div>
-                </template>
-
-                <!-- Display mode -->
-                <template v-else>
-                  <div class="session-name-wrapper">
-                    <span class="overlay-root-name">{{ rootSessionName }}</span>
-                    <button
-                      class="btn-link name-edit-trigger"
-                      title="Edit session name"
-                      @click="startEditName"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="12"
-                        height="12"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                      </svg>
-                    </button>
-                  </div>
-                </template>
+                <div class="session-name-wrapper">
+                  <span class="overlay-root-name">{{ rootSessionName }}</span>
+                </div>
               </div>
 
               <!-- Row 2: Session Selector -->
@@ -377,10 +269,6 @@ import { SESSIONS_STORE_KEY, TODOS_STORE_KEY } from '../composables/useOverlaySt
 import {
   requestVisualViewportSettle,
   requestVisualViewportUpdate,
-  checkOverlayViewportDrift,
-  clearOverlayViewportDrift,
-  isActiveTextEditing,
-  onVisualViewportChange,
   setSessionOverlayPromptFocus,
 } from '../composables/useVisualViewport.js';
 
@@ -439,7 +327,9 @@ const isOverlayPromptFocused = ref(false);
 let overlayPromptBlurTimer = null;
 let promptVisibilityRaf = null;
 
-// Overlay body ref for scroll container override
+// Overlay refs for the fixed shell and scroll container override.
+const overlayContentRef = ref(null);
+const overlayHeaderRef = ref(null);
 const overlayBodyRef = ref(null);
 
 // Template ref to the ConversationTab for flushing drafts before session switch
@@ -480,11 +370,6 @@ function handleClickOutsidePicker(event) {
     }
   }
 }
-
-// Name editing state
-const isEditingName = ref(false);
-const editNameValue = ref('');
-const nameEditInput = ref(null);
 
 // WebSocket subscription management (NOT useSessionInitializer)
 let currentSubscription = null;
@@ -528,11 +413,6 @@ const rootSessionName = computed(() => {
 });
 
 const hasDescendants = computed(() => props.sessionChain.length > 1);
-
-const activeSessionName = computed(() => {
-  const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
-  return session?.name || 'Session';
-});
 
 const overlaySessionStatus = computed(() => {
   const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
@@ -620,51 +500,6 @@ async function addChildSession() {
     uiStore.error(err.message || 'Failed to create child session');
   } finally {
     isCreatingSession.value = false;
-  }
-}
-
-// Name editing functions
-function startEditName() {
-  editNameValue.value = activeSessionName.value;
-  isEditingName.value = true;
-  nextTick(() => {
-    nameEditInput.value?.focus();
-  });
-}
-
-function cancelEditName() {
-  isEditingName.value = false;
-  editNameValue.value = '';
-}
-
-function clearSessionName() {
-  editNameValue.value = '';
-  nextTick(() => {
-    nameEditInput.value?.focus();
-  });
-}
-
-async function saveSessionName() {
-  const newName = editNameValue.value.trim();
-  const sessionId = activeSessionId.value;
-
-  if (!newName) {
-    uiStore.error('Session name cannot be empty');
-    return;
-  }
-
-  try {
-    const updated = await api.updateSession(sessionId, {
-      name: newName,
-      manuallyNamed: true
-    });
-    // Update both overlay and main store
-    overlaySessionsStore.updateSession({ ...updated, id: sessionId });
-    uiStore.success('Session name updated');
-    isEditingName.value = false;
-    editNameValue.value = '';
-  } catch (err) {
-    uiStore.error(err.message || 'Failed to update session name');
   }
 }
 
@@ -798,8 +633,6 @@ function handleEscape(event) {
   if (event.key === 'Escape') {
     if (pickerOpen.value) {
       pickerOpen.value = false;
-    } else if (isEditingName.value) {
-      cancelEditName();
     } else {
       close();
     }
@@ -810,11 +643,9 @@ function handleEscape(event) {
  * Prevent touch-drag on the overlay header from scrolling the overlay,
  * while allowing touch-move inside interactive children that need it:
  * - SessionChatPicker dropdown (scrollable list)
- * - Name-edit input (text selection via touch)
  */
 function handleHeaderTouchmove(event) {
   if (event.target.closest('[data-testid="session-chat-picker"]')) return;
-  if (event.target.closest('.name-edit-input')) return;
   event.preventDefault();
 }
 
@@ -875,118 +706,37 @@ function handleOverlayPromptBlur(event) {
   }, 80);
 }
 
-// Body scroll lock — iOS-compatible "fixed wrapper" pattern.
-// On iOS Safari, `overflow: hidden` alone is insufficient: it doesn't reset
-// the existing scroll offset and touch gestures can still move the body.
-// Setting `position: fixed` truly freezes the page.
-//
-// CRITICAL: We apply the `position: fixed` + negative `top` offset to the
-// Vue root (`#app`) rather than `document.body`. When the offset lives on
-// `document.body`, Safari/WebKit treats a `position: fixed` body as a new
-// containing block for its `position: fixed` descendants — so the overlay's
-// `.overlay-backdrop` (which is itself `position: fixed`) inherits the
-// negative top offset and its sticky header ends up scrolled above the
-// viewport. Pinning the offset to `#app` keeps the overlay (which is
-// Teleported to `document.body`) outside the fixed wrapper, so the backdrop
-// remains anchored to the real viewport.
 let savedScrollY = 0;
-let savedAppStyles = {};
+let lockActive = false;
 
-function lockBodyScroll() {
-  savedScrollY = window.scrollY;
-  const app = document.getElementById('app');
-  // Always hide body overflow so background cannot scroll.
-  document.body.style.overflow = 'hidden';
-  if (!app) return;
-  savedAppStyles = {
-    position: app.style.position,
-    top: app.style.top,
-    left: app.style.left,
-    right: app.style.right,
-    width: app.style.width,
-  };
-  app.style.position = 'fixed';
-  app.style.top = `-${savedScrollY}px`;
-  app.style.left = '0';
-  app.style.right = '0';
-  app.style.width = '100%';
+function lockPageForOverlay() {
+  savedScrollY = window.scrollY || window.pageYOffset || 0;
+  lockActive = true;
+  document.documentElement.classList.add('session-overlay-open');
+  document.body.classList.add('session-overlay-open');
 }
 
-function unlockBodyScroll() {
-  document.body.style.overflow = '';
-  const app = document.getElementById('app');
-  if (app) {
-    app.style.position = savedAppStyles.position || '';
-    app.style.top = savedAppStyles.top || '';
-    app.style.left = savedAppStyles.left || '';
-    app.style.right = savedAppStyles.right || '';
-    app.style.width = savedAppStyles.width || '';
+function unlockPageForOverlay() {
+  document.documentElement.classList.remove('session-overlay-open');
+  document.body.classList.remove('session-overlay-open');
+
+  const currentScrollY = window.scrollY || window.pageYOffset || 0;
+  if (lockActive && Math.abs(currentScrollY - savedScrollY) > 1) {
+    window.scrollTo(0, savedScrollY);
   }
-  window.scrollTo(0, savedScrollY);
-}
 
-// ---------------------------------------------------------------------------
-// iPad viewport-drift watchdog
-//
-// On iPad Safari the visual viewport can shift relative to the layout viewport
-// when the browser chrome (URL bar / tab bar) collapses or expands, during
-// scroll-bounce, or after tab switches. `position: fixed` elements follow the
-// *layout* viewport, so they drift off-screen even though JS APIs like
-// `getBoundingClientRect` and `window.scrollY` still report 0.
-//
-// The correction logic lives in `checkOverlayViewportDrift` (exported from
-// useVisualViewport.js) which reads `visualViewport.offsetTop` and pins the
-// overlay element to the visual viewport via inline styles when drift is found.
-// Here we just manage the periodic timer and event wiring.
-// ---------------------------------------------------------------------------
-const DRIFT_CHECK_INTERVAL_MS = 3000;
-let driftCheckTimer = null;
-let driftViewportCleanup = null;
-
-function getBackdropEl() {
-  return document.querySelector('[data-testid="session-chat-overlay"]');
-}
-
-function runDriftCheck() {
-  checkOverlayViewportDrift(getBackdropEl());
-  if (isOverlayPromptFocused.value && !isActiveTextEditing()) {
-    requestPromptVisibilityCheck();
-  }
-}
-
-function startDriftCheck() {
-  stopDriftCheck();
-  // Run once immediately so we don't wait a full interval for the first check.
-  runDriftCheck();
-  driftCheckTimer = setInterval(runDriftCheck, DRIFT_CHECK_INTERVAL_MS);
-  // Also listen to visualViewport events for faster drift correction.
-  // The 3-second interval is a safety net; these events fire immediately
-  // when Safari's chrome changes and cause most drift episodes.
-  driftViewportCleanup = onVisualViewportChange(runDriftCheck);
-}
-
-function stopDriftCheck() {
-  if (driftCheckTimer) {
-    clearInterval(driftCheckTimer);
-    driftCheckTimer = null;
-  }
-  if (driftViewportCleanup) {
-    driftViewportCleanup();
-    driftViewportCleanup = null;
-  }
-  clearOverlayViewportDrift(getBackdropEl());
+  lockActive = false;
 }
 
 // Lifecycle
 onMounted(async () => {
-  lockBodyScroll();
+  lockPageForOverlay();
   requestVisualViewportUpdate();
   requestVisualViewportSettle();
   document.addEventListener('keydown', handleEscape);
   document.addEventListener('click', handleClickOutsidePicker, true);
   window.addEventListener('resize', checkMobile);
   checkMobile();
-  startDriftCheck();
 
   // Load data for the active session, then reveal ConversationTab.
   // switchingSession starts as true, so ConversationTab won't mount until
@@ -1000,12 +750,11 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  stopDriftCheck();
   clearPromptBlurTimer();
   clearPromptVisibilityRaf();
   isOverlayPromptFocused.value = false;
   setSessionOverlayPromptFocus(false);
-  unlockBodyScroll();
+  unlockPageForOverlay();
   document.removeEventListener('keydown', handleEscape);
   document.removeEventListener('click', handleClickOutsidePicker, true);
   window.removeEventListener('resize', checkMobile);
@@ -1027,6 +776,8 @@ defineExpose({
   switchingSession,
   pickerOpen,
   handlePickerSelect,
+  overlayContentRef,
+  overlayHeaderRef,
   overlayBodyRef,
 });
 </script>
@@ -1100,26 +851,26 @@ defineExpose({
 .overlay-backdrop {
   position: fixed;
   inset: 0;
-  min-height: 100vh;
-  min-height: 100dvh;
+  width: 100vw;
+  max-width: 100vw;
   z-index: 1200;
   background: rgb(17, 24, 39);
   display: block;
   overflow: hidden;
-  overflow-y: hidden;
   overscroll-behavior: none;
+  touch-action: none;
 }
 
 .overlay-panel-wrapper {
   position: absolute;
   inset: 0 0 0 auto;
-  height: 100%;
-  min-height: 100%;
-  min-height: 100dvh;
-  display: flex;
-  max-width: 900px;
   width: 100%;
-  overflow: visible;
+  max-width: 900px;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
   overscroll-behavior: none;
 }
 
@@ -1179,17 +930,14 @@ defineExpose({
 }
 
 .overlay-content {
-  flex: 1;
   width: 100%;
-  min-height: 100%;
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  /* `overflow: clip` (not `hidden`) disables programmatic scrolling as
-     well as visual clipping. This prevents any descendant `scrollIntoView`
-     call from shifting the flex-child header above the viewport — which
-     was a historical failure mode when `overflow: hidden` was used here. */
-  overflow: clip;
+  max-width: 100vw;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
   padding: 0;
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
   position: relative;
@@ -1197,38 +945,41 @@ defineExpose({
 }
 
 .overlay-body {
+  width: 100%;
+  max-width: 100%;
   padding: 0 1rem;
   /* Respect iOS home-indicator / bottom URL-bar gutter. Fall-back:
      if Phase 6 QA reveals the gutter is not visible at the right
      time, move the inset to `.input-form` or a dedicated wrapper. */
   padding-bottom: max(0px, env(safe-area-inset-bottom));
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  touch-action: pan-y;
   background: rgb(17, 24, 39);
 }
 
 .overlay-header {
   --overlay-header-base-padding-top: 0.75rem;
-  position: -webkit-sticky;
-  position: sticky;
-  top: 0;
+  position: relative;
+  top: auto;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
-  padding: var(--overlay-header-base-padding-top) 1rem 0.375rem;
-  padding-top: calc(
-    max(var(--overlay-header-base-padding-top), env(safe-area-inset-top)) +
-      var(--session-overlay-top-chrome-inset, 0px)
-  );
+  padding: max(var(--overlay-header-base-padding-top), env(safe-area-inset-top)) 1rem 0.375rem;
   background: var(--color-background-secondary, #1f2937);
   border-radius: 0;
   border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-  flex-shrink: 0;
-  z-index: 20;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .overlay-header-row {
@@ -1236,21 +987,30 @@ defineExpose({
   align-items: center;
   width: 100%;
   min-width: 0;
+  max-width: 100%;
 }
 
 .overlay-header-selector {
   position: relative;
+  min-width: 0;
 }
 
 .overlay-header-actions {
   justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .overlay-root-name {
+  display: block;
   font-size: 1rem;
   font-weight: 600;
   color: var(--color-primary, #06b6d4);
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
   word-break: break-word;
+  line-break: anywhere;
 }
 
 .dropdown-trigger {
@@ -1258,6 +1018,7 @@ defineExpose({
   align-items: center;
   justify-content: space-between;
   width: 100%;
+  min-width: 0;
   padding: 0.625rem 0.75rem;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
@@ -1273,6 +1034,7 @@ defineExpose({
 }
 
 .dropdown-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1289,9 +1051,39 @@ defineExpose({
    This prevents two nested scroll containers from fighting each other during
    streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-chat-overlay :deep(.messages) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   max-height: none !important;
+  overflow-x: hidden !important;
   overflow-y: visible !important;
   flex: 1;
+}
+
+.session-chat-overlay :deep(.conversation-tab) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.session-chat-overlay :deep(.message),
+.session-chat-overlay :deep(.message-content),
+.session-chat-overlay :deep(.markdown-viewer) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.session-chat-overlay :deep(.markdown-viewer code:not(pre code)) {
+  display: inline;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  line-break: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
 }
 
 /* In the overlay the .conversation-controls-row (token panel + scroll-to-
@@ -1342,114 +1134,14 @@ defineExpose({
   }
 }
 
-/* Session name editing styles */
+/* Session name styles */
 .session-name-wrapper {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
   flex: 1;
+  width: 100%;
   min-width: 0;
-}
-
-.name-edit-form {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex: 1;
-}
-
-.name-edit-input {
-  background: var(--color-bg-input, #1e1e1e);
-  border: 1px solid var(--color-border, #333);
-  border-radius: 4px;
-  padding: 0.375rem 0.5rem;
-  font-size: 0.8125rem;
-  color: var(--color-text, #e0e0e0);
-  min-width: 200px;
-  max-width: 400px;
-  flex: 1;
-}
-
-.name-edit-input:focus {
-  outline: none;
-  border-color: var(--color-primary, #00bcd4);
-}
-
-.name-edit-input::placeholder {
-  color: var(--color-text-soft, #888);
-}
-
-.btn-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-soft, #888);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-  flex-shrink: 0;
-}
-
-.btn-icon:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--color-text, #ccc);
-}
-
-.btn-icon:active {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.pr-edit-btn {
-  width: 28px;
-  height: 28px;
-}
-
-.pr-save-btn {
-  color: var(--color-success, #4caf50);
-}
-
-.pr-save-btn:hover {
-  background: rgba(76, 175, 80, 0.1);
-}
-
-.pr-cancel-btn {
-  color: var(--color-text-soft, #888);
-}
-
-.pr-cancel-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.pr-clear-btn {
-  color: var(--color-error, #f44336);
-}
-
-.pr-clear-btn:hover {
-  background: rgba(244, 67, 54, 0.1);
-}
-
-.name-edit-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  background: none;
-  border: none;
-  color: var(--color-text-soft, #888);
-  font-size: 0.75rem;
-  cursor: pointer;
-  padding: 0.25rem 0.375rem;
-  border-radius: 4px;
-  transition: color 0.15s, background-color 0.15s;
-}
-
-.name-edit-trigger:hover {
-  color: var(--color-primary, #00bcd4);
-  background: rgba(0, 188, 212, 0.1);
+  max-width: 100%;
 }
 
 .add-session-btn {
@@ -1463,6 +1155,11 @@ defineExpose({
   color: var(--color-text-soft, #9ca3af);
   font-size: 0.8125rem;
   white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition: background-color 0.15s, color 0.15s, border-color 0.15s;
 }
@@ -1492,6 +1189,8 @@ defineExpose({
   text-decoration: none;
   transition: color 0.15s, background-color 0.15s;
   flex-shrink: 0;
+  min-width: 0;
+  max-width: 50%;
   margin-right: 1.5rem;
   padding: 0.25rem 0.75rem;
   min-height: 44px;
@@ -1507,5 +1206,9 @@ defineExpose({
 .back-to-sessions-text {
   font-size: 0.8125rem;
   margin-left: 0.25rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

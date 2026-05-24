@@ -1,5 +1,6 @@
 import { OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
 import { addColumnIfMissing, tableExists } from './migrationUtils.js';
+import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
 function seedBuiltInAnthropicProvider(db) {
   const providerId = 'anthropic-default';
@@ -39,10 +40,10 @@ function seedBuiltInOpenAIProvider(db) {
 
   db.prepare(
     `INSERT OR IGNORE INTO providers (
-       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
+       id, name, base_url, auth_token, kind, commit_attribution_override, is_built_in, created_at, updated_at
      )
-     VALUES (?, ?, NULL, NULL, 'openai', 1, ?, ?)`
-  ).run(providerId, 'OpenAI (Official)', now, now);
+     VALUES (?, ?, NULL, NULL, 'openai', ?, 1, ?, ?)`
+  ).run(providerId, 'OpenAI (Official)', BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, now, now);
 
   const insertModel = db.prepare(
     `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
@@ -78,6 +79,17 @@ function seedBuiltInGoogleProvider(db) {
 function seedBuiltInProviders(db) {
   seedBuiltInAnthropicProvider(db);
   seedBuiltInOpenAIProvider(db);
+}
+
+function backfillBuiltInOpenAIAttribution(db) {
+  db.prepare(
+    `UPDATE providers
+     SET commit_attribution_override = ?, updated_at = ?
+     WHERE id = 'openai-default'
+       AND is_built_in = 1
+       AND kind = 'openai'
+       AND commit_attribution_override IS NULL`
+  ).run(BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, Date.now());
 }
 
 function updateBuiltInModels(db) {
@@ -246,5 +258,9 @@ export const providerMigrations = [
          WHERE model = ?`
       ).run('gemini-2.5-flash-lite', 'gemini-2.5-flash-lite-preview-06-17');
     },
+  },
+  {
+    name: 'providers-backfill-built-in-openai-attribution',
+    up(db) { backfillBuiltInOpenAIAttribution(db); },
   },
 ];

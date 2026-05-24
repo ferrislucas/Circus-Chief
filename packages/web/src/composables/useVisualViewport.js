@@ -1,20 +1,7 @@
 import { onMounted, onUnmounted } from 'vue';
 import { computeSessionOverlayKeyboardBottomInset } from './sessionOverlayKeyboardInset.js';
-import {
-  checkOverlayViewportDrift as checkOverlayViewportDriftElement,
-  clearOverlayViewportDrift,
-  computeSessionOverlayTopChromeInset,
-  isActiveTextEditing,
-  isTextEditingElement,
-} from './sessionOverlayViewport.js';
 
 export { computeSessionOverlayKeyboardBottomInset } from './sessionOverlayKeyboardInset.js';
-export {
-  clearOverlayViewportDrift,
-  computeSessionOverlayTopChromeInset,
-  isActiveTextEditing,
-  isTextEditingElement,
-} from './sessionOverlayViewport.js';
 
 let rafId = null;
 let settleRafId = null;
@@ -61,19 +48,6 @@ export function writeVisualViewportVariables() {
   document.documentElement.style.setProperty(
     '--visual-viewport-height',
     getPixelValue(rect.height, '100dvh')
-  );
-  const sessionOverlayTopChromeInset = computeSessionOverlayTopChromeInset({
-    offsetTop: rect.offsetTop,
-    visualViewportHeight: rect.height,
-    layoutWidth: window.innerWidth,
-    layoutHeight: window.innerHeight,
-    userAgent: window.navigator?.userAgent,
-    platform: window.navigator?.platform,
-    maxTouchPoints: window.navigator?.maxTouchPoints,
-  });
-  document.documentElement.style.setProperty(
-    '--session-overlay-top-chrome-inset',
-    `${sessionOverlayTopChromeInset}px`
   );
   const sessionOverlayKeyboardBottomInset = computeSessionOverlayKeyboardBottomInset({
     isOverlayPromptFocused: isSessionOverlayPromptFocused,
@@ -188,10 +162,6 @@ export function requestVisualViewportSettle(options = {}) {
   settleRafId = requestAnimationFrame(sample);
 }
 
-export function checkOverlayViewportDrift(element) {
-  checkOverlayViewportDriftElement(element, { writeVisualViewportVariables });
-}
-
 /**
  * Subscribe a callback to `visualViewport` scroll/resize events.
  * Returns a teardown function that removes both listeners.
@@ -211,12 +181,11 @@ export function onVisualViewportChange(callback) {
 
 /**
  * Vue composable that tracks the visual viewport rectangle and updates CSS variables.
- * This is needed for iOS Safari, where the browser chrome (URL bar + tab bar) can
- * physically overlap sticky-positioned elements when expanded.
+ * This is needed for browser chrome and software keyboard transitions that
+ * change the visual viewport while the layout viewport remains stable.
  *
- * Sets raw visual viewport CSS variables on document.documentElement, plus a
- * session-overlay-specific sanitized top inset that avoids treating stale phone
- * keyboard offsets as browser chrome.
+ * Sets raw visual viewport CSS variables on document.documentElement, plus the
+ * session overlay keyboard spacer inset while the overlay prompt is focused.
  *
  * On browsers without visualViewport API, this no-ops and CSS fallbacks apply.
  */

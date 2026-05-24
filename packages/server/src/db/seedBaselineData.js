@@ -13,6 +13,8 @@ export const BUILT_IN_OPENAI_PROVIDER = {
   kind: 'openai',
 };
 
+export const BUILT_IN_OPENAI_COMMIT_ATTRIBUTION = 'Co-authored-by: Codex <noreply@openai.com>';
+
 export const BUILT_IN_GOOGLE_PROVIDER = {
   id: 'google-default',
   name: 'Google (Official)',
@@ -90,10 +92,17 @@ function seedBuiltInProviders(db) {
 
   db.prepare(
     `INSERT OR IGNORE INTO providers (
-       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
+       id, name, base_url, auth_token, kind, commit_attribution_override, is_built_in, created_at, updated_at
      )
-     VALUES (?, ?, NULL, NULL, ?, 1, ?, ?)`
-  ).run(BUILT_IN_OPENAI_PROVIDER.id, BUILT_IN_OPENAI_PROVIDER.name, BUILT_IN_OPENAI_PROVIDER.kind, now, now);
+     VALUES (?, ?, NULL, NULL, ?, ?, 1, ?, ?)`
+  ).run(
+    BUILT_IN_OPENAI_PROVIDER.id,
+    BUILT_IN_OPENAI_PROVIDER.name,
+    BUILT_IN_OPENAI_PROVIDER.kind,
+    BUILT_IN_OPENAI_COMMIT_ATTRIBUTION,
+    now,
+    now
+  );
 
   const insertModel = db.prepare(
     `INSERT OR IGNORE INTO provider_models (

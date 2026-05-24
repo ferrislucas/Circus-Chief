@@ -21,6 +21,13 @@ vi.mock('../services/prStatusService.js', () => ({
   checkSessionCiStatusNow: vi.fn().mockResolvedValue(false),
 }));
 
+// sessions-patch.js fire-and-forgets setSessionNameFromPr after PR URL updates.
+// Keep that async path deterministic so coverage workers do not tear down while
+// ghService is still probing/logging.
+vi.mock('../services/ghService.js', () => ({
+  getPrInfo: vi.fn().mockResolvedValue(null),
+}));
+
 // Mock summaryBroadcast (needed because sessions-patch.js imports broadcastSummaryUpdate)
 vi.mock('../services/summaryBroadcast.js', () => ({
   broadcastSummaryUpdate: vi.fn(),
