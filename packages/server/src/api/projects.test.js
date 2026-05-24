@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { mkdtempSync, rmSync, existsSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, renameSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
@@ -981,6 +981,28 @@ describe('Projects API', () => {
       } finally {
         rmSync(newDir, { recursive: true, force: true });
       }
+    });
+  });
+
+  describe('PUT /api/projects/:id working directory rename handling', () => {
+    it('moves an old default worktree path when the working directory changes', async () => {
+      const oldDir = tempDir;
+      const renamedDir = `${tempDir}-renamed`;
+      projects.update(projectId, {
+        worktreePath: join(oldDir, '.worktrees'),
+      });
+
+      renameSync(oldDir, renamedDir);
+      tempDir = renamedDir;
+
+      const res = await request(app).put(`/api/projects/${projectId}`).send({
+        workingDirectory: renamedDir,
+        worktreePath: join(oldDir, '.worktrees'),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.workingDirectory).toBe(renamedDir);
+      expect(res.body.worktreePath).toBe(join(renamedDir, '.worktrees'));
     });
   });
 
