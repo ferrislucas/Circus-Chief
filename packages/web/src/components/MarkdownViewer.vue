@@ -24,7 +24,10 @@ const renderedContent = computed(() => renderMarkdown(props.content));
 <style scoped>
 .markdown-viewer {
   line-height: 1.6;
-  word-wrap: break-word;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 /* Headers */
@@ -84,6 +87,8 @@ const renderedContent = computed(() => renderMarkdown(props.content));
 .markdown-viewer :deep(p) {
   margin-top: 0;
   margin-bottom: 1em;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* Links */
@@ -114,6 +119,7 @@ const renderedContent = computed(() => renderMarkdown(props.content));
 
 .markdown-viewer :deep(li) {
   margin-bottom: 0.25em;
+  min-width: 0;
 }
 
 .markdown-viewer :deep(li > ul),
@@ -142,12 +148,15 @@ const renderedContent = computed(() => renderMarkdown(props.content));
   padding: 0.2em 0.4em;
   background-color: var(--color-background-mute);
   border-radius: 3px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* Code - blocks */
 .markdown-viewer :deep(pre) {
   margin: 0 0 1em 0;
   padding: 1em;
+  max-width: 100%;
   overflow-x: auto;
   background-color: var(--color-background-mute);
   border-radius: var(--border-radius);
@@ -155,11 +164,15 @@ const renderedContent = computed(() => renderMarkdown(props.content));
 }
 
 .markdown-viewer :deep(pre code) {
+  display: block;
+  min-width: max-content;
   padding: 0;
   background-color: transparent;
   border-radius: 0;
   font-size: 0.8125em;
   line-height: 1.5;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 /* Tables */

@@ -14,6 +14,7 @@ import { test, expect, Page } from '@playwright/test';
 import {
   seedProject,
   seedSession,
+  seedAssistantMessage,
   seedConversationHistory,
   cleanupCreatedResources,
   navigateAndWait,
@@ -366,6 +367,82 @@ test.describe('SessionChatOverlay layout', () => {
     } finally {
       await clearStaleVisualViewportVariables(page);
     }
+  });
+
+  test('phone layout wraps long title text and inline code without horizontal bleed', async ({ page }) => {
+    const longSession = await seedSession(project.id, {
+      prompt: 'Long content layout regression',
+      name: 'Ensure session overlay header stays visible with a very long title',
+    });
+    await waitForSessionToExist(longSession.id);
+    seedAssistantMessage(
+      longSession.id,
+      [
+        'Changed:',
+        '',
+        '- Rewrote overlay shell CSS to fixed backdrop, fixed-height grid content, normal-flow header, and `.overlay-body-with-an-extra-long-inline-token-that-must-wrap-inside-the-panel` as the only internal vertical scroll container.',
+        '- Simplified `useVisualViewport.js-and-sessionOverlayViewport.js-with-an-extra-long-inline-token-that-must-wrap` to raw viewport variables plus keyboard inset only.',
+        '- Added global `html/body.session-overlay-open-with-a-very-long-token` lock CSS.',
+      ].join('\n')
+    );
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await navigateAndWait(page, `/sessions/${longSession.id}`, {
+      waitFor: '.session-detail',
+      timeout: 15000,
+    });
+    const overlay = await openOverlay(page);
+    await expect(overlay.locator('.markdown-viewer', { hasText: 'Changed:' })).toBeVisible({ timeout: 10000 });
+
+    const overflow = await page.evaluate(() => {
+      const overlayEl = document.querySelector('[data-testid="session-chat-overlay"]') as HTMLElement | null;
+      if (!overlayEl) return { missingOverlay: true, offenders: [] };
+      const overlayRect = overlayEl.getBoundingClientRect();
+      const selectors = [
+        '.overlay-content',
+        '.overlay-header',
+        '.overlay-root-name',
+        '.overlay-body',
+        '.conversation-tab',
+        '.messages',
+        '.message',
+        '.message-content',
+        '.markdown-viewer',
+        '.markdown-viewer p',
+        '.markdown-viewer li',
+        '.markdown-viewer code:not(pre code)',
+      ];
+      const offenders = selectors.flatMap((selector) =>
+        Array.from(document.querySelectorAll(selector)).flatMap((el) => {
+          const element = el as HTMLElement;
+          const rect = element.getBoundingClientRect();
+          const leaksPanel = rect.right > overlayRect.right + 1 || rect.left < overlayRect.left - 1;
+          const hasOwnOverflow = element.scrollWidth > element.clientWidth + 1;
+          return leaksPanel || hasOwnOverflow
+            ? [{
+                selector,
+                text: element.textContent?.trim().slice(0, 80) || '',
+                clientWidth: element.clientWidth,
+                scrollWidth: element.scrollWidth,
+                left: rect.left,
+                right: rect.right,
+                overlayLeft: overlayRect.left,
+                overlayRight: overlayRect.right,
+              }]
+            : [];
+        })
+      );
+      return {
+        missingOverlay: false,
+        bodyScrollWidth: document.body.scrollWidth,
+        viewportWidth: window.innerWidth,
+        offenders,
+      };
+    });
+
+    expect(overflow.missingOverlay).toBe(false);
+    expect(overflow.bodyScrollWidth).toBeLessThanOrEqual(overflow.viewportWidth + 1);
+    expect(overflow.offenders).toEqual([]);
   });
 
   test('744px tablet-sized shell geometry ignores stale visual viewport CSS variables', async ({ page }) => {

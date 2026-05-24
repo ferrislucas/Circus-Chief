@@ -94,6 +94,9 @@ const {
   border-radius: var(--border-radius);
   background-color: var(--color-background-soft);
   border: 1px solid var(--color-border);
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .message-user {
@@ -115,6 +118,7 @@ const {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
+  min-width: 0;
 }
 
 .message-role {
@@ -147,8 +151,11 @@ const {
 }
 
 .message-content {
+  max-width: 100%;
+  min-width: 0;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 /* Override pre-wrap for rendered markdown to prevent double line breaks */

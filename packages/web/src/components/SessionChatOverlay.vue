@@ -989,7 +989,10 @@ defineExpose({
   font-size: 1rem;
   font-weight: 600;
   color: var(--color-primary, #06b6d4);
-  word-break: break-word;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .dropdown-trigger {
@@ -1028,9 +1031,20 @@ defineExpose({
    This prevents two nested scroll containers from fighting each other during
    streaming auto-scroll (useMessageScroll targets .overlay-body via scrollContainerRef). */
 .session-chat-overlay :deep(.messages) {
+  max-width: 100%;
+  min-width: 0;
   max-height: none !important;
+  overflow-x: hidden !important;
   overflow-y: visible !important;
   flex: 1;
+}
+
+.session-chat-overlay :deep(.conversation-tab),
+.session-chat-overlay :deep(.message),
+.session-chat-overlay :deep(.message-content),
+.session-chat-overlay :deep(.markdown-viewer) {
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* In the overlay the .conversation-controls-row (token panel + scroll-to-

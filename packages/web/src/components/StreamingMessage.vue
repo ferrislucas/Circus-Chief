@@ -29,6 +29,9 @@ defineProps({
   border-radius: var(--border-radius);
   background-color: var(--color-background-soft);
   border: 1px solid var(--color-border);
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .message-assistant {
@@ -45,6 +48,7 @@ defineProps({
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
+  min-width: 0;
 }
 
 .message-role {
@@ -54,8 +58,11 @@ defineProps({
 }
 
 .message-content {
+  max-width: 100%;
+  min-width: 0;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .message-content :deep(.markdown-viewer) {
