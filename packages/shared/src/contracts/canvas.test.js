@@ -44,7 +44,7 @@ describe('Canvas Contracts', () => {
     });
 
     it('accepts all valid types in response', () => {
-      const types = ['image', 'markdown', 'text', 'json', 'pdf', 'code'];
+      const types = ['image', 'markdown', 'text', 'json', 'pdf', 'code', 'video'];
       for (const type of types) {
         const result = CanvasItemResponse.safeParse({
           id: '123e4567-e89b-12d3-a456-426614174000',

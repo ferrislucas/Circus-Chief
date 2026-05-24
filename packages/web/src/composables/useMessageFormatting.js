@@ -89,6 +89,7 @@ export function useMessageFormatting() {
   function getAttachmentIcon(mimeType) {
     if (!mimeType) return '📎';
     if (mimeType.startsWith('image/')) return '🖼️';
+    if (mimeType.startsWith('video/')) return '🎬';
     if (mimeType.startsWith('text/') || mimeType === 'application/json') return '📄';
     if (mimeType === 'application/pdf') return '📕';
     if (mimeType.includes('javascript') || mimeType.includes('typescript')) return '📜';

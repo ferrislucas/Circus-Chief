@@ -10,6 +10,10 @@ const ALLOWED_MIME_TYPES = [
   'image/gif',
   'image/webp',
   'image/svg+xml',
+  // Video
+  'video/mp4',
+  'video/quicktime',
+  'video/webm',
   // Text files
   'text/plain',
   'text/markdown',

@@ -305,11 +305,12 @@ describe('CanvasItemRepository', () => {
       repo.create(sessionId, { type: 'markdown', content: '# Title', filename: 'readme.md' });
       repo.create(sessionId, { type: 'json', data: '{"key":"value"}', filename: 'data.json' });
       repo.create(sessionId, { type: 'code', content: 'console.log()', filename: 'script.js' });
+      repo.create(sessionId, { type: 'video', data: 'videodata', filename: 'clip.mp4', mimeType: 'video/mp4' });
 
       const items = repo.getLatestVersionsBySessionId(sessionId);
 
-      expect(items).toHaveLength(5);
-      expect(items.map(i => i.type).sort()).toEqual(['code', 'image', 'json', 'markdown', 'pdf']);
+      expect(items).toHaveLength(6);
+      expect(items.map(i => i.type).sort()).toEqual(['code', 'image', 'json', 'markdown', 'pdf', 'video']);
     });
   });
 
@@ -778,7 +779,7 @@ describe('CanvasItemRepository', () => {
       });
 
       it('should handle all canvas item types', () => {
-        const types = ['image', 'markdown', 'text', 'json', 'pdf', 'code'];
+        const types = ['image', 'markdown', 'text', 'json', 'pdf', 'code', 'video'];
         types.forEach(type => {
           repo.create(sessionId, { type, filename: `file.${type}` });
         });

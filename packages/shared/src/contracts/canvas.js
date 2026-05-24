@@ -7,7 +7,7 @@ export const CreateCanvasItemRequest = z.object({
 export const CanvasItemResponse = z.object({
   id: z.string().uuid(),
   sessionId: z.string().uuid().nullable(),
-  type: z.enum(['image', 'markdown', 'text', 'json', 'pdf', 'code']),
+  type: z.enum(['image', 'markdown', 'text', 'json', 'pdf', 'code', 'video']),
   content: z.string().nullable(),
   data: z.string().nullable(),
   mimeType: z.string().nullable(),
