@@ -3000,7 +3000,7 @@ describe('Add Session button responsive labels', () => {
   });
 });
 
-describe('SessionListView Kanban Experimental behavior', () => {
+describe('SessionListView Kanban behavior', () => {
   let mockProjectsStore;
   let mockSessionsStore;
   let mockCommandButtonsStore;
@@ -3044,7 +3044,7 @@ describe('SessionListView Kanban Experimental behavior', () => {
     }
   }
 
-  it('renders Kanban tab with Experimental badge when kanbanEnabled=true', async () => {
+  it('renders Kanban tab when kanbanEnabled=true', async () => {
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
@@ -3059,12 +3059,13 @@ describe('SessionListView Kanban Experimental behavior', () => {
     const wrapper = mount(SessionListView);
     await flushAll(wrapper);
 
-    const tabsText = wrapper.find('.tabs-desktop').text();
-    expect(tabsText).toContain('Kanban');
-    expect(tabsText).toContain('Experimental');
+    const kanbanTab = wrapper
+      .findAll('.tabs-desktop .tab')
+      .find(tab => tab.text() === 'Kanban');
+    expect(kanbanTab).toBeTruthy();
   });
 
-  it('labels the mobile Kanban option as experimental when kanbanEnabled=true', async () => {
+  it('labels the mobile Kanban option when kanbanEnabled=true', async () => {
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
@@ -3081,7 +3082,10 @@ describe('SessionListView Kanban Experimental behavior', () => {
 
     const mobileSelect = wrapper.find('.tabs-mobile select');
     expect(mobileSelect.exists()).toBe(true);
-    expect(mobileSelect.text()).toContain('Kanban (experimental)');
+    const kanbanOption = wrapper
+      .findAll('.tabs-mobile option')
+      .find(option => option.text() === 'Kanban');
+    expect(kanbanOption).toBeTruthy();
   });
 
   it('does not render the Kanban tab when kanbanEnabled=false', async () => {
@@ -3159,7 +3163,7 @@ describe('SessionListView Kanban Experimental behavior', () => {
 
     const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
     if (sessionCard.exists()) {
-      // Fallback should be false, not true, now that Kanban is experimental/opt-in.
+      // Fallback should be false, not true, now that Kanban is opt-in.
       expect(sessionCard.props('kanbanEnabled')).toBe(false);
     }
   });

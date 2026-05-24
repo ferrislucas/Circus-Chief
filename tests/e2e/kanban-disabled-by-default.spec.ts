@@ -6,14 +6,14 @@ import {
   API_URL,
 } from './helpers';
 
-test.describe('Kanban experimental default (off)', () => {
+test.describe('Kanban default opt-in behavior', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    // No kanbanEnabled option → should default to false (experimental opt-in)
+    // No kanbanEnabled option -> should default to false (opt-in)
     project = await seedProject('Kanban Default Off Project', '/tmp/test-kanban-off');
   });
 
@@ -30,7 +30,7 @@ test.describe('Kanban experimental default (off)', () => {
     expect(payload.kanbanEnabled).toBe(false);
 
     // Navigate to the sessions list. The Kanban tab should be absent because
-    // the project was created with the default (off) experimental flag.
+    // the project was created with the default-off flag.
     await navigateAndWait(page, `/projects/${project.id}/sessions`, {
       waitFor: '.tabs-desktop',
     });
@@ -40,13 +40,13 @@ test.describe('Kanban experimental default (off)', () => {
     await expect(desktopTabs).not.toContainText('Kanban');
 
     // Directly navigating to the kanban route should redirect to the sessions
-    // list rather than surfacing the experimental board.
+    // list rather than surfacing the board.
     await page.goto(`/projects/${project.id}/kanban`);
     await page.waitForURL(`**/projects/${project.id}/sessions`);
     expect(page.url()).toContain(`/projects/${project.id}/sessions`);
   });
 
-  test('opting in via the API re-enables the Kanban tab with an Experimental badge', async ({ page }) => {
+  test('opting in via the API re-enables the Kanban tab without the old badge', async ({ page }) => {
     // Opt-in by PATCH/PUT so we exercise the same path a user would trigger
     // from the Project Edit view.
     const response = await fetch(`${API_URL}/api/projects/${project.id}`, {
@@ -62,6 +62,6 @@ test.describe('Kanban experimental default (off)', () => {
 
     const kanbanTab = page.locator('.tabs-desktop .tab', { hasText: 'Kanban' });
     await expect(kanbanTab).toBeVisible();
-    await expect(kanbanTab).toContainText('Experimental');
+    await expect(kanbanTab).not.toContainText('Experimental');
   });
 });
