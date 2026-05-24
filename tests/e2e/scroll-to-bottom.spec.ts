@@ -70,6 +70,17 @@ test.describe('scroll-to-bottom button', () => {
 
     await expect(btn).toBeVisible({ timeout: 5000 });
 
+    const stickyOffset = await body.evaluate((el) => {
+      const h = el as HTMLElement;
+      const controls = h.querySelector('.conversation-controls-row');
+      if (!controls) return null;
+      const bodyRect = h.getBoundingClientRect();
+      const controlsRect = controls.getBoundingClientRect();
+      return Math.abs(controlsRect.bottom - bodyRect.bottom);
+    });
+    expect(stickyOffset).not.toBeNull();
+    expect(stickyOffset!).toBeLessThanOrEqual(2);
+
     // Click and confirm the send button, not the full content bottom, is
     // aligned with the bottom of the overlay viewport.
     await btn.click();
@@ -120,6 +131,17 @@ test.describe('scroll-to-bottom button', () => {
 
     await expect(toBottomBtn).toBeVisible({ timeout: 5000 });
     await expect(toClaudeBtn).toBeVisible({ timeout: 5000 });
+
+    const controlsOffset = await body.evaluate((el) => {
+      const h = el as HTMLElement;
+      const controls = h.querySelector('.conversation-controls-row');
+      if (!controls) return null;
+      const bodyRect = h.getBoundingClientRect();
+      const controlsRect = controls.getBoundingClientRect();
+      return Math.abs(controlsRect.bottom - bodyRect.bottom);
+    });
+    expect(controlsOffset).not.toBeNull();
+    expect(controlsOffset!).toBeLessThanOrEqual(2);
 
     // Both buttons should live in the .conversation-scroll-actions wrapper.
     const wrapperCount = await overlay.locator('.conversation-scroll-actions').count();

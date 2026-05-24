@@ -1060,7 +1060,12 @@ defineExpose({
   flex: 1;
 }
 
-.session-chat-overlay :deep(.conversation-tab),
+.session-chat-overlay :deep(.conversation-tab) {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .session-chat-overlay :deep(.message),
 .session-chat-overlay :deep(.message-content),
 .session-chat-overlay :deep(.markdown-viewer) {

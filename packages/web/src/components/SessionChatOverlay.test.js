@@ -1743,6 +1743,14 @@ describe('SessionChatOverlay', () => {
       expect(getStyleBlock('.session-chat-overlay :deep(.messages)')).toMatch(/overflow-y:\s*visible !important/);
     });
 
+    it('conversation tab is not an overflow ancestor for sticky scroll controls', () => {
+      const block = getStyleBlock('.session-chat-overlay :deep(.conversation-tab)');
+      expect(block).toMatch(/width:\s*100%/);
+      expect(block).toMatch(/max-width:\s*100%/);
+      expect(block).toMatch(/min-width:\s*0/);
+      expect(block).not.toMatch(/overflow/);
+    });
+
     it('overlay shell keeps visual viewport variables out of all shell geometry', () => {
       const shellBlocks = [
         ...getStyleBlocks('.overlay-backdrop'),
