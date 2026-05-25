@@ -17,11 +17,11 @@ describe('CircusTimeTab', () => {
     expect(text).toContain('helps fund both Circus Chief and the Circus Time add-on');
   });
 
-  it('links to the Circus Time checkout in a new tab', () => {
+  it('links to the Circus Time store in a new tab', () => {
     const wrapper = mount(CircusTimeTab);
     const link = wrapper.get('a');
 
-    expect(link.attributes('href')).toBe('https://mydayoff.lemonsqueezy.com/checkout');
+    expect(link.attributes('href')).toBe('https://mydayoff.lemonsqueezy.com/');
     expect(link.attributes('target')).toBe('_blank');
     expect(link.attributes('rel')).toBe('noopener noreferrer');
   });

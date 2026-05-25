@@ -17,7 +17,7 @@
       </div>
       <a
         class="btn btn-primary"
-        href="https://mydayoff.lemonsqueezy.com/checkout"
+        href="https://mydayoff.lemonsqueezy.com/"
         target="_blank"
         rel="noopener noreferrer"
       >

@@ -631,7 +631,7 @@ test.describe('Session Detail Tab Navigation', () => {
     await expect(page.getByRole('heading', { name: 'Circus Time' })).toBeVisible();
 
     const ctaLink = page.getByRole('link', { name: 'Get Circus Time' });
-    await expect(ctaLink).toHaveAttribute('href', 'https://mydayoff.lemonsqueezy.com/checkout');
+    await expect(ctaLink).toHaveAttribute('href', 'https://mydayoff.lemonsqueezy.com/');
   });
 
   test('back button navigates between tabs correctly', async ({ page }) => {
