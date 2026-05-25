@@ -551,7 +551,7 @@ test.describe('Archived Sessions Tab', () => {
 });
 
 // ============================================================
-// Category 5: Session Detail Tab Navigation (6 tests)
+// Category 5: Session Detail Tab Navigation (7 tests)
 // ============================================================
 
 test.describe('Session Detail Tab Navigation', () => {
@@ -605,6 +605,11 @@ test.describe('Session Detail Tab Navigation', () => {
     await page.locator('.tabs-desktop .tab').filter({ hasText: 'Commands' }).click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${session.id}/commands`));
     await expect(page.locator('.tabs-desktop .tab').filter({ hasText: 'Commands' })).toHaveClass(/active/);
+
+    // Click Circus Time tab
+    await page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' }).click();
+    await expect(page).toHaveURL(new RegExp(`/sessions/${session.id}/circus-time`));
+    await expect(page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' })).toHaveClass(/active/);
   });
 
   test('deep linking to a specific tab works', async ({ page }) => {
@@ -616,6 +621,17 @@ test.describe('Session Detail Tab Navigation', () => {
 
     // URL should stay at canvas
     await expect(page).toHaveURL(new RegExp(`/sessions/${session.id}/canvas`));
+  });
+
+  test('deep linking to Circus Time shows the CTA', async ({ page }) => {
+    await navigateAndWait(page, `/sessions/${session.id}/circus-time`);
+
+    const circusTimeTab = page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' });
+    await expect(circusTimeTab).toHaveClass(/active/);
+    await expect(page.getByRole('heading', { name: 'Circus Time' })).toBeVisible();
+
+    const ctaLink = page.getByRole('link', { name: 'Get Circus Time' });
+    await expect(ctaLink).toHaveAttribute('href', 'https://mydayoff.lemonsqueezy.com/checkout');
   });
 
   test('back button navigates between tabs correctly', async ({ page }) => {

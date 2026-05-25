@@ -14,16 +14,16 @@ describe('SessionTabsPanel', () => {
         { path: '/projects/:id/sessions', component: { template: '<div />' } },
       ],
     });
-    await router.push('/sessions/session-1/conversation');
+    await router.push('/sessions/session-1/summary');
     await router.isReady();
   });
 
   const defaultTabs = [
     { id: 'summary', label: 'Summary' },
-    { id: 'conversation', label: 'Conversations' },
     { id: 'changes', label: 'Changes' },
     { id: 'canvas', label: 'Canvas' },
     { id: 'commands', label: 'Commands' },
+    { id: 'circus-time', label: 'Circus Time' },
   ];
 
   function mountPanel(props = {}) {
@@ -32,7 +32,7 @@ describe('SessionTabsPanel', () => {
       props: {
         sessionId: 'session-1',
         projectId: 'proj-1',
-        activeTab: 'conversation',
+        activeTab: 'summary',
         tabs: defaultTabs,
         hasChanges: false,
         canvasCount: 0,
@@ -46,10 +46,10 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel();
       const text = wrapper.text();
       expect(text).toContain('Summary');
-      expect(text).toContain('Conversations');
       expect(text).toContain('Changes');
       expect(text).toContain('Canvas');
       expect(text).toContain('Commands');
+      expect(text).toContain('Circus Time');
     });
 
     it('renders back link with icon to sessions list', () => {
@@ -131,14 +131,14 @@ describe('SessionTabsPanel', () => {
       const pushSpy = vi.spyOn(router, 'push');
       const wrapper = mountPanel();
       const select = wrapper.find('.tab-select');
-      await select.setValue('canvas');
-      expect(pushSpy).toHaveBeenCalledWith('/sessions/session-1/canvas');
+      await select.setValue('circus-time');
+      expect(pushSpy).toHaveBeenCalledWith('/sessions/session-1/circus-time');
     });
   });
 
   describe('active tab', () => {
     it('marks active tab with active class', () => {
-      const wrapper = mountPanel({ activeTab: 'conversation' });
+      const wrapper = mountPanel({ activeTab: 'summary' });
       const desktopTabs = wrapper.findAll('.tabs-desktop .tab');
       const activeTab = desktopTabs.find(t => t.classes().includes('active'));
       expect(activeTab).toBeDefined();

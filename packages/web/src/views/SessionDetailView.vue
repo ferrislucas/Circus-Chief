@@ -73,6 +73,9 @@
           :session-id="route.params.id"
           :project-id="sessionsStore.currentSession?.projectId"
         />
+        <CircusTimeTab
+          v-else-if="activeTab === 'circus-time'"
+        />
       </div>
 
       <!-- Session Chat Handle -->
@@ -121,6 +124,7 @@ import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
+import CircusTimeTab from '../components/CircusTimeTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionChatHandle from '../components/SessionChatHandle.vue';
@@ -500,7 +504,8 @@ const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
-  { id: 'commands', label: 'Commands' }
+  { id: 'commands', label: 'Commands' },
+  { id: 'circus-time', label: 'Circus Time' }
 ]);
 
 // Watch for status changes from any source (optimistic updates, WebSocket, etc.)
