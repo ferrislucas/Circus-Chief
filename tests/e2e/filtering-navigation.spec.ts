@@ -631,7 +631,10 @@ test.describe('Session Detail Tab Navigation', () => {
     await expect(page.getByRole('heading', { name: 'Circus Time' })).toBeVisible();
 
     const ctaLink = page.getByRole('link', { name: 'Get Circus Time' });
-    await expect(ctaLink).toHaveAttribute('href', 'https://mydayoff.lemonsqueezy.com/');
+    await expect(ctaLink).toHaveAttribute(
+      'href',
+      'https://mydayoff.lemonsqueezy.com/checkout/buy/2a60bdc7-058c-43d8-965b-6b7d785f0842'
+    );
   });
 
   test('back button navigates between tabs correctly', async ({ page }) => {

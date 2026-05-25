@@ -21,7 +21,9 @@ describe('CircusTimeTab', () => {
     const wrapper = mount(CircusTimeTab);
     const link = wrapper.get('a');
 
-    expect(link.attributes('href')).toBe('https://mydayoff.lemonsqueezy.com/');
+    expect(link.attributes('href')).toBe(
+      'https://mydayoff.lemonsqueezy.com/checkout/buy/2a60bdc7-058c-43d8-965b-6b7d785f0842'
+    );
     expect(link.attributes('target')).toBe('_blank');
     expect(link.attributes('rel')).toBe('noopener noreferrer');
   });

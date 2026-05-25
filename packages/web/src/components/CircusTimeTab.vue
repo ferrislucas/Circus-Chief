@@ -17,7 +17,7 @@
       </div>
       <a
         class="btn btn-primary"
-        href="https://mydayoff.lemonsqueezy.com/"
+        href="https://mydayoff.lemonsqueezy.com/checkout/buy/2a60bdc7-058c-43d8-965b-6b7d785f0842"
         target="_blank"
         rel="noopener noreferrer"
       >
