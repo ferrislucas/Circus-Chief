@@ -8,6 +8,7 @@ import {
   waitForSessionToExist,
   waitForSessionStatus,
   updateSessionStatus,
+  expectHitTestable,
 } from './helpers';
 import { API_READY } from './timeouts';
 
@@ -69,6 +70,7 @@ test.describe('scroll-to-bottom button', () => {
     });
 
     await expect(btn).toBeVisible({ timeout: 5000 });
+    await expectHitTestable(btn, { requireEnabled: true });
 
     const stickyOffset = await body.evaluate((el) => {
       const h = el as HTMLElement;
@@ -131,6 +133,8 @@ test.describe('scroll-to-bottom button', () => {
 
     await expect(toBottomBtn).toBeVisible({ timeout: 5000 });
     await expect(toClaudeBtn).toBeVisible({ timeout: 5000 });
+    await expectHitTestable(toBottomBtn, { requireEnabled: true });
+    await expectHitTestable(toClaudeBtn, { requireEnabled: true });
 
     const controlsOffset = await body.evaluate((el) => {
       const h = el as HTMLElement;

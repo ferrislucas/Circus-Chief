@@ -4,6 +4,7 @@ import {
   cleanupAll,
   navigateAndWait,
   getAPIURL,
+  expectHitTestable,
 } from './helpers';
 
 test.describe('Session List Icon Navigation', () => {
@@ -41,6 +42,7 @@ test.describe('Session List Icon Navigation', () => {
     // Find and verify back icon link
     const backLink = page.locator('.tab-back');
     await expect(backLink).toBeVisible();
+    await expectHitTestable(backLink);
     await expect(backLink.locator('.back-icon')).toBeVisible();
     await expect(backLink.locator('svg')).toHaveCount(2);
 
