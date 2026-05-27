@@ -47,6 +47,14 @@
           class="viewer-image"
         >
 
+        <video
+          v-else-if="item.type === 'video'"
+          :src="`data:${item.mimeType};base64,${item.data}`"
+          class="viewer-video"
+          controls
+          preload="metadata"
+        />
+
         <MarkdownViewer
           v-if="item.type === 'markdown'"
           :content="item.content"
@@ -291,6 +299,14 @@ function selectVersion(itemId) {
 .viewer-image {
   max-width: 100%;
   height: auto;
+  border-radius: var(--border-radius);
+}
+
+.viewer-video {
+  max-width: 100%;
+  max-height: 70vh;
+  display: block;
+  background: #000;
   border-radius: var(--border-radius);
 }
 

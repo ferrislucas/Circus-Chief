@@ -183,6 +183,7 @@ async function handlePermanentDelete(item) {
 function getTypeIcon(type) {
   const icons = {
     image: '📷',
+    video: '🎬',
     markdown: '📄',
     json: '📋',
     text: '📝',

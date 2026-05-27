@@ -87,6 +87,12 @@ describe('getTypeFromExtension', () => {
     expect(getTypeFromExtension('.sh')).toBe('code');
   });
 
+  it('returns "video" for video extensions', () => {
+    expect(getTypeFromExtension('.mp4')).toBe('video');
+    expect(getTypeFromExtension('.mov')).toBe('video');
+    expect(getTypeFromExtension('.webm')).toBe('video');
+  });
+
   it('returns null for unknown extensions', () => {
     expect(getTypeFromExtension('.xyz')).toBeNull();
     expect(getTypeFromExtension('.abc')).toBeNull();
@@ -142,6 +148,32 @@ describe('processFileBuffer', () => {
     expect(result.itemData.type).toBe('markdown');
     expect(result.itemData.content).toBe('# Hello World');
     expect(result.itemData.data).toBeNull();
+  });
+
+  it('processes an mp4 video file (returns base64 itemData)', () => {
+    const buf = Buffer.from([0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70]); // mp4 header-like bytes
+    const result = processFileBuffer(buf, 'clip.mp4');
+    expect(result).toHaveProperty('itemData');
+    expect(result.itemData.type).toBe('video');
+    expect(result.itemData.data).toBe(buf.toString('base64'));
+    expect(result.itemData.mimeType).toBe('video/mp4');
+    expect(result.itemData.filename).toBe('clip.mp4');
+  });
+
+  it('processes a .mov video file (returns base64 itemData)', () => {
+    const buf = Buffer.from([0x00, 0x01, 0x02, 0x03]);
+    const result = processFileBuffer(buf, 'screen.mov');
+    expect(result).toHaveProperty('itemData');
+    expect(result.itemData.type).toBe('video');
+    expect(result.itemData.mimeType).toBe('video/quicktime');
+  });
+
+  it('processes a .webm video file (returns base64 itemData)', () => {
+    const buf = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]); // WebM EBML header
+    const result = processFileBuffer(buf, 'capture.webm');
+    expect(result).toHaveProperty('itemData');
+    expect(result.itemData.type).toBe('video');
+    expect(result.itemData.mimeType).toBe('video/webm');
   });
 
   it('returns error for unknown binary extension', () => {
