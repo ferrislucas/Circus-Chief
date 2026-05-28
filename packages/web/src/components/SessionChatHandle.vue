@@ -113,4 +113,10 @@ function handleOpen() {
     transform: rotate(360deg);
   }
 }
+
+@media (min-width: 641px) {
+  .session-chat-handle {
+    display: none;
+  }
+}
 </style>

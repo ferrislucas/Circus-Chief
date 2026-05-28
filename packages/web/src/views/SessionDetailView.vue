@@ -76,6 +76,14 @@
         <CircusTimeTab
           v-else-if="activeTab === 'circus-time'"
         />
+        <SessionChatContent
+          v-else-if="activeTab === 'chat'"
+          :session-id="overlaySessionId"
+          :session-chain="sessionChain"
+          :summaries-map="summariesMap"
+          mode="embedded"
+          @session-created="handleOverlaySessionCreated"
+        />
       </div>
 
       <!-- Session Chat Handle -->
@@ -129,11 +137,13 @@ import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
+import SessionChatContent from '../components/SessionChatContent.vue';
 import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { api } from '../composables/useApi.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { sortSessionChain } from '../utils/sessionPickerRecency.js';
+import { isSessionDetailDesktop } from '../composables/useSessionDetailBreakpoint.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const route = useRoute();
@@ -386,17 +396,39 @@ function handleSessionCreated(msg) {
   buildSessionChain();
 }
 
-function handleOverlayOpen() {
-  resolveOverlayTarget();
+async function openChatDestination({ targetSessionId = null, replaceQuery = false } = {}) {
+  if (targetSessionId) {
+    preferredOverlaySessionId.value = targetSessionId;
+    overlaySessionId.value = targetSessionId;
+  } else {
+    resolveOverlayTarget();
+  }
+
+  if (isSessionDetailDesktop()) {
+    chatOverlayOpen.value = false;
+    const path = `/sessions/${currentSessionId.value}/chat`;
+    const navigation = { path, query: {} };
+    if (replaceQuery) {
+      await router.replace(navigation);
+    } else if (route.path !== path) {
+      await router.push(path);
+    }
+    return;
+  }
+
   chatOverlayOpen.value = true;
+  if (replaceQuery) {
+    await router.replace({ path: route.path, query: {} });
+  }
+}
+
+function handleOverlayOpen() {
+  openChatDestination();
 }
 
 async function handleScheduledSessionClick(sessionId) {
-  // Rebuild session chain to ensure the target session is included
   await buildSessionChain();
-  preferredOverlaySessionId.value = sessionId;
-  overlaySessionId.value = sessionId;
-  chatOverlayOpen.value = true;
+  await openChatDestination({ targetSessionId: sessionId });
 }
 
 async function handleOverlaySessionCreated(session) {
@@ -505,7 +537,8 @@ const tabs = computed(() => [
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
   { id: 'commands', label: 'Commands' },
-  { id: 'circus-time', label: 'Circus Time' }
+  { id: 'circus-time', label: 'Circus Time' },
+  { id: 'chat', label: 'Chat', desktopOnly: true }
 ]);
 
 // Watch for status changes from any source (optimistic updates, WebSocket, etc.)
@@ -548,10 +581,7 @@ onMounted(async () => {
 
   // Auto-open tree overlay if requested via query param (e.g., after new session creation)
   if (route.query.overlay === 'open') {
-    chatOverlayOpen.value = true;
-    // Clear the query param so refresh doesn't re-open.
-    // Use path only — do NOT spread the route object (it's a read-only proxy).
-    router.replace({ path: route.path, query: {} });
+    await openChatDestination({ replaceQuery: true });
   }
 
   // Fetch kanban board so SessionHeaderPanel can show lane chip
@@ -591,6 +621,9 @@ watch(
       await buildSessionChain();
       sessionChainReady.value = true;
       resolveOverlayTarget();
+      if (route.query.overlay === 'open') {
+        await openChatDestination({ replaceQuery: true });
+      }
 
       // Update project subscription if project changed
       if (newProjectId !== currentProjectSubscriptionId) {
@@ -603,6 +636,14 @@ watch(
         currentProjectSubscriptionId = newProjectId || null;
       }
     }
+  }
+);
+
+watch(
+  () => route.query.overlay,
+  async (overlay, previousOverlay) => {
+    if (overlay !== 'open' || previousOverlay === 'open' || !sessionChainReady.value) return;
+    await openChatDestination({ replaceQuery: true });
   }
 );
 
