@@ -132,7 +132,6 @@ import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
 import CommandsTab from '../components/CommandsTab.vue';
-import CircusTimeTab from '../components/CircusTimeTab.vue';
 import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionChatHandle from '../components/SessionChatHandle.vue';
@@ -485,6 +484,16 @@ const { cleanup, initializeSession } = useSessionInitializer({
 });
 
 const activeTab = computed(() => route.params.tab || 'summary');
+
+watch(
+  () => [route.params.tab, sessionsStore.currentSession?.projectId],
+  ([tab, projectId]) => {
+    if (tab === 'circus-time' && projectId) {
+      router.replace(`/projects/${projectId}/circus-time`);
+    }
+  },
+  { immediate: true }
+);
 
 // Command button status indicators for real-time updates (mirrors SessionCard behavior)
 const buttonStatusesToDisplay = computed(() => {
