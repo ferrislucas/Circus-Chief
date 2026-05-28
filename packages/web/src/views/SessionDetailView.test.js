@@ -27,9 +27,6 @@ vi.mock('../components/SummaryTab.vue', () => ({
 vi.mock('../components/CommandsTab.vue', () => ({
   default: { name: 'CommandsTab', template: '<div>Commands Tab</div>' }
 }));
-vi.mock('../components/CircusTimeTab.vue', () => ({
-  default: { name: 'CircusTimeTab', template: '<div>Circus Time Tab</div>' }
-}));
 vi.mock('../components/DuplicateSessionButton.vue', () => ({
   default: { name: 'DuplicateSessionButton', template: '<button @click="$emit(\'success\', { id: \'new\' })" :disabled="false">Duplicate</button>' }
 }));
@@ -209,7 +206,7 @@ describe('SessionDetailView', () => {
   }
 
   describe('tabs configuration', () => {
-    it('includes Summary, Changes, Canvas, Commands, and Circus Time tabs', async () => {
+    it('includes Summary, Changes, Canvas, and Commands tabs', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -244,40 +241,7 @@ describe('SessionDetailView', () => {
         'changes',
         'canvas',
         'commands',
-        'circus-time',
       ]);
-    });
-
-    it('renders Circus Time tab content from a direct route', async () => {
-      sessionsStore.currentSession = {
-        id: 'session-1',
-        name: 'Test Session',
-        status: 'running',
-        projectId: 'project-1'
-      };
-
-      await router.push('/sessions/session-1/circus-time');
-      await router.isReady();
-
-      const wrapper = trackedMount(SessionDetailView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            ChangesTab: true,
-            CanvasTab: true,
-            SummaryTab: true,
-            CommandsTab: true,
-
-            PrIndicators: true,
-            SchedulingInfo: true
-          }
-        }
-      });
-
-      await flushPromises();
-
-      expect(wrapper.findComponent({ name: 'CircusTimeTab' }).exists()).toBe(true);
-      expect(wrapper.text()).toContain('Circus Time Tab');
     });
 
     it('renders correct tab content for selected tab', async () => {
