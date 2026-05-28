@@ -238,11 +238,10 @@ test.describe('Session Chat Overlay', () => {
       // Instead, verify the standalone doesn't show handle (already tested above).
     });
 
-    test('root session name shown in overlay header', async ({ page }) => {
+    test('root session name is not shown in overlay header', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
-      const rootName = overlay.locator('.overlay-root-name');
-      await expect(rootName).toContainText('Parent Session');
+      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
     });
   });
 
@@ -541,8 +540,7 @@ test.describe('Session Chat Overlay', () => {
     await expect(overlay).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(400);
 
-    let rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Parent Session');
+    await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
 
     // Close overlay
     await page.locator('[data-testid="session-chat-overlay-close-handle"]').click();
@@ -554,8 +552,7 @@ test.describe('Session Chat Overlay', () => {
     await expect(overlayAgain).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(400);
 
-    const rootNameAgain = overlayAgain.locator('.overlay-root-name');
-    await expect(rootNameAgain).toContainText('Parent Session');
+    await expect(overlayAgain.locator('.overlay-root-name')).toHaveCount(0);
   });
 
   // ============================================================
@@ -732,9 +729,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      // The overlay-root-name always shows the root (parent) session name
-      const rootName = overlay.locator('.overlay-root-name');
-      await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
 
       // The dropdown should show the running child as the active session
       const dropdownName = overlay.locator('.dropdown-name');
@@ -762,9 +757,8 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      // The overlay should show the parent session name
-      const rootName = overlay.locator('.overlay-root-name');
-      await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+      const dropdownName = overlay.locator('.dropdown-name');
+      await expect(dropdownName).toContainText('Parent Session', { timeout: 5000 });
     });
 
     test('overlay opens on most recently updated running child when multiple running', async ({ page }) => {
@@ -791,9 +785,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      // The overlay-root-name always shows the root (parent) session name
-      const rootName = overlay.locator('.overlay-root-name');
-      await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
 
       // The dropdown should show the most recently updated running child as the active session
       const dropdownName = overlay.locator('.dropdown-name');
@@ -822,9 +814,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      // The overlay should show the standalone session name
-      const rootName = overlay.locator('.overlay-root-name');
-      await expect(rootName).toContainText('Standalone Session', { timeout: 5000 });
+      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
     });
 
     test('re-opening overlay after navigating between sessions resolves correctly', async ({ page }) => {
@@ -843,9 +833,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      // overlay-root-name always shows the root (parent) name
-      const rootName = overlay.locator('.overlay-root-name');
-      await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
 
       // The dropdown should show the running child as active session
       const dropdownName = overlay.locator('.dropdown-name');
@@ -876,9 +864,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlayAgain).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      // Should show the other session (not the previous child)
-      const rootName2 = overlayAgain.locator('.overlay-root-name');
-      await expect(rootName2).toContainText('Other Session', { timeout: 5000 });
+      await expect(overlayAgain.locator('.overlay-root-name')).toHaveCount(0);
     });
   });
 
@@ -911,9 +897,7 @@ test.describe('Session Chat Overlay', () => {
     test('clicking add session creates a child session and switches overlay to it', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
-      // The overlay-root-name always shows the root (parent) session name
-      const rootName = overlay.locator('.overlay-root-name');
-      await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
 
       // Click the add session button
       const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
@@ -922,9 +906,6 @@ test.describe('Session Chat Overlay', () => {
       // The dropdown should switch to show the new child session
       const dropdownName = overlay.locator('.dropdown-name');
       await expect(dropdownName).toContainText('New Session', { timeout: 10000 });
-
-      // The root name should still show parent
-      await expect(rootName).toContainText('Parent Session');
 
       // Verify session was created in backend (child of any session in the tree)
       const allSessions = await getProjectSessions(project.id);

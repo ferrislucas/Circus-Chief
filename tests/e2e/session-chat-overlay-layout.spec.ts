@@ -369,7 +369,7 @@ test.describe('SessionChatOverlay layout', () => {
     }
   });
 
-  test('phone layout wraps long title text and inline code without horizontal bleed', async ({ page }) => {
+  test('phone layout wraps long inline code without horizontal bleed', async ({ page }) => {
     const longSession = await seedSession(project.id, {
       prompt: 'Long content layout regression',
       name: 'Ensure session overlay header stays visible with a very long title',
@@ -401,7 +401,6 @@ test.describe('SessionChatOverlay layout', () => {
       const selectors = [
         '.overlay-content',
         '.overlay-header',
-        '.overlay-root-name',
         '.overlay-body',
         '.conversation-tab',
         '.messages',
@@ -452,15 +451,11 @@ test.describe('SessionChatOverlay layout', () => {
 
     const wrappingContract = await page.evaluate(() => {
       const overlayEl = document.querySelector('[data-testid="session-chat-overlay"]');
-      const title = overlayEl?.querySelector('.overlay-root-name') as HTMLElement | null;
       const code = overlayEl?.querySelector('.markdown-viewer code:not(pre code)') as HTMLElement | null;
-      if (!title || !code) return { missing: true };
-      const titleStyle = getComputedStyle(title);
+      if (!code) return { missing: true };
       const codeStyle = getComputedStyle(code);
       return {
         missing: false,
-        titleWordBreak: titleStyle.wordBreak,
-        titleLineBreak: titleStyle.lineBreak,
         codeWhiteSpace: codeStyle.whiteSpace,
         codeWordBreak: codeStyle.wordBreak,
         codeLineBreak: codeStyle.lineBreak,
@@ -471,8 +466,6 @@ test.describe('SessionChatOverlay layout', () => {
 
     expect(wrappingContract).toMatchObject({
       missing: false,
-      titleWordBreak: 'break-word',
-      titleLineBreak: 'anywhere',
       codeWhiteSpace: 'normal',
       codeWordBreak: 'break-all',
       codeLineBreak: 'anywhere',

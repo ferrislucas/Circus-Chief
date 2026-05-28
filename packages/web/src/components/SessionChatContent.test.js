@@ -219,6 +219,7 @@ describe('SessionChatContent', () => {
     expect(wrapper.classes()).toContain('session-chat-content--embedded');
     expect(wrapper.find('.overlay-backdrop').exists()).toBe(false);
     expect(wrapper.find('[data-testid="session-chat-overlay-close-handle"]').exists()).toBe(false);
+    expect(wrapper.find('.back-to-sessions-link').exists()).toBe(false);
 
     await wrapper.find('[data-testid="overlay-picker-trigger"]').trigger('click');
     expect(pickerOpenChange).toHaveBeenLastCalledWith(true);

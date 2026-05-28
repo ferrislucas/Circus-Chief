@@ -13,12 +13,6 @@
       class="overlay-header"
       @touchmove="handleHeaderTouchmove"
     >
-      <div class="overlay-header-row">
-        <div class="session-name-wrapper">
-          <span class="overlay-root-name">{{ rootSessionName }}</span>
-        </div>
-      </div>
-
       <div
         v-if="hasDescendants"
         ref="pickerAreaRef"
@@ -45,6 +39,7 @@
 
       <div class="overlay-header-row overlay-header-actions">
         <router-link
+          v-if="mode !== 'embedded'"
           :to="backToSessionsUrl"
           class="back-to-sessions-link"
           title="Back to Sessions"
@@ -222,21 +217,6 @@ const {
 const activeSessionDisplayName = computed(() => {
   const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
   return session?.name || 'Session';
-});
-
-const rootSession = computed(() => {
-  const root = mainSessionsStore.getRootSession(props.sessionId);
-  if (root) return root;
-  const current = sessionsStore.currentSession;
-  if (current?.id === props.sessionId) return current;
-  return null;
-});
-
-const rootSessionName = computed(() => {
-  const chainRoot = props.sessionChain.find(entry => entry.depth === 0);
-  if (chainRoot?.session?.name) return chainRoot.session.name;
-  if (rootSession.value?.name) return rootSession.value.name;
-  return mainSessionsStore.currentSession?.name || sessionsStore.currentSession?.name || 'Session';
 });
 
 const hasDescendants = computed(() => props.sessionChain.length > 1);
@@ -557,28 +537,6 @@ defineExpose({
 .overlay-header-actions {
   justify-content: space-between;
   gap: 0.5rem;
-}
-
-.session-name-wrapper {
-  display: inline-flex;
-  align-items: center;
-  flex: 1;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.overlay-root-name {
-  display: block;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-primary, #06b6d4);
-  min-width: 0;
-  max-width: 100%;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  line-break: anywhere;
 }
 
 .dropdown-trigger {

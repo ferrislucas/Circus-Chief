@@ -345,11 +345,11 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('displays active session name in header', async () => {
+    it('does not display root session name in header', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const name = document.querySelector('.overlay-root-name');
-      expect(name.textContent).toBe('Root Session');
+      expect(name).toBeNull();
       wrapper.unmount();
     });
 
