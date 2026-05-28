@@ -30,6 +30,12 @@ import { extractPrUrlIfNeeded, parsePrUrl, validatePrUrl, enrichPrData } from '.
 import { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './childSessionContext.js';
 import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
 import { isSummaryStale } from './summaryStaleCheck.js';
+import { computeWorkflowFingerprint } from './summaryFingerprint.js';
+import {
+  validateAndRepairWorkflowCoverage,
+  checkFullSummaryOmissions,
+  buildFallbackSummaryAddition,
+} from './summaryWorkflowCoverage.js';
 
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
@@ -119,8 +125,13 @@ function fetchConversationContext(sessionId, { existingSummary, recentMessages, 
 
 /**
  * Persist the generated summary and broadcast all related updates.
- * Handles: metadata tracking, file aggregation, PR enrichment, upsert,
+ * Handles: metadata tracking, PR enrichment, upsert,
  * project repo auto-population, session name/prUrl update, and broadcasts.
+ *
+ * NOTE: workflow coverage repair and fingerprint computation are performed by
+ * the caller (_doGenerateSummary / saveManualSummary) BEFORE calling this
+ * function so that the retry/fallback logic can operate on the data.
+ *
  * @param {string} sessionId
  * @param {Object} summaryDataInput - parsed summary data (mutated in place)
  * @param {Object} session
@@ -134,11 +145,6 @@ async function saveSummaryResult(sessionId, summaryDataInput, session, allMessag
 
   // Add message count and last message ID for staleness tracking
   trackMessageMetadata(summaryData, allMessages);
-
-  // For root sessions (no parent), aggregate files from all child sessions
-  if (!session.parentSessionId) {
-    summaryData.filesModified = aggregateFilesModified(sessionId, summaryData.filesModified);
-  }
 
   // Validate and enrich PR URL
   const prUrl = summaryData.prUrl || session.prUrl;
@@ -244,6 +250,12 @@ function createMinimalSummary(sessionId, session, allMessages) {
     lastSummarizedMessageId: lastMessage ? lastMessage.id : null,
   };
 
+  // Compute and store workflow fingerprint when session has descendants
+  const descendantIds = sessions.getAllDescendantIds(sessionId);
+  if (descendantIds.length > 0) {
+    minimalSummary.workflowFingerprint = computeWorkflowFingerprint(sessionId);
+  }
+
   const summary = sessionSummaries.upsert(sessionId, minimalSummary);
 
   broadcastSummaryUpdate(sessionId, session.projectId, summary);
@@ -311,6 +323,53 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     const summaryData = parseSummaryResponse(responseText);
     const retryResult = await retryIfParseFailed(summaryData, retryCount, { sessionId, force, userInitiated });
     if (retryResult.shouldRetry) return retryResult.result;
+
+    // Workflow coverage repair and fingerprinting
+    const descendantIds = sessions.getAllDescendantIds(sessionId);
+    const descendants = descendantIds.map(id => sessions.getById(id)).filter(Boolean);
+
+    if (descendants.length > 0) {
+      // Apply repair: merge descendant files/actions, upgrade outcome
+      validateAndRepairWorkflowCoverage(summaryData, descendants);
+
+      // Check if the LLM omitted material descendant facts
+      const omissions = checkFullSummaryOmissions(summaryData, descendants);
+      if (omissions.length > 0) {
+        const correctionNote = `IMPORTANT: The previous summary was missing these descendant facts:\n${omissions.map(o => `- ${o}`).join('\n')}\nPlease include these facts in the updated summary.`;
+        try {
+          const correctionPrompt = correctionNote + '\n\n' + buildIncrementalPrompt(summaryData, recentMessages, session.status, {
+            projectTitlePrompt: globalSettings?.sessionTitlePrompt,
+            childContext: buildChildSessionContext(sessionId),
+          });
+          const retryResponseText = await callSummaryModel(correctionPrompt, recentMessages, session.status, {
+            logMeta: { sessionId, callType: 'workflowCoverageRetry' },
+            systemPrompt: SUMMARY_SYSTEM_PROMPT,
+            summarySettings: globalSettings,
+          });
+          const retrySummaryData = parseSummaryResponse(retryResponseText);
+          if (!retrySummaryData._parseFailed) {
+            // Apply the retry result onto summaryData
+            Object.assign(summaryData, retrySummaryData);
+            delete summaryData._parseFailed;
+            validateAndRepairWorkflowCoverage(summaryData, descendants);
+          }
+        } catch (coverageErr) {
+          console.warn(`[SummaryService] Workflow coverage retry failed for ${sessionId}:`, coverageErr.message);
+        }
+
+        // If still omitting after retry, append fallback addition to fullSummary
+        const stillMissing = checkFullSummaryOmissions(summaryData, descendants);
+        if (stillMissing.length > 0) {
+          const fallback = buildFallbackSummaryAddition(descendants);
+          if (fallback) {
+            summaryData.fullSummary = (summaryData.fullSummary || '') + fallback;
+          }
+        }
+      }
+
+      // Compute and store workflow fingerprint (captures final state after all repairs)
+      summaryData.workflowFingerprint = computeWorkflowFingerprint(sessionId);
+    }
 
     // Persist summary and broadcast updates
     const summary = await saveSummaryResult(sessionId, summaryData, session, allMessages);
@@ -416,11 +475,29 @@ function tryLightweightOutcomeUpdate(sessionId, existingSummary, session) {
     return true;
   }
 
-  sessionSummaries.upsert(sessionId, { ...existingSummary, outcome: newOutcome });
+  // Prepare updated data
+  const updatedData = { ...existingSummary, outcome: newOutcome };
+
+  // When session has descendants, recompute workflow fingerprint to reflect
+  // the outcome change so the fingerprint stays consistent with stored data.
+  const descendantIds = sessions.getAllDescendantIds(sessionId);
+  if (descendantIds.length > 0) {
+    updatedData.workflowFingerprint = computeWorkflowFingerprint(sessionId);
+  }
+
+  sessionSummaries.upsert(sessionId, updatedData);
   console.log(`[SummaryService] Lightweight outcome update for session ${sessionId}: ${existingSummary.outcome} -> ${newOutcome}`);
 
   const updatedSummary = sessionSummaries.getBySessionId(sessionId);
   broadcastSummaryUpdate(sessionId, session.projectId, updatedSummary);
+
+  // Propagate to parent ancestors when the outcome changed
+  if (session.parentSessionId) {
+    propagateToParent(sessionId).catch((err) => {
+      console.error(`[SummaryService] Failed to propagate after lightweight outcome update for ${sessionId}:`, err);
+    });
+  }
+
   return true;
 }
 
@@ -483,6 +560,45 @@ export async function regenerateSummary(sessionId) {
   return generateSummary(sessionId, 0, true, true);
 }
 
+/**
+ * Save a manually provided summary (e.g. from PUT /api/sessions/:id/summary).
+ *
+ * - Resolves to the workflow root session before writing.
+ * - Merges existing summary with the request data (partial-update semantics).
+ * - Tracks message metadata when not supplied by the caller.
+ * - Applies workflow coverage repair and workflow fingerprinting for roots that
+ *   have descendants.
+ *
+ * @param {string} sessionId - The session ID from the API request (may be child).
+ * @param {Object} data - Partial summary data from the request body.
+ * @returns {Object} The persisted summary record.
+ */
+export function saveManualSummary(sessionId, data) {
+  // Resolve to the workflow root session
+  const rootSessionId = sessions.getRootSessionId(sessionId) || sessionId;
+
+  // Merge existing summary with request data (partial-update semantics)
+  const existing = sessionSummaries.getBySessionId(rootSessionId);
+  const merged = { ...(existing || {}), ...data };
+
+  // Track message metadata when the caller omitted messageCount
+  if (merged.messageCount == null) {
+    const allMessages = messages.getBySessionId(rootSessionId);
+    trackMessageMetadata(merged, allMessages);
+  }
+
+  // For workflow roots with descendants: apply coverage repair + fingerprint
+  const descendantIds = sessions.getAllDescendantIds(rootSessionId);
+  const descendants = descendantIds.map(id => sessions.getById(id)).filter(Boolean);
+
+  if (descendants.length > 0) {
+    validateAndRepairWorkflowCoverage(merged, descendants);
+    merged.workflowFingerprint = computeWorkflowFingerprint(rootSessionId);
+  }
+
+  return sessionSummaries.upsert(rootSessionId, merged);
+}
+
 // Re-export isSummaryStale from summaryStaleCheck.js for backward compatibility
 export { isSummaryStale };
 
@@ -495,14 +611,33 @@ export function cleanupSession(sessionId) {
 }
 
 /**
- * Propagate summary update to parent sessions
+ * Propagate summary update to all ancestor sessions, in nearest-parent-to-root
+ * order. Awaiting each generation ensures that by the time root is regenerated,
+ * all intermediate ancestors already have updated summaries that the root can
+ * read for its workflow context.
+ *
  * @param {string} sessionId - The child session ID that was updated
  */
 export async function propagateToParent(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session || !session.parentSessionId) return;
 
-  generateSummary(session.parentSessionId);
+  // Walk upward from the immediate parent to the root, collecting all ancestors
+  const ancestors = [];
+  let current = sessions.getById(session.parentSessionId);
+  const visited = new Set();
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    ancestors.push(current.id);
+    if (!current.parentSessionId) break;
+    current = sessions.getById(current.parentSessionId);
+  }
+
+  // Generate ancestors in nearest-parent-to-root order (bottom-up) so that
+  // each level sees the updated summary of the level below it.
+  for (const ancestorId of ancestors) {
+    await generateSummary(ancestorId);
+  }
 }
 
 /**

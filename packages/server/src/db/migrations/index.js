@@ -272,4 +272,7 @@ export const allMigrations = validateMigrations([
 
   // --- Repair missing session parent links from worktree paths ---
   repairMissingSessionParentsFromWorktree,
+
+  // --- Session summaries workflow fingerprint ---
+  c.get('session_summaries-add-workflow_fingerprint'),
 ]);
