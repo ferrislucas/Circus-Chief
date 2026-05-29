@@ -44,6 +44,72 @@ function collectDescendantSummaries(descendants) {
 }
 
 /**
+ * Merge descendant filesModified into the root set (dedup).
+ * @param {string[]} rootFiles - Root session's filesModified
+ * @param {Array} pairs - Descendant summary pairs
+ * @returns {string[]} Deduplicated merged files list
+ */
+function mergeDescendantFiles(rootFiles, pairs) {
+  const allFiles = new Set(Array.isArray(rootFiles) ? rootFiles : []);
+  for (const { summary } of pairs) {
+    if (Array.isArray(summary.filesModified)) {
+      for (const file of summary.filesModified) {
+        allFiles.add(file);
+      }
+    }
+  }
+  return Array.from(allFiles);
+}
+
+/**
+ * Collect unique actions from a summary's keyActions that aren't already in the set.
+ * @param {Object} summary - Descendant summary
+ * @param {Set} existingActions - Set of lowercase action strings already seen
+ * @param {string[]} candidateActions - Array to push new actions into
+ */
+function collectUniqueActions(summary, existingActions, candidateActions) {
+  if (!Array.isArray(summary.keyActions)) return;
+  for (const action of summary.keyActions) {
+    if (!existingActions.has(action.toLowerCase())) {
+      candidateActions.push(action);
+      existingActions.add(action.toLowerCase());
+    }
+  }
+}
+
+/**
+ * Merge descendant key actions into the root list (dedup, up to limit).
+ * @param {string[]} rootActions - Root session's keyActions
+ * @param {Array} pairs - Descendant summary pairs
+ * @returns {string[]} Combined key actions list
+ */
+function mergeDescendantActions(rootActions, pairs) {
+  const existingActions = new Set(
+    (Array.isArray(rootActions) ? rootActions : []).map((a) => a.toLowerCase())
+  );
+  const candidateActions = [];
+  for (const { summary } of pairs) {
+    collectUniqueActions(summary, existingActions, candidateActions);
+  }
+  const combined = [...(Array.isArray(rootActions) ? rootActions : []), ...candidateActions];
+  return combined.slice(0, MAX_DESCENDANT_KEY_ACTIONS);
+}
+
+/**
+ * Compute aggregate outcome across root and all descendants.
+ * @param {string} rootOutcome - Root session's outcome
+ * @param {Array} pairs - Descendant summary pairs
+ * @returns {string} The highest-priority outcome
+ */
+function computeAggregateOutcome(rootOutcome, pairs) {
+  let aggregate = rootOutcome || 'ongoing';
+  for (const { summary } of pairs) {
+    aggregate = higherOutcome(aggregate, summary.outcome);
+  }
+  return aggregate;
+}
+
+/**
  * Validate and repair workflow coverage of a root summary.
  *
  * Repairs applied (in order):
@@ -52,52 +118,46 @@ function collectDescendantSummaries(descendants) {
  *   3. Upgrade root `outcome` if any descendant has a more final outcome,
  *      preventing "ongoing" when a child completed.
  *
- * @param {Object} summaryData - The root summary data object (will be mutated).
+ * @param {Object} summaryData - The root summary data object.
  * @param {Array} descendants - All descendant session objects.
- * @returns {Object} The repaired summaryData (same reference, mutated in-place).
+ * @returns {Object} A new object with repaired data (original not mutated).
  */
 export function validateAndRepairWorkflowCoverage(summaryData, descendants) {
   const pairs = collectDescendantSummaries(descendants);
   if (pairs.length === 0) return summaryData;
 
-  // 1. Merge descendant filesModified into root filesModified (dedup)
-  const allFiles = new Set(Array.isArray(summaryData.filesModified) ? summaryData.filesModified : []);
-  for (const { summary } of pairs) {
-    if (Array.isArray(summary.filesModified)) {
-      for (const file of summary.filesModified) {
-        allFiles.add(file);
-      }
-    }
-  }
-  summaryData.filesModified = Array.from(allFiles);
+  return {
+    ...summaryData,
+    filesModified: mergeDescendantFiles(summaryData.filesModified, pairs),
+    keyActions: mergeDescendantActions(summaryData.keyActions, pairs),
+    outcome: computeAggregateOutcome(summaryData.outcome, pairs),
+  };
+}
 
-  // 2. Add material descendant key actions missing from root keyActions
-  const existingActions = new Set(
-    (Array.isArray(summaryData.keyActions) ? summaryData.keyActions : []).map((a) => a.toLowerCase())
-  );
-  const candidateActions = [];
-  for (const { summary } of pairs) {
-    if (Array.isArray(summary.keyActions)) {
-      for (const action of summary.keyActions) {
-        if (!existingActions.has(action.toLowerCase())) {
-          candidateActions.push(action);
-          existingActions.add(action.toLowerCase());
-        }
-      }
-    }
-  }
-  const rootActions = Array.isArray(summaryData.keyActions) ? summaryData.keyActions : [];
-  const combined = [...rootActions, ...candidateActions];
-  summaryData.keyActions = combined.slice(0, MAX_DESCENDANT_KEY_ACTIONS);
+/**
+ * Check if a descendant's presence in the summary text indicates an omission.
+ * @param {Object} session - Session object
+ * @param {Object} summary - Descendant summary object
+ * @param {string} combinedText - Lowercase combined summary text
+ * @returns {string|null} Missing-fact description, or null if no omission
+ */
+function checkDescendantOmission(session, summary, combinedText) {
+  const sessionName = (session.name || '').toLowerCase();
+  const namePresent = sessionName && combinedText.includes(sessionName);
+  const outcomeText = summary.outcome || '';
+  const outcomePresent = outcomeText && outcomeText !== 'ongoing'
+    && combinedText.includes(outcomeText);
+  const hasFinalOutcome = outcomeText && outcomeText !== 'ongoing';
 
-  // 3. Compute aggregate outcome: root should not say "ongoing" if a descendant completed
-  let aggregateOutcome = summaryData.outcome || 'ongoing';
-  for (const { summary } of pairs) {
-    aggregateOutcome = higherOutcome(aggregateOutcome, summary.outcome);
-  }
-  summaryData.outcome = aggregateOutcome;
+  if (!hasFinalOutcome) return null;
 
-  return summaryData;
+  if (!namePresent) {
+    return `Child session "${session.name || session.id}" (outcome: ${outcomeText}) is not mentioned in the summary`;
+  }
+  if (!outcomePresent) {
+    return `Child session "${session.name || session.id}" outcome "${outcomeText}" is not clearly stated`;
+  }
+  return null;
 }
 
 /**
@@ -119,21 +179,8 @@ export function checkFullSummaryOmissions(summaryData, descendants) {
   const missing = [];
 
   for (const { session, summary } of pairs) {
-    const sessionName = (session.name || '').toLowerCase();
-    const namePresent = sessionName && combinedText.includes(sessionName);
-    const outcomePresent = summary.outcome && summary.outcome !== 'ongoing'
-      && combinedText.includes(summary.outcome);
-
-    // Flag if a non-trivial descendant is entirely unmentioned
-    if (!namePresent && summary.outcome && summary.outcome !== 'ongoing') {
-      missing.push(
-        `Child session "${session.name || session.id}" (outcome: ${summary.outcome}) is not mentioned in the summary`
-      );
-    } else if (namePresent && !outcomePresent && summary.outcome && summary.outcome !== 'ongoing') {
-      missing.push(
-        `Child session "${session.name || session.id}" outcome "${summary.outcome}" is not clearly stated`
-      );
-    }
+    const omission = checkDescendantOmission(session, summary, combinedText);
+    if (omission) missing.push(omission);
   }
 
   return missing;

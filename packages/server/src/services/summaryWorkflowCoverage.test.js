@@ -246,7 +246,7 @@ describe('summaryWorkflowCoverage', () => {
       expect(result.outcome).toBe('completed');
     });
 
-    it('mutates summaryData in-place and returns same reference', () => {
+    it('returns new object with repaired data (does not mutate original)', () => {
       const child = makeChild('Child', {
         shortSummary: 'Child',
         fullSummary: 'Child full',
@@ -264,7 +264,14 @@ describe('summaryWorkflowCoverage', () => {
       };
 
       const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
-      expect(result).toBe(summaryData);
+      // Returns a new object (immutable API — does not mutate summaryData)
+      expect(result).not.toBe(summaryData);
+      // Original is not mutated
+      expect(summaryData.filesModified).toEqual([]);
+      expect(summaryData.outcome).toBe('ongoing');
+      // Result has the repaired data
+      expect(result.filesModified).toContain('child.js');
+      expect(result.outcome).toBe('completed');
     });
   });
 

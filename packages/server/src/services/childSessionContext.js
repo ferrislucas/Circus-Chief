@@ -52,6 +52,47 @@ function getDescendantsInTreeOrder(sessionId) {
 }
 
 /**
+ * Format a list section (key actions or files modified).
+ * @param {string} label - Section label
+ * @param {string[]} items - Items to list
+ * @param {number} maxItems - Maximum items to show
+ * @param {string[]} lines - Output lines array to push into
+ */
+function formatListSection(label, items, maxItems, lines) {
+  if (items.length === 0) return;
+  lines.push(`   ${label}:`);
+  const shown = items.slice(0, maxItems);
+  for (const item of shown) {
+    lines.push(`   - ${item}`);
+  }
+  if (items.length > maxItems) {
+    lines.push(`   - ... and ${items.length - maxItems} more`);
+  }
+}
+
+/**
+ * Format PR/CI details section.
+ * @param {Object} summary - Summary object
+ * @param {string[]} lines - Output lines array to push into
+ */
+function formatPrCiSection(summary, lines) {
+  const hasPrCi = summary.prState || summary.ciStatus || summary.ciFailures?.length > 0
+    || summary.hasMergeConflicts !== null;
+  if (!hasPrCi) return;
+
+  lines.push('   PR/CI:');
+  if (summary.prState) lines.push(`   - PR state: ${summary.prState}`);
+  if (summary.hasMergeConflicts !== null) {
+    lines.push(`   - Merge conflicts: ${summary.hasMergeConflicts ? 'yes' : 'no'}`);
+  }
+  if (summary.ciStatus) lines.push(`   - CI status: ${summary.ciStatus}`);
+  const ciFailures = Array.isArray(summary.ciFailures) ? summary.ciFailures : [];
+  if (ciFailures.length > 0) {
+    lines.push(`   - CI failures: ${ciFailures.join(', ')}`);
+  }
+}
+
+/**
  * Format a single descendant's context block.
  * @param {Object} session - Session object
  * @param {Object|null} summary - Summary object or null
@@ -83,50 +124,18 @@ function formatDescendantBlock(session, summary, index) {
 
   if (summary.fullSummary) {
     const truncated = summary.fullSummary.length > MAX_FULL_SUMMARY_CHARS
-      ? summary.fullSummary.slice(0, MAX_FULL_SUMMARY_CHARS) + '... [truncated]'
+      ? `${summary.fullSummary.slice(0, MAX_FULL_SUMMARY_CHARS)}... [truncated]`
       : summary.fullSummary;
     lines.push(`   Full summary: ${truncated}`);
   }
 
   const keyActions = Array.isArray(summary.keyActions) ? summary.keyActions : [];
-  if (keyActions.length > 0) {
-    lines.push('   Key actions:');
-    const shown = keyActions.slice(0, MAX_KEY_ACTIONS);
-    for (const action of shown) {
-      lines.push(`   - ${action}`);
-    }
-    if (keyActions.length > MAX_KEY_ACTIONS) {
-      lines.push(`   - ... and ${keyActions.length - MAX_KEY_ACTIONS} more`);
-    }
-  }
+  formatListSection('Key actions', keyActions, MAX_KEY_ACTIONS, lines);
 
   const filesModified = Array.isArray(summary.filesModified) ? summary.filesModified : [];
-  if (filesModified.length > 0) {
-    lines.push('   Files modified:');
-    const shown = filesModified.slice(0, MAX_FILES_MODIFIED);
-    for (const file of shown) {
-      lines.push(`   - ${file}`);
-    }
-    if (filesModified.length > MAX_FILES_MODIFIED) {
-      lines.push(`   - ... and ${filesModified.length - MAX_FILES_MODIFIED} more`);
-    }
-  }
+  formatListSection('Files modified', filesModified, MAX_FILES_MODIFIED, lines);
 
-  // PR/CI details (only when at least one field is present)
-  const hasPrCi = summary.prState || summary.ciStatus || summary.ciFailures?.length > 0
-    || summary.hasMergeConflicts !== null;
-  if (hasPrCi) {
-    lines.push('   PR/CI:');
-    if (summary.prState) lines.push(`   - PR state: ${summary.prState}`);
-    if (summary.hasMergeConflicts !== null) {
-      lines.push(`   - Merge conflicts: ${summary.hasMergeConflicts ? 'yes' : 'no'}`);
-    }
-    if (summary.ciStatus) lines.push(`   - CI status: ${summary.ciStatus}`);
-    const ciFailures = Array.isArray(summary.ciFailures) ? summary.ciFailures : [];
-    if (ciFailures.length > 0) {
-      lines.push(`   - CI failures: ${ciFailures.join(', ')}`);
-    }
-  }
+  formatPrCiSection(summary, lines);
 
   return lines.join('\n');
 }
@@ -159,7 +168,7 @@ export function buildChildSessionContext(sessionId) {
   }
 
   // Truncate at the limit and append marker
-  return full.slice(0, TOTAL_WORKFLOW_CONTEXT_LIMIT) + '\n... [workflow context truncated]';
+  return `${full.slice(0, TOTAL_WORKFLOW_CONTEXT_LIMIT)}\n... [workflow context truncated]`;
 }
 
 /**

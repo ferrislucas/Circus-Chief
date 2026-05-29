@@ -22,6 +22,45 @@ function hasNewerDescendantSummary(sessionId, generatedAt) {
 }
 
 /**
+ * Check if the workflow descendant state has changed since the summary was generated.
+ * Uses fingerprint comparison when available, falls back to timestamp-based check.
+ * @param {string} sessionId
+ * @param {Object} summary - The existing summary
+ * @returns {boolean}
+ */
+function isDescendantStateStale(sessionId, summary) {
+  const descendantIds = sessions.getAllDescendantIds(sessionId);
+  if (descendantIds.length === 0) return false;
+
+  if (summary.workflowFingerprint) {
+    const currentFingerprint = computeWorkflowFingerprint(sessionId);
+    return currentFingerprint !== summary.workflowFingerprint;
+  }
+
+  return hasNewerDescendantSummary(sessionId, summary.generatedAt);
+}
+
+/**
+ * Check own-session message staleness.
+ * Returns true if the message metadata has changed since the summary was generated.
+ * @param {Object} summary - The existing summary
+ * @param {Array} allMessages - All messages for the session
+ * @returns {boolean}
+ */
+function isOwnMessageStateStale(summary, allMessages) {
+  if (summary.lastSummarizedMessageId) {
+    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
+    const lastMessageId = lastMessage ? lastMessage.id : null;
+
+    if (lastMessageId !== summary.lastSummarizedMessageId) return true;
+    if (allMessages.length !== summary.messageCount) return true;
+  } else {
+    if (allMessages.length !== summary.messageCount) return true;
+  }
+  return false;
+}
+
+/**
  * Check if a summary is stale (message count, last message ID, or descendant
  * workflow state has changed since the summary was generated).
  *
@@ -42,41 +81,8 @@ export function isSummaryStale(sessionId) {
   if (!summary) return true;
 
   const allMessages = messages.getBySessionId(sessionId);
-
-  // Message-ID-based own-session staleness (most reliable check)
-  if (summary.lastSummarizedMessageId) {
-    const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-    const lastMessageId = lastMessage ? lastMessage.id : null;
-
-    if (lastMessageId !== summary.lastSummarizedMessageId) {
-      return true;
-    }
-
-    // Defensive secondary check: count must also match
-    if (allMessages.length !== summary.messageCount) return true;
-  } else {
-    // Fallback to count-based staleness detection for old summaries
-    if (allMessages.length !== summary.messageCount) return true;
-  }
-
-  // Workflow descendant staleness checks
-  const descendantIds = sessions.getAllDescendantIds(sessionId);
-  if (descendantIds.length > 0) {
-    if (summary.workflowFingerprint) {
-      // Fingerprint-based check: most accurate, catches content changes even when
-      // timestamps cannot be trusted (e.g. parent regenerated after child).
-      const currentFingerprint = computeWorkflowFingerprint(sessionId);
-      if (currentFingerprint !== summary.workflowFingerprint) {
-        return true;
-      }
-    } else {
-      // Legacy fallback: summaries generated before fingerprinting was introduced
-      // still use the timestamp-based approach.
-      if (hasNewerDescendantSummary(sessionId, summary.generatedAt)) {
-        return true;
-      }
-    }
-  }
+  if (isOwnMessageStateStale(summary, allMessages)) return true;
+  if (isDescendantStateStale(sessionId, summary)) return true;
 
   return false;
 }

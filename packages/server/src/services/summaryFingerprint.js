@@ -20,12 +20,12 @@ function stableJson(value) {
     return JSON.stringify(value);
   }
   if (Array.isArray(value)) {
-    return '[' + value.map(stableJson).join(',') + ']';
+    return `[${value.map(stableJson).join(',')}]`;
   }
   if (typeof value === 'object') {
     const keys = Object.keys(value).sort();
-    const pairs = keys.map((k) => JSON.stringify(k) + ':' + stableJson(value[k]));
-    return '{' + pairs.join(',') + '}';
+    const pairs = keys.map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`);
+    return `{${pairs.join(',')}}`;
   }
   return JSON.stringify(value);
 }
