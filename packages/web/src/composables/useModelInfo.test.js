@@ -17,6 +17,11 @@ describe('useModelInfo', () => {
       expect(getModelDisplayName('claude-opus-4-7')).toBe('Opus 4.7');
     });
 
+    it('returns "Opus 4.8" for claude-opus-4-8', () => {
+      const { getModelDisplayName } = useModelInfo();
+      expect(getModelDisplayName('claude-opus-4-8')).toBe('Opus 4.8');
+    });
+
     it('returns "Sonnet 4.6" for claude-sonnet-4-6', () => {
       const { getModelDisplayName } = useModelInfo();
       expect(getModelDisplayName('claude-sonnet-4-6')).toBe('Sonnet 4.6');
@@ -54,9 +59,14 @@ describe('useModelInfo', () => {
       expect(getModelDescription('claude-opus-4-6')).toBe('Previous generation');
     });
 
-    it('returns "Most capable (default)" for Opus 4.7 model', () => {
+    it('returns "Previous generation" for Opus 4.7 model', () => {
       const { getModelDescription } = useModelInfo();
-      expect(getModelDescription('claude-opus-4-7')).toBe('Most capable (default)');
+      expect(getModelDescription('claude-opus-4-7')).toBe('Previous generation');
+    });
+
+    it('returns "Most capable (default)" for Opus 4.8 model', () => {
+      const { getModelDescription } = useModelInfo();
+      expect(getModelDescription('claude-opus-4-8')).toBe('Most capable (default)');
     });
 
     it('returns "Balanced" for Sonnet model', () => {
@@ -99,6 +109,17 @@ describe('useModelInfo', () => {
 
       expect(info).toMatchObject({
         name: 'Opus 4.7',
+        description: 'Previous generation',
+        agentType: 'claude-code',
+      });
+    });
+
+    it('returns object with name and description for Opus 4.8', () => {
+      const { getModelInfo } = useModelInfo();
+      const info = getModelInfo('claude-opus-4-8');
+
+      expect(info).toMatchObject({
+        name: 'Opus 4.8',
         description: 'Most capable (default)',
         agentType: 'claude-code',
       });

@@ -19,6 +19,8 @@ const mockRouterPush = vi.fn((path) => {
     mockRoute.name = 'ProjectTemplates';
   } else if (path.includes('/commands')) {
     mockRoute.name = 'ProjectCommands';
+  } else if (path.includes('/circus-time')) {
+    mockRoute.name = 'ProjectCircusTime';
   } else if (path.includes('/kanban')) {
     mockRoute.name = 'ProjectKanban';
   } else {
@@ -375,6 +377,13 @@ vi.mock('../components/CommandButtonsPanel.vue', () => ({
     name: 'CommandButtonsPanel',
     props: ['projectId'],
     template: '<div class="command-buttons-panel" />',
+  }),
+}));
+
+vi.mock('../components/CircusTimeTab.vue', () => ({
+  default: defineComponent({
+    name: 'CircusTimeTab',
+    template: '<div class="circus-time-tab">Circus Time Tab</div>',
   }),
 }));
 
@@ -1620,15 +1629,33 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     const tabs = wrapper.findAll('.tab');
-    expect(tabs.length).toBe(4);
+    expect(tabs.length).toBe(5);
     expect(tabs[0].text()).toBe('Sessions');
     expect(tabs[1].text()).toBe('Archived');
     expect(tabs[2].text()).toBe('Templates');
     expect(tabs[3].text()).toBe('Commands');
+    expect(tabs[4].text()).toBe('Circus Time');
 
     // Sessions tab should be active
     expect(tabs[0].classes()).toContain('active');
     expect(tabs[1].classes()).not.toContain('active');
+  });
+
+  it('renders Circus Time as a project-level tab', async () => {
+    const wrapper = mount(SessionListView);
+    await flushAll(wrapper);
+
+    const circusTimeTab = wrapper
+      .findAll('.tabs-desktop .tab')
+      .find(tab => tab.text() === 'Circus Time');
+    expect(circusTimeTab).toBeTruthy();
+
+    await circusTimeTab.trigger('click');
+    await flushAll(wrapper);
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/projects/test-project-id/circus-time');
+    expect(wrapper.findComponent({ name: 'CircusTimeTab' }).exists()).toBe(true);
+    expect(wrapper.find('.circus-time-tab').text()).toContain('Circus Time Tab');
   });
 
   it('switches to Archived tab when clicked', async () => {

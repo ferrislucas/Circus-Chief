@@ -7,7 +7,7 @@
  */
 
 /**
- * @typedef {'claude-sonnet-4-6' | 'claude-opus-4-6' | 'claude-opus-4-7' | 'claude-haiku-4-5-20251001'} ClaudeModel
+ * @typedef {'claude-sonnet-4-6' | 'claude-opus-4-6' | 'claude-opus-4-7' | 'claude-opus-4-8' | 'claude-haiku-4-5-20251001'} ClaudeModel
  */
 
 /**
@@ -110,9 +110,10 @@ export const CLAUDE_MODELS = [
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight' },
   { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', description: 'Balanced' },
   { id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Previous generation' },
-  { id: 'claude-opus-4-7', name: 'Opus 4.7', description: 'Most capable (default)' },
+  { id: 'claude-opus-4-7', name: 'Opus 4.7', description: 'Previous generation' },
+  { id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Most capable (default)' },
 ];
-export const DEFAULT_MODEL = 'claude-opus-4-7';
+export const DEFAULT_MODEL = 'claude-opus-4-8';
 
 export const OPENAI_MODELS = [
   {

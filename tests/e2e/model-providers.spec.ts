@@ -12,6 +12,7 @@ import {
   removeProviderModel,
   getProviders,
   navigateAndWait,
+  openSessionOverlay,
   API_URL,
   BASE_URL,
   TEST_PREFIX,
@@ -375,12 +376,7 @@ test.describe('Model Provider - Session Model Selection', () => {
     await page.waitForLoadState('networkidle');
 
     // Open the session chat overlay
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await handle.waitFor({ state: 'visible', timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('.session-chat-overlay');
-    await overlay.waitFor({ state: 'visible', timeout: 10000 });
-    await overlay.locator('.overlay-header').waitFor({ state: 'visible', timeout: 10000 });
+    const overlay = await openSessionOverlay(page);
 
     // Check if the custom model appears in the model selector
     const modelSelect = page.locator('#model-select');

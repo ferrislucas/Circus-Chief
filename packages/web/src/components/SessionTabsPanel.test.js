@@ -14,16 +14,17 @@ describe('SessionTabsPanel', () => {
         { path: '/projects/:id/sessions', component: { template: '<div />' } },
       ],
     });
-    await router.push('/sessions/session-1/conversation');
+    await router.push('/sessions/session-1/summary');
     await router.isReady();
   });
 
   const defaultTabs = [
     { id: 'summary', label: 'Summary' },
-    { id: 'conversation', label: 'Conversations' },
     { id: 'changes', label: 'Changes' },
     { id: 'canvas', label: 'Canvas' },
     { id: 'commands', label: 'Commands' },
+    { id: 'circus-time', label: 'Circus Time' },
+    { id: 'chat', label: 'Chat', desktopOnly: true },
   ];
 
   function mountPanel(props = {}) {
@@ -32,7 +33,7 @@ describe('SessionTabsPanel', () => {
       props: {
         sessionId: 'session-1',
         projectId: 'proj-1',
-        activeTab: 'conversation',
+        activeTab: 'summary',
         tabs: defaultTabs,
         hasChanges: false,
         canvasCount: 0,
@@ -46,10 +47,11 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel();
       const text = wrapper.text();
       expect(text).toContain('Summary');
-      expect(text).toContain('Conversations');
       expect(text).toContain('Changes');
       expect(text).toContain('Canvas');
       expect(text).toContain('Commands');
+      expect(text).toContain('Circus Time');
+      expect(text).toContain('Chat');
     });
 
     it('renders back link with icon to sessions list', () => {
@@ -73,10 +75,26 @@ describe('SessionTabsPanel', () => {
       expect(wrapper.find('.tabs-mobile').exists()).toBe(true);
     });
 
-    it('renders mobile select with all options', () => {
+    it('renders mobile select without desktop-only tabs', () => {
       const wrapper = mountPanel();
       const options = wrapper.findAll('.tab-select option');
       expect(options.length).toBe(5);
+      expect(options.map(option => option.text())).toEqual([
+        'Summary',
+        'Changes',
+        'Canvas',
+        'Commands',
+        'Circus Time',
+      ]);
+    });
+
+    it('renders desktop chat tab', () => {
+      const wrapper = mountPanel();
+      const desktopTabs = wrapper.findAll('.tabs-desktop .tab');
+      expect(desktopTabs.length).toBe(6);
+      const chatTab = desktopTabs.find(tab => tab.text() === 'Chat');
+      expect(chatTab).toBeDefined();
+      expect(chatTab.attributes('href')).toBe('/sessions/session-1/chat');
     });
 
     it('applies the session-detail layout marker class', () => {
@@ -131,14 +149,21 @@ describe('SessionTabsPanel', () => {
       const pushSpy = vi.spyOn(router, 'push');
       const wrapper = mountPanel();
       const select = wrapper.find('.tab-select');
-      await select.setValue('canvas');
-      expect(pushSpy).toHaveBeenCalledWith('/sessions/session-1/canvas');
+      await select.setValue('circus-time');
+      expect(pushSpy).toHaveBeenCalledWith('/sessions/session-1/circus-time');
+    });
+
+    it('does not expose the desktop-only chat tab as a mobile option', () => {
+      const wrapper = mountPanel();
+      const options = wrapper.findAll('.tab-select option');
+      expect(options.some(option => option.attributes('value') === 'chat')).toBe(false);
+      expect(options.some(option => option.text() === 'Chat')).toBe(false);
     });
   });
 
   describe('active tab', () => {
     it('marks active tab with active class', () => {
-      const wrapper = mountPanel({ activeTab: 'conversation' });
+      const wrapper = mountPanel({ activeTab: 'summary' });
       const desktopTabs = wrapper.findAll('.tabs-desktop .tab');
       const activeTab = desktopTabs.find(t => t.classes().includes('active'));
       expect(activeTab).toBeDefined();

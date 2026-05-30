@@ -209,6 +209,7 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   ci_status TEXT,
   ci_failures TEXT,
   last_summarized_message_id TEXT,
+  workflow_fingerprint TEXT,
   generated_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)

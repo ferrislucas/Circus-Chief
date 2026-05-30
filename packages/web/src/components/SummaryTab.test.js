@@ -1304,6 +1304,51 @@ describe('SummaryTab', () => {
       expect(overviewCard.props('scheduledSessions')[0].id).toBe('child-1');
     });
 
+    it('does not include scheduled descendants without scheduledAt', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        name: 'Parent Session',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'scheduled', scheduledAt: null, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
+        { id: 'child-2', status: 'scheduled', parentSessionId: 'sess-123', name: 'Child 2', projectId: 'proj-1' },
+        { id: 'child-3', status: 'scheduled', scheduledAt: Date.now() + 3600000, parentSessionId: 'sess-123', name: 'Child 3', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      const scheduledSessions = overviewCard.props('scheduledSessions');
+      expect(scheduledSessions).toHaveLength(1);
+      expect(scheduledSessions[0].id).toBe('child-3');
+    });
+
+    it('does not include scheduled parent without scheduledAt', async () => {
+      sessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'scheduled',
+        scheduledAt: null,
+        name: 'Parent Session',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'child-1', status: 'scheduled', scheduledAt: Date.now() + 3600000, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
+      ];
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const overviewCard = wrapper.findComponent({ name: 'SessionOverviewCard' });
+      const scheduledSessions = overviewCard.props('scheduledSessions');
+      expect(scheduledSessions).toHaveLength(1);
+      expect(scheduledSessions[0].id).toBe('child-1');
+    });
+
     it('updates scheduledSessions when a child transitions to scheduled', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',

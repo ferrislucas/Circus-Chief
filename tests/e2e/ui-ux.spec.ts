@@ -342,6 +342,7 @@ test.describe('Toast Notifications', () => {
   });
 
   test('toast renders above session chat overlay', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open the session chat overlay

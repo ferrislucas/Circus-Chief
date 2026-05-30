@@ -267,9 +267,15 @@ export const allMigrations = validateMigrations([
   // --- Backfill official OpenAI commit attribution ---
   pr.get('providers-backfill-built-in-openai-attribution'),
 
+  // --- Update built-in Opus model to 4.8 ---
+  pr.get('providers-update-built-in-opus-4-8'),
+
   // --- Project session defaults: add 'current' git mode ---
   p.get('project_session_defaults-git_mode-add-current'),
 
   // --- Repair missing session parent links from worktree paths ---
   repairMissingSessionParentsFromWorktree,
+
+  // --- Session summaries workflow fingerprint ---
+  c.get('session_summaries-add-workflow_fingerprint'),
 ]);

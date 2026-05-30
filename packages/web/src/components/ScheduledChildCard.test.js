@@ -130,6 +130,17 @@ describe('ScheduledChildCard.vue', () => {
     expect(hasTimeFormat).toBe(true);
   });
 
+  it('does not render epoch timing when scheduledAt is missing', () => {
+    const wrapper = mountComponent({
+      ...baseSession,
+      scheduledAt: null,
+    });
+
+    expect(wrapper.find('.timing-info').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('56 years ago');
+    expect(wrapper.text()).not.toContain('Jan 1');
+  });
+
   it('shows Edit button that opens SchedulingEditModal', async () => {
     const wrapper = mountComponent();
     const editBtn = wrapper.findAll('.timing-action-btn')[0];

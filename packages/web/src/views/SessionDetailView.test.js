@@ -53,6 +53,14 @@ vi.mock('../components/SessionChatOverlay.vue', () => ({
     emits: ['close', 'session-created']
   }
 }));
+vi.mock('../components/SessionChatContent.vue', () => ({
+  default: {
+    name: 'SessionChatContent',
+    template: '<div class="session-chat-content" data-testid="session-chat-content">Chat Content</div>',
+    props: ['sessionId', 'sessionChain', 'summariesMap', 'mode'],
+    emits: ['session-created', 'prompt-focus', 'prompt-blur', 'picker-open-change', 'active-session-change'],
+  }
+}));
 vi.mock('../components/SessionHeaderPanel.vue', () => ({
   default: {
     name: 'SessionHeaderPanel',
@@ -158,6 +166,11 @@ describe('SessionDetailView', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 640,
+    });
     websocketHandlers.clear();
     pinia = createPinia();
     setActivePinia(pinia);
@@ -206,11 +219,12 @@ describe('SessionDetailView', () => {
   }
 
   describe('tabs configuration', () => {
-    it('includes Summary, Changes, Canvas, Commands tabs', async () => {
+    it('includes Summary, Changes, Canvas, and Commands tabs', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
-        status: 'running'
+        status: 'running',
+        projectId: 'project-1'
       };
 
       await router.push('/sessions/session-1');
@@ -233,9 +247,20 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const text = wrapper.text();
-      // The exact tab names may vary, but these components should be referenced
-      expect(wrapper.findComponent({ name: 'SummaryTab' }).exists() || text).toBeTruthy();
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.exists()).toBe(true);
+      expect(tabsPanel.props('tabs').map(tab => tab.id)).toEqual([
+        'summary',
+        'chat',
+        'changes',
+        'canvas',
+        'commands',
+      ]);
+      expect(tabsPanel.props('tabs').find(tab => tab.id === 'chat')).toEqual({
+        id: 'chat',
+        label: 'Chat',
+        desktopOnly: true,
+      });
     });
 
     it('renders correct tab content for selected tab', async () => {
@@ -4416,6 +4441,88 @@ describe('SessionDetailView', () => {
 
       // Query param should be cleared (router.replace removes it)
       expect(router.currentRoute.value.query.overlay).toBeUndefined();
+    });
+
+    it('routes desktop ?overlay=open requests to the embedded chat tab', async () => {
+      window.innerWidth = 641;
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      await router.push('/sessions/session-1?overlay=open');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.chatOverlayOpen).toBe(false);
+      expect(router.currentRoute.value.path).toBe('/sessions/session-1/chat');
+      expect(router.currentRoute.value.query.overlay).toBeUndefined();
+
+      const chatContent = wrapper.findComponent({ name: 'SessionChatContent' });
+      expect(chatContent.exists()).toBe(true);
+      expect(chatContent.props('mode')).toBe('embedded');
+      expect(chatContent.props('sessionId')).toBe('session-1');
+      expect(wrapper.findComponent({ name: 'SessionChatOverlay' }).exists()).toBe(false);
+    });
+
+    it('renders the embedded chat tab from a direct route', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      await router.push('/sessions/session-1/chat');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('activeTab')).toBe('chat');
+
+      const chatContent = wrapper.findComponent({ name: 'SessionChatContent' });
+      expect(chatContent.exists()).toBe(true);
+      expect(chatContent.props('mode')).toBe('embedded');
+      expect(chatContent.props('sessionId')).toBe('session-1');
+      expect(chatContent.props('sessionChain')).toEqual(wrapper.vm.sessionChain);
+      expect(chatContent.props('summariesMap')).toEqual(wrapper.vm.summariesMap);
+      expect(wrapper.findComponent({ name: 'SessionChatOverlay' }).exists()).toBe(false);
     });
 
     it('does not auto-open tree overlay without query param', async () => {

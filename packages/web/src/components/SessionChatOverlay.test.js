@@ -5,6 +5,7 @@ import { createRouter, createMemoryHistory } from 'vue-router';
 import { h, defineComponent, nextTick } from 'vue';
 import SessionChatOverlay from './SessionChatOverlay.vue';
 import sessionChatOverlaySource from './SessionChatOverlay.vue?raw';
+import sessionChatContentSource from './SessionChatContent.vue?raw';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@circuschief/shared';
 
@@ -294,18 +295,36 @@ describe('SessionChatOverlay', () => {
     return wrapper;
   }
 
+  function getStyleSource(selector) {
+    return sessionChatOverlaySource.includes(`${selector} {`)
+      ? sessionChatOverlaySource
+      : sessionChatContentSource;
+  }
+
+  function getStyleSelector(selector) {
+    if (selector === '.overlay-content') return '.session-chat-content';
+    if (selector.startsWith('.session-chat-overlay :deep(')) {
+      return selector.replace('.session-chat-overlay', '.session-chat-content');
+    }
+    return selector;
+  }
+
   function getStyleBlock(selector) {
-    const start = sessionChatOverlaySource.indexOf(`${selector} {`);
+    const styleSelector = getStyleSelector(selector);
+    const source = getStyleSource(styleSelector);
+    const start = source.indexOf(`${styleSelector} {`);
     expect(start).toBeGreaterThanOrEqual(0);
-    const end = sessionChatOverlaySource.indexOf('\n}', start);
+    const end = source.indexOf('\n}', start);
     expect(end).toBeGreaterThan(start);
-    return sessionChatOverlaySource.slice(start, end + 2);
+    return source.slice(start, end + 2);
   }
 
   function getStyleBlocks(selector) {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const styleSelector = getStyleSelector(selector);
+    const source = getStyleSource(styleSelector);
+    const escaped = styleSelector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const pattern = new RegExp(`${escaped}\\s*\\{[^}]*\\}`, 'g');
-    const blocks = sessionChatOverlaySource.match(pattern) || [];
+    const blocks = source.match(pattern) || [];
     expect(blocks.length).toBeGreaterThan(0);
     return blocks;
   }
@@ -326,11 +345,11 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('displays active session name in header', async () => {
+    it('does not display root session name in header', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const name = document.querySelector('.overlay-root-name');
-      expect(name.textContent).toBe('Root Session');
+      expect(name).toBeNull();
       wrapper.unmount();
     });
 
@@ -1739,7 +1758,7 @@ describe('SessionChatOverlay', () => {
       expect(block).toMatch(/-webkit-overflow-scrolling:\s*touch/);
       expect(block).toMatch(/touch-action:\s*pan-y/);
       expect(getStyleBlock('.overlay-content')).toMatch(/overflow:\s*hidden/);
-      expect(sessionChatOverlaySource).toMatch(/\.session-chat-overlay :deep\(\.messages\)/);
+      expect(sessionChatContentSource).toMatch(/\.session-chat-content :deep\(\.messages\)/);
       expect(getStyleBlock('.session-chat-overlay :deep(.messages)')).toMatch(/overflow-y:\s*visible !important/);
     });
 
