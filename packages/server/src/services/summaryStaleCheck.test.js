@@ -68,6 +68,7 @@ vi.mock('./ghService.js', () => ({
 }));
 
 import { isSummaryStale } from './summaryStaleCheck.js';
+import { computeWorkflowFingerprint } from './summaryFingerprint.js';
 import * as summaryService from './summaryService.js';
 
 describe('summaryStaleCheck', () => {
@@ -377,6 +378,231 @@ describe('summaryStaleCheck', () => {
           expect(isSummaryStale(sessionId)).toBe(true);
 
           sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    // Fingerprint-based staleness tests
+    describe('fingerprint-based staleness', () => {
+      it('parent is stale when a child summary content changes even if parent generatedAt is newer than child generatedAt', () => {
+        vi.useFakeTimers();
+
+        try {
+          // Create child session and summary at T1
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(1000);
+          const childSummary = sessionSummaries.create(child.id, {
+            shortSummary: 'Child initial',
+            fullSummary: 'Child initial full',
+            outcome: 'ongoing',
+            messageCount: messages.getBySessionId(child.id).length,
+          });
+
+          // Create parent summary at T2 (later) — compute the fingerprint
+          vi.setSystemTime(2000);
+          const fp = computeWorkflowFingerprint(sessionId);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Parent',
+            fullSummary: 'Parent full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+            workflowFingerprint: fp,
+          });
+
+          // Parent should be fresh at this point
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          // Now change child summary content — this invalidates the fingerprint
+          sessionSummaries.update(childSummary.id, {
+            shortSummary: 'Child completed',
+            fullSummary: 'Child completed full',
+            outcome: 'completed',
+          });
+
+          // Parent should now be stale because fingerprint no longer matches
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('parent is stale when a descendant gains new messages not reflected in its summary', () => {
+        vi.useFakeTimers();
+
+        try {
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(1000);
+          sessionSummaries.create(child.id, {
+            shortSummary: 'Child',
+            fullSummary: 'Child full',
+            outcome: 'ongoing',
+            messageCount: messages.getBySessionId(child.id).length,
+          });
+
+          vi.setSystemTime(2000);
+          const fp = computeWorkflowFingerprint(sessionId);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Parent',
+            fullSummary: 'Parent full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+            workflowFingerprint: fp,
+          });
+
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          // Add a new message to the child
+          messages.create(child.id, 'assistant', 'New child message');
+
+          // Parent should now be stale (child gained a new message)
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('parent is stale when a descendant exists and parent summary has no workflowFingerprint (legacy fallback)', () => {
+        vi.useFakeTimers();
+
+        try {
+          // Create parent summary at T1 (no fingerprint — legacy)
+          vi.setSystemTime(1000);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Parent',
+            fullSummary: 'Parent full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+            // workflowFingerprint intentionally omitted (legacy summary)
+          });
+
+          // Create child with a newer summary at T2
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(2000);
+          sessionSummaries.create(child.id, {
+            shortSummary: 'Child done',
+            fullSummary: 'Child done full',
+            outcome: 'completed',
+            messageCount: 0,
+          });
+
+          // Parent is stale via legacy timestamp fallback (child summary is newer)
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('parent is fresh when own message metadata and stored workflow fingerprint match', () => {
+        vi.useFakeTimers();
+
+        try {
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(1000);
+          sessionSummaries.create(child.id, {
+            shortSummary: 'Child',
+            fullSummary: 'Child full',
+            outcome: 'completed',
+            messageCount: messages.getBySessionId(child.id).length,
+          });
+
+          vi.setSystemTime(2000);
+          const fp = computeWorkflowFingerprint(sessionId);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Parent',
+            fullSummary: 'Parent full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+            workflowFingerprint: fp,
+          });
+
+          // Nothing changed — should be fresh
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('legacy summaries without fingerprints still use newer-descendant-summary timestamp fallback', () => {
+        vi.useFakeTimers();
+
+        try {
+          // Parent summary at T2, no fingerprint (legacy)
+          vi.setSystemTime(2000);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Parent',
+            fullSummary: 'Parent full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+            // no workflowFingerprint
+          });
+
+          // Child summary at T1 (older than parent) — timestamp check says fresh
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          vi.setSystemTime(1000);
+          sessionSummaries.create(child.id, {
+            shortSummary: 'Child old',
+            fullSummary: 'Child old full',
+            outcome: 'ongoing',
+            messageCount: 0,
+          });
+
+          // Timestamp fallback: child summary is older → fresh
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          // Now add a newer child summary at T3
+          const summary2 = sessionSummaries.getBySessionId(child.id);
+          vi.setSystemTime(3000);
+          sessionSummaries.update(summary2.id, { shortSummary: 'Child newer', outcome: 'completed' });
+
+          // Timestamp fallback: child summary is now newer → stale
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('sessions without descendants continue to use existing own-message staleness behavior', () => {
+        vi.useFakeTimers();
+
+        try {
+          vi.setSystemTime(1000);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Session',
+            fullSummary: 'Session full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+          });
+
+          // No descendants, nothing changed → fresh
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          // Add new message to own session → stale
+          messages.create(sessionId, 'assistant', 'New message');
+          expect(isSummaryStale(sessionId)).toBe(true);
         } finally {
           vi.useRealTimers();
         }

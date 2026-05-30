@@ -30,7 +30,16 @@ Outcome guidelines:
 - "completed": Task was fully accomplished
 - "partial": Some progress made but task incomplete
 - "failed": Task encountered errors and couldn't proceed
-- "ongoing": Session is still active/waiting for user input`;
+- "ongoing": Session is still active/waiting for user input
+
+WORKFLOW SUMMARY GUIDELINES (when workflow descendant summaries are provided):
+- The workflow descendant summaries represent work done in child sessions spawned from this root session.
+- Descendant summaries are authoritative for work done outside this root conversation.
+- The full_summary, key_actions, files_modified, and outcome fields MUST reflect material work from descendants.
+- Do NOT describe the workflow as only planning or review if a descendant completed implementation.
+- A later child implementation summary is more important than earlier root plan-review messages.
+- The root summary must reflect the combined outcome of the entire workflow tree.
+- If a descendant reports outcome "completed", the root outcome should not be "ongoing" unless the root itself has significant unresolved work.`;
 
 /**
  * Format messages for the prompt
@@ -84,12 +93,16 @@ Previous title: ${existingSummary.sessionTitle || 'Not set'}`
   // Use custom prompt if provided, otherwise use default
   const sessionTitlePrompt = projectTitlePrompt || DEFAULT_SESSION_TITLE_PROMPT;
 
+  // Workflow descendant context appears under its own clear heading before RECENT CONVERSATION.
+  // buildChildSessionContext() already starts with "\nWORKFLOW DESCENDANT SUMMARIES:\n" when
+  // non-empty, so we only need to add a trailing newline separator when present.
+  const workflowSection = childContext ? `${childContext}\n` : '';
+
   // Return only dynamic content - static instructions are in SUMMARY_SYSTEM_PROMPT
   return `Current session status: ${sessionStatus}
 
 ${existingContext}
-${childContext}
-RECENT CONVERSATION:
+${workflowSection}RECENT CONVERSATION:
 ${formattedMessages}
 
 Session title guidelines:

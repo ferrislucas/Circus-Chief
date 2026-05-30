@@ -113,6 +113,25 @@ describe('SessionSummaryRepository', () => {
       expect(summary.keyActions).toEqual([]);
       expect(summary.filesModified).toEqual([]);
     });
+
+    it('creates a summary with workflowFingerprint', () => {
+      const summary = repo.create(sessionId, {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        workflowFingerprint: 'abc123def456',
+      });
+
+      expect(summary.workflowFingerprint).toBe('abc123def456');
+    });
+
+    it('creates a summary with null workflowFingerprint when not provided', () => {
+      const summary = repo.create(sessionId, {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+      });
+
+      expect(summary.workflowFingerprint).toBeNull();
+    });
   });
 
   describe('getById', () => {
@@ -273,6 +292,17 @@ describe('SessionSummaryRepository', () => {
       const updated = repo.update(summary.id, { shortSummary: 'Changed' });
 
       expect(updated.sessionId).toBe(sessionId);
+    });
+
+    it('updates workflowFingerprint', () => {
+      const summary = repo.create(sessionId, {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        workflowFingerprint: 'original-fingerprint',
+      });
+      const updated = repo.update(summary.id, { workflowFingerprint: 'new-fingerprint' });
+
+      expect(updated.workflowFingerprint).toBe('new-fingerprint');
     });
 
     it('returns unchanged summary when no updates provided', () => {
@@ -469,6 +499,26 @@ describe('SessionSummaryRepository', () => {
       repo.duplicateForSession(sessionId, targetSessionId);
 
       expect(repo.getBySessionId(targetSessionId)).toBeNull();
+    });
+
+    it('should NOT copy workflowFingerprint to duplicated session', () => {
+      const targetSessionId = databaseManager.generateId();
+      const now = Date.now();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(targetSessionId, project.id, 'Target', 'waiting', 'standard', now, now);
+
+      repo.create(sessionId, {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        workflowFingerprint: 'abc123fingerprint',
+      });
+
+      repo.duplicateForSession(sessionId, targetSessionId);
+
+      const targetSummary = repo.getBySessionId(targetSessionId);
+      expect(targetSummary).not.toBeNull();
+      expect(targetSummary.workflowFingerprint).toBeNull();
     });
 
     it('should NOT copy PR and CI data (allows summary regeneration for duplicated sessions)', () => {
