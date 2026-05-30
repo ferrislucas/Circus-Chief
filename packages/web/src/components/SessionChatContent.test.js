@@ -243,4 +243,39 @@ describe('SessionChatContent', () => {
     expect(block).toMatch(/top:\s*var\(--session-detail-chat-header-top\)/);
     expect(block).toMatch(/z-index:\s*98/);
   });
+
+  it('lets embedded chat content grow the page instead of creating an internal scroll container', () => {
+    const selector = '.session-chat-content--embedded';
+    const start = sessionChatContentSource.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = sessionChatContentSource.indexOf('\n}', start);
+    const block = sessionChatContentSource.slice(start, end + 2);
+
+    expect(block).toMatch(/height:\s*auto/);
+    expect(block).toMatch(/overflow:\s*visible/);
+    expect(block).toMatch(/display:\s*flex/);
+    expect(block).toMatch(/flex-direction:\s*column/);
+
+    const bodySelector = '.session-chat-content--embedded .overlay-body';
+    const bodyStart = sessionChatContentSource.indexOf(`${bodySelector} {`);
+    expect(bodyStart).toBeGreaterThanOrEqual(0);
+    const bodyEnd = sessionChatContentSource.indexOf('\n}', bodyStart);
+    const bodyBlock = sessionChatContentSource.slice(bodyStart, bodyEnd + 2);
+
+    expect(bodyBlock).toMatch(/overflow-y:\s*visible/);
+    expect(bodyBlock).toMatch(/overscroll-behavior:\s*auto/);
+  });
+
+  it('keeps embedded scroll action buttons fixed to the viewport', () => {
+    const selector = '.session-chat-content--embedded :deep(.conversation-scroll-actions)';
+    const start = sessionChatContentSource.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = sessionChatContentSource.indexOf('\n}', start);
+    const block = sessionChatContentSource.slice(start, end + 2);
+
+    expect(block).toMatch(/position:\s*fixed/);
+    expect(block).toMatch(/right:\s*max\(1rem,\s*calc\(\(100vw - 1200px\) \/ 2 \+ 1rem\)\)/);
+    expect(block).toMatch(/bottom:\s*calc\(1rem \+ env\(safe-area-inset-bottom\)\)/);
+    expect(block).toMatch(/z-index:\s*100/);
+  });
 });
