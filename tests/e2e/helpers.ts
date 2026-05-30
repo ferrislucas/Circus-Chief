@@ -2502,6 +2502,46 @@ export function subscribeToSession(ws: any, sessionId: string): void {
   ws.send(JSON.stringify({ type: 'subscribe:session', sessionId }));
 }
 
+/**
+ * Subscribe to a session and verify the subscription is active via an existing
+ * session-scoped broadcast. This avoids fixed sleeps before tests trigger
+ * transient WebSocket events.
+ */
+export async function subscribeToSessionAndVerify(
+  ws: any,
+  sessionId: string,
+  timeout = 5000
+): Promise<void> {
+  const deadline = Date.now() + timeout;
+  const session = await getSession(sessionId);
+  const manuallyNamed = Boolean(session?.manuallyNamed);
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    subscribeToSession(ws, sessionId);
+
+    const markerPromise = waitForWSMessage(
+      ws,
+      'session:updated',
+      Math.min(1000, Math.max(100, deadline - Date.now())),
+      (data: any) => data.sessionId === sessionId || data.session?.id === sessionId
+    );
+
+    await updateSessionFields(sessionId, { manuallyNamed });
+
+    try {
+      await markerPromise;
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Timeout verifying WS session subscription for ${sessionId}`);
+}
+
 /** Unsubscribe from a session via WebSocket */
 export function unsubscribeFromSession(ws: any, sessionId: string): void {
   ws.send(JSON.stringify({ type: 'unsubscribe:session', sessionId }));
