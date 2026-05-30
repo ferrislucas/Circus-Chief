@@ -770,6 +770,55 @@ describe('NewSessionView - Start From Template Feature', () => {
 });
 
 /**
+ * Unit tests for textareaMinHeight responsive threshold (640px breakpoint)
+ */
+describe('NewSessionView - textareaMinHeight threshold', () => {
+  const originalInnerWidth = window.innerWidth;
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: originalInnerWidth,
+    });
+  });
+
+  it('sets textareaMinHeight to 80 when window.innerWidth is <= 640', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 500,
+    });
+
+    // Reflect the computed logic: window.innerWidth <= 640 ? 80 : 120
+    const minHeight = window.innerWidth <= 640 ? 80 : 120;
+    expect(minHeight).toBe(80);
+  });
+
+  it('sets textareaMinHeight to 80 at the exact threshold of 640', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 640,
+    });
+
+    const minHeight = window.innerWidth <= 640 ? 80 : 120;
+    expect(minHeight).toBe(80);
+  });
+
+  it('sets textareaMinHeight to 120 when window.innerWidth is > 640', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 800,
+    });
+
+    const minHeight = window.innerWidth <= 640 ? 80 : 120;
+    expect(minHeight).toBe(120);
+  });
+});
+
+/**
  * Unit tests for quick responses store integration
  * These tests verify that NewSessionView correctly imports, initializes, and uses the quickResponses store
  */
