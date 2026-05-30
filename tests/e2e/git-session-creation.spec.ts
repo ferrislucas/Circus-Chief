@@ -44,12 +44,12 @@ test.describe('Git-backed project session creation', () => {
     await page.click('button:has-text("Start Session")');
 
     // Should redirect to session detail page (successful creation)
-    await expect(page).toHaveURL(/\/sessions\/(?!new(?:$|[/?#]))[0-9a-f-]+$/, { timeout: 30000 });
+    await expect(page).toHaveURL(/\/sessions\/(?!new(?:$|[/?#]))[0-9a-f-]+(?:\/chat)?$/, { timeout: 30000 });
     await page.waitForLoadState('networkidle');
 
     // Extract session ID from URL
     const url = page.url();
-    const sessionIdMatch = url.match(/\/sessions\/([0-9a-f-]+)$/);
+    const sessionIdMatch = url.match(/\/sessions\/([0-9a-f-]+)(?:\/chat)?$/);
     expect(sessionIdMatch).toBeTruthy();
     const sessionId = sessionIdMatch![1];
 
@@ -153,12 +153,12 @@ test.describe('Git-backed project session creation', () => {
     await page.click('button:has-text("Start Session")');
 
     // Should redirect to session detail page
-    await expect(page).toHaveURL(/\/sessions\/(?!new(?:$|[/?#]))[0-9a-f-]+$/, { timeout: 30000 });
+    await expect(page).toHaveURL(/\/sessions\/(?!new(?:$|[/?#]))[0-9a-f-]+(?:\/chat)?$/, { timeout: 30000 });
     await page.waitForLoadState('networkidle');
 
     // Extract session ID from URL
     const url = page.url();
-    const sessionIdMatch = url.match(/\/sessions\/([0-9a-f-]+)$/);
+    const sessionIdMatch = url.match(/\/sessions\/([0-9a-f-]+)(?:\/chat)?$/);
     expect(sessionIdMatch).toBeTruthy();
     const sessionId = sessionIdMatch![1];
 

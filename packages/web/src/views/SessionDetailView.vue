@@ -73,9 +73,6 @@
           :session-id="route.params.id"
           :project-id="sessionsStore.currentSession?.projectId"
         />
-        <CircusTimeTab
-          v-else-if="activeTab === 'circus-time'"
-        />
         <SessionChatContent
           v-else-if="activeTab === 'chat'"
           :session-id="overlaySessionId"
@@ -219,16 +216,6 @@ const { cleanup, initializeSession } = useSessionInitializer({
 
 const activeTab = computed(() => route.params.tab || 'summary');
 
-watch(
-  () => [route.params.tab, sessionsStore.currentSession?.projectId],
-  ([tab, projectId]) => {
-    if (tab === 'circus-time' && projectId) {
-      router.replace(`/projects/${projectId}/circus-time`);
-    }
-  },
-  { immediate: true }
-);
-
 // Command button status indicators for real-time updates (mirrors SessionCard behavior)
 const buttonStatusesToDisplay = computed(() => {
   // eslint-disable-next-line no-unused-vars
@@ -258,7 +245,6 @@ const tabs = computed(() => [
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
   { id: 'commands', label: 'Commands' },
-  { id: 'circus-time', label: 'Circus Time' }
 ]);
 
 watch(
