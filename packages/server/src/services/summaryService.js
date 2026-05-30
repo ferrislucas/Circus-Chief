@@ -32,7 +32,7 @@ import { extractPrUrlIfNeeded, parsePrUrl, validatePrUrl, enrichPrData } from '.
 import { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './childSessionContext.js';
 import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
 import { isSummaryStale } from './summaryStaleCheck.js';
-import { computeWorkflowFingerprint } from './summaryFingerprint.js';
+import { computeWorkflowFingerprint, hasSemanticSummaryChanged } from './summaryFingerprint.js';
 import { validateAndRepairWorkflowCoverage } from './summaryWorkflowCoverage.js';
 import { handleWorkflowCoverageRepair } from './summaryCoverageRepair.js';
 import { propagateToParent as _propagateToParent, propagatePrUrlToParent } from './summaryPropagation.js';
@@ -56,6 +56,9 @@ const activeTimers = new Set();
  * @returns {Promise<Object|null>}
  */
 export async function generateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
+  if (guard.isActive(sessionId) && !userInitiated) {
+    console.log(`[SummaryService] Coalescing summary generation for session ${sessionId} (generation already in-flight)`);
+  }
   return guard.run(
     sessionId,
     () => _doGenerateSummary(sessionId, retryCount, force, userInitiated),
@@ -243,11 +246,22 @@ async function retryIfParseFailed(summaryData, retryCount, { sessionId, force, u
   return { shouldRetry: true, result };
 }
 
+/** Log the reason why summary generation is proceeding (diagnostic, no summary text). */
+function _logGenerationReason(sessionId, force, existingSummary) {
+  const pfx = `[SummaryService] Generating summary for session ${sessionId}:`;
+  if (force) { console.log(`${pfx} forced`); return; }
+  if (!existingSummary) { console.log(`${pfx} no existing summary`); return; }
+  const ownMsgs = messages.getBySessionId(sessionId);
+  const ownStale = (existingSummary.lastSummarizedMessageId && ownMsgs.at(-1)?.id !== existingSummary.lastSummarizedMessageId) || ownMsgs.length !== existingSummary.messageCount;
+  console.log(`${pfx} ${ownStale ? 'own messages changed' : 'descendant workflow fingerprint changed'}`);
+}
+
 async function _doGenerateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
   const check = shouldGenerateSummary(sessionId, force, userInitiated);
   if (check.skip) return check.result;
 
   const { session, globalSettings, existingSummary, allMessages } = check;
+  _logGenerationReason(sessionId, force, existingSummary);
   const recentMessages = allMessages.slice(-MAX_MESSAGES);
 
   broadcastGeneratingStatus(sessionId, true);
@@ -271,7 +285,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     summaryData = await handleWorkflowCoverageRepair(summaryData, sessionId, { recentMessages, session, globalSettings });
 
     const summary = await saveSummaryResult(sessionId, summaryData, session, allMessages);
-    if (session.parentSessionId) _propagateToParent(sessionId, generateSummary);
+    if (session.parentSessionId && hasSemanticSummaryChanged(existingSummary, summary)) _propagateToParent(sessionId, generateSummary);
     return summary;
   } catch (error) {
     console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {
@@ -464,6 +478,7 @@ export { callClaude } from './summaryClaudeClient.js';
 export { parsePrUrl, validatePrUrl, extractPrUrlIfNeeded, enrichPrData as _enrichPrData };
 export { getChildSessions, buildChildSessionContext, aggregateFilesModified };
 export { propagatePrUrlToParent };
+export { hasSemanticSummaryChanged };
 
 /**
  * Clear all pending CI-check timers (called during graceful shutdown).

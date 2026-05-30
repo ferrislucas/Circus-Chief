@@ -228,6 +228,92 @@ describe('summaryFingerprint', () => {
       }
     });
 
+    it('does NOT change when only child summary generatedAt/updatedAt change (same semantic content)', async () => {
+      vi.useFakeTimers();
+
+      try {
+        // Create child session and summary at T1
+        vi.setSystemTime(1000);
+        const child = createChildSession(projectId, 'Child', rootSessionId);
+        const childSummary = sessionSummaries.create(child.id, {
+          shortSummary: 'Work in progress',
+          fullSummary: 'Detailed progress',
+          keyActions: ['Action A'],
+          filesModified: ['file.js'],
+          outcome: 'ongoing',
+          messageCount: 0,
+          lastSummarizedMessageId: null,
+        });
+
+        const fp1 = await computeWorkflowFingerprint(rootSessionId);
+
+        // Advance time and call update() with identical semantic content.
+        // This triggers both generatedAt and updatedAt to refresh (the problematic
+        // behavior that caused cascading re-generations before this fix).
+        vi.setSystemTime(9000);
+        sessionSummaries.update(childSummary.id, {
+          shortSummary: 'Work in progress',
+          fullSummary: 'Detailed progress',
+          keyActions: ['Action A'],
+          filesModified: ['file.js'],
+          outcome: 'ongoing',
+          messageCount: 0,
+          lastSummarizedMessageId: null,
+        });
+
+        const fp2 = await computeWorkflowFingerprint(rootSessionId);
+        // Fingerprint must be the same because only timestamps changed
+        expect(fp1).toBe(fp2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does NOT change when only child summary updatedAt changes (re-upsert with same content)', async () => {
+      vi.useFakeTimers();
+
+      try {
+        vi.setSystemTime(1000);
+        const child = createChildSession(projectId, 'Child', rootSessionId);
+        const childSummary = sessionSummaries.create(child.id, {
+          shortSummary: 'Done',
+          fullSummary: 'Completed full',
+          outcome: 'completed',
+          messageCount: 5,
+          lastSummarizedMessageId: 'msg-abc',
+        });
+
+        const fp1 = await computeWorkflowFingerprint(rootSessionId);
+
+        // Advance to a different time — only timestamps will refresh
+        vi.setSystemTime(5000);
+        sessionSummaries.update(childSummary.id, {
+          shortSummary: 'Done',
+          fullSummary: 'Completed full',
+          outcome: 'completed',
+          messageCount: 5,
+          lastSummarizedMessageId: 'msg-abc',
+        });
+
+        const fp2 = await computeWorkflowFingerprint(rootSessionId);
+        expect(fp1).toBe(fp2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('changes when a descendant session status changes', async () => {
+      const child = createChildSession(projectId, 'Child', rootSessionId);
+
+      const fp1 = await computeWorkflowFingerprint(rootSessionId);
+
+      // Change the child session status
+      sessions.update(child.id, { status: 'stopped' });
+
+      const fp2 = await computeWorkflowFingerprint(rootSessionId);
+      expect(fp1).not.toBe(fp2);
+    });
+
     it('changes when a descendant is added to the workflow tree', async () => {
       const fp1 = await computeWorkflowFingerprint(rootSessionId);
 
