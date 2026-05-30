@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import {
   seedProject,
   cleanupCreatedResources,
+  expectFullyInViewport,
+  expectHitTestable,
 } from './helpers';
 
 /**
@@ -39,17 +41,14 @@ test.describe('Quick Response Dialog - Fixed Footer with Save Button', () => {
     }
 
     const manageBtn = page.getByRole('button', { name: 'Manage Quick Responses' });
-    if (await manageBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await manageBtn.click();
-      await page.waitForLoadState('networkidle');
-    }
+    await expectHitTestable(manageBtn, { requireEnabled: true });
+    await manageBtn.click();
+    await page.waitForLoadState('networkidle');
 
     // First, create a quick response
-    const addButtons = page.getByRole('button', { name: /\+ Add/ });
-    if (await addButtons.first().isVisible({ timeout: 3000 }).catch(() => false)) {
-      await addButtons.first().click();
-      await page.waitForTimeout(300);
-    }
+    const addButton = page.getByRole('button', { name: /\+ Add/ }).first();
+    await expectHitTestable(addButton, { requireEnabled: true });
+    await addButton.click();
 
     // Find the Add dialog by looking for a dialog that contains the QR form fields
     let addDialog = page.locator('[role="dialog"]').filter({ has: page.locator('#qr-label') });
@@ -63,6 +62,7 @@ test.describe('Quick Response Dialog - Fixed Footer with Save Button', () => {
     await contentTextarea.fill('This is a test response content');
 
     const saveButton = addDialog.locator('button[type="submit"]');
+    await expectHitTestable(saveButton, { requireEnabled: true });
     await saveButton.click();
 
     // Wait for the Add dialog's form to disappear (the dialog with #qr-label should close)
@@ -74,7 +74,7 @@ test.describe('Quick Response Dialog - Fixed Footer with Save Button', () => {
 
     // Now find and click the edit button for the created response
     const editButtons = page.getByRole('button', { name: /edit/i });
-    await expect(editButtons.first()).toBeVisible({ timeout: 5000 });
+    await expectHitTestable(editButtons.first(), { requireEnabled: true });
     await editButtons.first().click();
 
     // The edit dialog should now be open - find it by the QR form fields
@@ -88,12 +88,13 @@ test.describe('Quick Response Dialog - Fixed Footer with Save Button', () => {
     // Verify Save button is visible in footer
     const footer = dialog.locator('.dialog-footer');
     await expect(footer).toBeVisible();
+    await expectFullyInViewport(footer);
 
     const editSaveButton = footer.locator('button[type="submit"]');
     await expect(editSaveButton).toBeVisible();
+    await expectHitTestable(editSaveButton, { requireEnabled: true });
 
     // Verify button says "Save Changes" or similar
-    const buttonText = await editSaveButton.textContent();
-    expect(buttonText?.trim()).toMatch(/Save Changes|Save/);
+    await expect(editSaveButton).toHaveText(/Save Changes|Save/);
   });
 });
