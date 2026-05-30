@@ -533,6 +533,7 @@ defineExpose({
 
 .session-chat-content--embedded {
   /* Remove the fixed-height box — content grows the page naturally */
+  --session-detail-chat-header-top: calc(var(--header-height-computed, 51px) + var(--viewport-offset-top, 0px) + 3.125rem);
   height: auto;
   min-height: 0;
   overflow: visible;
@@ -582,6 +583,13 @@ defineExpose({
   min-width: 0;
   min-height: 0;
   overflow: visible;
+}
+
+.session-chat-content--embedded .overlay-header {
+  position: -webkit-sticky;
+  position: sticky;
+  top: var(--session-detail-chat-header-top);
+  z-index: 98;
 }
 
 .overlay-header-row {

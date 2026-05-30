@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import { defineComponent, h } from 'vue';
 import SessionChatContent from './SessionChatContent.vue';
+import sessionChatContentSource from './SessionChatContent.vue?raw';
 
 const mockSessionsStore = {
   currentSession: { id: 'sess-root', name: 'Root Session', status: 'waiting', projectId: 'proj-1' },
@@ -226,5 +227,20 @@ describe('SessionChatContent', () => {
     wrapper.vm.closePicker();
     await flushPromises();
     expect(pickerOpenChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it('keeps the embedded chat header sticky below the session detail chrome', () => {
+    expect(sessionChatContentSource).toMatch(/--session-detail-chat-header-top:\s*calc\(var\(--header-height-computed,\s*51px\) \+ var\(--viewport-offset-top,\s*0px\) \+ 3\.125rem\)/);
+
+    const selector = '.session-chat-content--embedded .overlay-header';
+    const start = sessionChatContentSource.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = sessionChatContentSource.indexOf('\n}', start);
+    const block = sessionChatContentSource.slice(start, end + 2);
+
+    expect(block).toMatch(/position:\s*-webkit-sticky/);
+    expect(block).toMatch(/position:\s*sticky/);
+    expect(block).toMatch(/top:\s*var\(--session-detail-chat-header-top\)/);
+    expect(block).toMatch(/z-index:\s*98/);
   });
 });
