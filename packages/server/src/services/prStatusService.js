@@ -1,7 +1,7 @@
 import { sessions, sessionSummaries } from '../database.js';
-import { webSocketManager, broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { webSocketManager } from '../websocket.js';
 import * as ghService from './ghService.js';
+import { broadcastSummaryUpdate } from './summaryBroadcast.js';
 
 // Default polling interval in milliseconds (1 minute)
 const DEFAULT_POLL_INTERVAL_MS = 60000;
@@ -155,19 +155,12 @@ export async function checkPrStatus(sessionId, prUrl) {
       ciFailures: prInfo.ciFailures,
     };
 
-    // Don't create a summary just for PR tracking - only track if summary already exists
-    if (!currentSummary) {
-      return false;
-    }
-
-    // Update database
+    // Update database (upsert creates the record if no summary exists yet)
     const updatedSummary = sessionSummaries.upsert(sessionId, updateData);
 
-    // Broadcast change
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-      sessionId,
-      summary: updatedSummary,
-    });
+    // Broadcast change to both session and project subscribers
+    const session = sessions.getById(sessionId);
+    broadcastSummaryUpdate(sessionId, session?.projectId ?? null, updatedSummary);
 
     console.log(`[PrStatusService] Updated PR status for session ${sessionId}: ${prInfo.state}`);
     return true;

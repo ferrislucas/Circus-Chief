@@ -7,6 +7,7 @@ vi.mock('../websocket.js', () => ({
     getSessionSubscriptions: vi.fn(() => new Map()),
   },
   broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
 }));
 
 // Mock ghService
@@ -261,7 +262,7 @@ describe('prStatusService', () => {
     it('checks and updates CI status for session with PR URL', async () => {
       sessions.update(sessionId, { prUrl, status: 'stopped' });
 
-      // Create a summary first (PR tracking only works when summary exists)
+      // Create an existing summary so we can verify it's updated
       sessionSummaries.upsert(sessionId, {
         shortSummary: 'Test summary',
         fullSummary: 'Test full summary',
@@ -446,7 +447,7 @@ describe('prStatusService', () => {
       expect(broadcastToSession).not.toHaveBeenCalled();
     });
 
-    it('does not create summary or broadcast when none exists', async () => {
+    it('creates a summary and broadcasts when none exists (PR-only record)', async () => {
       // No existing summary
       ghService.getPrInfo.mockResolvedValue({
         state: 'open',
@@ -457,14 +458,20 @@ describe('prStatusService', () => {
       });
 
       const result = await checkPrStatus(sessionId, prUrl);
-      expect(result).toBe(false);  // Changed from true
+      expect(result).toBe(true);
 
-      // Verify no summary was created
+      // Verify a summary was created with PR data
       const summary = sessionSummaries.getBySessionId(sessionId);
-      expect(summary).toBeNull();
+      expect(summary).not.toBeNull();
+      expect(summary.prState).toBe('open');
+      expect(summary.ciStatus).toBe('pending');
 
-      // Verify no broadcast was sent
-      expect(broadcastToSession).not.toHaveBeenCalled();
+      // Verify broadcast was sent to session and project subscribers
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        sessionId,
+        'session:summary_updated',
+        expect.objectContaining({ sessionId })
+      );
     });
 
     it('tracks PR status when summary already exists', async () => {
