@@ -171,11 +171,16 @@ test.describe('Session Chat Overlay', () => {
   });
 
   test('clicking backdrop closes overlay', async ({ page }) => {
+    // Widen the viewport so the overlay panel (max-width: 900px) is narrower than
+    // the screen, leaving visible backdrop area on the left side. openOverlay will
+    // temporarily shrink to 390px to reveal the chat handle, open the overlay, then
+    // restore this wider viewport — at which point the panel is 900px wide and the
+    // left ~380px of the backdrop is exposed for the backdrop-click test.
+    await page.setViewportSize({ width: 1280, height: 844 });
     const overlay = await openOverlay(page, parentSession.id);
 
-    // Click outside the overlay content, on the backdrop
-    // With right-aligned overlay, click on the left side of the screen
-    await page.mouse.click(10, 100);  // Click far left (safe with any alignment)
+    // Click in the exposed backdrop area to the left of the 900px panel
+    await page.mouse.click(10, 100);
 
     // Wait for slide-out animation to complete (250ms + buffer)
     await page.waitForTimeout(300);

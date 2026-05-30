@@ -71,6 +71,12 @@ test.describe('Session Detail Scroll Behavior', () => {
   });
 
   test('page-level scroll reaches bottom of conversation', async ({ page }) => {
+    // Use a mobile viewport so openSessionOverlay takes the mobile path (chat handle)
+    // rather than the desktop Chat tab. In mobile/overlay mode the .overlay-body element
+    // has overflow-y:auto and acts as the scroll container; in embedded/desktop mode it
+    // has overflow-y:visible and is NOT scrollable. The scroll assertions below only
+    // apply to the overlay scroll container.
+    await page.setViewportSize({ width: 390, height: 812 });
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
     await expect(page.locator('[data-testid="message-user"]')).toBeVisible({ timeout: 10000 });

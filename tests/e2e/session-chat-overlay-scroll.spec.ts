@@ -241,10 +241,13 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(bodyBox.x + bodyBox.width);
 
     // 4. The button must NOT overlap .input-form.
+    // Allow a 2px tolerance to avoid false positives from sub-pixel rounding when the
+    // button and input form are adjacent (touching) but not actually overlapping.
     const inputBox = await overlay.locator('.input-form').boundingBox();
     if (inputBox) {
-      const overlapsHoriz = btnBox.x < inputBox.x + inputBox.width && btnBox.x + btnBox.width > inputBox.x;
-      const overlapsVert  = btnBox.y < inputBox.y + inputBox.height && btnBox.y + btnBox.height > inputBox.y;
+      const TOLERANCE = 2;
+      const overlapsHoriz = btnBox.x + TOLERANCE < inputBox.x + inputBox.width && btnBox.x + btnBox.width - TOLERANCE > inputBox.x;
+      const overlapsVert  = btnBox.y + TOLERANCE < inputBox.y + inputBox.height && btnBox.y + btnBox.height - TOLERANCE > inputBox.y;
       expect(overlapsHoriz && overlapsVert).toBe(false);
     }
 
@@ -337,8 +340,9 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     expect(btnBox.x + btnBox.width).toBeLessThanOrEqual(bodyBox.x + bodyBox.width);
     const inputBox = await overlay.locator('.input-form').boundingBox();
     if (inputBox) {
-      const overlapsHoriz = btnBox.x < inputBox.x + inputBox.width && btnBox.x + btnBox.width > inputBox.x;
-      const overlapsVert  = btnBox.y < inputBox.y + inputBox.height && btnBox.y + btnBox.height > inputBox.y;
+      const TOLERANCE = 2;
+      const overlapsHoriz = btnBox.x + TOLERANCE < inputBox.x + inputBox.width && btnBox.x + btnBox.width - TOLERANCE > inputBox.x;
+      const overlapsVert  = btnBox.y + TOLERANCE < inputBox.y + inputBox.height && btnBox.y + btnBox.height - TOLERANCE > inputBox.y;
       expect(overlapsHoriz && overlapsVert).toBe(false);
     }
 
