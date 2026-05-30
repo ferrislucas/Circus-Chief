@@ -24,6 +24,7 @@ describe('SessionTabsPanel', () => {
     { id: 'canvas', label: 'Canvas' },
     { id: 'commands', label: 'Commands' },
     { id: 'circus-time', label: 'Circus Time' },
+    { id: 'chat', label: 'Chat', desktopOnly: true },
   ];
 
   function mountPanel(props = {}) {
@@ -50,6 +51,7 @@ describe('SessionTabsPanel', () => {
       expect(text).toContain('Canvas');
       expect(text).toContain('Commands');
       expect(text).toContain('Circus Time');
+      expect(text).toContain('Chat');
     });
 
     it('renders back link with icon to sessions list', () => {
@@ -73,10 +75,26 @@ describe('SessionTabsPanel', () => {
       expect(wrapper.find('.tabs-mobile').exists()).toBe(true);
     });
 
-    it('renders mobile select with all options', () => {
+    it('renders mobile select without desktop-only tabs', () => {
       const wrapper = mountPanel();
       const options = wrapper.findAll('.tab-select option');
       expect(options.length).toBe(5);
+      expect(options.map(option => option.text())).toEqual([
+        'Summary',
+        'Changes',
+        'Canvas',
+        'Commands',
+        'Circus Time',
+      ]);
+    });
+
+    it('renders desktop chat tab', () => {
+      const wrapper = mountPanel();
+      const desktopTabs = wrapper.findAll('.tabs-desktop .tab');
+      expect(desktopTabs.length).toBe(6);
+      const chatTab = desktopTabs.find(tab => tab.text() === 'Chat');
+      expect(chatTab).toBeDefined();
+      expect(chatTab.attributes('href')).toBe('/sessions/session-1/chat');
     });
 
     it('applies the session-detail layout marker class', () => {
@@ -133,6 +151,13 @@ describe('SessionTabsPanel', () => {
       const select = wrapper.find('.tab-select');
       await select.setValue('circus-time');
       expect(pushSpy).toHaveBeenCalledWith('/sessions/session-1/circus-time');
+    });
+
+    it('does not expose the desktop-only chat tab as a mobile option', () => {
+      const wrapper = mountPanel();
+      const options = wrapper.findAll('.tab-select option');
+      expect(options.some(option => option.attributes('value') === 'chat')).toBe(false);
+      expect(options.some(option => option.text() === 'Chat')).toBe(false);
     });
   });
 

@@ -2,7 +2,9 @@
   <section class="circus-time-tab">
     <div class="circus-time-panel">
       <div class="circus-time-copy">
-        <p class="eyebrow">Proprietary add-on</p>
+        <p class="eyebrow">
+          Proprietary add-on
+        </p>
         <h3>Circus Time</h3>
         <p>
           Configure recurring tasks that invoke templates, make HTTP calls, or

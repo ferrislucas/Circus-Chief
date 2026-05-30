@@ -5,6 +5,7 @@ import {
   seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
+  openSessionOverlay,
   waitForSessionToExist,
 } from './helpers';
 
@@ -54,15 +55,8 @@ test.describe('Debug: 404 Network Errors', () => {
       timeout: 15000,
     });
 
-    // Click tree handle to open overlay
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-
-    // Wait for overlay
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    await page.waitForTimeout(500);
+    // Open the session chat overlay
+    const overlay = await openSessionOverlay(page);
 
     // Click the button
     const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');

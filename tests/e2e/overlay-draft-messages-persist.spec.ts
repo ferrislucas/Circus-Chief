@@ -5,6 +5,7 @@ import {
   seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
+  openSessionOverlay,
   waitForSessionToExist,
   updateSessionStatus,
   seedUserMessage,
@@ -65,14 +66,7 @@ test.describe('Overlay: draft session messages persist after completion', () => 
       waitFor: '.session-detail',
       timeout: 20000,
     });
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    // Wait for slide-in animation to complete (300ms + buffer)
-    await page.waitForTimeout(400);
-    return overlay;
+    return openSessionOverlay(page);
   }
 
   async function switchToChildInOverlay(page: any, overlay: any) {
