@@ -21,7 +21,7 @@ describe('PostHog Plugin', () => {
         api_host: 'https://us.i.posthog.com',
         disable_session_recording: true,
         defaults: '2026-01-30',
-        internal_or_test_user_hostname: undefined,
+        internal_or_test_user_hostname: null,
         respect_dnt: true,
         persistence: 'localStorage',
         autocapture: true,
@@ -82,7 +82,7 @@ describe('PostHog Plugin', () => {
         expect.any(String),
         expect.objectContaining({
           defaults: '2026-01-30',
-          internal_or_test_user_hostname: undefined,
+          internal_or_test_user_hostname: null,
         })
       );
 

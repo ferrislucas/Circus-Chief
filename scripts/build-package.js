@@ -43,7 +43,7 @@ if (existsSync(envProdPath)) {
 }
 
 // --- PostHog configuration ---
-// Resolution order (first non-empty wins): CLI flag → env var → .env.production → default
+// Resolution order (first non-empty wins): CLI flag → env var → .env.production
 const posthogKey = process.argv.find(a => a.startsWith('--posthog-key='))?.split('=')[1]
   || process.env.POSTHOG_KEY
   || dotenvVars.VITE_POSTHOG_KEY
@@ -52,6 +52,12 @@ const posthogHost = process.argv.find(a => a.startsWith('--posthog-host='))?.spl
   || process.env.POSTHOG_HOST
   || dotenvVars.VITE_POSTHOG_HOST
   || 'https://us.i.posthog.com';
+
+if (!posthogKey) {
+  console.error('ERROR: PostHog key is required to publish.');
+  console.error('  Provide it via --posthog-key=<key>, POSTHOG_KEY env var, or VITE_POSTHOG_KEY in .env.production');
+  process.exit(1);
+}
 
 /** cpSync filter: exclude test files but always keep directories */
 const excludeTests = (src) => {
@@ -65,9 +71,6 @@ rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
 
 // --- 2. Build frontend ---
-if (!posthogKey) {
-  console.log('⚠ No PostHog key provided (--posthog-key, POSTHOG_KEY, or .env.production); analytics will be disabled in this build');
-}
 console.log('Building frontend...');
 // Explicitly set VITE_POSTHOG_KEY so the resolved value (from CLI flag,
 // env var, or .env.production) is what Vite bakes into the bundle.
@@ -82,18 +85,16 @@ execSync('yarn workspace @circuschief/web build', {
 });
 
 // --- 2b. Verify PostHog key in bundle ---
-if (posthogKey) {
-  const assetsDir = join(ROOT, 'packages/web/dist/assets');
-  const jsFiles = readdirSync(assetsDir).filter(f => f.endsWith('.js'));
-  const found = jsFiles.some(f =>
-    readFileSync(join(assetsDir, f), 'utf-8').includes(posthogKey)
-  );
-  if (!found) {
-    console.error('ERROR: PostHog key was not found in the built frontend bundle');
-    process.exit(1);
-  }
-  console.log('✓ PostHog key verified in frontend bundle');
+const assetsDir = join(ROOT, 'packages/web/dist/assets');
+const jsFiles = readdirSync(assetsDir).filter(f => f.endsWith('.js'));
+const found = jsFiles.some(f =>
+  readFileSync(join(assetsDir, f), 'utf-8').includes(posthogKey)
+);
+if (!found) {
+  console.error('ERROR: PostHog key was not found in the built frontend bundle');
+  process.exit(1);
 }
+console.log('✓ PostHog key verified in frontend bundle');
 
 // --- 3. Copy files preserving tree shape ---
 console.log('Copying packages/web/dist...');
