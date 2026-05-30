@@ -184,4 +184,10 @@ export const conversationsMigrations = [
     name: 'conversation_messages-add-model',
     up(db) { addColumnIfMissing(db, 'conversation_messages', 'model', 'TEXT'); },
   },
+
+  // --- Session summaries workflow fingerprint ---
+  {
+    name: 'session_summaries-add-workflow_fingerprint',
+    up(db) { addColumnIfMissing(db, 'session_summaries', 'workflow_fingerprint', 'TEXT'); },
+  },
 ];
