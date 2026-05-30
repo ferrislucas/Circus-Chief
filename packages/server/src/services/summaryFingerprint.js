@@ -55,6 +55,24 @@ export function computeContentHash(summary) {
 }
 
 /**
+ * Returns true when saving a new summary should trigger parent propagation.
+ *
+ * Propagates when the summary is brand-new, message metadata changed, or the
+ * semantic content hash changed. Returns false when only volatile timestamps
+ * (generatedAt, updatedAt) changed — i.e. the AI regenerated identical content.
+ *
+ * @param {Object|null} oldSummary - The summary record before save, or null if new.
+ * @param {Object} newSummary - The summary record after save.
+ * @returns {boolean}
+ */
+export function hasSemanticSummaryChanged(oldSummary, newSummary) {
+  if (!oldSummary) return true;
+  if (oldSummary.messageCount !== newSummary.messageCount) return true;
+  if (oldSummary.lastSummarizedMessageId !== newSummary.lastSummarizedMessageId) return true;
+  return computeContentHash(oldSummary) !== computeContentHash(newSummary);
+}
+
+/**
  * Collect all descendant sessions in breadth-first, creation-time order.
  * Children at each level are sorted by `createdAt` (then by `id` as a tie-
  * breaker so the result is fully deterministic even with millisecond precision
