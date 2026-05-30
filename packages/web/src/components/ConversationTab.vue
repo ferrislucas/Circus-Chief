@@ -81,7 +81,7 @@
 
     <!-- Scheduling Info Panel (scheduled countdown + auto-reschedule status) -->
     <SchedulingInfo
-      v-if="sessionsStore.currentSession"
+      v-if="showSchedulingInfo"
       :session="sessionsStore.currentSession"
     />
 
@@ -257,6 +257,10 @@ const sendButtonDisabledReason = computed(() => {
 });
 
 const isScheduledForFuture = computed(() => sessionsStore.isScheduledDraft(sessionsStore.currentSession));
+
+const showSchedulingInfo = computed(() =>
+  sessionsStore.currentSession?.status === 'scheduled' && Boolean(sessionsStore.currentSession.scheduledAt)
+);
 
 const nextTemplate = computed(() => {
   const templateId = sessionsStore.currentSession?.nextTemplateId;
