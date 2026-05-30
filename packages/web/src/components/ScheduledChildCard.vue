@@ -17,7 +17,10 @@
     </div>
 
     <!-- Timing Info -->
-    <div class="timing-info">
+    <div
+      v-if="hasScheduledTime"
+      class="timing-info"
+    >
       <div class="timing-item">
         <span class="timing-icon">⏰</span>
         <div class="timing-details">
@@ -115,12 +118,16 @@ function handleSessionClick() {
   emit('open-session-overlay', props.session.id);
 }
 
+const hasScheduledTime = computed(() => props.session.status === 'scheduled' && Boolean(props.session.scheduledAt));
+
 const scheduledTimeDisplay = computed(() => {
+  if (!hasScheduledTime.value) return '';
   const time = new Date(props.session.scheduledAt);
   return formatDistanceToNow(time, { addSuffix: true });
 });
 
 const absoluteTimeDisplay = computed(() => {
+  if (!hasScheduledTime.value) return '';
   const time = new Date(props.session.scheduledAt);
   return format(time, 'MMM d, h:mm a');
 });

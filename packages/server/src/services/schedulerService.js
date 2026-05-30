@@ -1,7 +1,19 @@
 import { sessions, messages, conversations, projects, attachments } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
+
+function broadcastRescheduledSession(sessionId, updated) {
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, { sessionId, session: updated });
+  if (updated?.projectId) {
+    broadcastToProject(updated.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: updated.projectId,
+      sessionId,
+      session: updated,
+    });
+  }
+}
 
 /**
  * Service for managing scheduled session execution
@@ -274,7 +286,7 @@ class SchedulerService {
     );
 
     // Update session to scheduled status with new time and pendingPrompt
-    sessions.update(sessionId, {
+    const updated = sessions.update(sessionId, {
       status: 'scheduled',
       scheduledAt: newScheduledAt,           // Fixed: camelCase
       rescheduleCount: newRescheduleCount,   // Fixed: camelCase
@@ -282,7 +294,7 @@ class SchedulerService {
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
 
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
+    broadcastRescheduledSession(sessionId, updated);
 
     return true;
   }
