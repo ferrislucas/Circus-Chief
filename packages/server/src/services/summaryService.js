@@ -32,7 +32,7 @@ import { extractPrUrlIfNeeded, parsePrUrl, validatePrUrl, enrichPrData } from '.
 import { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './childSessionContext.js';
 import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
 import { isSummaryStale } from './summaryStaleCheck.js';
-import { computeWorkflowFingerprint } from './summaryFingerprint.js';
+import { computeWorkflowFingerprint, computeContentHash } from './summaryFingerprint.js';
 import { validateAndRepairWorkflowCoverage } from './summaryWorkflowCoverage.js';
 import { handleWorkflowCoverageRepair } from './summaryCoverageRepair.js';
 import { propagateToParent as _propagateToParent, propagatePrUrlToParent } from './summaryPropagation.js';
@@ -41,6 +41,34 @@ import { propagateToParent as _propagateToParent, propagatePrUrlToParent } from 
 
 // Create the concurrency guard instance for summary generation
 const guard = createConcurrencyGuard();
+
+/**
+ * Determine whether saving a new summary should trigger parent propagation.
+ *
+ * Returns true when:
+ *   - The summary is brand-new (no prior summary existed).
+ *   - The semantic content hash changed (shortSummary, fullSummary, keyActions,
+ *     filesModified, outcome, prState, hasMergeConflicts, ciStatus, ciFailures).
+ *   - The summary message metadata changed (messageCount or lastSummarizedMessageId),
+ *     because these affect ancestor workflow fingerprints.
+ *
+ * Returns false when only volatile timestamps (generatedAt, updatedAt) changed,
+ * which happens when the AI regenerated identical content.
+ *
+ * @param {Object|null} oldSummary - The summary record before the save, or null if new.
+ * @param {Object} newSummary - The summary record after the save.
+ * @returns {boolean}
+ */
+export function hasSemanticSummaryChanged(oldSummary, newSummary) {
+  if (!oldSummary) return true; // First-time creation always propagates
+
+  if (oldSummary.messageCount !== newSummary.messageCount) return true;
+  if (oldSummary.lastSummarizedMessageId !== newSummary.lastSummarizedMessageId) return true;
+
+  const oldHash = computeContentHash(oldSummary);
+  const newHash = computeContentHash(newSummary);
+  return oldHash !== newHash;
+}
 
 // Track scheduled CI-check timers so they can be cleared on shutdown
 const activeTimers = new Set();
@@ -56,6 +84,9 @@ const activeTimers = new Set();
  * @returns {Promise<Object|null>}
  */
 export async function generateSummary(sessionId, retryCount = 0, force = false, userInitiated = false) {
+  if (guard.isActive(sessionId) && !userInitiated) {
+    console.log(`[SummaryService] Coalescing summary generation for session ${sessionId} (generation already in-flight)`);
+  }
   return guard.run(
     sessionId,
     () => _doGenerateSummary(sessionId, retryCount, force, userInitiated),
@@ -248,6 +279,25 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
   if (check.skip) return check.result;
 
   const { session, globalSettings, existingSummary, allMessages } = check;
+
+  // Log why generation is proceeding (diagnostic, no summary text)
+  if (force) {
+    console.log(`[SummaryService] Generating summary for session ${sessionId}: force=${force}, userInitiated=${userInitiated}`);
+  } else if (!existingSummary) {
+    console.log(`[SummaryService] Generating summary for session ${sessionId}: no existing summary`);
+  } else {
+    const ownMsgs = messages.getBySessionId(sessionId);
+    const lastMsg = ownMsgs.length > 0 ? ownMsgs[ownMsgs.length - 1] : null;
+    const ownStale =
+      (existingSummary.lastSummarizedMessageId && lastMsg?.id !== existingSummary.lastSummarizedMessageId) ||
+      ownMsgs.length !== existingSummary.messageCount;
+    if (ownStale) {
+      console.log(`[SummaryService] Generating summary for session ${sessionId}: own messages changed`);
+    } else {
+      console.log(`[SummaryService] Generating summary for session ${sessionId}: descendant workflow fingerprint changed`);
+    }
+  }
+
   const recentMessages = allMessages.slice(-MAX_MESSAGES);
 
   broadcastGeneratingStatus(sessionId, true);
@@ -271,7 +321,14 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     summaryData = await handleWorkflowCoverageRepair(summaryData, sessionId, { recentMessages, session, globalSettings });
 
     const summary = await saveSummaryResult(sessionId, summaryData, session, allMessages);
-    if (session.parentSessionId) _propagateToParent(sessionId, generateSummary);
+    if (session.parentSessionId) {
+      if (hasSemanticSummaryChanged(existingSummary, summary)) {
+        console.log(`[SummaryService] Propagating to ancestors: semantic summary changed for session ${sessionId}`);
+        _propagateToParent(sessionId, generateSummary);
+      } else {
+        console.log(`[SummaryService] Skipping parent propagation: semantic summary unchanged for session ${sessionId}`);
+      }
+    }
     return summary;
   } catch (error) {
     console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {

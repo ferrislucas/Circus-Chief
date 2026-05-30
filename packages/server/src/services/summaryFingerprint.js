@@ -34,10 +34,12 @@ function stableJson(value) {
  * Compute a SHA-256 hex hash of the semantic content fields of a summary.
  * Timestamps and IDs are deliberately excluded so that a re-generated summary
  * with the same text produces the same hash.
+ * Exported for use by propagation-gating logic that compares old and new
+ * semantic summary content.
  * @param {Object} summary
  * @returns {string}
  */
-function computeContentHash(summary) {
+export function computeContentHash(summary) {
   const content = {
     shortSummary: summary.shortSummary || '',
     fullSummary: summary.fullSummary || '',
@@ -90,11 +92,16 @@ function getDescendantsInTreeOrder(sessionId) {
  *
  * The fingerprint captures:
  *   - Own session: message count and last message ID
- *   - Every descendant: message metadata + summary metadata + content hash
+ *   - Every descendant: session identity, parent identity, status, message
+ *     metadata, summary message metadata, and semantic summary content hash
  *
- * Any change to message counts, summary content, or the set of descendants
- * will produce a different fingerprint, making it safe to use for staleness
- * detection even when timestamps cannot be trusted.
+ * Descendant summary timestamps (`generatedAt`, `updatedAt`) and internal
+ * summary IDs are deliberately excluded so that a re-generated summary with
+ * the same semantic content does not change the fingerprint.
+ *
+ * Any change to message counts, semantic summary content, session status, or
+ * the set of descendants will produce a different fingerprint, making it safe
+ * to use for staleness detection even when timestamps cannot be trusted.
  *
  * All underlying operations use the synchronous better-sqlite3 driver.
  * The function signature is synchronous for that reason — callers that
@@ -129,9 +136,6 @@ export function computeWorkflowFingerprint(sessionId) {
       status: desc.status,
       messageCount: descMessages.length,
       lastMessageId: lastDescMsg ? lastDescMsg.id : null,
-      summaryId: descSummary ? descSummary.id : null,
-      generatedAt: descSummary ? descSummary.generatedAt : null,
-      updatedAt: descSummary ? descSummary.updatedAt : null,
       summaryMessageCount: descSummary ? descSummary.messageCount : null,
       lastSummarizedMessageId: descSummary ? descSummary.lastSummarizedMessageId : null,
       contentHash: descSummary ? computeContentHash(descSummary) : null,
