@@ -56,7 +56,12 @@
             stroke-linejoin="round"
             aria-hidden="true"
           >
-            <line x1="19" y1="12" x2="5" y2="12" />
+            <line
+              x1="19"
+              y1="12"
+              x2="5"
+              y2="12"
+            />
             <polyline points="12 19 5 12 12 5" />
           </svg>
           <svg
@@ -71,12 +76,42 @@
             stroke-linejoin="round"
             aria-hidden="true"
           >
-            <line x1="8" y1="6" x2="21" y2="6" />
-            <line x1="8" y1="12" x2="21" y2="12" />
-            <line x1="8" y1="18" x2="21" y2="18" />
-            <line x1="3" y1="6" x2="3.01" y2="6" />
-            <line x1="3" y1="12" x2="3.01" y2="12" />
-            <line x1="3" y1="18" x2="3.01" y2="18" />
+            <line
+              x1="8"
+              y1="6"
+              x2="21"
+              y2="6"
+            />
+            <line
+              x1="8"
+              y1="12"
+              x2="21"
+              y2="12"
+            />
+            <line
+              x1="8"
+              y1="18"
+              x2="21"
+              y2="18"
+            />
+            <line
+              x1="3"
+              y1="6"
+              x2="3.01"
+              y2="6"
+            />
+            <line
+              x1="3"
+              y1="12"
+              x2="3.01"
+              y2="12"
+            />
+            <line
+              x1="3"
+              y1="18"
+              x2="3.01"
+              y2="18"
+            />
           </svg>
           <span class="back-to-sessions-text">Sessions</span>
         </router-link>
@@ -98,8 +133,18 @@
             stroke-linecap="round"
             stroke-linejoin="round"
           >
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
+            <line
+              x1="12"
+              y1="5"
+              x2="12"
+              y2="19"
+            />
+            <line
+              x1="5"
+              y1="12"
+              x2="19"
+              y2="12"
+            />
           </svg>
           {{ isCreatingSession ? 'Creating...' : 'New Session' }}
         </button>
@@ -122,7 +167,7 @@
         ref="conversationTabRef"
         :key="activeSessionId"
         :session-id="activeSessionId"
-        :scroll-container-ref="bodyRef"
+        :scroll-container-ref="effectiveScrollContainer"
         :hide-new-conversation="true"
         initial-scroll-target="latest-agent-turn"
         @prompt-focus="handlePromptFocus"
@@ -194,6 +239,13 @@ const composerFocused = ref(false);
 const contentRef = ref(null);
 const headerRef = ref(null);
 const bodyRef = ref(null);
+
+// In embedded mode the page itself scrolls, so we pass document.documentElement
+// as the scroll container so useMessageScroll can attach listeners and scroll
+// the page rather than the internal .overlay-body element.
+const effectiveScrollContainer = computed(() =>
+  props.mode === 'embedded' ? document.documentElement : bodyRef.value
+);
 const conversationTabRef = ref(null);
 const pickerOpen = ref(false);
 const pickerAreaRef = ref(null);
@@ -480,8 +532,12 @@ defineExpose({
 }
 
 .session-chat-content--embedded {
-  height: min(760px, calc(100vh - 260px));
-  min-height: 520px;
+  /* Remove the fixed-height box — content grows the page naturally */
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   border-radius: 8px;
 }
@@ -500,6 +556,13 @@ defineExpose({
   overscroll-behavior: contain;
   touch-action: pan-y;
   background: rgb(17, 24, 39);
+}
+
+.session-chat-content--embedded .overlay-body {
+  /* Let the page scroll instead of this inner container */
+  overflow-y: visible;
+  overflow-x: hidden;
+  overscroll-behavior: auto;
 }
 
 .overlay-header {
@@ -618,6 +681,13 @@ defineExpose({
 
 .session-chat-content :deep(.conversation-controls-row > *) {
   pointer-events: auto;
+}
+
+.session-chat-content--embedded :deep(.conversation-scroll-actions) {
+  position: fixed;
+  right: max(1rem, calc((100vw - 1200px) / 2 + 1rem));
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  z-index: 100;
 }
 
 .session-chat-overlay--composer-focused :deep(.session-overlay-keyboard-spacer) {

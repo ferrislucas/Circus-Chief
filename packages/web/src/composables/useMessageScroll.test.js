@@ -414,4 +414,171 @@ describe('useMessageScroll', () => {
       }).not.toThrow();
     });
   });
+
+  describe('document.documentElement as scroll container', () => {
+    let windowAddSpy, windowRemoveSpy, docElAddSpy, docElRemoveSpy;
+    let scrollContainerRef;
+    let scrollTopValue;
+
+    beforeEach(() => {
+      windowAddSpy = vi.spyOn(window, 'addEventListener');
+      windowRemoveSpy = vi.spyOn(window, 'removeEventListener');
+      docElAddSpy = vi.spyOn(document.documentElement, 'addEventListener');
+      docElRemoveSpy = vi.spyOn(document.documentElement, 'removeEventListener');
+
+      // Set up scroll properties on document.documentElement
+      scrollTopValue = 0;
+      Object.defineProperty(document.documentElement, 'scrollHeight', {
+        configurable: true,
+        get: () => 2000,
+      });
+      Object.defineProperty(document.documentElement, 'clientHeight', {
+        configurable: true,
+        get: () => 800,
+      });
+      Object.defineProperty(document.documentElement, 'scrollTop', {
+        configurable: true,
+        get: () => scrollTopValue,
+        set: (v) => { scrollTopValue = v; },
+      });
+      // Define scrollTo so the code path is consistent regardless of JSDOM version
+      Object.defineProperty(document.documentElement, 'scrollTo', {
+        configurable: true,
+        writable: true,
+        value: vi.fn((options) => {
+          if (options && typeof options.top === 'number') scrollTopValue = options.top;
+        }),
+      });
+
+      // Mock window.innerHeight
+      Object.defineProperty(window, 'innerHeight', {
+        configurable: true,
+        get: () => 800,
+      });
+
+      scrollContainerRef = ref(document.documentElement);
+    });
+
+    afterEach(() => {
+      windowAddSpy.mockRestore();
+      windowRemoveSpy.mockRestore();
+      docElAddSpy.mockRestore();
+      docElRemoveSpy.mockRestore();
+    });
+
+    it('attaches scroll listener to window, not to document.documentElement', () => {
+      scrollUtilities = useMessageScroll({
+        messages, partialText, activeConversationId,
+        scrollContainer: scrollContainerRef,
+      });
+
+      // onMounted fires immediately in tests (mocked) — listener should be on window
+      const windowScrollAdds = windowAddSpy.mock.calls.filter(([e]) => e === 'scroll');
+      expect(windowScrollAdds).toHaveLength(1);
+      expect(windowScrollAdds[0][2]).toEqual({ passive: true });
+
+      // Must NOT attach scroll listener directly to document.documentElement
+      const docElScrollAdds = docElAddSpy.mock.calls.filter(([e]) => e === 'scroll');
+      expect(docElScrollAdds).toHaveLength(0);
+    });
+
+    it('removes scroll listener from window on unmount', () => {
+      scrollUtilities = useMessageScroll({
+        messages, partialText, activeConversationId,
+        scrollContainer: scrollContainerRef,
+      });
+
+      // onUnmounted fires immediately in tests (mocked)
+      const windowScrollRemoves = windowRemoveSpy.mock.calls.filter(([e]) => e === 'scroll');
+      expect(windowScrollRemoves).toHaveLength(1);
+
+      // Must NOT remove from document.documentElement directly
+      const docElScrollRemoves = docElRemoveSpy.mock.calls.filter(([e]) => e === 'scroll');
+      expect(docElScrollRemoves).toHaveLength(0);
+    });
+
+    it('handleScroll uses window.innerHeight to detect isNearBottom when send button is present', () => {
+      // button bottom = 780 < window.innerHeight (800) → distance = -20 < threshold → near bottom
+      const sendButton = { getBoundingClientRect: vi.fn(() => ({ bottom: 780 })) };
+      vi.spyOn(document.documentElement, 'querySelector').mockReturnValue(sendButton);
+
+      scrollUtilities = useMessageScroll({
+        messages, partialText, activeConversationId,
+        scrollContainer: scrollContainerRef,
+      });
+
+      scrollUtilities.handleScroll();
+
+      expect(scrollUtilities.isNearBottom.value).toBe(true);
+    });
+
+    it('handleScroll detects not-near-bottom when send button is far below viewport', () => {
+      // button bottom = 1000, window.innerHeight = 800 → distance = 200 >= threshold → not near bottom
+      const sendButton = { getBoundingClientRect: vi.fn(() => ({ bottom: 1000 })) };
+      vi.spyOn(document.documentElement, 'querySelector').mockReturnValue(sendButton);
+
+      scrollUtilities = useMessageScroll({
+        messages, partialText, activeConversationId,
+        scrollContainer: scrollContainerRef,
+      });
+
+      scrollUtilities.handleScroll();
+
+      expect(scrollUtilities.isNearBottom.value).toBe(false);
+    });
+
+    it('handleScroll falls back to scrollHeight-scrollTop-clientHeight when no send button', () => {
+      vi.spyOn(document.documentElement, 'querySelector').mockReturnValue(null);
+      scrollTopValue = 1150; // 2000 - 1150 - 800 = 50 < threshold → near bottom
+
+      scrollUtilities = useMessageScroll({
+        messages, partialText, activeConversationId,
+        scrollContainer: scrollContainerRef,
+      });
+
+      scrollUtilities.handleScroll();
+
+      expect(scrollUtilities.isNearBottom.value).toBe(true);
+    });
+
+    it('scrollToSendButton computes scroll target using window.innerHeight as viewport bottom', async () => {
+      // scrollTop=0, scrollHeight=2000, clientHeight=800
+      // button bottom=900, window.innerHeight=800
+      // targetTop = Math.min(1200, Math.max(0, 0 + 900 - 800)) = 100
+      const sendButton = { getBoundingClientRect: vi.fn(() => ({ bottom: 900 })) };
+      vi.spyOn(document.documentElement, 'querySelector').mockReturnValue(sendButton);
+
+      scrollUtilities = useMessageScroll({
+        messages, partialText, activeConversationId,
+        scrollContainer: scrollContainerRef,
+      });
+
+      scrollUtilities.scrollToSendButton(true);
+      await nextTick();
+
+      expect(scrollTopValue).toBe(100);
+    });
+
+    it('scrollContainer watcher removes from element and adds to window when container changes to document.documentElement', async () => {
+      const regularRef = ref(mockContainer);
+
+      scrollUtilities = useMessageScroll({
+        messages, partialText, activeConversationId,
+        scrollContainer: regularRef,
+      });
+
+      // Reset spies so we only capture the watcher-triggered actions
+      windowAddSpy.mockClear();
+      mockContainer.removeEventListener.mockClear();
+
+      // Switch container to document.documentElement
+      regularRef.value = document.documentElement;
+      await nextTick();
+
+      expect(mockContainer.removeEventListener).toHaveBeenCalledWith('scroll', expect.any(Function));
+      const windowScrollAdds = windowAddSpy.mock.calls.filter(([e]) => e === 'scroll');
+      expect(windowScrollAdds).toHaveLength(1);
+      expect(windowScrollAdds[0][2]).toEqual({ passive: true });
+    });
+  });
 });
