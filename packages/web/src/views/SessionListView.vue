@@ -87,13 +87,6 @@
             Commands
           </button>
           <button
-            class="tab"
-            :class="{ active: activeTab === 'circus-time' }"
-            @click="router.push(`/projects/${route.params.id}/circus-time`)"
-          >
-            Circus Time
-          </button>
-          <button
             v-if="projectsStore.currentProject?.kanbanEnabled"
             class="tab"
             :class="{ active: activeTab === 'kanban' }"
@@ -130,9 +123,6 @@
           </option>
           <option value="commands">
             Commands
-          </option>
-          <option value="circus-time">
-            Circus Time
           </option>
           <option
             v-if="projectsStore.currentProject?.kanbanEnabled"
@@ -252,9 +242,6 @@
       <CommandButtonsPanel :project-id="route.params.id" />
     </div>
 
-    <!-- Circus Time Tab -->
-    <CircusTimeTab v-if="activeTab === 'circus-time'" />
-
     <!-- Kanban Tab -->
     <KanbanBoard
       v-if="activeTab === 'kanban'"
@@ -351,7 +338,6 @@ import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
 import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
-import CircusTimeTab from '../components/CircusTimeTab.vue';
 import KanbanBoard from '../components/KanbanBoard.vue';
 import AddSessionToLaneModal from '../components/AddSessionToLaneModal.vue';
 import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
@@ -375,7 +361,6 @@ const activeTab = computed(() => {
     case 'ArchivedSessions': return 'archived';
     case 'ProjectTemplates': return 'templates';
     case 'ProjectCommands': return 'commands';
-    case 'ProjectCircusTime': return 'circus-time';
     case 'ProjectKanban': return 'kanban';
     default: return 'sessions';
   }
@@ -389,7 +374,6 @@ function handleTabChange(tab) {
     archived: `/projects/${projectId}/archived`,
     templates: `/projects/${projectId}/templates`,
     commands: `/projects/${projectId}/commands`,
-    'circus-time': `/projects/${projectId}/circus-time`,
     kanban: `/projects/${projectId}/kanban`,
   };
   router.push(routes[tab]);

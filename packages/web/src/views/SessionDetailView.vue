@@ -450,16 +450,6 @@ const { cleanup, initializeSession } = useSessionInitializer({
 
 const activeTab = computed(() => route.params.tab || 'summary');
 
-watch(
-  () => [route.params.tab, sessionsStore.currentSession?.projectId],
-  ([tab, projectId]) => {
-    if (tab === 'circus-time' && projectId) {
-      router.replace(`/projects/${projectId}/circus-time`);
-    }
-  },
-  { immediate: true }
-);
-
 // Command button status indicators for real-time updates (mirrors SessionCard behavior)
 const buttonStatusesToDisplay = computed(() => {
   // Access commandRunVersion to establish Vue dependency tracking.
