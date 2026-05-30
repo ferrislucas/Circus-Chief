@@ -500,3 +500,13 @@ pre {
   border-color: var(--color-primary);
   color: white;
 }
+
+@media (max-width: 640px) {
+  .form-group {
+    margin-bottom: 0.375rem;
+  }
+  .form-label {
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+  }
+}

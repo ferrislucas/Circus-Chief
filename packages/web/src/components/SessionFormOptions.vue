@@ -259,13 +259,12 @@ const effortSelectorTitle = computed(() => (
   background-color: #fff;
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .options-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
+    gap: 0.5rem;
   }
-  /* Let the last item span full width */
   .options-row > :last-child {
     grid-column: 1 / -1;
   }
