@@ -5,6 +5,7 @@ import {
   seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
+  openSessionOverlay,
   waitForSessionToExist,
 } from './helpers';
 
@@ -65,18 +66,10 @@ test.describe('Debug: New Session Button', () => {
       timeout: 15000,
     });
 
-    // Click tree handle to open overlay
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    console.log('Tree handle found and visible');
-    await handle.click();
-    console.log('Tree handle clicked');
-
-    // Wait for overlay to be visible
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
+    // Open the session chat overlay
+    console.log('Opening overlay via shared helper');
+    const overlay = await openSessionOverlay(page);
     console.log('Overlay is visible');
-    await page.waitForTimeout(500); // Wait for animation
 
     // Get overlay bounding box
     const overlayBox = await overlay.boundingBox();

@@ -145,13 +145,13 @@ const isRunning = computed(() => {
 const allScheduledSessions = computed(() => {
   const result = [];
   // Include parent if scheduled
-  if (session.value?.status === 'scheduled') {
+  if (session.value?.status === 'scheduled' && session.value.scheduledAt) {
     result.push(session.value);
   }
   // Include all scheduled descendants
   const descendants = sessionsStore.getAllDescendants(props.sessionId);
   for (const d of descendants) {
-    if (d.status === 'scheduled') {
+    if (d.status === 'scheduled' && d.scheduledAt) {
       result.push(d);
     }
   }

@@ -20,7 +20,8 @@ function seedBuiltInAnthropicProvider(db) {
     { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
     { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: 'Balanced', tier: 'sonnet' },
     { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Previous generation', tier: 'opus' },
-    { id: 'anthropic-opus-4-7', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Most capable (default)', tier: 'opus' },
+    { id: 'anthropic-opus-4-7', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Previous generation', tier: 'opus' },
+    { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', description: 'Most capable (default)', tier: 'opus' },
   ];
 
   const insertModel = db.prepare(
@@ -262,5 +263,22 @@ export const providerMigrations = [
   {
     name: 'providers-backfill-built-in-openai-attribution',
     up(db) { backfillBuiltInOpenAIAttribution(db); },
+  },
+  {
+    name: 'providers-update-built-in-opus-4-8',
+    up(db) {
+      const providerId = 'anthropic-default';
+
+      db.prepare(
+        `UPDATE provider_models
+         SET description = ?
+         WHERE provider_id = ? AND id = ?`
+      ).run('Previous generation', providerId, 'anthropic-opus-4-7');
+
+      db.prepare(
+        `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run('anthropic-opus-4-8', providerId, 'claude-opus-4-8', 'Opus 4.8', 'Most capable (default)', 'opus', Date.now());
+    },
   },
 ];

@@ -33,7 +33,7 @@ test.describe('Opus 4.7 Model Availability', () => {
     await cleanupCreatedResources();
   });
 
-  test('providers API includes both claude-opus-4-6 and claude-opus-4-7', async () => {
+  test('providers API includes claude-opus-4-6, claude-opus-4-7, and claude-opus-4-8', async () => {
     const providers = await getProviders();
 
     // Find the built-in Anthropic provider
@@ -44,14 +44,21 @@ test.describe('Opus 4.7 Model Availability', () => {
     const modelIds = builtIn.models.map((m: any) => m.modelId);
     console.log('Built-in provider model IDs:', modelIds);
 
-    // Both Opus versions must be present
+    // All three Opus versions must be present
     expect(modelIds, 'Should include claude-opus-4-6').toContain('claude-opus-4-6');
     expect(modelIds, 'Should include claude-opus-4-7').toContain('claude-opus-4-7');
+    expect(modelIds, 'Should include claude-opus-4-8').toContain('claude-opus-4-8');
 
-    // Verify Opus 4.7 display name and tier
+    // Verify Opus 4.8 display name and tier
+    const opus48 = builtIn.models.find((m: any) => m.modelId === 'claude-opus-4-8');
+    expect(opus48.displayName).toBe('Opus 4.8');
+    expect(opus48.tier).toBe('opus');
+
+    // Verify Opus 4.7 is now marked as previous generation
     const opus47 = builtIn.models.find((m: any) => m.modelId === 'claude-opus-4-7');
     expect(opus47.displayName).toBe('Opus 4.7');
     expect(opus47.tier).toBe('opus');
+    expect(opus47.description).toBe('Previous generation');
 
     // Verify Opus 4.6 is marked as previous generation
     const opus46 = builtIn.models.find((m: any) => m.modelId === 'claude-opus-4-6');
@@ -86,7 +93,7 @@ test.describe('Opus 4.7 Model Availability', () => {
     // Wait for options to load (providers store fetch)
     await page.waitForFunction(() => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
-      return select && select.options.length >= 4;
+      return select && select.options.length >= 5;
     }, { timeout: 10000 });
 
     // Gather all option values from the dropdown
@@ -99,8 +106,15 @@ test.describe('Opus 4.7 Model Availability', () => {
     });
     console.log('Model selector options:', JSON.stringify(optionValues, null, 2));
 
-    // Assert that both Opus versions are available
-    // Option values use providerId::modelId format (e.g. "anthropic-default::claude-opus-4-7")
+    // Assert that all Opus versions are available
+    // Option values use providerId::modelId format (e.g. "anthropic-default::claude-opus-4-8")
+    const opus48Option = optionValues.find(opt => opt.value.endsWith('::claude-opus-4-8'));
+    expect(
+      opus48Option,
+      `Opus 4.8 should be in the model selector. Found: ${optionValues.map(o => o.value).join(', ')}`
+    ).toBeTruthy();
+    expect(opus48Option!.text).toContain('Opus 4.8');
+
     const opus47Option = optionValues.find(opt => opt.value.endsWith('::claude-opus-4-7'));
     expect(
       opus47Option,
@@ -162,6 +176,54 @@ test.describe('Opus 4.7 Model Availability', () => {
     const updatedRes = await fetch(`${API_URL}/api/sessions/${session.id}`);
     const updated = await updatedRes.json();
     expect(updated.model).toBe('claude-opus-4-7');
+  });
+
+  test('can select Opus 4.8 model on a draft session', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test selecting Opus 4.8',
+      startImmediately: false,
+      gitMode: 'none',
+      gitBranch: 'main',
+    });
+
+    // API-first preconditions (see comment in previous test).
+    await waitForSessionToExist(session.id, API_READY);
+    await waitForSessionStatus(session.id, 'waiting', API_READY);
+
+    await page.goto(`/sessions/${session.id}/summary`);
+    await page.waitForLoadState('domcontentloaded');
+    await openSessionOverlay(page);
+
+    const modelSelect = page.locator('#model-select');
+    await expect(modelSelect).toBeVisible({ timeout: 10000 });
+
+    // Wait for options to be populated (option values use providerId::modelId format)
+    await page.waitForFunction(() => {
+      const select = document.querySelector('#model-select') as HTMLSelectElement;
+      return select && Array.from(select.options).some(opt => opt.value.endsWith('::claude-opus-4-8'));
+    }, { timeout: 10000 });
+
+    // Find the full option value (providerId::claude-opus-4-8) to use with selectOption
+    const opus48OptionValue = await page.evaluate(() => {
+      const select = document.querySelector('#model-select') as HTMLSelectElement;
+      const opt = Array.from(select.options).find(o => o.value.endsWith('::claude-opus-4-8'));
+      return opt ? opt.value : null;
+    });
+    expect(opus48OptionValue).toBeTruthy();
+
+    // Select Opus 4.8 and wait for the PATCH request
+    const patchPromise = page.waitForResponse(
+      (resp) => resp.url().includes('/api/sessions/') && resp.request().method() === 'PATCH',
+      { timeout: 10000 }
+    );
+    await modelSelect.selectOption(opus48OptionValue!);
+    const patchResponse = await patchPromise;
+    expect(patchResponse.ok()).toBe(true);
+
+    // Verify the session was updated via API
+    const updatedRes = await fetch(`${API_URL}/api/sessions/${session.id}`);
+    const updated = await updatedRes.json();
+    expect(updated.model).toBe('claude-opus-4-8');
   });
 
   test('existing session with Opus 4.6 still shows correct model in dropdown', async ({ page }) => {

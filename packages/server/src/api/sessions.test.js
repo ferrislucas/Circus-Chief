@@ -23,6 +23,7 @@ vi.mock('../services/summaryService.js', () => ({
   cleanupSession: vi.fn(),
   getSummary: vi.fn(),
   regenerateSummary: vi.fn(),
+  saveManualSummary: vi.fn(),
 }));
 
 // Mock gitService
@@ -269,14 +270,57 @@ describe('Sessions API - workflow summary routes', () => {
     expect(res.body.sessionId).toBe(root.id);
   });
 
-  it('updates workflow root summary through a child session', async () => {
+  it('updates workflow root summary through a child session via saveManualSummary', async () => {
+    const mockSummary = { id: 'sum-1', sessionId: root.id, shortSummary: 'Manual', fullSummary: 'manual summary' };
+    summaryService.saveManualSummary.mockReturnValueOnce(mockSummary);
+
     const res = await request(app)
       .put(`/api/sessions/${child.id}/summary`)
       .send({ shortSummary: 'Manual', fullSummary: 'manual summary' });
 
     expect(res.status).toBe(200);
+    // saveManualSummary should be called with the child session ID (not root) —
+    // the service itself resolves to the root internally
+    expect(summaryService.saveManualSummary).toHaveBeenCalledWith(
+      child.id,
+      expect.objectContaining({ shortSummary: 'Manual', fullSummary: 'manual summary' })
+    );
     expect(res.body.sessionId).toBe(root.id);
-    expect(sessionSummaries.getBySessionId(root.id).fullSummary).toBe('manual summary');
-    expect(sessionSummaries.getBySessionId(child.id)).toBeNull();
+  });
+
+  it('returns scope=session summary for the exact requested session', async () => {
+    // Create a summary directly on the child session
+    sessionSummaries.create(child.id, {
+      shortSummary: 'Child-specific summary',
+      fullSummary: 'Child full',
+      outcome: 'completed',
+    });
+
+    const res = await request(app).get(`/api/sessions/${child.id}/summary?scope=session`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe(child.id);
+    expect(res.body.shortSummary).toBe('Child-specific summary');
+    // getSummary should NOT have been called (scope=session bypasses generation)
+    expect(summaryService.getSummary).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when scope=session and the session has no summary', async () => {
+    // child has no summary
+    const res = await request(app).get(`/api/sessions/${child.id}/summary?scope=session`);
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toBe('Summary not found');
+  });
+
+  it('scope=session ignores generate=true query param', async () => {
+    // No summary for child
+    const res = await request(app).get(
+      `/api/sessions/${child.id}/summary?scope=session&generate=true`
+    );
+
+    expect(res.status).toBe(404);
+    // Should not trigger LLM generation
+    expect(summaryService.getSummary).not.toHaveBeenCalled();
   });
 });

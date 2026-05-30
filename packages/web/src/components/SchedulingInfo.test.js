@@ -77,6 +77,22 @@ describe('SchedulingInfo.vue', () => {
       expect(wrapper.find('.scheduling-info').exists()).toBe(false);
     });
 
+    it('does not display scheduled info when scheduledAt is missing', () => {
+      const scheduledWithoutTime = {
+        ...scheduledSession,
+        scheduledAt: null,
+      };
+
+      const wrapper = mount(SchedulingInfo, {
+        props: {
+          session: scheduledWithoutTime,
+        },
+      });
+
+      expect(wrapper.find('.scheduling-info').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain('56 years ago');
+    });
+
     it('displays countdown time', () => {
       const wrapper = mount(SchedulingInfo, {
         props: {

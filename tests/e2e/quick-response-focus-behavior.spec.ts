@@ -166,7 +166,7 @@ test.describe('Quick Response Focus Behavior', () => {
 
     // Verify form submission by checking we navigated away from new session view
     await expect(page).not.toHaveURL(/\/sessions\/new/, { timeout: 10000 });
-    await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+$/);
+    await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+(?:\/chat)?$/);
   });
 
   test('mobile viewport - non-auto-submit blurs textarea', async ({ page }) => {

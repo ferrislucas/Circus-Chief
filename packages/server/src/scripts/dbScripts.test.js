@@ -112,4 +112,15 @@ describe('database utility scripts', () => {
       manager.close();
     }
   });
+
+  it('baseline validation reports missing Opus 4.8 seed row', () => {
+    const manager = new DatabaseManager();
+    const db = manager.init(':memory:');
+    try {
+      db.prepare('DELETE FROM provider_models WHERE id = ?').run('anthropic-opus-4-8');
+      expect(validateDatabaseBaseline(db)).toContain('Missing provider model seed row: anthropic-opus-4-8');
+    } finally {
+      manager.close();
+    }
+  });
 });

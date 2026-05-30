@@ -29,6 +29,26 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
     return scrollContainer?.value || messagesContainer.value;
   }
 
+  /**
+   * When el is document.documentElement, scroll events fire on window, not on
+   * the element itself. This helper returns the correct event-listener target.
+   */
+  function getListenerTarget(el) {
+    return el === document.documentElement ? window : el;
+  }
+
+  /**
+   * Returns the y-coordinate (in viewport pixels) of the visible bottom of
+   * the scroll container. For document.documentElement the visible bottom is
+   * always window.innerHeight; for a regular scrollable element it is
+   * el.getBoundingClientRect().bottom.
+   */
+  function getViewportBottom(el) {
+    return el === document.documentElement
+      ? window.innerHeight
+      : el.getBoundingClientRect().bottom;
+  }
+
   function getSendButtonEl(scrollEl) {
     return scrollEl?.querySelector?.('.btn-send-full') || null;
   }
@@ -39,9 +59,9 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
       return el.scrollHeight - el.scrollTop - el.clientHeight;
     }
 
-    const containerRect = el.getBoundingClientRect();
+    const viewportBottom = getViewportBottom(el);
     const buttonRect = sendButton.getBoundingClientRect();
-    return buttonRect.bottom - containerRect.bottom;
+    return buttonRect.bottom - viewportBottom;
   }
 
   function handleScroll() {
@@ -112,12 +132,12 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
         return;
       }
 
-      const containerRect = el.getBoundingClientRect();
+      const viewportBottom = getViewportBottom(el);
       const buttonRect = sendButton.getBoundingClientRect();
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
       const targetTop = Math.min(
         maxScrollTop,
-        Math.max(0, el.scrollTop + buttonRect.bottom - containerRect.bottom)
+        Math.max(0, el.scrollTop + buttonRect.bottom - viewportBottom)
       );
 
       programmaticScroll = true;
@@ -200,7 +220,8 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   onMounted(() => {
     const el = getScrollEl();
     if (el) {
-      el.addEventListener('scroll', handleScroll, { passive: true });
+      // document.documentElement fires scroll events on window, not on itself
+      getListenerTarget(el).addEventListener('scroll', handleScroll, { passive: true });
     }
   });
 
@@ -210,7 +231,7 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
     }
     const el = getScrollEl();
     if (el) {
-      el.removeEventListener('scroll', handleScroll);
+      getListenerTarget(el).removeEventListener('scroll', handleScroll);
     }
   });
 
@@ -219,8 +240,8 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   watch(
     () => scrollContainer?.value,
     (newEl, oldEl) => {
-      if (oldEl) oldEl.removeEventListener('scroll', handleScroll);
-      if (newEl) newEl.addEventListener('scroll', handleScroll, { passive: true });
+      if (oldEl) getListenerTarget(oldEl).removeEventListener('scroll', handleScroll);
+      if (newEl) getListenerTarget(newEl).addEventListener('scroll', handleScroll, { passive: true });
     },
     { immediate: false }
   );
