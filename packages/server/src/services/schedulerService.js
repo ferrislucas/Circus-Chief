@@ -149,6 +149,11 @@ class SchedulerService {
     // Create the initial user message
     const userMessage = messages.create(session.id, 'user', prompt, { toolUse: null, conversationId: activeConv.id });
 
+    // Link any pending file attachments to the user message
+    if (sessionAttachments && sessionAttachments.length > 0) {
+      attachments.updateMessageIdForSession(session.id, userMessage.id);
+    }
+
     // Broadcast the new message so UI updates
     broadcastToSession(session.id, WS_MESSAGE_TYPES.MESSAGE_CREATED, {
       sessionId: session.id,

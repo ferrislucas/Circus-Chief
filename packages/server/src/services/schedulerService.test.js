@@ -21,6 +21,7 @@ vi.mock('../database.js', () => ({
   },
   attachments: {
     getBySessionId: vi.fn(),
+    updateMessageIdForSession: vi.fn(),
   },
 }));
 
@@ -326,6 +327,50 @@ describe('SchedulerService', () => {
 
       expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5' });
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
+    });
+
+    it('links file attachments to user message for fresh scheduled session', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1', name: 'Test Session', projectId: 'project-1',
+        pendingPrompt: 'Analyze file', pendingModel: null,
+      };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({
+        id: 'msg-1', sessionId: 'session-1', role: 'user',
+        content: 'Analyze file', conversationId: 'conv-1',
+      });
+      attachments.getBySessionId.mockReturnValue([
+        { id: 'att-1', sessionId: 'session-1', filename: 'test.txt', messageId: null },
+      ]);
+
+      await scheduler.startScheduledSession(session);
+
+      expect(attachments.updateMessageIdForSession).toHaveBeenCalledWith('session-1', 'msg-1');
+    });
+
+    it('does not call updateMessageIdForSession when there are no attachments', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1', name: 'Test Session', projectId: 'project-1',
+        pendingPrompt: 'Hello', pendingModel: null,
+      };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({
+        id: 'msg-1', sessionId: 'session-1', role: 'user',
+        content: 'Hello', conversationId: 'conv-1',
+      });
+      attachments.getBySessionId.mockReturnValue([]);
+
+      await scheduler.startScheduledSession(session);
+
+      expect(attachments.updateMessageIdForSession).not.toHaveBeenCalled();
     });
   });
 
