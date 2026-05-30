@@ -16,6 +16,7 @@ import {
   getTemplate,
   getProjectTemplates,
   navigateAndWait,
+  openSessionOverlay,
 } from './helpers';
 
 test.describe.configure({ timeout: 60000 });
@@ -663,13 +664,7 @@ test.describe('Template Model Inheritance — Conversation Overlay Verification'
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    await page.waitForTimeout(400); // Wait for slide-in animation
-    return overlay;
+    return openSessionOverlay(page);
   }
 
   test('child session inherits model from root and shows it in overlay ModelSelector', async ({ page }) => {
