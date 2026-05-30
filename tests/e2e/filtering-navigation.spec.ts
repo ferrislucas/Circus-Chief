@@ -636,11 +636,12 @@ test.describe('Session Detail Tab Navigation', () => {
     );
   });
 
-  test('legacy session-level Circus Time URL redirects to project tab', async ({ page }) => {
+  test('legacy session-level Circus Time URL stays on session detail without Circus Time tab', async ({ page }) => {
     await navigateAndWait(page, `/sessions/${session.id}/circus-time`);
 
-    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/circus-time`));
-    await expect(page.getByRole('heading', { name: 'Circus Time' })).toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/sessions/${session.id}/circus-time`));
+    await expect(page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Circus Time' })).toHaveCount(0);
   });
 
   test('back button navigates between tabs correctly', async ({ page }) => {

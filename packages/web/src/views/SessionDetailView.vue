@@ -229,6 +229,7 @@ watch(
   { immediate: true }
 );
 
+// Command button status indicators for real-time updates (mirrors SessionCard behavior)
 const buttonStatusesToDisplay = computed(() => {
   // eslint-disable-next-line no-unused-vars
   const _version = sessionsStore.commandRunVersion;
