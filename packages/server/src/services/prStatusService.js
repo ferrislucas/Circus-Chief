@@ -89,8 +89,9 @@ export function getSessionsToCheck() {
       continue;
     }
 
-    // For older sessions without subscribers, only poll if CI is pending
-    if (summary?.ciStatus === 'pending') {
+    // For older sessions without subscribers, poll if CI is pending or PR status
+    // has never been recorded (no summary, or summary with no prState yet)
+    if (summary?.ciStatus === 'pending' || !summary?.prState) {
       result.push({ sessionId: session.id, prUrl: session.prUrl });
     }
   }

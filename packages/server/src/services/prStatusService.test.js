@@ -206,6 +206,34 @@ describe('prStatusService', () => {
       expect(result).toHaveLength(1);
     });
 
+    it('includes sessions with a summary but no prState recorded yet', () => {
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
+
+      // Summary exists but PR status has never been checked (no prState)
+      sessionSummaries.upsert(sessionId, {
+        shortSummary: 'Some work done',
+        fullSummary: 'Full details here',
+        prState: null,
+      });
+
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
+
+      const result = getSessionsToCheck();
+      expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe(sessionId);
+    });
+
+    it('includes sessions with no summary at all (PR status never recorded)', () => {
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
+      // No summary created — simulates a session that never had PR status checked
+
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
+
+      const result = getSessionsToCheck();
+      expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe(sessionId);
+    });
+
     it('always includes subscribed sessions regardless of age', () => {
       sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'stopped' });
 
