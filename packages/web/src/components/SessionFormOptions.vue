@@ -262,7 +262,7 @@ const effortSelectorTitle = computed(() => (
 @media (max-width: 640px) {
   .options-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.5rem;
   }
   .options-row > :last-child {
