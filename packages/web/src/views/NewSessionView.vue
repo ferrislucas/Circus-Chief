@@ -582,8 +582,8 @@ h1 {
     bottom: 0;
     background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e));
     border-top: 1px solid var(--color-border);
-    padding: 0.75rem 1rem;
-    margin: 0 -1rem -1rem;
+    padding: 0.75rem;
+    margin: 0 -0.75rem -0.75rem;
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
     z-index: 10;
   }
