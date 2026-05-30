@@ -583,6 +583,142 @@ describe('summaryStaleCheck', () => {
         }
       });
 
+      it('parent with stored fingerprint remains fresh after only descendant summary timestamps change', () => {
+        vi.useFakeTimers();
+
+        try {
+          // T1: create child session and child summary
+          vi.setSystemTime(1000);
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          const childSummary = sessionSummaries.create(child.id, {
+            shortSummary: 'Child work done',
+            fullSummary: 'Child full details',
+            outcome: 'completed',
+            messageCount: messages.getBySessionId(child.id).length,
+            lastSummarizedMessageId: null,
+          });
+
+          // T2: create parent summary with fingerprint
+          vi.setSystemTime(2000);
+          const fp = computeWorkflowFingerprint(sessionId);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Parent',
+            fullSummary: 'Parent full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+            workflowFingerprint: fp,
+          });
+
+          // Parent should be fresh
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          // T3: update child summary with identical semantic content (only timestamps refresh).
+          // This simulates the re-generation scenario where the AI produces the same output.
+          vi.setSystemTime(9000);
+          sessionSummaries.update(childSummary.id, {
+            shortSummary: 'Child work done',
+            fullSummary: 'Child full details',
+            outcome: 'completed',
+            messageCount: messages.getBySessionId(child.id).length,
+            lastSummarizedMessageId: null,
+          });
+
+          // Parent must STILL be fresh — only timestamps changed, fingerprint is unchanged
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('parent with stored fingerprint becomes stale after descendant semantic summary content changes', () => {
+        vi.useFakeTimers();
+
+        try {
+          vi.setSystemTime(1000);
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          const childSummary = sessionSummaries.create(child.id, {
+            shortSummary: 'In progress',
+            fullSummary: 'Work continues',
+            outcome: 'ongoing',
+            messageCount: 0,
+          });
+
+          vi.setSystemTime(2000);
+          const fp = computeWorkflowFingerprint(sessionId);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Parent',
+            fullSummary: 'Parent full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+            workflowFingerprint: fp,
+          });
+
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          // Update with genuinely different semantic content
+          vi.setSystemTime(3000);
+          sessionSummaries.update(childSummary.id, {
+            shortSummary: 'Completed all tasks',
+            fullSummary: 'All work is done now',
+            outcome: 'completed',
+          });
+
+          // Parent must be stale — semantic content changed, fingerprint no longer matches
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('parent with stored fingerprint becomes stale after descendant message metadata changes', () => {
+        vi.useFakeTimers();
+
+        try {
+          vi.setSystemTime(1000);
+          const child = sessions.create(projectId, 'Child', 'Prompt', { parentSessionId: sessionId });
+          sessionSummaries.create(child.id, {
+            shortSummary: 'Child',
+            fullSummary: 'Child full',
+            outcome: 'ongoing',
+            messageCount: 1,
+            lastSummarizedMessageId: 'msg-001',
+          });
+
+          vi.setSystemTime(2000);
+          const fp = computeWorkflowFingerprint(sessionId);
+          const parentMsgs = messages.getBySessionId(sessionId);
+          const lastParentMsg = parentMsgs.length > 0 ? parentMsgs[parentMsgs.length - 1] : null;
+          sessionSummaries.create(sessionId, {
+            shortSummary: 'Parent',
+            fullSummary: 'Parent full',
+            messageCount: parentMsgs.length,
+            lastSummarizedMessageId: lastParentMsg ? lastParentMsg.id : null,
+            workflowFingerprint: fp,
+          });
+
+          expect(isSummaryStale(sessionId)).toBe(false);
+
+          // Add a new message to child — this changes descendant message metadata
+          vi.setSystemTime(3000);
+          messages.create(child.id, 'assistant', 'New child response');
+
+          // Parent must be stale — descendant lastMessageId changed, fingerprint no longer matches
+          expect(isSummaryStale(sessionId)).toBe(true);
+
+          sessions.delete(child.id);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it('sessions without descendants continue to use existing own-message staleness behavior', () => {
         vi.useFakeTimers();
 
