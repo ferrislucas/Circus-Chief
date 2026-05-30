@@ -7,7 +7,7 @@ import { useProvidersStore } from '../stores/providers.js';
 import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 
 // Use actual model data from the shared package
-const [haiku, sonnet, opusLegacy, opus] = CLAUDE_MODELS;
+const [haiku, sonnet, opusLegacy, opus47, opus] = CLAUDE_MODELS;
 const optionValue = (providerId, modelId) => `${providerId}::${modelId}`;
 
 // Global helper to flush all async updates and force DOM re-render
@@ -59,10 +59,10 @@ describe('ModelSelector', () => {
       expect(wrapper.find('select').exists()).toBe(true);
     });
 
-    it('renders all four model options', () => {
+    it('renders all five model options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options).toHaveLength(4);
+      expect(options).toHaveLength(5);
     });
 
     it('displays model names in options', () => {
@@ -71,7 +71,8 @@ describe('ModelSelector', () => {
       expect(options[0].text()).toBe(haiku.name);
       expect(options[1].text()).toBe(sonnet.name);
       expect(options[2].text()).toBe(opusLegacy.name);
-      expect(options[3].text()).toBe(opus.name);
+      expect(options[3].text()).toBe(opus47.name);
+      expect(options[4].text()).toBe(opus.name);
     });
 
     it('sets correct values for options', () => {
@@ -80,7 +81,8 @@ describe('ModelSelector', () => {
       expect(options[0].element.value).toBe(optionValue('anthropic', haiku.id));
       expect(options[1].element.value).toBe(optionValue('anthropic', sonnet.id));
       expect(options[2].element.value).toBe(optionValue('anthropic', opusLegacy.id));
-      expect(options[3].element.value).toBe(optionValue('anthropic', opus.id));
+      expect(options[3].element.value).toBe(optionValue('anthropic', opus47.id));
+      expect(options[4].element.value).toBe(optionValue('anthropic', opus.id));
     });
   });
 
@@ -320,8 +322,8 @@ describe('ModelSelector', () => {
     it('renders an empty option when allowEmpty is true', () => {
       const wrapper = mountComponent({ allowEmpty: true, modelValue: '' });
       const options = wrapper.findAll('option');
-      // 1 empty option + 4 model options
-      expect(options).toHaveLength(5);
+      // 1 empty option + 5 model options
+      expect(options).toHaveLength(6);
       expect(options[0].text()).toBe('Use system default');
       expect(options[0].element.value).toBe('');
     });
@@ -329,7 +331,7 @@ describe('ModelSelector', () => {
     it('does not render an empty option when allowEmpty is false (default)', () => {
       const wrapper = mountComponent({ modelValue: sonnet.id });
       const options = wrapper.findAll('option');
-      expect(options).toHaveLength(4);
+      expect(options).toHaveLength(5);
     });
 
     it('uses custom emptyLabel text', () => {
@@ -414,6 +416,7 @@ describe('ModelSelector', () => {
             { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
             { id: 'anthropic-opus-legacy', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', tier: 'opus' },
             { id: 'anthropic-opus', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', tier: 'opus' },
+            { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', tier: 'opus' },
           ],
         },
       ];
@@ -424,10 +427,12 @@ describe('ModelSelector', () => {
       const options = wrapper.findAll('option');
 
       // Built-in provider should show displayName
+      expect(options).toHaveLength(5);
       expect(options[0].text()).toBe('Haiku 4.5');
       expect(options[1].text()).toBe('Sonnet 4.6');
       expect(options[2].text()).toBe('Opus 4.6');
       expect(options[3].text()).toBe('Opus 4.7');
+      expect(options[4].text()).toBe('Opus 4.8');
     });
 
     it('displays modelId for custom provider models', async () => {
