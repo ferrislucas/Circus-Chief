@@ -19,6 +19,12 @@ import {
   waitForSessionToExist,
 } from './helpers';
 
+function sessionIdFromCurrentUrl(page: { url: () => string }) {
+  const match = page.url().match(/\/sessions\/([0-9a-f-]+)/);
+  if (!match) throw new Error(`Could not extract session id from URL: ${page.url()}`);
+  return match[1];
+}
+
 /**
  * Effort Level Feature - E2E Tests
  *
@@ -346,8 +352,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       await expect(page).toHaveURL(/\/sessions\/[0-9a-f]{8}-/, { timeout: 30000 });
 
       // Extract sessionId from URL
-      const url = page.url();
-      const sessionId = url.split('/').pop();
+      const sessionId = sessionIdFromCurrentUrl(page);
 
       // CRITICAL: Wait for session to exist in database
       await waitForSessionToExist(sessionId);
@@ -374,8 +379,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
       await expect(page).toHaveURL(/\/sessions\/[0-9a-f]{8}-/, { timeout: 30000 });
 
       // Extract sessionId from URL
-      const url = page.url();
-      const sessionId = url.split('/').pop();
+      const sessionId = sessionIdFromCurrentUrl(page);
 
       // CRITICAL: Wait for session to exist in database
       await waitForSessionToExist(sessionId);
@@ -405,8 +409,7 @@ test.describe('Effort Level Feature - E2E Tests', () => {
         await expect(page).toHaveURL(/\/sessions\/[0-9a-f]{8}-/, { timeout: 30000 });
 
         // Extract sessionId from URL
-        const url = page.url();
-        const sessionId = url.split('/').pop();
+        const sessionId = sessionIdFromCurrentUrl(page);
 
         // CRITICAL: Wait for session to exist in database
         await waitForSessionToExist(sessionId);

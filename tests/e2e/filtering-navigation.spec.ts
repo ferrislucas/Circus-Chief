@@ -606,7 +606,8 @@ test.describe('Session Detail Tab Navigation', () => {
     await expect(page).toHaveURL(new RegExp(`/sessions/${session.id}/commands`));
     await expect(page.locator('.tabs-desktop .tab').filter({ hasText: 'Commands' })).toHaveClass(/active/);
 
-    await expect(page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' })).toHaveCount(0);
+    const circusTimeTab = page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' });
+    await expect(circusTimeTab).toBeVisible();
   });
 
   test('deep linking to a specific tab works', async ({ page }) => {

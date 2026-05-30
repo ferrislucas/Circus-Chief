@@ -251,11 +251,11 @@ describe('SessionDetailView', () => {
       expect(tabsPanel.exists()).toBe(true);
       expect(tabsPanel.props('tabs').map(tab => tab.id)).toEqual([
         'summary',
+        'chat',
         'changes',
         'canvas',
         'commands',
         'circus-time',
-        'chat',
       ]);
       expect(tabsPanel.props('tabs').find(tab => tab.id === 'chat')).toEqual({
         id: 'chat',

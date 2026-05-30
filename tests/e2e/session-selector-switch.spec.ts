@@ -5,6 +5,7 @@ import {
   seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
+  openSessionOverlay,
   waitForSessionToExist,
   updateSessionStatus,
   seedUserMessage,
@@ -93,14 +94,7 @@ test.describe('Session selector switches conversation content', () => {
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    // Wait for slide-in animation to complete (300ms + buffer)
-    await page.waitForTimeout(400);
-    return overlay;
+    return openSessionOverlay(page);
   }
 
   async function switchToSessionInOverlay(page: any, overlay: any, sessionName: string) {
@@ -196,9 +190,6 @@ test.describe('Session selector switches conversation content', () => {
     const dropdownName = overlay.locator('.dropdown-name');
     await expect(dropdownName).toContainText('Child B', { timeout: 5000 });
 
-    // The root name should still be the parent
-    const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
   });
 
   test('rapid session switching settles on the last selected session', async ({ page }) => {

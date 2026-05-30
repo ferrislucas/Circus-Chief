@@ -5,6 +5,7 @@ import {
   seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
+  openSessionOverlay,
   waitForSessionToExist,
 } from './helpers';
 
@@ -44,12 +45,7 @@ test.describe('Session Tree Picker Shows All Children', () => {
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    await page.waitForTimeout(400);
+    const overlay = await openSessionOverlay(page);
 
     // Open the picker dropdown
     const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -179,11 +175,7 @@ test.describe('Session Tree Picker Shows All Children', () => {
     // Picker should close
     await expect(picker).not.toBeVisible({ timeout: 5000 });
 
-    // The overlay-root-name always shows the root (parent) session name
-    const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
-
-    // The dropdown should now show the selected child session name
+    // The dropdown should now show the selected child session name.
     const dropdownName = overlay.locator('.dropdown-name');
     await expect(dropdownName).toContainText('Child Session 4', { timeout: 5000 });
   });

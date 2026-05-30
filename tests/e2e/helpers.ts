@@ -147,15 +147,18 @@ export async function navigateAndWait(
 }
 
 /**
- * Open the session tree overlay on the session detail page.
- * Clicks the tree handle and waits for the overlay to be fully rendered
- * (including the transition animation and overlay header).
+ * Open the session chat on the session detail page.
  *
- * Before clicking, waits for `[data-testid="session-detail"][data-ready="true"]`
+ * On mobile viewports (< 641px), clicks the floating chat handle to open
+ * the session chat overlay. On desktop viewports (>= 641px), clicks the
+ * "Chat" tab in the session detail tab panel to show the embedded chat.
+ *
+ * Before interacting, waits for `[data-testid="session-detail"][data-ready="true"]`
  * — this ensures the store has hydrated AND the session chain has been
- * built, which is the precondition for the chat handle to render.
+ * built, which is the precondition for the chat UI to render.
  *
- * Returns a Locator scoped to the overlay container.
+ * Returns a Locator scoped to the `.overlay-content` container,
+ * which exists in both overlay (mobile) and embedded (desktop) modes.
  */
 export async function openSessionOverlay(page: Page, timeout = OVERLAY_TIMEOUT) {
   // Wait for session detail readiness signal before doing anything else.
@@ -166,15 +169,50 @@ export async function openSessionOverlay(page: Page, timeout = OVERLAY_TIMEOUT) 
     .waitFor({ state: 'visible', timeout });
 
   const handle = page.locator('[data-testid="session-chat-handle"]');
-  await handle.waitFor({ state: 'visible', timeout });
-  await handle.click();
-  const overlay = page.locator('.session-chat-overlay');
-  await overlay.waitFor({ state: 'visible', timeout });
-  // Wait for the overlay header to be visible — this ensures the transition
-  // animation has completed and the overlay content is fully rendered,
-  // eliminating the need for callers to add waitForTimeout() after this call.
-  await overlay.locator('.overlay-header').waitFor({ state: 'visible', timeout });
-  return overlay;
+  const isHandleVisible = await handle.isVisible();
+
+  if (isHandleVisible) {
+    // Mobile path: click the floating chat handle to open the overlay
+    await handle.click();
+  } else {
+    // Desktop path: click the "Chat" tab in the session detail tab panel
+    const chatTab = page.locator('.tabs-desktop a[href$="/chat"]');
+    await chatTab.click();
+  }
+
+  // Wait for the rendered chat content to be visible. `.overlay-content` is
+  // the stable shell class used by SessionChatContent in both embedded and
+  // overlay modes.
+  const content = page.locator('.overlay-content');
+  await content.waitFor({ state: 'visible', timeout });
+  // Wait for the overlay header to be visible — this ensures the content
+  // is fully rendered, eliminating the need for callers to add
+  // waitForTimeout() after this call.
+  await content.locator('.overlay-header').waitFor({ state: 'visible', timeout });
+  return content;
+}
+
+/**
+ * Close the session chat overlay / navigate away from the chat tab.
+ *
+ * On mobile viewports, clicks the overlay close handle and waits for the
+ * overlay to be removed from the DOM. On desktop viewports, navigates to
+ * the "Summary" tab.
+ */
+export async function closeSessionChat(page: Page, timeout = OVERLAY_TIMEOUT) {
+  const overlayVisible = await page.locator('[data-testid="session-chat-overlay"]').isVisible();
+  if (overlayVisible) {
+    // Mobile: close the overlay via the close handle
+    const closeHandle = page.locator('[data-testid="session-chat-overlay-close-handle"]');
+    await closeHandle.click();
+    await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout });
+    await page.locator('[data-testid="session-chat-overlay"]').waitFor({ state: 'detached', timeout });
+  } else {
+    // Desktop: navigate back to the Summary tab
+    const summaryTab = page.locator('.tabs-desktop a[href$="/summary"]');
+    await summaryTab.click();
+    await page.locator('[data-testid="session-detail"][data-ready="true"]').waitFor({ state: 'visible', timeout });
+  }
 }
 
 /**

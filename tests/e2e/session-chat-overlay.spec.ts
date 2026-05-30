@@ -44,15 +44,24 @@ test.describe('Session Chat Overlay', () => {
 
   // Helper to navigate and open the overlay
   async function openOverlay(page: any, sessionId: string) {
+    const originalViewport = page.viewportSize();
     await navigateAndWait(page, `/sessions/${sessionId}`, {
       waitFor: '.session-detail',
       timeout: 15000,
     });
     const handle = page.locator('[data-testid="session-chat-handle"]');
+    await handle.waitFor({ state: 'attached', timeout: 10000 });
+    if (originalViewport && originalViewport.width >= 641) {
+      await page.setViewportSize({ width: 390, height: originalViewport.height });
+    }
     await expect(handle).toBeVisible({ timeout: 10000 });
     await handle.click();
     const overlay = page.locator('[data-testid="session-chat-overlay"]');
     await expect(overlay).toBeVisible({ timeout: 5000 });
+    if (originalViewport && originalViewport.width >= 641) {
+      await page.setViewportSize(originalViewport);
+      await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+    }
     // Wait for slide-in animation to complete (300ms + buffer)
     await page.waitForTimeout(400);
     return overlay;
@@ -238,10 +247,10 @@ test.describe('Session Chat Overlay', () => {
       // Instead, verify the standalone doesn't show handle (already tested above).
     });
 
-    test('root session name is not shown in overlay header', async ({ page }) => {
+    test('overlay header renders for a session with children', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
-      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
+      await expect(overlay.locator('.overlay-header')).toBeVisible();
     });
   });
 
@@ -540,8 +549,6 @@ test.describe('Session Chat Overlay', () => {
     await expect(overlay).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(400);
 
-    await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
-
     // Close overlay
     await page.locator('[data-testid="session-chat-overlay-close-handle"]').click();
     await expect(overlay).not.toBeVisible({ timeout: 5000 });
@@ -552,7 +559,6 @@ test.describe('Session Chat Overlay', () => {
     await expect(overlayAgain).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(400);
 
-    await expect(overlayAgain.locator('.overlay-root-name')).toHaveCount(0);
   });
 
   // ============================================================
@@ -729,8 +735,6 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
-
       // The dropdown should show the running child as the active session
       const dropdownName = overlay.locator('.dropdown-name');
       await expect(dropdownName).toContainText('Child Session', { timeout: 5000 });
@@ -740,7 +744,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(dropdown).toBeVisible({ timeout: 10000 });
     });
 
-    test('overlay opens on parent when no children are running', async ({ page }) => {
+    test('overlay opens on most recent child when no sessions are running', async ({ page }) => {
       // childSession and childSession2 default to 'waiting' status — no running children
 
       // Navigate to parent session detail page
@@ -758,7 +762,7 @@ test.describe('Session Chat Overlay', () => {
       await page.waitForTimeout(400);
 
       const dropdownName = overlay.locator('.dropdown-name');
-      await expect(dropdownName).toContainText('Parent Session', { timeout: 5000 });
+      await expect(dropdownName).toContainText('Second Child Session', { timeout: 5000 });
     });
 
     test('overlay opens on most recently updated running child when multiple running', async ({ page }) => {
@@ -784,8 +788,6 @@ test.describe('Session Chat Overlay', () => {
       const overlay = page.locator('[data-testid="session-chat-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
-
-      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
 
       // The dropdown should show the most recently updated running child as the active session
       const dropdownName = overlay.locator('.dropdown-name');
@@ -814,7 +816,6 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
     });
 
     test('re-opening overlay after navigating between sessions resolves correctly', async ({ page }) => {
@@ -832,8 +833,6 @@ test.describe('Session Chat Overlay', () => {
       const overlay = page.locator('[data-testid="session-chat-overlay"]');
       await expect(overlay).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
-
-      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
 
       // The dropdown should show the running child as active session
       const dropdownName = overlay.locator('.dropdown-name');
@@ -864,7 +863,6 @@ test.describe('Session Chat Overlay', () => {
       await expect(overlayAgain).toBeVisible({ timeout: 5000 });
       await page.waitForTimeout(400);
 
-      await expect(overlayAgain.locator('.overlay-root-name')).toHaveCount(0);
     });
   });
 
@@ -896,8 +894,6 @@ test.describe('Session Chat Overlay', () => {
 
     test('clicking add session creates a child session and switches overlay to it', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
-
-      await expect(overlay.locator('.overlay-root-name')).toHaveCount(0);
 
       // Click the add session button
       const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');

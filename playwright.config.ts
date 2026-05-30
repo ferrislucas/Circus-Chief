@@ -34,22 +34,30 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { browserName: 'chromium' },
+      // Exclude overlay-specific specs that require the mobile chat handle,
+      // full-screen overlay, or overlay-only UI elements (pickers, scroll-to-bottom).
+      // Those run in the iphone-14 / ipad-pro projects below.
+      testIgnore: /session-chat-overlay(-layout|-scroll|-auto-select)?\.spec\.ts$|session-overlay-auto-open\.spec\.ts$|stale-spinner-after-reconnect\.spec\.ts$|session-chat-picker-all-children\.spec\.ts$|session-selector-switch\.spec\.ts$|scroll-to-bottom\.spec\.ts$/,
     },
     // Mobile projects are chromium under the hood. Playwright does not
     // emulate Safari WebKit or iOS URL-bar / visual-viewport divergence
     // — these projects only change viewport size + user-agent string.
     // True iOS validation lives in manual device QA; these are a smoke
     // test against narrow-viewport CSS layout.
-    // Scoped to the overlay layout spec so existing specs still run
-    // only under desktop chromium.
+    // Scoped to overlay specs that need the mobile chat handle to open
+    // the full-screen overlay.
     {
       name: 'iphone-14',
       use: { browserName: 'chromium', ...devices['iPhone 14'] },
-      testMatch: /session-chat-overlay-layout\.spec\.ts$/,
+      testMatch: /session-chat-overlay(-layout|-scroll|-auto-select)?\.spec\.ts$|session-overlay-auto-open\.spec\.ts$|stale-spinner-after-reconnect\.spec\.ts$|session-chat-picker-all-children\.spec\.ts$|session-selector-switch\.spec\.ts$|scroll-to-bottom\.spec\.ts$/,
     },
     {
       name: 'ipad-pro',
       use: { browserName: 'chromium', ...devices['iPad Pro 11'] },
+      // Only the layout regression tests run on iPad Pro. They exercise overlay
+      // geometry at wide viewports (744px, 800px, 834px) and need special
+      // handling to open the overlay (which is hidden at >=641px) by
+      // temporarily shrinking the viewport to mobile width first.
       testMatch: /session-chat-overlay-layout\.spec\.ts$/,
     },
   ],
