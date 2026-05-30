@@ -197,18 +197,12 @@ defineEmits(['update:modelValue', 'update:branchName', 'branchEdit', 'resetBranc
   color: var(--color-text-soft);
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .segment-btn {
     padding: 0.375rem 0.5rem;
     font-size: 0.75rem;
   }
-
-  /* On small screens, show abbreviated "WT" instead of "Worktree" */
-  .segment-label-full {
-    display: none;
-  }
-  .segment-label-short {
-    display: inline;
-  }
+  .segment-label-full { display: none; }
+  .segment-label-short { display: inline; }
 }
 </style>

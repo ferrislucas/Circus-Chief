@@ -60,7 +60,7 @@ test.describe('Gemini provider flow', () => {
     await page.locator('.btn-submit').click();
 
     // Wait for navigation to session detail
-    await expect(page).toHaveURL(/\/sessions\/(?!new$)[^/]+$/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+(?:\/chat)?$/, { timeout: 15000 });
     const sessionId = page.url().match(/\/sessions\/([^/?#]+)/)?.[1];
     expect(sessionId).toBeTruthy();
 

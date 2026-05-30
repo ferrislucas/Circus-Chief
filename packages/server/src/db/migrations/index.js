@@ -243,14 +243,9 @@ export const allMigrations = validateMigrations([
   // --- Sessions default mode / thinking defaults (table recreation) ---
   s.get('sessions-migrate-default-mode-thinking'),
 
-  // --- Seed default global quick responses ---
-  m.get('quick_responses-seed-defaults'),
-
-  // --- Convert legacy quick responses into template-backed quick responses ---
-  m.get('session_templates-convert-quick-responses'),
-
-  // --- Seed default global session templates ---
-  m.get('session_templates-seed-defaults'),
+  // --- Remove template rows created by the legacy quick-response conversion.
+  //     This fixes the duplicate quick-response items users were seeing.
+  m.get('session_templates-remove-legacy-quick-response-templates'),
 
   // --- Update built-in Opus model to 4.7 ---
   pr.get('providers-update-built-in-opus-4-7'),
@@ -267,9 +262,15 @@ export const allMigrations = validateMigrations([
   // --- Backfill official OpenAI commit attribution ---
   pr.get('providers-backfill-built-in-openai-attribution'),
 
+  // --- Update built-in Opus model to 4.8 ---
+  pr.get('providers-update-built-in-opus-4-8'),
+
   // --- Project session defaults: add 'current' git mode ---
   p.get('project_session_defaults-git_mode-add-current'),
 
   // --- Repair missing session parent links from worktree paths ---
   repairMissingSessionParentsFromWorktree,
+
+  // --- Session summaries workflow fingerprint ---
+  c.get('session_summaries-add-workflow_fingerprint'),
 ]);

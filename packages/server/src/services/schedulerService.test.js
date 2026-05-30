@@ -27,10 +27,11 @@ vi.mock('../database.js', () => ({
 
 vi.mock('../websocket.js', () => ({
   broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
 }));
 
 import { sessions, messages, conversations, projects, attachments } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 
 describe('SchedulerService', () => {
   let scheduler;
@@ -382,13 +383,23 @@ describe('SchedulerService', () => {
 
       const session = {
         id: 'session-1',
+        projectId: 'project-1',
         rescheduleDelayMinutes: 15,
         rescheduleCount: 0,
         maxRescheduleCount: null,
         maxTotalTokens: null,
       };
+      const updatedSession = {
+        ...session,
+        status: 'scheduled',
+        scheduledAt: now + 15 * 60 * 1000,
+        rescheduleCount: 1,
+        pendingPrompt: 'First message',
+        error: 'Rescheduled (1x): Token limit reached',
+      };
 
       sessions.getById.mockReturnValue(session);
+      sessions.update.mockReturnValue(updatedSession);
       messages.getBySessionId.mockReturnValue([
         { role: 'user', content: 'First message' },
       ]);
@@ -406,6 +417,15 @@ describe('SchedulerService', () => {
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
         sessionId: 'session-1',
         status: 'scheduled',
+      });
+      expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        sessionId: 'session-1',
+        session: updatedSession,
+      });
+      expect(broadcastToProject).toHaveBeenCalledWith('project-1', WS_MESSAGE_TYPES.SESSION_UPDATED, {
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        session: updatedSession,
       });
     });
 

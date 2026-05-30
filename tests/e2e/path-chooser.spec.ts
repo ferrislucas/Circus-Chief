@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, cleanupAll } from './helpers';
+import { seedProject, cleanupAll, expectFullyInViewport, expectHitTestable } from './helpers';
 
 test.describe('Path Chooser', () => {
   test.beforeEach(async () => {
@@ -16,33 +16,37 @@ test.describe('Path Chooser', () => {
     // Assert the path chooser structure is present
     await expect(page.locator('.path-chooser')).toBeVisible();
     await expect(page.locator('.path-chooser input[type="text"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Browse' })).toBeVisible();
+    await expectHitTestable(page.getByRole('button', { name: 'Browse' }), { requireEnabled: true });
   });
 
   test('opens directory browser modal when Browse is clicked', async ({ page }) => {
     await page.goto('/projects/new');
 
-    await page.click('button:has-text("Browse")');
+    const browseButton = page.getByRole('button', { name: 'Browse' });
+    await expectHitTestable(browseButton, { requireEnabled: true });
+    await browseButton.click();
 
     // Assert modal is visible with correct structure
     await expect(page.locator('.path-browser-overlay')).toBeVisible();
-    await expect(page.locator('.path-browser')).toBeVisible();
+    await expectFullyInViewport(page.locator('.path-browser'));
     await expect(page.locator('.browser-header')).toBeVisible();
     await expect(page.locator('.browser-content')).toBeVisible();
     await expect(page.locator('.browser-footer')).toBeVisible();
 
     // Assert modal has Cancel and Select buttons
-    await expect(page.locator('.browser-footer button:has-text("Cancel")')).toBeVisible();
-    await expect(page.locator('.browser-footer button:has-text("Select")')).toBeVisible();
+    await expectHitTestable(page.locator('.browser-footer button:has-text("Cancel")'), { requireEnabled: true });
+    await expectHitTestable(page.locator('.browser-footer button:has-text("Select")'), { requireEnabled: true });
   });
 
   test('closes modal when Cancel is clicked', async ({ page }) => {
     await page.goto('/projects/new');
 
-    await page.click('button:has-text("Browse")');
+    await page.getByRole('button', { name: 'Browse' }).click();
     await expect(page.locator('.path-browser-overlay')).toBeVisible();
 
-    await page.click('.browser-footer button:has-text("Cancel")');
+    const cancelButton = page.locator('.browser-footer button:has-text("Cancel")');
+    await expectHitTestable(cancelButton, { requireEnabled: true });
+    await cancelButton.click();
 
     await expect(page.locator('.path-browser-overlay')).not.toBeVisible();
   });
@@ -62,10 +66,12 @@ test.describe('Path Chooser', () => {
   test('closes modal when X button is clicked', async ({ page }) => {
     await page.goto('/projects/new');
 
-    await page.click('button:has-text("Browse")');
+    await page.getByRole('button', { name: 'Browse' }).click();
     await expect(page.locator('.path-browser-overlay')).toBeVisible();
 
-    await page.click('.browser-close');
+    const closeButton = page.locator('.browser-close');
+    await expectHitTestable(closeButton, { requireEnabled: true });
+    await closeButton.click();
 
     await expect(page.locator('.path-browser-overlay')).not.toBeVisible();
   });
@@ -184,7 +190,9 @@ test.describe('Path Chooser Selection', () => {
     const selectedPath = await page.locator('.browser-path').textContent();
 
     // Click Select
-    await page.click('.browser-footer button:has-text("Select")');
+    const selectButton = page.locator('.browser-footer button:has-text("Select")');
+    await expectHitTestable(selectButton, { requireEnabled: true });
+    await selectButton.click();
 
     // Modal should close
     await expect(page.locator('.path-browser-overlay')).not.toBeVisible();
@@ -245,7 +253,7 @@ test.describe('Path Chooser in Edit View', () => {
     await page.goto(`/projects/${project.id}/edit`);
 
     await expect(page.locator('.path-chooser')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Browse' })).toBeVisible();
+    await expectHitTestable(page.getByRole('button', { name: 'Browse' }), { requireEnabled: true });
 
     // Should have the existing path value
     const inputValue = await page.locator('.path-chooser input').inputValue();

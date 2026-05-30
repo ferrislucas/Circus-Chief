@@ -18,6 +18,7 @@ const SUMMARY_FIELDS = {
   hasMergeConflicts: { column: 'has_merge_conflicts', transform: (v) => (v ? 1 : 0) },
   ciStatus: { column: 'ci_status', transform: (v) => v },
   ciFailures: { column: 'ci_failures', transform: (v) => JSON.stringify(v) },
+  workflowFingerprint: { column: 'workflow_fingerprint', transform: (v) => v },
 };
 
 /**
@@ -52,6 +53,7 @@ export class SessionSummaryRepository extends BaseRepository {
       hasMergeConflicts: row.has_merge_conflicts !== null ? Boolean(row.has_merge_conflicts) : null,
       ciStatus: row.ci_status,
       ciFailures: row.ci_failures ? JSON.parse(row.ci_failures) : [],
+      workflowFingerprint: row.workflow_fingerprint || null,
       generatedAt: row.generated_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -82,8 +84,8 @@ export class SessionSummaryRepository extends BaseRepository {
     this.db
       .prepare(
         `INSERT INTO session_summaries
-         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, generated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, workflow_fingerprint, generated_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -100,6 +102,7 @@ export class SessionSummaryRepository extends BaseRepository {
         optionalBoolToDb(data.hasMergeConflicts),
         data.ciStatus || null,
         data.ciFailures ? JSON.stringify(data.ciFailures) : null,
+        data.workflowFingerprint || null,
         now,
         now,
         now

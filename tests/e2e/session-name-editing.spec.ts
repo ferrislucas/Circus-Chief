@@ -235,6 +235,12 @@ test.describe('Session Name Editing', () => {
     await page.goto(`/sessions/${session.id}`);
     await waitForPageReady(page);
 
+    // Wait for the session name to be rendered in the header. Without this wait,
+    // startEditName() may execute before the sessions store has hydrated, reading
+    // props.session?.name as undefined and leaving editNameValue=''. That hides the
+    // clear button (v-if="editNameValue") even though the input renders correctly.
+    await expect(page.locator('.session-name').filter({ hasText: 'Some Long Session Name' })).toBeVisible({ timeout: 10000 });
+
     // Enter edit mode
     await page.click('button.name-edit-trigger');
 

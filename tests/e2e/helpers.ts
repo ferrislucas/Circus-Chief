@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test';
+import { expect, Page, Locator } from '@playwright/test';
 import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -147,15 +147,18 @@ export async function navigateAndWait(
 }
 
 /**
- * Open the session tree overlay on the session detail page.
- * Clicks the tree handle and waits for the overlay to be fully rendered
- * (including the transition animation and overlay header).
+ * Open the session chat on the session detail page.
  *
- * Before clicking, waits for `[data-testid="session-detail"][data-ready="true"]`
+ * On mobile viewports (< 641px), clicks the floating chat handle to open
+ * the session chat overlay. On desktop viewports (>= 641px), clicks the
+ * "Chat" tab in the session detail tab panel to show the embedded chat.
+ *
+ * Before interacting, waits for `[data-testid="session-detail"][data-ready="true"]`
  * — this ensures the store has hydrated AND the session chain has been
- * built, which is the precondition for the chat handle to render.
+ * built, which is the precondition for the chat UI to render.
  *
- * Returns a Locator scoped to the overlay container.
+ * Returns a Locator scoped to the `.overlay-content` container,
+ * which exists in both overlay (mobile) and embedded (desktop) modes.
  */
 export async function openSessionOverlay(page: Page, timeout = OVERLAY_TIMEOUT) {
   // Wait for session detail readiness signal before doing anything else.
@@ -166,15 +169,50 @@ export async function openSessionOverlay(page: Page, timeout = OVERLAY_TIMEOUT) 
     .waitFor({ state: 'visible', timeout });
 
   const handle = page.locator('[data-testid="session-chat-handle"]');
-  await handle.waitFor({ state: 'visible', timeout });
-  await handle.click();
-  const overlay = page.locator('.session-chat-overlay');
-  await overlay.waitFor({ state: 'visible', timeout });
-  // Wait for the overlay header to be visible — this ensures the transition
-  // animation has completed and the overlay content is fully rendered,
-  // eliminating the need for callers to add waitForTimeout() after this call.
-  await overlay.locator('.overlay-header').waitFor({ state: 'visible', timeout });
-  return overlay;
+  const isHandleVisible = await handle.isVisible();
+
+  if (isHandleVisible) {
+    // Mobile path: click the floating chat handle to open the overlay
+    await handle.click();
+  } else {
+    // Desktop path: click the "Chat" tab in the session detail tab panel
+    const chatTab = page.locator('.tabs-desktop a[href$="/chat"]');
+    await chatTab.click();
+  }
+
+  // Wait for the rendered chat content to be visible. `.overlay-content` is
+  // the stable shell class used by SessionChatContent in both embedded and
+  // overlay modes.
+  const content = page.locator('.overlay-content');
+  await content.waitFor({ state: 'visible', timeout });
+  // Wait for the overlay header to be visible — this ensures the content
+  // is fully rendered, eliminating the need for callers to add
+  // waitForTimeout() after this call.
+  await content.locator('.overlay-header').waitFor({ state: 'visible', timeout });
+  return content;
+}
+
+/**
+ * Close the session chat overlay / navigate away from the chat tab.
+ *
+ * On mobile viewports, clicks the overlay close handle and waits for the
+ * overlay to be removed from the DOM. On desktop viewports, navigates to
+ * the "Summary" tab.
+ */
+export async function closeSessionChat(page: Page, timeout = OVERLAY_TIMEOUT) {
+  const overlayVisible = await page.locator('[data-testid="session-chat-overlay"]').isVisible();
+  if (overlayVisible) {
+    // Mobile: close the overlay via the close handle
+    const closeHandle = page.locator('[data-testid="session-chat-overlay-close-handle"]');
+    await closeHandle.click();
+    await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout });
+    await page.locator('[data-testid="session-chat-overlay"]').waitFor({ state: 'detached', timeout });
+  } else {
+    // Desktop: navigate back to the Summary tab
+    const summaryTab = page.locator('.tabs-desktop a[href$="/summary"]');
+    await summaryTab.click();
+    await page.locator('[data-testid="session-detail"][data-ready="true"]').waitFor({ state: 'visible', timeout });
+  }
 }
 
 /**
@@ -269,6 +307,57 @@ export async function waitForElement(
     timeout: options.timeout || 10000,
   });
   return element;
+}
+
+export async function expectFullyInViewport(locator: Locator) {
+  await expect(locator).toBeVisible();
+  await locator.scrollIntoViewIfNeeded();
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) throw new Error('Element has no bounding box');
+
+  const viewport = locator.page().viewportSize();
+  expect(viewport).not.toBeNull();
+  if (!viewport) throw new Error('Page has no viewport size');
+
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+}
+
+export async function expectHitTestable(locator: Locator, options: { requireEnabled?: boolean } = {}) {
+  await expect(locator).toBeVisible();
+  if (options.requireEnabled) {
+    await expect(locator).toBeEnabled();
+  }
+  await locator.scrollIntoViewIfNeeded();
+  await expectFullyInViewport(locator);
+
+  const result = await locator.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const topElement = document.elementFromPoint(x, y);
+    const target = el as HTMLElement;
+
+    return {
+      isHitTestable: Boolean(topElement && (target === topElement || target.contains(topElement))),
+      topTag: topElement?.tagName ?? null,
+      topClass: topElement instanceof HTMLElement ? topElement.className : null,
+      center: { x, y },
+      rect: {
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      },
+    };
+  });
+
+  expect(result).toMatchObject({ isHitTestable: true });
 }
 
 /**
@@ -2407,6 +2496,46 @@ export function connectWebSocket(): Promise<any> {
 /** Subscribe to a session via WebSocket */
 export function subscribeToSession(ws: any, sessionId: string): void {
   ws.send(JSON.stringify({ type: 'subscribe:session', sessionId }));
+}
+
+/**
+ * Subscribe to a session and verify the subscription is active via an existing
+ * session-scoped broadcast. This avoids fixed sleeps before tests trigger
+ * transient WebSocket events.
+ */
+export async function subscribeToSessionAndVerify(
+  ws: any,
+  sessionId: string,
+  timeout = 5000
+): Promise<void> {
+  const deadline = Date.now() + timeout;
+  const session = await getSession(sessionId);
+  const manuallyNamed = Boolean(session?.manuallyNamed);
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    subscribeToSession(ws, sessionId);
+
+    const markerPromise = waitForWSMessage(
+      ws,
+      'session:updated',
+      Math.min(1000, Math.max(100, deadline - Date.now())),
+      (data: any) => data.sessionId === sessionId || data.session?.id === sessionId
+    );
+
+    await updateSessionFields(sessionId, { manuallyNamed });
+
+    try {
+      await markerPromise;
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Timeout verifying WS session subscription for ${sessionId}`);
 }
 
 /** Unsubscribe from a session via WebSocket */

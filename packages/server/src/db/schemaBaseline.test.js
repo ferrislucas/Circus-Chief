@@ -125,7 +125,7 @@ describe('schema baseline', () => {
       expect(columnNames(db, 'session_templates')).toEqual(expect.arrayContaining(['target_lane_id', 'model', 'mode', 'effort_level']));
       expect(columnNames(db, 'conversation_messages')).toEqual(expect.arrayContaining(['conversation_id', 'model']));
       expect(columnNames(db, 'conversations')).toEqual(expect.arrayContaining(['model', 'parent_conversation_id', 'branch_from_message_id']));
-      expect(columnNames(db, 'session_summaries')).toEqual(expect.arrayContaining(['last_summarized_message_id']));
+      expect(columnNames(db, 'session_summaries')).toEqual(expect.arrayContaining(['last_summarized_message_id', 'workflow_fingerprint']));
       expect(columnNames(db, 'message_attachments')).toEqual(expect.arrayContaining(['file_path']));
       expect(columnNames(db, 'kanban_lanes')).toEqual(expect.arrayContaining(['on_enter_reschedule_delay_minutes']));
     });

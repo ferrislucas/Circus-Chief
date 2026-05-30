@@ -98,6 +98,7 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { agentCallLogger } from './agentCallLogger.js';
 import * as ghService from './ghService.js';
 import * as summaryBroadcast from './summaryBroadcast.js';
+import * as summaryPropagation from './summaryPropagation.js';
 import {
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
@@ -113,6 +114,7 @@ import {
   _trackMessageMetadata,
   _enrichPrData,
   _updateSessionFromSummary,
+  hasSemanticSummaryChanged,
 } from './summaryService.js';
 
 describe('summaryService', () => {
@@ -3112,6 +3114,526 @@ describe('summaryService', () => {
       expect(clearTimeoutSpy).not.toHaveBeenCalled();
 
       clearTimeoutSpy.mockRestore();
+    });
+  });
+
+  describe('workflow fingerprint persistence', () => {
+    it('stores workflowFingerprint in generated summary when session has descendants', async () => {
+      // Create a child session
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      messages.create(child.id, 'assistant', 'Child response');
+
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.workflowFingerprint).toBeDefined();
+      expect(typeof result.workflowFingerprint).toBe('string');
+      expect(result.workflowFingerprint.length).toBeGreaterThan(0);
+
+      // Clean up
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('does not store workflowFingerprint when session has no descendants', async () => {
+      // sessionId has no children
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.workflowFingerprint).toBeNull();
+    });
+
+    it('stores workflowFingerprint in minimal summary when session has descendants', async () => {
+      // Create a session with too few messages but with a descendant
+      const now = Date.now();
+      const lowMsgSessionId = databaseManager.generateId();
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(lowMsgSessionId, projectId, 'Low Message Root', 'running', 'standard', now, now);
+
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: lowMsgSessionId });
+
+      // Only 1 message — below MIN_MESSAGES_FOR_SUMMARY (3)
+      databaseManager
+        .get()
+        .prepare('INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)')
+        .run(databaseManager.generateId(), lowMsgSessionId, 'user', 'Hello', now);
+
+      const result = await summaryService.generateSummary(lowMsgSessionId);
+
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Session in progress');
+      expect(result.workflowFingerprint).toBeDefined();
+      expect(typeof result.workflowFingerprint).toBe('string');
+
+      summaryService.cleanupSession(lowMsgSessionId);
+      summaryService.cleanupSession(child.id);
+    });
+  });
+
+  describe('saveManualSummary', () => {
+    it('is exported from summaryService', () => {
+      expect(typeof summaryService.saveManualSummary).toBe('function');
+    });
+
+    it('creates a summary for a session with no existing summary', () => {
+      const data = {
+        shortSummary: 'Manual short',
+        fullSummary: 'Manual full',
+        outcome: 'completed',
+        keyActions: ['Action A'],
+        filesModified: ['manual.js'],
+      };
+
+      const result = summaryService.saveManualSummary(sessionId, data);
+
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Manual short');
+      expect(result.fullSummary).toBe('Manual full');
+      expect(result.outcome).toBe('completed');
+    });
+
+    it('merges provided data with existing summary (partial update semantics)', async () => {
+      // Generate initial summary
+      await summaryService.generateSummary(sessionId);
+
+      const result = summaryService.saveManualSummary(sessionId, {
+        shortSummary: 'Updated short',
+        outcome: 'completed',
+      });
+
+      // Updated fields
+      expect(result.shortSummary).toBe('Updated short');
+      expect(result.outcome).toBe('completed');
+
+      // Other fields from original summary should still be present
+      expect(result.fullSummary).toBeDefined();
+      expect(result.keyActions).toBeDefined();
+    });
+
+    it('resolves to root session when given a child session ID', () => {
+      // Create parent (root) and child
+      const root = sessions.create(projectId, 'Root Session', 'Root prompt', 'standard');
+      messages.create(root.id, 'assistant', 'Root response');
+      messages.create(root.id, 'user', 'Root follow-up');
+
+      const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: root.id });
+
+      const data = {
+        shortSummary: 'Child-triggered manual save',
+        fullSummary: 'Full workflow summary',
+        outcome: 'completed',
+      };
+
+      // Save via child session ID — should write to root
+      summaryService.saveManualSummary(child.id, data);
+
+      // Summary should be on the root, not the child
+      const rootSummary = sessionSummaries.getBySessionId(root.id);
+      const childSummary = sessionSummaries.getBySessionId(child.id);
+
+      expect(rootSummary).not.toBeNull();
+      expect(rootSummary.shortSummary).toBe('Child-triggered manual save');
+      expect(childSummary).toBeNull();
+
+      summaryService.cleanupSession(root.id);
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('tracks message metadata when not supplied', () => {
+      const data = {
+        shortSummary: 'No metadata',
+        fullSummary: 'No metadata full',
+        outcome: 'partial',
+      };
+
+      const result = summaryService.saveManualSummary(sessionId, data);
+
+      const allMessages = messages.getBySessionId(sessionId);
+      expect(result.messageCount).toBe(allMessages.length);
+      expect(result.lastSummarizedMessageId).toBeDefined();
+    });
+
+    it('preserves supplied message metadata', () => {
+      const data = {
+        shortSummary: 'With metadata',
+        fullSummary: 'With metadata full',
+        outcome: 'completed',
+        messageCount: 42,
+        lastSummarizedMessageId: 'msg-custom-id',
+      };
+
+      const result = summaryService.saveManualSummary(sessionId, data);
+
+      expect(result.messageCount).toBe(42);
+      expect(result.lastSummarizedMessageId).toBe('msg-custom-id');
+    });
+
+    it('computes and stores workflowFingerprint when root has descendants', () => {
+      // Create a root + child
+      const root = sessions.create(projectId, 'Root', 'Root prompt', 'standard');
+      messages.create(root.id, 'assistant', 'Root response 1');
+      messages.create(root.id, 'user', 'Root follow-up');
+
+      const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: root.id });
+
+      const data = {
+        shortSummary: 'Manual with descendants',
+        fullSummary: 'Full',
+        outcome: 'completed',
+      };
+
+      const result = summaryService.saveManualSummary(root.id, data);
+
+      expect(result.workflowFingerprint).toBeDefined();
+      expect(typeof result.workflowFingerprint).toBe('string');
+      expect(result.workflowFingerprint.length).toBeGreaterThan(0);
+
+      summaryService.cleanupSession(root.id);
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('does not set workflowFingerprint when session has no descendants', () => {
+      const data = {
+        shortSummary: 'No descendants',
+        fullSummary: 'No descendants full',
+        outcome: 'completed',
+      };
+
+      const result = summaryService.saveManualSummary(sessionId, data);
+
+      // workflowFingerprint should not be set when there are no descendants
+      expect(result.workflowFingerprint).toBeFalsy();
+    });
+
+    it('persists result to database', () => {
+      const data = {
+        shortSummary: 'Persisted',
+        fullSummary: 'Persisted full',
+        outcome: 'partial',
+      };
+
+      summaryService.saveManualSummary(sessionId, data);
+
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored).not.toBeNull();
+      expect(stored.shortSummary).toBe('Persisted');
+    });
+  });
+
+  describe('hasSemanticSummaryChanged', () => {
+    it('returns true when oldSummary is null (first-time creation)', () => {
+      const newSummary = {
+        shortSummary: 'Done',
+        fullSummary: 'All done',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'completed',
+        prState: null,
+        hasMergeConflicts: null,
+        ciStatus: null,
+        ciFailures: [],
+        messageCount: 3,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(null, newSummary)).toBe(true);
+    });
+
+    it('returns false when only generatedAt and updatedAt differ', () => {
+      const base = {
+        shortSummary: 'Work done',
+        fullSummary: 'Full details',
+        keyActions: ['Action A'],
+        filesModified: ['file.js'],
+        outcome: 'completed',
+        prState: null,
+        hasMergeConflicts: null,
+        ciStatus: null,
+        ciFailures: [],
+        messageCount: 4,
+        lastSummarizedMessageId: 'msg-xyz',
+      };
+      const oldSummary = { ...base, generatedAt: 1000, updatedAt: 1000 };
+      const newSummary = { ...base, generatedAt: 9000, updatedAt: 9000 };
+      expect(hasSemanticSummaryChanged(oldSummary, newSummary)).toBe(false);
+    });
+
+    it('returns true when shortSummary changes', () => {
+      const base = {
+        shortSummary: 'Old summary',
+        fullSummary: 'Full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: 2,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(base, { ...base, shortSummary: 'New summary' })).toBe(true);
+    });
+
+    it('returns true when fullSummary changes', () => {
+      const base = {
+        shortSummary: 'Short',
+        fullSummary: 'Original full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: 2,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(base, { ...base, fullSummary: 'Updated full' })).toBe(true);
+    });
+
+    it('returns true when outcome changes', () => {
+      const base = {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: 2,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(base, { ...base, outcome: 'completed' })).toBe(true);
+    });
+
+    it('returns true when messageCount changes', () => {
+      const base = {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: 3,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(base, { ...base, messageCount: 5 })).toBe(true);
+    });
+
+    it('returns true when lastSummarizedMessageId changes', () => {
+      const base = {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: 3,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(base, { ...base, lastSummarizedMessageId: 'msg-2' })).toBe(true);
+    });
+
+    it('returns true when keyActions changes', () => {
+      const base = {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        keyActions: ['Action A'],
+        filesModified: [],
+        outcome: 'ongoing',
+        messageCount: 2,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(base, { ...base, keyActions: ['Action A', 'Action B'] })).toBe(true);
+    });
+
+    it('returns true when filesModified changes', () => {
+      const base = {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        keyActions: [],
+        filesModified: ['file.js'],
+        outcome: 'ongoing',
+        messageCount: 2,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(base, { ...base, filesModified: ['file.js', 'other.ts'] })).toBe(true);
+    });
+
+    it('returns true when prState changes', () => {
+      const base = {
+        shortSummary: 'Short',
+        fullSummary: 'Full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'completed',
+        prState: null,
+        messageCount: 2,
+        lastSummarizedMessageId: 'msg-1',
+      };
+      expect(hasSemanticSummaryChanged(base, { ...base, prState: 'open' })).toBe(true);
+    });
+
+    it('returns false when all semantic fields and message metadata are identical', () => {
+      const summary = {
+        shortSummary: 'Same',
+        fullSummary: 'Same full',
+        keyActions: ['A', 'B'],
+        filesModified: ['f.js'],
+        outcome: 'completed',
+        prState: 'open',
+        hasMergeConflicts: false,
+        ciStatus: 'success',
+        ciFailures: [],
+        messageCount: 7,
+        lastSummarizedMessageId: 'msg-final',
+      };
+      expect(hasSemanticSummaryChanged(summary, { ...summary })).toBe(false);
+    });
+  });
+
+  describe('parent propagation gating', () => {
+    it('calls propagateToParent on first child summary creation', async () => {
+      // Set up a child session under the main sessionId
+      const child = sessions.create(projectId, 'Child for propagation', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      messages.create(child.id, 'assistant', 'Child response 1');
+      messages.create(child.id, 'user', 'Child message 2');
+
+      const propagateSpy = vi
+        .spyOn(summaryPropagation, 'propagateToParent')
+        .mockResolvedValue(undefined);
+
+      try {
+        // No existing summary for child → first creation → propagation must be triggered
+        await summaryService.generateSummary(child.id);
+
+        expect(propagateSpy).toHaveBeenCalledWith(child.id, expect.any(Function));
+      } finally {
+        propagateSpy.mockRestore();
+        summaryService.cleanupSession(child.id);
+      }
+    });
+
+    it('calls propagateToParent when child semantic summary content changes', async () => {
+      const child = sessions.create(projectId, 'Child semantic change', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      messages.create(child.id, 'assistant', 'Child initial response');
+      messages.create(child.id, 'user', 'Child follow-up');
+
+      // Generate first summary
+      await summaryService.generateSummary(child.id);
+      vi.clearAllMocks();
+
+      const propagateSpy = vi
+        .spyOn(summaryPropagation, 'propagateToParent')
+        .mockResolvedValue(undefined);
+
+      try {
+        // Add new messages so the LLM generates different content (messageCount changes)
+        messages.create(child.id, 'assistant', 'A new meaningful response changes output');
+        messages.create(child.id, 'user', 'Even more messages');
+
+        // Regenerate — new messages + different LLM output → semantic change
+        await summaryService.generateSummary(child.id);
+
+        expect(propagateSpy).toHaveBeenCalledWith(child.id, expect.any(Function));
+      } finally {
+        propagateSpy.mockRestore();
+        summaryService.cleanupSession(child.id);
+      }
+    });
+
+    it('does not call propagateToParent when child summary semantic content is unchanged', async () => {
+      const child = sessions.create(projectId, 'Child no-change', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      messages.create(child.id, 'assistant', 'Child response');
+      messages.create(child.id, 'user', 'Child follow-up');
+
+      // Generate initial summary (this sets existingSummary in the DB)
+      await summaryService.generateSummary(child.id);
+      vi.clearAllMocks();
+
+      const propagateSpy = vi
+        .spyOn(summaryPropagation, 'propagateToParent')
+        .mockResolvedValue(undefined);
+
+      try {
+        // Force-regenerate with the same messages — same LLM input → same output →
+        // same messageCount and same semantic hash → hasSemanticSummaryChanged returns false
+        await summaryService.generateSummary(child.id, 0, true /* force */);
+
+        expect(propagateSpy).not.toHaveBeenCalled();
+      } finally {
+        propagateSpy.mockRestore();
+        summaryService.cleanupSession(child.id);
+      }
+    });
+
+    it('does not call propagateToParent when session has no parent', async () => {
+      // sessionId is a root session (no parentSessionId)
+      const propagateSpy = vi
+        .spyOn(summaryPropagation, 'propagateToParent')
+        .mockResolvedValue(undefined);
+
+      try {
+        await summaryService.generateSummary(sessionId);
+
+        // No parent → no propagation
+        expect(propagateSpy).not.toHaveBeenCalled();
+      } finally {
+        propagateSpy.mockRestore();
+      }
+    });
+
+    it('parent propagation still respects global disableSessionSummaries', async () => {
+      const child = sessions.create(projectId, 'Child disabled', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      messages.create(child.id, 'assistant', 'Child response');
+      messages.create(child.id, 'user', 'Child follow-up');
+
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      try {
+        // Generation should be skipped entirely
+        const result = await summaryService.generateSummary(child.id);
+        expect(result).toBeNull();
+
+        // No summary should exist for parent either
+        const parentSummary = sessionSummaries.getBySessionId(sessionId);
+        expect(parentSummary).toBeNull();
+      } finally {
+        settings.setSummarySettings({ disableSessionSummaries: false });
+        summaryService.cleanupSession(child.id);
+      }
+    });
+
+    it('minimal summary for session with descendants stores a workflowFingerprint', async () => {
+      // Create a session with too few messages but with a descendant
+      const now = Date.now();
+      const lowMsgRootId = databaseManager.generateId();
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        )
+        .run(lowMsgRootId, projectId, 'Low Msg Root', 'running', 'standard', now, now);
+
+      const child = sessions.create(projectId, 'Child under low root', 'prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: lowMsgRootId });
+
+      // Only 1 message — below MIN_MESSAGES_FOR_SUMMARY
+      databaseManager
+        .get()
+        .prepare(
+          'INSERT INTO conversation_messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run(databaseManager.generateId(), lowMsgRootId, 'user', 'Hello', now);
+
+      const result = await summaryService.generateSummary(lowMsgRootId);
+
+      expect(result).not.toBeNull();
+      expect(result.shortSummary).toBe('Session in progress');
+      expect(result.workflowFingerprint).toBeDefined();
+      expect(typeof result.workflowFingerprint).toBe('string');
+
+      summaryService.cleanupSession(lowMsgRootId);
+      summaryService.cleanupSession(child.id);
     });
   });
 });

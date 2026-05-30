@@ -3643,12 +3643,13 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   });
 
   describe('SchedulingInfo rendering', () => {
-    it('renders SchedulingInfo when currentSession exists', async () => {
+    it('renders SchedulingInfo for scheduled sessions with a scheduledAt timestamp', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
-        status: 'waiting',
+        status: 'scheduled',
         thinkingEnabled: false,
         mode: 'standard',
+        scheduledAt: Date.now() + 3600000,
         autoRescheduleEnabled: true,
       };
 
@@ -3657,6 +3658,22 @@ describe('ConversationTab - Model selector persistence on stop', () => {
 
       const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
       expect(schedulingInfo.exists()).toBe(true);
+    });
+
+    it('does not render SchedulingInfo for waiting sessions with no scheduledAt timestamp', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        scheduledAt: null,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
+      expect(schedulingInfo.exists()).toBe(false);
     });
 
     it('does not render SchedulingInfo when currentSession is null', async () => {
@@ -3672,9 +3689,10 @@ describe('ConversationTab - Model selector persistence on stop', () => {
     it('passes current session as prop to SchedulingInfo', async () => {
       const testSession = {
         id: 'sess-456',
-        status: 'waiting',
+        status: 'scheduled',
         thinkingEnabled: false,
         mode: 'standard',
+        scheduledAt: Date.now() + 3600000,
         autoRescheduleEnabled: false,
       };
       mockSessionsStore.currentSession = testSession;

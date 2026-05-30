@@ -112,7 +112,7 @@
         @change="navigateToTab($event.target.value)"
       >
         <option
-          v-for="tab in tabs"
+          v-for="tab in mobileTabs"
           :key="tab.id"
           :value="tab.id"
         >
@@ -161,6 +161,8 @@ const props = defineProps({
 });
 
 const router = useRouter();
+
+const mobileTabs = computed(() => props.tabs.filter(tab => tab.desktopOnly !== true));
 
 function navigateToTab(tabId) {
   router.push(`/sessions/${props.sessionId}/${tabId}`);
