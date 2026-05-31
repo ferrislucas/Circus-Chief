@@ -171,7 +171,6 @@ describe('SessionTemplateRepository', () => {
       expect(template.showInQuickResponses).toBe(false);
       expect(template.quickResponseAutoSubmit).toBe(false);
       expect(template.quickResponseSortOrder).toBe(0);
-      expect(template.legacyQuickResponseId).toBeNull();
     });
 
     it('creates template with quick response fields', () => {
@@ -182,13 +181,11 @@ describe('SessionTemplateRepository', () => {
         showInQuickResponses: true,
         quickResponseAutoSubmit: true,
         quickResponseSortOrder: 4,
-        legacyQuickResponseId: 'legacy-response-id',
       });
 
       expect(template.showInQuickResponses).toBe(true);
       expect(template.quickResponseAutoSubmit).toBe(true);
       expect(template.quickResponseSortOrder).toBe(4);
-      expect(template.legacyQuickResponseId).toBe('legacy-response-id');
     });
   });
 

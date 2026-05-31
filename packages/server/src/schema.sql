@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS session_templates (
   show_in_quick_responses INTEGER NOT NULL DEFAULT 0,
   quick_response_auto_submit INTEGER NOT NULL DEFAULT 0,
   quick_response_sort_order INTEGER NOT NULL DEFAULT 0,
-  legacy_quick_response_id TEXT UNIQUE,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -250,18 +249,6 @@ CREATE TABLE IF NOT EXISTS command_runs (
   completed_at INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS quick_responses (
-  id TEXT PRIMARY KEY,
-  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
-  label TEXT NOT NULL,
-  content TEXT NOT NULL,
-  auto_submit INTEGER NOT NULL DEFAULT 0,
-  category TEXT,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-);
-
 CREATE TABLE IF NOT EXISTS project_session_defaults (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL UNIQUE,
@@ -377,8 +364,6 @@ CREATE INDEX IF NOT EXISTS idx_command_buttons_project ON command_buttons(projec
 CREATE INDEX IF NOT EXISTS idx_command_runs_session ON command_runs(session_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_button ON command_runs(button_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_status ON command_runs(status);
-CREATE INDEX IF NOT EXISTS idx_quick_responses_project ON quick_responses(project_id);
-CREATE INDEX IF NOT EXISTS idx_quick_responses_sort ON quick_responses(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
 CREATE INDEX IF NOT EXISTS idx_project_defaults_projectId ON project_session_defaults(project_id);
 CREATE INDEX IF NOT EXISTS idx_agent_call_logs_session ON agent_call_logs(session_id);

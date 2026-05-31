@@ -2,16 +2,11 @@ import { test, expect } from '@playwright/test';
 import {
   seedProject,
   seedSession,
-  seedQuickResponse,
-  getQuickResponses,
-  deleteQuickResponse,
-  reorderQuickResponses,
   seedProjectTemplate,
   seedGlobalTemplate,
   deleteTemplate,
   updateTemplate,
   cleanupCreatedResources,
-  navigateAndWait,
   waitForPageReady,
   getAPIURL,
   openSessionOverlay,
@@ -19,30 +14,10 @@ import {
 
 const API_URL = getAPIURL();
 
-/**
- * Track global quick response IDs created by the current test.
- * We only delete OUR global QRs to avoid interfering with parallel tests.
- */
-const createdGlobalQRIds: string[] = [];
 const createdGlobalTemplateIds: string[] = [];
-
-function trackGlobalQR(id: string) {
-  createdGlobalQRIds.push(id);
-}
 
 function trackGlobalTemplate(id: string) {
   createdGlobalTemplateIds.push(id);
-}
-
-async function cleanupTrackedGlobalQRs() {
-  while (createdGlobalQRIds.length > 0) {
-    const id = createdGlobalQRIds.pop()!;
-    try {
-      await deleteQuickResponse(id);
-    } catch {
-      // Already deleted (e.g., by cascade or prior cleanup) — ignore
-    }
-  }
 }
 
 async function cleanupTrackedGlobalTemplates() {
@@ -81,46 +56,6 @@ async function seedQuickResponseTemplate(
   }
 
   return seedProjectTemplate(projectId, templateData);
-}
-
-// ============================================================
-// Helper: Open the Quick Response Settings modal from the Project Edit page.
-// ============================================================
-async function openSettingsModal(page, projectId: string) {
-  await page.goto(`/projects/${projectId}/edit`);
-  await waitForPageReady(page);
-
-  // Expand the Quick Responses <details> section
-  const details = page.locator('details').filter({ hasText: 'Quick Responses' });
-  const summary = details.locator('summary');
-  await summary.click();
-  await page.waitForTimeout(300);
-
-  // Click "Manage Quick Responses"
-  await page.getByRole('button', { name: 'Manage Quick Responses' }).click();
-  await page.waitForLoadState('networkidle');
-
-  // Wait for settings panel to appear
-  await expect(page.locator('.settings-panel[role="dialog"]')).toBeVisible({ timeout: 5000 });
-}
-
-// ============================================================
-// Helper: Open the "+ Add" dialog for a given section (project or global).
-// ============================================================
-async function openAddDialog(page, section: 'project' | 'global') {
-  const settingsPanel = page.locator('.settings-panel[role="dialog"]');
-  const addButtons = settingsPanel.locator('.add-button');
-
-  if (section === 'project') {
-    await addButtons.first().click();
-  } else {
-    await addButtons.nth(1).click();
-  }
-
-  // Wait for the QR dialog to appear
-  const dialog = page.locator('[role="dialog"]').filter({ has: page.locator('#qr-label') });
-  await expect(dialog).toBeVisible({ timeout: 5000 });
-  return dialog;
 }
 
 // ============================================================
@@ -165,181 +100,12 @@ async function navigateToSessionAndExpandPanel(page, sessionId: string) {
 
 test.beforeEach(async () => {
   await cleanupCreatedResources();
-  await cleanupTrackedGlobalQRs();
   await cleanupTrackedGlobalTemplates();
 });
 
 test.afterEach(async () => {
   await cleanupCreatedResources();
-  await cleanupTrackedGlobalQRs();
   await cleanupTrackedGlobalTemplates();
-});
-
-// ============================================================
-// Category 1: Quick Response CRUD via Settings Modal (6 tests)
-// ============================================================
-
-test.describe('Category 1: Quick Response CRUD via Settings Modal', () => {
-  test('creates a project-scoped quick response via settings modal', async ({ page }) => {
-    const project = await seedProject('QR CRUD Create Project', '/tmp/qr-crud-1');
-    await openSettingsModal(page, project.id);
-
-    // Click "+ Add" in project section
-    const dialog = await openAddDialog(page, 'project');
-
-    // Fill label and content
-    await dialog.locator('#qr-label').fill('Approve PR');
-    await dialog.locator('#qr-content').fill('Looks good to me, approved!');
-
-    // Save
-    await dialog.locator('button[type="submit"]').click();
-    await expect(dialog).not.toBeVisible({ timeout: 5000 });
-
-    // Verify response appears in the settings list
-    await expect(page.locator('.response-label', { hasText: 'Approve PR' })).toBeVisible({ timeout: 5000 });
-  });
-
-  test('creates a global quick response via settings modal', async ({ page }) => {
-    const project = await seedProject('QR CRUD Create Global', '/tmp/qr-crud-2');
-    await openSettingsModal(page, project.id);
-
-    // Click "+ Add" in global section (second add button)
-    const dialog = await openAddDialog(page, 'global');
-
-    // Verify "Global (all projects)" radio is pre-selected by checking the label text
-    const globalRadioLabel = dialog.locator('.radio-label').filter({ hasText: 'Global (all projects)' });
-    const globalRadio = globalRadioLabel.locator('input[type="radio"]');
-    await expect(globalRadio).toBeChecked();
-
-    // Fill label and content
-    await dialog.locator('#qr-label').fill('Global LGTM');
-    await dialog.locator('#qr-content').fill('Looks good, ship it!');
-
-    // Save
-    await dialog.locator('button[type="submit"]').click();
-    await expect(dialog).not.toBeVisible({ timeout: 5000 });
-
-    // Verify response appears in the global section
-    const globalSection = page.locator('.section').filter({ hasText: 'Global Responses' });
-    await expect(globalSection.locator('.response-label', { hasText: 'Global LGTM' })).toBeVisible({ timeout: 5000 });
-
-    // Track the created global QR for cleanup (it was created via UI, not seedQuickResponse)
-    const allGlobals = await getQuickResponses(project.id);
-    const uiCreatedGlobal = allGlobals.global.find((r: any) => r.label === 'Global LGTM');
-    if (uiCreatedGlobal) trackGlobalQR(uiCreatedGlobal.id);
-  });
-
-  test('edits an existing quick response', async ({ page }) => {
-    const project = await seedProject('QR CRUD Edit', '/tmp/qr-crud-3');
-    await seedQuickResponse(project.id, {
-      label: 'Original Label',
-      content: 'Original content',
-    });
-
-    await openSettingsModal(page, project.id);
-
-    // Wait for the response to appear
-    await expect(page.locator('.response-label', { hasText: 'Original Label' })).toBeVisible({ timeout: 5000 });
-
-    // Click edit button
-    await page.locator('button.action-button[title="Edit"]').first().click();
-
-    // Verify edit dialog
-    const dialog = page.locator('[role="dialog"]').filter({ has: page.locator('#qr-label') });
-    await expect(dialog).toBeVisible({ timeout: 5000 });
-    await expect(dialog.locator('.dialog-title')).toContainText('Edit Quick Response');
-
-    // Verify scope selection is NOT shown in edit mode
-    await expect(dialog.locator('.radio-group')).not.toBeVisible();
-
-    // Change label
-    const labelInput = dialog.locator('#qr-label');
-    await labelInput.clear();
-    await labelInput.fill('Updated Label');
-
-    // Save
-    await dialog.locator('button[type="submit"]').click();
-    await expect(dialog).not.toBeVisible({ timeout: 5000 });
-
-    // Verify updated label in list
-    await expect(page.locator('.response-label', { hasText: 'Updated Label' })).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.response-label', { hasText: 'Original Label' })).not.toBeVisible();
-  });
-
-  test('deletes a quick response with confirmation', async ({ page }) => {
-    const project = await seedProject('QR CRUD Delete', '/tmp/qr-crud-4');
-    await seedQuickResponse(project.id, {
-      label: 'Delete Me',
-      content: 'This will be deleted',
-    });
-
-    await openSettingsModal(page, project.id);
-
-    // Wait for the response to appear
-    await expect(page.locator('.response-label', { hasText: 'Delete Me' })).toBeVisible({ timeout: 5000 });
-
-    // Click delete button
-    await page.locator('button.action-button.action-danger[title="Delete"]').first().click();
-
-    // Verify confirmation dialog appears
-    const confirmDialog = page.locator('.confirm-dialog');
-    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.confirm-message')).toContainText('Are you sure you want to delete');
-
-    // Confirm delete
-    await confirmDialog.locator('.btn-danger').click();
-
-    // Verify response is removed
-    await expect(confirmDialog).not.toBeVisible({ timeout: 5000 });
-    await expect(page.locator('.response-label', { hasText: 'Delete Me' })).not.toBeVisible({ timeout: 5000 });
-  });
-
-  test('creates a quick response with auto-submit enabled', async ({ page }) => {
-    const project = await seedProject('QR CRUD AutoSubmit', '/tmp/qr-crud-5');
-    await openSettingsModal(page, project.id);
-
-    const dialog = await openAddDialog(page, 'project');
-
-    // Fill label and content
-    await dialog.locator('#qr-label').fill('Quick Send');
-    await dialog.locator('#qr-content').fill('Auto-submitted response');
-
-    // Check auto-submit
-    await dialog.locator('input[type="checkbox"]').check();
-
-    // Save
-    await dialog.locator('button[type="submit"]').click();
-    await expect(dialog).not.toBeVisible({ timeout: 5000 });
-
-    // Verify auto-submit badge is visible on the newly created response
-    const quickSendItem = page.locator('li', { hasText: 'Quick Send' });
-    await expect(quickSendItem.locator('.auto-badge')).toBeVisible({ timeout: 5000 });
-  });
-
-  test('creates a quick response with category', async ({ page }) => {
-    const project = await seedProject('QR CRUD Category', '/tmp/qr-crud-6');
-    await openSettingsModal(page, project.id);
-
-    const dialog = await openAddDialog(page, 'project');
-
-    // Fill label, content, and category
-    await dialog.locator('#qr-label').fill('Run Tests');
-    await dialog.locator('#qr-content').fill('Please run the test suite');
-    await dialog.locator('#qr-category').fill('commands');
-
-    // Save
-    await dialog.locator('button[type="submit"]').click();
-    await expect(dialog).not.toBeVisible({ timeout: 5000 });
-
-    // Verify response appears in the list
-    await expect(page.locator('.response-label', { hasText: 'Run Tests' })).toBeVisible({ timeout: 5000 });
-
-    // Verify category was saved via API
-    const responses = await getQuickResponses(project.id);
-    const created = responses.project.find((r: any) => r.label === 'Run Tests');
-    expect(created).toBeTruthy();
-    expect(created.category).toBe('commands');
-  });
 });
 
 // ============================================================
@@ -619,52 +385,46 @@ test.describe('Category 4: Scope Isolation', () => {
     const projectA = await seedProject('QR Global A', '/tmp/qr-global-a');
     const projectB = await seedProject('QR Global B', '/tmp/qr-global-b');
 
-    const globalQR = await seedQuickResponse(projectA.id, { label: 'Everywhere', content: 'Global content', isGlobal: true });
-    trackGlobalQR(globalQR.id);
-    expect(globalQR.projectId).toBeNull();
+    const globalTemplate = await seedQuickResponseTemplate(projectA.id, {
+      label: 'Everywhere',
+      content: 'Global content',
+      isGlobal: true,
+    });
+    expect(globalTemplate.projectId).toBeNull();
 
-    // Verify via API that global response is retrievable for both projects
-    const apiA = await getQuickResponses(projectA.id);
-    expect(apiA.global.map((r: any) => r.label)).toContain('Everywhere');
-    const apiB = await getQuickResponses(projectB.id);
-    expect(apiB.global.map((r: any) => r.label)).toContain('Everywhere');
+    const sessionA = await seedSession(projectA.id, { prompt: 'Test A', startImmediately: false });
+    const sessionB = await seedSession(projectB.id, { prompt: 'Test B', startImmediately: false });
 
-    // Verify global response appears in the settings modal for BOTH projects.
-    // This proves that a global QR (projectId=NULL) is visible across all projects.
-    for (const project of [projectA, projectB]) {
-      await openSettingsModal(page, project.id);
-
-      // The global section should show the "Everywhere" response.
-      // Use .first() to handle potential duplicates.
-      const globalSection = page.locator('.section').filter({ hasText: 'Global Responses' });
-      await expect(
-        globalSection.locator('.response-label', { hasText: 'Everywhere' }).first()
-      ).toBeVisible({ timeout: 10000 });
-
-      // Close the modal before navigating to the next project
-      await page.locator('.close-button').click();
-      await expect(page.locator('.settings-panel[role="dialog"]')).not.toBeVisible({ timeout: 3000 });
+    for (const session of [sessionA, sessionB]) {
+      await navigateToSessionAndExpandPanel(page, session.id);
+      await expect(page.locator('.response-button.global-response', { hasText: 'Everywhere' }))
+        .toBeVisible({ timeout: 10000 });
     }
   });
 
-  test('API returns both project and global responses together', async () => {
+  test('templates API returns both project and global quick response templates together', async () => {
     const project = await seedProject('QR API Combined', '/tmp/qr-api-combined');
 
-    await seedQuickResponse(project.id, { label: 'ProjResp1', content: 'Content 1' });
-    await seedQuickResponse(project.id, { label: 'ProjResp2', content: 'Content 2' });
-    const globalQR2 = await seedQuickResponse(project.id, { label: 'GlobalResp1', content: 'Global Content 1', isGlobal: true });
-    trackGlobalQR(globalQR2.id);
+    await seedQuickResponseTemplate(project.id, { label: 'ProjResp1', content: 'Content 1' });
+    await seedQuickResponseTemplate(project.id, { label: 'ProjResp2', content: 'Content 2' });
+    await seedQuickResponseTemplate(project.id, {
+      label: 'GlobalResp1',
+      content: 'Global Content 1',
+      isGlobal: true,
+    });
 
-    const responses = await getQuickResponses(project.id);
-    // Project responses should be exactly 2 (scoped to this project)
-    expect(responses.project).toHaveLength(2);
-    expect(responses.project.map((r: any) => r.label)).toContain('ProjResp1');
-    expect(responses.project.map((r: any) => r.label)).toContain('ProjResp2');
+    const response = await fetch(`${API_URL}/api/projects/${project.id}/templates`);
+    expect(response.ok).toBe(true);
+    const templates = await response.json();
 
-    // Global responses may include leftovers from other tests, so check at least 1 exists
-    // and that our specific global response is present
-    expect(responses.global.length).toBeGreaterThanOrEqual(1);
-    const globalLabels = responses.global.map((r: any) => r.label);
+    expect(templates.project.filter((t: any) => t.showInQuickResponses)).toHaveLength(2);
+    expect(templates.project.map((t: any) => t.name)).toEqual(
+      expect.arrayContaining(['ProjResp1', 'ProjResp2'])
+    );
+
+    const globalLabels = templates.global
+      .filter((t: any) => t.showInQuickResponses)
+      .map((t: any) => t.name);
     expect(globalLabels).toContain('GlobalResp1');
   });
 });
@@ -693,23 +453,24 @@ test.describe('Category 5: Sort Ordering and Reordering', () => {
     expect(labels).toEqual(['First', 'Second', 'Third']);
   });
 
-  test('reorder API updates response order', async () => {
+  test('template API updates response order', async () => {
     const project = await seedProject('QR Reorder API', '/tmp/qr-sort-2');
 
-    const r1 = await seedQuickResponse(project.id, { label: 'Alpha', content: 'A', sortOrder: 0 });
-    const r2 = await seedQuickResponse(project.id, { label: 'Beta', content: 'B', sortOrder: 1 });
-    const r3 = await seedQuickResponse(project.id, { label: 'Gamma', content: 'C', sortOrder: 2 });
+    const r1 = await seedQuickResponseTemplate(project.id, { label: 'Alpha', content: 'A', sortOrder: 0 });
+    const r2 = await seedQuickResponseTemplate(project.id, { label: 'Beta', content: 'B', sortOrder: 1 });
+    const r3 = await seedQuickResponseTemplate(project.id, { label: 'Gamma', content: 'C', sortOrder: 2 });
 
-    // Reverse the order via reorder API
-    await reorderQuickResponses(project.id, [
-      { id: r1.id, sortOrder: 2 },
-      { id: r2.id, sortOrder: 1 },
-      { id: r3.id, sortOrder: 0 },
-    ]);
+    await updateTemplate(r1.id, { quickResponseSortOrder: 2 });
+    await updateTemplate(r2.id, { quickResponseSortOrder: 1 });
+    await updateTemplate(r3.id, { quickResponseSortOrder: 0 });
 
-    // Verify via GET
-    const responses = await getQuickResponses(project.id);
-    const labels = responses.project.map((r: any) => r.label);
+    const response = await fetch(`${API_URL}/api/projects/${project.id}/templates`);
+    expect(response.ok).toBe(true);
+    const templates = await response.json();
+    const labels = templates.project
+      .filter((t: any) => t.showInQuickResponses)
+      .sort((a: any, b: any) => a.quickResponseSortOrder - b.quickResponseSortOrder)
+      .map((t: any) => t.name);
     expect(labels).toEqual(['Gamma', 'Beta', 'Alpha']);
   });
 
@@ -734,64 +495,5 @@ test.describe('Category 5: Sort Ordering and Reordering', () => {
 
     const labels = await buttons.allTextContents();
     expect(labels).toEqual(['Tres', 'Dos', 'Uno']);
-  });
-});
-
-// ============================================================
-// Category 6: Validation and Edge Cases (3 tests)
-// ============================================================
-
-test.describe('Category 6: Validation and Edge Cases', () => {
-  test('save button disabled when label is empty', async ({ page }) => {
-    const project = await seedProject('QR Validation Label', '/tmp/qr-val-1');
-    await openSettingsModal(page, project.id);
-
-    const dialog = await openAddDialog(page, 'project');
-
-    // Leave label empty, fill content
-    await dialog.locator('#qr-content').fill('Some content');
-
-    // Verify save button is disabled
-    const saveBtn = dialog.locator('button[type="submit"]');
-    await expect(saveBtn).toBeDisabled();
-  });
-
-  test('save button disabled when content is empty', async ({ page }) => {
-    const project = await seedProject('QR Validation Content', '/tmp/qr-val-2');
-    await openSettingsModal(page, project.id);
-
-    const dialog = await openAddDialog(page, 'project');
-
-    // Fill label, leave content empty
-    await dialog.locator('#qr-label').fill('My Label');
-
-    // Verify save button is disabled
-    const saveBtn = dialog.locator('button[type="submit"]');
-    await expect(saveBtn).toBeDisabled();
-  });
-
-  test('label is trimmed on save', async ({ page }) => {
-    const project = await seedProject('QR Validation Trim', '/tmp/qr-val-3');
-    await openSettingsModal(page, project.id);
-
-    const dialog = await openAddDialog(page, 'project');
-
-    // Enter label with leading/trailing spaces
-    await dialog.locator('#qr-label').fill('  Trimmed Label  ');
-    await dialog.locator('#qr-content').fill('Content for trimmed label');
-
-    // Trigger blur on label to invoke inline trim handler
-    await dialog.locator('#qr-content').click();
-    await page.waitForTimeout(200);
-
-    // Save
-    await dialog.locator('button[type="submit"]').click();
-    await expect(dialog).not.toBeVisible({ timeout: 5000 });
-
-    // Verify via API that label is trimmed
-    const responses = await getQuickResponses(project.id);
-    const created = responses.project.find((r: any) => r.label === 'Trimmed Label');
-    expect(created).toBeTruthy();
-    expect(created.label).toBe('Trimmed Label');
   });
 });

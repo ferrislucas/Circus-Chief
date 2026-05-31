@@ -150,7 +150,6 @@ The `seedAssistantMessage`, `seedUserMessage`, and `seedAssistantMessageWithTool
 | `seedProjectTemplate(projectId, data)` | Project template via REST API |
 | `seedGlobalTemplate(data)` | Global template via REST API |
 | `seedScheduledSession(projectId, data)` | Scheduled session via REST API |
-| `seedQuickResponse(projectId, data)` | Quick response via REST API |
 | `updateSessionStatus(sessionId, status)` | Session status via REST PATCH |
 
 ### Strategy 2: VCR Cassettes (For Tests That Need the Full Session Lifecycle)

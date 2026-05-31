@@ -48,7 +48,6 @@ export const SessionTemplateResponse = z.object({
   showInQuickResponses: z.boolean(),
   quickResponseAutoSubmit: z.boolean(),
   quickResponseSortOrder: z.number(),
-  legacyQuickResponseId: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });

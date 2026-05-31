@@ -26,7 +26,6 @@ export class SessionTemplateRepository extends BaseRepository {
       showInQuickResponses: Boolean(row.show_in_quick_responses),
       quickResponseAutoSubmit: Boolean(row.quick_response_auto_submit),
       quickResponseSortOrder: row.quick_response_sort_order ?? 0,
-      legacyQuickResponseId: row.legacy_quick_response_id || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -68,9 +67,9 @@ export class SessionTemplateRepository extends BaseRepository {
           id, project_id, name, prompt, next_template_id, thinking_enabled,
           git_branch, git_mode, model, mode, effort_level, target_lane_id,
           show_in_quick_responses, quick_response_auto_submit,
-          quick_response_sort_order, legacy_quick_response_id,
+          quick_response_sort_order,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -88,7 +87,6 @@ export class SessionTemplateRepository extends BaseRepository {
         SessionTemplateRepository.#normalizeBoolean(data.showInQuickResponses),
         SessionTemplateRepository.#normalizeBoolean(data.quickResponseAutoSubmit),
         data.quickResponseSortOrder ?? 0,
-        data.legacyQuickResponseId || null,
         now,
         now
       );
@@ -113,7 +111,6 @@ export class SessionTemplateRepository extends BaseRepository {
     showInQuickResponses: { column: 'show_in_quick_responses', transform: (v) => v ? 1 : 0 },
     quickResponseAutoSubmit: { column: 'quick_response_auto_submit', transform: (v) => v ? 1 : 0 },
     quickResponseSortOrder: { column: 'quick_response_sort_order', transform: (v) => v },
-    legacyQuickResponseId: { column: 'legacy_quick_response_id', transform: (v) => v || null },
   };
 
   /**
