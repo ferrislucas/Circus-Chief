@@ -202,9 +202,19 @@ export class AgentCallLogRepository extends BaseRepository {
 
     const rows = this.db
       .prepare(
-        `SELECT acl.*, s.name AS session_name
+        `WITH RECURSIVE session_roots(id, root_id, root_name) AS (
+           SELECT id, id, name
+           FROM sessions
+           WHERE parent_session_id IS NULL
+           UNION ALL
+           SELECT child.id, session_roots.root_id, session_roots.root_name
+           FROM sessions child
+           JOIN session_roots ON child.parent_session_id = session_roots.id
+         )
+         SELECT acl.*, s.name AS session_name, sr.root_id AS root_session_id, sr.root_name AS root_session_name
          FROM agent_call_logs acl
          LEFT JOIN sessions s ON acl.session_id = s.id
+         LEFT JOIN session_roots sr ON acl.session_id = sr.id
          ${whereClause}
          ORDER BY acl.${safeSortBy} ${safeSortOrder}
          LIMIT ? OFFSET ?`
@@ -214,7 +224,11 @@ export class AgentCallLogRepository extends BaseRepository {
     const mappedRows = rows
       .map((row) => {
         const mapped = mapRow(row);
-        if (mapped) mapped.sessionName = row.session_name || null;
+        if (mapped) {
+          mapped.sessionName = row.session_name || null;
+          mapped.rootSessionId = row.root_session_id || row.session_id;
+          mapped.rootSessionName = row.root_session_name || row.session_name || null;
+        }
         return mapped;
       })
       .filter(Boolean);

@@ -215,6 +215,8 @@ function navigateToTab(tabId) {
   flex: 1 1 0;
   text-align: center;
   min-width: 0;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
