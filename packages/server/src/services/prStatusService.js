@@ -20,6 +20,14 @@ const RECENT_ACTIVITY_MS = 2 * 60 * 60 * 1000; // 2 hours
 // Maximum age for polling sessions (even with pending CI)
 const MAX_POLL_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Maximum consecutive fetch failures before a session is temporarily excluded
+// from polling. Resets when a fetch succeeds or the session gains a subscriber.
+const MAX_CONSECUTIVE_FAILURES = 3;
+
+// Tracks consecutive getPrInfo failures per session so we stop hammering
+// a failing endpoint every 60 seconds.  Map<sessionId, number>
+const failureCounts = new Map();
+
 // Polling interval handle
 let pollIntervalId = null;
 
@@ -48,6 +56,7 @@ export function stop() {
     pollIntervalId = null;
     console.log('[PrStatusService] Stopped PR status polling');
   }
+  failureCounts.clear();
 }
 
 /**
@@ -74,11 +83,16 @@ export function getSessionsToCheck() {
     const sessionAge = now - new Date(session.updatedAt).getTime();
     const hasSubscribers = subscriptions.get(session.id)?.size > 0;
 
-    // Always poll sessions with active subscribers
+    // Always poll sessions with active subscribers (and reset failure count)
     if (hasSubscribers) {
+      failureCounts.delete(session.id);
       result.push({ sessionId: session.id, prUrl: session.prUrl });
       continue;
     }
+
+    // Skip sessions that have failed too many times in a row to avoid
+    // hammering a broken endpoint every poll cycle
+    if ((failureCounts.get(session.id) || 0) >= MAX_CONSECUTIVE_FAILURES) continue;
 
     // Skip sessions older than max poll age
     if (sessionAge > MAX_POLL_AGE_MS) continue;
@@ -131,7 +145,14 @@ function normalizeBool(value) {
 export async function checkPrStatus(sessionId, prUrl) {
   try {
     const prInfo = await ghService.getPrInfo(prUrl);
-    if (!prInfo) return false;
+    if (!prInfo) {
+      // Track the failure so getSessionsToCheck can back off
+      failureCounts.set(sessionId, (failureCounts.get(sessionId) || 0) + 1);
+      return false;
+    }
+
+    // Successful fetch — reset failure counter
+    failureCounts.delete(sessionId);
 
     const currentSummary = sessionSummaries.getBySessionId(sessionId);
 
@@ -166,6 +187,7 @@ export async function checkPrStatus(sessionId, prUrl) {
     console.log(`[PrStatusService] Updated PR status for session ${sessionId}: ${prInfo.state}`);
     return true;
   } catch (error) {
+    failureCounts.set(sessionId, (failureCounts.get(sessionId) || 0) + 1);
     console.error(`[PrStatusService] Error checking PR for session ${sessionId}:`, error.message);
     return false;
   }
@@ -194,5 +216,7 @@ export {
   POLLABLE_SESSION_STATES,
   RECENT_ACTIVITY_MS,
   MAX_POLL_AGE_MS,
+  MAX_CONSECUTIVE_FAILURES,
+  failureCounts,
   pollLoop,
 };

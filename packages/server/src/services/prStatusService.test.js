@@ -17,7 +17,7 @@ vi.mock('./ghService.js', () => ({
 
 // Import after mock setup
 import * as prStatusService from './prStatusService.js';
-import { webSocketManager, broadcastToSession } from '../websocket.js';
+import { webSocketManager, broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as ghService from './ghService.js';
 import {
   DEFAULT_POLL_INTERVAL_MS,
@@ -25,6 +25,8 @@ import {
   POLLABLE_SESSION_STATES,
   RECENT_ACTIVITY_MS,
   MAX_POLL_AGE_MS,
+  MAX_CONSECUTIVE_FAILURES,
+  failureCounts,
   getSessionsToCheck,
   checkPrStatus,
   checkSessionCiStatusNow,
@@ -245,6 +247,47 @@ describe('prStatusService', () => {
       const result = getSessionsToCheck();
       expect(result).toHaveLength(1);
       expect(result[0].sessionId).toBe(sessionId);
+    });
+
+    it('excludes sessions that have exceeded the consecutive failure threshold', () => {
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
+
+      // Simulate MAX_CONSECUTIVE_FAILURES failures
+      for (let i = 0; i < MAX_CONSECUTIVE_FAILURES; i++) {
+        failureCounts.set(sessionId, i + 1);
+      }
+
+      const result = getSessionsToCheck();
+      expect(result).toEqual([]);
+    });
+
+    it('includes sessions below the failure threshold', () => {
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
+      webSocketManager.getSessionSubscriptions.mockReturnValue(new Map());
+
+      // One below the threshold
+      failureCounts.set(sessionId, MAX_CONSECUTIVE_FAILURES - 1);
+
+      const result = getSessionsToCheck();
+      expect(result).toHaveLength(1);
+    });
+
+    it('resets failure count when session gains a subscriber', () => {
+      sessions.update(sessionId, { prUrl: 'https://github.com/org/repo/pull/123', status: 'waiting' });
+
+      // Session has exceeded failure threshold
+      failureCounts.set(sessionId, MAX_CONSECUTIVE_FAILURES);
+
+      // But it now has a subscriber
+      const mockSubscriptions = new Map();
+      mockSubscriptions.set(sessionId, new Set([{ readyState: 1 }]));
+      webSocketManager.getSessionSubscriptions.mockReturnValue(mockSubscriptions);
+
+      const result = getSessionsToCheck();
+      expect(result).toHaveLength(1);
+      // Failure count should be cleared
+      expect(failureCounts.has(sessionId)).toBe(false);
     });
 
     it('includes session after PR state is reset from merged to null', () => {
@@ -475,6 +518,41 @@ describe('prStatusService', () => {
       expect(broadcastToSession).not.toHaveBeenCalled();
     });
 
+    it('increments failure count when getPrInfo returns null', async () => {
+      ghService.getPrInfo.mockResolvedValue(null);
+
+      expect(failureCounts.get(sessionId) || 0).toBe(0);
+      await checkPrStatus(sessionId, prUrl);
+      expect(failureCounts.get(sessionId)).toBe(1);
+      await checkPrStatus(sessionId, prUrl);
+      expect(failureCounts.get(sessionId)).toBe(2);
+    });
+
+    it('increments failure count on thrown errors', async () => {
+      ghService.getPrInfo.mockRejectedValue(new Error('Network error'));
+
+      await checkPrStatus(sessionId, prUrl);
+      expect(failureCounts.get(sessionId)).toBe(1);
+      await checkPrStatus(sessionId, prUrl);
+      expect(failureCounts.get(sessionId)).toBe(2);
+    });
+
+    it('resets failure count on successful fetch', async () => {
+      // Accumulate some failures
+      failureCounts.set(sessionId, 2);
+
+      ghService.getPrInfo.mockResolvedValue({
+        state: 'open',
+        merged: false,
+        hasMergeConflicts: false,
+        ciStatus: 'pending',
+        ciFailures: [],
+      });
+
+      await checkPrStatus(sessionId, prUrl);
+      expect(failureCounts.has(sessionId)).toBe(false);
+    });
+
     it('creates a summary and broadcasts when none exists (PR-only record)', async () => {
       // No existing summary
       ghService.getPrInfo.mockResolvedValue({
@@ -494,11 +572,18 @@ describe('prStatusService', () => {
       expect(summary.prState).toBe('open');
       expect(summary.ciStatus).toBe('pending');
 
-      // Verify broadcast was sent to session and project subscribers
+      // Verify broadcast was sent to session subscribers
       expect(broadcastToSession).toHaveBeenCalledWith(
         sessionId,
         'session:summary_updated',
         expect.objectContaining({ sessionId })
+      );
+
+      // Verify broadcast was also sent to project subscribers (Bug 1 fix)
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        'session:summary_updated',
+        expect.objectContaining({ sessionId, projectId })
       );
     });
 
