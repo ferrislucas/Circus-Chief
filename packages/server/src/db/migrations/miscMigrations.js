@@ -50,12 +50,6 @@ export const miscMigrations = [
       addColumnIfMissing(db, 'session_templates', 'show_in_quick_responses', 'INTEGER NOT NULL DEFAULT 0');
       addColumnIfMissing(db, 'session_templates', 'quick_response_auto_submit', 'INTEGER NOT NULL DEFAULT 0');
       addColumnIfMissing(db, 'session_templates', 'quick_response_sort_order', 'INTEGER NOT NULL DEFAULT 0');
-      addColumnIfMissing(db, 'session_templates', 'legacy_quick_response_id', 'TEXT');
-      db.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_templates_legacy_quick_response_id
-        ON session_templates(legacy_quick_response_id)
-        WHERE legacy_quick_response_id IS NOT NULL
-      `);
     },
   },
 

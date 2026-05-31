@@ -123,8 +123,7 @@ describe('seedBaselineData', () => {
     withDb((db) => {
       const rows = db.prepare(
         `SELECT name, prompt, thinking_enabled, mode, show_in_quick_responses,
-                quick_response_auto_submit, quick_response_sort_order,
-                legacy_quick_response_id
+                quick_response_auto_submit, quick_response_sort_order
          FROM session_templates
          WHERE project_id IS NULL AND show_in_quick_responses = 1
          ORDER BY quick_response_sort_order`
@@ -141,7 +140,6 @@ describe('seedBaselineData', () => {
           show_in_quick_responses: 1,
           quick_response_auto_submit: expected.quickResponseAutoSubmit ? 1 : 0,
           quick_response_sort_order: expected.quickResponseSortOrder,
-          legacy_quick_response_id: null,
         });
       }
     });

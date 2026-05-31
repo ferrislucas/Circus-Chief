@@ -809,12 +809,10 @@ describe('DatabaseManager', () => {
       expect(names).toEqual(DEFAULT_SESSION_TEMPLATES.map(t => t.name).sort());
     });
 
-    it('fresh in-memory DB has no session_templates with legacy_quick_response_id', () => {
+    it('fresh in-memory DB does not expose legacy quick response IDs on session_templates', () => {
       const db = manager.get();
-      const count = db.prepare(
-        'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-      ).get().cnt;
-      expect(count).toBe(0);
+      const columns = db.prepare('PRAGMA table_info(session_templates)').all();
+      expect(columns.map((column) => column.name)).not.toContain('legacy_quick_response_id');
     });
 
     it('fresh in-memory DB does not create the legacy quick_responses table', () => {
