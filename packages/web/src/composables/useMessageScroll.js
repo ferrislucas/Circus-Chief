@@ -19,6 +19,13 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   let programmaticScroll = false;
   const debounceTimer = null;
   const SCROLL_THRESHOLD = 100; // pixels from bottom
+  const LATEST_AGENT_ALIGNMENT_OFFSET = 16;
+  const LATEST_AGENT_ALIGNMENT_TOLERANCE = 2;
+  const LATEST_AGENT_MAX_ALIGNMENT_ATTEMPTS = 8;
+  const LATEST_AGENT_SCROLL_PROTECTION_MS = 750;
+  const LATEST_AGENT_RUNWAY_PROPERTY = '--session-chat-latest-turn-runway';
+  let latestAgentScrollProtectedUntil = 0;
+  let latestAgentAlignmentFrame = null;
 
   /**
    * Resolve which element to use for scrolling.
@@ -86,6 +93,10 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   }
 
   function scrollToBottom(force = false) {
+    if (!force && Date.now() < latestAgentScrollProtectedUntil) {
+      return;
+    }
+
     if (!force && userScrolledAway.value) {
       hasNewMessages.value = true;
       return;
@@ -151,7 +162,20 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
     });
   }
 
+  function ensureLatestAgentScrollRunway(scrollEl) {
+    if (!scrollEl || scrollEl === document.documentElement || !scrollEl.style?.setProperty) return;
+
+    const runway = Math.max(0, scrollEl.clientHeight - LATEST_AGENT_ALIGNMENT_OFFSET);
+    scrollEl.style.setProperty(LATEST_AGENT_RUNWAY_PROPERTY, `${runway}px`);
+  }
+
   function scrollToClaudesTurn() {
+    if (latestAgentAlignmentFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(latestAgentAlignmentFrame);
+      latestAgentAlignmentFrame = null;
+    }
+    latestAgentScrollProtectedUntil = Date.now() + LATEST_AGENT_SCROLL_PROTECTION_MS;
+
     nextTick(() => {
       const scrollEl = getScrollEl();
       if (!scrollEl) return;
@@ -170,11 +194,39 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
       );
       if (!el) return;
 
-      // Scroll so the message is near the top of the visible area
-      const containerRect = scrollEl.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      const scrollOffset = elRect.top - containerRect.top + scrollEl.scrollTop - 16;
-      scrollEl.scrollTop = scrollOffset;
+      ensureLatestAgentScrollRunway(scrollEl);
+
+      const alignToLatestAssistant = (attempt = 0) => {
+        const containerRect = scrollEl.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        const desiredTop = scrollEl.scrollTop
+          + elRect.top
+          - containerRect.top
+          - LATEST_AGENT_ALIGNMENT_OFFSET;
+        const maxScrollTop = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+        const targetTop = Math.min(maxScrollTop, Math.max(0, desiredTop));
+
+        programmaticScroll = true;
+        scrollEl.scrollTop = targetTop;
+
+        if (typeof requestAnimationFrame !== 'function') return;
+
+        const updatedContainerRect = scrollEl.getBoundingClientRect();
+        const updatedElRect = el.getBoundingClientRect();
+        const expectedTop = updatedContainerRect.top + LATEST_AGENT_ALIGNMENT_OFFSET;
+        const aligned = Math.abs(updatedElRect.top - expectedTop) <= LATEST_AGENT_ALIGNMENT_TOLERANCE;
+        if (aligned || attempt >= LATEST_AGENT_MAX_ALIGNMENT_ATTEMPTS - 1) {
+          latestAgentAlignmentFrame = null;
+          return;
+        }
+
+        latestAgentAlignmentFrame = requestAnimationFrame(() => {
+          latestAgentAlignmentFrame = null;
+          alignToLatestAssistant(attempt + 1);
+        });
+      };
+
+      alignToLatestAssistant();
     });
   }
 
@@ -228,6 +280,9 @@ export function useMessageScroll({ messages, partialText, activeConversationId, 
   onUnmounted(() => {
     if (debounceTimer) {
       clearTimeout(debounceTimer);
+    }
+    if (latestAgentAlignmentFrame !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(latestAgentAlignmentFrame);
     }
     const el = getScrollEl();
     if (el) {

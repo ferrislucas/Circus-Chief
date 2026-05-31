@@ -25,6 +25,9 @@ describe('useMessageScroll', () => {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       querySelector: vi.fn(),
+      style: {
+        setProperty: vi.fn(),
+      },
       getBoundingClientRect: vi.fn(() => ({
         top: 0,
         bottom: 500,
@@ -289,6 +292,190 @@ describe('useMessageScroll', () => {
 
       expect(mockContainer.querySelector).toHaveBeenCalledWith('[data-message-id="msg-2"]');
       expect(mockContainer.scrollTop).toBeDefined();
+    });
+
+    it('computes the target scroll position from the provided scroll container', async () => {
+      messages.value = [
+        createMockMessage('msg-1', 'user', 'Hello'),
+        createMockMessage('msg-2', 'assistant', 'First assistant'),
+        createMockMessage('msg-3', 'assistant', 'Latest assistant'),
+      ];
+
+      const scrollContainerRef = ref({
+        scrollHeight: 1200,
+        scrollTop: 40,
+        clientHeight: 500,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        getBoundingClientRect: vi.fn(() => ({ top: 100, bottom: 600 })),
+      });
+      const messagesEl = {
+        querySelector: vi.fn((selector) => {
+          if (selector === '[data-message-id="msg-3"]') {
+            return { getBoundingClientRect: vi.fn(() => ({ top: 260, bottom: 360 })) };
+          }
+          return null;
+        }),
+      };
+
+      scrollUtilities = useMessageScroll({
+        messages, partialText, activeConversationId, scrollContainer: scrollContainerRef,
+      });
+      scrollUtilities.messagesContainer.value = messagesEl;
+
+      scrollUtilities.scrollToClaudesTurn();
+      await nextTick();
+
+      expect(messagesEl.querySelector).toHaveBeenCalledWith('[data-message-id="msg-3"]');
+      expect(scrollContainerRef.value.scrollTop).toBe(184);
+    });
+
+    it('chooses the last assistant message by message id', async () => {
+      messages.value = [
+        createMockMessage('msg-1', 'assistant', 'Earlier assistant'),
+        createMockMessage('msg-2', 'user', 'Hello'),
+        createMockMessage('msg-3', 'assistant', 'Latest assistant'),
+      ];
+
+      const latestAssistantEl = {
+        getBoundingClientRect: vi.fn(() => ({ top: 220, bottom: 320 })),
+      };
+      mockContainer.querySelector = vi.fn((selector) => {
+        if (selector === '[data-message-id="msg-3"]') return latestAssistantEl;
+        throw new Error(`Unexpected selector: ${selector}`);
+      });
+
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      scrollUtilities.scrollToClaudesTurn();
+      await nextTick();
+
+      expect(mockContainer.querySelector).toHaveBeenCalledTimes(1);
+      expect(mockContainer.querySelector).toHaveBeenCalledWith('[data-message-id="msg-3"]');
+    });
+
+    it('does not scroll when the latest assistant DOM node is missing', async () => {
+      messages.value = [
+        createMockMessage('msg-1', 'user', 'Hello'),
+        createMockMessage('msg-2', 'assistant', 'Hi there!'),
+      ];
+      mockContainer.querySelector.mockReturnValue(null);
+
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      scrollUtilities.scrollToClaudesTurn();
+      await nextTick();
+
+      expect(mockContainer.querySelector).toHaveBeenCalledWith('[data-message-id="msg-2"]');
+      expect(mockContainer.scrollTop).toBe(0);
+    });
+
+    it('prevents an immediate unforced bottom scroll from overriding latest assistant alignment', async () => {
+      messages.value = [
+        createMockMessage('msg-1', 'user', 'Hello'),
+        createMockMessage('msg-2', 'assistant', 'Hi there!'),
+      ];
+      mockContainer.querySelector = vi.fn((selector) => {
+        if (selector === '[data-message-id="msg-2"]') {
+          return { getBoundingClientRect: vi.fn(() => ({ top: 260, bottom: 360 })) };
+        }
+        return null;
+      });
+
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      scrollUtilities.scrollToClaudesTurn();
+      await nextTick();
+      expect(mockContainer.scrollTop).toBe(244);
+
+      messages.value = [
+        ...messages.value,
+        createMockMessage('msg-3', 'user', 'Later user content'),
+      ];
+      await nextTick();
+      await nextTick();
+
+      expect(mockContainer.scrollTop).toBe(244);
+    });
+
+    it('adds measured bottom runway before aligning a latest assistant near the end', async () => {
+      let scrollHeight = 300;
+      mockContainer.clientHeight = 500;
+      Object.defineProperty(mockContainer, 'scrollHeight', {
+        configurable: true,
+        get: () => scrollHeight,
+      });
+      mockContainer.style.setProperty = vi.fn((property, value) => {
+        if (property === '--session-chat-latest-turn-runway' && value === '484px') {
+          scrollHeight = 1000;
+        }
+      });
+      messages.value = [
+        createMockMessage('msg-1', 'user', 'Hello'),
+        createMockMessage('msg-2', 'assistant', 'Latest assistant'),
+      ];
+      mockContainer.querySelector = vi.fn((selector) => {
+        if (selector === '[data-message-id="msg-2"]') {
+          return { getBoundingClientRect: vi.fn(() => ({ top: 260, bottom: 360 })) };
+        }
+        return null;
+      });
+
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      scrollUtilities.scrollToClaudesTurn();
+      await nextTick();
+
+      expect(mockContainer.style.setProperty).toHaveBeenCalledWith(
+        '--session-chat-latest-turn-runway',
+        '484px'
+      );
+      expect(mockContainer.scrollTop).toBe(244);
+    });
+
+    it('does not schedule extra alignment frames once the latest assistant turn is aligned', async () => {
+      const frameCallbacks = [];
+      vi.stubGlobal('requestAnimationFrame', vi.fn((callback) => {
+        frameCallbacks.push(callback);
+        return frameCallbacks.length;
+      }));
+
+      let scrollTop = 0;
+      messages.value = [
+        createMockMessage('msg-1', 'user', 'Hello'),
+        createMockMessage('msg-2', 'assistant', 'Hi there!'),
+      ];
+      Object.defineProperty(mockContainer, 'scrollTop', {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value) => { scrollTop = value; },
+      });
+      mockContainer.getBoundingClientRect.mockReturnValue({ top: 100, bottom: 600 });
+      mockContainer.querySelector = vi.fn((selector) => {
+        if (selector === '[data-message-id="msg-2"]') {
+          return {
+            getBoundingClientRect: vi.fn(() => ({
+              top: 300 - scrollTop,
+              bottom: 400 - scrollTop,
+            })),
+          };
+        }
+        return null;
+      });
+
+      scrollUtilities = useMessageScroll({ messages, partialText, activeConversationId });
+      scrollUtilities.messagesContainer.value = mockContainer;
+
+      scrollUtilities.scrollToClaudesTurn();
+      await nextTick();
+      expect(scrollTop).toBe(184);
+      expect(frameCallbacks).toHaveLength(0);
+
+      vi.unstubAllGlobals();
     });
 
     it('should not scroll when no assistant messages exist', async () => {

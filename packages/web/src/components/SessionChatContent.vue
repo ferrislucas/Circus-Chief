@@ -808,4 +808,10 @@ defineExpose({
     padding-left: 0.5rem;
   }
 }
+
+.session-chat-content--overlay :deep(.conversation-tab)::after {
+  content: '';
+  display: block;
+  height: var(--session-chat-latest-turn-runway, 0px);
+}
 </style>

@@ -189,6 +189,33 @@ describe('SessionChatContent', () => {
     expect(conversation.props('scrollContainerRef')).toBeTruthy();
   });
 
+  it('passes the overlay body as the scroll container in overlay mode', async () => {
+    const wrapper = mountContent();
+    await flushPromises();
+
+    const conversation = wrapper.findComponent({ name: 'ConversationTab' });
+    expect(conversation.props('scrollContainerRef')).toBe(wrapper.find('.overlay-body').element);
+  });
+
+  it('passes document.documentElement as the scroll container in embedded mode', async () => {
+    const wrapper = mountContent({ mode: 'embedded' });
+    await flushPromises();
+
+    const conversation = wrapper.findComponent({ name: 'ConversationTab' });
+    expect(conversation.props('scrollContainerRef')).toBe(document.documentElement);
+    expect(conversation.props('initialScrollTarget')).toBe('latest-agent-turn');
+  });
+
+  it('keeps overlay latest-turn runway on the scrollable content path', () => {
+    const selector = '.session-chat-content--overlay :deep(.conversation-tab)::after';
+    const start = sessionChatContentSource.indexOf(`${selector} {`);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = sessionChatContentSource.indexOf('\n}', start);
+    const block = sessionChatContentSource.slice(start, end + 2);
+
+    expect(block).toContain('height: var(--session-chat-latest-turn-runway, 0px)');
+  });
+
   it('switches when sessionId prop changes and cleans up stores on unmount', async () => {
     mockSessionsStore.sessions.push({ id: 'child-1', name: 'Child', status: 'running', projectId: 'proj-1', parentSessionId: 'sess-root' });
     const wrapper = mountContent();
