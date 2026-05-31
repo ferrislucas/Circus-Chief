@@ -58,6 +58,28 @@ export const miscMigrations = [
       `);
     },
   },
+  {
+    name: 'session_templates-add-built-in-provenance',
+    up(db) {
+      addColumnIfMissing(db, 'session_templates', 'built_in_key', 'TEXT');
+      addColumnIfMissing(
+        db,
+        'session_templates',
+        'source',
+        "TEXT NOT NULL DEFAULT 'user' CHECK(source IN ('user', 'built_in', 'legacy_quick_response'))"
+      );
+      addColumnIfMissing(db, 'session_templates', 'source_version', 'INTEGER');
+      addColumnIfMissing(db, 'session_templates', 'prompt_fingerprint', 'TEXT');
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_templates_global_built_in_key
+        ON session_templates(built_in_key)
+        WHERE project_id IS NULL AND built_in_key IS NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_session_templates_prompt_fingerprint
+        ON session_templates(prompt_fingerprint)
+      `);
+    },
+  },
 
   // --- App settings table ---
   {
@@ -160,6 +182,12 @@ export const miscMigrations = [
         ON session_templates(name)
         WHERE project_id IS NULL
       `);
+    },
+  },
+  {
+    name: 'session_templates-drop-global-name-unique-index',
+    up(db) {
+      db.exec('DROP INDEX IF EXISTS idx_session_templates_global_name');
     },
   },
 ];

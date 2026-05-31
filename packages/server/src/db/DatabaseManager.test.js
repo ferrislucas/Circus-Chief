@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
-import { DEFAULT_SESSION_TEMPLATES, DEFAULT_SESSION_TEMPLATE_PROMPTS } from './defaultSessionTemplates.js';
+import {
+  BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION,
+  DEFAULT_SESSION_TEMPLATES,
+  DEFAULT_SESSION_TEMPLATE_PROMPTS,
+} from './defaultSessionTemplates.js';
 import { miscMigrations } from './migrations/miscMigrations.js';
 
 describe('DatabaseManager', () => {
@@ -808,6 +812,13 @@ describe('DatabaseManager', () => {
       expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
       const names = rows.map(r => r.name).sort();
       expect(names).toEqual(DEFAULT_SESSION_TEMPLATES.map(t => t.name).sort());
+      for (const expected of DEFAULT_SESSION_TEMPLATES) {
+        const actual = rows.find((row) => row.name === expected.name);
+        expect(actual.built_in_key).toBe(expected.key);
+        expect(actual.source).toBe('built_in');
+        expect(actual.source_version).toBe(BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION);
+        expect(actual.prompt_fingerprint).toBe(expected.promptFingerprint);
+      }
     });
 
     it('fresh in-memory DB has no session_templates with legacy_quick_response_id', () => {
@@ -850,12 +861,12 @@ describe('DatabaseManager', () => {
       expect(rows[2].quick_response_sort_order).toBe(2);
     });
 
-    it('fresh DB sets the default_session_templates_bootstrapped flag', () => {
+    it('fresh DB sets the default_session_templates_reconciled setting', () => {
       const db = manager.get();
       const setting = db.prepare(
-        "SELECT value FROM app_settings WHERE key = 'default_session_templates_bootstrapped'"
+        "SELECT value FROM app_settings WHERE key = 'default_session_templates_reconciled'"
       ).get();
-      expect(setting?.value).toBe('true');
+      expect(setting?.value).toBe(String(BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION));
     });
 
     it('existing DB with bootstrap flag set and zero templates: startup does not recreate defaults', () => {
@@ -864,9 +875,9 @@ describe('DatabaseManager', () => {
       // Delete all session templates and ensure flag remains set
       db.prepare('DELETE FROM session_templates').run();
       const flagSet = db.prepare(
-        "SELECT value FROM app_settings WHERE key = 'default_session_templates_bootstrapped'"
+        "SELECT value FROM app_settings WHERE key = 'default_session_templates_reconciled'"
       ).get();
-      expect(flagSet?.value).toBe('true');
+      expect(flagSet?.value).toBe(String(BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION));
 
       // Simulate another startup (flag already set — no templates should be inserted)
       bootstrapDefaultSessionTemplates(db, { isFirstRun: true });
@@ -882,7 +893,7 @@ describe('DatabaseManager', () => {
       const db = manager.get();
 
       // Pretend the flag was never written
-      db.prepare("DELETE FROM app_settings WHERE key = 'default_session_templates_bootstrapped'").run();
+      db.prepare("DELETE FROM app_settings WHERE key IN ('default_session_templates_bootstrapped', 'default_session_templates_reconciled')").run();
       db.prepare('DELETE FROM session_templates').run();
 
       bootstrapDefaultSessionTemplates(db, { isFirstRun: false });

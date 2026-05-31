@@ -1,5 +1,6 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
+import { promptFingerprint } from './sessionTemplateCatalog.js';
 
 /**
  * Session template repository class
@@ -27,6 +28,10 @@ export class SessionTemplateRepository extends BaseRepository {
       quickResponseAutoSubmit: Boolean(row.quick_response_auto_submit),
       quickResponseSortOrder: row.quick_response_sort_order ?? 0,
       legacyQuickResponseId: row.legacy_quick_response_id || null,
+      builtInKey: row.built_in_key || null,
+      source: row.source || 'user',
+      sourceVersion: row.source_version ?? null,
+      promptFingerprint: row.prompt_fingerprint || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -69,8 +74,9 @@ export class SessionTemplateRepository extends BaseRepository {
           git_branch, git_mode, model, mode, effort_level, target_lane_id,
           show_in_quick_responses, quick_response_auto_submit,
           quick_response_sort_order, legacy_quick_response_id,
+          built_in_key, source, source_version, prompt_fingerprint,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -89,6 +95,10 @@ export class SessionTemplateRepository extends BaseRepository {
         SessionTemplateRepository.#normalizeBoolean(data.quickResponseAutoSubmit),
         data.quickResponseSortOrder ?? 0,
         data.legacyQuickResponseId || null,
+        data.builtInKey || null,
+        data.source || 'user',
+        data.sourceVersion ?? null,
+        promptFingerprint(data.prompt),
         now,
         now
       );
@@ -114,6 +124,9 @@ export class SessionTemplateRepository extends BaseRepository {
     quickResponseAutoSubmit: { column: 'quick_response_auto_submit', transform: (v) => v ? 1 : 0 },
     quickResponseSortOrder: { column: 'quick_response_sort_order', transform: (v) => v },
     legacyQuickResponseId: { column: 'legacy_quick_response_id', transform: (v) => v || null },
+    builtInKey: { column: 'built_in_key', transform: (v) => v || null },
+    source: { column: 'source', transform: (v) => v || 'user' },
+    sourceVersion: { column: 'source_version', transform: (v) => v ?? null },
   };
 
   /**
@@ -131,6 +144,11 @@ export class SessionTemplateRepository extends BaseRepository {
         updates.push(`${def.column} = ?`);
         values.push(def.transform(data[key]));
       }
+    }
+
+    if (data.prompt !== undefined) {
+      updates.push('prompt_fingerprint = ?');
+      values.push(promptFingerprint(data.prompt));
     }
 
     if (updates.length === 0) return this.getById(id);

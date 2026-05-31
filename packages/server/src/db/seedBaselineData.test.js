@@ -11,8 +11,10 @@ import {
   seedBaselineData,
 } from './seedBaselineData.js';
 import {
+  BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION,
   DEFAULT_SESSION_TEMPLATES,
   DEFAULT_SESSION_TEMPLATE_PROMPTS,
+  promptFingerprint,
 } from './defaultSessionTemplates.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
 
@@ -107,6 +109,15 @@ describe('seedBaselineData', () => {
 
       const names = rows.map((r) => r.name).sort();
       expect(names).toEqual(DEFAULT_SESSION_TEMPLATES.map((t) => t.name).sort());
+      for (const expected of DEFAULT_SESSION_TEMPLATES) {
+        const actual = rows.find((r) => r.name === expected.name);
+        expect(actual).toMatchObject({
+          built_in_key: expected.key,
+          source: 'built_in',
+          source_version: BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION,
+          prompt_fingerprint: expected.promptFingerprint,
+        });
+      }
     });
   });
 
@@ -177,9 +188,9 @@ describe('seedBaselineData', () => {
     withDb((db) => {
       // Verify the bootstrap flag was set
       const setting = db.prepare(
-        "SELECT value FROM app_settings WHERE key = 'default_session_templates_bootstrapped'"
+        "SELECT value FROM app_settings WHERE key = 'default_session_templates_reconciled'"
       ).get();
-      expect(setting?.value).toBe('true');
+      expect(setting?.value).toBe(String(BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION));
 
       // Delete all session templates (simulate a user deleting defaults)
       db.prepare('DELETE FROM session_templates').run();
@@ -210,7 +221,7 @@ describe('seedBaselineData', () => {
     const db = manager.init(':memory:');
     try {
       // Reset bootstrap flag and remove all templates
-      db.prepare("DELETE FROM app_settings WHERE key = 'default_session_templates_bootstrapped'").run();
+      db.prepare("DELETE FROM app_settings WHERE key IN ('default_session_templates_bootstrapped', 'default_session_templates_reconciled')").run();
       db.prepare('DELETE FROM session_templates').run();
 
       // Insert a project-scoped template
@@ -233,5 +244,35 @@ describe('seedBaselineData', () => {
     } finally {
       manager.close();
     }
+  });
+
+  it('does not classify a user template with a built-in title but custom prompt as built-in', () => {
+    withDb((db) => {
+      db.prepare("DELETE FROM app_settings WHERE key = 'default_session_templates_reconciled'").run();
+      db.prepare('DELETE FROM session_templates').run();
+
+      const now = Date.now();
+      db.prepare(`
+        INSERT INTO session_templates (
+          id, project_id, name, prompt, thinking_enabled, mode,
+          show_in_quick_responses, quick_response_auto_submit,
+          quick_response_sort_order, legacy_quick_response_id,
+          prompt_fingerprint, created_at, updated_at
+        ) VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?, ?)
+      `).run(
+        'custom-review-plan',
+        'Review the plan',
+        'Custom user prompt',
+        promptFingerprint('Custom user prompt'),
+        now,
+        now
+      );
+
+      bootstrapDefaultSessionTemplates(db, { isFirstRun: false });
+
+      const row = db.prepare('SELECT source, built_in_key FROM session_templates WHERE id = ?').get('custom-review-plan');
+      expect(row.source).toBe('user');
+      expect(row.built_in_key).toBeNull();
+    });
   });
 });

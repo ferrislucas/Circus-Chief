@@ -122,7 +122,16 @@ describe('schema baseline', () => {
 
       expect(columnNames(db, 'projects')).toEqual(expect.arrayContaining(['worktree_path', 'kanban_enabled']));
       expect(columnNames(db, 'project_session_defaults')).toEqual(expect.arrayContaining(['provider_id', 'effort_level']));
-      expect(columnNames(db, 'session_templates')).toEqual(expect.arrayContaining(['target_lane_id', 'model', 'mode', 'effort_level']));
+      expect(columnNames(db, 'session_templates')).toEqual(expect.arrayContaining([
+        'target_lane_id',
+        'model',
+        'mode',
+        'effort_level',
+        'built_in_key',
+        'source',
+        'source_version',
+        'prompt_fingerprint',
+      ]));
       expect(columnNames(db, 'conversation_messages')).toEqual(expect.arrayContaining(['conversation_id', 'model']));
       expect(columnNames(db, 'conversations')).toEqual(expect.arrayContaining(['model', 'parent_conversation_id', 'branch_from_message_id']));
       expect(columnNames(db, 'session_summaries')).toEqual(expect.arrayContaining(['last_summarized_message_id', 'workflow_fingerprint']));

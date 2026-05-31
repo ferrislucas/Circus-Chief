@@ -49,6 +49,10 @@ export const SessionTemplateResponse = z.object({
   quickResponseAutoSubmit: z.boolean(),
   quickResponseSortOrder: z.number(),
   legacyQuickResponseId: z.string().nullable(),
+  builtInKey: z.string().nullable().optional(),
+  source: z.enum(['user', 'built_in', 'legacy_quick_response']).optional(),
+  sourceVersion: z.number().nullable().optional(),
+  promptFingerprint: z.string().nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
