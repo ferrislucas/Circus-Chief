@@ -33,9 +33,10 @@ import { getChildSessions, buildChildSessionContext, aggregateFilesModified } fr
 import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
 import { isDescendantStateStale, isSummaryStale } from './summaryStaleCheck.js';
 import { computeWorkflowFingerprint, hasSemanticSummaryChanged } from './summaryFingerprint.js';
-import { validateAndRepairWorkflowCoverage } from './summaryWorkflowCoverage.js';
 import { propagateToParent as _propagateToParent, propagatePrUrlToParent } from './summaryPropagation.js';
 import { buildMergedParentSummary } from './summaryMerge.js';
+import { saveManualSummary as _saveManualSummary } from './summaryManualSave.js';
+import { createMinimalSummary } from './summaryMinimal.js';
 
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
@@ -107,14 +108,16 @@ function shouldGenerateSummary(sessionId, force, userInitiated) {
 /**
  * Build an existing-summary view that contains only the current session's own
  * LLM-generated state, excluding deterministic child-report content.
+ * @param {string} sessionId
  * @param {Object|null} existingSummary
  * @returns {Object|null}
  */
-function buildOwnExistingSummary(existingSummary) {
+function buildOwnExistingSummary(sessionId, existingSummary) {
   if (!existingSummary) return null;
+  const hasDescendants = sessions.getAllDescendantIds(sessionId).length > 0;
   return {
     ...existingSummary,
-    fullSummary: existingSummary.ownFullSummary || existingSummary.fullSummary,
+    fullSummary: existingSummary.ownFullSummary || (hasDescendants ? '' : existingSummary.fullSummary),
     keyActions: Array.isArray(existingSummary.ownKeyActions)
       ? existingSummary.ownKeyActions
       : [],
@@ -132,7 +135,7 @@ function buildOwnExistingSummary(existingSummary) {
  * @returns {{ prompt: string, childContext: Object }}
  */
 function fetchConversationContext(sessionId, { existingSummary, recentMessages, session, globalSettings }) {
-  const prompt = buildIncrementalPrompt(buildOwnExistingSummary(existingSummary), recentMessages, session.status, {
+  const prompt = buildIncrementalPrompt(buildOwnExistingSummary(sessionId, existingSummary), recentMessages, session.status, {
     projectTitlePrompt: globalSettings?.sessionTitlePrompt,
     childContext: '',
   });
@@ -224,48 +227,6 @@ function updateSessionFromSummary(sessionId, session, summaryData) {
 }
 
 /**
- * Handle sessions with too few messages by creating a minimal summary.
- * @param {string} sessionId
- * @param {Object} session
- * @param {Array} allMessages
- * @returns {Object} the minimal summary
- */
-function createMinimalSummary(sessionId, session, allMessages) {
-  const lastMessage = allMessages.length > 0 ? allMessages[allMessages.length - 1] : null;
-  const outcome = session.status === 'stopped' ? 'partial' : session.status === 'error' ? 'failed' : 'ongoing';
-
-  const minimalSummary = {
-    shortSummary: 'Session in progress',
-    fullSummary: `Session with ${allMessages.length} message${allMessages.length !== 1 ? 's' : ''}`,
-    keyActions: [],
-    filesModified: [],
-    outcome,
-    ownShortSummary: 'Session in progress',
-    ownFullSummary: `Session with ${allMessages.length} message${allMessages.length !== 1 ? 's' : ''}`,
-    ownKeyActions: [],
-    ownFilesModified: [],
-    ownOutcome: outcome,
-    messageCount: allMessages.length,
-    lastSummarizedMessageId: lastMessage ? lastMessage.id : null,
-  };
-
-  const descendantIds = sessions.getAllDescendantIds(sessionId);
-  if (descendantIds.length > 0) {
-    minimalSummary.workflowFingerprint = computeWorkflowFingerprint(sessionId);
-  }
-
-  let summary = sessionSummaries.upsert(sessionId, minimalSummary);
-  if (descendantIds.length > 0) {
-    summary = buildMergedParentSummary(sessionId);
-  }
-  broadcastSummaryUpdate(sessionId, session.projectId, summary);
-  if (session.projectId) {
-    broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
-  }
-  return summary;
-}
-
-/**
  * Retry summary generation if parsing failed and retries remain.
  * @param {Object} summaryData
  * @param {number} retryCount
@@ -314,7 +275,7 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       summarySettings: globalSettings,
     });
 
-    let summaryData = parseSummaryResponse(responseText);
+    const summaryData = parseSummaryResponse(responseText);
     const retryResult = await retryIfParseFailed(summaryData, retryCount, { sessionId, force, userInitiated });
     if (retryResult.shouldRetry) return retryResult.result;
 
@@ -474,29 +435,7 @@ export async function regenerateSummary(sessionId) {
  * @returns {Object}
  */
 export function saveManualSummary(sessionId, data) {
-  const rootSessionId = sessions.getRootSessionId(sessionId) || sessionId;
-  const existing = sessionSummaries.getBySessionId(rootSessionId);
-  const merged = { ...(existing || {}), ...data };
-  if (data.shortSummary !== undefined) merged.ownShortSummary = data.ownShortSummary ?? data.shortSummary;
-  if (data.fullSummary !== undefined) merged.ownFullSummary = data.ownFullSummary ?? data.fullSummary;
-  if (data.keyActions !== undefined) merged.ownKeyActions = data.ownKeyActions ?? data.keyActions;
-  if (data.filesModified !== undefined) merged.ownFilesModified = data.ownFilesModified ?? data.filesModified;
-  if (data.outcome !== undefined) merged.ownOutcome = data.ownOutcome ?? data.outcome;
-
-  if (merged.messageCount == null) {
-    trackMessageMetadata(merged, messages.getBySessionId(rootSessionId));
-  }
-
-  const descendantIds = sessions.getAllDescendantIds(rootSessionId);
-  const descendants = descendantIds.map(id => sessions.getById(id)).filter(Boolean);
-
-  if (descendants.length > 0) {
-    const repaired = validateAndRepairWorkflowCoverage(merged, descendants);
-    Object.assign(merged, repaired);
-    merged.workflowFingerprint = computeWorkflowFingerprint(rootSessionId);
-  }
-
-  return sessionSummaries.upsert(rootSessionId, merged);
+  return _saveManualSummary(sessionId, data);
 }
 
 /**

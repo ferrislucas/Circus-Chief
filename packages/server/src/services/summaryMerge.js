@@ -17,6 +17,7 @@
 import { sessions, sessionSummaries } from '../database.js';
 import { broadcastSummaryUpdate } from './summaryBroadcast.js';
 import { computeWorkflowFingerprint } from './summaryFingerprint.js';
+import { isSummaryStale } from './summaryStaleCheck.js';
 import {
   validateAndRepairWorkflowCoverage,
   buildFallbackSummaryAddition,
@@ -55,6 +56,37 @@ function synthesizeOrchestratorShortSummary(session, descendants) {
   return `Orchestrating ${total} child session${total !== 1 ? 's' : ''}: ${parts.join(', ')}`;
 }
 
+function getOwnSummaryParts(existingSummary) {
+  return {
+    ownShortSummary: existingSummary?.ownShortSummary || null,
+    ownFullSummary: existingSummary?.ownFullSummary || null,
+    ownKeyActions: Array.isArray(existingSummary?.ownKeyActions)
+      ? existingSummary.ownKeyActions
+      : [],
+    ownFilesModified: Array.isArray(existingSummary?.ownFilesModified)
+      ? existingSummary.ownFilesModified
+      : [],
+    ownOutcome: existingSummary?.ownOutcome || null,
+  };
+}
+
+function getStoredOwnFields(existingSummary) {
+  return {
+    ownKeyActions: Array.isArray(existingSummary?.ownKeyActions) ? existingSummary.ownKeyActions : null,
+    ownFilesModified: Array.isArray(existingSummary?.ownFilesModified) ? existingSummary.ownFilesModified : null,
+    ownOutcome: existingSummary?.ownOutcome || null,
+  };
+}
+
+function computeFreshWorkflowFingerprint(sessionId, descendants, existingSummary) {
+  const descendantsCurrent = descendants.every((desc) =>
+    sessionSummaries.getBySessionId(desc.id) && !isSummaryStale(desc.id)
+  );
+  return descendantsCurrent
+    ? computeWorkflowFingerprint(sessionId)
+    : existingSummary?.workflowFingerprint || null;
+}
+
 /**
  * Build a merged parent summary deterministically from the parent's own
  * LLM-generated content and the summaries of all descendant sessions.
@@ -84,27 +116,17 @@ export function buildMergedParentSummary(sessionId) {
   const descendantIds = sessions.getAllDescendantIds(sessionId);
   const descendants = descendantIds.map((id) => sessions.getById(id)).filter(Boolean);
 
-  // Retrieve the parent's own LLM-generated text (null for orchestrator-only sessions
-  // or sessions that haven't been regenerated since the column was added).
-  const ownShortSummary = existingSummary?.ownShortSummary || null;
-  const ownFullSummary = existingSummary?.ownFullSummary || null;
-  const ownKeyActions = Array.isArray(existingSummary?.ownKeyActions)
-    ? existingSummary.ownKeyActions
-    : [];
-  const ownFilesModified = Array.isArray(existingSummary?.ownFilesModified)
-    ? existingSummary.ownFilesModified
-    : [];
-  const ownOutcome = existingSummary?.ownOutcome || null;
+  const ownParts = getOwnSummaryParts(existingSummary);
 
   // Build the child-report section using the established fallback format.
   const childReport = buildFallbackSummaryAddition(descendants);
 
   // Compose shortSummary: use own if available, else synthesize.
-  const shortSummary = ownShortSummary || synthesizeOrchestratorShortSummary(session, descendants);
+  const shortSummary = ownParts.ownShortSummary || synthesizeOrchestratorShortSummary(session, descendants);
 
   // Compose fullSummary: own prose (if any) + child report section.
-  const fullSummary = ownFullSummary
-    ? `${ownFullSummary}${childReport}`
+  const fullSummary = ownParts.ownFullSummary
+    ? `${ownParts.ownFullSummary}${childReport}`
     : childReport || existingSummary?.fullSummary || '';
 
   // Start from a base that represents the parent's current state.
@@ -112,9 +134,9 @@ export function buildMergedParentSummary(sessionId) {
   const baseData = {
     shortSummary,
     fullSummary,
-    keyActions: ownKeyActions,
-    filesModified: ownFilesModified,
-    outcome: ownOutcome,
+    keyActions: ownParts.ownKeyActions,
+    filesModified: ownParts.ownFilesModified,
+    outcome: ownParts.ownOutcome,
   };
 
   // Merge descendant filesModified, keyActions, and outcome.
@@ -128,12 +150,10 @@ export function buildMergedParentSummary(sessionId) {
     // explicit to guard against future changes.
     shortSummary,
     fullSummary,
-    ownShortSummary,
-    ownFullSummary,
-    ownKeyActions: Array.isArray(existingSummary?.ownKeyActions) ? existingSummary.ownKeyActions : null,
-    ownFilesModified: Array.isArray(existingSummary?.ownFilesModified) ? existingSummary.ownFilesModified : null,
-    ownOutcome: existingSummary?.ownOutcome || null,
-    workflowFingerprint: computeWorkflowFingerprint(sessionId),
+    ownShortSummary: ownParts.ownShortSummary,
+    ownFullSummary: ownParts.ownFullSummary,
+    ...getStoredOwnFields(existingSummary),
+    workflowFingerprint: computeFreshWorkflowFingerprint(sessionId, descendants, existingSummary),
     // Preserve the parent's own message metadata so isSummaryStale() can still
     // correctly determine when the parent's own messages have changed.
     messageCount: existingSummary?.messageCount ?? 0,

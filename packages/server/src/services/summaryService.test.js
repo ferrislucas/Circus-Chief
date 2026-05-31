@@ -2140,12 +2140,16 @@ describe('summaryService', () => {
         outcome: 'completed',
         workflowFingerprint: 'stale-fingerprint',
       });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
       sessionSummaries.create(child.id, {
         shortSummary: 'Child read summary',
         fullSummary: 'Child read full',
         keyActions: ['child read action'],
         filesModified: ['child-read.js'],
         outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
       });
 
       settings.setSummarySettings({ disableSessionSummaries: true });
@@ -3195,6 +3199,15 @@ describe('summaryService', () => {
       const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
       sessions.update(child.id, { parentSessionId: sessionId });
       messages.create(child.id, 'assistant', 'Child response');
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child summary',
+        fullSummary: 'Child full summary',
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
 
       const result = await summaryService.generateSummary(sessionId);
 
@@ -3228,6 +3241,15 @@ describe('summaryService', () => {
 
       const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard');
       sessions.update(child.id, { parentSessionId: lowMsgSessionId });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Minimal child summary',
+        fullSummary: 'Minimal child full summary',
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
 
       // Only 1 message — below MIN_MESSAGES_FOR_SUMMARY (3)
       databaseManager
@@ -3354,6 +3376,15 @@ describe('summaryService', () => {
 
       const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard');
       sessions.update(child.id, { parentSessionId: root.id });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Manual child summary',
+        fullSummary: 'Manual child full summary',
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
 
       const data = {
         shortSummary: 'Manual with descendants',
@@ -3647,6 +3678,38 @@ describe('summaryService', () => {
       summaryService.cleanupSession(child.id);
     });
 
+    it('does not feed legacy merged parent summaries back into own-message generation', async () => {
+      const child = sessions.create(projectId, 'Legacy prompt child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child-only legacy summary',
+        fullSummary: 'Child-only legacy full summary',
+        keyActions: ['child-only legacy action'],
+        filesModified: ['child-only-legacy.js'],
+        outcome: 'completed',
+      });
+
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Legacy visible summary with child-only legacy summary',
+        fullSummary: 'Legacy visible full with child-only legacy full summary',
+        keyActions: ['child-only legacy action'],
+        filesModified: ['child-only-legacy.js'],
+        outcome: 'completed',
+        messageCount: 1,
+        lastSummarizedMessageId: 'older-message',
+      });
+
+      vi.mocked(query).mockClear();
+      await summaryService.generateSummary(sessionId);
+
+      const prompt = vi.mocked(query).mock.calls.at(-1)[0].prompt;
+      expect(prompt).not.toContain('Legacy visible full');
+      expect(prompt).not.toContain('child-only legacy action');
+      expect(prompt).not.toContain('Child-only legacy full summary');
+
+      summaryService.cleanupSession(child.id);
+    });
+
     it('persists owned LLM output and keeps visible parent summary merged with descendants', async () => {
       const child = sessions.create(projectId, 'Child visible merge', 'Child prompt', 'standard');
       sessions.update(child.id, { parentSessionId: sessionId });
@@ -3699,6 +3762,33 @@ describe('summaryService', () => {
       const parentSummary = sessionSummaries.getBySessionId(sessionId);
       expect(parentSummary.keyActions).toContain('child propagated');
       expect(vi.mocked(query)).not.toHaveBeenCalled();
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('does not mark parent projection fresh when a child has unsummarized messages', async () => {
+      const child = sessions.create(projectId, 'Child unsummarized', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child before new message',
+        fullSummary: 'Child full before new message',
+        keyActions: ['child old action'],
+        filesModified: ['child-old.js'],
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
+
+      const freshParent = buildMergedParentSummary(sessionId);
+      messages.create(child.id, 'assistant', 'Unsummarized child work');
+
+      const repairedParent = await summaryService.getSummary(sessionId, false);
+
+      expect(repairedParent.workflowFingerprint).toBe(freshParent.workflowFingerprint);
+      expect(repairedParent.fullSummary).toContain('Child before new message');
+      expect(repairedParent.fullSummary).not.toContain('Unsummarized child work');
 
       summaryService.cleanupSession(child.id);
     });
@@ -3907,6 +3997,15 @@ describe('summaryService', () => {
 
       const child = sessions.create(projectId, 'Child under low root', 'prompt', 'standard');
       sessions.update(child.id, { parentSessionId: lowMsgRootId });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Low root child summary',
+        fullSummary: 'Low root child full summary',
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
 
       // Only 1 message — below MIN_MESSAGES_FOR_SUMMARY
       databaseManager

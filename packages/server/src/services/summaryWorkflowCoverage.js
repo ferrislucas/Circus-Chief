@@ -87,19 +87,13 @@ function mergeDescendantActions(rootActions, pairs) {
  * @returns {string} The highest-priority outcome
  */
 function computeAggregateOutcome(rootOutcome, pairs) {
-  const outcomes = pairs.map(({ summary }) => summary.outcome).filter(Boolean);
-  if (!rootOutcome) {
-    if (outcomes.includes('failed')) return 'failed';
-    if (outcomes.includes('ongoing')) return 'ongoing';
-    if (outcomes.includes('partial')) return 'partial';
-    if (outcomes.includes('completed')) return 'completed';
-    return 'ongoing';
+  const outcomes = [
+    rootOutcome,
+    ...pairs.map(({ summary }) => summary.outcome),
+  ].filter(Boolean);
+  for (const candidate of ['failed', 'ongoing', 'partial', 'completed']) {
+    if (outcomes.includes(candidate)) return candidate;
   }
-  if (outcomes.includes('failed')) return 'failed';
-  if (rootOutcome === 'failed') return 'failed';
-  if (rootOutcome === 'ongoing' || outcomes.includes('ongoing')) return 'ongoing';
-  if (rootOutcome === 'partial' || outcomes.includes('partial')) return 'partial';
-  if (rootOutcome === 'completed' || outcomes.includes('completed')) return 'completed';
   return 'ongoing';
 }
 
