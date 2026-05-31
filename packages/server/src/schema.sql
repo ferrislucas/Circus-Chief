@@ -366,6 +366,7 @@ CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_deleted ON canvas_items(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_session_templates_global_name ON session_templates(name) WHERE project_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
 CREATE INDEX IF NOT EXISTS idx_todos_conversation ON session_todos(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);

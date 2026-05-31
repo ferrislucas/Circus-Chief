@@ -247,6 +247,10 @@ export const allMigrations = validateMigrations([
   //     This fixes the duplicate quick-response items users were seeing.
   m.get('session_templates-remove-legacy-quick-response-templates'),
 
+  // --- Enforce uniqueness of global template names (prevent future regressions).
+  //     Pre-flight deduplication keeps the oldest row when collisions exist.
+  m.get('session_templates-add-global-name-unique-index'),
+
   // --- Update built-in Opus model to 4.7 ---
   pr.get('providers-update-built-in-opus-4-7'),
 

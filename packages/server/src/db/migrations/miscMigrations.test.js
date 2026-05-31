@@ -257,6 +257,144 @@ describe('providers-seed-built-in-openai migration', () => {
   });
 });
 
+const addGlobalNameUniqueIndexMigration = miscMigrations.find(
+  m => m.name === 'session_templates-add-global-name-unique-index'
+);
+
+describe('session_templates-add-global-name-unique-index migration', () => {
+  it('is defined and has an up() function', () => {
+    expect(addGlobalNameUniqueIndexMigration).toBeDefined();
+    expect(typeof addGlobalNameUniqueIndexMigration.up).toBe('function');
+  });
+
+  it('is registered in allMigrations after session_templates-remove-legacy-quick-response-templates', () => {
+    const names = allMigrations.map(m => m.name);
+    const removeIdx = names.indexOf('session_templates-remove-legacy-quick-response-templates');
+    const uniqueIdx = names.indexOf('session_templates-add-global-name-unique-index');
+    expect(uniqueIdx).toBeGreaterThan(removeIdx);
+  });
+
+  it('fresh DB has the global-name unique index', () => {
+    const db = getDatabase();
+    const idx = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_session_templates_global_name'`)
+      .get();
+    expect(idx).toBeDefined();
+    expect(idx.name).toBe('idx_session_templates_global_name');
+  });
+
+  it('is idempotent across repeated runs', () => {
+    const db = getDatabase();
+    expect(() => addGlobalNameUniqueIndexMigration.up(db)).not.toThrow();
+    expect(() => addGlobalNameUniqueIndexMigration.up(db)).not.toThrow();
+    const idx = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_session_templates_global_name'`)
+      .get();
+    expect(idx).toBeDefined();
+  });
+
+  it('deduplicates pre-existing global-name collisions, keeping the oldest row', () => {
+    const db = getDatabase();
+    db.prepare('DELETE FROM session_templates').run();
+
+    // Drop the unique index first so we can insert duplicate rows that simulate
+    // a pre-migration state (older databases that accumulated duplicates).
+    db.exec('DROP INDEX IF EXISTS idx_session_templates_global_name');
+
+    // Insert two global templates with the same name; older one has smaller created_at.
+    const older = Date.now() - 10000;
+    const newer = Date.now();
+    db.prepare(`
+      INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
+        show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
+        legacy_quick_response_id, created_at, updated_at)
+      VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
+    `).run('dup-older', 'Duplicate Name', 'older prompt', older, older);
+
+    db.prepare(`
+      INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
+        show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
+        legacy_quick_response_id, created_at, updated_at)
+      VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
+    `).run('dup-newer', 'Duplicate Name', 'newer prompt', newer, newer);
+
+    // Now run the migration — it should deduplicate and recreate the index.
+    addGlobalNameUniqueIndexMigration.up(db);
+
+    const remaining = db.prepare(
+      `SELECT id FROM session_templates WHERE project_id IS NULL AND name = ?`
+    ).all('Duplicate Name');
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).toBe('dup-older');
+  });
+
+  it('raises SQLITE_CONSTRAINT_UNIQUE when inserting a duplicate global template name', () => {
+    const db = getDatabase();
+    db.prepare('DELETE FROM session_templates').run();
+
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
+        show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
+        legacy_quick_response_id, created_at, updated_at)
+      VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
+    `).run('unique-test-1', 'Unique Global Name', 'prompt one', now, now);
+
+    let caughtError;
+    try {
+      db.prepare(`
+        INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
+          show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
+          legacy_quick_response_id, created_at, updated_at)
+        VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
+      `).run('unique-test-2', 'Unique Global Name', 'prompt two', now, now);
+    } catch (err) {
+      caughtError = err;
+    }
+    expect(caughtError).toBeDefined();
+    expect(caughtError.code).toBe('SQLITE_CONSTRAINT_UNIQUE');
+  });
+
+  it('allows project-scoped templates to share a name with a global template', () => {
+    const db = getDatabase();
+    db.prepare('DELETE FROM session_templates').run();
+
+    const projectRepo = new ProjectRepository();
+    const project = projectRepo.create('Unique Index Test Project', '/tmp/unique-index-test');
+
+    const now = Date.now();
+    const sharedName = 'Shared Template Name';
+
+    // Global template
+    db.prepare(`
+      INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
+        show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
+        legacy_quick_response_id, created_at, updated_at)
+      VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
+    `).run('scope-global', sharedName, 'global prompt', now, now);
+
+    // Project-scoped template with the same name — must not be blocked by the partial index.
+    expect(() => {
+      db.prepare(`
+        INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
+          show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
+          legacy_quick_response_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
+      `).run('scope-project', project.id, sharedName, 'project prompt', now, now);
+    }).not.toThrow();
+
+    // Two project-scoped templates in the same project with the same name should also be fine.
+    expect(() => {
+      db.prepare(`
+        INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
+          show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
+          legacy_quick_response_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
+      `).run('scope-project-2', project.id, sharedName, 'project prompt 2', now, now);
+    }).not.toThrow();
+  });
+});
+
 describe('providers-backfill-built-in-openai-attribution migration', () => {
   it('fills null attribution on the built-in OpenAI provider', () => {
     const db = getDatabase();
