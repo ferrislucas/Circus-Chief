@@ -45,6 +45,8 @@
         :tabs="tabs"
         :has-changes="hasChanges"
         :canvas-count="canvasStore.groupedItems.length"
+        :is-session-active="isSessionActive"
+        :session-status="activeSessionStatus"
       />
 
       <div class="tab-content">

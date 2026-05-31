@@ -2450,6 +2450,10 @@ describe('SessionDetailView', () => {
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
       expect(treeHandle.props('sessionStatus')).toBe('running');
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(true);
+      expect(tabsPanel.props('sessionStatus')).toBe('running');
     });
 
     it('passes isSessionActive=true to SessionChatHandle when starting', async () => {
@@ -2481,6 +2485,10 @@ describe('SessionDetailView', () => {
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
       expect(treeHandle.props('sessionStatus')).toBe('starting');
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(true);
+      expect(tabsPanel.props('sessionStatus')).toBe('starting');
     });
 
     it('passes isSessionActive=false to SessionChatHandle when completed', async () => {
@@ -2511,6 +2519,9 @@ describe('SessionDetailView', () => {
 
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(false);
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(false);
     });
 
     it('passes isSessionActive=false to SessionChatHandle when waiting', async () => {
@@ -2735,6 +2746,9 @@ describe('SessionDetailView', () => {
 
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(true);
     });
 
     it('passes isSessionActive=true when root is waiting and a child session is starting', async () => {
@@ -2850,6 +2864,9 @@ describe('SessionDetailView', () => {
 
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('sessionStatus')).toBe('running');
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('sessionStatus')).toBe('running');
     });
 
     it('updates isSessionActive reactively when sessionChain changes', async () => {
