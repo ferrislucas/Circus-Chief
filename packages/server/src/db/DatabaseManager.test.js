@@ -3,7 +3,6 @@ import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
 import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
-import { miscMigrations } from './migrations/miscMigrations.js';
 
 describe('DatabaseManager', () => {
   let manager;
@@ -818,10 +817,12 @@ describe('DatabaseManager', () => {
       expect(count).toBe(0);
     });
 
-    it('fresh in-memory DB has zero quick_responses rows', () => {
+    it('fresh in-memory DB does not create the legacy quick_responses table', () => {
       const db = manager.get();
-      const count = db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt;
-      expect(count).toBe(0);
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'quick_responses'"
+      ).get();
+      expect(table).toBeUndefined();
     });
 
     it('all default templates are quick-response-visible in sort order', () => {
@@ -892,40 +893,5 @@ describe('DatabaseManager', () => {
       expect(count).toBe(0);
     });
 
-    it('existing DB with legacy converted templates: migration removes those rows and leaves normal templates', () => {
-      const db = manager.get();
-
-      // Insert a row that looks like a legacy-converted template
-      const now = Date.now();
-      db.prepare(`
-        INSERT INTO session_templates (
-          id, project_id, name, prompt, thinking_enabled, mode,
-          show_in_quick_responses, quick_response_auto_submit,
-          quick_response_sort_order, legacy_quick_response_id,
-          created_at, updated_at
-        ) VALUES (?, NULL, ?, ?, 1, 'yolo', 1, 1, 5, ?, ?, ?)
-      `).run('legacy-row', 'Legacy Item', 'legacy content', 'some-qr-id', now, now);
-
-      // Verify it's there
-      const before = db.prepare(
-        'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-      ).get().cnt;
-      expect(before).toBe(1);
-
-      // Run the cleanup migration again (it's idempotent)
-      const migration = miscMigrations.find(m => m.name === 'session_templates-remove-legacy-quick-response-templates');
-      migration.up(db);
-
-      // Legacy row is gone; normal templates remain
-      const legacy = db.prepare(
-        'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-      ).get().cnt;
-      expect(legacy).toBe(0);
-
-      const normal = db.prepare(
-        'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NULL'
-      ).get().cnt;
-      expect(normal).toBeGreaterThanOrEqual(0); // defaults may or may not be present depending on prior test state
-    });
   });
 });

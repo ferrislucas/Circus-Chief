@@ -1,108 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { miscMigrations, DEFAULT_SESSION_TEMPLATE_PROMPTS } from './miscMigrations.js';
+import { DEFAULT_SESSION_TEMPLATE_PROMPTS } from './miscMigrations.js';
 import { providerMigrations } from './providerMigrations.js';
-import { getDatabase, ProjectRepository } from '../index.js';
+import { getDatabase } from '../index.js';
 import { allMigrations } from './index.js';
 import { OPENAI_MODELS } from '@circuschief/shared';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
-const removeLegacyTemplatesMigration = miscMigrations.find(
-  m => m.name === 'session_templates-remove-legacy-quick-response-templates'
-);
-
-describe('session_templates-remove-legacy-quick-response-templates migration', () => {
-  it('is defined and has an up() function', () => {
-    expect(removeLegacyTemplatesMigration).toBeDefined();
-    expect(typeof removeLegacyTemplatesMigration.up).toBe('function');
-  });
-
-  it('is registered in allMigrations', () => {
-    const names = allMigrations.map(m => m.name);
-    expect(names).toContain('session_templates-remove-legacy-quick-response-templates');
-  });
-
-  it('removes only rows with a non-null legacy_quick_response_id', () => {
-    const db = getDatabase();
-    db.prepare('DELETE FROM session_templates').run();
-
-    const now = Date.now();
-    const projectRepo = new ProjectRepository();
-    const project = projectRepo.create('Migration Test Project', '/tmp/migration-test');
-
-    // Insert a template that simulates a legacy converted row (should be deleted)
-    db.prepare(`
-      INSERT INTO session_templates (
-        id, project_id, name, prompt, thinking_enabled, mode,
-        show_in_quick_responses, quick_response_auto_submit,
-        quick_response_sort_order, legacy_quick_response_id,
-        created_at, updated_at
-      ) VALUES (?, NULL, ?, ?, 1, 'yolo', 1, 1, 0, ?, ?, ?)
-    `).run('legacy-tpl-1', 'Legacy Response', 'legacy content', 'some-legacy-qr-id', now, now);
-
-    // Insert a normal template (should NOT be deleted)
-    db.prepare(`
-      INSERT INTO session_templates (
-        id, project_id, name, prompt, thinking_enabled, mode,
-        show_in_quick_responses, quick_response_auto_submit,
-        quick_response_sort_order, legacy_quick_response_id,
-        created_at, updated_at
-      ) VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
-    `).run('normal-tpl-1', 'Normal Template', 'normal prompt', now, now);
-
-    // Insert a project-scoped normal template (should NOT be deleted)
-    db.prepare(`
-      INSERT INTO session_templates (
-        id, project_id, name, prompt, thinking_enabled, mode,
-        show_in_quick_responses, quick_response_auto_submit,
-        quick_response_sort_order, legacy_quick_response_id,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 1, 'yolo', 1, 1, 0, NULL, ?, ?)
-    `).run('project-tpl-1', project.id, 'Project Template', 'project prompt', now, now);
-
-    // Insert another legacy converted row for a different project (should be deleted)
-    db.prepare(`
-      INSERT INTO session_templates (
-        id, project_id, name, prompt, thinking_enabled, mode,
-        show_in_quick_responses, quick_response_auto_submit,
-        quick_response_sort_order, legacy_quick_response_id,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, 1, 'yolo', 1, 0, 2, ?, ?, ?)
-    `).run('legacy-tpl-2', project.id, 'Project Legacy', 'project legacy content', 'another-legacy-qr-id', now, now);
-
-    removeLegacyTemplatesMigration.up(db);
-
-    const remaining = db.prepare('SELECT id FROM session_templates ORDER BY id').all().map(r => r.id);
-    expect(remaining).toHaveLength(2);
-    expect(remaining).toContain('normal-tpl-1');
-    expect(remaining).toContain('project-tpl-1');
-    expect(remaining).not.toContain('legacy-tpl-1');
-    expect(remaining).not.toContain('legacy-tpl-2');
-  });
-
-  it('is idempotent (safe to run when no legacy rows exist)', () => {
-    const db = getDatabase();
-    // All legacy rows should already be gone after the migration runs on fresh DB.
-    const legacyCount = db.prepare(
-      'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-    ).get().cnt;
-    expect(legacyCount).toBe(0);
-
-    // Running again should not throw or change anything.
-    expect(() => removeLegacyTemplatesMigration.up(db)).not.toThrow();
-
-    expect(db.prepare(
-      'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-    ).get().cnt).toBe(0);
-  });
-
-  it('fresh DB has zero session_templates with legacy_quick_response_id set', () => {
-    const db = getDatabase();
-    const count = db.prepare(
-      'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-    ).get().cnt;
-    expect(count).toBe(0);
-  });
-
+describe('legacy quick-response migrations', () => {
   it('DEFAULT_SESSION_TEMPLATE_PROMPTS is exported from miscMigrations for backward compatibility', () => {
     expect(typeof DEFAULT_SESSION_TEMPLATE_PROMPTS.REVIEW).toBe('string');
     expect(typeof DEFAULT_SESSION_TEMPLATE_PROMPTS.IMPLEMENT).toBe('string');
@@ -122,6 +26,11 @@ describe('session_templates-remove-legacy-quick-response-templates migration', (
   it('session_templates-seed-defaults is not in allMigrations', () => {
     const names = allMigrations.map(m => m.name);
     expect(names).not.toContain('session_templates-seed-defaults');
+  });
+
+  it('session_templates-remove-legacy-quick-response-templates is not in allMigrations', () => {
+    const names = allMigrations.map(m => m.name);
+    expect(names).not.toContain('session_templates-remove-legacy-quick-response-templates');
   });
 });
 

@@ -159,7 +159,7 @@ function compareSeedRows(actualDb, errors) {
   const tables = new Set(actualDb.prepare(
     "SELECT name FROM sqlite_master WHERE type = 'table'"
   ).all().map((row) => row.name));
-  if (!tables.has('providers') || !tables.has('provider_models') || !tables.has('quick_responses') || !tables.has('session_templates')) {
+  if (!tables.has('providers') || !tables.has('provider_models') || !tables.has('session_templates')) {
     errors.push('Required seed tables are missing');
     return;
   }

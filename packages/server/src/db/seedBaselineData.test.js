@@ -87,10 +87,12 @@ describe('seedBaselineData', () => {
     });
   });
 
-  it('does not create default global quick_responses on startup', () => {
+  it('does not create the legacy quick_responses table on startup', () => {
     withDb((db) => {
-      const count = db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt;
-      expect(count).toBe(0);
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'quick_responses'"
+      ).get();
+      expect(table).toBeUndefined();
     });
   });
 

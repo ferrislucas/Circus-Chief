@@ -44,13 +44,6 @@ vi.mock('../stores/providers.js', () => ({
   })),
 }));
 
-// Mock the quick responses store
-vi.mock('../stores/quickResponses.js', () => ({
-  useQuickResponsesStore: vi.fn(() => ({
-    fetchForProject: vi.fn(),
-  })),
-}));
-
 // Mock the templates store
 vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: vi.fn(() => ({
@@ -108,7 +101,6 @@ import { useUiStore } from '../stores/ui.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
 import { useTemplatesStore } from '../stores/templates.js';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 vi.mock('./LiveWorkLogPanel.vue', () => ({
   default: {

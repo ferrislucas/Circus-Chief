@@ -109,18 +109,4 @@ export const miscMigrations = [
       `);
     },
   },
-
-  // --- Remove template rows that were created by the legacy quick-response
-  //     conversion migration. These rows have a non-null legacy_quick_response_id
-  //     and are the root cause of the duplicate quick-response items users see.
-  //     Templates created directly by users (legacy_quick_response_id IS NULL)
-  //     are left untouched.
-  {
-    name: 'session_templates-remove-legacy-quick-response-templates',
-    up(db) {
-      db.prepare(
-        'DELETE FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-      ).run();
-    },
-  },
 ];
