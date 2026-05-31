@@ -1,11 +1,31 @@
 import { Router } from 'express';
-import { messages } from '../database.js';
+import { messages, sessionSummaries } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { requireSession } from '../middleware/sessionLookup.js';
 import { validateDraftSession, startDraft, DraftSessionError } from '../services/draftSessionService.js';
+import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
 
 const router = Router();
+
+function shouldRenderLiquid(value) {
+  return value === true || value === 'true';
+}
+
+async function renderLiquidForSession(content, session) {
+  if (content === undefined) return undefined;
+
+  const parentSummary = sessionSummaries.getBySessionId(session.id);
+  const rootSession = getRootSession(session);
+  const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
+
+  return renderTemplatePrompt(content, {
+    parentSession: session,
+    parentSummary,
+    rootSession,
+    rootSummary,
+  });
+}
 
 // PUT /api/sessions/:id/initial-prompt - Update the initial prompt for a draft session
 router.put('/:id/initial-prompt', requireSession, (req, res) => {
@@ -54,8 +74,12 @@ router.post('/:id/start', requireSession, async (req, res) => {
   }
 
   try {
+    const prompt = shouldRenderLiquid(req.body.renderLiquid)
+      ? await renderLiquidForSession(req.body.prompt, req.session_)
+      : req.body.prompt;
+
     const updatedSession = await startDraft(req.session_, {
-      prompt: req.body.prompt,
+      prompt,
       model: req.body.model,
       providerId: req.body.providerId,
     });

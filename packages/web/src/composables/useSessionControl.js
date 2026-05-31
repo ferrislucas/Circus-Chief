@@ -60,14 +60,19 @@ export function useSessionControl({ getSessionId }) {
    * @param {string} prompt - The prompt to send
    * @param {string} model - The model to use
    * @param {string|null} providerId - The provider to use
+   * @param {Object} options - Additional start options
    */
-  async function handleStart(prompt, model, providerId = undefined) {
+  async function handleStart(prompt, model, providerId = undefined, options = {}) {
     if (restarting.value || !prompt?.trim()) return false;
 
     const sessionId = getSessionId();
     restarting.value = true;
     try {
-      await sessionsStore.startSession(sessionId, prompt, model, providerId);
+      const startArgs = [sessionId, prompt, model, providerId];
+      if (Object.keys(options).length > 0) {
+        startArgs.push(options);
+      }
+      await sessionsStore.startSession(...startArgs);
       // Mark this session as having a recent send so `ConversationTab`'s
       // onMounted restore path (and status watcher) knows not to re-populate
       // the textarea with the just-sent prompt on remount.
@@ -94,9 +99,10 @@ export function useSessionControl({ getSessionId }) {
    * @param {string} message - The message text
    * @param {Array} attachedFiles - File attachments
    * @param {string} selectedModel - The model to use
+   * @param {Object} options - Additional send options
    * @returns {boolean} Whether the send was successful
    */
-  async function handleSend(message, attachedFiles, selectedModel) {
+  async function handleSend(message, attachedFiles, selectedModel, options = {}) {
     if (!message?.trim() || sending.value) return false;
 
     console.log(`[MODEL AUDIT - Frontend] Sending message with model: "${selectedModel}"`);
@@ -108,7 +114,11 @@ export function useSessionControl({ getSessionId }) {
     try {
       await api.updateSessionPendingPrompt(sessionId, null);
       pendingPromptCleared = true;
-      await sessionsStore.sendMessage(sessionId, message, attachedFiles, selectedModel);
+      const sendArgs = [sessionId, message, attachedFiles, selectedModel];
+      if (Object.keys(options).length > 0) {
+        sendArgs.push(options);
+      }
+      await sessionsStore.sendMessage(...sendArgs);
       sessionsStore.markRecentSend?.(sessionId);
 
       return true;
