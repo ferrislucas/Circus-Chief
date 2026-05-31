@@ -30,10 +30,6 @@ CREATE TABLE IF NOT EXISTS session_templates (
   quick_response_auto_submit INTEGER NOT NULL DEFAULT 0,
   quick_response_sort_order INTEGER NOT NULL DEFAULT 0,
   legacy_quick_response_id TEXT UNIQUE,
-  built_in_key TEXT,
-  source TEXT NOT NULL DEFAULT 'user' CHECK(source IN ('user', 'built_in', 'legacy_quick_response')),
-  source_version INTEGER,
-  prompt_fingerprint TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -370,8 +366,6 @@ CREATE INDEX IF NOT EXISTS idx_canvas_session ON canvas_items(session_id);
 CREATE INDEX IF NOT EXISTS idx_canvas_deleted ON canvas_items(deleted_at);
 CREATE INDEX IF NOT EXISTS idx_project_tools ON project_tool_templates(project_id);
 CREATE INDEX IF NOT EXISTS idx_session_templates_project ON session_templates(project_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_session_templates_global_built_in_key ON session_templates(built_in_key) WHERE project_id IS NULL AND built_in_key IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_session_templates_prompt_fingerprint ON session_templates(prompt_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_todos_session ON session_todos(session_id);
 CREATE INDEX IF NOT EXISTS idx_todos_conversation ON session_todos(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_work_logs_session ON work_logs(session_id);

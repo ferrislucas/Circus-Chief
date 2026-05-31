@@ -5,11 +5,6 @@ import { getDatabase, ProjectRepository } from '../index.js';
 import { allMigrations } from './index.js';
 import { OPENAI_MODELS } from '@circuschief/shared';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
-import {
-  BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION,
-  DEFAULT_SESSION_TEMPLATES,
-  promptFingerprint,
-} from '../sessionTemplateCatalog.js';
 
 const removeLegacyTemplatesMigration = miscMigrations.find(
   m => m.name === 'session_templates-remove-legacy-quick-response-templates'
@@ -127,11 +122,6 @@ describe('session_templates-remove-legacy-quick-response-templates migration', (
   it('session_templates-seed-defaults is not in allMigrations', () => {
     const names = allMigrations.map(m => m.name);
     expect(names).not.toContain('session_templates-seed-defaults');
-  });
-
-  it('session_templates-add-global-name-unique-index is not in allMigrations', () => {
-    const names = allMigrations.map(m => m.name);
-    expect(names).not.toContain('session_templates-add-global-name-unique-index');
   });
 });
 
@@ -264,151 +254,6 @@ describe('providers-seed-built-in-openai migration', () => {
 
     expect(openAISeedIdx).toBeGreaterThan(kindIdx);
     expect(openAISeedIdx).toBeGreaterThan(historicalSeedIdx);
-  });
-});
-
-const addBuiltInProvenanceMigration = miscMigrations.find(
-  m => m.name === 'session_templates-add-built-in-provenance'
-);
-const dropGlobalNameUniqueIndexMigration = miscMigrations.find(
-  m => m.name === 'session_templates-drop-global-name-unique-index'
-);
-
-describe('session_templates built-in provenance migrations', () => {
-  it('is defined and has an up() function', () => {
-    expect(addBuiltInProvenanceMigration).toBeDefined();
-    expect(typeof addBuiltInProvenanceMigration.up).toBe('function');
-    expect(dropGlobalNameUniqueIndexMigration).toBeDefined();
-    expect(typeof dropGlobalNameUniqueIndexMigration.up).toBe('function');
-  });
-
-  it('is registered in allMigrations before legacy cleanup and global-name index drop', () => {
-    const names = allMigrations.map(m => m.name);
-    const provenanceIdx = names.indexOf('session_templates-add-built-in-provenance');
-    const removeIdx = names.indexOf('session_templates-remove-legacy-quick-response-templates');
-    const dropIdx = names.indexOf('session_templates-drop-global-name-unique-index');
-    expect(provenanceIdx).toBeGreaterThanOrEqual(0);
-    expect(removeIdx).toBeGreaterThan(provenanceIdx);
-    expect(dropIdx).toBeGreaterThan(removeIdx);
-  });
-
-  it('fresh DB has built-in provenance columns and indexes', () => {
-    const db = getDatabase();
-    const columns = db.prepare('PRAGMA table_info(session_templates)').all().map((col) => col.name);
-    expect(columns).toEqual(expect.arrayContaining([
-      'built_in_key',
-      'source',
-      'source_version',
-      'prompt_fingerprint',
-    ]));
-
-    const indexes = db
-      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='session_templates'")
-      .all()
-      .map((row) => row.name);
-    expect(indexes).toContain('idx_session_templates_global_built_in_key');
-    expect(indexes).toContain('idx_session_templates_prompt_fingerprint');
-    expect(indexes).not.toContain('idx_session_templates_global_name');
-  });
-
-  it('is idempotent across repeated runs', () => {
-    const db = getDatabase();
-    expect(() => addBuiltInProvenanceMigration.up(db)).not.toThrow();
-    expect(() => addBuiltInProvenanceMigration.up(db)).not.toThrow();
-    expect(() => dropGlobalNameUniqueIndexMigration.up(db)).not.toThrow();
-    expect(() => dropGlobalNameUniqueIndexMigration.up(db)).not.toThrow();
-  });
-
-  it('allows global templates with the same display name and different prompts', () => {
-    const db = getDatabase();
-    db.prepare('DELETE FROM session_templates').run();
-
-    db.exec('DROP INDEX IF EXISTS idx_session_templates_global_name');
-
-    const now = Date.now();
-    db.prepare(`
-      INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
-        show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
-        legacy_quick_response_id, created_at, updated_at)
-      VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
-    `).run('same-name-1', 'Same Name', 'prompt one', now, now);
-
-    db.prepare(`
-      INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
-        show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
-        legacy_quick_response_id, created_at, updated_at)
-      VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, ?)
-    `).run('same-name-2', 'Same Name', 'prompt two', now, now);
-
-    const remaining = db.prepare(
-      'SELECT id FROM session_templates WHERE project_id IS NULL AND name = ? ORDER BY id'
-    ).all('Same Name');
-    expect(remaining.map((row) => row.id)).toEqual(['same-name-1', 'same-name-2']);
-  });
-
-  it('raises SQLITE_CONSTRAINT_UNIQUE when inserting duplicate global built-in keys', () => {
-    const db = getDatabase();
-    db.prepare('DELETE FROM session_templates').run();
-
-    const now = Date.now();
-    const template = DEFAULT_SESSION_TEMPLATES[0];
-    db.prepare(`
-      INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
-        show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
-        legacy_quick_response_id, built_in_key, source, source_version, prompt_fingerprint, created_at, updated_at)
-      VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, 'built_in', ?, ?, ?, ?)
-    `).run('unique-test-1', template.name, template.prompt, template.key, BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION, template.promptFingerprint, now, now);
-
-    let caughtError;
-    try {
-      db.prepare(`
-        INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
-          show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
-          legacy_quick_response_id, built_in_key, source, source_version, prompt_fingerprint, created_at, updated_at)
-        VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, 'built_in', ?, ?, ?, ?)
-      `).run('unique-test-2', template.name, 'edited prompt', template.key, BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION, promptFingerprint('edited prompt'), now, now);
-    } catch (err) {
-      caughtError = err;
-    }
-    expect(caughtError).toBeDefined();
-    expect(caughtError.code).toBe('SQLITE_CONSTRAINT_UNIQUE');
-  });
-
-  it('allows project-scoped templates to share a built-in key with a global template', () => {
-    const db = getDatabase();
-    db.prepare('DELETE FROM session_templates').run();
-
-    const projectRepo = new ProjectRepository();
-    const project = projectRepo.create('Unique Index Test Project', '/tmp/unique-index-test');
-
-    const now = Date.now();
-    const template = DEFAULT_SESSION_TEMPLATES[0];
-
-    db.prepare(`
-      INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
-        show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
-        legacy_quick_response_id, built_in_key, source, source_version, prompt_fingerprint, created_at, updated_at)
-      VALUES (?, NULL, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, 'built_in', ?, ?, ?, ?)
-    `).run('scope-global', template.name, template.prompt, template.key, BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION, template.promptFingerprint, now, now);
-
-    expect(() => {
-      db.prepare(`
-        INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
-          show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
-          legacy_quick_response_id, built_in_key, source, source_version, prompt_fingerprint, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, 'built_in', ?, ?, ?, ?)
-      `).run('scope-project', project.id, template.name, template.prompt, template.key, BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION, template.promptFingerprint, now, now);
-    }).not.toThrow();
-
-    // The built-in key uniqueness is scoped to global templates only.
-    expect(() => {
-      db.prepare(`
-        INSERT INTO session_templates (id, project_id, name, prompt, thinking_enabled, mode,
-          show_in_quick_responses, quick_response_auto_submit, quick_response_sort_order,
-          legacy_quick_response_id, built_in_key, source, source_version, prompt_fingerprint, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 1, 'yolo', 0, 0, 0, NULL, ?, 'built_in', ?, ?, ?, ?)
-      `).run('scope-project-2', project.id, template.name, template.prompt, template.key, BUILT_IN_SESSION_TEMPLATE_CATALOG_VERSION, template.promptFingerprint, now, now);
-    }).not.toThrow();
   });
 });
 

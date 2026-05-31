@@ -58,28 +58,6 @@ export const miscMigrations = [
       `);
     },
   },
-  {
-    name: 'session_templates-add-built-in-provenance',
-    up(db) {
-      addColumnIfMissing(db, 'session_templates', 'built_in_key', 'TEXT');
-      addColumnIfMissing(
-        db,
-        'session_templates',
-        'source',
-        "TEXT NOT NULL DEFAULT 'user' CHECK(source IN ('user', 'built_in', 'legacy_quick_response'))"
-      );
-      addColumnIfMissing(db, 'session_templates', 'source_version', 'INTEGER');
-      addColumnIfMissing(db, 'session_templates', 'prompt_fingerprint', 'TEXT');
-      db.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_templates_global_built_in_key
-        ON session_templates(built_in_key)
-        WHERE project_id IS NULL AND built_in_key IS NOT NULL;
-
-        CREATE INDEX IF NOT EXISTS idx_session_templates_prompt_fingerprint
-        ON session_templates(prompt_fingerprint)
-      `);
-    },
-  },
 
   // --- App settings table ---
   {
@@ -143,51 +121,6 @@ export const miscMigrations = [
       db.prepare(
         'DELETE FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
       ).run();
-    },
-  },
-
-  // --- Add a UNIQUE index on (name) for global templates (project_id IS NULL).
-  //     Pre-flight: delete any duplicate global-name rows that would violate the
-  //     new constraint, keeping the row with the smallest created_at (i.e. oldest).
-  //     The index is partial so project-scoped templates can freely share names.
-  {
-    name: 'session_templates-add-global-name-unique-index',
-    up(db) {
-      // Remove duplicates: for each name collision among global templates, keep
-      // the row with the lowest created_at (ties broken by lowest rowid).
-      db.exec(`
-        DELETE FROM session_templates
-        WHERE project_id IS NULL
-          AND id NOT IN (
-            SELECT id
-            FROM session_templates AS outer_t
-            WHERE outer_t.project_id IS NULL
-              AND NOT EXISTS (
-                SELECT 1
-                FROM session_templates AS inner_t
-                WHERE inner_t.project_id IS NULL
-                  AND inner_t.name = outer_t.name
-                  AND (
-                    inner_t.created_at < outer_t.created_at
-                    OR (inner_t.created_at = outer_t.created_at
-                        AND inner_t.rowid < outer_t.rowid)
-                  )
-              )
-          )
-      `);
-
-      // Create the partial unique index (idempotent).
-      db.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_templates_global_name
-        ON session_templates(name)
-        WHERE project_id IS NULL
-      `);
-    },
-  },
-  {
-    name: 'session_templates-drop-global-name-unique-index',
-    up(db) {
-      db.exec('DROP INDEX IF EXISTS idx_session_templates_global_name');
     },
   },
 ];

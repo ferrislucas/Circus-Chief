@@ -197,7 +197,6 @@ export const allMigrations = validateMigrations([
   m.get('session_templates-add-mode'),
   m.get('session_templates-add-effort_level'),
   m.get('session_templates-add-quick-response-fields'),
-  m.get('session_templates-add-built-in-provenance'),
 
   // --- Conversation messages model ---
   c.get('conversation_messages-add-model'),
@@ -247,9 +246,6 @@ export const allMigrations = validateMigrations([
   // --- Remove template rows created by the legacy quick-response conversion.
   //     This fixes the duplicate quick-response items users were seeing.
   m.get('session_templates-remove-legacy-quick-response-templates'),
-
-  // --- Built-in identity is enforced by built_in_key, not display name.
-  m.get('session_templates-drop-global-name-unique-index'),
 
   // --- Update built-in Opus model to 4.7 ---
   pr.get('providers-update-built-in-opus-4-7'),
