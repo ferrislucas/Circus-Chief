@@ -108,13 +108,12 @@ function shouldGenerateSummary(sessionId, force, userInitiated) {
 /**
  * Build an existing-summary view that contains only the current session's own
  * LLM-generated state, excluding deterministic child-report content.
- * @param {string} sessionId
  * @param {Object|null} existingSummary
+ * @param {boolean} hasDescendants - Whether the session has child sessions
  * @returns {Object|null}
  */
-function buildOwnExistingSummary(sessionId, existingSummary) {
+function buildOwnExistingSummary(existingSummary, hasDescendants) {
   if (!existingSummary) return null;
-  const hasDescendants = sessions.getAllDescendantIds(sessionId).length > 0;
   return {
     ...existingSummary,
     fullSummary: existingSummary.ownFullSummary || (hasDescendants ? '' : existingSummary.fullSummary),
@@ -130,12 +129,11 @@ function buildOwnExistingSummary(sessionId, existingSummary) {
 
 /**
  * Fetch conversation context for own-session generation.
- * @param {string} sessionId
  * @param {Object} context
  * @returns {{ prompt: string, childContext: Object }}
  */
-function fetchConversationContext(sessionId, { existingSummary, recentMessages, session, globalSettings }) {
-  const prompt = buildIncrementalPrompt(buildOwnExistingSummary(sessionId, existingSummary), recentMessages, session.status, {
+function fetchConversationContext({ existingSummary, recentMessages, session, globalSettings, hasDescendants }) {
+  const prompt = buildIncrementalPrompt(buildOwnExistingSummary(existingSummary, hasDescendants), recentMessages, session.status, {
     projectTitlePrompt: globalSettings?.sessionTitlePrompt,
     childContext: '',
   });
@@ -268,7 +266,8 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
       return createMinimalSummary(sessionId, session, allMessages);
     }
 
-    const { prompt } = fetchConversationContext(sessionId, { existingSummary, recentMessages, session, globalSettings });
+    const hasDescendants = sessions.getAllDescendantIds(sessionId).length > 0;
+    const { prompt } = fetchConversationContext({ existingSummary, recentMessages, session, globalSettings, hasDescendants });
     const responseText = await callSummaryModel(prompt, recentMessages, session.status, {
       logMeta: { sessionId, callType: 'generateSessionSummary' },
       systemPrompt: SUMMARY_SYSTEM_PROMPT,
@@ -367,7 +366,7 @@ function tryLightweightOutcomeUpdate(sessionId, existingSummary, session) {
   broadcastSummaryUpdate(sessionId, session.projectId, updatedSummary);
 
   if (session.parentSessionId) {
-    _propagateToParent(sessionId).catch(() => {});
+    try { _propagateToParent(sessionId); } catch { /* best-effort */ }
   }
   return true;
 }
@@ -398,21 +397,26 @@ export function onSessionComplete(sessionId) {
  */
 export async function getSummary(sessionId, generateIfMissing = false) {
   let summary = sessionSummaries.getBySessionId(sessionId);
+  let justGenerated = false;
 
   if (!summary && generateIfMissing) {
     const globalSettings = settings.getSummarySettings();
     if (globalSettings?.disableSessionSummaries) return null;
     summary = await generateSummary(sessionId);
+    justGenerated = true;
   }
 
-  if (summary && generateIfMissing && isSummaryStale(sessionId)) {
+  if (summary && !justGenerated && generateIfMissing && isSummaryStale(sessionId)) {
     const globalSettings = settings.getSummarySettings();
     if (!globalSettings?.disableSessionSummaries) {
       summary = await generateSummary(sessionId);
+      justGenerated = true;
     }
   }
 
-  if (summary && isDescendantStateStale(sessionId, summary)) {
+  // Repair stale descendant projections via cheap deterministic merge (no LLM call).
+  // Skip if we just ran generateSummary, which already merges descendants.
+  if (summary && !justGenerated && isDescendantStateStale(sessionId, summary)) {
     summary = buildMergedParentSummary(sessionId);
   }
 
@@ -443,7 +447,7 @@ export function saveManualSummary(sessionId, data) {
  * Delegates to summaryPropagation module (no LLM call, no token cost).
  * @param {string} sessionId
  */
-export async function propagateToParent(sessionId) {
+export function propagateToParent(sessionId) {
   return _propagateToParent(sessionId);
 }
 

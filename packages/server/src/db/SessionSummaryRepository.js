@@ -41,7 +41,7 @@ function parseJsonArray(value, fallback = []) {
 }
 
 function nullable(value) {
-  return value || null;
+  return value ?? null;
 }
 
 function optionalJson(value) {
@@ -94,11 +94,11 @@ export class SessionSummaryRepository extends BaseRepository {
       sessionId: row.session_id,
       shortSummary: row.short_summary,
       fullSummary: row.full_summary,
-      ownShortSummary: row.own_short_summary || null,
-      ownFullSummary: row.own_full_summary || null,
+      ownShortSummary: row.own_short_summary ?? null,
+      ownFullSummary: row.own_full_summary ?? null,
       ownKeyActions: parseJsonArray(row.own_key_actions, null),
       ownFilesModified: parseJsonArray(row.own_files_modified, null),
-      ownOutcome: row.own_outcome || null,
+      ownOutcome: row.own_outcome ?? null,
       keyActions: parseJsonArray(row.key_actions),
       filesModified: parseJsonArray(row.files_modified),
       outcome: row.outcome,
@@ -109,7 +109,7 @@ export class SessionSummaryRepository extends BaseRepository {
       hasMergeConflicts: row.has_merge_conflicts !== null ? Boolean(row.has_merge_conflicts) : null,
       ciStatus: row.ci_status,
       ciFailures: row.ci_failures ? JSON.parse(row.ci_failures) : [],
-      workflowFingerprint: row.workflow_fingerprint || null,
+      workflowFingerprint: row.workflow_fingerprint ?? null,
       generatedAt: row.generated_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

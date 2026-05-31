@@ -14,10 +14,9 @@
  *   is what gets broadcast to clients.
  */
 
-import { sessions, sessionSummaries } from '../database.js';
+import { sessions, sessionSummaries, messages } from '../database.js';
 import { broadcastSummaryUpdate } from './summaryBroadcast.js';
 import { computeWorkflowFingerprint } from './summaryFingerprint.js';
-import { isSummaryStale } from './summaryStaleCheck.js';
 import {
   validateAndRepairWorkflowCoverage,
   buildFallbackSummaryAddition,
@@ -38,14 +37,20 @@ function synthesizeOrchestratorShortSummary(session, descendants) {
 
   if (total === 0) return `${name}: no child sessions`;
 
-  const failed = descendants.filter((d) => {
-    const summary = sessionSummaries.getBySessionId(d.id);
-    return d.status === 'error' || summary?.outcome === 'failed';
-  }).length;
-  const done = descendants.filter((d) => {
-    const summary = sessionSummaries.getBySessionId(d.id);
-    return d.status === 'stopped' && summary?.outcome !== 'failed';
-  }).length;
+  // Batch-fetch all descendant summaries in a single query
+  const descendantSummaries = sessionSummaries.getBySessionIds(descendants.map((d) => d.id));
+  const summaryBySessionId = new Map(descendantSummaries.map((s) => [s.sessionId, s]));
+
+  let failed = 0;
+  let done = 0;
+  for (const d of descendants) {
+    const summary = summaryBySessionId.get(d.id);
+    if (d.status === 'error' || summary?.outcome === 'failed') {
+      failed++;
+    } else if (d.status === 'stopped' && summary?.outcome !== 'failed') {
+      done++;
+    }
+  }
   const inProgress = Math.max(0, total - done - failed);
 
   const parts = [];
@@ -62,29 +67,37 @@ function getOwnSummaryParts(existingSummary) {
     ownFullSummary: existingSummary?.ownFullSummary || null,
     ownKeyActions: Array.isArray(existingSummary?.ownKeyActions)
       ? existingSummary.ownKeyActions
-      : [],
+      : null,
     ownFilesModified: Array.isArray(existingSummary?.ownFilesModified)
       ? existingSummary.ownFilesModified
-      : [],
-    ownOutcome: existingSummary?.ownOutcome || null,
-  };
-}
-
-function getStoredOwnFields(existingSummary) {
-  return {
-    ownKeyActions: Array.isArray(existingSummary?.ownKeyActions) ? existingSummary.ownKeyActions : null,
-    ownFilesModified: Array.isArray(existingSummary?.ownFilesModified) ? existingSummary.ownFilesModified : null,
+      : null,
     ownOutcome: existingSummary?.ownOutcome || null,
   };
 }
 
 function computeFreshWorkflowFingerprint(sessionId, descendants, existingSummary) {
-  const descendantsCurrent = descendants.every((desc) =>
-    sessionSummaries.getBySessionId(desc.id) && !isSummaryStale(desc.id)
-  );
+  // Batch-fetch all descendant summaries to avoid N+1 queries
+  const descendantSummaries = sessionSummaries.getBySessionIds(descendants.map((d) => d.id));
+  const summaryBySessionId = new Map(descendantSummaries.map((s) => [s.sessionId, s]));
+
+  const descendantsCurrent = descendants.every((desc) => {
+    const summary = summaryBySessionId.get(desc.id);
+    if (!summary) return false;
+    // Inline own-message staleness check (avoids re-fetching summary from DB)
+    const descMessages = messages.getBySessionId(desc.id);
+    if (summary.lastSummarizedMessageId) {
+      const lastMsg = descMessages.length > 0 ? descMessages[descMessages.length - 1] : null;
+      if (lastMsg?.id !== summary.lastSummarizedMessageId) return false;
+      if (descMessages.length !== summary.messageCount) return false;
+    } else {
+      if (descMessages.length !== summary.messageCount) return false;
+    }
+    return true;
+  });
+
   return descendantsCurrent
     ? computeWorkflowFingerprint(sessionId)
-    : existingSummary?.workflowFingerprint || null;
+    : existingSummary?.workflowFingerprint ?? null;
 }
 
 /**
@@ -131,11 +144,12 @@ export function buildMergedParentSummary(sessionId) {
 
   // Start from a base that represents the parent's current state.
   // validateAndRepairWorkflowCoverage will merge in all descendants' files/actions/outcome.
+  // Use empty arrays as fallback for merge when own fields are null (legacy rows).
   const baseData = {
     shortSummary,
     fullSummary,
-    keyActions: ownParts.ownKeyActions,
-    filesModified: ownParts.ownFilesModified,
+    keyActions: ownParts.ownKeyActions || [],
+    filesModified: ownParts.ownFilesModified || [],
     outcome: ownParts.ownOutcome,
   };
 
@@ -143,6 +157,7 @@ export function buildMergedParentSummary(sessionId) {
   const merged = validateAndRepairWorkflowCoverage(baseData, descendants);
 
   // Assemble the final summary data, preserving own text and message metadata.
+  // All own_* fields come from ownParts (single source of truth from DB).
   const summaryData = {
     ...merged,
     // Override shortSummary / fullSummary — validateAndRepairWorkflowCoverage does
@@ -152,7 +167,9 @@ export function buildMergedParentSummary(sessionId) {
     fullSummary,
     ownShortSummary: ownParts.ownShortSummary,
     ownFullSummary: ownParts.ownFullSummary,
-    ...getStoredOwnFields(existingSummary),
+    ownKeyActions: ownParts.ownKeyActions,
+    ownFilesModified: ownParts.ownFilesModified,
+    ownOutcome: ownParts.ownOutcome,
     workflowFingerprint: computeFreshWorkflowFingerprint(sessionId, descendants, existingSummary),
     // Preserve the parent's own message metadata so isSummaryStale() can still
     // correctly determine when the parent's own messages have changed.

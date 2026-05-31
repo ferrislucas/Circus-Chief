@@ -32,12 +32,17 @@ function getDescendants(sessionId) {
 }
 
 function getManualWorkflowFingerprint(rootSessionId, descendants, existing) {
-  const descendantsCurrent = descendants.every((desc) =>
-    sessionSummaries.getBySessionId(desc.id) && !isSummaryStale(desc.id)
-  );
+  // Batch-fetch all descendant summaries to avoid N+1 queries
+  const descendantSummaries = sessionSummaries.getBySessionIds(descendants.map((d) => d.id));
+  const summaryBySessionId = new Map(descendantSummaries.map((s) => [s.sessionId, s]));
+
+  const descendantsCurrent = descendants.every((desc) => {
+    const summary = summaryBySessionId.get(desc.id);
+    return summary && !isSummaryStale(desc.id);
+  });
   return descendantsCurrent
     ? computeWorkflowFingerprint(rootSessionId)
-    : existing?.workflowFingerprint || null;
+    : existing?.workflowFingerprint ?? null;
 }
 
 /**

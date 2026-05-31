@@ -21,7 +21,7 @@ import { buildMergedParentSummary } from './summaryMerge.js';
  *
  * @param {string} sessionId - The child session ID that was updated
  */
-export async function propagateToParent(sessionId) {
+export function propagateToParent(sessionId) {
   const globalSettings = settings.getSummarySettings();
   if (globalSettings?.disableSessionSummaries) {
     console.log(`[SummaryService] Session summaries disabled globally, skipping parent propagation for ${sessionId}`);

@@ -8,7 +8,9 @@ import { computeWorkflowFingerprint } from './summaryFingerprint.js';
 
 /**
  * Check if any descendant session has a summary newer than the given timestamp.
- * Used as a fallback for legacy summaries that do not have a workflowFingerprint.
+ * Legacy fallback for summaries without a workflowFingerprint. All new code
+ * paths set workflowFingerprint, so this is only reachable for pre-existing
+ * rows that predate fingerprinting. Can be removed once legacy rows are migrated.
  * @param {string} sessionId
  * @param {number} generatedAt
  * @returns {boolean}
