@@ -42,6 +42,11 @@ describe('SessionTabsPanel', () => {
     });
   }
 
+  function findDesktopChatTab(wrapper) {
+    return wrapper.findAll('.tabs-desktop .tab')
+      .find(tab => tab.attributes('href') === '/sessions/session-1/chat');
+  }
+
   describe('tab rendering', () => {
     it('renders all tab labels', () => {
       const wrapper = mountPanel();
@@ -92,7 +97,7 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel();
       const desktopTabs = wrapper.findAll('.tabs-desktop .tab');
       expect(desktopTabs.length).toBe(6);
-      const chatTab = desktopTabs.find(tab => tab.text() === 'Chat');
+      const chatTab = findDesktopChatTab(wrapper);
       expect(chatTab).toBeDefined();
       expect(chatTab.attributes('href')).toBe('/sessions/session-1/chat');
     });
@@ -129,6 +134,58 @@ describe('SessionTabsPanel', () => {
     it('hides canvas indicator when canvasCount is 0', () => {
       const wrapper = mountPanel({ canvasCount: 0 });
       expect(wrapper.find('.canvas-indicator').exists()).toBe(false);
+    });
+  });
+
+  describe('active chat indicator', () => {
+    it('shows active spinner on the desktop chat tab when session is active', () => {
+      const wrapper = mountPanel({
+        isSessionActive: true,
+        sessionStatus: 'running',
+      });
+
+      const chatTab = findDesktopChatTab(wrapper);
+      expect(chatTab.find('.active-spinner').exists()).toBe(true);
+    });
+
+    it('hides active spinner on the desktop chat tab when session is inactive', () => {
+      const wrapper = mountPanel({
+        isSessionActive: false,
+        sessionStatus: 'running',
+      });
+
+      const chatTab = findDesktopChatTab(wrapper);
+      expect(chatTab.find('.active-spinner').exists()).toBe(false);
+    });
+
+    it('uses starting title when session is starting', () => {
+      const wrapper = mountPanel({
+        isSessionActive: true,
+        sessionStatus: 'starting',
+      });
+
+      const chatTab = findDesktopChatTab(wrapper);
+      expect(chatTab.find('.active-spinner').attributes('title')).toBe('Session starting...');
+    });
+
+    it('uses running title when session is running', () => {
+      const wrapper = mountPanel({
+        isSessionActive: true,
+        sessionStatus: 'running',
+      });
+
+      const chatTab = findDesktopChatTab(wrapper);
+      expect(chatTab.find('.active-spinner').attributes('title')).toBe('Session running...');
+    });
+
+    it('does not render active spinner in mobile dropdown options', () => {
+      const wrapper = mountPanel({
+        isSessionActive: true,
+        sessionStatus: 'running',
+      });
+
+      expect(wrapper.find('.tabs-mobile .active-spinner').exists()).toBe(false);
+      expect(wrapper.findAll('.tab-select option').some(option => option.text() === 'Chat')).toBe(false);
     });
   });
 
