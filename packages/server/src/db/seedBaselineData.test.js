@@ -10,10 +10,7 @@ import {
   BUILT_IN_GOOGLE_MODELS,
   seedBaselineData,
 } from './seedBaselineData.js';
-import {
-  DEFAULT_SESSION_TEMPLATES,
-  DEFAULT_SESSION_TEMPLATE_PROMPTS,
-} from './defaultSessionTemplates.js';
+import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
 
 function withDb(fn) {
@@ -110,66 +107,41 @@ describe('seedBaselineData', () => {
     });
   });
 
-  it('creates workflow templates with show_in_quick_responses = 0 and correct prompts', () => {
+  it('creates no hidden workflow templates on a fresh DB', () => {
     withDb((db) => {
-      const workflowTemplates = DEFAULT_SESSION_TEMPLATES.filter((t) => !t.showInQuickResponses);
-      const rows = db.prepare(
-        'SELECT * FROM session_templates WHERE project_id IS NULL AND show_in_quick_responses = 0 ORDER BY name'
-      ).all();
+      const count = db.prepare(
+        'SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND show_in_quick_responses = 0'
+      ).get().cnt;
 
-      expect(rows).toHaveLength(workflowTemplates.length);
-      for (const expected of workflowTemplates) {
-        const actual = rows.find((r) => r.name === expected.name);
-        expect(actual).toBeDefined();
-        expect(actual.prompt).toBe(expected.prompt);
-        expect(actual.thinking_enabled).toBe(1);
-        expect(actual.mode).toBe('yolo');
-        expect(actual.legacy_quick_response_id).toBeNull();
-      }
+      expect(count).toBe(0);
     });
   });
 
-  it('creates quick-response-backed templates with expected fields and sort order', () => {
+  it('creates all default templates as quick-response-visible with expected fields and sort order', () => {
     withDb((db) => {
       const rows = db.prepare(
-        `SELECT name, prompt, show_in_quick_responses, quick_response_auto_submit,
-                quick_response_sort_order, legacy_quick_response_id
+        `SELECT name, prompt, thinking_enabled, mode, show_in_quick_responses,
+                quick_response_auto_submit, quick_response_sort_order,
+                legacy_quick_response_id
          FROM session_templates
          WHERE project_id IS NULL AND show_in_quick_responses = 1
          ORDER BY quick_response_sort_order`
       ).all();
 
-      expect(rows).toHaveLength(3);
+      expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
 
-      // Put a plan on the canvas — sort_order 0, auto_submit 0
-      expect(rows[0]).toMatchObject({
-        name: 'Put a plan on the canvas',
-        prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.PUT_PLAN,
-        show_in_quick_responses: 1,
-        quick_response_auto_submit: 0,
-        quick_response_sort_order: 0,
-        legacy_quick_response_id: null,
-      });
-
-      // Yes — sort_order 1, auto_submit 1
-      expect(rows[1]).toMatchObject({
-        name: 'Yes',
-        prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.YES,
-        show_in_quick_responses: 1,
-        quick_response_auto_submit: 1,
-        quick_response_sort_order: 1,
-        legacy_quick_response_id: null,
-      });
-
-      // Continue — sort_order 2, auto_submit 1
-      expect(rows[2]).toMatchObject({
-        name: 'Continue',
-        prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.CONTINUE,
-        show_in_quick_responses: 1,
-        quick_response_auto_submit: 1,
-        quick_response_sort_order: 2,
-        legacy_quick_response_id: null,
-      });
+      for (const [index, expected] of DEFAULT_SESSION_TEMPLATES.entries()) {
+        expect(rows[index]).toMatchObject({
+          name: expected.name,
+          prompt: expected.prompt,
+          thinking_enabled: 1,
+          mode: 'yolo',
+          show_in_quick_responses: 1,
+          quick_response_auto_submit: expected.quickResponseAutoSubmit ? 1 : 0,
+          quick_response_sort_order: expected.quickResponseSortOrder,
+          legacy_quick_response_id: null,
+        });
+      }
     });
   });
 

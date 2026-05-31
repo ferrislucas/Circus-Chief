@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
-import { DEFAULT_SESSION_TEMPLATES, DEFAULT_SESSION_TEMPLATE_PROMPTS } from './defaultSessionTemplates.js';
+import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
 import { miscMigrations } from './migrations/miscMigrations.js';
 
 describe('DatabaseManager', () => {
@@ -824,7 +824,7 @@ describe('DatabaseManager', () => {
       expect(count).toBe(0);
     });
 
-    it('visible quick-response templates are exactly Put a plan on the canvas, Yes, and Continue in sort order', () => {
+    it('all default templates are quick-response-visible in sort order', () => {
       const db = manager.get();
       const rows = db.prepare(`
         SELECT name, prompt, quick_response_auto_submit, quick_response_sort_order
@@ -833,21 +833,15 @@ describe('DatabaseManager', () => {
         ORDER BY quick_response_sort_order
       `).all();
 
-      expect(rows).toHaveLength(3);
-      expect(rows[0].name).toBe('Put a plan on the canvas');
-      expect(rows[0].prompt).toBe(DEFAULT_SESSION_TEMPLATE_PROMPTS.PUT_PLAN);
-      expect(rows[0].quick_response_auto_submit).toBe(0);
-      expect(rows[0].quick_response_sort_order).toBe(0);
-
-      expect(rows[1].name).toBe('Yes');
-      expect(rows[1].prompt).toBe(DEFAULT_SESSION_TEMPLATE_PROMPTS.YES);
-      expect(rows[1].quick_response_auto_submit).toBe(1);
-      expect(rows[1].quick_response_sort_order).toBe(1);
-
-      expect(rows[2].name).toBe('Continue');
-      expect(rows[2].prompt).toBe(DEFAULT_SESSION_TEMPLATE_PROMPTS.CONTINUE);
-      expect(rows[2].quick_response_auto_submit).toBe(1);
-      expect(rows[2].quick_response_sort_order).toBe(2);
+      expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
+      for (const [index, expected] of DEFAULT_SESSION_TEMPLATES.entries()) {
+        expect(rows[index].name).toBe(expected.name);
+        expect(rows[index].prompt).toBe(expected.prompt);
+        expect(rows[index].quick_response_auto_submit).toBe(
+          expected.quickResponseAutoSubmit ? 1 : 0
+        );
+        expect(rows[index].quick_response_sort_order).toBe(expected.quickResponseSortOrder);
+      }
     });
 
     it('fresh DB sets the default_session_templates_bootstrapped flag', () => {
