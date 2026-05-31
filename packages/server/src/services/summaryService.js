@@ -117,11 +117,11 @@ function buildOwnExistingSummary(existingSummary) {
     fullSummary: existingSummary.ownFullSummary || existingSummary.fullSummary,
     keyActions: Array.isArray(existingSummary.ownKeyActions)
       ? existingSummary.ownKeyActions
-      : existingSummary.keyActions || [],
+      : [],
     filesModified: Array.isArray(existingSummary.ownFilesModified)
       ? existingSummary.ownFilesModified
-      : existingSummary.filesModified || [],
-    outcome: existingSummary.ownOutcome || existingSummary.outcome || 'ongoing',
+      : [],
+    outcome: existingSummary.ownOutcome || 'ongoing',
   };
 }
 
@@ -442,6 +442,13 @@ export async function getSummary(sessionId, generateIfMissing = false) {
     const globalSettings = settings.getSummarySettings();
     if (globalSettings?.disableSessionSummaries) return null;
     summary = await generateSummary(sessionId);
+  }
+
+  if (summary && generateIfMissing && isSummaryStale(sessionId)) {
+    const globalSettings = settings.getSummarySettings();
+    if (!globalSettings?.disableSessionSummaries) {
+      summary = await generateSummary(sessionId);
+    }
   }
 
   if (summary && isDescendantStateStale(sessionId, summary)) {

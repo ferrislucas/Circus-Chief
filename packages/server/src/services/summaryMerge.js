@@ -14,7 +14,7 @@
  *   is what gets broadcast to clients.
  */
 
-import { sessions, sessionSummaries, settings } from '../database.js';
+import { sessions, sessionSummaries } from '../database.js';
 import { broadcastSummaryUpdate } from './summaryBroadcast.js';
 import { computeWorkflowFingerprint } from './summaryFingerprint.js';
 import {
@@ -76,12 +76,6 @@ function synthesizeOrchestratorShortSummary(session, descendants) {
  * @returns {Object|null} The saved summary record, or null if session not found
  */
 export function buildMergedParentSummary(sessionId) {
-  const globalSettings = settings.getSummarySettings();
-  if (globalSettings?.disableSessionSummaries) {
-    console.log(`[SummaryService] Session summaries disabled globally, skipping merged parent summary for ${sessionId}`);
-    return null;
-  }
-
   const session = sessions.getById(sessionId);
   if (!session) return null;
 
@@ -96,11 +90,11 @@ export function buildMergedParentSummary(sessionId) {
   const ownFullSummary = existingSummary?.ownFullSummary || null;
   const ownKeyActions = Array.isArray(existingSummary?.ownKeyActions)
     ? existingSummary.ownKeyActions
-    : existingSummary?.keyActions || [];
+    : [];
   const ownFilesModified = Array.isArray(existingSummary?.ownFilesModified)
     ? existingSummary.ownFilesModified
-    : existingSummary?.filesModified || [];
-  const ownOutcome = existingSummary?.ownOutcome || existingSummary?.outcome || null;
+    : [];
+  const ownOutcome = existingSummary?.ownOutcome || null;
 
   // Build the child-report section using the established fallback format.
   const childReport = buildFallbackSummaryAddition(descendants);

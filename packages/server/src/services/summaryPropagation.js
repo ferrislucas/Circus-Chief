@@ -5,7 +5,7 @@
  * within ESLint limits.
  */
 
-import { sessions } from '../database.js';
+import { sessions, settings } from '../database.js';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
 import { buildMergedParentSummary } from './summaryMerge.js';
 
@@ -22,6 +22,12 @@ import { buildMergedParentSummary } from './summaryMerge.js';
  * @param {string} sessionId - The child session ID that was updated
  */
 export async function propagateToParent(sessionId) {
+  const globalSettings = settings.getSummarySettings();
+  if (globalSettings?.disableSessionSummaries) {
+    console.log(`[SummaryService] Session summaries disabled globally, skipping parent propagation for ${sessionId}`);
+    return;
+  }
+
   const session = sessions.getById(sessionId);
   if (!session || !session.parentSessionId) return;
 
@@ -67,4 +73,3 @@ export function propagatePrUrlToParent(sessionId, prUrl) {
 
   console.log(`[SummaryService] Propagated PR URL from session ${sessionId} to root ${root.id}: ${prUrl}`);
 }
-
