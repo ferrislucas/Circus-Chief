@@ -31,11 +31,11 @@ import {
 import { extractPrUrlIfNeeded, parsePrUrl, validatePrUrl, enrichPrData } from './prUrlService.js';
 import { getChildSessions, buildChildSessionContext, aggregateFilesModified } from './childSessionContext.js';
 import { broadcastSummaryUpdate, broadcastGeneratingStatus, broadcastSessionUpdate } from './summaryBroadcast.js';
-import { isSummaryStale } from './summaryStaleCheck.js';
+import { isDescendantStateStale, isSummaryStale } from './summaryStaleCheck.js';
 import { computeWorkflowFingerprint, hasSemanticSummaryChanged } from './summaryFingerprint.js';
 import { validateAndRepairWorkflowCoverage } from './summaryWorkflowCoverage.js';
-import { handleWorkflowCoverageRepair } from './summaryCoverageRepair.js';
 import { propagateToParent as _propagateToParent, propagatePrUrlToParent } from './summaryPropagation.js';
+import { buildMergedParentSummary } from './summaryMerge.js';
 
 // Note: prStatusService is imported dynamically in onSessionComplete to avoid circular dependency
 
@@ -105,18 +105,38 @@ function shouldGenerateSummary(sessionId, force, userInitiated) {
 }
 
 /**
- * Fetch conversation context: build child session context and the prompt for Claude.
+ * Build an existing-summary view that contains only the current session's own
+ * LLM-generated state, excluding deterministic child-report content.
+ * @param {Object|null} existingSummary
+ * @returns {Object|null}
+ */
+function buildOwnExistingSummary(existingSummary) {
+  if (!existingSummary) return null;
+  return {
+    ...existingSummary,
+    fullSummary: existingSummary.ownFullSummary || existingSummary.fullSummary,
+    keyActions: Array.isArray(existingSummary.ownKeyActions)
+      ? existingSummary.ownKeyActions
+      : existingSummary.keyActions || [],
+    filesModified: Array.isArray(existingSummary.ownFilesModified)
+      ? existingSummary.ownFilesModified
+      : existingSummary.filesModified || [],
+    outcome: existingSummary.ownOutcome || existingSummary.outcome || 'ongoing',
+  };
+}
+
+/**
+ * Fetch conversation context for own-session generation.
  * @param {string} sessionId
  * @param {Object} context
  * @returns {{ prompt: string, childContext: Object }}
  */
 function fetchConversationContext(sessionId, { existingSummary, recentMessages, session, globalSettings }) {
-  const childContext = buildChildSessionContext(sessionId);
-  const prompt = buildIncrementalPrompt(existingSummary, recentMessages, session.status, {
+  const prompt = buildIncrementalPrompt(buildOwnExistingSummary(existingSummary), recentMessages, session.status, {
     projectTitlePrompt: globalSettings?.sessionTitlePrompt,
-    childContext,
+    childContext: '',
   });
-  return { prompt, childContext };
+  return { prompt, childContext: '' };
 }
 
 /**
@@ -131,6 +151,11 @@ async function saveSummaryResult(sessionId, summaryDataInput, session, allMessag
   const summaryData = { ...summaryDataInput };
   delete summaryData._parseFailed;
   trackMessageMetadata(summaryData, allMessages);
+  summaryData.ownShortSummary = summaryData.shortSummary;
+  summaryData.ownFullSummary = summaryData.fullSummary;
+  summaryData.ownKeyActions = Array.isArray(summaryData.keyActions) ? [...summaryData.keyActions] : [];
+  summaryData.ownFilesModified = Array.isArray(summaryData.filesModified) ? [...summaryData.filesModified] : [];
+  summaryData.ownOutcome = summaryData.outcome || 'ongoing';
 
   const prUrl = summaryData.prUrl || session.prUrl;
   if (prUrl) {
@@ -138,7 +163,10 @@ async function saveSummaryResult(sessionId, summaryDataInput, session, allMessag
     await enrichPrData(summaryData, prUrl, project?.repoUrl, sessionId);
   }
 
-  const summary = sessionSummaries.upsert(sessionId, summaryData);
+  let summary = sessionSummaries.upsert(sessionId, summaryData);
+  if (sessions.getAllDescendantIds(sessionId).length > 0) {
+    summary = buildMergedParentSummary(sessionId);
+  }
   console.log(`[SummaryService] Successfully generated summary for session ${sessionId}`);
   autoPopulateProjectRepoUrl(session, summaryData);
   updateSessionFromSummary(sessionId, session, summaryData);
@@ -212,6 +240,11 @@ function createMinimalSummary(sessionId, session, allMessages) {
     keyActions: [],
     filesModified: [],
     outcome,
+    ownShortSummary: 'Session in progress',
+    ownFullSummary: `Session with ${allMessages.length} message${allMessages.length !== 1 ? 's' : ''}`,
+    ownKeyActions: [],
+    ownFilesModified: [],
+    ownOutcome: outcome,
     messageCount: allMessages.length,
     lastSummarizedMessageId: lastMessage ? lastMessage.id : null,
   };
@@ -221,7 +254,10 @@ function createMinimalSummary(sessionId, session, allMessages) {
     minimalSummary.workflowFingerprint = computeWorkflowFingerprint(sessionId);
   }
 
-  const summary = sessionSummaries.upsert(sessionId, minimalSummary);
+  let summary = sessionSummaries.upsert(sessionId, minimalSummary);
+  if (descendantIds.length > 0) {
+    summary = buildMergedParentSummary(sessionId);
+  }
   broadcastSummaryUpdate(sessionId, session.projectId, summary);
   if (session.projectId) {
     broadcastSessionUpdate(sessionId, session.projectId, sessions.getById(sessionId));
@@ -281,16 +317,6 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     let summaryData = parseSummaryResponse(responseText);
     const retryResult = await retryIfParseFailed(summaryData, retryCount, { sessionId, force, userInitiated });
     if (retryResult.shouldRetry) return retryResult.result;
-
-    // Capture the raw LLM-generated text BEFORE coverage repair modifies fullSummary.
-    // These are stored as ownShortSummary / ownFullSummary so that parent propagation
-    // can reuse them without re-calling the LLM.
-    const ownShortSummary = summaryData.shortSummary;
-    const ownFullSummary = summaryData.fullSummary;
-
-    summaryData = await handleWorkflowCoverageRepair(summaryData, sessionId, { recentMessages, session, globalSettings });
-    summaryData.ownShortSummary = ownShortSummary;
-    summaryData.ownFullSummary = ownFullSummary;
 
     const summary = await saveSummaryResult(sessionId, summaryData, session, allMessages);
     if (session.parentSessionId && hasSemanticSummaryChanged(existingSummary, summary)) _propagateToParent(sessionId);
@@ -367,14 +393,17 @@ function tryLightweightOutcomeUpdate(sessionId, existingSummary, session) {
   const newOutcome = statusToOutcome(session.status);
   if (existingSummary.outcome === newOutcome) return true;
 
-  const updatedData = { ...existingSummary, outcome: newOutcome };
+  const updatedData = { ...existingSummary, outcome: newOutcome, ownOutcome: newOutcome };
   const descendantIds = sessions.getAllDescendantIds(sessionId);
   if (descendantIds.length > 0) {
     updatedData.workflowFingerprint = computeWorkflowFingerprint(sessionId);
   }
 
-  sessionSummaries.upsert(sessionId, updatedData);
-  broadcastSummaryUpdate(sessionId, session.projectId, sessionSummaries.getBySessionId(sessionId));
+  let updatedSummary = sessionSummaries.upsert(sessionId, updatedData);
+  if (descendantIds.length > 0) {
+    updatedSummary = buildMergedParentSummary(sessionId);
+  }
+  broadcastSummaryUpdate(sessionId, session.projectId, updatedSummary);
 
   if (session.parentSessionId) {
     _propagateToParent(sessionId).catch(() => {});
@@ -415,6 +444,10 @@ export async function getSummary(sessionId, generateIfMissing = false) {
     summary = await generateSummary(sessionId);
   }
 
+  if (summary && isDescendantStateStale(sessionId, summary)) {
+    summary = buildMergedParentSummary(sessionId);
+  }
+
   return summary;
 }
 
@@ -437,6 +470,11 @@ export function saveManualSummary(sessionId, data) {
   const rootSessionId = sessions.getRootSessionId(sessionId) || sessionId;
   const existing = sessionSummaries.getBySessionId(rootSessionId);
   const merged = { ...(existing || {}), ...data };
+  if (data.shortSummary !== undefined) merged.ownShortSummary = data.ownShortSummary ?? data.shortSummary;
+  if (data.fullSummary !== undefined) merged.ownFullSummary = data.ownFullSummary ?? data.fullSummary;
+  if (data.keyActions !== undefined) merged.ownKeyActions = data.ownKeyActions ?? data.keyActions;
+  if (data.filesModified !== undefined) merged.ownFilesModified = data.ownFilesModified ?? data.filesModified;
+  if (data.outcome !== undefined) merged.ownOutcome = data.ownOutcome ?? data.outcome;
 
   if (merged.messageCount == null) {
     trackMessageMetadata(merged, messages.getBySessionId(rootSessionId));

@@ -37,11 +37,19 @@ function synthesizeOrchestratorShortSummary(session, descendants) {
 
   if (total === 0) return `${name}: no child sessions`;
 
-  const done = descendants.filter((d) => d.status === 'stopped' || d.status === 'error').length;
-  const inProgress = total - done;
+  const failed = descendants.filter((d) => {
+    const summary = sessionSummaries.getBySessionId(d.id);
+    return d.status === 'error' || summary?.outcome === 'failed';
+  }).length;
+  const done = descendants.filter((d) => {
+    const summary = sessionSummaries.getBySessionId(d.id);
+    return d.status === 'stopped' && summary?.outcome !== 'failed';
+  }).length;
+  const inProgress = Math.max(0, total - done - failed);
 
   const parts = [];
   if (done > 0) parts.push(`${done} completed`);
+  if (failed > 0) parts.push(`${failed} failed`);
   if (inProgress > 0) parts.push(`${inProgress} in progress`);
 
   return `Orchestrating ${total} child session${total !== 1 ? 's' : ''}: ${parts.join(', ')}`;
@@ -86,6 +94,13 @@ export function buildMergedParentSummary(sessionId) {
   // or sessions that haven't been regenerated since the column was added).
   const ownShortSummary = existingSummary?.ownShortSummary || null;
   const ownFullSummary = existingSummary?.ownFullSummary || null;
+  const ownKeyActions = Array.isArray(existingSummary?.ownKeyActions)
+    ? existingSummary.ownKeyActions
+    : existingSummary?.keyActions || [];
+  const ownFilesModified = Array.isArray(existingSummary?.ownFilesModified)
+    ? existingSummary.ownFilesModified
+    : existingSummary?.filesModified || [];
+  const ownOutcome = existingSummary?.ownOutcome || existingSummary?.outcome || null;
 
   // Build the child-report section using the established fallback format.
   const childReport = buildFallbackSummaryAddition(descendants);
@@ -103,9 +118,9 @@ export function buildMergedParentSummary(sessionId) {
   const baseData = {
     shortSummary,
     fullSummary,
-    keyActions: existingSummary?.keyActions || [],
-    filesModified: existingSummary?.filesModified || [],
-    outcome: existingSummary?.outcome || 'ongoing',
+    keyActions: ownKeyActions,
+    filesModified: ownFilesModified,
+    outcome: ownOutcome,
   };
 
   // Merge descendant filesModified, keyActions, and outcome.
@@ -121,6 +136,9 @@ export function buildMergedParentSummary(sessionId) {
     fullSummary,
     ownShortSummary,
     ownFullSummary,
+    ownKeyActions: Array.isArray(existingSummary?.ownKeyActions) ? existingSummary.ownKeyActions : null,
+    ownFilesModified: Array.isArray(existingSummary?.ownFilesModified) ? existingSummary.ownFilesModified : null,
+    ownOutcome: existingSummary?.ownOutcome || null,
     workflowFingerprint: computeWorkflowFingerprint(sessionId),
     // Preserve the parent's own message metadata so isSummaryStale() can still
     // correctly determine when the parent's own messages have changed.

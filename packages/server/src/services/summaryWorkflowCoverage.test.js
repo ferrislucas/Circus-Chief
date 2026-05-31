@@ -165,7 +165,7 @@ describe('summaryWorkflowCoverage', () => {
       expect(reviewedPrCount).toBe(1);
     });
 
-    it('computes aggregate outcome: completed descendant upgrades root ongoing', () => {
+    it('keeps aggregate ongoing when parent-owned work is still ongoing', () => {
       const child = makeChild('Child', {
         shortSummary: 'Child done',
         fullSummary: 'Child full',
@@ -183,10 +183,10 @@ describe('summaryWorkflowCoverage', () => {
       };
 
       const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
-      expect(result.outcome).toBe('completed');
+      expect(result.outcome).toBe('ongoing');
     });
 
-    it('computes aggregate outcome: partial descendant upgrades root ongoing', () => {
+    it('keeps aggregate ongoing when parent is ongoing and descendant is partial', () => {
       const child = makeChild('Child', {
         shortSummary: 'Child partial',
         fullSummary: 'Child full',
@@ -204,10 +204,10 @@ describe('summaryWorkflowCoverage', () => {
       };
 
       const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
-      expect(result.outcome).toBe('partial');
+      expect(result.outcome).toBe('ongoing');
     });
 
-    it('does not downgrade root outcome when root is more final than descendant', () => {
+    it('reports aggregate ongoing when any descendant is ongoing', () => {
       const child = makeChild('Child', {
         shortSummary: 'Child ongoing',
         fullSummary: 'Child full',
@@ -225,7 +225,70 @@ describe('summaryWorkflowCoverage', () => {
       };
 
       const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
+      expect(result.outcome).toBe('ongoing');
+    });
+
+    it('reports completed when parent and descendants are completed', () => {
+      const child = makeChild('Child', {
+        shortSummary: 'Child completed',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+        filesModified: [],
+        keyActions: [],
+      });
+
+      const summaryData = {
+        shortSummary: 'Root completed',
+        fullSummary: 'Root full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'completed',
+      };
+
+      const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
       expect(result.outcome).toBe('completed');
+    });
+
+    it('reports completed when only descendant work exists and all descendants completed', () => {
+      const child = makeChild('Child', {
+        shortSummary: 'Child completed',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+        filesModified: [],
+        keyActions: [],
+      });
+
+      const summaryData = {
+        shortSummary: 'Root orchestrator',
+        fullSummary: 'Root full',
+        keyActions: [],
+        filesModified: [],
+        outcome: null,
+      };
+
+      const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
+      expect(result.outcome).toBe('completed');
+    });
+
+    it('reports failed when any descendant failed', () => {
+      const child = makeChild('Child', {
+        shortSummary: 'Child failed',
+        fullSummary: 'Child full',
+        outcome: 'failed',
+        filesModified: [],
+        keyActions: [],
+      });
+
+      const summaryData = {
+        shortSummary: 'Root completed',
+        fullSummary: 'Root full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'completed',
+      };
+
+      const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
+      expect(result.outcome).toBe('failed');
     });
 
     it('handles descendants with no summaries gracefully', () => {
@@ -271,7 +334,7 @@ describe('summaryWorkflowCoverage', () => {
       expect(summaryData.outcome).toBe('ongoing');
       // Result has the repaired data
       expect(result.filesModified).toContain('child.js');
-      expect(result.outcome).toBe('completed');
+      expect(result.outcome).toBe('ongoing');
     });
   });
 

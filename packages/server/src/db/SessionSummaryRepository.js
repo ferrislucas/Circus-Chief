@@ -10,6 +10,9 @@ const SUMMARY_FIELDS = {
   fullSummary: { column: 'full_summary', transform: (v) => v },
   ownShortSummary: { column: 'own_short_summary', transform: (v) => v },
   ownFullSummary: { column: 'own_full_summary', transform: (v) => v },
+  ownKeyActions: { column: 'own_key_actions', transform: (v) => (v == null ? null : JSON.stringify(v)) },
+  ownFilesModified: { column: 'own_files_modified', transform: (v) => (v == null ? null : JSON.stringify(v)) },
+  ownOutcome: { column: 'own_outcome', transform: (v) => v },
   keyActions: { column: 'key_actions', transform: (v) => JSON.stringify(v) },
   filesModified: { column: 'files_modified', transform: (v) => JSON.stringify(v) },
   outcome: { column: 'outcome', transform: (v) => v },
@@ -31,6 +34,12 @@ function optionalBoolToDb(value) {
   return value ? 1 : 0;
 }
 
+function parseJsonArray(value, fallback = []) {
+  if (value == null) return fallback;
+  const parsed = JSON.parse(value);
+  return Array.isArray(parsed) ? parsed : fallback;
+}
+
 /**
  * Session summary repository class
  */
@@ -47,8 +56,11 @@ export class SessionSummaryRepository extends BaseRepository {
       fullSummary: row.full_summary,
       ownShortSummary: row.own_short_summary || null,
       ownFullSummary: row.own_full_summary || null,
-      keyActions: row.key_actions ? JSON.parse(row.key_actions) : [],
-      filesModified: row.files_modified ? JSON.parse(row.files_modified) : [],
+      ownKeyActions: parseJsonArray(row.own_key_actions, null),
+      ownFilesModified: parseJsonArray(row.own_files_modified, null),
+      ownOutcome: row.own_outcome || null,
+      keyActions: parseJsonArray(row.key_actions),
+      filesModified: parseJsonArray(row.files_modified),
       outcome: row.outcome,
       messageCount: row.message_count,
       lastSummarizedMessageId: row.last_summarized_message_id,
@@ -88,8 +100,8 @@ export class SessionSummaryRepository extends BaseRepository {
     this.db
       .prepare(
         `INSERT INTO session_summaries
-         (id, session_id, short_summary, full_summary, own_short_summary, own_full_summary, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, workflow_fingerprint, generated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, short_summary, full_summary, own_short_summary, own_full_summary, own_key_actions, own_files_modified, own_outcome, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, workflow_fingerprint, generated_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -98,6 +110,9 @@ export class SessionSummaryRepository extends BaseRepository {
         data.fullSummary ?? '',
         data.ownShortSummary || null,
         data.ownFullSummary || null,
+        data.ownKeyActions == null ? null : JSON.stringify(data.ownKeyActions),
+        data.ownFilesModified == null ? null : JSON.stringify(data.ownFilesModified),
+        data.ownOutcome || null,
         data.keyActions ? JSON.stringify(data.keyActions) : null,
         data.filesModified ? JSON.stringify(data.filesModified) : null,
         data.outcome || 'ongoing',
@@ -198,6 +213,11 @@ export class SessionSummaryRepository extends BaseRepository {
       this.create(targetSessionId, {
         shortSummary: summary.shortSummary,
         fullSummary: summary.fullSummary,
+        ownShortSummary: summary.ownShortSummary,
+        ownFullSummary: summary.ownFullSummary,
+        ownKeyActions: summary.ownKeyActions,
+        ownFilesModified: summary.ownFilesModified,
+        ownOutcome: summary.ownOutcome,
         keyActions: summary.keyActions,
         filesModified: summary.filesModified,
         outcome: summary.outcome,

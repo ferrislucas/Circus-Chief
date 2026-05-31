@@ -12,21 +12,6 @@ import { sessionSummaries } from '../database.js';
 /** Maximum key actions to carry up from ALL descendants combined */
 const MAX_DESCENDANT_KEY_ACTIONS = 12;
 
-/** Aggregate outcome priority: higher index = "more final" status */
-const OUTCOME_PRIORITY = ['ongoing', 'partial', 'failed', 'completed'];
-
-/**
- * Get the "higher priority" of two outcome strings.
- * @param {string|null|undefined} a
- * @param {string|null|undefined} b
- * @returns {string}
- */
-function higherOutcome(a, b) {
-  const ai = OUTCOME_PRIORITY.indexOf(a || 'ongoing');
-  const bi = OUTCOME_PRIORITY.indexOf(b || 'ongoing');
-  return ai >= bi ? (a || 'ongoing') : (b || 'ongoing');
-}
-
 /**
  * Collect the summaries of all descendants that have one.
  * @param {Array} descendants - Session objects (each has at least `id` and `name`)
@@ -102,11 +87,20 @@ function mergeDescendantActions(rootActions, pairs) {
  * @returns {string} The highest-priority outcome
  */
 function computeAggregateOutcome(rootOutcome, pairs) {
-  let aggregate = rootOutcome || 'ongoing';
-  for (const { summary } of pairs) {
-    aggregate = higherOutcome(aggregate, summary.outcome);
+  const outcomes = pairs.map(({ summary }) => summary.outcome).filter(Boolean);
+  if (!rootOutcome) {
+    if (outcomes.includes('failed')) return 'failed';
+    if (outcomes.includes('ongoing')) return 'ongoing';
+    if (outcomes.includes('partial')) return 'partial';
+    if (outcomes.includes('completed')) return 'completed';
+    return 'ongoing';
   }
-  return aggregate;
+  if (outcomes.includes('failed')) return 'failed';
+  if (rootOutcome === 'failed') return 'failed';
+  if (rootOutcome === 'ongoing' || outcomes.includes('ongoing')) return 'ongoing';
+  if (rootOutcome === 'partial' || outcomes.includes('partial')) return 'partial';
+  if (rootOutcome === 'completed' || outcomes.includes('completed')) return 'completed';
+  return 'ongoing';
 }
 
 /**

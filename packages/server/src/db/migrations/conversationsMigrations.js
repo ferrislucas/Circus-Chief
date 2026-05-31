@@ -200,4 +200,16 @@ export const conversationsMigrations = [
     name: 'session_summaries-add-own_full_summary',
     up(db) { addColumnIfMissing(db, 'session_summaries', 'own_full_summary', 'TEXT'); },
   },
+  {
+    name: 'session_summaries-add-own_key_actions',
+    up(db) { addColumnIfMissing(db, 'session_summaries', 'own_key_actions', 'TEXT'); },
+  },
+  {
+    name: 'session_summaries-add-own_files_modified',
+    up(db) { addColumnIfMissing(db, 'session_summaries', 'own_files_modified', 'TEXT'); },
+  },
+  {
+    name: 'session_summaries-add-own_outcome',
+    up(db) { addColumnIfMissing(db, 'session_summaries', 'own_outcome', 'TEXT'); },
+  },
 ];
