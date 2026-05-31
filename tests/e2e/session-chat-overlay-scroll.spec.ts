@@ -4,6 +4,7 @@ import {
   seedSession,
   seedChildSession,
   seedConversationHistory,
+  seedUserMessage,
   seedConversationTokens,
   cleanupCreatedResources,
   navigateAndWait,
@@ -61,43 +62,115 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     return overlay;
   }
 
-  test('overlay auto-scrolls to last assistant message on open', async ({ page }) => {
-    const overlay = await openOverlay(page, parentSession.id);
-
-    // Wait for messages to render and auto-scroll to complete
-    await page.waitForTimeout(1000);
-
-    // Verify that the last assistant message is visible near the top of the overlay body.
-    // With initialScrollTarget="latest-agent-turn", the overlay should land on the
-    // agent's most recent turn rather than scrolling all the way to the bottom.
-    const alignment = await page.evaluate(() => {
+  async function getLatestAssistantAlignment(page: any) {
+    return page.evaluate(() => {
       const body = document.querySelector('.overlay-body') as HTMLElement | null;
       if (!body) return null;
+
       const assistantMessages = body.querySelectorAll('[data-testid="message-assistant"]');
       if (assistantMessages.length === 0) return null;
+
       const lastAssistant = assistantMessages[assistantMessages.length - 1] as HTMLElement;
       const bodyRect = body.getBoundingClientRect();
       const msgRect = lastAssistant.getBoundingClientRect();
+      const expectedTop = bodyRect.top + 16;
+
       return {
         bodyTop: bodyRect.top,
         bodyBottom: bodyRect.bottom,
+        expectedTop,
         msgTop: msgRect.top,
         msgBottom: msgRect.bottom,
+        topDelta: msgRect.top - expectedTop,
+        absTopDelta: Math.abs(msgRect.top - expectedTop),
         scrollTop: body.scrollTop,
         scrollHeight: body.scrollHeight,
         clientHeight: body.clientHeight,
       };
     });
+  }
 
+  async function expectLatestAssistantAligned(page: any, tolerancePx = 4) {
+    await expect.poll(async () => {
+      const alignment = await getLatestAssistantAlignment(page);
+      return alignment?.absTopDelta ?? Number.POSITIVE_INFINITY;
+    }, {
+      message: `latest assistant message should align to .overlay-body top + 16px within ${tolerancePx}px`,
+    }).toBeLessThanOrEqual(tolerancePx);
+
+    const alignment = await getLatestAssistantAlignment(page);
     expect(alignment).not.toBeNull();
-    // The last assistant message should be visible within the overlay body viewport
-    expect(alignment!.msgTop).toBeGreaterThanOrEqual(alignment!.bodyTop - 10);
-    expect(alignment!.msgBottom).toBeLessThanOrEqual(alignment!.bodyBottom + 10);
-    // scrollTop should be well above 0 (not stuck at top) but not at the very bottom
-    expect(alignment!.scrollTop).toBeGreaterThan(100);
+    expect(alignment!.msgTop).toBeGreaterThanOrEqual(alignment!.bodyTop);
+    expect(alignment!.msgTop).toBeLessThanOrEqual(alignment!.bodyBottom);
+  }
+
+  async function setOverlayBodyScroll(page: any, position: 'top' | 'bottom') {
+    await page.evaluate((targetPosition) => {
+      const body = document.querySelector('.overlay-body') as HTMLElement | null;
+      if (!body) return;
+      body.scrollTop = targetPosition === 'bottom' ? body.scrollHeight : 0;
+      body.dispatchEvent(new Event('scroll', { bubbles: true }));
+    }, position);
+  }
+
+  for (const viewport of [
+    { label: 'small screen', width: 320, height: 568 },
+    { label: 'tablet screen', width: 768, height: 1024 },
+    { label: 'large screen', width: 1920, height: 800 },
+  ]) {
+    test(`overlay auto-scroll aligns to latest assistant message on open on ${viewport.label}`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await openOverlay(page, parentSession.id);
+
+      await expectLatestAssistantAligned(page);
+
+      const alignment = await getLatestAssistantAlignment(page);
+      expect(alignment!.scrollTop).toBeGreaterThan(100);
+      expect(alignment!.scrollHeight).toBeGreaterThan(alignment!.clientHeight + 100);
+    });
+  }
+
+  test('overlay auto-scroll aligns to latest assistant message when later user content exists on tablet screen', async ({ page }) => {
+    const trailingSession = await seedSession(project.id, {
+      prompt: 'Trailing user content prompt',
+      name: 'Trailing User Content',
+      status: 'waiting',
+    });
+    await waitForSessionToExist(trailingSession.id);
+    seedConversationHistory(trailingSession.id, 30);
+    seedUserMessage(
+      trailingSession.id,
+      'Follow-up draft after the latest assistant response. '.repeat(40)
+    );
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await openOverlay(page, trailingSession.id);
+
+    await expectLatestAssistantAligned(page);
   });
 
-  test('scroll-to-claude button is visible and functional in overlay', async ({ page }) => {
+  test('overlay auto-scroll aligns to final assistant message without composer runway on tablet screen', async ({ page }) => {
+    const activeSessionWithoutComposer = await seedSession(project.id, {
+      prompt: 'Active session prompt',
+      name: 'Active Session Without Composer',
+    });
+    await waitForSessionToExist(activeSessionWithoutComposer.id);
+    seedConversationHistory(activeSessionWithoutComposer.id, 30);
+    await updateSessionStatus(activeSessionWithoutComposer.id, 'starting');
+
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await openOverlay(page, activeSessionWithoutComposer.id);
+
+    await expectLatestAssistantAligned(page);
+
+    const runway = await page.evaluate(() => {
+      const body = document.querySelector('.overlay-body') as HTMLElement | null;
+      return body?.style.getPropertyValue('--session-chat-latest-turn-runway') || '';
+    });
+    expect(runway).toMatch(/px$/);
+  });
+
+  test('scroll-to-claude button aligns to latest assistant turn in overlay', async ({ page }) => {
     // Set session to waiting so the scroll-to-claude button appears
     await updateSessionStatus(parentSession.id, 'waiting');
 
@@ -108,29 +181,73 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     const scrollBtn = overlay.locator('.scroll-to-claude-btn');
     await expect(scrollBtn).toBeVisible({ timeout: 5000 });
 
-    // Click the scroll-to-claude button - it should execute without error
-    // (The button scrolls to the last assistant message. Since we auto-scrolled
-    // to the bottom on open, the position may not change much, but the button
-    // must actually trigger a scroll action on the correct container)
-    await scrollBtn.click();
-    await page.waitForTimeout(500);
+    for (const startPosition of ['top', 'bottom'] as const) {
+      await setOverlayBodyScroll(page, startPosition);
+      await expect(scrollBtn).toBeVisible();
+      await scrollBtn.click();
+      await expectLatestAssistantAligned(page);
+    }
+  });
 
-    // Verify the overlay-body scroll position is meaningful (not stuck at 0)
-    const scrollInfo = await page.evaluate(() => {
-      const body = document.querySelector('.overlay-body');
-      if (!body) return null;
-      return {
-        scrollTop: body.scrollTop,
-        scrollHeight: body.scrollHeight,
-        clientHeight: body.clientHeight,
-      };
+  for (const viewport of [
+    { label: 'small screen', width: 320, height: 568 },
+    { label: 'tablet screen', width: 768, height: 1024 },
+    { label: 'large screen', width: 1920, height: 800 },
+  ]) {
+    test(`scroll-to-claude button aligns to latest assistant turn on ${viewport.label}`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await updateSessionStatus(parentSession.id, 'waiting');
+
+      const overlay = await openOverlay(page, parentSession.id);
+      const scrollBtn = overlay.locator('.scroll-to-claude-btn');
+      await expect(scrollBtn).toBeVisible({ timeout: 5000 });
+      await expect.poll(async () => {
+        const info = await page.evaluate(() => {
+          const body = document.querySelector('.overlay-body') as HTMLElement | null;
+          return body ? { scrollHeight: body.scrollHeight, clientHeight: body.clientHeight } : null;
+        });
+        return info ? info.scrollHeight - info.clientHeight : 0;
+      }).toBeGreaterThan(100);
+
+      for (const startPosition of ['top', 'bottom'] as const) {
+        await setOverlayBodyScroll(page, startPosition);
+        await expect(scrollBtn).toBeVisible();
+        await scrollBtn.click();
+        await expectLatestAssistantAligned(page);
+      }
     });
+  }
 
-    expect(scrollInfo).not.toBeNull();
-    // After scrollToClaudesTurn, scrollTop should be > 0 (not stuck at top)
-    expect(scrollInfo!.scrollTop).toBeGreaterThan(0);
-    // The scroll container should actually be scrollable
-    expect(scrollInfo!.scrollHeight).toBeGreaterThan(scrollInfo!.clientHeight + 100);
+  test('scroll-to-claude button aligns after opening overlay from page top and bottom', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await updateSessionStatus(parentSession.id, 'waiting');
+
+    for (const pageStart of ['top', 'bottom'] as const) {
+      await navigateAndWait(page, `/sessions/${parentSession.id}`, {
+        waitFor: '.session-detail',
+        timeout: 15000,
+      });
+      await page.evaluate((targetPosition) => {
+        window.scrollTo(0, targetPosition === 'bottom' ? document.documentElement.scrollHeight : 0);
+      }, pageStart);
+
+      const handle = page.locator('[data-testid="session-chat-handle"]');
+      await handle.waitFor({ state: 'attached', timeout: 10000 });
+      await handle.click();
+
+      const overlay = page.locator('[data-testid="session-chat-overlay"]');
+      await overlay.waitFor({ state: 'visible', timeout: 5000 });
+      await overlay.locator('.overlay-header').waitFor({ state: 'visible', timeout: 5000 });
+
+      const scrollBtn = overlay.locator('.scroll-to-claude-btn');
+      await expect(scrollBtn).toBeVisible({ timeout: 5000 });
+      await setOverlayBodyScroll(page, 'bottom');
+      await scrollBtn.click();
+      await expectLatestAssistantAligned(page);
+
+      await overlay.locator('[data-testid="session-chat-overlay-close-handle"]').click();
+      await expect(overlay).not.toBeVisible({ timeout: 5000 });
+    }
   });
 
   test('overlay body is scrollable when content exceeds viewport', async ({ page }) => {
