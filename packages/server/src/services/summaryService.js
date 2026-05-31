@@ -116,14 +116,14 @@ function buildOwnExistingSummary(existingSummary, hasDescendants) {
   if (!existingSummary) return null;
   return {
     ...existingSummary,
-    fullSummary: existingSummary.ownFullSummary || (hasDescendants ? '' : existingSummary.fullSummary),
+    fullSummary: existingSummary.ownFullSummary ?? (hasDescendants ? '' : existingSummary.fullSummary),
     keyActions: Array.isArray(existingSummary.ownKeyActions)
       ? existingSummary.ownKeyActions
       : [],
     filesModified: Array.isArray(existingSummary.ownFilesModified)
       ? existingSummary.ownFilesModified
       : [],
-    outcome: existingSummary.ownOutcome || 'ongoing',
+    outcome: existingSummary.ownOutcome ?? 'ongoing',
   };
 }
 
@@ -416,7 +416,9 @@ export async function getSummary(sessionId, generateIfMissing = false) {
 
   // Repair stale descendant projections via cheap deterministic merge (no LLM call).
   // Skip if we just ran generateSummary, which already merges descendants.
-  if (summary && !justGenerated && isDescendantStateStale(sessionId, summary)) {
+  // Only repair when the caller opts in to freshness (generateIfMissing=true) to
+  // prevent write-on-read side-effects for callers that just want to read the summary.
+  if (summary && !justGenerated && generateIfMissing && isDescendantStateStale(sessionId, summary)) {
     summary = buildMergedParentSummary(sessionId);
   }
 

@@ -63,15 +63,15 @@ function synthesizeOrchestratorShortSummary(session, descendants) {
 
 function getOwnSummaryParts(existingSummary) {
   return {
-    ownShortSummary: existingSummary?.ownShortSummary || null,
-    ownFullSummary: existingSummary?.ownFullSummary || null,
+    ownShortSummary: existingSummary?.ownShortSummary ?? null,
+    ownFullSummary: existingSummary?.ownFullSummary ?? null,
     ownKeyActions: Array.isArray(existingSummary?.ownKeyActions)
       ? existingSummary.ownKeyActions
       : null,
     ownFilesModified: Array.isArray(existingSummary?.ownFilesModified)
       ? existingSummary.ownFilesModified
       : null,
-    ownOutcome: existingSummary?.ownOutcome || null,
+    ownOutcome: existingSummary?.ownOutcome ?? null,
   };
 }
 
@@ -127,12 +127,21 @@ export function buildMergedParentSummary(sessionId) {
   const existingSummary = sessionSummaries.getBySessionId(sessionId);
 
   const descendantIds = sessions.getAllDescendantIds(sessionId);
-  const descendants = descendantIds.map((id) => sessions.getById(id)).filter(Boolean);
+  const descendants = sessions.getByIds(descendantIds);
 
   const ownParts = getOwnSummaryParts(existingSummary);
 
+  // Batch-fetch all descendant summaries once to avoid double N+1 queries
+  // (both buildFallbackSummaryAddition and validateAndRepairWorkflowCoverage
+  //  previously each called collectDescendantSummaries() internally).
+  const batchSummaries = sessionSummaries.getBySessionIds(descendantIds);
+  const summaryBySessionId = new Map(batchSummaries.map((s) => [s.sessionId, s]));
+  const descendantPairs = descendants
+    .map((d) => ({ session: d, summary: summaryBySessionId.get(d.id) }))
+    .filter(({ summary }) => summary != null);
+
   // Build the child-report section using the established fallback format.
-  const childReport = buildFallbackSummaryAddition(descendants);
+  const childReport = buildFallbackSummaryAddition(descendants, descendantPairs);
 
   // Compose shortSummary: use own if available, else synthesize.
   const shortSummary = ownParts.ownShortSummary || synthesizeOrchestratorShortSummary(session, descendants);
@@ -154,7 +163,7 @@ export function buildMergedParentSummary(sessionId) {
   };
 
   // Merge descendant filesModified, keyActions, and outcome.
-  const merged = validateAndRepairWorkflowCoverage(baseData, descendants);
+  const merged = validateAndRepairWorkflowCoverage(baseData, descendants, descendantPairs);
 
   // Assemble the final summary data, preserving own text and message metadata.
   // All own_* fields come from ownParts (single source of truth from DB).

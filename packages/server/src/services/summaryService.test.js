@@ -2124,7 +2124,9 @@ describe('summaryService', () => {
       expect(result.sessionId).toBe(sessionId);
     });
 
-    it('getSummary returns and repairs existing stale descendant projection when disabled', async () => {
+    it('getSummary with generateIfMissing=false returns existing summary without repairing stale descendant projection', async () => {
+      // Issue #3 fix: getSummary(sessionId, false) must NOT perform write-on-read repairs
+      // even when the descendant state is stale.
       const child = sessions.create(projectId, 'Disabled read child', 'Child prompt', 'standard');
       sessions.update(child.id, { parentSessionId: sessionId });
       sessionSummaries.create(sessionId, {
@@ -2157,10 +2159,13 @@ describe('summaryService', () => {
       try {
         const result = await summaryService.getSummary(sessionId, false);
 
+        // The summary is returned as-is (no repair side-effect)
         expect(result).not.toBeNull();
-        expect(result.keyActions).toEqual(expect.arrayContaining(['parent action', 'child read action']));
-        expect(result.filesModified).toEqual(expect.arrayContaining(['parent.js', 'child-read.js']));
-        expect(result.workflowFingerprint).not.toBe('stale-fingerprint');
+        // The stale fingerprint must NOT be refreshed — no write happened
+        expect(result.workflowFingerprint).toBe('stale-fingerprint');
+        // Child data is NOT merged in (the read-only path does not repair)
+        expect(result.keyActions).toEqual(['parent action']);
+        expect(result.filesModified).toEqual(['parent.js']);
       } finally {
         settings.setSummarySettings({ disableSessionSummaries: false });
         summaryService.cleanupSession(child.id);
@@ -4023,6 +4028,123 @@ describe('summaryService', () => {
       expect(typeof result.workflowFingerprint).toBe('string');
 
       summaryService.cleanupSession(lowMsgRootId);
+      summaryService.cleanupSession(child.id);
+    });
+  });
+
+  describe('getSummary — write-on-read guard (Issue #3)', () => {
+    it('does not update the DB when generateIfMissing=false and descendant state is stale', async () => {
+      // Set up parent + child with a stale fingerprint
+      const child = sessions.create(projectId, 'Stale child', 'child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+
+      // Build parent summary (captures current fingerprint)
+      const initial = buildMergedParentSummary(sessionId);
+      const initialFingerprint = initial.workflowFingerprint;
+      const initialUpdatedAt = initial.updatedAt;
+
+      // Update child summary after parent was built — this changes the fingerprint
+      const childMsgs = messages.getBySessionId(child.id);
+      sessionSummaries.upsert(child.id, {
+        shortSummary: 'Updated child',
+        fullSummary: 'Updated child full',
+        outcome: 'completed',
+        messageCount: childMsgs.length,
+        lastSummarizedMessageId: childMsgs.at(-1)?.id,
+      });
+
+      // Call getSummary with generateIfMissing=false — must NOT trigger buildMergedParentSummary
+      const result = await summaryService.getSummary(sessionId, false);
+
+      // Summary is returned (not null) but the DB record is NOT updated
+      expect(result).not.toBeNull();
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored.workflowFingerprint).toBe(initialFingerprint);
+      expect(stored.updatedAt).toBe(initialUpdatedAt);
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('updates the DB when generateIfMissing=true and descendant state is stale', async () => {
+      const child = sessions.create(projectId, 'Stale child for repair', 'child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+
+      // Build initial parent summary
+      const initial = buildMergedParentSummary(sessionId);
+      const initialFingerprint = initial.workflowFingerprint;
+
+      // Update child summary to make parent stale
+      const childMsgs = messages.getBySessionId(child.id);
+      sessionSummaries.upsert(child.id, {
+        shortSummary: 'Updated child for repair',
+        fullSummary: 'Updated child full for repair',
+        outcome: 'completed',
+        messageCount: childMsgs.length,
+        lastSummarizedMessageId: childMsgs.at(-1)?.id,
+      });
+
+      // Call getSummary with generateIfMissing=true — MUST trigger buildMergedParentSummary
+      const result = await summaryService.getSummary(sessionId, true);
+
+      expect(result).not.toBeNull();
+      // The fingerprint should now be updated to reflect the new child state
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored.workflowFingerprint).not.toBe(initialFingerprint);
+      expect(stored.fullSummary).toContain('Updated child for repair');
+
+      summaryService.cleanupSession(child.id);
+    });
+  });
+
+  describe('getOwnSummaryParts ?? fix (Issue #4)', () => {
+    it('preserves ownShortSummary empty string rather than converting it to null', () => {
+      const child = sessions.create(projectId, 'Child for ?? fix', 'child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.upsert(child.id, {
+        shortSummary: 'Child done',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+      });
+
+      // Create parent summary with ownShortSummary explicitly set to empty string
+      sessionSummaries.upsert(sessionId, {
+        ownShortSummary: '',
+        ownFullSummary: 'Some own full content',
+        ownOutcome: 'ongoing',
+        ownKeyActions: [],
+        ownFilesModified: [],
+      });
+
+      const result = buildMergedParentSummary(sessionId);
+
+      // With ?? fix: "" is preserved (not coerced to null)
+      expect(result.ownShortSummary).toBe('');
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('preserves ownOutcome empty string rather than converting it to null', () => {
+      const child = sessions.create(projectId, 'Child for ownOutcome ?? fix', 'child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.upsert(child.id, {
+        shortSummary: 'Child done',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+      });
+
+      sessionSummaries.upsert(sessionId, {
+        ownShortSummary: 'Short',
+        ownFullSummary: 'Full',
+        ownOutcome: '',    // explicitly empty string
+        ownKeyActions: [],
+        ownFilesModified: [],
+      });
+
+      const result = buildMergedParentSummary(sessionId);
+
+      // With ?? fix: "" is preserved (not coerced to null)
+      expect(result.ownOutcome).toBe('');
+
       summaryService.cleanupSession(child.id);
     });
   });

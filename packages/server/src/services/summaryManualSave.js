@@ -25,10 +25,7 @@ function getOwnedManualFields(data) {
 }
 
 function getDescendants(sessionId) {
-  return sessions
-    .getAllDescendantIds(sessionId)
-    .map(id => sessions.getById(id))
-    .filter(Boolean);
+  return sessions.getByIds(sessions.getAllDescendantIds(sessionId));
 }
 
 function getManualWorkflowFingerprint(rootSessionId, descendants, existing) {
