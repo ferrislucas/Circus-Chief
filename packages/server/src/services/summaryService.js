@@ -282,10 +282,18 @@ async function _doGenerateSummary(sessionId, retryCount = 0, force = false, user
     const retryResult = await retryIfParseFailed(summaryData, retryCount, { sessionId, force, userInitiated });
     if (retryResult.shouldRetry) return retryResult.result;
 
+    // Capture the raw LLM-generated text BEFORE coverage repair modifies fullSummary.
+    // These are stored as ownShortSummary / ownFullSummary so that parent propagation
+    // can reuse them without re-calling the LLM.
+    const ownShortSummary = summaryData.shortSummary;
+    const ownFullSummary = summaryData.fullSummary;
+
     summaryData = await handleWorkflowCoverageRepair(summaryData, sessionId, { recentMessages, session, globalSettings });
+    summaryData.ownShortSummary = ownShortSummary;
+    summaryData.ownFullSummary = ownFullSummary;
 
     const summary = await saveSummaryResult(sessionId, summaryData, session, allMessages);
-    if (session.parentSessionId && hasSemanticSummaryChanged(existingSummary, summary)) _propagateToParent(sessionId, generateSummary);
+    if (session.parentSessionId && hasSemanticSummaryChanged(existingSummary, summary)) _propagateToParent(sessionId);
     return summary;
   } catch (error) {
     console.error(`[SummaryService] Failed to generate summary for session ${sessionId}:`, {
@@ -369,7 +377,7 @@ function tryLightweightOutcomeUpdate(sessionId, existingSummary, session) {
   broadcastSummaryUpdate(sessionId, session.projectId, sessionSummaries.getBySessionId(sessionId));
 
   if (session.parentSessionId) {
-    _propagateToParent(sessionId, generateSummary).catch(() => {});
+    _propagateToParent(sessionId).catch(() => {});
   }
   return true;
 }
@@ -447,12 +455,12 @@ export function saveManualSummary(sessionId, data) {
 }
 
 /**
- * Propagate summary update to all ancestor sessions.
- * Delegates to summaryPropagation module with generateSummary injected.
+ * Propagate summary update to all ancestor sessions using deterministic merge.
+ * Delegates to summaryPropagation module (no LLM call, no token cost).
  * @param {string} sessionId
  */
 export async function propagateToParent(sessionId) {
-  return _propagateToParent(sessionId, generateSummary);
+  return _propagateToParent(sessionId);
 }
 
 // Re-export isSummaryStale from summaryStaleCheck.js for backward compatibility

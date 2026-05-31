@@ -3503,7 +3503,7 @@ describe('summaryService', () => {
         // No existing summary for child → first creation → propagation must be triggered
         await summaryService.generateSummary(child.id);
 
-        expect(propagateSpy).toHaveBeenCalledWith(child.id, expect.any(Function));
+        expect(propagateSpy).toHaveBeenCalledWith(child.id);
       } finally {
         propagateSpy.mockRestore();
         summaryService.cleanupSession(child.id);
@@ -3532,7 +3532,7 @@ describe('summaryService', () => {
         // Regenerate — new messages + different LLM output → semantic change
         await summaryService.generateSummary(child.id);
 
-        expect(propagateSpy).toHaveBeenCalledWith(child.id, expect.any(Function));
+        expect(propagateSpy).toHaveBeenCalledWith(child.id);
       } finally {
         propagateSpy.mockRestore();
         summaryService.cleanupSession(child.id);

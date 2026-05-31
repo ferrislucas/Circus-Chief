@@ -7,17 +7,21 @@
 
 import { sessions } from '../database.js';
 import { broadcastSessionUpdate } from './summaryBroadcast.js';
+import { buildMergedParentSummary } from './summaryMerge.js';
 
 /**
  * Propagate summary update to all ancestor sessions, in nearest-parent-to-root
- * order. Awaiting each generation ensures that by the time root is regenerated,
- * all intermediate ancestors already have updated summaries that the root can
- * read for its workflow context.
+ * order, using a deterministic merge rather than an LLM call.
+ *
+ * Each ancestor's summary is rebuilt by combining its own LLM-generated text
+ * (stored in `ownShortSummary` / `ownFullSummary`) with the latest child
+ * summaries — zero tokens consumed. Processing bottom-up ensures that by the
+ * time the root is updated, each intermediate ancestor already holds the freshly
+ * merged child data.
  *
  * @param {string} sessionId - The child session ID that was updated
- * @param {Function} generateSummaryFn - The generateSummary function (injected to avoid circular deps)
  */
-export async function propagateToParent(sessionId, generateSummaryFn) {
+export async function propagateToParent(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session || !session.parentSessionId) return;
 
@@ -32,10 +36,10 @@ export async function propagateToParent(sessionId, generateSummaryFn) {
     current = sessions.getById(current.parentSessionId);
   }
 
-  // Generate ancestors in nearest-parent-to-root order (bottom-up) so that
+  // Merge ancestors in nearest-parent-to-root order (bottom-up) so that
   // each level sees the updated summary of the level below it.
   for (const ancestorId of ancestors) {
-    await generateSummaryFn(ancestorId);
+    buildMergedParentSummary(ancestorId);
   }
 }
 

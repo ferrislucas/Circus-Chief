@@ -8,6 +8,8 @@ import { databaseManager } from './DatabaseManager.js';
 const SUMMARY_FIELDS = {
   shortSummary: { column: 'short_summary', transform: (v) => v },
   fullSummary: { column: 'full_summary', transform: (v) => v },
+  ownShortSummary: { column: 'own_short_summary', transform: (v) => v },
+  ownFullSummary: { column: 'own_full_summary', transform: (v) => v },
   keyActions: { column: 'key_actions', transform: (v) => JSON.stringify(v) },
   filesModified: { column: 'files_modified', transform: (v) => JSON.stringify(v) },
   outcome: { column: 'outcome', transform: (v) => v },
@@ -43,6 +45,8 @@ export class SessionSummaryRepository extends BaseRepository {
       sessionId: row.session_id,
       shortSummary: row.short_summary,
       fullSummary: row.full_summary,
+      ownShortSummary: row.own_short_summary || null,
+      ownFullSummary: row.own_full_summary || null,
       keyActions: row.key_actions ? JSON.parse(row.key_actions) : [],
       filesModified: row.files_modified ? JSON.parse(row.files_modified) : [],
       outcome: row.outcome,
@@ -84,14 +88,16 @@ export class SessionSummaryRepository extends BaseRepository {
     this.db
       .prepare(
         `INSERT INTO session_summaries
-         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, workflow_fingerprint, generated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, short_summary, full_summary, own_short_summary, own_full_summary, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, workflow_fingerprint, generated_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
         sessionId,
         data.shortSummary ?? '',
         data.fullSummary ?? '',
+        data.ownShortSummary || null,
+        data.ownFullSummary || null,
         data.keyActions ? JSON.stringify(data.keyActions) : null,
         data.filesModified ? JSON.stringify(data.filesModified) : null,
         data.outcome || 'ongoing',
