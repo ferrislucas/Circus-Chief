@@ -19,6 +19,7 @@ import { test, expect } from '@playwright/test';
 import {
   connectWebSocket,
   subscribeToSession,
+  subscribeToSessionAndVerify,
   unsubscribeFromSession,
   subscribeToProject,
   unsubscribeFromProject,
@@ -73,6 +74,24 @@ test.describe('WebSocket Communication', () => {
   async function connect(): Promise<any> {
     const ws = await connectWebSocket();
     wsConnections.push(ws);
+    return ws;
+  }
+
+  async function connectAfterInitialTurnSettles(sessionId: string): Promise<any> {
+    const ws = await connect();
+    await subscribeToSessionAndVerify(ws, sessionId);
+
+    const changesPromise = waitForWSMessage(
+      ws,
+      'changes:update',
+      45000,
+      (data: any) => data.sessionId === sessionId
+    );
+
+    await waitForStatus(sessionId, 'waiting', 45000);
+    await changesPromise;
+    await getSession(sessionId);
+
     return ws;
   }
 
@@ -1053,13 +1072,9 @@ test.describe('WebSocket Communication', () => {
       test.setTimeout(60000);
       const project = await seedProject('WS MultiTurn User Msg', process.cwd());
       const session = await seedSession(project.id, { prompt: 'First message' });
-      await waitForStatus(session.id, 'waiting', 45000);
+      const ws = await connectAfterInitialTurnSettles(session.id);
 
-      const ws = await connect();
-      subscribeToSession(ws, session.id);
-      await new Promise(r => setTimeout(r, 100));
-
-      const msgPromise = waitForWSMessage(ws, 'session:message', 15000, (d) => {
+      const msgPromise = waitForWSMessage(ws, 'session:message', 45000, (d) => {
         return (d.message?.role === 'user' || d.role === 'user');
       });
 
@@ -1075,11 +1090,7 @@ test.describe('WebSocket Communication', () => {
       test.setTimeout(90000);
       const project = await seedProject('WS MultiTurn Stream', process.cwd());
       const session = await seedSession(project.id, { prompt: 'First turn' });
-      await waitForStatus(session.id, 'waiting', 45000);
-
-      const ws = await connect();
-      subscribeToSession(ws, session.id);
-      await new Promise(r => setTimeout(r, 100));
+      const ws = await connectAfterInitialTurnSettles(session.id);
 
       // Send follow-up and collect messages until session is waiting again
       const messagesPromise = collectWSMessagesUntil(
@@ -1107,11 +1118,7 @@ test.describe('WebSocket Communication', () => {
       test.setTimeout(90000);
       const project = await seedProject('WS MultiTurn Conv Updated', process.cwd());
       const session = await seedSession(project.id, { prompt: 'Hello' });
-      await waitForStatus(session.id, 'waiting', 45000);
-
-      const ws = await connect();
-      subscribeToSession(ws, session.id);
-      await new Promise(r => setTimeout(r, 100));
+      const ws = await connectAfterInitialTurnSettles(session.id);
 
       // Collect all messages until session reaches 'waiting' or 'error' status
       const messagesPromise = collectWSMessagesUntil(
@@ -1125,9 +1132,6 @@ test.describe('WebSocket Communication', () => {
 
       const messages = await messagesPromise;
 
-      // Debug: what messages did we receive?
-      console.log(`[TEST 46] Received ${messages.length} messages`);
-      console.log(`[TEST 46] Message types:`, [...new Set(messages.map((m: any) => m.type))]);
       const errorMessages = messages.filter((m: any) => m.type === 'session:error');
       if (errorMessages.length > 0) {
         console.log(`[TEST 46] Received error:`, errorMessages[0]);
@@ -1135,7 +1139,6 @@ test.describe('WebSocket Communication', () => {
 
       // Check that we received conversation:updated
       const convUpdatedMessages = messages.filter((m: any) => m.type === 'conversation:updated');
-      console.log(`[TEST 46] conversation:updated messages: ${convUpdatedMessages.length}`);
       expect(convUpdatedMessages.length).toBeGreaterThan(0);
 
       const msg = convUpdatedMessages[convUpdatedMessages.length - 1]; // Get the last one
