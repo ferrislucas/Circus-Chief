@@ -518,6 +518,27 @@ describe('AgentCallLogRepository', () => {
       // sessionName comes from the sessions table 'name' column
       expect(result.rows[0]).toHaveProperty('sessionName');
     });
+
+    it('includes root session fields for child session call logs', () => {
+      const now = Date.now();
+      const childSessionId = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, parent_session_id, created_at, updated_at) SELECT ?, project_id, ?, ?, ?, ?, ?, ? FROM sessions WHERE id = ?'
+      ).run(childSessionId, 'Child Session', 'running', 'standard', sessionId, now, now, sessionId);
+
+      repo.create({
+        id: databaseManager.generateId(),
+        sessionId: childSessionId,
+        agentType: 'claude-code',
+        callType: 'runSession',
+        promptLength: 10,
+      });
+
+      const result = repo.getAll({ sessionId: childSessionId });
+      expect(result.rows[0].sessionName).toBe('Child Session');
+      expect(result.rows[0].rootSessionId).toBe(sessionId);
+      expect(result.rows[0].rootSessionName).toBe('Test Session');
+    });
   });
 
   describe('getFilterOptions', () => {
