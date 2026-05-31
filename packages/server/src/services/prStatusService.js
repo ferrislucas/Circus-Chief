@@ -1,7 +1,7 @@
 import { sessions, sessionSummaries } from '../database.js';
-import { webSocketManager, broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { webSocketManager } from '../websocket.js';
 import * as ghService from './ghService.js';
+import { broadcastSummaryUpdate } from './summaryBroadcast.js';
 
 // Default polling interval in milliseconds (1 minute)
 const DEFAULT_POLL_INTERVAL_MS = 60000;
@@ -19,6 +19,14 @@ const POLLABLE_SESSION_STATES = ['running', 'waiting', 'stopped'];
 const RECENT_ACTIVITY_MS = 2 * 60 * 60 * 1000; // 2 hours
 // Maximum age for polling sessions (even with pending CI)
 const MAX_POLL_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// Maximum consecutive fetch failures before a session is temporarily excluded
+// from polling. Resets when a fetch succeeds or the session gains a subscriber.
+const MAX_CONSECUTIVE_FAILURES = 3;
+
+// Tracks consecutive getPrInfo failures per session so we stop hammering
+// a failing endpoint every 60 seconds.  Map<sessionId, number>
+const failureCounts = new Map();
 
 // Polling interval handle
 let pollIntervalId = null;
@@ -48,6 +56,35 @@ export function stop() {
     pollIntervalId = null;
     console.log('[PrStatusService] Stopped PR status polling');
   }
+  failureCounts.clear();
+}
+
+/**
+ * Check if a session should be included in polling
+ * @param {Object} session
+ * @param {Object} summary
+ * @param {number} sessionAge
+ * @param {boolean} hasSubscribers
+ * @returns {boolean}
+ */
+function shouldPollSession(session, summary, sessionAge, hasSubscribers) {
+  // Always poll sessions with active subscribers (and reset failure count)
+  if (hasSubscribers) {
+    failureCounts.delete(session.id);
+    return true;
+  }
+
+  // Skip sessions that have failed too many times in a row
+  if ((failureCounts.get(session.id) || 0) >= MAX_CONSECUTIVE_FAILURES) return false;
+
+  // Skip sessions older than max poll age
+  if (sessionAge > MAX_POLL_AGE_MS) return false;
+
+  // Poll sessions within recent activity window
+  if (sessionAge <= RECENT_ACTIVITY_MS) return true;
+
+  // Poll older sessions if CI is pending or PR status never recorded
+  return summary?.ciStatus === 'pending' || !summary?.prState;
 }
 
 /**
@@ -70,27 +107,11 @@ export function getSessionsToCheck() {
     const summary = sessionSummaries.getBySessionId(session.id);
     if (summary?.prState && FINAL_PR_STATES.includes(summary.prState)) continue;
 
-    // Calculate session age based on updatedAt
+    // Calculate session age and subscriber status
     const sessionAge = now - new Date(session.updatedAt).getTime();
     const hasSubscribers = subscriptions.get(session.id)?.size > 0;
 
-    // Always poll sessions with active subscribers
-    if (hasSubscribers) {
-      result.push({ sessionId: session.id, prUrl: session.prUrl });
-      continue;
-    }
-
-    // Skip sessions older than max poll age
-    if (sessionAge > MAX_POLL_AGE_MS) continue;
-
-    // For sessions within recent activity window, poll without subscribers
-    if (sessionAge <= RECENT_ACTIVITY_MS) {
-      result.push({ sessionId: session.id, prUrl: session.prUrl });
-      continue;
-    }
-
-    // For older sessions without subscribers, only poll if CI is pending
-    if (summary?.ciStatus === 'pending') {
+    if (shouldPollSession(session, summary, sessionAge, hasSubscribers)) {
       result.push({ sessionId: session.id, prUrl: session.prUrl });
     }
   }
@@ -122,6 +143,42 @@ function normalizeBool(value) {
 }
 
 /**
+ * Check if PR info has changed compared to current summary
+ * @param {Object} currentSummary
+ * @param {Object} prInfo
+ * @returns {boolean}
+ */
+function prInfoHasChanged(currentSummary, prInfo) {
+  return (
+    currentSummary?.prState !== prInfo.state ||
+    normalizeBool(currentSummary?.prMerged) !== normalizeBool(prInfo.merged) ||
+    normalizeBool(currentSummary?.hasMergeConflicts) !== normalizeBool(prInfo.hasMergeConflicts) ||
+    currentSummary?.ciStatus !== prInfo.ciStatus ||
+    JSON.stringify(currentSummary?.ciFailures || []) !== JSON.stringify(prInfo.ciFailures || [])
+  );
+}
+
+/**
+ * Update PR status and broadcast changes
+ * @param {string} sessionId
+ * @param {Object} prInfo
+ */
+function updateAndBroadcastPrStatus(sessionId, prInfo) {
+  const updateData = {
+    prState: prInfo.state,
+    prMerged: prInfo.merged,
+    hasMergeConflicts: prInfo.hasMergeConflicts,
+    ciStatus: prInfo.ciStatus,
+    ciFailures: prInfo.ciFailures,
+  };
+
+  const updatedSummary = sessionSummaries.upsert(sessionId, updateData);
+  const session = sessions.getById(sessionId);
+  broadcastSummaryUpdate(sessionId, session?.projectId ?? null, updatedSummary);
+  console.log(`[PrStatusService] Updated PR status for session ${sessionId}: ${prInfo.state}`);
+}
+
+/**
  * Check and update PR status for a single session
  * @param {string} sessionId
  * @param {string} prUrl
@@ -130,48 +187,20 @@ function normalizeBool(value) {
 export async function checkPrStatus(sessionId, prUrl) {
   try {
     const prInfo = await ghService.getPrInfo(prUrl);
-    if (!prInfo) return false;
-
-    const currentSummary = sessionSummaries.getBySessionId(sessionId);
-
-    // Check if anything changed
-    // Note: Use normalizeBool for boolean fields because SQLite stores 0/1 and
-    // the repository maps 0 to null, so we need to treat null/false as equivalent
-    const hasChanged =
-      currentSummary?.prState !== prInfo.state ||
-      normalizeBool(currentSummary?.prMerged) !== normalizeBool(prInfo.merged) ||
-      normalizeBool(currentSummary?.hasMergeConflicts) !== normalizeBool(prInfo.hasMergeConflicts) ||
-      currentSummary?.ciStatus !== prInfo.ciStatus ||
-      JSON.stringify(currentSummary?.ciFailures || []) !== JSON.stringify(prInfo.ciFailures || []);
-
-    if (!hasChanged) return false;
-
-    // Build update data
-    const updateData = {
-      prState: prInfo.state,
-      prMerged: prInfo.merged,
-      hasMergeConflicts: prInfo.hasMergeConflicts,
-      ciStatus: prInfo.ciStatus,
-      ciFailures: prInfo.ciFailures,
-    };
-
-    // Don't create a summary just for PR tracking - only track if summary already exists
-    if (!currentSummary) {
+    if (!prInfo) {
+      failureCounts.set(sessionId, (failureCounts.get(sessionId) || 0) + 1);
       return false;
     }
 
-    // Update database
-    const updatedSummary = sessionSummaries.upsert(sessionId, updateData);
+    failureCounts.delete(sessionId);
+    const currentSummary = sessionSummaries.getBySessionId(sessionId);
 
-    // Broadcast change
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_SUMMARY_UPDATED, {
-      sessionId,
-      summary: updatedSummary,
-    });
+    if (!prInfoHasChanged(currentSummary, prInfo)) return false;
 
-    console.log(`[PrStatusService] Updated PR status for session ${sessionId}: ${prInfo.state}`);
+    updateAndBroadcastPrStatus(sessionId, prInfo);
     return true;
   } catch (error) {
+    failureCounts.set(sessionId, (failureCounts.get(sessionId) || 0) + 1);
     console.error(`[PrStatusService] Error checking PR for session ${sessionId}:`, error.message);
     return false;
   }
@@ -200,5 +229,7 @@ export {
   POLLABLE_SESSION_STATES,
   RECENT_ACTIVITY_MS,
   MAX_POLL_AGE_MS,
+  MAX_CONSECUTIVE_FAILURES,
+  failureCounts,
   pollLoop,
 };
