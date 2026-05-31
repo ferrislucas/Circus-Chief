@@ -360,6 +360,31 @@ describe('Sessions API - pendingModel Field', () => {
       const updated = sessions.getById(session.id);
       expect(updated.pendingModel).toBeNull();
     });
+
+    it('renders Liquid in the draft start prompt when renderLiquid is true', async () => {
+      await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({
+          prompt: 'Review {{ parentSession.name }} from {{ rootSession.name }}',
+          renderLiquid: true,
+        })
+        .expect(200);
+
+      expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
+      expect(vi.mocked(runSession).mock.calls[0][1]).toBe('Review Test Session from Test Session');
+    });
+
+    it('leaves Liquid literal in the draft start prompt when renderLiquid is not set', async () => {
+      const prompt = 'Keep {{ parentSession.name }} literal';
+
+      await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({ prompt })
+        .expect(200);
+
+      expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
+      expect(vi.mocked(runSession).mock.calls[0][1]).toBe(prompt);
+    });
   });
 
   describe('POST /api/sessions/:id/start - cross-kind draft start regression', () => {

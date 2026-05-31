@@ -136,11 +136,11 @@ const sessionSyncActions = {
 const delegatedSessionActions = {
   async stopSession(id) { return useSessionsStore().stopSession(id); },
   async restartSession(id) { return useSessionsStore().restartSession(id); },
-  async startSession(id, prompt = undefined, model = undefined, providerId = undefined) {
-    return useSessionsStore().startSession(id, prompt, model, providerId);
+  async startSession(id, prompt = undefined, model = undefined, providerId = undefined, options = {}) {
+    return useSessionsStore().startSession(id, prompt, model, providerId, options);
   },
-  async sendMessage(sessionId, content, files = [], model = null) {
-    return useSessionsStore().sendMessage(sessionId, content, files, model);
+  async sendMessage(sessionId, content, files = [], model = null, options = {}) {
+    return useSessionsStore().sendMessage(sessionId, content, files, model, options);
   },
 
   async updateSessionModel(sessionId, model, providerId = undefined) {

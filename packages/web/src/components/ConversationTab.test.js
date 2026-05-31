@@ -2628,6 +2628,7 @@ describe('ConversationTab - Quick Response Insertion', () => {
 
     // Verify handleFormSubmit was called — check that sendMessage was invoked
     expect(mockSessionsStore.sendMessage).toHaveBeenCalled();
+    expect(mockSessionsStore.sendMessage.mock.calls[0]?.[4]).toEqual({ renderLiquid: true });
   });
 
   it('non-auto-submit sets input value and does not call sendMessage', async () => {
