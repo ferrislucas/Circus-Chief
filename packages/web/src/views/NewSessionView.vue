@@ -300,7 +300,7 @@ const loading = ref(false);
 const showSlashCommandWizard = ref(false);
 
 // Rec 9: Responsive textarea min height
-const textareaMinHeight = computed(() => window.innerWidth <= 480 ? 80 : 120);
+const textareaMinHeight = computed(() => window.innerWidth <= 640 ? 80 : 120);
 
 // Create keyboard shortcut handler for form submission
 const handleKeydown = useSubmitShortcut(() => {
@@ -550,14 +550,29 @@ h1 {
   margin-bottom: 0.5rem;
 }
 
-@media (max-width: 480px) {
-  h1 {
-    margin-bottom: 0.5rem;
-    font-size: 1.5rem;
+@media (max-width: 640px) {
+  /* Remove container side padding so form goes edge-to-edge */
+  .container {
+    padding: 0;
   }
 
+  /* Collapse card chrome — no border, no radius, reduced padding */
   .form.card {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
     padding: 0.75rem;
+  }
+
+  /* Compact header */
+  h1 {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .back-link {
+    margin-bottom: 0;
+    font-size: 0.8rem;
   }
 }
 
@@ -567,8 +582,8 @@ h1 {
     bottom: 0;
     background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e));
     border-top: 1px solid var(--color-border);
-    padding: 0.75rem 1rem;
-    margin: 0 -1rem -1rem;
+    padding: 0.75rem;
+    margin: 0 -0.75rem -0.75rem;
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
     z-index: 10;
   }

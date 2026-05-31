@@ -243,14 +243,9 @@ export const allMigrations = validateMigrations([
   // --- Sessions default mode / thinking defaults (table recreation) ---
   s.get('sessions-migrate-default-mode-thinking'),
 
-  // --- Seed default global quick responses ---
-  m.get('quick_responses-seed-defaults'),
-
-  // --- Convert legacy quick responses into template-backed quick responses ---
-  m.get('session_templates-convert-quick-responses'),
-
-  // --- Seed default global session templates ---
-  m.get('session_templates-seed-defaults'),
+  // --- Remove template rows created by the legacy quick-response conversion.
+  //     This fixes the duplicate quick-response items users were seeing.
+  m.get('session_templates-remove-legacy-quick-response-templates'),
 
   // --- Update built-in Opus model to 4.7 ---
   pr.get('providers-update-built-in-opus-4-7'),

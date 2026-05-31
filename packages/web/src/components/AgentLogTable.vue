@@ -59,7 +59,7 @@
           <td class="td">
             <router-link
               v-if="log.sessionId"
-              :to="`/sessions/${log.sessionId}`"
+              :to="`/sessions/${log.rootSessionId || log.sessionId}`"
               class="session-link"
             >
               {{ log.sessionName || log.sessionId }}

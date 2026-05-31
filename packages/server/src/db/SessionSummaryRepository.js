@@ -90,8 +90,8 @@ export class SessionSummaryRepository extends BaseRepository {
       .run(
         id,
         sessionId,
-        data.shortSummary,
-        data.fullSummary,
+        data.shortSummary ?? '',
+        data.fullSummary ?? '',
         data.keyActions ? JSON.stringify(data.keyActions) : null,
         data.filesModified ? JSON.stringify(data.filesModified) : null,
         data.outcome || 'ongoing',

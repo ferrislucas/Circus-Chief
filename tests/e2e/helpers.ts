@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test';
+import { expect, Page, Locator } from '@playwright/test';
 import { readFileSync, existsSync, mkdirSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -307,6 +307,57 @@ export async function waitForElement(
     timeout: options.timeout || 10000,
   });
   return element;
+}
+
+export async function expectFullyInViewport(locator: Locator) {
+  await expect(locator).toBeVisible();
+  await locator.scrollIntoViewIfNeeded();
+  const box = await locator.boundingBox();
+  expect(box).not.toBeNull();
+  if (!box) throw new Error('Element has no bounding box');
+
+  const viewport = locator.page().viewportSize();
+  expect(viewport).not.toBeNull();
+  if (!viewport) throw new Error('Page has no viewport size');
+
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+}
+
+export async function expectHitTestable(locator: Locator, options: { requireEnabled?: boolean } = {}) {
+  await expect(locator).toBeVisible();
+  if (options.requireEnabled) {
+    await expect(locator).toBeEnabled();
+  }
+  await locator.scrollIntoViewIfNeeded();
+  await expectFullyInViewport(locator);
+
+  const result = await locator.evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const topElement = document.elementFromPoint(x, y);
+    const target = el as HTMLElement;
+
+    return {
+      isHitTestable: Boolean(topElement && (target === topElement || target.contains(topElement))),
+      topTag: topElement?.tagName ?? null,
+      topClass: topElement instanceof HTMLElement ? topElement.className : null,
+      center: { x, y },
+      rect: {
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      },
+    };
+  });
+
+  expect(result).toMatchObject({ isHitTestable: true });
 }
 
 /**
@@ -2449,6 +2500,46 @@ export function connectWebSocket(): Promise<any> {
 /** Subscribe to a session via WebSocket */
 export function subscribeToSession(ws: any, sessionId: string): void {
   ws.send(JSON.stringify({ type: 'subscribe:session', sessionId }));
+}
+
+/**
+ * Subscribe to a session and verify the subscription is active via an existing
+ * session-scoped broadcast. This avoids fixed sleeps before tests trigger
+ * transient WebSocket events.
+ */
+export async function subscribeToSessionAndVerify(
+  ws: any,
+  sessionId: string,
+  timeout = 5000
+): Promise<void> {
+  const deadline = Date.now() + timeout;
+  const session = await getSession(sessionId);
+  const manuallyNamed = Boolean(session?.manuallyNamed);
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    subscribeToSession(ws, sessionId);
+
+    const markerPromise = waitForWSMessage(
+      ws,
+      'session:updated',
+      Math.min(1000, Math.max(100, deadline - Date.now())),
+      (data: any) => data.sessionId === sessionId || data.session?.id === sessionId
+    );
+
+    await updateSessionFields(sessionId, { manuallyNamed });
+
+    try {
+      await markerPromise;
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`Timeout verifying WS session subscription for ${sessionId}`);
 }
 
 /** Unsubscribe from a session via WebSocket */
