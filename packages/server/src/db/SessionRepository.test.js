@@ -2154,4 +2154,34 @@ describe('SessionRepository', () => {
       expect(touched.updatedAt).toBeLessThanOrEqual(afterTouch);
     });
   });
+
+  describe('getByIds', () => {
+    it('returns an empty array when called with an empty list', () => {
+      const result = repo.getByIds([]);
+      expect(result).toEqual([]);
+    });
+
+    it('returns both sessions when called with two valid IDs', () => {
+      const s1 = repo.create(projectId, 'Session One', 'Prompt one');
+      const s2 = repo.create(projectId, 'Session Two', 'Prompt two');
+
+      const result = repo.getByIds([s1.id, s2.id]);
+
+      expect(result).toHaveLength(2);
+      const ids = result.map(s => s.id);
+      expect(ids).toContain(s1.id);
+      expect(ids).toContain(s2.id);
+    });
+
+    it('omits unknown IDs and returns no nulls', () => {
+      const s1 = repo.create(projectId, 'Real Session', 'Prompt');
+      const fakeId = 'nonexistent-id-xyz';
+
+      const result = repo.getByIds([s1.id, fakeId]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(s1.id);
+      expect(result.every(s => s !== null)).toBe(true);
+    });
+  });
 });

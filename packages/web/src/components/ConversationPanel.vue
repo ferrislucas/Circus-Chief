@@ -4,7 +4,10 @@
     class="conversation-panel"
   >
     <!-- Compact header: conversation selector + new button -->
-    <div v-if="conversations.length > 1 || !hideNewConversation" class="panel-header">
+    <div
+      v-if="conversations.length > 1 || !hideNewConversation"
+      class="panel-header"
+    >
       <div class="header-row">
         <!-- Conversation dropdown -->
         <div

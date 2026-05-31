@@ -269,4 +269,11 @@ export const allMigrations = validateMigrations([
 
   // --- Session summaries workflow fingerprint ---
   c.get('session_summaries-add-workflow_fingerprint'),
+
+  // --- Session summaries own LLM-generated content (incremental merge approach) ---
+  c.get('session_summaries-add-own_short_summary'),
+  c.get('session_summaries-add-own_full_summary'),
+  c.get('session_summaries-add-own_key_actions'),
+  c.get('session_summaries-add-own_files_modified'),
+  c.get('session_summaries-add-own_outcome'),
 ]);
