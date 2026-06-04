@@ -5,7 +5,6 @@ import templatesRouter from './templates.js';
 import canvasRouter from './canvas.js';
 import gitRouter from './git.js';
 import filesystemRouter from './filesystem.js';
-import quickResponsesRouter from './quickResponses.js';
 import settingsRouter from './settings.js';
 import providersRouter from './providers.js';
 import commandsRouter from './commands.js';
@@ -52,8 +51,5 @@ router.use('/projects/:projectId/kanban', kanbanRouter);
 
 // Metrics routes (agent call stats)
 router.use('/', metricsRouter);
-
-// Quick responses routes (nested under both projects and standalone)
-router.use('/', quickResponsesRouter);
 
 export default router;

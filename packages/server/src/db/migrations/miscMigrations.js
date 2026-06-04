@@ -50,12 +50,6 @@ export const miscMigrations = [
       addColumnIfMissing(db, 'session_templates', 'show_in_quick_responses', 'INTEGER NOT NULL DEFAULT 0');
       addColumnIfMissing(db, 'session_templates', 'quick_response_auto_submit', 'INTEGER NOT NULL DEFAULT 0');
       addColumnIfMissing(db, 'session_templates', 'quick_response_sort_order', 'INTEGER NOT NULL DEFAULT 0');
-      addColumnIfMissing(db, 'session_templates', 'legacy_quick_response_id', 'TEXT');
-      db.exec(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_templates_legacy_quick_response_id
-        ON session_templates(legacy_quick_response_id)
-        WHERE legacy_quick_response_id IS NOT NULL
-      `);
     },
   },
 
@@ -107,20 +101,6 @@ export const miscMigrations = [
         CREATE INDEX IF NOT EXISTS idx_agent_call_logs_status ON agent_call_logs(status);
         CREATE INDEX IF NOT EXISTS idx_agent_call_logs_model ON agent_call_logs(model);
       `);
-    },
-  },
-
-  // --- Remove template rows that were created by the legacy quick-response
-  //     conversion migration. These rows have a non-null legacy_quick_response_id
-  //     and are the root cause of the duplicate quick-response items users see.
-  //     Templates created directly by users (legacy_quick_response_id IS NULL)
-  //     are left untouched.
-  {
-    name: 'session_templates-remove-legacy-quick-response-templates',
-    up(db) {
-      db.prepare(
-        'DELETE FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-      ).run();
     },
   },
 ];

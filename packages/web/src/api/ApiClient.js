@@ -8,7 +8,6 @@ import {
   SettingsApi,
   ConversationsApi,
   TemplatesApi,
-  QuickResponsesApi,
   MiscApi,
   KanbanApi,
 } from './resources/index.js';
@@ -171,7 +170,6 @@ CommandButtonsApi(ApiClient);
 SettingsApi(ApiClient);
 ConversationsApi(ApiClient);
 TemplatesApi(ApiClient);
-QuickResponsesApi(ApiClient);
 MiscApi(ApiClient);
 KanbanApi(ApiClient);
 

@@ -78,13 +78,6 @@ vi.mock('../stores/providers.js', () => ({
   })),
 }));
 
-// Mock the quick responses store
-vi.mock('../stores/quickResponses.js', () => ({
-  useQuickResponsesStore: vi.fn(() => ({
-    fetchForProject: vi.fn(),
-  })),
-}));
-
 // Mock the templates store
 vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: vi.fn(() => ({
