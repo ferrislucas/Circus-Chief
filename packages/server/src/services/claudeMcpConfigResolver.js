@@ -72,7 +72,7 @@ function mergeServers({ target, servers, source, diagnostics }) {
       diagnostics.skipped.push({ name, source, reason: 'unsupported-or-malformed-server' });
       continue;
     }
-    target[name] = normalized.server;
+    Object.assign(target, { [name]: normalized.server });
     diagnostics.included.push({ name, source, transport: normalized.transport });
   }
 }
@@ -95,7 +95,7 @@ function mergeProjectMcpServers({ target, servers, approval, diagnostics }) {
       diagnostics.skipped.push({ name, source: 'project', reason: 'unsupported-or-malformed-server' });
       continue;
     }
-    target[name] = normalized.server;
+    Object.assign(target, { [name]: normalized.server });
     diagnostics.included.push({ name, source: 'project', transport: normalized.transport });
   }
 }
@@ -103,35 +103,40 @@ function mergeProjectMcpServers({ target, servers, approval, diagnostics }) {
 function normalizeServerConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) return null;
 
-  if (config.type === 'sse' || config.type === 'http') {
-    if (typeof config.url !== 'string' || config.url.length === 0) return null;
-    if (config.headers !== undefined && !isPlainObject(config.headers)) return null;
-    return {
-      transport: config.type,
-      server: {
-        type: config.type,
-        url: config.url,
-        ...(config.headers !== undefined ? { headers: config.headers } : {}),
-      },
-    };
-  }
-
-  if (config.type === undefined || config.type === 'stdio') {
-    if (typeof config.command !== 'string' || config.command.length === 0) return null;
-    if (config.args !== undefined && !Array.isArray(config.args)) return null;
-    if (config.env !== undefined && !isPlainObject(config.env)) return null;
-    return {
-      transport: 'stdio',
-      server: {
-        ...(config.type === 'stdio' ? { type: 'stdio' } : {}),
-        command: config.command,
-        ...(config.args !== undefined ? { args: config.args } : {}),
-        ...(config.env !== undefined ? { env: config.env } : {}),
-      },
-    };
-  }
+  if (config.type === 'sse' || config.type === 'http') return normalizeRemoteServerConfig(config);
+  if (config.type === undefined || config.type === 'stdio') return normalizeStdioServerConfig(config);
 
   return null;
+}
+
+function normalizeRemoteServerConfig(config) {
+  if (typeof config.url !== 'string' || config.url.length === 0) return null;
+  if (config.headers !== undefined && !isPlainObject(config.headers)) return null;
+
+  return {
+    transport: config.type,
+    server: {
+      type: config.type,
+      url: config.url,
+      ...(config.headers !== undefined ? { headers: config.headers } : {}),
+    },
+  };
+}
+
+function normalizeStdioServerConfig(config) {
+  if (typeof config.command !== 'string' || config.command.length === 0) return null;
+  if (config.args !== undefined && !Array.isArray(config.args)) return null;
+  if (config.env !== undefined && !isPlainObject(config.env)) return null;
+
+  return {
+    transport: 'stdio',
+    server: {
+      ...(config.type === 'stdio' ? { type: 'stdio' } : {}),
+      command: config.command,
+      ...(config.args !== undefined ? { args: config.args } : {}),
+      ...(config.env !== undefined ? { env: config.env } : {}),
+    },
+  };
 }
 
 function getProjectMcpApproval({ projectEntry, workingDirectory, fs }) {
@@ -174,13 +179,14 @@ function findClaudeProjectMatch({ workingDirectory, projects, fs }) {
 
 function findGitRoot(startDirectory, fs) {
   let current = path.resolve(startDirectory);
-  while (true) {
+  while (current) {
     const gitPath = path.join(current, '.git');
     if (pathExists(gitPath, fs)) return current;
     const parent = path.dirname(current);
     if (parent === current) return null;
     current = parent;
   }
+  return null;
 }
 
 function readJsonFile(filePath, fs) {

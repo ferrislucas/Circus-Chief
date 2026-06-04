@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
-import { join } from 'path';
+import { dirname, isAbsolute, join } from 'path';
 import { tmpdir } from 'os';
-import path from 'path';
 import { getNodeBinDir, createRobustEnv, createClaudeCodeSpawner } from './nodeSpawnHelper.js';
 
 describe('nodeSpawnHelper', () => {
@@ -34,12 +33,12 @@ describe('nodeSpawnHelper', () => {
       expect(typeof nodeBinDir).toBe('string');
 
       // Should be the parent directory of process.execPath
-      expect(nodeBinDir).toBe(path.dirname(process.execPath));
+      expect(nodeBinDir).toBe(dirname(process.execPath));
     });
 
     it('returns absolute path', () => {
       const nodeBinDir = getNodeBinDir();
-      expect(path.isAbsolute(nodeBinDir)).toBe(true);
+      expect(isAbsolute(nodeBinDir)).toBe(true);
     });
   });
 
