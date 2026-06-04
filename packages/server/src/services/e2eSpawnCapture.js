@@ -13,7 +13,7 @@ export function captureSpawnAttempt(agentType, spawnOptions) {
   const record = {
     agentType,
     command: spawnOptions.command,
-    args: spawnOptions.args || [],
+    args: sanitizeSpawnArgs(agentType, spawnOptions.args || []),
     cwd: spawnOptions.cwd || null,
     env: summarizeSpawnEnv(spawnOptions.env),
     options: summarizeSpawnOptions(agentType, spawnOptions),
@@ -61,6 +61,17 @@ export function createCapturedSpawnProcess(agentType) {
   return processStub;
 }
 
+function sanitizeSpawnArgs(agentType, args) {
+  if (agentType !== 'claude-code') return args;
+  const sanitized = [...args];
+  for (let index = 0; index < sanitized.length; index += 1) {
+    if (sanitized[index] === '--mcp-config' && sanitized[index + 1] !== undefined) {
+      sanitized[index + 1] = '[redacted]';
+    }
+  }
+  return sanitized;
+}
+
 function summarizeSpawnEnv(env = {}) {
   const summary = {};
   if (Object.prototype.hasOwnProperty.call(env, 'CIRCUSCHIEF_COMMIT_ATTRIBUTION')) {
@@ -81,6 +92,7 @@ function summarizeSpawnOptions(agentType, spawnOptions) {
       settings: valueAfter(args, '--settings'),
       permissionMode: valueAfter(args, '--permission-mode'),
       settingSources: valueAfter(args, '--setting-sources'),
+      mcpServers: summarizeMcpConfig(valueAfter(args, '--mcp-config')),
     };
   }
 
@@ -122,6 +134,28 @@ function valuesAfter(args, flag) {
     }
   }
   return values;
+}
+
+function summarizeMcpConfig(rawConfig) {
+  if (!rawConfig) return [];
+  try {
+    const parsed = JSON.parse(rawConfig);
+    const servers = parsed?.mcpServers;
+    if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return [];
+    return Object.entries(servers).map(([name, config]) => ({
+      name,
+      transport: summarizeMcpTransport(config),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function summarizeMcpTransport(config) {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return 'unknown';
+  if (config.type === 'sse' || config.type === 'http') return config.type;
+  if (config.type === 'stdio' || config.type === undefined) return 'stdio';
+  return String(config.type);
 }
 
 function writeCapturedAgentEvents(agentType, stdout) {
