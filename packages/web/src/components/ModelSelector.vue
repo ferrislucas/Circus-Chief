@@ -122,7 +122,7 @@ function agentLabelFor(provider) {
 //   3) Alphabetical by name among custom providers
 const AGENT_SORT_ORDER = { 'claude-code': 0, 'gemini': 1, 'codex': 2 };
 const sortedProviders = computed(() => {
-  const list = [...providersStore.providers];
+  const list = [...providersStore.providers].filter((p) => p.enabled !== false);
   list.sort((a, b) => {
     const aType = agentTypeFor(a);
     const bType = agentTypeFor(b);
@@ -177,7 +177,7 @@ function withCustomModelsHidden(provider, customModelIds) {
 //     selecting a Codex model (Codex has no "default" concept in the UI yet).
 const defaultModel = computed(() => {
   const anthropicProviders = providersStore.providers.filter(
-    (p) => agentTypeFor(p) === 'claude-code'
+    (p) => agentTypeFor(p) === 'claude-code' && p.enabled !== false
   );
   if (anthropicProviders.length === 0) {
     return null;
