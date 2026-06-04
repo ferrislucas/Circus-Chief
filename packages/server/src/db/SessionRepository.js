@@ -87,6 +87,16 @@ export class SessionRepository extends BaseRepository {
     return this.map(row);
   }
 
+  /** Batch-fetch multiple sessions by their IDs in a single query. Unknown IDs are silently omitted. */
+  getByIds(ids) {
+    if (!ids || ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(`SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE s.id IN (${placeholders})`)
+      .all(...ids);
+    return this.mapAll(rows);
+  }
+
   /** Create a new session with optional config (mode, thinkingEnabled, gitBranch, parentSessionId, status, model, providerId, effortLevel, agentType) */
   create(projectId, name, prompt, options = {}) {
     const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));

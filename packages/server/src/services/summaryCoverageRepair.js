@@ -57,8 +57,7 @@ async function retryWithOmissionCorrections(summaryData, omissions, params) {
  * @returns {Promise<Object>} The repaired summary data
  */
 export async function handleWorkflowCoverageRepair(summaryDataInput, sessionId, retryParams) {
-  const descendantIds = sessions.getAllDescendantIds(sessionId);
-  const descendants = descendantIds.map(id => sessions.getById(id)).filter(Boolean);
+  const descendants = sessions.getByIds(sessions.getAllDescendantIds(sessionId));
   if (descendants.length === 0) return summaryDataInput;
 
   // Apply repair: merge descendant files/actions, upgrade outcome
