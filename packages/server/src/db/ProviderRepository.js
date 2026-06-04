@@ -21,7 +21,7 @@ export const AGENT_TYPE_BY_KIND = Object.freeze({
   google: 'gemini',
 });
 
-const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride']);
+const BUILT_IN_MUTABLE_FIELDS = Object.freeze(['commitAttributionOverride', 'enabled']);
 
 const UPDATE_COLUMN_BUILDERS = Object.freeze({
   name: (value) => ['name = ?', value],
@@ -36,6 +36,7 @@ const UPDATE_COLUMN_BUILDERS = Object.freeze({
     'commit_attribution_override = ?',
     normalizeCommitAttributionOverride(value),
   ],
+  enabled: (value) => ['enabled = ?', value ? 1 : 0],
 });
 
 function validateBuiltInUpdate(provider, data) {
@@ -46,7 +47,7 @@ function validateBuiltInUpdate(provider, data) {
   );
   if (unsupportedFields.length > 0) {
     throw new Error(
-      `Built-in providers can only update commitAttributionOverride. Rejected fields: ${unsupportedFields.join(', ')}.`
+      `Built-in providers can only update: ${BUILT_IN_MUTABLE_FIELDS.join(', ')}. Rejected fields: ${unsupportedFields.join(', ')}.`
     );
   }
 }
@@ -98,6 +99,7 @@ export class ProviderRepository extends BaseRepository {
       additionalEnvVars: row.additional_env_vars ? JSON.parse(row.additional_env_vars) : null,
       commitAttributionOverride: row.commit_attribution_override ?? null,
       isBuiltIn: row.is_built_in === 1,
+      enabled: row.enabled === 1,
       kind: row.kind || 'anthropic',
       createdAt: row.created_at,
       updatedAt: row.updated_at,

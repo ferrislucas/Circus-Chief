@@ -273,4 +273,8 @@ export const allMigrations = validateMigrations([
 
   // --- Session summaries workflow fingerprint ---
   c.get('session_summaries-add-workflow_fingerprint'),
+
+  // --- Providers enable/disable flag (appended last to keep column order
+  //     stable relative to the providers-widen-kind-check-google table swap) ---
+  pr.get('providers-add-enabled'),
 ]);
