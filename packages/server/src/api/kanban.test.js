@@ -14,10 +14,14 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
-// Mock kanbanService before importing the router
-vi.mock('../services/kanbanService.js', () => ({
-  moveCard: vi.fn(),
-}));
+// Mock card moves while keeping card creation behavior real.
+vi.mock('../services/kanbanService.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    moveCard: vi.fn(),
+  };
+});
 
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
