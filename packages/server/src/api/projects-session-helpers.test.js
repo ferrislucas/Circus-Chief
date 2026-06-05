@@ -771,15 +771,13 @@ describe('setupAndStartSession', () => {
       files: [],
     });
 
-    expect(setupGitForSession).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        gitMode: 'worktree',
-      })
-    );
+    // No git setup of any kind should happen — the child returns early and
+    // is pinned to the parent's plain project checkout.
+    expect(setupGitForSession).not.toHaveBeenCalled();
     expect(sessions.update).not.toHaveBeenCalledWith(
       childSession.id,
       expect.objectContaining({
-        gitWorktree: expect.stringContaining('/.worktrees/'),
+        gitWorktree: expect.anything(),
       })
     );
   });
