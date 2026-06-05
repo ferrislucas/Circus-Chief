@@ -727,4 +727,60 @@ describe('setupAndStartSession', () => {
     );
     expect(result).toHaveProperty('updatedSession');
   });
+
+  it('keeps child sessions on the project directory when the parent is not in a worktree', async () => {
+    vi.clearAllMocks();
+
+    const { sessions } = await import('../database.js');
+    const { setupGitForSession } = await import('../services/gitSessionSetup.js');
+    const { resolvePromptSkillOrCommand } = await import('../services/slashCommandService.js');
+
+    const parentSession = {
+      id: 'parent-current',
+      gitBranch: null,
+      gitWorktree: null,
+    };
+    const childSession = { id: 'child-current' };
+    sessions.getById.mockImplementation((id) => (
+      id === parentSession.id ? parentSession : childSession
+    ));
+    sessions.update.mockReturnValue(childSession);
+    setupGitForSession.mockResolvedValue({
+      workingDirectory: '/tmp/project/.worktrees/child-current',
+      gitWorktree: '/tmp/project/.worktrees/child-current',
+    });
+    resolvePromptSkillOrCommand.mockResolvedValue(null);
+
+    vi.doMock('../services/sessionManager.js', () => ({
+      runSession: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    await setupAndStartSession({
+      session: childSession,
+      config: {
+        prompt: 'child prompt',
+        startImmediately: true,
+        scheduledAt: null,
+        parentSessionId: parentSession.id,
+        gitMode: 'worktree',
+        gitBranch: 'circus-chief/generated-child-branch',
+        model: 'sonnet',
+      },
+      project: { workingDirectory: '/tmp/project', systemPrompt: null },
+      projectId: 'proj-1',
+      files: [],
+    });
+
+    expect(setupGitForSession).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        gitMode: 'worktree',
+      })
+    );
+    expect(sessions.update).not.toHaveBeenCalledWith(
+      childSession.id,
+      expect.objectContaining({
+        gitWorktree: expect.stringContaining('/.worktrees/'),
+      })
+    );
+  });
 });
