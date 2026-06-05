@@ -6,15 +6,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="0.2.0"
-ENV_PROD="$ROOT/.env.production"
-ENV_PROD_BACKUP=""
 MISSING_OUTPUT=$(mktemp "${TMPDIR:-/tmp}/circuschief-missing-posthog.XXXXXX")
+MISSING_ENV_PROD=$(mktemp "${TMPDIR:-/tmp}/circuschief-env-production-missing.XXXXXX")
+rm -f "$MISSING_ENV_PROD"
 
 cleanup() {
-  if [ -n "$ENV_PROD_BACKUP" ] && [ -f "$ENV_PROD_BACKUP" ]; then
-    mv "$ENV_PROD_BACKUP" "$ENV_PROD"
-  fi
-  rm -f "$MISSING_OUTPUT"
+  rm -f "$MISSING_OUTPUT" "$MISSING_ENV_PROD"
 }
 trap cleanup EXIT
 
@@ -22,19 +19,12 @@ echo "=== Package artifact checks ==="
 
 echo "Checking missing PostHog key fails before artifact build..."
 rm -rf "$ROOT/dist-package"
-if [ -f "$ENV_PROD" ]; then
-  ENV_PROD_BACKUP=$(mktemp "${TMPDIR:-/tmp}/circuschief-env-production.XXXXXX")
-  mv "$ENV_PROD" "$ENV_PROD_BACKUP"
-fi
 if env -u POSTHOG_KEY -u VITE_POSTHOG_KEY -u POSTHOG_HOST -u VITE_POSTHOG_HOST \
+  POSTHOG_ENV_PRODUCTION_PATH="$MISSING_ENV_PROD" \
   node "$ROOT/scripts/build-package.js" --version=0.0.0-test >"$MISSING_OUTPUT" 2>&1; then
   echo "FAIL: build succeeded without PostHog key"
   cat "$MISSING_OUTPUT"
   exit 1
-fi
-if [ -n "$ENV_PROD_BACKUP" ] && [ -f "$ENV_PROD_BACKUP" ]; then
-  mv "$ENV_PROD_BACKUP" "$ENV_PROD"
-  ENV_PROD_BACKUP=""
 fi
 
 if [ -d "$ROOT/dist-package" ]; then
@@ -44,7 +34,9 @@ if [ -d "$ROOT/dist-package" ]; then
 fi
 
 echo "Building package with test PostHog key..."
-POSTHOG_KEY=phc_test_publish_key node "$ROOT/scripts/build-package.js" --version="$VERSION"
+POSTHOG_KEY=phc_test_publish_key \
+  POSTHOG_ENV_PRODUCTION_PATH="$MISSING_ENV_PROD" \
+  node "$ROOT/scripts/build-package.js" --version="$VERSION"
 
 echo "Checking generated manifests and CLI version..."
 node --input-type=module <<'NODE'

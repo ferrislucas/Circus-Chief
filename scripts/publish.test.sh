@@ -11,9 +11,6 @@
 set -euo pipefail
 
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/publish.sh"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ENV_PROD="$REPO_ROOT/.env.production"
-ENV_PROD_BACKUP=""
 REAL_NODE="$(command -v node)"
 PASS=0
 FAIL=0
@@ -69,25 +66,12 @@ assert_output_not_includes() {
 
 # --- Setup: create a temp mock npm directory ---
 MOCK_DIR=$(mktemp -d)
+MISSING_ENV_PROD="$MOCK_DIR/env.production.missing"
+TEST_ENV_PROD="$MOCK_DIR/env.production"
 cleanup() {
-  restore_env_production
   rm -rf "$MOCK_DIR"
 }
 trap cleanup EXIT
-
-hide_env_production() {
-  if [ -f "$ENV_PROD" ] && [ -z "$ENV_PROD_BACKUP" ]; then
-    ENV_PROD_BACKUP="$MOCK_DIR/env.production.backup"
-    mv "$ENV_PROD" "$ENV_PROD_BACKUP"
-  fi
-}
-
-restore_env_production() {
-  if [ -n "$ENV_PROD_BACKUP" ] && [ -f "$ENV_PROD_BACKUP" ]; then
-    mv "$ENV_PROD_BACKUP" "$ENV_PROD"
-    ENV_PROD_BACKUP=""
-  fi
-}
 
 # Helper: write a mock npm script and run the publish script with it on PATH
 run_with_mock() {
@@ -111,7 +95,8 @@ else
 fi
 MOCK_EOF
   chmod +x "$MOCK_DIR/node"
-  PATH="$MOCK_DIR:$PATH" bash "$SCRIPT" "$@" 2>&1
+  POSTHOG_ENV_PRODUCTION_PATH="${POSTHOG_ENV_PRODUCTION_PATH:-$MISSING_ENV_PROD}" \
+    PATH="$MOCK_DIR:$PATH" bash "$SCRIPT" "$@" 2>&1
 }
 
 # --- Syntax check first ---
@@ -264,12 +249,11 @@ assert_output_not_includes "Proceed?" "$OUTPUT" "auto-bump does not prompt"
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 12: Missing PostHog key → aborts before publish"
-hide_env_production
 OUTPUT=$(
   unset POSTHOG_KEY VITE_POSTHOG_KEY POSTHOG_HOST VITE_POSTHOG_HOST
+  export POSTHOG_ENV_PRODUCTION_PATH="$MISSING_ENV_PROD"
   run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 000000 2>&1
 ) && RC=$? || RC=$?
-restore_env_production
 assert_exit 1 "$RC" "missing PostHog key exits 1"
 assert_output_includes "PostHog key is missing" "$OUTPUT" "missing key mentions PostHog configuration"
 assert_output_not_includes "published" "$OUTPUT" "missing key does not call npm publish"
@@ -280,14 +264,12 @@ assert_output_not_includes "Checking npm login" "$OUTPUT" "missing key aborts be
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 13: .env.production key → preflight passes"
-hide_env_production
-printf '%s\n' 'VITE_POSTHOG_KEY=phc_test_env_publish_key' > "$ENV_PROD"
+printf '%s\n' 'VITE_POSTHOG_KEY=phc_test_env_publish_key' > "$TEST_ENV_PROD"
 OUTPUT=$(
   unset POSTHOG_KEY VITE_POSTHOG_KEY
+  export POSTHOG_ENV_PRODUCTION_PATH="$TEST_ENV_PROD"
   run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 000000 2>&1
 ) && RC=$? || RC=$?
-rm -f "$ENV_PROD"
-restore_env_production
 assert_exit 0 "$RC" ".env.production satisfies preflight"
 assert_output_includes "published" "$OUTPUT" ".env.production flow reaches npm publish"
 

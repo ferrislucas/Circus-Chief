@@ -1,15 +1,14 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 
-export function loadEnvProduction(root) {
+export function loadEnvProduction(root, envProductionPath = join(root, '.env.production')) {
   const vars = {};
-  const envProdPath = join(root, '.env.production');
 
-  if (!existsSync(envProdPath)) {
+  if (!existsSync(envProductionPath)) {
     return vars;
   }
 
-  const lines = readFileSync(envProdPath, 'utf-8').split('\n');
+  const lines = readFileSync(envProductionPath, 'utf-8').split('\n');
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
@@ -33,7 +32,7 @@ function getArgValue(argv, flag) {
 }
 
 export function resolvePostHogConfig({ root, argv = [], env = process.env }) {
-  const dotenvVars = loadEnvProduction(root);
+  const dotenvVars = loadEnvProduction(root, env.POSTHOG_ENV_PRODUCTION_PATH);
 
   return {
     key: getArgValue(argv, '--posthog-key')
