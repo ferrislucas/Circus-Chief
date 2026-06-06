@@ -1,13 +1,22 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import express from 'express';
+import request from 'supertest';
 
 // Mock gitService before importing the router
 vi.mock('../services/gitService.js', () => ({
   detectWorktreePath: vi.fn(),
+  removeWorktree: vi.fn(),
+}));
+
+vi.mock('../database.js', () => ({
+  projects: {
+    getById: vi.fn(),
+  },
 }));
 
 import gitRouter from './git.js';
 import * as gitService from '../services/gitService.js';
+import { projects } from '../database.js';
 
 describe('Git API', () => {
   let app;
@@ -21,7 +30,6 @@ describe('Git API', () => {
 
   describe('GET /api/git/detect-worktree-path', () => {
     it('returns 400 when directory query param is missing', async () => {
-      const { default: request } = await import('supertest');
       const res = await request(app).get('/api/git/detect-worktree-path');
 
       expect(res.status).toBe(400);
@@ -34,7 +42,6 @@ describe('Git API', () => {
         source: 'detected',
       });
 
-      const { default: request } = await import('supertest');
       const res = await request(app).get('/api/git/detect-worktree-path?directory=/some/repo');
 
       expect(res.status).toBe(200);
@@ -51,7 +58,6 @@ describe('Git API', () => {
         source: 'default',
       });
 
-      const { default: request } = await import('supertest');
       const res = await request(app).get('/api/git/detect-worktree-path?directory=/some/repo');
 
       expect(res.status).toBe(200);
@@ -61,11 +67,25 @@ describe('Git API', () => {
     it('returns 500 when gitService throws an error', async () => {
       gitService.detectWorktreePath.mockRejectedValue(new Error('Something went wrong'));
 
-      const { default: request } = await import('supertest');
       const res = await request(app).get('/api/git/detect-worktree-path?directory=/some/repo');
 
       expect(res.status).toBe(500);
       expect(res.body.error).toBe('Something went wrong');
+    });
+  });
+
+  describe('DELETE /api/git/projects/:id/worktrees/:path', () => {
+    it('removes a worktree with a nested path', async () => {
+      projects.getById.mockReturnValue({
+        id: 'project-1',
+        workingDirectory: '/repo',
+      });
+      gitService.removeWorktree.mockResolvedValue(undefined);
+
+      const res = await request(app).delete('/api/git/projects/project-1/worktrees/.worktrees/session-1');
+
+      expect(res.status).toBe(204);
+      expect(gitService.removeWorktree).toHaveBeenCalledWith('/repo', '.worktrees/session-1');
     });
   });
 });
