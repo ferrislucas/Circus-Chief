@@ -10,6 +10,7 @@ import { useTodosStore } from '../stores/todos.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const websocketHandlers = vi.hoisted(() => new Map());
@@ -64,9 +65,9 @@ vi.mock('../components/SessionChatContent.vue', () => ({
 vi.mock('../components/SessionHeaderPanel.vue', () => ({
   default: {
     name: 'SessionHeaderPanel',
-    template: '<div class="session-header"><div class="session-header-row"><div class="session-name-wrapper"><h3 class="session-name">{{ session?.name }}</h3></div></div></div>',
-    props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses'],
-    emits: ['duplicate', 'copySessionId', 'archive', 'delete', 'star'],
+    template: '<div class="session-header"><div class="session-header-row"><div class="session-name-wrapper"><h3 class="session-name">{{ session?.name }}</h3></div></div><button class="mock-add-to-board" @click="$emit(\'add-to-board\', session)">Add</button></div>',
+    props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses', 'kanbanEnabled'],
+    emits: ['duplicate', 'copySessionId', 'archive', 'delete', 'star', 'add-to-board'],
   }
 }));
 vi.mock('../components/SessionTabsPanel.vue', () => ({
@@ -92,6 +93,27 @@ vi.mock('../components/ArchiveConfirmModal.vue', () => ({
       </div>
     `,
   }
+}));
+vi.mock('../components/KanbanLaneSelectorModal.vue', () => ({
+  default: {
+    name: 'KanbanLaneSelectorModal',
+    props: ['isOpen', 'sessionName', 'lanes'],
+    emits: ['close', 'select-lane'],
+    template: `
+      <div v-if="isOpen" class="kanban-lane-selector-modal">
+        <span class="selector-session-name">{{ sessionName }}</span>
+        <button
+          v-for="lane in lanes"
+          :key="lane.id"
+          class="mock-lane-option"
+          @click="$emit('select-lane', lane)"
+        >
+          {{ lane.name }}
+        </button>
+        <button class="mock-close-selector" @click="$emit('close')">Close</button>
+      </div>
+    `,
+  },
 }));
 vi.mock('../composables/useApi.js', () => ({
   api: {
@@ -159,6 +181,7 @@ describe('SessionDetailView', () => {
   let router;
   let sessionsStore;
   let projectsStore;
+  let kanbanStore;
   let canvasStore;
   let todosStore;
   // Track mounted wrappers for cleanup to prevent memory leaks (OOM)
@@ -184,6 +207,7 @@ describe('SessionDetailView', () => {
 
     sessionsStore = useSessionsStore();
     projectsStore = useProjectsStore();
+    kanbanStore = useKanbanStore();
     canvasStore = useCanvasStore();
     todosStore = useTodosStore();
 
@@ -796,6 +820,131 @@ describe('SessionDetailView', () => {
 
       // The mock template still renders the name
       expect(wrapper.text()).toContain(sessionName);
+    });
+
+    it('passes Kanban enabled state to SessionHeaderPanel', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+        kanbanEnabled: true,
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props('kanbanEnabled')).toBe(true);
+    });
+
+    it('opens the lane selector when SessionHeaderPanel emits add-to-board', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+        kanbanEnabled: true,
+      };
+      kanbanStore.board = {
+        lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
+      };
+      kanbanStore.currentProjectId = 'proj-1';
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await wrapper.find('.mock-add-to-board').trigger('click');
+      await nextTick();
+
+      const selector = wrapper.findComponent({ name: 'KanbanLaneSelectorModal' });
+      expect(selector.props('isOpen')).toBe(true);
+      expect(selector.props('sessionName')).toBe('Test Session');
+      expect(wrapper.find('.kanban-lane-selector-modal').exists()).toBe(true);
+    });
+
+    it('adds the current session to the selected lane from the detail selector', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+        kanbanEnabled: true,
+      };
+      kanbanStore.board = {
+        lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
+      };
+      kanbanStore.currentProjectId = 'proj-1';
+      const addSpy = vi.spyOn(kanbanStore, 'addSessionToBoard').mockResolvedValue({
+        id: 'card-1',
+        laneId: 'lane-1',
+      });
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await wrapper.find('.mock-add-to-board').trigger('click');
+      await wrapper.find('.mock-lane-option').trigger('click');
+      await flushPromises();
+
+      expect(addSpy).toHaveBeenCalledWith('proj-1', 'session-1', 'lane-1');
+      const selector = wrapper.findComponent({ name: 'KanbanLaneSelectorModal' });
+      expect(selector.props('isOpen')).toBe(false);
     });
   });
 

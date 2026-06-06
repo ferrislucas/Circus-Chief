@@ -31,11 +31,13 @@
         :summary="summary"
         :is-deleting="isDeleting"
         :button-statuses="buttonStatusesToDisplay"
+        :kanban-enabled="kanbanEnabledForCurrentSession"
         @duplicate="handleDuplicate"
         @copy-session-id="handleCopySessionId"
         @archive="handleArchive"
         @delete="handleDelete"
         @star="handleStar"
+        @add-to-board="handleAddToBoard"
       />
 
       <SessionTabsPanel
@@ -112,6 +114,14 @@
         @confirm="confirmArchive"
         @cancel="cancelArchive"
       />
+
+      <KanbanLaneSelectorModal
+        :is-open="showLaneSelectorModal"
+        :session-name="sessionToAdd?.name || ''"
+        :lanes="kanbanStore.board?.lanes || []"
+        @close="closeLaneSelectorModal"
+        @select-lane="addSessionToLane"
+      />
     </template>
   </div>
 </template>
@@ -138,6 +148,7 @@ import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
 import SessionChatContent from '../components/SessionChatContent.vue';
 import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
+import KanbanLaneSelectorModal from '../components/KanbanLaneSelectorModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
@@ -176,6 +187,8 @@ const summary = ref(null);
 const isDeleting = ref(false);
 const showArchiveModal = ref(false);
 const archiving = ref(false);
+const showLaneSelectorModal = ref(false);
+const sessionToAdd = ref(null);
 
 // Readiness signal for E2E tests
 const sessionChainReady = ref(false);
@@ -249,6 +262,25 @@ const tabs = computed(() => [
   { id: 'commands', label: 'Commands' },
 ]);
 
+const kanbanEnabledForCurrentSession = computed(() =>
+  projectsStore.currentProject?.id === sessionsStore.currentSession?.projectId &&
+  projectsStore.currentProject?.kanbanEnabled === true
+);
+
+async function ensureProjectKanbanData(session) {
+  if (!session?.projectId) return;
+
+  if (projectsStore.currentProject?.id !== session.projectId) {
+    await projectsStore.fetchProject(session.projectId);
+  }
+
+  if (kanbanStore.currentProjectId !== session.projectId) {
+    kanbanStore.fetchBoard(session.projectId).catch(err => {
+      console.warn('Failed to fetch kanban board:', err);
+    });
+  }
+}
+
 watch(
   () => sessionsStore.currentSession?.status,
   (newStatus, oldStatus) => {
@@ -267,9 +299,7 @@ onMounted(async () => {
   await initializeSession(currentSessionId.value);
 
   const projectId = sessionsStore.currentSession?.projectId;
-  if (projectId && !projectsStore.currentProject) {
-    await projectsStore.fetchProject(projectId);
-  }
+  await ensureProjectKanbanData(sessionsStore.currentSession);
 
   await buildSessionChain();
   sessionChainReady.value = true;
@@ -282,13 +312,6 @@ onMounted(async () => {
 
   if (route.query.overlay === 'open') {
     await openChatDestination({ replaceQuery: true });
-  }
-
-  const session = sessionsStore.currentSession;
-  if (session?.projectId) {
-    kanbanStore.fetchBoard(session.projectId).catch(err => {
-      console.warn('Failed to fetch kanban board:', err);
-    });
   }
 });
 
@@ -304,9 +327,7 @@ watch(
       await initializeSession(newSessionId);
 
       const newProjectId = sessionsStore.currentSession?.projectId;
-      if (newProjectId && projectsStore.currentProject?.id !== newProjectId) {
-        await projectsStore.fetchProject(newProjectId);
-      }
+      await ensureProjectKanbanData(sessionsStore.currentSession);
 
       await buildSessionChain();
       sessionChainReady.value = true;
@@ -458,6 +479,29 @@ async function handleStar() {
     await sessionsStore.toggleSessionStar(currentSessionId.value);
   } catch (err) {
     uiStore.error(err.message);
+  }
+}
+
+function handleAddToBoard(session) {
+  sessionToAdd.value = session;
+  showLaneSelectorModal.value = true;
+}
+
+function closeLaneSelectorModal() {
+  showLaneSelectorModal.value = false;
+  sessionToAdd.value = null;
+}
+
+async function addSessionToLane(lane) {
+  if (!sessionToAdd.value || !lane) return;
+
+  try {
+    await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, sessionToAdd.value.id, lane.id);
+    uiStore.success(`Session added to "${lane.name}"`);
+    closeLaneSelectorModal();
+  } catch (err) {
+    console.error('Failed to add session to board:', err);
+    uiStore.error(err.message || 'Failed to add session to board');
   }
 }
 

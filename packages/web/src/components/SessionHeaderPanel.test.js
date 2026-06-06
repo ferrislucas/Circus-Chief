@@ -67,6 +67,8 @@ describe('SessionHeaderPanel', () => {
     pinia = createPinia();
     setActivePinia(pinia);
     vi.clearAllMocks();
+    mockKanbanStoreInstance.getCardBySessionId.mockReturnValue(null);
+    mockKanbanStoreInstance.getLaneById.mockReturnValue(null);
   });
 
   function mountPanel(props = {}) {
@@ -312,6 +314,101 @@ describe('SessionHeaderPanel', () => {
       await starBtn.trigger('click');
       // The click event should be captured (the star emit is handled by Vue template binding)
       expect(wrapper.emitted()).toHaveProperty('click');
+    });
+  });
+
+  describe('add to board button', () => {
+    it('renders when Kanban is enabled for a root active session not on the board', () => {
+      const wrapper = mountPanel({ kanbanEnabled: true });
+
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
+    });
+
+    it('hides when Kanban is disabled', () => {
+      const wrapper = mountPanel({ kanbanEnabled: false });
+
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+    });
+
+    it('hides for child sessions', () => {
+      const wrapper = mountPanel({
+        kanbanEnabled: true,
+        session: {
+          id: 'session-1',
+          name: 'Child Session',
+          status: 'waiting',
+          projectId: 'proj-1',
+          parentSessionId: 'parent-1',
+          starred: false,
+          prUrl: null,
+          archived: false,
+        },
+      });
+
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+    });
+
+    it('hides for archived sessions', () => {
+      const wrapper = mountPanel({
+        kanbanEnabled: true,
+        session: {
+          id: 'session-1',
+          name: 'Archived Session',
+          status: 'completed',
+          projectId: 'proj-1',
+          starred: false,
+          prUrl: null,
+          archived: true,
+        },
+      });
+
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+    });
+
+    it('hides when the session is already on the board', () => {
+      mockKanbanStoreInstance.getCardBySessionId.mockReturnValue({
+        id: 'card-1',
+        laneId: 'lane-1',
+      });
+      mockKanbanStoreInstance.getLaneById.mockReturnValue({
+        id: 'lane-1',
+        name: 'In Progress',
+      });
+
+      const wrapper = mountPanel({ kanbanEnabled: true });
+
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+      expect(wrapper.find('.lane-chip').exists()).toBe(true);
+    });
+
+    it('emits addToBoard with the session when clicked', async () => {
+      const addToBoardSpy = vi.fn();
+      const wrapper = mount(SessionHeaderPanel, {
+        global: { plugins: [pinia] },
+        props: {
+          sessionId: 'session-1',
+          session: {
+            id: 'session-1',
+            name: 'Test Session',
+            status: 'waiting',
+            projectId: 'proj-1',
+            starred: false,
+            prUrl: null,
+            archived: false,
+          },
+          summary: null,
+          isDeleting: false,
+          buttonStatuses: [],
+          kanbanEnabled: true,
+        },
+        attrs: {
+          onAddToBoard: addToBoardSpy,
+        },
+      });
+
+      await wrapper.find('.add-to-board-btn').trigger('click');
+
+      expect(addToBoardSpy).toHaveBeenCalledWith(wrapper.props('session'));
     });
   });
 

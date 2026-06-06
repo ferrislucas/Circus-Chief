@@ -41,12 +41,12 @@ describe('SessionCardHeaderActions', () => {
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
     });
 
-    it('hides Add to Board button when isOnBoard=true (even if kanbanEnabled=true)', () => {
+    it('shows Add to Board button when isOnBoard=true and kanbanEnabled=true', () => {
       const wrapper = mountComponent({
         kanbanEnabled: true,
         isOnBoard: true,
       });
-      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
     it('defaults kanbanEnabled to true for backward compatibility', () => {
@@ -239,7 +239,7 @@ describe('SessionCardHeaderActions', () => {
   });
 
   describe('combined visibility scenarios', () => {
-    it('shows Add to Board button only when kanbanEnabled=true AND isOnBoard=false AND isChild=false', () => {
+    it('shows Add to Board button only when kanbanEnabled=true AND isChild=false', () => {
       // All conditions met
       let wrapper = mountComponent({
         kanbanEnabled: true,
@@ -256,13 +256,13 @@ describe('SessionCardHeaderActions', () => {
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
 
-      // isOnBoard=true
+      // isOnBoard=true still shows the button so the session can be moved.
       wrapper = mountComponent({
         kanbanEnabled: true,
         isOnBoard: true,
         isChild: false,
       });
-      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
 
       // isChild=true
       wrapper = mountComponent({
