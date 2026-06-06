@@ -239,6 +239,7 @@ export const allMigrations = validateMigrations([
   k.get('session_templates-add-target_lane_id'),
   k.get('kanban_lanes-add-on_enter_prompt'),
   k.get('kanban_lanes-add-agent-settings'),
+  k.get('kanban_lanes-add-completion_target_lane_id'),
 
   // --- Sessions default mode / thinking defaults (table recreation) ---
   s.get('sessions-migrate-default-mode-thinking'),
@@ -276,4 +277,8 @@ export const allMigrations = validateMigrations([
   c.get('session_summaries-add-own_key_actions'),
   c.get('session_summaries-add-own_files_modified'),
   c.get('session_summaries-add-own_outcome'),
+
+  // --- Providers enable/disable flag (appended last to keep column order
+  //     stable relative to the providers-widen-kind-check-google table swap) ---
+  pr.get('providers-add-enabled'),
 ]);

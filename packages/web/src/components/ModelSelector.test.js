@@ -499,6 +499,76 @@ describe('ModelSelector', () => {
     });
   });
 
+  describe('enabled/disabled providers', () => {
+    it('hides providers with enabled === false from the dropdown', async () => {
+      const localProvidersStore = useProvidersStore();
+
+      localProvidersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          enabled: true,
+          models: [
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+          ],
+        },
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          enabled: false,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt', modelId: 'gpt-5-codex', displayName: 'GPT-5 Codex', tier: 'custom' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      expect(optgroups).toHaveLength(1);
+
+      const options = wrapper.findAll('option');
+      expect(options).toHaveLength(1);
+      expect(options[0].element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-4-6'));
+    });
+
+    it('shows providers again once re-enabled', async () => {
+      const localProvidersStore = useProvidersStore();
+
+      localProvidersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          enabled: false,
+          models: [
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6', allowEmpty: true });
+      await flushAll(wrapper);
+
+      // Disabled: only the empty option remains
+      expect(wrapper.findAll('optgroup')).toHaveLength(0);
+
+      localProvidersStore.providers = [
+        {
+          ...localProvidersStore.providers[0],
+          enabled: true,
+        },
+      ];
+      await flushAll(wrapper);
+
+      expect(wrapper.findAll('optgroup')).toHaveLength(1);
+    });
+  });
+
   describe('agent-aware grouping (Phase 6)', () => {
     it('groups built-in Anthropic provider under a "Claude Code · ..." optgroup', async () => {
       const localProvidersStore = useProvidersStore();

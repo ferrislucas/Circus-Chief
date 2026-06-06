@@ -10,10 +10,14 @@ import {
   MoveKanbanCardRequest,
   ReorderKanbanCardsRequest,
 } from '@circuschief/shared/contracts/kanban';
-import { moveCard as moveCardService } from '../services/kanbanService.js';
+import {
+  addSessionToBoard,
+  moveCard as moveCardService,
+} from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 
 const router = Router({ mergeParams: true });
+const LANE_NOT_FOUND_ERROR = 'Lane not found';
 
 /**
  * Helper to build full board response with lanes and cards
@@ -140,13 +144,31 @@ router.patch('/lanes/:laneId', (req, res) => {
 
   const lane = kanbanLanes.getById(laneId);
   if (!lane) {
-    return res.status(404).json({ error: 'Lane not found' });
+    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
+  }
+
+  const board = kanbanBoards.getByProjectId(projectId);
+  if (!board || board.id !== lane.boardId) {
+    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
+  }
+
+  if (result.data.completionTargetLaneId !== undefined && result.data.completionTargetLaneId !== null) {
+    if (result.data.completionTargetLaneId === laneId) {
+      return res.status(400).json({ error: 'Completion target lane cannot be the same lane' });
+    }
+
+    const targetLane = kanbanLanes.getById(result.data.completionTargetLaneId);
+    if (!targetLane) {
+      return res.status(404).json({ error: 'Completion target lane not found' });
+    }
+    if (targetLane.boardId !== lane.boardId) {
+      return res.status(400).json({ error: 'Completion target lane must be on the same board' });
+    }
   }
 
   const updated = kanbanLanes.update(laneId, result.data);
 
   // Broadcast updated board
-  const board = kanbanBoards.getByProjectId(projectId);
   const fullBoard = buildFullBoardResponse(board);
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
     projectId,
@@ -216,9 +238,7 @@ router.put('/lanes/reorder', (req, res) => {
  * POST /api/projects/:projectId/kanban/cards
  * Add a session to the board (create card in a lane)
  */
-router.post('/cards', resolveBodyRootSessionForProject('projectId'), (req, res) => {
-  const { projectId } = req.params;
-
+router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req, res) => {
   const result = CreateKanbanCardRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
@@ -239,15 +259,15 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), (req, res) 
     return res.status(404).json({ error: 'Lane not found' });
   }
 
-  const card = kanbanCards.create(laneId, sessionId);
-
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
-    projectId,
-    card,
-    laneId,
-  });
-
-  res.status(201).json(card);
+  try {
+    const card = await addSessionToBoard(sessionId, laneId);
+    res.status(201).json(card);
+  } catch (error) {
+    if (error.message === 'Session already has a card on the board') {
+      return res.status(409).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
 });
 
 /**

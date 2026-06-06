@@ -117,7 +117,10 @@ echo " Publishing circuschief v${VERSION}"
 echo "========================================"
 echo ""
 
-# --- 1. Verify npm login ---
+# --- 1. Verify PostHog publish configuration ---
+node "$SCRIPT_DIR/check-posthog-publish-config.js"
+
+# --- 2. Verify npm login ---
 echo "Checking npm login..."
 NPM_USER=$(npm whoami 2>/dev/null || true)
 if [ -z "$NPM_USER" ]; then
@@ -127,12 +130,12 @@ fi
 echo "Logged in as: $NPM_USER"
 echo ""
 
-# --- 2. Build the package ---
+# --- 3. Build the package ---
 echo "Building package..."
 node "$SCRIPT_DIR/build-package.js" --version="$VERSION"
 echo ""
 
-# --- 3. Publish ---
+# --- 4. Publish ---
 echo "Publishing to npm..."
 cd "$ROOT/dist-package"
 npm publish --otp="$OTP"

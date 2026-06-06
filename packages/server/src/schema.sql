@@ -324,6 +324,7 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_max_reschedule_count INTEGER,
   on_enter_max_total_tokens INTEGER,
   on_enter_reschedule_at_token_count INTEGER,
+  completion_target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );

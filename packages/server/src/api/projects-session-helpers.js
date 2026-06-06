@@ -294,16 +294,34 @@ export function buildSchedulingUpdate(config, initialStatus) {
 
 /**
  * Resolve working directory and optional worktree for a new session.
- * Inherits the parent's worktree when applicable.
+ *
+ * Child session inheritance rules:
+ * - If the parent session has a real gitWorktree, the child inherits it (same
+ *   worktree path is used for both workingDirectory and gitWorktree).
+ * - If the parent session exists but its gitWorktree is null, the child is
+ *   pinned to the project's working directory with gitWorktree: null — no new
+ *   worktree is created, regardless of the resolved gitMode/gitBranch config.
+ *
+ * Root sessions (no parentSessionId) go through the normal setupGitForSession
+ * path, which honours gitMode/gitBranch and may create a worktree.
+ *
  * @param {object} params
  * @returns {Promise<{ workingDirectory: string, gitWorktree: string|null }>}
  */
 async function resolveSessionWorkingDirectory({ session, config, project }) {
   const parentSession = config.parentSessionId ? sessions.getById(config.parentSessionId) : null;
-  if (parentSession?.gitWorktree) {
+  if (parentSession) {
+    if (parentSession.gitWorktree) {
+      return {
+        workingDirectory: parentSession.gitWorktree,
+        gitWorktree: parentSession.gitWorktree,
+      };
+    }
+    // Parent exists but is not in a worktree — pin the child to the plain
+    // project checkout so it never accidentally creates its own worktree.
     return {
-      workingDirectory: parentSession.gitWorktree,
-      gitWorktree: parentSession.gitWorktree,
+      workingDirectory: project.workingDirectory,
+      gitWorktree: null,
     };
   }
 

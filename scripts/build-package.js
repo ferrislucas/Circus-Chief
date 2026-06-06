@@ -9,55 +9,28 @@
  * The only transform: rewrite `@circuschief/shared` imports to relative paths.
  */
 
-import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'fs';
+import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
 import { join, relative, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
+import { requirePostHogKey, resolvePostHogConfig } from './posthog-publish-config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = dirname(dirname(__filename));
 const DIST = join(ROOT, 'dist-package');
 const version = process.argv.find(a => a.startsWith('--version='))?.split('=')[1] || '0.1.0';
 
-// --- Read .env.production if it exists ---
-// Parses KEY=VALUE lines (ignoring comments and blank lines) as a fallback
-// source for PostHog configuration. CLI flags and env vars take precedence.
-const dotenvVars = {};
-const envProdPath = join(ROOT, '.env.production');
-if (existsSync(envProdPath)) {
-  const lines = readFileSync(envProdPath, 'utf-8').split('\n');
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) continue;
-    const eqIndex = trimmed.indexOf('=');
-    if (eqIndex === -1) continue;
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
-    // Strip surrounding quotes (single or double)
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1);
-    }
-    dotenvVars[key] = value;
-  }
+const posthogConfig = resolvePostHogConfig({
+  root: ROOT,
+  argv: process.argv.slice(2),
+  env: process.env,
+});
+
+if (posthogConfig.loadedEnvProduction) {
   console.log('Loaded .env.production');
 }
 
-// --- PostHog configuration ---
-// Resolution order (first non-empty wins): CLI flag → env var → .env.production
-const posthogKey = process.argv.find(a => a.startsWith('--posthog-key='))?.split('=')[1]
-  || process.env.POSTHOG_KEY
-  || dotenvVars.VITE_POSTHOG_KEY
-  || '';
-const posthogHost = process.argv.find(a => a.startsWith('--posthog-host='))?.split('=')[1]
-  || process.env.POSTHOG_HOST
-  || dotenvVars.VITE_POSTHOG_HOST
-  || 'https://us.i.posthog.com';
-
-if (!posthogKey) {
-  console.error('ERROR: PostHog key is required to publish.');
-  console.error('  Provide it via --posthog-key=<key>, POSTHOG_KEY env var, or VITE_POSTHOG_KEY in .env.production');
-  process.exit(1);
-}
+requirePostHogKey(posthogConfig, 'build');
 
 /** cpSync filter: exclude test files but always keep directories */
 const excludeTests = (src) => {
@@ -79,8 +52,8 @@ execSync('yarn workspace @circuschief/web build', {
   stdio: 'inherit',
   env: {
     ...process.env,
-    VITE_POSTHOG_KEY: posthogKey,
-    VITE_POSTHOG_HOST: posthogHost,
+    VITE_POSTHOG_KEY: posthogConfig.key,
+    VITE_POSTHOG_HOST: posthogConfig.host,
   },
 });
 
@@ -88,7 +61,7 @@ execSync('yarn workspace @circuschief/web build', {
 const assetsDir = join(ROOT, 'packages/web/dist/assets');
 const jsFiles = readdirSync(assetsDir).filter(f => f.endsWith('.js'));
 const found = jsFiles.some(f =>
-  readFileSync(join(assetsDir, f), 'utf-8').includes(posthogKey)
+  readFileSync(join(assetsDir, f), 'utf-8').includes(posthogConfig.key)
 );
 if (!found) {
   console.error('ERROR: PostHog key was not found in the built frontend bundle');
@@ -111,9 +84,6 @@ cpSync(join(ROOT, 'packages/shared/src'), join(DIST, 'packages/shared/src'), {
   recursive: true,
   filter: excludeTests,
 });
-
-// Copy shared package.json (needed for exports resolution)
-cpSync(join(ROOT, 'packages/shared/package.json'), join(DIST, 'packages/shared/package.json'));
 
 console.log('Copying packages/server/bin...');
 cpSync(join(ROOT, 'packages/server/bin'), join(DIST, 'packages/server/bin'), { recursive: true });
@@ -198,6 +168,7 @@ const publishPkg = {
   files: [
     'packages/server/bin/',
     'packages/server/src/',
+    'packages/server/package.json',
     'packages/shared/src/',
     'packages/shared/package.json',
     'packages/web/dist/',
@@ -209,6 +180,31 @@ const publishPkg = {
 };
 
 writeFileSync(join(DIST, 'package.json'), JSON.stringify(publishPkg, null, 2) + '\n');
+
+const internalServerPkg = {
+  name: '@circuschief/server',
+  version,
+  type: 'module',
+};
+
+const internalSharedPkg = {
+  name: '@circuschief/shared',
+  version,
+  type: 'module',
+  main: 'src/index.js',
+  exports: {
+    '.': './src/index.js',
+    './types': './src/types.js',
+    './protocol': './src/protocol.js',
+    './constants': './src/constants.js',
+    './contracts/*': './src/contracts/*.js',
+    './utils': './src/utils.js',
+    './routeParams': './src/routeParams.js',
+  },
+};
+
+writeFileSync(join(DIST, 'packages/server/package.json'), JSON.stringify(internalServerPkg, null, 2) + '\n');
+writeFileSync(join(DIST, 'packages/shared/package.json'), JSON.stringify(internalSharedPkg, null, 2) + '\n');
 
 // --- 6. Write CLI entry point ---
 // This intentionally overwrites the dev cli.js copied in step 3 with a
@@ -222,6 +218,51 @@ await import('../src/index.js');
 `;
 
 writeFileSync(join(DIST, 'packages/server/bin/cli.js'), cli);
+
+// --- 7. Verify generated artifact metadata ---
+console.log('Verifying package artifact...');
+
+function readJson(path) {
+  return JSON.parse(readFileSync(path, 'utf-8'));
+}
+
+function assertEqual(actual, expected, label) {
+  if (actual !== expected) {
+    console.error(`ERROR: ${label} expected '${expected}', got '${actual}'`);
+    process.exit(1);
+  }
+}
+
+function assertNoInternalWorkspaceReference(pkg, label) {
+  const serialized = JSON.stringify({
+    dependencies: pkg.dependencies,
+    devDependencies: pkg.devDependencies,
+    peerDependencies: pkg.peerDependencies,
+    optionalDependencies: pkg.optionalDependencies,
+  });
+  if (serialized.includes('"@circuschief/shared"')) {
+    console.error(`ERROR: ${label} contains stale @circuschief/shared dependency metadata`);
+    process.exit(1);
+  }
+}
+
+const generatedRootPkg = readJson(join(DIST, 'package.json'));
+const generatedServerPkg = readJson(join(DIST, 'packages/server/package.json'));
+const generatedSharedPkg = readJson(join(DIST, 'packages/shared/package.json'));
+
+assertEqual(generatedRootPkg.version, version, 'dist-package/package.json version');
+assertEqual(generatedServerPkg.version, version, 'dist-package/packages/server/package.json version');
+assertEqual(generatedSharedPkg.version, version, 'dist-package/packages/shared/package.json version');
+assertNoInternalWorkspaceReference(generatedRootPkg, 'dist-package/package.json');
+assertNoInternalWorkspaceReference(generatedServerPkg, 'dist-package/packages/server/package.json');
+assertNoInternalWorkspaceReference(generatedSharedPkg, 'dist-package/packages/shared/package.json');
+
+const cliVersion = execSync(`node ${JSON.stringify(join(DIST, 'packages/server/bin/cli.js'))} --version`, {
+  cwd: DIST,
+  encoding: 'utf-8',
+}).trim();
+assertEqual(cliVersion, version, 'generated CLI --version output');
+console.log('✓ Package artifact metadata verified');
 
 // --- Done ---
 console.log('');

@@ -11,9 +11,9 @@
       v-if="!isChild"
       class="archive-actions"
     >
-      <!-- Add to Board button (only show if kanban is enabled and session is not already on board) -->
+      <!-- Add/move Kanban button for root sessions when Kanban is enabled. -->
       <button
-        v-if="kanbanEnabled && !isOnBoard"
+        v-if="kanbanEnabled"
         class="add-to-board-btn"
         title="Add to kanban board"
         @click.stop.prevent="$emit('addToBoard')"
