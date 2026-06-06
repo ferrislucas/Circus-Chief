@@ -99,6 +99,12 @@ describe('KanbanLaneRepository', () => {
 
       expect(lane.onEnterTemplateId).toBeNull();
     });
+
+    it('maps completionTargetLaneId as null by default', () => {
+      const lane = laneRepo.create(boardId, { name: 'Plain Lane' });
+
+      expect(lane.completionTargetLaneId).toBeNull();
+    });
   });
 
   describe('update', () => {
@@ -141,6 +147,25 @@ describe('KanbanLaneRepository', () => {
 
       const updated = laneRepo.update(lane.id, { onEnterTemplateId: null });
       expect(updated.onEnterTemplateId).toBeNull();
+    });
+
+    it('updates completionTargetLaneId', () => {
+      const source = laneRepo.create(boardId, { name: 'Source' });
+      const target = laneRepo.create(boardId, { name: 'Target' });
+
+      const updated = laneRepo.update(source.id, { completionTargetLaneId: target.id });
+
+      expect(updated.completionTargetLaneId).toBe(target.id);
+    });
+
+    it('clears completionTargetLaneId when set to null', () => {
+      const source = laneRepo.create(boardId, { name: 'Source' });
+      const target = laneRepo.create(boardId, { name: 'Target' });
+      laneRepo.update(source.id, { completionTargetLaneId: target.id });
+
+      const updated = laneRepo.update(source.id, { completionTargetLaneId: null });
+
+      expect(updated.completionTargetLaneId).toBeNull();
     });
 
     it('returns unchanged lane when no updates provided', () => {

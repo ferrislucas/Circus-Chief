@@ -17,6 +17,7 @@ import {
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 
 const router = Router({ mergeParams: true });
+const LANE_NOT_FOUND_ERROR = 'Lane not found';
 
 /**
  * Helper to build full board response with lanes and cards
@@ -143,13 +144,31 @@ router.patch('/lanes/:laneId', (req, res) => {
 
   const lane = kanbanLanes.getById(laneId);
   if (!lane) {
-    return res.status(404).json({ error: 'Lane not found' });
+    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
+  }
+
+  const board = kanbanBoards.getByProjectId(projectId);
+  if (!board || board.id !== lane.boardId) {
+    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
+  }
+
+  if (result.data.completionTargetLaneId !== undefined && result.data.completionTargetLaneId !== null) {
+    if (result.data.completionTargetLaneId === laneId) {
+      return res.status(400).json({ error: 'Completion target lane cannot be the same lane' });
+    }
+
+    const targetLane = kanbanLanes.getById(result.data.completionTargetLaneId);
+    if (!targetLane) {
+      return res.status(404).json({ error: 'Completion target lane not found' });
+    }
+    if (targetLane.boardId !== lane.boardId) {
+      return res.status(400).json({ error: 'Completion target lane must be on the same board' });
+    }
   }
 
   const updated = kanbanLanes.update(laneId, result.data);
 
   // Broadcast updated board
-  const board = kanbanBoards.getByProjectId(projectId);
   const fullBoard = buildFullBoardResponse(board);
   broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_BOARD_UPDATED, {
     projectId,

@@ -160,6 +160,17 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   return movedCard;
 }
 
+async function moveExistingSessionCard(session, card, targetLaneId) {
+  if (card.laneId === targetLaneId) {
+    return card;
+  }
+
+  return moveCard(card.id, targetLaneId, {
+    runOnEnterTemplate: true,
+    depth: session.laneTriggerDepth || 0,
+  });
+}
+
 /**
  * Handle turn completion for a session.
  * If the session has a target_lane_id set, move its card to that lane.
@@ -200,18 +211,45 @@ export async function handleTurnCompletion(sessionId) {
     });
   } else {
     // Move existing card to target lane
-    const fromLaneId = card.laneId;
-
-    if (fromLaneId !== session.targetLaneId) {
-      await moveCard(card.id, session.targetLaneId, {
-        runOnEnterTemplate: true,
-        depth: session.laneTriggerDepth || 0,
-      });
-    }
+    await moveExistingSessionCard(session, card, session.targetLaneId);
   }
 
   // Clear the target lane now that we've processed it
   sessions.update(sessionId, { targetLaneId: null });
+}
+
+/**
+ * Move an existing card based on the current lane's completion target.
+ *
+ * @param {string} sessionId - The session that just completed its turn
+ */
+export async function handleCompletionMove(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return;
+  }
+
+  const card = kanbanCards.getBySessionId(sessionId);
+  if (!card) {
+    return;
+  }
+
+  const currentLane = kanbanLanes.getById(card.laneId);
+  if (!currentLane?.completionTargetLaneId) {
+    return;
+  }
+
+  const targetLaneId = currentLane.completionTargetLaneId;
+  if (targetLaneId === currentLane.id) {
+    return;
+  }
+
+  const targetLane = kanbanLanes.getById(targetLaneId);
+  if (!targetLane || targetLane.boardId !== currentLane.boardId) {
+    return;
+  }
+
+  await moveExistingSessionCard(session, card, targetLaneId);
 }
 
 /**
