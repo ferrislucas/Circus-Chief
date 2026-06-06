@@ -1,4 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
+import { execSync } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import {
   seedProject,
   seedSession,
@@ -1199,14 +1203,18 @@ test.describe('Pagination / Load More', () => {
 test.describe('Tab Indicators', () => {
   let project: any;
   let session: any;
+  let tmpDir: string;
 
   test.beforeEach(async () => {
-    project = await seedProject('Indicators', '/tmp/test');
+    tmpDir = mkdtempSync(join(tmpdir(), 'e2e-indicators-'));
+    execSync('git init', { cwd: tmpDir });
+    project = await seedProject('Indicators', tmpDir);
     session = await seedSession(project.id, { prompt: 'test', name: 'Indicator Test', startImmediately: false });
   });
 
   test.afterEach(async () => {
     await cleanupCreatedResources();
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
   test('canvas tab shows indicator dot when items exist', async ({ page }) => {
