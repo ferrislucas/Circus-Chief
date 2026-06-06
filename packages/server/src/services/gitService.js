@@ -251,6 +251,126 @@ export async function getCurrentBranch(directory) {
 }
 
 /**
+ * Get the configured upstream branch for HEAD.
+ * @param {string} directory
+ * @returns {Promise<string|null>}
+ */
+export async function getBranchUpstream(directory) {
+  try {
+    return await git(directory, 'rev-parse --abbrev-ref --symbolic-full-name @{u}');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get ahead/behind counts relative to an upstream branch.
+ * @param {string} directory
+ * @param {string} upstreamBranch
+ * @returns {Promise<{aheadCount: number, behindCount: number}>}
+ */
+export async function getAheadBehindCounts(directory, upstreamBranch) {
+  const output = await git(directory, `rev-list --left-right --count ${shellQuote(upstreamBranch)}...HEAD`);
+  const [behindRaw = '0', aheadRaw = '0'] = output.split(/\s+/);
+  return {
+    behindCount: Number.parseInt(behindRaw, 10) || 0,
+    aheadCount: Number.parseInt(aheadRaw, 10) || 0,
+  };
+}
+
+function parsePorcelainPath(line) {
+  const rawPath = line.slice(3).trim();
+  if (!rawPath) return null;
+
+  const renameSeparator = ' -> ';
+  if (rawPath.includes(renameSeparator)) {
+    return rawPath.split(renameSeparator).pop();
+  }
+
+  return rawPath;
+}
+
+/**
+ * Count unique paths with uncommitted local changes.
+ * @param {string} directory
+ * @returns {Promise<number>}
+ */
+export async function getLocalChangeCount(directory) {
+  const output = await git(directory, 'status --porcelain=v1');
+  if (!output) return 0;
+
+  const paths = new Set();
+  for (const line of output.split('\n')) {
+    const path = parsePorcelainPath(line);
+    if (path) paths.add(path);
+  }
+  return paths.size;
+}
+
+/**
+ * Fetch origin with pruning. Intended for explicit user refreshes, not polling.
+ * @param {string} directory
+ * @returns {Promise<void>}
+ */
+export async function fetchOrigin(directory) {
+  await git(directory, 'fetch origin --prune', { timeout: 10_000 });
+}
+
+function computeSyncStatus({ currentBranch, upstreamBranch, aheadCount, behindCount, localChangeCount }) {
+  if (!currentBranch) return 'unknown';
+  if (!upstreamBranch) return 'unpublished';
+  if (aheadCount > 0 && behindCount > 0) return 'diverged';
+  if (behindCount > 0) return 'behind';
+  if (aheadCount > 0) return 'ahead';
+  if (localChangeCount > 0) return 'dirty';
+  return 'clean';
+}
+
+/**
+ * Get compact Git repository status for a session worktree.
+ * @param {string} directory
+ * @param {Object} [options]
+ * @param {boolean} [options.fetch=false]
+ * @returns {Promise<Object>}
+ */
+export async function getSessionGitStatus(directory, options = {}) {
+  const fetched = options.fetch === true;
+  if (fetched) {
+    await fetchOrigin(directory);
+  }
+
+  const currentBranch = await getCurrentBranch(directory);
+  const localChangeCount = await getLocalChangeCount(directory);
+  const upstreamBranch = currentBranch ? await getBranchUpstream(directory) : null;
+  const counts = upstreamBranch
+    ? await getAheadBehindCounts(directory, upstreamBranch)
+    : { aheadCount: 0, behindCount: 0 };
+  const syncStatus = computeSyncStatus({
+    currentBranch,
+    upstreamBranch,
+    aheadCount: counts.aheadCount,
+    behindCount: counts.behindCount,
+    localChangeCount,
+  });
+
+  return {
+    currentBranch,
+    upstreamBranch,
+    hasUpstream: Boolean(upstreamBranch),
+    hasUncommittedChanges: localChangeCount > 0,
+    localChangeCount,
+    aheadCount: counts.aheadCount,
+    behindCount: counts.behindCount,
+    isDiverged: counts.aheadCount > 0 && counts.behindCount > 0,
+    isUnpushed: counts.aheadCount > 0 || syncStatus === 'unpublished',
+    isBehind: counts.behindCount > 0,
+    syncStatus,
+    lastCheckedAt: new Date().toISOString(),
+    fetched,
+  };
+}
+
+/**
  * Get the git author info from the global config (~/.gitconfig).
  * Uses `--global` so that a contaminated local config is bypassed.
  * @param {string} directory
