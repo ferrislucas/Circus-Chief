@@ -115,7 +115,11 @@
                 class="card-link"
               >
                 <div class="card-header">
+                  <SessionRunningSpinner
+                    :active="isCardEffectivelyRunning(card.sessions[0])"
+                  />
                   <span
+                    v-if="!isCardEffectivelyRunning(card.sessions[0])"
                     class="card-status"
                     :class="`status-${card.sessions[0].status}`"
                   >
@@ -335,9 +339,11 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { useKanbanStore } from '../stores/kanban.js';
+import { useSessionsStore } from '../stores/sessions.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
+import SessionRunningSpinner from './SessionRunningSpinner.vue';
 import './KanbanBoard.css';
 
 const props = defineProps({
@@ -348,6 +354,7 @@ const props = defineProps({
 });
 
 const kanbanStore = useKanbanStore();
+const sessionsStore = useSessionsStore();
 
 // Local state
 const showAddLane = ref(false);
@@ -402,6 +409,14 @@ const getStatusIndicator = (status) => {
     default:
       return '○';
   }
+};
+
+const isCardEffectivelyRunning = (session) => {
+  if (!session?.id) return false;
+  if (sessionsStore.getWorkflowEffectiveStatus(session.id) === 'running') {
+    return true;
+  }
+  return ['running', 'starting'].includes(session.status);
 };
 
 // --- Card drag-and-drop ---
