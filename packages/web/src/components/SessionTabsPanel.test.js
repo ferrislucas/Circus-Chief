@@ -123,6 +123,17 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel({ hasChanges: false });
       expect(wrapper.find('.changes-indicator').exists()).toBe(false);
     });
+
+    it('shows changes indicator when git status has a warning', () => {
+      const wrapper = mountPanel({
+        hasChanges: false,
+        hasGitStatusWarning: true,
+        gitStatusTitle: '2 unpushed commits',
+      });
+      const indicator = wrapper.find('.changes-indicator');
+      expect(indicator.exists()).toBe(true);
+      expect(indicator.attributes('title')).toBe('2 unpushed commits');
+    });
   });
 
   describe('canvas indicator', () => {
@@ -194,6 +205,12 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel({ hasChanges: true });
       const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Changes'));
       expect(option.text()).toContain('\u2022');
+    });
+
+    it('shows git attention text for changes in mobile', () => {
+      const wrapper = mountPanel({ hasGitStatusWarning: true });
+      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Changes'));
+      expect(option.text()).toContain('Changes · Git attention');
     });
 
     it('shows dot indicator for canvas items in mobile', () => {

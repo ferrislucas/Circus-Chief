@@ -37,6 +37,7 @@ import {
   addSessionToBoard,
   moveCard,
   handleTurnCompletion,
+  handleCompletionMove,
   removeSessionFromBoard,
   addSessionToTemplateTargetLane,
 } from './kanbanService.js';
@@ -333,6 +334,89 @@ describe('kanbanService', () => {
       // Card should still be in the same lane
       const card = kanbanCards.getBySessionId(session.id);
       expect(card.laneId).toBe(lanes[0].id);
+    });
+  });
+
+  // ── handleCompletionMove ──────────────────────────────────────────
+
+  describe('handleCompletionMove', () => {
+    it('moves an existing card to the current lane completion target', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[1].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
+        expect.objectContaining({
+          fromLaneId: lanes[0].id,
+          toLaneId: lanes[1].id,
+        })
+      );
+    });
+
+    it('does nothing when the session has no card', async () => {
+      const session = createSession();
+
+      await handleCompletionMove(session.id);
+
+      expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the current lane has no completion target', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the completion target equals the current lane', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[0].id });
+
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the completion target is on another board', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherBoard = kanbanBoards.create(otherProject.id);
+      const otherLanes = kanbanLanes.getByBoardId(otherBoard.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: otherLanes[0].id });
+
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('composes with per-session targetLaneId moves', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      sessions.update(session.id, { targetLaneId: lanes[1].id });
+      kanbanLanes.update(lanes[1].id, { completionTargetLaneId: lanes[2].id });
+
+      await handleTurnCompletion(session.id);
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[2].id);
     });
   });
 

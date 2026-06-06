@@ -240,6 +240,13 @@
           </svg>
           {{ sessionLane.name }}
         </button>
+        <GitStatusChip
+          :session-id="sessionId"
+          :summary-text="gitStatusSummary"
+          :loading="gitStatusLoading"
+          :error="gitStatusError"
+          :has-actionable-status="hasActionableGitStatus"
+        />
         <PrUrlEditor
           :session-id="sessionId"
           :pr-url="session.prUrl"
@@ -274,6 +281,7 @@ import OverflowMenu from './OverflowMenu.vue';
 import PrUrlEditor from './PrUrlEditor.vue';
 import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import MoveCardModal from './MoveCardModal.vue';
+import GitStatusChip from './GitStatusChip.vue';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useKanbanStore } from '../stores/kanban.js';
@@ -305,6 +313,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  gitStatusSummary: { type: String, default: 'Git status unknown' },
+  gitStatusLoading: { type: Boolean, default: false },
+  gitStatusError: { type: [Object, String], default: null },
+  hasActionableGitStatus: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['duplicate', 'copySessionId', 'archive', 'delete', 'star']);

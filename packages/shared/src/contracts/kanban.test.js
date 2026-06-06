@@ -15,6 +15,7 @@ import {
 
 const UUID = '550e8400-e29b-41d4-a716-446655440000';
 const UUID2 = '550e8400-e29b-41d4-a716-446655440001';
+const UUID3 = '550e8400-e29b-41d4-a716-446655440002';
 
 describe('Kanban Contracts', () => {
   // ── CreateKanbanLaneRequest ──────────────────────────────────────
@@ -125,6 +126,21 @@ describe('Kanban Contracts', () => {
     it('allows partial update with sortOrder', () => {
       const result = UpdateKanbanLaneRequest.safeParse({ sortOrder: 5 });
       expect(result.success).toBe(true);
+    });
+
+    it('allows completionTargetLaneId with a valid UUID', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({ completionTargetLaneId: UUID3 });
+      expect(result.success).toBe(true);
+    });
+
+    it('allows null completionTargetLaneId', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({ completionTargetLaneId: null });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects invalid completionTargetLaneId', () => {
+      const result = UpdateKanbanLaneRequest.safeParse({ completionTargetLaneId: 'not-a-uuid' });
+      expect(result.success).toBe(false);
     });
 
     it('rejects empty name', () => {
@@ -303,10 +319,63 @@ describe('Kanban Contracts', () => {
         onEnterMaxRescheduleCount: null,
         onEnterMaxTotalTokens: null,
         onEnterRescheduleAtTokenCount: null,
+        completionTargetLaneId: null,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
       expect(result.success).toBe(true);
+    });
+
+    it('allows completionTargetLaneId with a valid UUID', () => {
+      const result = KanbanLaneResponse.safeParse({
+        id: UUID,
+        boardId: UUID2,
+        name: 'To Do',
+        sortOrder: 0,
+        onEnterTemplateId: null,
+        onEnterPrompt: null,
+        onEnterMode: null,
+        onEnterModel: null,
+        onEnterEffortLevel: null,
+        onEnterThinkingEnabled: null,
+        onEnterAutoRescheduleEnabled: false,
+        onEnterRescheduleDelayMinutes: null,
+        onEnterRescheduleOnTokenLimit: null,
+        onEnterRescheduleOnServiceError: null,
+        onEnterMaxRescheduleCount: null,
+        onEnterMaxTotalTokens: null,
+        onEnterRescheduleAtTokenCount: null,
+        completionTargetLaneId: UUID3,
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects invalid completionTargetLaneId', () => {
+      const result = KanbanLaneResponse.safeParse({
+        id: UUID,
+        boardId: UUID2,
+        name: 'To Do',
+        sortOrder: 0,
+        onEnterTemplateId: null,
+        onEnterPrompt: null,
+        onEnterMode: null,
+        onEnterModel: null,
+        onEnterEffortLevel: null,
+        onEnterThinkingEnabled: null,
+        onEnterAutoRescheduleEnabled: false,
+        onEnterRescheduleDelayMinutes: null,
+        onEnterRescheduleOnTokenLimit: null,
+        onEnterRescheduleOnServiceError: null,
+        onEnterMaxRescheduleCount: null,
+        onEnterMaxTotalTokens: null,
+        onEnterRescheduleAtTokenCount: null,
+        completionTargetLaneId: 'not-a-uuid',
+        createdAt: 1234567890,
+        updatedAt: 1234567890,
+      });
+      expect(result.success).toBe(false);
     });
 
     it('allows null onEnterTemplateId', () => {
@@ -328,6 +397,7 @@ describe('Kanban Contracts', () => {
         onEnterMaxRescheduleCount: null,
         onEnterMaxTotalTokens: null,
         onEnterRescheduleAtTokenCount: null,
+        completionTargetLaneId: null,
         createdAt: 1234567890,
         updatedAt: 1234567890,
       });
@@ -433,6 +503,7 @@ describe('Kanban Contracts', () => {
             onEnterMaxRescheduleCount: null,
             onEnterMaxTotalTokens: null,
             onEnterRescheduleAtTokenCount: null,
+            completionTargetLaneId: null,
             createdAt: 1234567890,
             updatedAt: 1234567890,
           },
@@ -481,6 +552,7 @@ describe('Kanban Contracts', () => {
             onEnterMaxRescheduleCount: null,
             onEnterMaxTotalTokens: null,
             onEnterRescheduleAtTokenCount: null,
+            completionTargetLaneId: null,
             createdAt: 1234567890,
             updatedAt: 1234567890,
             cards: [

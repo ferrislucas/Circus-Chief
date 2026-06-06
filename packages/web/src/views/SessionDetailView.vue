@@ -31,6 +31,10 @@
         :summary="summary"
         :is-deleting="isDeleting"
         :button-statuses="buttonStatusesToDisplay"
+        :git-status-summary="shortGitStatusSummary"
+        :git-status-loading="gitStatusLoading"
+        :git-status-error="gitStatusError"
+        :has-actionable-git-status="hasActionableGitStatus"
         @duplicate="handleDuplicate"
         @copy-session-id="handleCopySessionId"
         @archive="handleArchive"
@@ -44,6 +48,8 @@
         :active-tab="activeTab"
         :tabs="tabs"
         :has-changes="hasChanges"
+        :has-git-status-warning="hasActionableGitStatus"
+        :git-status-title="gitStatusIndicatorTitle"
         :canvas-count="canvasStore.groupedItems.length"
         :is-session-active="isSessionActive"
         :session-status="activeSessionStatus"
@@ -62,6 +68,11 @@
           v-else-if="activeTab === 'changes'"
           :key="route.params.id"
           :session-id="route.params.id"
+          :git-status="gitStatus"
+          :git-status-summary="gitStatusSummary"
+          :git-status-loading="gitStatusLoading"
+          :git-status-error="gitStatusError"
+          :refresh-git-status="refreshGitStatus"
           @update:file-count="changesFileCount = $event"
         />
         <CanvasTab
@@ -128,6 +139,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { useSessionInitializer } from '../composables/useSessionInitializer.js';
 import { useSessionTree } from '../composables/useSessionTree.js';
+import { useSessionGitStatus } from '../composables/useSessionGitStatus.js';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
@@ -160,6 +172,20 @@ const currentSessionId = ref(route.params.id);
 sessionsStore.viewedSessionId = route.params.id;
 
 const {
+  gitStatus,
+  loading: gitStatusLoading,
+  error: gitStatusError,
+  summaryText: gitStatusSummary,
+  shortSummaryText: shortGitStatusSummary,
+  indicatorTitle: gitStatusIndicatorTitle,
+  hasActionableGitStatus,
+  refresh: refreshGitStatus,
+  reset: resetGitStatus,
+} = useSessionGitStatus({
+  getSessionId: () => currentSessionId.value,
+});
+
+const {
   hasChanges,
   changesFileCount,
   checkForChanges,
@@ -170,6 +196,7 @@ const {
   getSessionId: () => currentSessionId.value,
   getSessionStatus: () => sessionsStore.currentSession?.status,
   sessionsStore,
+  refreshGitStatus,
 });
 
 const summary = ref(null);
@@ -213,6 +240,7 @@ const { cleanup, initializeSession } = useSessionInitializer({
   startPolling,
   stopPolling,
   resetPolling,
+  refreshGitStatus,
   onReconnectCallback: buildSessionChain,
 });
 
@@ -301,6 +329,7 @@ watch(
       resetPreferred();
       cleanup();
       currentSessionId.value = newSessionId;
+      resetGitStatus();
       await initializeSession(newSessionId);
 
       const newProjectId = sessionsStore.currentSession?.projectId;
@@ -354,6 +383,7 @@ onActivated(() => {
 
 onUnmounted(() => {
   cleanup();
+  resetGitStatus();
   if (currentProjectSubscriptionId) {
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
     currentProjectSubscriptionId = null;

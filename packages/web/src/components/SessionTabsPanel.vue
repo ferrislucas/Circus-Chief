@@ -98,9 +98,9 @@
             :title="sessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
           />
           <span
-            v-if="tab.id === 'changes' && hasChanges"
+            v-if="tab.id === 'changes' && hasChangesAttention"
             class="changes-indicator"
-            title="Uncommitted changes"
+            :title="gitStatusTitle || 'Uncommitted changes'"
           />
           <span
             v-if="tab.id === 'canvas' && canvasCount > 0"
@@ -123,7 +123,7 @@
           :key="tab.id"
           :value="tab.id"
         >
-          {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' \u2022' : '' }}{{ tab.id === 'canvas' && canvasCount > 0 ? ' \u2022' : '' }}
+          {{ mobileTabLabel(tab) }}{{ tab.id === 'canvas' && canvasCount > 0 ? ' \u2022' : '' }}
         </option>
       </select>
     </div>
@@ -175,11 +175,27 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  hasGitStatusWarning: {
+    type: Boolean,
+    default: false,
+  },
+  gitStatusTitle: {
+    type: String,
+    default: '',
+  },
 });
 
 const router = useRouter();
 
 const mobileTabs = computed(() => props.tabs.filter(tab => tab.desktopOnly !== true));
+const hasChangesAttention = computed(() => props.hasGitStatusWarning || props.hasChanges);
+
+function mobileTabLabel(tab) {
+  if (tab.id !== 'changes') return tab.label;
+  if (props.hasGitStatusWarning) return `${tab.label} · Git attention`;
+  if (props.hasChanges) return `${tab.label} \u2022`;
+  return tab.label;
+}
 
 function navigateToTab(tabId) {
   router.push(`/sessions/${props.sessionId}/${tabId}`);
