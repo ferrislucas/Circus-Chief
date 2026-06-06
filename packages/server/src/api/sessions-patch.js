@@ -233,6 +233,14 @@ router.patch('/:id', requireSession, (req, res) => {
     return res.status(400).json({ error: 'No valid fields to update' });
   }
 
+  if (
+    updateData.scheduledAt != null &&
+    req.body.status === undefined &&
+    !['running', 'starting'].includes(req.session_.status)
+  ) {
+    updateData.status = 'scheduled';
+  }
+
   const updated = sessions.update(req.params.id, updateData);
 
   // Reset PR state when URL changes to a different PR or is cleared
