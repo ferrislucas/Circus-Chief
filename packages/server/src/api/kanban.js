@@ -17,6 +17,7 @@ import {
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
 
 const router = Router({ mergeParams: true });
+const LANE_NOT_FOUND_ERROR = 'Lane not found';
 
 /**
  * Helper to build full board response with lanes and cards
@@ -143,12 +144,12 @@ router.patch('/lanes/:laneId', (req, res) => {
 
   const lane = kanbanLanes.getById(laneId);
   if (!lane) {
-    return res.status(404).json({ error: 'Lane not found' });
+    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
   }
 
   const board = kanbanBoards.getByProjectId(projectId);
   if (!board || board.id !== lane.boardId) {
-    return res.status(404).json({ error: 'Lane not found' });
+    return res.status(404).json({ error: LANE_NOT_FOUND_ERROR });
   }
 
   if (result.data.completionTargetLaneId !== undefined && result.data.completionTargetLaneId !== null) {

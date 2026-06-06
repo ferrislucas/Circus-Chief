@@ -471,9 +471,9 @@ const laneIndex = computed(() => currentLaneIndex.value);
 
 const totalLanes = computed(() => kanbanStore.board?.lanes?.length || 0);
 
-const completionTargetLanes = computed(() => {
-  return (kanbanStore.board?.lanes || []).filter((lane) => lane.id !== props.lane?.id);
-});
+const completionTargetLanes = computed(() =>
+  (kanbanStore.board?.lanes || []).filter((lane) => lane.id !== props.lane?.id)
+);
 
 const isValid = computed(() => {
   if (!form.name.trim()) return false;
