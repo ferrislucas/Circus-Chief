@@ -130,6 +130,7 @@
         :is-open="showLaneSelectorModal"
         :session-name="sessionToAdd?.name || ''"
         :lanes="kanbanStore.board?.lanes || []"
+        :current-lane-id="currentLaneIdForSessionToAdd"
         @close="closeLaneSelectorModal"
         @select-lane="addSessionToLane"
       />
@@ -216,6 +217,11 @@ const showArchiveModal = ref(false);
 const archiving = ref(false);
 const showLaneSelectorModal = ref(false);
 const sessionToAdd = ref(null);
+
+const currentLaneIdForSessionToAdd = computed(() => {
+  if (!sessionToAdd.value?.id) return null;
+  return getLaneIdForSession(sessionToAdd.value.id);
+});
 
 // Readiness signal for E2E tests
 const sessionChainReady = ref(false);
@@ -526,13 +532,31 @@ async function addSessionToLane(lane) {
   if (!sessionToAdd.value || !lane) return;
 
   try {
-    await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, sessionToAdd.value.id, lane.id);
-    uiStore.success(`Session added to "${lane.name}"`);
+    const existingCard = kanbanStore.getCardBySessionId(sessionToAdd.value.id);
+    if (existingCard) {
+      if (currentLaneIdForSessionToAdd.value === lane.id) return;
+      await kanbanStore.moveCard(sessionToAdd.value.projectId, existingCard.id, lane.id);
+      uiStore.success(`Session moved to "${lane.name}"`);
+    } else {
+      await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, sessionToAdd.value.id, lane.id);
+      uiStore.success(`Session added to "${lane.name}"`);
+    }
     closeLaneSelectorModal();
   } catch (err) {
     console.error('Failed to add session to board:', err);
     uiStore.error(err.message || 'Failed to add session to board');
   }
+}
+
+function getLaneIdForSession(sessionId) {
+  const card = kanbanStore.getCardBySessionId(sessionId);
+  if (!card) return null;
+  if (card.laneId) return card.laneId;
+
+  const lane = kanbanStore.board?.lanes?.find((candidate) =>
+    candidate.cards?.some((candidateCard) => candidateCard.id === card.id)
+  );
+  return lane?.id || null;
 }
 
 async function handleCopySessionId() {

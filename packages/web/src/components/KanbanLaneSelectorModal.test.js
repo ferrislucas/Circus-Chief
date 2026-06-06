@@ -53,6 +53,19 @@ describe('KanbanLaneSelectorModal', () => {
     expect(selectLaneSpy).toHaveBeenCalledWith({ id: 'lane-2', name: 'Done', cards: [] });
   });
 
+  it('marks and disables the current lane', async () => {
+    const wrapper = mountModal({ currentLaneId: 'lane-1' });
+    const currentLane = wrapper.findAll('.lane-option-btn')[0];
+
+    expect(currentLane.classes()).toContain('lane-option-current');
+    expect(currentLane.attributes('aria-current')).toBe('true');
+    expect(currentLane.attributes('disabled')).toBeDefined();
+    expect(currentLane.text()).toContain('Current lane');
+
+    await currentLane.trigger('click');
+    expect(wrapper.emitted('select-lane')).toBeUndefined();
+  });
+
   it('emits close from close and cancel buttons', async () => {
     const closeSpy = vi.fn();
     const wrapper = mount(KanbanLaneSelectorModal, {

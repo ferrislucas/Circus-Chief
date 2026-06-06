@@ -276,6 +276,7 @@
       :is-open="showLaneSelectorModal"
       :session-name="sessionToAdd?.name || ''"
       :lanes="kanbanStore.board?.lanes || []"
+      :current-lane-id="currentLaneIdForSessionToAdd"
       @close="closeLaneSelectorModal"
       @select-lane="addSessionToLane"
     />
@@ -488,6 +489,11 @@ const selectedLaneForAdd = ref(null);
 const showLaneSelectorModal = ref(false);
 const sessionToAdd = ref(null);
 
+const currentLaneIdForSessionToAdd = computed(() => {
+  if (!sessionToAdd.value?.id) return null;
+  return getLaneIdForSession(sessionToAdd.value.id);
+});
+
 function handleAddToBoard(session) {
   sessionToAdd.value = session;
   showLaneSelectorModal.value = true;
@@ -504,6 +510,7 @@ async function addSessionToLane(lane) {
   try {
     const existingCard = kanbanStore.getCardBySessionId(sessionToAdd.value.id);
     if (existingCard) {
+      if (currentLaneIdForSessionToAdd.value === lane.id) return;
       await kanbanStore.moveCard(route.params.id, existingCard.id, lane.id);
       uiStore.success(`Session moved to "${lane.name}"`);
     } else {
@@ -515,6 +522,17 @@ async function addSessionToLane(lane) {
     console.error('Failed to update session board lane:', err);
     uiStore.error(err.message || 'Failed to update session board lane');
   }
+}
+
+function getLaneIdForSession(sessionId) {
+  const card = kanbanStore.getCardBySessionId(sessionId);
+  if (!card) return null;
+  if (card.laneId) return card.laneId;
+
+  const lane = kanbanStore.board?.lanes?.find((candidate) =>
+    candidate.cards?.some((candidateCard) => candidateCard.id === card.id)
+  );
+  return lane?.id || null;
 }
 
 function closeAddToLaneModal() {

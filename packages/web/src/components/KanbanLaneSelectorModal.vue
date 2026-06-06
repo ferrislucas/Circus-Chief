@@ -19,16 +19,27 @@
       </div>
       <div class="modal-body">
         <p class="modal-description">
-          Select a lane to add "{{ sessionName }}" to:
+          Select a lane for "{{ sessionName }}":
         </p>
         <div class="lane-options">
           <button
             v-for="lane in lanes"
             :key="lane.id"
             class="lane-option-btn"
+            :class="{ 'lane-option-current': lane.id === currentLaneId }"
+            :disabled="lane.id === currentLaneId"
+            :aria-current="lane.id === currentLaneId ? 'true' : undefined"
             @click="$emit('select-lane', lane)"
           >
-            <span class="lane-option-name">{{ lane.name }}</span>
+            <span class="lane-option-info">
+              <span class="lane-option-name">{{ lane.name }}</span>
+              <span
+                v-if="lane.id === currentLaneId"
+                class="lane-option-current-label"
+              >
+                Current lane
+              </span>
+            </span>
             <span class="lane-option-count">{{ lane.cards?.length || 0 }} cards</span>
           </button>
         </div>
@@ -64,6 +75,10 @@ defineProps({
   lanes: {
     type: Array,
     default: () => [],
+  },
+  currentLaneId: {
+    type: String,
+    default: null,
   },
 });
 
@@ -162,8 +177,37 @@ defineEmits(['close', 'select-lane']);
   background: rgba(34, 197, 255, 0.05);
 }
 
+.lane-option-btn:disabled {
+  cursor: default;
+}
+
+.lane-option-btn:disabled:hover {
+  border-color: var(--color-primary);
+  background: rgba(34, 197, 255, 0.08);
+}
+
+.lane-option-current {
+  border-color: var(--color-primary);
+  background: rgba(34, 197, 255, 0.08);
+}
+
+.lane-option-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+}
+
 .lane-option-name {
   font-weight: 500;
+}
+
+.lane-option-current-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .lane-option-count {

@@ -97,11 +97,12 @@ vi.mock('../components/ArchiveConfirmModal.vue', () => ({
 vi.mock('../components/KanbanLaneSelectorModal.vue', () => ({
   default: {
     name: 'KanbanLaneSelectorModal',
-    props: ['isOpen', 'sessionName', 'lanes'],
+    props: ['isOpen', 'sessionName', 'lanes', 'currentLaneId'],
     emits: ['close', 'select-lane'],
     template: `
       <div v-if="isOpen" class="kanban-lane-selector-modal">
         <span class="selector-session-name">{{ sessionName }}</span>
+        <span class="selector-current-lane">{{ currentLaneId }}</span>
         <button
           v-for="lane in lanes"
           :key="lane.id"
@@ -900,6 +901,54 @@ describe('SessionDetailView', () => {
       expect(wrapper.find('.kanban-lane-selector-modal').exists()).toBe(true);
     });
 
+    it('passes the current lane to the detail selector when the session is already on the board', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+        kanbanEnabled: true,
+      };
+      kanbanStore.board = {
+        lanes: [
+          {
+            id: 'lane-1',
+            name: 'Todo',
+            cards: [{ id: 'card-1', laneId: 'lane-1', sessions: [{ id: 'session-1' }] }],
+          },
+          { id: 'lane-2', name: 'Done', cards: [] },
+        ],
+      };
+      kanbanStore.currentProjectId = 'proj-1';
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await wrapper.find('.mock-add-to-board').trigger('click');
+      await nextTick();
+
+      const selector = wrapper.findComponent({ name: 'KanbanLaneSelectorModal' });
+      expect(selector.props('currentLaneId')).toBe('lane-1');
+    });
+
     it('adds the current session to the selected lane from the detail selector', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
@@ -945,6 +994,60 @@ describe('SessionDetailView', () => {
       expect(addSpy).toHaveBeenCalledWith('proj-1', 'session-1', 'lane-1');
       const selector = wrapper.findComponent({ name: 'KanbanLaneSelectorModal' });
       expect(selector.props('isOpen')).toBe(false);
+    });
+
+    it('moves an existing board card from the detail selector', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+        kanbanEnabled: true,
+      };
+      kanbanStore.board = {
+        lanes: [
+          {
+            id: 'lane-1',
+            name: 'Todo',
+            cards: [{ id: 'card-1', laneId: 'lane-1', sessions: [{ id: 'session-1' }] }],
+          },
+          { id: 'lane-2', name: 'Done', cards: [] },
+        ],
+      };
+      kanbanStore.currentProjectId = 'proj-1';
+      const addSpy = vi.spyOn(kanbanStore, 'addSessionToBoard');
+      const moveSpy = vi.spyOn(kanbanStore, 'moveCard').mockResolvedValue({
+        id: 'card-1',
+        laneId: 'lane-2',
+      });
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await wrapper.find('.mock-add-to-board').trigger('click');
+      await wrapper.findAll('.mock-lane-option')[1].trigger('click');
+      await flushPromises();
+
+      expect(moveSpy).toHaveBeenCalledWith('proj-1', 'card-1', 'lane-2');
+      expect(addSpy).not.toHaveBeenCalled();
     });
   });
 
