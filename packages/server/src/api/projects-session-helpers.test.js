@@ -14,7 +14,7 @@ import {
   buildSchedulingUpdate,
   setupAndStartSession,
 } from './projects-session-helpers.js';
-import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES, DEFAULT_MAX_RESCHEDULE_COUNT } from '@circuschief/shared';
 
 // Mock all external dependencies
 vi.mock('../database.js', () => ({
@@ -307,7 +307,9 @@ describe('parseSchedulingConfig', () => {
   it('coerces autoRescheduleEnabled boolean', () => {
     expect(parseSchedulingConfig({ autoRescheduleEnabled: true }).autoRescheduleEnabled).toBe(true);
     expect(parseSchedulingConfig({ autoRescheduleEnabled: 'true' }).autoRescheduleEnabled).toBe(true);
-    expect(parseSchedulingConfig({}).autoRescheduleEnabled).toBe(false);
+    expect(parseSchedulingConfig({}).autoRescheduleEnabled).toBe(true);
+    expect(parseSchedulingConfig({ autoRescheduleEnabled: false }).autoRescheduleEnabled).toBe(false);
+    expect(parseSchedulingConfig({ autoRescheduleEnabled: 'false' }).autoRescheduleEnabled).toBe(false);
   });
 
   it('defaults rescheduleDelayMinutes to DEFAULT_RESCHEDULE_DELAY_MINUTES', () => {
@@ -322,17 +324,18 @@ describe('parseSchedulingConfig', () => {
 
   it('parses maxRescheduleCount', () => {
     expect(parseSchedulingConfig({ maxRescheduleCount: '5' }).maxRescheduleCount).toBe(5);
-    expect(parseSchedulingConfig({}).maxRescheduleCount).toBeNull();
+    expect(parseSchedulingConfig({}).maxRescheduleCount).toBe(DEFAULT_MAX_RESCHEDULE_COUNT);
   });
 
   it('returns defaults for null/empty body', () => {
     const result = parseSchedulingConfig({});
     expect(result.scheduledAt).toBeUndefined();
     expect(result.schedulingError).toBeNull();
-    expect(result.autoRescheduleEnabled).toBe(false);
+    expect(result.autoRescheduleEnabled).toBe(true);
     expect(result.rescheduleDelayMinutes).toBe(DEFAULT_RESCHEDULE_DELAY_MINUTES);
     expect(result.rescheduleOnTokenLimit).toBe(true);
-    expect(result.maxRescheduleCount).toBeNull();
+    expect(result.rescheduleOnServiceError).toBe(true);
+    expect(result.maxRescheduleCount).toBe(DEFAULT_MAX_RESCHEDULE_COUNT);
   });
 });
 

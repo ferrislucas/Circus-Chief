@@ -524,7 +524,7 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date }
+  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date; autoRescheduleEnabled?: boolean }
 ) {
   const scheduledAt =
     data.scheduledAt instanceof Date
@@ -534,9 +534,12 @@ export async function seedSession(
         : data.scheduledAt;
 
   // Default gitMode/gitBranch so tests pass for git-repo-backed projects
+  // Default autoRescheduleEnabled to false so tests get deterministic panel behavior
+  // (the REST API now defaults it to true for agent convenience)
   const payload = {
     gitMode: 'none',
     gitBranch: 'main',
+    autoRescheduleEnabled: false,
     ...data,
     ...(scheduledAt !== undefined ? { scheduledAt } : {}),
   };
