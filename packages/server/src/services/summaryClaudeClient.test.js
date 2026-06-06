@@ -143,6 +143,16 @@ describe('summaryClaudeClient', () => {
       expect(callArgs.options.allowedTools).toEqual([]);
     });
 
+    it('uses maxTurns >= 2 to allow the SDK-internal StructuredOutput tool-use cycle', async () => {
+      await callClaude('Test prompt', [], 'running');
+
+      const callArgs = query.mock.calls[0][0];
+      // outputFormat injects a StructuredOutput tool internally. The model calls it on
+      // turn 1; the SDK needs at least one more turn to process the tool result.
+      // maxTurns: 1 causes "Reached maximum number of turns (1)" errors for ALL summaries.
+      expect(callArgs.options.maxTurns).toBeGreaterThanOrEqual(2);
+    });
+
     it('starts agent call logging when logMeta provided', async () => {
       await callClaude('Test prompt', [], 'running', {
         logMeta: {
