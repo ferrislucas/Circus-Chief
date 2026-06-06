@@ -11,9 +11,10 @@ import { parseDiff } from '../utils/diffParser.js';
  * @param {Function} options.getSessionStatus - Function that returns the current session status
  * @param {Object} options.sessionsStore - The sessions Pinia store
  * @param {number} [options.pollInterval=3000] - Polling interval in milliseconds
+ * @param {Function} [options.refreshGitStatus] - Optional git status refresh hook
  * @returns {Object} Polling and changes utilities
  */
-export function useSessionPolling({ getSessionId, getSessionStatus, sessionsStore, pollInterval = 3000 }) {
+export function useSessionPolling({ getSessionId, getSessionStatus, sessionsStore, pollInterval = 3000, refreshGitStatus }) {
   const pollIntervalId = ref(null);
   const hasChanges = ref(false);
   const changesFileCount = ref(0);
@@ -66,7 +67,10 @@ export function useSessionPolling({ getSessionId, getSessionStatus, sessionsStor
           return;
         }
         // Check for file changes during active session
-        checkForChanges();
+        await checkForChanges();
+        if (refreshGitStatus) {
+          refreshGitStatus({ fetch: false });
+        }
       } else {
         // Session no longer actively processing, stop polling
         stopPolling();
