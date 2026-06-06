@@ -4,25 +4,34 @@ import {
   BASE_URL,
   seedProject,
   seedSession,
+  seedProjectTemplate,
   cleanupCreatedResources,
   navigateAndWait,
   openSessionOverlay,
   waitForStatus,
+  waitForChildSession,
+  getProjectSessions,
 } from './helpers';
 
 /**
  * UI-driven E2E coverage for the lane "On Completion" move feature.
  *
- * Implements the plan on the canvas (kanban-completion-move-e2e-plan.md):
- *  - Test 1: configure + persist the completion target through the UI.
- *  - Test 2: clearing the target through the UI prevents an auto move.
- *  - Test 3 (+4 folded in): a real session lifecycle moves the card from the
- *    source lane to the configured destination, exercised through the UI and
- *    backed by the existing VCR cassette system (no Playwright route mocking).
+ *  - Test 1: configure / change / clear the completion target through the UI and
+ *    assert each variation persists across reload AND server-side.
+ *  - Test 2: clearing the target prevents an auto move — proven by running a REAL
+ *    session lifecycle (VCR replay) so the production completion hook actually
+ *    fires and decides not to move (no direct status PATCH shortcut).
+ *  - Test 3: a real session lifecycle moves the card from the source lane to the
+ *    configured destination, through the UI and backed by the VCR cassette system.
+ *  - Test 4: completing into a destination lane that has an on-enter CUSTOM PROMPT
+ *    creates a child session (the automation runs as part of the completion move).
+ *  - Test 5: same as Test 4 but the destination lane runs an on-enter TEMPLATE.
  *
- * No REST mocking. The REST API is used only for seeding setup and for final
- * state verification — every user-observable action (configuring the lane,
- * adding the card, starting the session) happens through the UI.
+ * No REST mocking. The REST API is used only for seeding setup (sessions,
+ * templates, destination-lane on-enter automation) and for final state
+ * verification. Every user-observable action for the feature under test —
+ * configuring the completion target, adding the card, starting the session —
+ * happens through the UI.
  */
 
 // ============================================================
@@ -30,15 +39,15 @@ import {
 // ============================================================
 
 /**
- * The completion-move lifecycle test (Test 3) starts a draft session through
- * the chat input. To keep it deterministic and runnable in the default
- * `VCR_MODE=replay`, it reuses the prompt of an already-committed cassette
- * (runSession-ec0df80145f024e5.json). The cassette key is callType + a hash of
- * this exact prompt, so the text MUST match byte-for-byte.
+ * The lifecycle tests start a draft session through the chat input. To keep
+ * them deterministic and runnable in the default `VCR_MODE=replay`, they reuse
+ * the prompt of an already-committed cassette (runSession-ec0df80145f024e5.json).
+ * The cassette key is callType + a hash of this exact prompt, so the text MUST
+ * match byte-for-byte. The same prompt is reused for the on-enter automation in
+ * Tests 4/5 so the spawned child session also replays cleanly from that cassette.
  *
  * If you ever change this prompt, re-record with:
- *   VCR_MODE=record ./scripts/pw.sh test tests/e2e/kanban-completion-move.spec.ts \
- *     --grep "Session completion moves card"
+ *   VCR_MODE=record ./scripts/pw.sh test tests/e2e/kanban-completion-move.spec.ts
  * and commit the new cassette under tests/e2e/cassettes/.
  */
 const VCR_PROMPT = 'Claude E2E regression: reply with exactly "Claude E2E response."';
@@ -66,6 +75,25 @@ function findLaneOfSession(board: any, sessionId: string): string | null {
   return null;
 }
 
+/** Configure a destination lane's on-enter automation via the REST API (test setup). */
+async function setLaneOnEnter(projectId: string, laneId: string, settings: object) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/lanes/${laneId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to set lane on-enter automation: ${response.status} ${await response.text()}`);
+  }
+  return response.json();
+}
+
+/** Count child sessions of a parent (used for negative assertions). */
+async function countChildSessions(parentSessionId: string, projectId: string): Promise<number> {
+  const all = await getProjectSessions(projectId);
+  return all.filter((s: any) => s.parentSessionId === parentSessionId).length;
+}
+
 /** Locate a kanban lane by its exact title (avoids matching card text). */
 function laneByTitle(page: Page, title: string): Locator {
   return page.locator('.kanban-lane').filter({
@@ -89,6 +117,13 @@ async function saveLaneSettings(page: Page) {
   await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
 }
 
+/** Open "In Progress" lane settings, pick a completion target by label, and save. */
+async function configureCompletionTarget(page: Page, sourceLane: string, targetLabel: string) {
+  await openLaneSettings(page, sourceLane);
+  await page.selectOption('#completion-target-lane-select', { label: targetLabel });
+  await saveLaneSettings(page);
+}
+
 /** Add a (draft) session to a lane via the lane's "Add Session" modal. */
 async function addSessionToLaneViaUI(page: Page, laneTitle: string, sessionName: string) {
   await laneByTitle(page, laneTitle).locator('.add-session-btn').click();
@@ -97,6 +132,27 @@ async function addSessionToLaneViaUI(page: Page, laneTitle: string, sessionName:
   await page.locator('.session-item').filter({ hasText: sessionName }).first().click();
   await page.click('.modal-footer .btn-primary');
   await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
+}
+
+/**
+ * Drive a real agent turn through the UI: open the session, type the VCR prompt
+ * into the visible chat input, send, and wait for the turn to settle to
+ * 'waiting' (VCR replay). This is what triggers the production completion hook.
+ */
+async function runSessionTurnViaUI(page: Page, sessionId: string) {
+  await navigateAndWait(page, `${BASE_URL}/sessions/${sessionId}/summary`);
+  await openSessionOverlay(page);
+  const textarea = page.locator('.input-form textarea');
+  await textarea.fill(VCR_PROMPT);
+  await page.locator('.btn-send-full').first().click();
+  await waitForStatus(sessionId, 'waiting', 60000);
+}
+
+/** Poll the board until the given session's card lands in the expected lane. */
+async function expectCardSettlesInLane(projectId: string, sessionId: string, laneName: string) {
+  await expect
+    .poll(async () => findLaneOfSession(await getBoard(projectId), sessionId), { timeout: 15000 })
+    .toBe(laneName);
 }
 
 // ============================================================
@@ -122,11 +178,16 @@ test.describe('Kanban lane completion move', () => {
   });
 
   // ----------------------------------------------------------------
-  // Test 1: configure + persist completion target through the UI
+  // Test 1: configure / change / clear the completion target through the UI
   // ----------------------------------------------------------------
-  test('configures and persists the completion target through the UI', async ({ page }) => {
+  test('configures, changes, and clears the completion target through the UI', async ({ page }) => {
     const board = await getBoard(project.id);
     const doneLane = getLaneByName(board, 'Done');
+    const reviewLane = getLaneByName(board, 'Review');
+    const otherLaneNames = board.lanes
+      .filter((l: any) => l.name !== 'In Progress')
+      .map((l: any) => l.name)
+      .sort();
 
     await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
       waitFor: '.kanban-board',
@@ -134,19 +195,16 @@ test.describe('Kanban lane completion move', () => {
 
     await openLaneSettings(page, 'In Progress');
 
-    // The select should list "do not move" plus every OTHER lane, but never
-    // the lane being configured.
-    const optionTexts = await page
-      .locator('#completion-target-lane-select option')
-      .allTextContents();
-    const trimmed = optionTexts.map((t) => t.trim());
-    expect(trimmed).toContain('Do not move automatically');
-    expect(trimmed).toContain('To Do');
-    expect(trimmed).toContain('Review');
-    expect(trimmed).toContain('Done');
-    expect(trimmed).not.toContain('In Progress');
+    // The select lists "do not move" + every OTHER lane, and never the lane
+    // being configured. Assert the exact set, not just a few members.
+    const optionTexts = (
+      await page.locator('#completion-target-lane-select option').allTextContents()
+    ).map((t) => t.trim());
+    expect(optionTexts[0]).toBe('Do not move automatically');
+    expect(optionTexts.slice(1).sort()).toEqual(otherLaneNames);
+    expect(optionTexts).not.toContain('In Progress');
 
-    // Configure the move to "Done" and save through the real API.
+    // (a) Configure the move to "Done" and save through the real API.
     await page.selectOption('#completion-target-lane-select', { label: 'Done' });
     await saveLaneSettings(page);
 
@@ -154,25 +212,47 @@ test.describe('Kanban lane completion move', () => {
     await page.reload();
     await expect(page.locator('.kanban-board')).toBeVisible();
     await openLaneSettings(page, 'In Progress');
-
-    const select = page.locator('#completion-target-lane-select');
-    await expect(select).toHaveValue(doneLane.id);
+    await expect(page.locator('#completion-target-lane-select')).toHaveValue(doneLane.id);
     await expect(page.locator('#completion-target-lane-select option:checked')).toHaveText('Done');
+    expect(getLaneByName(await getBoard(project.id), 'In Progress').completionTargetLaneId).toBe(
+      doneLane.id
+    );
+    await page.click('.modal-footer .btn-secondary'); // Cancel out
 
-    // Persisted server-side too.
-    const afterBoard = await getBoard(project.id);
-    const inProgress = getLaneByName(afterBoard, 'In Progress');
-    expect(inProgress.completionTargetLaneId).toBe(doneLane.id);
+    // (b) Change the target to a DIFFERENT lane ("Review") and confirm it updates.
+    await configureCompletionTarget(page, 'In Progress', 'Review');
+    await page.reload();
+    await expect(page.locator('.kanban-board')).toBeVisible();
+    await openLaneSettings(page, 'In Progress');
+    await expect(page.locator('#completion-target-lane-select')).toHaveValue(reviewLane.id);
+    expect(getLaneByName(await getBoard(project.id), 'In Progress').completionTargetLaneId).toBe(
+      reviewLane.id
+    );
+    await page.click('.modal-footer .btn-secondary');
+
+    // (c) Clear it back to "do not move" and confirm it persists as null.
+    await configureCompletionTarget(page, 'In Progress', 'Do not move automatically');
+    await page.reload();
+    await expect(page.locator('.kanban-board')).toBeVisible();
+    await openLaneSettings(page, 'In Progress');
+    await expect(page.locator('#completion-target-lane-select option:checked')).toHaveText(
+      'Do not move automatically'
+    );
+    expect(getLaneByName(await getBoard(project.id), 'In Progress').completionTargetLaneId).toBeNull();
   });
 
   // ----------------------------------------------------------------
-  // Test 2: clearing the completion target through the UI prevents auto move
+  // Test 2: clearing the completion target prevents an auto move — proven by a
+  // REAL session lifecycle so the completion hook actually runs and declines.
   // ----------------------------------------------------------------
-  test('clearing the completion target through the UI prevents auto move', async ({ page }) => {
-    const sessionName = 'Completion Clear Session';
+  test('clearing the completion target prevents auto move across a real session lifecycle', async ({
+    page,
+  }) => {
+    const sessionName = 'Completion Clear VCR Session';
     const session = await seedSession(project.id, {
-      prompt: 'Draft for clear test',
+      prompt: VCR_PROMPT,
       name: sessionName,
+      model: VCR_MODEL,
       startImmediately: false,
     });
 
@@ -180,46 +260,44 @@ test.describe('Kanban lane completion move', () => {
       waitFor: '.kanban-board',
     });
 
-    // First set a target...
-    await openLaneSettings(page, 'In Progress');
-    await page.selectOption('#completion-target-lane-select', { label: 'Done' });
-    await saveLaneSettings(page);
+    // First set a target, then clear it back to "do not move" — both via the UI.
+    await configureCompletionTarget(page, 'In Progress', 'Done');
+    await configureCompletionTarget(page, 'In Progress', 'Do not move automatically');
 
-    // ...then clear it back to "do not move".
-    await openLaneSettings(page, 'In Progress');
-    await page.selectOption('#completion-target-lane-select', { label: 'Do not move automatically' });
-    await saveLaneSettings(page);
+    // The cleared setting is persisted as null.
+    expect(getLaneByName(await getBoard(project.id), 'In Progress').completionTargetLaneId).toBeNull();
 
     // Add the draft to "In Progress" through the UI.
     await addSessionToLaneViaUI(page, 'In Progress', sessionName);
     await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
 
-    // The cleared setting is persisted as null.
-    const board = await getBoard(project.id);
-    const inProgress = getLaneByName(board, 'In Progress');
-    expect(inProgress.completionTargetLaneId).toBeNull();
+    // Run a REAL agent turn. The completion hook fires for this session, but with
+    // the target cleared it must leave the card exactly where it is.
+    await runSessionTurnViaUI(page, session.id);
 
-    // Simulate the session settling into the natural-completion status. With the
-    // target cleared, the card must stay put. (No LLM lifecycle is spent here.)
-    await fetch(`${API_URL}/api/sessions/${session.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'waiting' }),
+    // Give the completion hook (which runs just after status flips to 'waiting')
+    // time to run, then assert the card never moved — live and after reload.
+    await expect
+      .poll(async () => findLaneOfSession(await getBoard(project.id), session.id), { timeout: 8000 })
+      .toBe('In Progress');
+
+    await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
     });
+    await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
+    await expect(cardInLane(page, 'Done', sessionName)).toHaveCount(0);
 
     await page.reload();
     await expect(page.locator('.kanban-board')).toBeVisible();
     await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
     await expect(cardInLane(page, 'Done', sessionName)).toHaveCount(0);
 
-    // And server-side the card never left "In Progress".
-    const afterBoard = await getBoard(project.id);
-    expect(findLaneOfSession(afterBoard, session.id)).toBe('In Progress');
+    // Server-side, the card never left "In Progress".
+    expect(findLaneOfSession(await getBoard(project.id), session.id)).toBe('In Progress');
   });
 
   // ----------------------------------------------------------------
-  // Test 3 (+ Test 4): a real session lifecycle moves the card via the
-  // completion hook, driven through the UI and replayed via VCR.
+  // Test 3: a real session lifecycle moves the card from source to target.
   // ----------------------------------------------------------------
   test('Session completion moves card from source lane to completion target', async ({ page }) => {
     const sessionName = 'Completion Move VCR Session';
@@ -238,34 +316,21 @@ test.describe('Kanban lane completion move', () => {
     });
 
     // Configure "In Progress" → "Done" on completion, through the UI.
-    await openLaneSettings(page, 'In Progress');
-    await page.selectOption('#completion-target-lane-select', { label: 'Done' });
-    await saveLaneSettings(page);
+    await configureCompletionTarget(page, 'In Progress', 'Done');
 
     // Add the draft session to "In Progress" through the UI.
     await addSessionToLaneViaUI(page, 'In Progress', sessionName);
     await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
 
     // Start the session via the visible chat input (no direct /message call).
-    await navigateAndWait(page, `${BASE_URL}/sessions/${session.id}/summary`);
-    await openSessionOverlay(page);
-    const textarea = page.locator('.input-form textarea');
-    await textarea.fill(VCR_PROMPT);
-    await page.locator('.btn-send-full').first().click();
-
-    // Wait for the agent turn to complete naturally (VCR replay → 'waiting').
-    await waitForStatus(session.id, 'waiting', 60000);
+    await runSessionTurnViaUI(page, session.id);
 
     // The completion hook runs right after the status flips to 'waiting', so
     // poll the API until the card lands in "Done" (avoids the status/hook race).
-    await expect
-      .poll(async () => findLaneOfSession(await getBoard(project.id), session.id), {
-        timeout: 15000,
-      })
-      .toBe('Done');
+    await expectCardSettlesInLane(project.id, session.id, 'Done');
 
     // Back on the board, the card is shown in "Done" and gone from "In Progress"
-    // — first live (no manual reload), then again after a reload (Test 4).
+    // — first live (no manual reload), then again after a reload.
     await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
       waitFor: '.kanban-board',
     });
@@ -277,11 +342,104 @@ test.describe('Kanban lane completion move', () => {
     await expect(cardInLane(page, 'Done', sessionName)).toBeVisible();
     await expect(cardInLane(page, 'In Progress', sessionName)).toHaveCount(0);
 
+    // "Done" has no on-enter automation, so no child session should be spawned.
+    expect(await countChildSessions(session.id, project.id)).toBe(0);
+
     // Final server-side verification.
     const finalBoard = await getBoard(project.id);
     const done = getLaneByName(finalBoard, 'Done');
     const card = done.cards.find((c: any) => (c.sessions || []).some((s: any) => s.id === session.id));
     expect(card).toBeTruthy();
     expect(card.laneId).toBe(doneLane.id);
+  });
+
+  // ----------------------------------------------------------------
+  // Test 4: completing into a destination lane with an on-enter CUSTOM PROMPT
+  // moves the card AND runs the automation (spawns a child session).
+  // ----------------------------------------------------------------
+  test('completion move runs the destination lane on-enter prompt (spawns child session)', async ({
+    page,
+  }) => {
+    const sessionName = 'Completion Prompt Parent';
+    const board = await getBoard(project.id);
+    const doneLane = getLaneByName(board, 'Done');
+
+    // Destination lane runs a custom prompt on entry (test setup via API).
+    // Reuse VCR_PROMPT so the spawned child also replays from the cassette.
+    await setLaneOnEnter(project.id, doneLane.id, { onEnterPrompt: VCR_PROMPT });
+
+    const session = await seedSession(project.id, {
+      prompt: VCR_PROMPT,
+      name: sessionName,
+      model: VCR_MODEL,
+      startImmediately: false,
+    });
+
+    await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    await configureCompletionTarget(page, 'In Progress', 'Done');
+    await addSessionToLaneViaUI(page, 'In Progress', sessionName);
+    await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
+
+    await runSessionTurnViaUI(page, session.id);
+
+    // Card moves to Done...
+    await expectCardSettlesInLane(project.id, session.id, 'Done');
+
+    // ...and the on-enter prompt automation spawns a child session.
+    const child = await waitForChildSession(session.id, 15000);
+    expect(child).toBeTruthy();
+    expect(child.parentSessionId).toBe(session.id);
+    expect(child.name).toContain('Lane prompt (lane: Done)');
+  });
+
+  // ----------------------------------------------------------------
+  // Test 5: completing into a destination lane with an on-enter TEMPLATE moves
+  // the card AND runs the template (spawns a child session named after it).
+  // ----------------------------------------------------------------
+  test('completion move runs the destination lane on-enter template (spawns child session)', async ({
+    page,
+  }) => {
+    const sessionName = 'Completion Template Parent';
+    const board = await getBoard(project.id);
+    const doneLane = getLaneByName(board, 'Done');
+
+    // Seed a project template and attach it as the destination lane's on-enter
+    // automation. Reuse VCR_PROMPT so the spawned child replays from the cassette.
+    const template = await seedProjectTemplate(project.id, {
+      name: 'Completion Template',
+      prompt: VCR_PROMPT,
+      model: VCR_MODEL,
+    });
+    await setLaneOnEnter(project.id, doneLane.id, { onEnterTemplateId: template.id });
+
+    const session = await seedSession(project.id, {
+      prompt: VCR_PROMPT,
+      name: sessionName,
+      model: VCR_MODEL,
+      startImmediately: false,
+    });
+
+    await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    await configureCompletionTarget(page, 'In Progress', 'Done');
+    await addSessionToLaneViaUI(page, 'In Progress', sessionName);
+    await expect(cardInLane(page, 'In Progress', sessionName)).toBeVisible();
+
+    await runSessionTurnViaUI(page, session.id);
+
+    // Card moves to Done...
+    await expectCardSettlesInLane(project.id, session.id, 'Done');
+
+    // ...and the on-enter template automation spawns a child session named after
+    // the template.
+    const child = await waitForChildSession(session.id, 15000);
+    expect(child).toBeTruthy();
+    expect(child.parentSessionId).toBe(session.id);
+    expect(child.name).toContain('Completion Template (lane: Done)');
   });
 });
