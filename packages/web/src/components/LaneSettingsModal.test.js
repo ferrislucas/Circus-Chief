@@ -102,6 +102,7 @@ describe('LaneSettingsModal.vue', () => {
     onEnterMaxRescheduleCount: null,
     onEnterMaxTotalTokens: null,
     onEnterRescheduleAtTokenCount: null,
+    completionTargetLaneId: null,
   };
 
   const laneWithTemplate = {
@@ -276,6 +277,29 @@ describe('LaneSettingsModal.vue', () => {
       // lane-2 is at index 1, should show "2 of 3"
       expect(wrapper.find('.lane-position-label').text()).toBe('2 of 3');
     });
+
+    it('excludes the current lane from completion target options', () => {
+      const wrapper = mountModal({ lane: baseLane });
+      const optionValues = wrapper.findAll('#completion-target-lane-select option').map((option) => option.element.value);
+
+      expect(optionValues).not.toContain('lane-2');
+    });
+
+    it('includes other lanes in completion target options', () => {
+      const wrapper = mountModal({ lane: baseLane });
+      const optionValues = wrapper.findAll('#completion-target-lane-select option').map((option) => option.element.value);
+
+      expect(optionValues).toContain('lane-1');
+      expect(optionValues).toContain('lane-3');
+    });
+
+    it('populates the completion target select from lane data', () => {
+      const wrapper = mountModal({
+        lane: { ...baseLane, completionTargetLaneId: 'lane-3' },
+      });
+
+      expect(wrapper.find('#completion-target-lane-select').element.value).toBe('lane-3');
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -372,6 +396,60 @@ describe('LaneSettingsModal.vue', () => {
       expect(data.onEnterEffortLevel).toBeNull();
       expect(data.onEnterThinkingEnabled).toBeNull();
       expect(data.onEnterAutoRescheduleEnabled).toBe(false);
+      expect(data.completionTargetLaneId).toBeNull();
+    });
+
+    it('saves the selected completion target', async () => {
+      const wrapper = mountModal({ lane: baseLane });
+      await wrapper.find('#completion-target-lane-select').setValue('lane-3');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.completionTargetLaneId).toBe('lane-3');
+    });
+
+    it('clears the completion target with null', async () => {
+      const wrapper = mountModal({
+        lane: { ...baseLane, completionTargetLaneId: 'lane-3' },
+      });
+      await wrapper.find('#completion-target-lane-select').setValue('');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.completionTargetLaneId).toBeNull();
+    });
+
+    it('offers only no automatic move for a one-lane board', async () => {
+      mockKanbanStore.board = { lanes: [{ id: 'lane-2', name: 'In Progress' }] };
+      const wrapper = mountModal({ lane: baseLane });
+
+      const options = wrapper.findAll('#completion-target-lane-select option');
+      expect(options).toHaveLength(1);
+      expect(options[0].text()).toBe('Do not move automatically');
+
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.completionTargetLaneId).toBeNull();
+    });
+
+    it('does not clear completionTargetLaneId when automation type changes', async () => {
+      mockTemplatesStore.projectTemplates = [{ id: 'template-42', name: 'Test Template' }];
+      const wrapper = mountModal({
+        lane: { ...baseLane, completionTargetLaneId: 'lane-3' },
+      });
+
+      await wrapper.find('input[type="radio"][value="template"]').setValue(true);
+      await wrapper.find('#template-select').setValue('template-42');
+      await wrapper.find('.btn-primary').trigger('click');
+      await flushPromises();
+
+      const [, , data] = mockKanbanStore.updateLane.mock.calls[0];
+      expect(data.onEnterTemplateId).toBe('template-42');
+      expect(data.completionTargetLaneId).toBe('lane-3');
     });
 
     it('shows success toast on success', async () => {

@@ -59,6 +59,7 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
 
   // Handle kanban lane movements based on targetLaneId
   await kanbanService.handleTurnCompletion(sessionId);
+  await kanbanService.handleCompletionMove(sessionId);
 
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;

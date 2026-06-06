@@ -8,8 +8,9 @@ import {
 } from './helpers';
 
 test.describe('Git-backed project session creation', () => {
-  // Session creation can be slow under load
-  test.describe.configure({ timeout: 60000 });
+  // These tests create and remove git worktrees in the same repository.
+  // Keep them serial so cleanup and git worktree operations do not race.
+  test.describe.configure({ mode: 'serial', timeout: 60000 });
 
   let project: any;
 

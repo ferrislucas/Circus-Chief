@@ -16,6 +16,14 @@
     </div>
 
     <template v-else>
+      <GitStatusSummary
+        :status="gitStatus"
+        :summary-text="gitStatusSummary"
+        :loading="gitStatusLoading"
+        :error="gitStatusError"
+        @refresh-origin="handleRefreshOrigin"
+      />
+
       <!-- Toolbar: Show when there are changes OR a default branch exists -->
       <div
         v-if="hasChanges || defaultBranch"
@@ -159,12 +167,18 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { api } from '../api/ApiClient.js';
 import { parseDiff } from '../utils/diffParser.js';
 import DiffViewer from './DiffViewer.vue';
+import GitStatusSummary from './GitStatusSummary.vue';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
+  gitStatus: { type: Object, default: null },
+  gitStatusSummary: { type: String, default: 'Git status unknown' },
+  gitStatusLoading: { type: Boolean, default: false },
+  gitStatusError: { type: [Object, String], default: null },
+  refreshGitStatus: { type: Function, default: null },
 });
 
-const emit = defineEmits(['update:fileCount']);
+const emit = defineEmits(['update:fileCount', 'refreshGitStatus']);
 
 const branchDiff = ref('');
 const staged = ref('');
@@ -346,6 +360,14 @@ async function fetchChanges() {
   } finally {
     loading.value = false;
   }
+}
+
+async function handleRefreshOrigin() {
+  emit('refreshGitStatus');
+  if (props.refreshGitStatus) {
+    await props.refreshGitStatus({ fetch: true });
+  }
+  await fetchChanges();
 }
 
 // Fetch the default branch for comparison

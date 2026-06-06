@@ -35,6 +35,13 @@
           @add-to-board="emit('add-to-board', session)"
           @open-move="openMoveModal"
         />
+        <GitStatusChip
+          :session-id="sessionId"
+          :summary-text="gitStatusSummary"
+          :loading="gitStatusLoading"
+          :error="gitStatusError"
+          :has-actionable-status="hasActionableGitStatus"
+        />
         <PrUrlEditor
           :session-id="sessionId"
           :pr-url="session.prUrl"
@@ -71,6 +78,7 @@ import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import SessionKanbanControls from './SessionKanbanControls.vue';
 import SessionNameEditor from './SessionNameEditor.vue';
+import GitStatusChip from './GitStatusChip.vue';
 import { useKanbanStore } from '../stores/kanban.js';
 
 const props = defineProps({
@@ -103,6 +111,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  gitStatusSummary: { type: String, default: 'Git status unknown' },
+  gitStatusLoading: { type: Boolean, default: false },
+  gitStatusError: { type: [Object, String], default: null },
+  hasActionableGitStatus: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['duplicate', 'copySessionId', 'archive', 'delete', 'star', 'add-to-board']);

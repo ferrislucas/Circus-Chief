@@ -13,12 +13,17 @@ import {
   createWorktree,
   createWorktreeForBranch,
   detectWorktreePath,
+  fetchOrigin,
+  getAheadBehindCounts,
+  getBranchUpstream,
   getCacheSize,
   getCurrentBranch,
   getGitAuthor,
+  getLocalChangeCount,
   getManagedHooksPath,
   getOriginDefaultBranch,
   getRepositoryUrl,
+  getSessionGitStatus,
   getUntrackedFiles,
   git,
   ensureWorktreeCommitAttributionHook,
@@ -1292,6 +1297,110 @@ describe('gitService', () => {
 
       // Clean up worktree before the shared afterEach deletes testDir
       execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
+    });
+  });
+
+  describe('session git status helpers', () => {
+    async function commitFile(directory, filename, content, message) {
+      await writeFile(join(directory, filename), content);
+      execSync(`git add "${filename}"`, { cwd: directory });
+      execSync(`git commit -m "${message}"`, { cwd: directory });
+    }
+
+    async function cloneOrigin() {
+      const cloneDir = await mkdtemp(join(tmpdir(), 'git-clone-'));
+      execSync(`git clone "${bareRepoDir}" "${cloneDir}"`);
+      execSync('git config user.email "other@test.com"', { cwd: cloneDir });
+      execSync('git config user.name "Other"', { cwd: cloneDir });
+      return cloneDir;
+    }
+
+    it('reports a clean branch with upstream', async () => {
+      const status = await getSessionGitStatus(testDir);
+
+      expect(status.syncStatus).toBe('clean');
+      expect(status.hasUpstream).toBe(true);
+      expect(status.aheadCount).toBe(0);
+      expect(status.behindCount).toBe(0);
+      expect(status.localChangeCount).toBe(0);
+    });
+
+    it('counts unique local changed paths including renames', async () => {
+      execSync('git mv README.md README-renamed.md', { cwd: testDir });
+      await writeFile(join(testDir, 'new-file.txt'), 'new');
+
+      const count = await getLocalChangeCount(testDir);
+      const status = await getSessionGitStatus(testDir);
+
+      expect(count).toBe(2);
+      expect(status.syncStatus).toBe('dirty');
+      expect(status.hasUncommittedChanges).toBe(true);
+    });
+
+    it('reports ahead commits', async () => {
+      await commitFile(testDir, 'ahead.txt', 'ahead', 'Ahead');
+
+      const status = await getSessionGitStatus(testDir);
+
+      expect(status.syncStatus).toBe('ahead');
+      expect(status.aheadCount).toBe(1);
+      expect(status.isUnpushed).toBe(true);
+    });
+
+    it('reports behind commits after fetching remote refs', async () => {
+      const cloneDir = await cloneOrigin();
+      try {
+        await commitFile(cloneDir, 'remote.txt', 'remote', 'Remote');
+        execSync('git push', { cwd: cloneDir });
+        await fetchOrigin(testDir);
+
+        const status = await getSessionGitStatus(testDir);
+
+        expect(status.syncStatus).toBe('behind');
+        expect(status.behindCount).toBe(1);
+        expect(status.isBehind).toBe(true);
+      } finally {
+        await rm(cloneDir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports diverged branches', async () => {
+      const cloneDir = await cloneOrigin();
+      try {
+        await commitFile(cloneDir, 'remote.txt', 'remote', 'Remote');
+        execSync('git push', { cwd: cloneDir });
+        await fetchOrigin(testDir);
+        await commitFile(testDir, 'local.txt', 'local', 'Local');
+
+        const counts = await getAheadBehindCounts(testDir, await getBranchUpstream(testDir));
+        const status = await getSessionGitStatus(testDir);
+
+        expect(counts).toEqual({ behindCount: 1, aheadCount: 1 });
+        expect(status.syncStatus).toBe('diverged');
+        expect(status.isDiverged).toBe(true);
+      } finally {
+        await rm(cloneDir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports branches without upstream as unpublished', async () => {
+      execSync('git checkout -b no-upstream', { cwd: testDir });
+
+      const status = await getSessionGitStatus(testDir);
+
+      expect(status.syncStatus).toBe('unpublished');
+      expect(status.upstreamBranch).toBeNull();
+      expect(status.hasUpstream).toBe(false);
+    });
+
+    it('reports detached HEAD as unknown', async () => {
+      const head = execSync('git rev-parse HEAD', { cwd: testDir }).toString().trim();
+      execSync(`git checkout ${head}`, { cwd: testDir });
+
+      const status = await getSessionGitStatus(testDir);
+
+      expect(status.currentBranch).toBeNull();
+      expect(status.syncStatus).toBe('unknown');
     });
   });
 });
