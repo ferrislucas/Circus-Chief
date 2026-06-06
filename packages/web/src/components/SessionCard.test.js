@@ -1416,7 +1416,7 @@ describe('SessionCard', () => {
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
-    it('hides Add to Board button when session is already on board (regardless of kanbanEnabled)', async () => {
+    it('shows Add to Board button when session is already on board so it can be moved', async () => {
       // Update mock to return isOnBoard=true
       const { useKanbanStore } = await import('../stores/kanban.js');
       vi.mocked(useKanbanStore).mockReturnValue({
@@ -1426,7 +1426,7 @@ describe('SessionCard', () => {
       const wrapper = mountComponent({
         kanbanEnabled: true,
       });
-      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
   });
 });
