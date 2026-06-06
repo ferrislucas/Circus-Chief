@@ -68,6 +68,16 @@ function buildClaudeRequest(prompt, options) {
       permissionMode: 'bypassPermissions',
       maxTurns: 1,
       model,
+      // Summary generation is a pure text->JSON task: it must never load tools,
+      // MCP servers, or filesystem settings (CLAUDE.md, hooks, user/project MCP).
+      // Without this isolation the model is handed the full agentic toolbelt and
+      // spends its single allowed turn invoking a tool/MCP, which makes the SDK
+      // return "Reached maximum number of turns (1)" and the summary fails.
+      // Scoped to this summary call only — agent sessions use their own adapters.
+      settingSources: [],
+      strictMcpConfig: true,
+      mcpServers: {},
+      allowedTools: [],
       ...(env && { env }),
       ...(systemPrompt && { systemPrompt }),
       outputFormat: {
