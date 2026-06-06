@@ -135,7 +135,10 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
     const handlers = [];
 
     handlers.push(onSessionCreated((session) => { stores.sessionsStore.addSessionToList(session); }));
-    handlers.push(onSessionUpdated((session) => { stores.sessionsStore.updateSession(session); }));
+    handlers.push(onSessionUpdated((session) => {
+      stores.sessionsStore.updateSession(session);
+      stores.kanbanStore.handleSessionUpdated(session);
+    }));
     handlers.push(onSessionDeleted((sid) => {
       stores.sessionsStore.removeSessionFromList(sid);
       callbacks.cleanupSummary(sid);

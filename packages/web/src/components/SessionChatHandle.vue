@@ -31,15 +31,16 @@
         stroke-linejoin="round"
       />
     </svg>
-    <span
-      v-if="isSessionActive"
-      class="active-spinner"
+    <SessionRunningSpinner
+      :active="isSessionActive"
       :title="sessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
     />
   </div>
 </template>
 
 <script setup>
+import SessionRunningSpinner from './SessionRunningSpinner.vue';
+
 const emit = defineEmits(['open']);
 
 defineProps({
@@ -97,21 +98,6 @@ function handleOpen() {
 
 .session-chat-handle:hover .handle-icon {
   color: #fff;
-}
-
-.active-spinner {
-  width: 0.75rem;
-  height: 0.75rem;
-  border: 2px solid rgba(6, 182, 212, 0.3);
-  border-top-color: #06b6d4;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @media (min-width: 641px) {
