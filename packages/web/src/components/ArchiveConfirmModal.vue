@@ -45,6 +45,20 @@
               <span>Run git worktree cleanup</span>
             </label>
           </div>
+
+          <div
+            v-if="isOnKanbanBoard"
+            class="cleanup-option"
+          >
+            <label class="checkbox-label">
+              <input
+                v-model="removeFromBoard"
+                type="checkbox"
+                aria-label="Remove from Kanban board"
+              >
+              <span>Remove from Kanban board</span>
+            </label>
+          </div>
         </div>
 
         <div class="modal-footer">
@@ -84,6 +98,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  isOnKanbanBoard: {
+    type: Boolean,
+    default: false,
+  },
   loading: {
     type: Boolean,
     default: false,
@@ -93,19 +111,21 @@ const props = defineProps({
 const emit = defineEmits(['confirm', 'cancel']);
 
 const runCleanup = ref(true);
+const removeFromBoard = ref(false);
 
-// Reset runCleanup to true whenever modal opens
+// Reset checkbox state whenever modal opens
 watch(
   () => props.isOpen,
   (isOpen) => {
     if (isOpen) {
       runCleanup.value = true;
+      removeFromBoard.value = false;
     }
   }
 );
 
 function handleConfirm() {
-  emit('confirm', runCleanup.value);
+  emit('confirm', { runCleanup: runCleanup.value, removeFromBoard: removeFromBoard.value });
 }
 
 function cancel() {

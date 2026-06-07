@@ -63,7 +63,7 @@ describe('ArchiveConfirmModal.vue', () => {
   });
 
   describe('Confirm action', () => {
-    it('emits confirm(true) when Archive clicked with checkbox checked (default)', async () => {
+    it('emits confirm with runCleanup true when Archive clicked with checkbox checked (default)', async () => {
       const onConfirm = vi.fn();
       mountModal({ hasCleanupScript: true, onConfirm });
       const buttons = document.querySelectorAll('button');
@@ -71,10 +71,10 @@ describe('ArchiveConfirmModal.vue', () => {
       archiveBtn.click();
       await nextTick();
       expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onConfirm).toHaveBeenCalledWith(true);
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: false });
     });
 
-    it('emits confirm(false) when Archive clicked with checkbox unchecked', async () => {
+    it('emits confirm with runCleanup false when Archive clicked with checkbox unchecked', async () => {
       const onConfirm = vi.fn();
       mountModal({ hasCleanupScript: true, onConfirm });
       const checkbox = document.querySelector('input[type="checkbox"]');
@@ -85,7 +85,51 @@ describe('ArchiveConfirmModal.vue', () => {
       archiveBtn.click();
       await nextTick();
       expect(onConfirm).toHaveBeenCalledTimes(1);
-      expect(onConfirm).toHaveBeenCalledWith(false);
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: false, removeFromBoard: false });
+    });
+  });
+
+  describe('Kanban board checkbox', () => {
+    it('hides the "Remove from Kanban board" checkbox when isOnKanbanBoard is false', () => {
+      mountModal({ isOnKanbanBoard: false });
+      const labels = Array.from(document.querySelectorAll('.checkbox-label'));
+      expect(labels.some(l => l.textContent.includes('Remove from Kanban board'))).toBe(false);
+    });
+
+    it('shows the "Remove from Kanban board" checkbox when isOnKanbanBoard is true', () => {
+      mountModal({ isOnKanbanBoard: true });
+      const labels = Array.from(document.querySelectorAll('.checkbox-label'));
+      expect(labels.some(l => l.textContent.includes('Remove from Kanban board'))).toBe(true);
+    });
+
+    it('emits removeFromBoard true when the checkbox is checked', async () => {
+      const onConfirm = vi.fn();
+      mountModal({ isOnKanbanBoard: true, onConfirm });
+      const checkbox = document.querySelector('input[aria-label="Remove from Kanban board"]');
+      checkbox.click();
+      await nextTick();
+      const buttons = document.querySelectorAll('button');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archive');
+      archiveBtn.click();
+      await nextTick();
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: true });
+    });
+
+    it('resets removeFromBoard to false when the modal re-opens', async () => {
+      const wrapper = mountModal({ isOpen: true, isOnKanbanBoard: true });
+      const checkbox = document.querySelector('input[aria-label="Remove from Kanban board"]');
+      checkbox.click();
+      await nextTick();
+      expect(checkbox.checked).toBe(true);
+
+      await wrapper.setProps({ isOpen: false });
+      await nextTick();
+      await wrapper.setProps({ isOpen: true });
+      await nextTick();
+
+      const checkboxAfter = document.querySelector('input[aria-label="Remove from Kanban board"]');
+      expect(checkboxAfter.checked).toBe(false);
     });
   });
 
