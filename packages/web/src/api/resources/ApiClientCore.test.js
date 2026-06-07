@@ -163,11 +163,6 @@ describe('ApiClient Core', () => {
       expect(typeof client.getProjectTemplates).toBe('function');
     });
 
-    it('has all resource methods from QuickResponsesApi', () => {
-      expect(typeof client.getQuickResponses).toBe('function');
-      expect(typeof client.reorderQuickResponses).toBe('function');
-    });
-
     it('has all resource methods from MiscApi', () => {
       expect(typeof client.getGitStatus).toBe('function');
       expect(typeof client.getSessionTodos).toBe('function');

@@ -524,7 +524,7 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date }
+  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date; autoRescheduleEnabled?: boolean }
 ) {
   const scheduledAt =
     data.scheduledAt instanceof Date
@@ -534,9 +534,12 @@ export async function seedSession(
         : data.scheduledAt;
 
   // Default gitMode/gitBranch so tests pass for git-repo-backed projects
+  // Default autoRescheduleEnabled to false so tests get deterministic panel behavior
+  // (the REST API now defaults it to true for agent convenience)
   const payload = {
     gitMode: 'none',
     gitBranch: 'main',
+    autoRescheduleEnabled: false,
     ...data,
     ...(scheduledAt !== undefined ? { scheduledAt } : {}),
   };
@@ -2121,92 +2124,6 @@ export async function updatePendingPrompt(
   });
   if (!response.ok) throw new Error('Failed to update pending prompt');
   return response.json();
-}
-
-// ============================================================
-// Quick Response Helpers
-// ============================================================
-
-/**
- * Create a quick response via POST /api/projects/:projectId/quick-responses.
- * Returns the full response object.
- */
-export async function seedQuickResponse(
-  projectId: string,
-  data: {
-    label: string;
-    content: string;
-    autoSubmit?: boolean;
-    category?: string;
-    sortOrder?: number;
-    isGlobal?: boolean;
-  }
-): Promise<any> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/quick-responses`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`seedQuickResponse failed: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Get all quick responses for a project (both project-scoped and global).
- * Returns { project: [...], global: [...] }.
- */
-export async function getQuickResponses(projectId: string): Promise<any> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/quick-responses`);
-  if (!res.ok) throw new Error(`getQuickResponses failed: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Update a quick response via PATCH /api/quick-responses/:id.
- * Returns the updated response object.
- */
-export async function updateQuickResponse(
-  id: string,
-  data: { label?: string; content?: string; autoSubmit?: boolean; category?: string; sortOrder?: number }
-): Promise<any> {
-  const res = await fetch(`${API_URL}/api/quick-responses/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`updateQuickResponse failed: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Delete a quick response via DELETE /api/quick-responses/:id.
- */
-export async function deleteQuickResponse(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/quick-responses/${id}`, {
-    method: 'DELETE',
-  });
-  if (!res.ok) throw new Error(`deleteQuickResponse failed: ${res.status}`);
-}
-
-/**
- * Reorder quick responses via POST /api/projects/:projectId/quick-responses/reorder
- * or POST /api/quick-responses/global/reorder.
- * Returns updated list.
- */
-export async function reorderQuickResponses(
-  projectId: string | null,
-  orders: Array<{ id: string; sortOrder: number }>
-): Promise<any> {
-  const url = projectId
-    ? `${API_URL}/api/projects/${projectId}/quick-responses/reorder`
-    : `${API_URL}/api/quick-responses/global/reorder`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(orders),
-  });
-  if (!res.ok) throw new Error(`reorderQuickResponses failed: ${res.status}`);
-  return res.json();
 }
 
 // ============================================================

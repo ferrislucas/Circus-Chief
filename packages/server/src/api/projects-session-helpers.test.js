@@ -14,7 +14,7 @@ import {
   buildSchedulingUpdate,
   setupAndStartSession,
 } from './projects-session-helpers.js';
-import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES, DEFAULT_MAX_RESCHEDULE_COUNT } from '@circuschief/shared';
 
 // Mock all external dependencies
 vi.mock('../database.js', () => ({
@@ -307,7 +307,9 @@ describe('parseSchedulingConfig', () => {
   it('coerces autoRescheduleEnabled boolean', () => {
     expect(parseSchedulingConfig({ autoRescheduleEnabled: true }).autoRescheduleEnabled).toBe(true);
     expect(parseSchedulingConfig({ autoRescheduleEnabled: 'true' }).autoRescheduleEnabled).toBe(true);
-    expect(parseSchedulingConfig({}).autoRescheduleEnabled).toBe(false);
+    expect(parseSchedulingConfig({}).autoRescheduleEnabled).toBe(true);
+    expect(parseSchedulingConfig({ autoRescheduleEnabled: false }).autoRescheduleEnabled).toBe(false);
+    expect(parseSchedulingConfig({ autoRescheduleEnabled: 'false' }).autoRescheduleEnabled).toBe(false);
   });
 
   it('defaults rescheduleDelayMinutes to DEFAULT_RESCHEDULE_DELAY_MINUTES', () => {
@@ -322,17 +324,18 @@ describe('parseSchedulingConfig', () => {
 
   it('parses maxRescheduleCount', () => {
     expect(parseSchedulingConfig({ maxRescheduleCount: '5' }).maxRescheduleCount).toBe(5);
-    expect(parseSchedulingConfig({}).maxRescheduleCount).toBeNull();
+    expect(parseSchedulingConfig({}).maxRescheduleCount).toBe(DEFAULT_MAX_RESCHEDULE_COUNT);
   });
 
   it('returns defaults for null/empty body', () => {
     const result = parseSchedulingConfig({});
     expect(result.scheduledAt).toBeUndefined();
     expect(result.schedulingError).toBeNull();
-    expect(result.autoRescheduleEnabled).toBe(false);
+    expect(result.autoRescheduleEnabled).toBe(true);
     expect(result.rescheduleDelayMinutes).toBe(DEFAULT_RESCHEDULE_DELAY_MINUTES);
     expect(result.rescheduleOnTokenLimit).toBe(true);
-    expect(result.maxRescheduleCount).toBeNull();
+    expect(result.rescheduleOnServiceError).toBe(true);
+    expect(result.maxRescheduleCount).toBe(DEFAULT_MAX_RESCHEDULE_COUNT);
   });
 });
 
@@ -726,5 +729,59 @@ describe('setupAndStartSession', () => {
       })
     );
     expect(result).toHaveProperty('updatedSession');
+  });
+
+  it('keeps child sessions on the project directory when the parent is not in a worktree', async () => {
+    vi.clearAllMocks();
+
+    const { sessions } = await import('../database.js');
+    const { setupGitForSession } = await import('../services/gitSessionSetup.js');
+    const { resolvePromptSkillOrCommand } = await import('../services/slashCommandService.js');
+
+    const parentSession = {
+      id: 'parent-current',
+      gitBranch: null,
+      gitWorktree: null,
+    };
+    const childSession = { id: 'child-current' };
+    sessions.getById.mockImplementation((id) => (
+      id === parentSession.id ? parentSession : childSession
+    ));
+    sessions.update.mockReturnValue(childSession);
+    setupGitForSession.mockResolvedValue({
+      workingDirectory: '/tmp/project/.worktrees/child-current',
+      gitWorktree: '/tmp/project/.worktrees/child-current',
+    });
+    resolvePromptSkillOrCommand.mockResolvedValue(null);
+
+    vi.doMock('../services/sessionManager.js', () => ({
+      runSession: vi.fn().mockResolvedValue(undefined),
+    }));
+
+    await setupAndStartSession({
+      session: childSession,
+      config: {
+        prompt: 'child prompt',
+        startImmediately: true,
+        scheduledAt: null,
+        parentSessionId: parentSession.id,
+        gitMode: 'worktree',
+        gitBranch: 'circus-chief/generated-child-branch',
+        model: 'sonnet',
+      },
+      project: { workingDirectory: '/tmp/project', systemPrompt: null },
+      projectId: 'proj-1',
+      files: [],
+    });
+
+    // No git setup of any kind should happen — the child returns early and
+    // is pinned to the parent's plain project checkout.
+    expect(setupGitForSession).not.toHaveBeenCalled();
+    expect(sessions.update).not.toHaveBeenCalledWith(
+      childSession.id,
+      expect.objectContaining({
+        gitWorktree: expect.anything(),
+      })
+    );
   });
 });

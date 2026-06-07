@@ -53,6 +53,11 @@ describe('SessionSummaryRepository', () => {
       const summary = repo.create(sessionId, {
         shortSummary: 'Short',
         fullSummary: 'Full summary',
+        ownShortSummary: 'Own short',
+        ownFullSummary: 'Own full summary',
+        ownKeyActions: ['Own action'],
+        ownFilesModified: ['own.js'],
+        ownOutcome: 'ongoing',
         keyActions: ['Action 1', 'Action 2'],
         filesModified: ['file1.js', 'file2.js'],
         outcome: 'partial',
@@ -61,6 +66,11 @@ describe('SessionSummaryRepository', () => {
 
       expect(summary.shortSummary).toBe('Short');
       expect(summary.fullSummary).toBe('Full summary');
+      expect(summary.ownShortSummary).toBe('Own short');
+      expect(summary.ownFullSummary).toBe('Own full summary');
+      expect(summary.ownKeyActions).toEqual(['Own action']);
+      expect(summary.ownFilesModified).toEqual(['own.js']);
+      expect(summary.ownOutcome).toBe('ongoing');
       expect(summary.keyActions).toEqual(['Action 1', 'Action 2']);
       expect(summary.filesModified).toEqual(['file1.js', 'file2.js']);
       expect(summary.outcome).toBe('partial');
@@ -246,6 +256,11 @@ describe('SessionSummaryRepository', () => {
       const updated = repo.update(summary.id, {
         shortSummary: 'Updated short',
         fullSummary: 'Updated full',
+        ownShortSummary: 'Updated own short',
+        ownFullSummary: 'Updated own full',
+        ownKeyActions: ['Own new action'],
+        ownFilesModified: ['own-new.js'],
+        ownOutcome: 'completed',
         keyActions: ['New action'],
         filesModified: ['new-file.js'],
         outcome: 'partial',
@@ -254,6 +269,11 @@ describe('SessionSummaryRepository', () => {
 
       expect(updated.shortSummary).toBe('Updated short');
       expect(updated.fullSummary).toBe('Updated full');
+      expect(updated.ownShortSummary).toBe('Updated own short');
+      expect(updated.ownFullSummary).toBe('Updated own full');
+      expect(updated.ownKeyActions).toEqual(['Own new action']);
+      expect(updated.ownFilesModified).toEqual(['own-new.js']);
+      expect(updated.ownOutcome).toBe('completed');
       expect(updated.keyActions).toEqual(['New action']);
       expect(updated.filesModified).toEqual(['new-file.js']);
       expect(updated.outcome).toBe('partial');
@@ -454,6 +474,11 @@ describe('SessionSummaryRepository', () => {
       repo.create(sessionId, {
         shortSummary: 'Short',
         fullSummary: 'Full summary',
+        ownShortSummary: 'Own short',
+        ownFullSummary: 'Own full summary',
+        ownKeyActions: ['Own action 1'],
+        ownFilesModified: ['own-file.js'],
+        ownOutcome: 'partial',
         keyActions: ['Action 1', 'Action 2'],
         filesModified: ['file1.js', 'file2.js'],
         outcome: 'success',
@@ -465,6 +490,11 @@ describe('SessionSummaryRepository', () => {
       const targetSummary = repo.getBySessionId(targetSessionId);
       expect(targetSummary.shortSummary).toBe('Short');
       expect(targetSummary.fullSummary).toBe('Full summary');
+      expect(targetSummary.ownShortSummary).toBe('Own short');
+      expect(targetSummary.ownFullSummary).toBe('Own full summary');
+      expect(targetSummary.ownKeyActions).toEqual(['Own action 1']);
+      expect(targetSummary.ownFilesModified).toEqual(['own-file.js']);
+      expect(targetSummary.ownOutcome).toBe('partial');
       expect(targetSummary.keyActions).toEqual(['Action 1', 'Action 2']);
       expect(targetSummary.filesModified).toEqual(['file1.js', 'file2.js']);
       expect(targetSummary.outcome).toBe('success');

@@ -14,10 +14,14 @@ vi.mock('../websocket.js', () => ({
   broadcastToProject: vi.fn(),
 }));
 
-// Mock kanbanService before importing the router
-vi.mock('../services/kanbanService.js', () => ({
-  moveCard: vi.fn(),
-}));
+// Mock card moves while keeping card creation behavior real.
+vi.mock('../services/kanbanService.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    moveCard: vi.fn(),
+  };
+});
 
 import kanbanRouter from './kanban.js';
 import { broadcastToProject } from '../websocket.js';
@@ -192,6 +196,67 @@ describe('Kanban API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.name).toBe('Renamed');
+    });
+
+    it('accepts completionTargetLaneId null', async () => {
+      setupBoard();
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ completionTargetLaneId: null });
+
+      expect(res.status).toBe(200);
+      expect(res.body.completionTargetLaneId).toBeNull();
+    });
+
+    it('accepts completionTargetLaneId for another lane on the same board', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ completionTargetLaneId: lanes[1].id });
+
+      expect(res.status).toBe(200);
+      expect(res.body.completionTargetLaneId).toBe(lanes[1].id);
+    });
+
+    it('rejects completionTargetLaneId equal to the source lane', async () => {
+      setupBoard();
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ completionTargetLaneId: lanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Completion target lane cannot be the same lane');
+    });
+
+    it('rejects completionTargetLaneId from another board', async () => {
+      setupBoard();
+      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherBoard = kanbanBoards.getOrCreateForProject(otherProject.id);
+      const otherLanes = kanbanLanes.getByBoardId(otherBoard.id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/lanes/${lanes[0].id}`)
+        .send({ completionTargetLaneId: otherLanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('Completion target lane must be on the same board');
+    });
+
+    it('rejects updating a lane through a project route whose board does not own it', async () => {
+      setupBoard();
+      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      kanbanBoards.getOrCreateForProject(otherProject.id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${otherProject.id}/kanban/lanes/${lanes[0].id}`)
+        .send({ name: 'Wrong Project' });
+
+      expect(res.status).toBe(404);
+      expect(kanbanLanes.getById(lanes[0].id).name).not.toBe('Wrong Project');
     });
 
     it('returns 404 for non-existent lane', async () => {

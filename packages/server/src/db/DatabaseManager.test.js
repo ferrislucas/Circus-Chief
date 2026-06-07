@@ -2,8 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
-import { DEFAULT_SESSION_TEMPLATES, DEFAULT_SESSION_TEMPLATE_PROMPTS } from './defaultSessionTemplates.js';
-import { miscMigrations } from './migrations/miscMigrations.js';
+import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
 
 describe('DatabaseManager', () => {
   let manager;
@@ -810,21 +809,21 @@ describe('DatabaseManager', () => {
       expect(names).toEqual(DEFAULT_SESSION_TEMPLATES.map(t => t.name).sort());
     });
 
-    it('fresh in-memory DB has no session_templates with legacy_quick_response_id', () => {
+    it('fresh in-memory DB does not expose legacy quick response IDs on session_templates', () => {
       const db = manager.get();
-      const count = db.prepare(
-        'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-      ).get().cnt;
-      expect(count).toBe(0);
+      const columns = db.prepare('PRAGMA table_info(session_templates)').all();
+      expect(columns.map((column) => column.name)).not.toContain('legacy_quick_response_id');
     });
 
-    it('fresh in-memory DB has zero quick_responses rows', () => {
+    it('fresh in-memory DB does not create the legacy quick_responses table', () => {
       const db = manager.get();
-      const count = db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt;
-      expect(count).toBe(0);
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'quick_responses'"
+      ).get();
+      expect(table).toBeUndefined();
     });
 
-    it('visible quick-response templates are exactly Put a plan on the canvas, Yes, and Continue in sort order', () => {
+    it('all default templates are quick-response-visible in sort order', () => {
       const db = manager.get();
       const rows = db.prepare(`
         SELECT name, prompt, quick_response_auto_submit, quick_response_sort_order
@@ -833,21 +832,15 @@ describe('DatabaseManager', () => {
         ORDER BY quick_response_sort_order
       `).all();
 
-      expect(rows).toHaveLength(3);
-      expect(rows[0].name).toBe('Put a plan on the canvas');
-      expect(rows[0].prompt).toBe(DEFAULT_SESSION_TEMPLATE_PROMPTS.PUT_PLAN);
-      expect(rows[0].quick_response_auto_submit).toBe(0);
-      expect(rows[0].quick_response_sort_order).toBe(0);
-
-      expect(rows[1].name).toBe('Yes');
-      expect(rows[1].prompt).toBe(DEFAULT_SESSION_TEMPLATE_PROMPTS.YES);
-      expect(rows[1].quick_response_auto_submit).toBe(1);
-      expect(rows[1].quick_response_sort_order).toBe(1);
-
-      expect(rows[2].name).toBe('Continue');
-      expect(rows[2].prompt).toBe(DEFAULT_SESSION_TEMPLATE_PROMPTS.CONTINUE);
-      expect(rows[2].quick_response_auto_submit).toBe(1);
-      expect(rows[2].quick_response_sort_order).toBe(2);
+      expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
+      for (const [index, expected] of DEFAULT_SESSION_TEMPLATES.entries()) {
+        expect(rows[index].name).toBe(expected.name);
+        expect(rows[index].prompt).toBe(expected.prompt);
+        expect(rows[index].quick_response_auto_submit).toBe(
+          expected.quickResponseAutoSubmit ? 1 : 0
+        );
+        expect(rows[index].quick_response_sort_order).toBe(expected.quickResponseSortOrder);
+      }
     });
 
     it('fresh DB sets the default_session_templates_bootstrapped flag', () => {
@@ -898,40 +891,5 @@ describe('DatabaseManager', () => {
       expect(count).toBe(0);
     });
 
-    it('existing DB with legacy converted templates: migration removes those rows and leaves normal templates', () => {
-      const db = manager.get();
-
-      // Insert a row that looks like a legacy-converted template
-      const now = Date.now();
-      db.prepare(`
-        INSERT INTO session_templates (
-          id, project_id, name, prompt, thinking_enabled, mode,
-          show_in_quick_responses, quick_response_auto_submit,
-          quick_response_sort_order, legacy_quick_response_id,
-          created_at, updated_at
-        ) VALUES (?, NULL, ?, ?, 1, 'yolo', 1, 1, 5, ?, ?, ?)
-      `).run('legacy-row', 'Legacy Item', 'legacy content', 'some-qr-id', now, now);
-
-      // Verify it's there
-      const before = db.prepare(
-        'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-      ).get().cnt;
-      expect(before).toBe(1);
-
-      // Run the cleanup migration again (it's idempotent)
-      const migration = miscMigrations.find(m => m.name === 'session_templates-remove-legacy-quick-response-templates');
-      migration.up(db);
-
-      // Legacy row is gone; normal templates remain
-      const legacy = db.prepare(
-        'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NOT NULL'
-      ).get().cnt;
-      expect(legacy).toBe(0);
-
-      const normal = db.prepare(
-        'SELECT COUNT(*) AS cnt FROM session_templates WHERE legacy_quick_response_id IS NULL'
-      ).get().cnt;
-      expect(normal).toBeGreaterThanOrEqual(0); // defaults may or may not be present depending on prior test state
-    });
   });
 });

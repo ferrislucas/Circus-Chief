@@ -64,6 +64,21 @@ export function getFullBoard(projectId) {
   return buildFullBoardResponse(board);
 }
 
+async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
+  const { runOnEnterTemplate = true, depth = 0 } = options;
+
+  if (!runOnEnterTemplate) {
+    return;
+  }
+
+  const lane = kanbanLanes.getByIdWithTemplate(laneId);
+  if (lane?.onEnterTemplateId) {
+    await triggerOnEnterTemplate(sessionId, lane, { depth });
+  } else if (lane?.onEnterPrompt) {
+    await triggerOnEnterPrompt(sessionId, lane, { depth });
+  }
+}
+
 /**
  * Add a session to the kanban board.
  *
@@ -71,17 +86,21 @@ export function getFullBoard(projectId) {
  * @param {string} laneId - The lane to add the session to
  * @param {Object} [options] - Options
  * @param {number} [options.sortOrder] - Optional sort order
+ * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run lane on-enter automation
+ * @param {number} [options.depth=0] - Current recursion depth for template triggers
  * @returns {Object} The created card
  * @throws {Error} If session already has a card on the board
  */
-export function addSessionToBoard(sessionId, laneId, options = {}) {
+export async function addSessionToBoard(sessionId, laneId, options = {}) {
+  const { sortOrder, runOnEnterTemplate = true, depth = 0 } = options;
+
   // Check if session already has a card
   const existingCard = kanbanCards.getBySessionId(sessionId);
   if (existingCard) {
     throw new Error('Session already has a card on the board');
   }
 
-  const card = kanbanCards.create(laneId, sessionId, options);
+  const card = kanbanCards.create(laneId, sessionId, { sortOrder });
 
   // Get session to find project ID for broadcast
   const session = sessions.getById(sessionId);
@@ -91,6 +110,8 @@ export function addSessionToBoard(sessionId, laneId, options = {}) {
       card,
       laneId,
     });
+
+    await triggerLaneEntryAutomation(sessionId, laneId, { runOnEnterTemplate, depth });
   }
 
   return card;
@@ -133,18 +154,21 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    // Trigger on-enter automation if configured (template or custom prompt)
-    if (runOnEnterTemplate) {
-      const targetLane = kanbanLanes.getByIdWithTemplate(targetLaneId);
-      if (targetLane?.onEnterTemplateId) {
-        await triggerOnEnterTemplate(sessionId, targetLane, { depth });
-      } else if (targetLane?.onEnterPrompt) {
-        await triggerOnEnterPrompt(sessionId, targetLane, { depth });
-      }
-    }
+    await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth });
   }
 
   return movedCard;
+}
+
+async function moveExistingSessionCard(session, card, targetLaneId) {
+  if (card.laneId === targetLaneId) {
+    return card;
+  }
+
+  return moveCard(card.id, targetLaneId, {
+    runOnEnterTemplate: true,
+    depth: session.laneTriggerDepth || 0,
+  });
 }
 
 /**
@@ -181,27 +205,51 @@ export async function handleTurnCompletion(sessionId) {
       return;
     }
 
-    card = kanbanCards.create(session.targetLaneId, sessionId);
-
-    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
-      projectId: session.projectId,
-      card,
-      laneId: session.targetLaneId,
+    card = await addSessionToBoard(sessionId, session.targetLaneId, {
+      runOnEnterTemplate: true,
+      depth: session.laneTriggerDepth || 0,
     });
   } else {
     // Move existing card to target lane
-    const fromLaneId = card.laneId;
-
-    if (fromLaneId !== session.targetLaneId) {
-      await moveCard(card.id, session.targetLaneId, {
-        runOnEnterTemplate: true,
-        depth: session.laneTriggerDepth || 0,
-      });
-    }
+    await moveExistingSessionCard(session, card, session.targetLaneId);
   }
 
   // Clear the target lane now that we've processed it
   sessions.update(sessionId, { targetLaneId: null });
+}
+
+/**
+ * Move an existing card based on the current lane's completion target.
+ *
+ * @param {string} sessionId - The session that just completed its turn
+ */
+export async function handleCompletionMove(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session) {
+    return;
+  }
+
+  const card = kanbanCards.getBySessionId(sessionId);
+  if (!card) {
+    return;
+  }
+
+  const currentLane = kanbanLanes.getById(card.laneId);
+  if (!currentLane?.completionTargetLaneId) {
+    return;
+  }
+
+  const targetLaneId = currentLane.completionTargetLaneId;
+  if (targetLaneId === currentLane.id) {
+    return;
+  }
+
+  const targetLane = kanbanLanes.getById(targetLaneId);
+  if (!targetLane || targetLane.boardId !== currentLane.boardId) {
+    return;
+  }
+
+  await moveExistingSessionCard(session, card, targetLaneId);
 }
 
 /**
@@ -237,7 +285,7 @@ export function removeSessionFromBoard(sessionId) {
  * @param {string} sessionId - The newly created session ID
  * @param {string} templateId - The template ID used to create the session
  */
-export function addSessionToTemplateTargetLane(sessionId, templateId) {
+export async function addSessionToTemplateTargetLane(sessionId, templateId) {
   const template = sessionTemplates.getById(templateId);
   if (!template?.targetLaneId) {
     return;
@@ -252,7 +300,7 @@ export function addSessionToTemplateTargetLane(sessionId, templateId) {
   }
 
   try {
-    addSessionToBoard(sessionId, template.targetLaneId);
+    await addSessionToBoard(sessionId, template.targetLaneId);
     console.log(
       `Kanban: Added session ${sessionId} to lane "${lane.name}" based on template target`
     );

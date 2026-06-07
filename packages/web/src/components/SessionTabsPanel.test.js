@@ -42,6 +42,11 @@ describe('SessionTabsPanel', () => {
     });
   }
 
+  function findDesktopChatTab(wrapper) {
+    return wrapper.findAll('.tabs-desktop .tab')
+      .find(tab => tab.attributes('href') === '/sessions/session-1/chat');
+  }
+
   describe('tab rendering', () => {
     it('renders all tab labels', () => {
       const wrapper = mountPanel();
@@ -92,7 +97,7 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel();
       const desktopTabs = wrapper.findAll('.tabs-desktop .tab');
       expect(desktopTabs.length).toBe(6);
-      const chatTab = desktopTabs.find(tab => tab.text() === 'Chat');
+      const chatTab = findDesktopChatTab(wrapper);
       expect(chatTab).toBeDefined();
       expect(chatTab.attributes('href')).toBe('/sessions/session-1/chat');
     });
@@ -118,6 +123,17 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel({ hasChanges: false });
       expect(wrapper.find('.changes-indicator').exists()).toBe(false);
     });
+
+    it('shows changes indicator when git status has a warning', () => {
+      const wrapper = mountPanel({
+        hasChanges: false,
+        hasGitStatusWarning: true,
+        gitStatusTitle: '2 unpushed commits',
+      });
+      const indicator = wrapper.find('.changes-indicator');
+      expect(indicator.exists()).toBe(true);
+      expect(indicator.attributes('title')).toBe('2 unpushed commits');
+    });
   });
 
   describe('canvas indicator', () => {
@@ -132,11 +148,69 @@ describe('SessionTabsPanel', () => {
     });
   });
 
+  describe('active chat indicator', () => {
+    it('shows active spinner on the desktop chat tab when session is active', () => {
+      const wrapper = mountPanel({
+        isSessionActive: true,
+        sessionStatus: 'running',
+      });
+
+      const chatTab = findDesktopChatTab(wrapper);
+      expect(chatTab.find('.active-spinner').exists()).toBe(true);
+    });
+
+    it('hides active spinner on the desktop chat tab when session is inactive', () => {
+      const wrapper = mountPanel({
+        isSessionActive: false,
+        sessionStatus: 'running',
+      });
+
+      const chatTab = findDesktopChatTab(wrapper);
+      expect(chatTab.find('.active-spinner').exists()).toBe(false);
+    });
+
+    it('uses starting title when session is starting', () => {
+      const wrapper = mountPanel({
+        isSessionActive: true,
+        sessionStatus: 'starting',
+      });
+
+      const chatTab = findDesktopChatTab(wrapper);
+      expect(chatTab.find('.active-spinner').attributes('title')).toBe('Session starting...');
+    });
+
+    it('uses running title when session is running', () => {
+      const wrapper = mountPanel({
+        isSessionActive: true,
+        sessionStatus: 'running',
+      });
+
+      const chatTab = findDesktopChatTab(wrapper);
+      expect(chatTab.find('.active-spinner').attributes('title')).toBe('Session running...');
+    });
+
+    it('does not render active spinner in mobile dropdown options', () => {
+      const wrapper = mountPanel({
+        isSessionActive: true,
+        sessionStatus: 'running',
+      });
+
+      expect(wrapper.find('.tabs-mobile .active-spinner').exists()).toBe(false);
+      expect(wrapper.findAll('.tab-select option').some(option => option.text() === 'Chat')).toBe(false);
+    });
+  });
+
   describe('mobile dropdown', () => {
     it('shows dot indicator for changes in mobile', () => {
       const wrapper = mountPanel({ hasChanges: true });
       const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Changes'));
       expect(option.text()).toContain('\u2022');
+    });
+
+    it('shows git attention text for changes in mobile', () => {
+      const wrapper = mountPanel({ hasGitStatusWarning: true });
+      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Changes'));
+      expect(option.text()).toContain('Changes · Git attention');
     });
 
     it('shows dot indicator for canvas items in mobile', () => {

@@ -155,8 +155,16 @@ describe('ProviderRepository', () => {
 
     it('rejects unrelated built-in provider fields', () => {
       expect(() => repo.update('anthropic-default', { name: 'Nope' })).toThrow(
-        /Built-in providers can only update commitAttributionOverride/
+        /Built-in providers can only update/
       );
+    });
+
+    it('allows toggling enabled on built-in providers', () => {
+      const disabled = repo.update('anthropic-default', { enabled: false });
+      expect(disabled.enabled).toBe(false);
+
+      const enabled = repo.update('anthropic-default', { enabled: true });
+      expect(enabled.enabled).toBe(true);
     });
   });
 

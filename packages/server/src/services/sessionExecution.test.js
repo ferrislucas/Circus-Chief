@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, existsSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -90,6 +90,34 @@ describe('buildQueryParams', () => {
     expect(result.options.settingSources).toEqual(['user', 'project', 'local']);
   });
 
+  it('includes resolved Claude MCP servers without changing setting sources', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'query-param-mcp-test-'));
+    try {
+      const homeDirectory = join(tempDir, 'home');
+      const workingDirectory = join(tempDir, 'workspace');
+      mkdirSync(homeDirectory, { recursive: true });
+      mkdirSync(workingDirectory, { recursive: true });
+      writeFileSync(join(homeDirectory, '.claude.json'), JSON.stringify({
+        mcpServers: {
+          localTool: { command: 'node', args: ['server.js'] },
+        },
+      }), 'utf8');
+
+      const result = buildQueryParams({
+        ...baseArgs(),
+        workingDirectory,
+        claudeMcpConfigHomeDirectory: homeDirectory,
+      });
+
+      expect(result.options.settingSources).toEqual(['user', 'project', 'local']);
+      expect(result.options.mcpServers).toEqual({
+        localTool: { command: 'node', args: ['server.js'] },
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('propagates effortLevel into Codex query options', () => {
     const args = {
       ...baseArgs(),
@@ -104,6 +132,7 @@ describe('buildQueryParams', () => {
     expect(result.options.model).toBe('gpt-5.5');
     expect(result.options.permissionMode).toBeUndefined();
     expect(result.options.settingSources).toBeUndefined();
+    expect(result.options.mcpServers).toBeUndefined();
     expect(result.options.includePartialMessages).toBeUndefined();
     expect(result.options.resume).toBeUndefined();
     expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
@@ -429,6 +458,7 @@ describe('buildQueryParams agent-aware', () => {
     expect(result.options.sandboxMode).toBe('workspace-write');
 
     expect(result.options.settingSources).toBeUndefined();
+    expect(result.options.mcpServers).toBeUndefined();
     expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
     expect(result.options.includePartialMessages).toBeUndefined();
     expect(result.options.permissionMode).toBeUndefined();
@@ -518,6 +548,7 @@ describe('buildQueryParams agent-aware', () => {
 
     expect(result.options.permissionMode).toBeUndefined();
     expect(result.options.settingSources).toBeUndefined();
+    expect(result.options.mcpServers).toBeUndefined();
     expect(result.options.includePartialMessages).toBeUndefined();
     expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
     expect(result.options.resume).toBeUndefined();

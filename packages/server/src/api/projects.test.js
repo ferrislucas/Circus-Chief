@@ -1768,7 +1768,7 @@ describe('Projects API', () => {
       expect(childSession.gitWorktree).toBe('/tmp/parent-worktree');
     });
 
-    it('calls setupGitForSession when parent has no gitWorktree', async () => {
+    it('does not call setupGitForSession when parent has no gitWorktree, pins child to project directory', async () => {
       // Create a parent session WITHOUT a gitWorktree
       const parentSession = sessions.create(projectId, 'Parent Session', 'running');
       sessions.update(parentSession.id, { gitWorktree: null });
@@ -1782,15 +1782,13 @@ describe('Projects API', () => {
 
       expect(res.status).toBe(201);
 
-      // setupGitForSession SHOULD have been called because parent has no worktree
-      expect(setupGitForSession).toHaveBeenCalledWith({
-        projectDir: tempDir,
-        gitMode: 'worktree',
-        gitBranch: 'test-branch',
-        sessionId: res.body.id,
-        worktreeBasePath: null,
-        commitAttributionOverride: null,
-      });
+      // setupGitForSession should NOT be called — child is pinned to the
+      // parent's plain project checkout, no new worktree is created.
+      expect(setupGitForSession).not.toHaveBeenCalled();
+
+      // The child session's gitWorktree should remain null
+      const childSession = sessions.getById(res.body.id);
+      expect(childSession.gitWorktree).toBeNull();
     });
 
     it('calls setupGitForSession when no parentSessionId is provided', async () => {
@@ -1813,8 +1811,8 @@ describe('Projects API', () => {
       });
     });
 
-    it('calls setupGitForSession when parent session has no gitWorktree field set', async () => {
-      // Create a parent session that exists but has no gitWorktree at all (undefined/falsy)
+    it('does not call setupGitForSession when parent session has no gitWorktree field set, pins child to project directory', async () => {
+      // Create a parent session that exists but has no gitWorktree at all (defaults to null)
       const parentSession = sessions.create(projectId, 'Parent No Worktree', 'running');
       // Don't set gitWorktree - it defaults to null
 
@@ -1827,8 +1825,13 @@ describe('Projects API', () => {
 
       expect(res.status).toBe(201);
 
-      // setupGitForSession should be called because parent has no gitWorktree
-      expect(setupGitForSession).toHaveBeenCalled();
+      // setupGitForSession should NOT be called — child is pinned to the
+      // parent's plain project checkout, no new worktree is created.
+      expect(setupGitForSession).not.toHaveBeenCalled();
+
+      // The child session's gitWorktree should remain null
+      const childSession = sessions.getById(res.body.id);
+      expect(childSession.gitWorktree).toBeNull();
     });
   });
 

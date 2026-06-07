@@ -272,56 +272,14 @@
     />
 
     <!-- Lane Selector Modal (to select which lane to add session to) -->
-    <div
-      v-if="showLaneSelectorModal"
-      class="modal-backdrop"
-      @click.self="closeLaneSelectorModal"
-    >
-      <div class="modal-content lane-selector-modal">
-        <div class="modal-header">
-          <h2 class="modal-title">
-            Add to Kanban Board
-          </h2>
-          <button
-            class="close-btn"
-            aria-label="Close"
-            @click="closeLaneSelectorModal"
-          >
-            &times;
-          </button>
-        </div>
-        <div class="modal-body">
-          <p class="modal-description">
-            Select a lane to add "{{ sessionToAdd?.name }}" to:
-          </p>
-          <div class="lane-options">
-            <button
-              v-for="lane in kanbanStore.board?.lanes"
-              :key="lane.id"
-              class="lane-option-btn"
-              @click="addSessionToLane(lane)"
-            >
-              <span class="lane-option-name">{{ lane.name }}</span>
-              <span class="lane-option-count">{{ lane.cards?.length || 0 }} cards</span>
-            </button>
-          </div>
-          <p
-            v-if="!kanbanStore.board?.lanes?.length"
-            class="empty-lanes"
-          >
-            No lanes available. Go to the Kanban tab to create lanes first.
-          </p>
-        </div>
-        <div class="modal-footer">
-          <button
-            class="btn btn-secondary"
-            @click="closeLaneSelectorModal"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
+    <KanbanLaneSelectorModal
+      :is-open="showLaneSelectorModal"
+      :session-name="sessionToAdd?.name || ''"
+      :lanes="kanbanStore.board?.lanes || []"
+      :current-lane-id="currentLaneIdForSessionToAdd"
+      @close="closeLaneSelectorModal"
+      @select-lane="addSessionToLane"
+    />
 
     <!-- Archive Confirm Modal -->
     <ArchiveConfirmModal
@@ -354,6 +312,7 @@ import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 import CircusTimeTab from '../components/CircusTimeTab.vue';
 import KanbanBoard from '../components/KanbanBoard.vue';
 import AddSessionToLaneModal from '../components/AddSessionToLaneModal.vue';
+import KanbanLaneSelectorModal from '../components/KanbanLaneSelectorModal.vue';
 import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
 import './SessionListView.css';
 
@@ -530,6 +489,11 @@ const selectedLaneForAdd = ref(null);
 const showLaneSelectorModal = ref(false);
 const sessionToAdd = ref(null);
 
+const currentLaneIdForSessionToAdd = computed(() => {
+  if (!sessionToAdd.value?.id) return null;
+  return getLaneIdForSession(sessionToAdd.value.id);
+});
+
 function handleAddToBoard(session) {
   sessionToAdd.value = session;
   showLaneSelectorModal.value = true;
@@ -544,13 +508,31 @@ async function addSessionToLane(lane) {
   if (!sessionToAdd.value || !lane) return;
 
   try {
-    await kanbanStore.addSessionToBoard(route.params.id, sessionToAdd.value.id, lane.id);
-    uiStore.success(`Session added to "${lane.name}"`);
+    const existingCard = kanbanStore.getCardBySessionId(sessionToAdd.value.id);
+    if (existingCard) {
+      if (currentLaneIdForSessionToAdd.value === lane.id) return;
+      await kanbanStore.moveCard(route.params.id, existingCard.id, lane.id);
+      uiStore.success(`Session moved to "${lane.name}"`);
+    } else {
+      await kanbanStore.addSessionToBoard(route.params.id, sessionToAdd.value.id, lane.id);
+      uiStore.success(`Session added to "${lane.name}"`);
+    }
     closeLaneSelectorModal();
   } catch (err) {
-    console.error('Failed to add session to board:', err);
-    uiStore.error(err.message || 'Failed to add session to board');
+    console.error('Failed to update session board lane:', err);
+    uiStore.error(err.message || 'Failed to update session board lane');
   }
+}
+
+function getLaneIdForSession(sessionId) {
+  const card = kanbanStore.getCardBySessionId(sessionId);
+  if (!card) return null;
+  if (card.laneId) return card.laneId;
+
+  const lane = kanbanStore.board?.lanes?.find((candidate) =>
+    candidate.cards?.some((candidateCard) => candidateCard.id === card.id)
+  );
+  return lane?.id || null;
 }
 
 function closeAddToLaneModal() {

@@ -4,7 +4,7 @@ import { setupGitForSession } from '../services/gitSessionSetup.js';
 import { resolveProviderMetadataFromModel } from '../services/sessionProvider.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES, DEFAULT_MAX_RESCHEDULE_COUNT } from '@circuschief/shared';
 
 const SCHEDULED_AT_FORMAT_MESSAGE = 'scheduledAt must be a valid ISO 8601 date-time string with a timezone, for example "2026-06-12T14:00:00Z".';
 const ISO_8601_DATE_TIME_WITH_TIMEZONE = /^(\d{4})-(\d{2})-(\d{2})T([01]\d|2[0-3]):([0-5]\d):([0-5]\d)(?:\.\d+)?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
@@ -137,11 +137,11 @@ export function parseSchedulingConfig(body) {
   return {
     scheduledAt: scheduledAt.value,
     schedulingError: scheduledAt.error,
-    autoRescheduleEnabled: body.autoRescheduleEnabled === true || body.autoRescheduleEnabled === 'true',
+    autoRescheduleEnabled: body.autoRescheduleEnabled !== false && body.autoRescheduleEnabled !== 'false',
     rescheduleDelayMinutes: body.rescheduleDelayMinutes ? parseInt(body.rescheduleDelayMinutes, 10) : DEFAULT_RESCHEDULE_DELAY_MINUTES,
     rescheduleOnTokenLimit: body.rescheduleOnTokenLimit !== false && body.rescheduleOnTokenLimit !== 'false',
     rescheduleOnServiceError: body.rescheduleOnServiceError !== false && body.rescheduleOnServiceError !== 'false',
-    maxRescheduleCount: body.maxRescheduleCount ? parseInt(body.maxRescheduleCount, 10) : null,
+    maxRescheduleCount: body.maxRescheduleCount ? parseInt(body.maxRescheduleCount, 10) : DEFAULT_MAX_RESCHEDULE_COUNT,
     maxTotalTokens: body.maxTotalTokens ? parseInt(body.maxTotalTokens, 10) : null,
     rescheduleAtTokenCount: body.rescheduleAtTokenCount ? parseInt(body.rescheduleAtTokenCount, 10) : null,
   };
@@ -294,16 +294,34 @@ export function buildSchedulingUpdate(config, initialStatus) {
 
 /**
  * Resolve working directory and optional worktree for a new session.
- * Inherits the parent's worktree when applicable.
+ *
+ * Child session inheritance rules:
+ * - If the parent session has a real gitWorktree, the child inherits it (same
+ *   worktree path is used for both workingDirectory and gitWorktree).
+ * - If the parent session exists but its gitWorktree is null, the child is
+ *   pinned to the project's working directory with gitWorktree: null — no new
+ *   worktree is created, regardless of the resolved gitMode/gitBranch config.
+ *
+ * Root sessions (no parentSessionId) go through the normal setupGitForSession
+ * path, which honours gitMode/gitBranch and may create a worktree.
+ *
  * @param {object} params
  * @returns {Promise<{ workingDirectory: string, gitWorktree: string|null }>}
  */
 async function resolveSessionWorkingDirectory({ session, config, project }) {
   const parentSession = config.parentSessionId ? sessions.getById(config.parentSessionId) : null;
-  if (parentSession?.gitWorktree) {
+  if (parentSession) {
+    if (parentSession.gitWorktree) {
+      return {
+        workingDirectory: parentSession.gitWorktree,
+        gitWorktree: parentSession.gitWorktree,
+      };
+    }
+    // Parent exists but is not in a worktree — pin the child to the plain
+    // project checkout so it never accidentally creates its own worktree.
     return {
-      workingDirectory: parentSession.gitWorktree,
-      gitWorktree: parentSession.gitWorktree,
+      workingDirectory: project.workingDirectory,
+      gitWorktree: null,
     };
   }
 

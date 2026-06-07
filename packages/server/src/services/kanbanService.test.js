@@ -37,6 +37,7 @@ import {
   addSessionToBoard,
   moveCard,
   handleTurnCompletion,
+  handleCompletionMove,
   removeSessionFromBoard,
   addSessionToTemplateTargetLane,
 } from './kanbanService.js';
@@ -116,18 +117,18 @@ describe('kanbanService', () => {
   // ── addSessionToBoard ──────────────────────────────────────────────
 
   describe('addSessionToBoard', () => {
-    it('adds a session to a lane', () => {
+    it('adds a session to a lane', async () => {
       const session = createSession();
-      const card = addSessionToBoard(session.id, lanes[0].id);
+      const card = await addSessionToBoard(session.id, lanes[0].id);
 
       expect(card).not.toBeNull();
       expect(card.laneId).toBe(lanes[0].id);
       expect(card.sessions[0].id).toBe(session.id);
     });
 
-    it('broadcasts KANBAN_CARD_ADDED', () => {
+    it('broadcasts KANBAN_CARD_ADDED', async () => {
       const session = createSession();
-      addSessionToBoard(session.id, lanes[0].id);
+      await addSessionToBoard(session.id, lanes[0].id);
 
       expect(broadcastToProject).toHaveBeenCalledWith(
         projectId,
@@ -139,13 +140,38 @@ describe('kanbanService', () => {
       );
     });
 
-    it('throws when session already has a card', () => {
+    it('throws when session already has a card', async () => {
       const session = createSession();
-      addSessionToBoard(session.id, lanes[0].id);
+      await addSessionToBoard(session.id, lanes[0].id);
 
-      expect(() => addSessionToBoard(session.id, lanes[1].id)).toThrow(
+      await expect(addSessionToBoard(session.id, lanes[1].id)).rejects.toThrow(
         'Session already has a card on the board'
       );
+    });
+
+    it('triggers lane on-enter prompt when creating a card in a lane', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      const session = createSession();
+
+      await addSessionToBoard(session.id, lanes[0].id);
+
+      const allSessions = sessions.getByProjectId(projectId);
+      const childSession = allSessions.find((s) => s.id !== session.id);
+      expect(childSession).toBeDefined();
+      expect(childSession.parentSessionId).toBe(session.id);
+      expect(childSession.laneTriggerDepth).toBe(1);
+      expect(runSession).toHaveBeenCalled();
+    });
+
+    it('skips lane on-enter prompt when runOnEnterTemplate is false', async () => {
+      kanbanLanes.update(lanes[0].id, { onEnterPrompt: 'do something' });
+      const session = createSession();
+
+      await addSessionToBoard(session.id, lanes[0].id, { runOnEnterTemplate: false });
+
+      const allSessions = sessions.getByProjectId(projectId);
+      expect(allSessions).toHaveLength(1);
+      expect(runSession).not.toHaveBeenCalled();
     });
   });
 
@@ -154,7 +180,7 @@ describe('kanbanService', () => {
   describe('moveCard', () => {
     it('moves a card to a different lane', async () => {
       const session = createSession();
-      const card = addSessionToBoard(session.id, lanes[0].id);
+      const card = await addSessionToBoard(session.id, lanes[0].id);
       vi.clearAllMocks();
 
       const moved = await moveCard(card.id, lanes[1].id);
@@ -168,7 +194,7 @@ describe('kanbanService', () => {
 
     it('broadcasts KANBAN_CARD_MOVED', async () => {
       const session = createSession();
-      const card = addSessionToBoard(session.id, lanes[0].id);
+      const card = await addSessionToBoard(session.id, lanes[0].id);
       vi.clearAllMocks();
 
       await moveCard(card.id, lanes[1].id);
@@ -199,7 +225,7 @@ describe('kanbanService', () => {
       kanbanLanes.update(lanes[1].id, { onEnterTemplateId: template.id });
 
       const session = createSession();
-      const card = addSessionToBoard(session.id, lanes[0].id);
+      const card = await addSessionToBoard(session.id, lanes[0].id);
       vi.clearAllMocks();
 
       await moveCard(card.id, lanes[1].id, { runOnEnterTemplate: false });
@@ -311,6 +337,89 @@ describe('kanbanService', () => {
     });
   });
 
+  // ── handleCompletionMove ──────────────────────────────────────────
+
+  describe('handleCompletionMove', () => {
+    it('moves an existing card to the current lane completion target', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[1].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
+        expect.objectContaining({
+          fromLaneId: lanes[0].id,
+          toLaneId: lanes[1].id,
+        })
+      );
+    });
+
+    it('does nothing when the session has no card', async () => {
+      const session = createSession();
+
+      await handleCompletionMove(session.id);
+
+      expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the current lane has no completion target', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the completion target equals the current lane', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[0].id });
+
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the completion target is on another board', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherBoard = kanbanBoards.create(otherProject.id);
+      const otherLanes = kanbanLanes.getByBoardId(otherBoard.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: otherLanes[0].id });
+
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('composes with per-session targetLaneId moves', async () => {
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+      sessions.update(session.id, { targetLaneId: lanes[1].id });
+      kanbanLanes.update(lanes[1].id, { completionTargetLaneId: lanes[2].id });
+
+      await handleTurnCompletion(session.id);
+      await handleCompletionMove(session.id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[2].id);
+    });
+  });
+
   // ── removeSessionFromBoard ─────────────────────────────────────────
 
   describe('removeSessionFromBoard', () => {
@@ -351,7 +460,7 @@ describe('kanbanService', () => {
   // ── addSessionToTemplateTargetLane ─────────────────────────────────
 
   describe('addSessionToTemplateTargetLane', () => {
-    it('adds session to the lane specified in the template', () => {
+    it('adds session to the lane specified in the template', async () => {
       const template = sessionTemplates.create({
         projectId,
         name: 'Template',
@@ -360,14 +469,14 @@ describe('kanbanService', () => {
       });
 
       const session = createSession();
-      addSessionToTemplateTargetLane(session.id, template.id);
+      await addSessionToTemplateTargetLane(session.id, template.id);
 
       const card = kanbanCards.getBySessionId(session.id);
       expect(card).not.toBeNull();
       expect(card.laneId).toBe(lanes[2].id);
     });
 
-    it('does nothing when template has no targetLaneId', () => {
+    it('does nothing when template has no targetLaneId', async () => {
       const template = sessionTemplates.create({
         projectId,
         name: 'Template',
@@ -375,21 +484,21 @@ describe('kanbanService', () => {
       });
 
       const session = createSession();
-      addSessionToTemplateTargetLane(session.id, template.id);
+      await addSessionToTemplateTargetLane(session.id, template.id);
 
       const card = kanbanCards.getBySessionId(session.id);
       expect(card).toBeNull();
     });
 
-    it('does nothing when template does not exist', () => {
+    it('does nothing when template does not exist', async () => {
       const session = createSession();
-      addSessionToTemplateTargetLane(session.id, 'non-existent');
+      await addSessionToTemplateTargetLane(session.id, 'non-existent');
 
       const card = kanbanCards.getBySessionId(session.id);
       expect(card).toBeNull();
     });
 
-    it('does not throw when target lane has been deleted', () => {
+    it('does not throw when target lane has been deleted', async () => {
       // Create a real lane, assign it to template, then delete the lane
       const tempLane = kanbanLanes.create(boardId, { name: 'Temp Lane' });
       const template = sessionTemplates.create({
@@ -404,14 +513,14 @@ describe('kanbanService', () => {
 
       const session = createSession();
       // Template's targetLaneId is now null, so should do nothing
-      expect(() => addSessionToTemplateTargetLane(session.id, template.id)).not.toThrow();
+      await expect(addSessionToTemplateTargetLane(session.id, template.id)).resolves.toBeUndefined();
 
       // Session should not have a card on the board
       const card = kanbanCards.getBySessionId(session.id);
       expect(card).toBeNull();
     });
 
-    it('does not throw when session already has a card', () => {
+    it('does not throw when session already has a card', async () => {
       const template = sessionTemplates.create({
         projectId,
         name: 'Template',
@@ -423,7 +532,7 @@ describe('kanbanService', () => {
       kanbanCards.create(lanes[1].id, session.id);
 
       // Should not throw - should log a warning
-      expect(() => addSessionToTemplateTargetLane(session.id, template.id)).not.toThrow();
+      await expect(addSessionToTemplateTargetLane(session.id, template.id)).resolves.toBeUndefined();
     });
   });
 
