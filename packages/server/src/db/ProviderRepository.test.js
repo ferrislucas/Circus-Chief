@@ -3,6 +3,7 @@ import {
   ProviderRepository,
   PROVIDER_KINDS,
   AGENT_TYPE_BY_KIND,
+  MODEL_TIER_ALIASES,
 } from './ProviderRepository.js';
 import { OPENAI_MODELS } from '@circuschief/shared';
 
@@ -717,6 +718,38 @@ describe('ProviderRepository', () => {
 
       // Cleanup
       repo.delete(provider.id);
+    });
+  });
+
+  describe('getAllModelIds', () => {
+    it('returns distinct sorted registered model ids plus tier aliases', () => {
+      const provider = repo.create({
+        name: 'Model Id Enumeration',
+        kind: 'openai',
+        baseUrl: 'https://api.enumeration.example/v1',
+        authToken: 'token',
+      });
+      repo.addModel(provider.id, {
+        modelId: 'zz-enumerated-model',
+        displayName: 'ZZ Enumerated Model',
+        tier: 'custom',
+      });
+
+      try {
+        const ids = repo.getAllModelIds();
+
+        expect(ids).toEqual([...ids].sort());
+        expect(ids).toContain('zz-enumerated-model');
+        expect(ids).toContain('gpt-5.5');
+        for (const alias of MODEL_TIER_ALIASES) {
+          expect(ids).toContain(alias);
+          expect(repo.getProviderByModelId(alias)).toBeNull();
+          expect(repo.getProviderMetadataByModelId(alias)).not.toBeNull();
+        }
+        expect(new Set(ids).size).toBe(ids.length);
+      } finally {
+        repo.delete(provider.id);
+      }
     });
   });
 

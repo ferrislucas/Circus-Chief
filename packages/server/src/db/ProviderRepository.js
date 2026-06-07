@@ -12,6 +12,13 @@ import { normalizeCommitAttributionOverride } from '@circuschief/shared/contract
 export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google']);
 
 /**
+ * Model tier aliases handled directly by the Claude SDK. These are matched
+ * case-insensitively and are always considered valid model ids in addition to
+ * whatever lives in the `provider_models` table.
+ */
+export const MODEL_TIER_ALIASES = Object.freeze(['opus', 'sonnet', 'haiku']);
+
+/**
  * Mapping from provider kind to the agent adapter that should drive sessions
  * backed by that provider.
  */
@@ -343,8 +350,7 @@ export class ProviderRepository extends BaseRepository {
     if (!modelId) return null;
 
     // Tier names (sonnet, opus, haiku) are handled by the SDK — no custom provider needed
-    const tierNames = ['sonnet', 'opus', 'haiku'];
-    if (tierNames.includes(modelId.toLowerCase())) {
+    if (MODEL_TIER_ALIASES.includes(modelId.toLowerCase())) {
       return null;
     }
 
@@ -390,8 +396,7 @@ export class ProviderRepository extends BaseRepository {
   getProviderMetadataByModelId(modelId) {
     if (!modelId) return null;
 
-    const tierNames = ['sonnet', 'opus', 'haiku'];
-    if (tierNames.includes(modelId.toLowerCase())) {
+    if (MODEL_TIER_ALIASES.includes(modelId.toLowerCase())) {
       return this.getById('anthropic-default');
     }
 
@@ -405,6 +410,25 @@ export class ProviderRepository extends BaseRepository {
       .get(modelId);
 
     return row ? this.getById(row.id) : null;
+  }
+
+  /**
+   * Enumerate every valid model id: the distinct `model_id` values from the
+   * `provider_models` table (built-in + user-registered) unioned with the
+   * SDK-handled tier aliases. Returned sorted and de-duplicated. This is the
+   * single source of truth for "is this model id valid?" checks.
+   *
+   * @returns {string[]} Sorted distinct list of valid model ids
+   */
+  getAllModelIds() {
+    const rows = this.db
+      .prepare('SELECT DISTINCT model_id FROM provider_models')
+      .all();
+    const ids = new Set(rows.map((row) => row.model_id));
+    for (const alias of MODEL_TIER_ALIASES) {
+      ids.add(alias);
+    }
+    return Array.from(ids).sort();
   }
 
   /**
