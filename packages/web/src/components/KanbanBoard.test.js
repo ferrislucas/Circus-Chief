@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { defineComponent, h } from 'vue';
 import KanbanBoard from './KanbanBoard.vue';
 
 vi.mock('../stores/kanban.js', () => ({
@@ -16,7 +17,12 @@ vi.mock('../stores/kanban.js', () => ({
             {
               id: 'card-1',
               laneId: 'lane-1',
-              sessions: [{ id: 'session-1', name: 'Session 1', status: 'waiting' }],
+              sessions: [{
+                id: 'session-1',
+                name: 'Session 1',
+                status: 'waiting',
+                prUrl: 'https://github.com/owner/repo/pull/123',
+              }],
             },
             {
               id: 'card-2',
@@ -73,6 +79,16 @@ vi.mock('./MoveCardModal.vue', () => ({
     props: ['isOpen', 'projectId', 'cardId', 'currentLaneId', 'sessionName'],
     emits: ['update:isOpen', 'close', 'moved'],
   },
+}));
+
+vi.mock('./PrIndicators.vue', () => ({
+  default: defineComponent({
+    name: 'PrIndicators',
+    props: ['prUrl'],
+    setup(props) {
+      return () => h('span', { class: 'pr-indicators', 'data-pr-url': props.prUrl }, 'PR');
+    },
+  }),
 }));
 
 import { useKanbanStore } from '../stores/kanban.js';
@@ -163,6 +179,16 @@ describe('KanbanBoard.vue', () => {
       const moveButton = wrapper.find('.card-move-btn');
       expect(moveButton.exists()).toBe(true);
       // Click handler testing skipped - covered by E2E tests
+    });
+  });
+
+  describe('PR indicators', () => {
+    it('shows a PR indicator for kanban cards whose session has a PR URL', () => {
+      const wrapper = mountBoard();
+
+      const prIndicators = wrapper.findAll('.pr-indicators');
+      expect(prIndicators).toHaveLength(1);
+      expect(prIndicators[0].attributes('data-pr-url')).toBe('https://github.com/owner/repo/pull/123');
     });
   });
 

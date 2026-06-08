@@ -136,6 +136,10 @@
                   >
                     {{ card.sessions[0].mode }}
                   </span>
+                  <PrIndicators
+                    v-if="card.sessions[0].prUrl"
+                    :pr-url="card.sessions[0].prUrl"
+                  />
                 </div>
               </router-link>
               <!-- Card reorder arrows -->
@@ -343,6 +347,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
+import PrIndicators from './PrIndicators.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
 import './KanbanBoard.css';
 
