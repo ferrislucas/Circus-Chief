@@ -138,6 +138,12 @@
                   </span>
                 </div>
               </router-link>
+              <CommandButtonStatusBar
+                v-if="card.sessions?.[0]"
+                class="card-command-status"
+                :button-statuses="getCardButtonStatuses(card)"
+                :session-id="card.sessions[0].id"
+              />
               <!-- Card reorder arrows -->
               <div class="card-reorder-arrows">
                 <button
@@ -340,7 +346,9 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
+import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
@@ -355,6 +363,7 @@ const props = defineProps({
 
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 
 // Local state
 const showAddLane = ref(false);
@@ -417,6 +426,30 @@ const isCardEffectivelyRunning = (session) => {
     return true;
   }
   return ['running', 'starting'].includes(session.status);
+};
+
+const getCardButtonStatuses = (card) => {
+  const session = card.sessions?.[0];
+  if (!session?.id || !props.projectId) return [];
+
+  // Access commandRunVersion to establish Vue dependency tracking for WebSocket updates.
+  // eslint-disable-next-line no-unused-vars
+  const _version = sessionsStore.commandRunVersion;
+
+  const buttons = commandButtonsStore.getButtonsByProjectId(props.projectId);
+  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
+  const storeSession = sessionsStore.sessions.find(s => s.id === session.id);
+  const latestRuns = storeSession?.latestCommandRuns || session.latestCommandRuns || [];
+
+  return latestRuns
+    .filter(run => buttonMap[run.buttonId]?.showOnList)
+    .map(run => ({
+      buttonId: run.buttonId,
+      label: buttonMap[run.buttonId].label,
+      command: buttonMap[run.buttonId].command,
+      status: run.status,
+      latestRun: run,
+    }));
 };
 
 // --- Card drag-and-drop ---

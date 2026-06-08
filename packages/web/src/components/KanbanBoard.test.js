@@ -3,49 +3,55 @@ import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import KanbanBoard from './KanbanBoard.vue';
 
-vi.mock('../stores/kanban.js', () => ({
-  useKanbanStore: vi.fn(() => ({
-    board: {
-      lanes: [
+const mockKanbanStoreData = vi.hoisted(() => ({
+  board: null,
+  loading: false,
+  error: null,
+  fetchBoard: vi.fn().mockResolvedValue({}),
+  removeCard: vi.fn().mockResolvedValue({}),
+  moveCard: vi.fn().mockResolvedValue({}),
+  reorderCards: vi.fn().mockResolvedValue({}),
+  createLane: vi.fn().mockResolvedValue({}),
+}));
+
+const createMockBoard = () => ({
+  lanes: [
+    {
+      id: 'lane-1',
+      name: 'To Do',
+      onEnterTemplateId: null,
+      onEnterPrompt: null,
+      cards: [
         {
-          id: 'lane-1',
-          name: 'To Do',
-          onEnterTemplateId: null,
-          onEnterPrompt: null,
-          cards: [
-            {
-              id: 'card-1',
-              laneId: 'lane-1',
-              sessions: [{ id: 'session-1', name: 'Session 1', status: 'waiting' }],
-            },
-            {
-              id: 'card-2',
-              laneId: 'lane-1',
-              sessions: [{ id: 'session-2', name: 'Session 2', status: 'running' }],
-            },
-          ],
+          id: 'card-1',
+          laneId: 'lane-1',
+          sessions: [{ id: 'session-1', name: 'Session 1', status: 'waiting', mode: 'plan' }],
         },
         {
-          id: 'lane-2',
-          name: 'In Progress',
-          onEnterTemplateId: 'template-1',
-          onEnterPrompt: null,
-          cards: [
-            {
-              id: 'card-3',
-              laneId: 'lane-2',
-              sessions: [{ id: 'session-3', name: 'Session 3', status: 'completed' }],
-            },
-          ],
+          id: 'card-2',
+          laneId: 'lane-1',
+          sessions: [{ id: 'session-2', name: 'Session 2', status: 'running' }],
         },
       ],
     },
-    loading: false,
-    error: null,
-    fetchBoard: vi.fn().mockResolvedValue({}),
-    removeCard: vi.fn().mockResolvedValue({}),
-    moveCard: vi.fn().mockResolvedValue({}),
-  })),
+    {
+      id: 'lane-2',
+      name: 'In Progress',
+      onEnterTemplateId: 'template-1',
+      onEnterPrompt: null,
+      cards: [
+        {
+          id: 'card-3',
+          laneId: 'lane-2',
+          sessions: [{ id: 'session-3', name: 'Session 3', status: 'completed' }],
+        },
+      ],
+    },
+  ],
+});
+
+vi.mock('../stores/kanban.js', () => ({
+  useKanbanStore: vi.fn(() => mockKanbanStoreData),
 }));
 
 vi.mock('./AddSessionToLaneModal.vue', () => ({
@@ -76,17 +82,32 @@ vi.mock('./MoveCardModal.vue', () => ({
 }));
 
 import { useKanbanStore } from '../stores/kanban.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useSessionsStore } from '../stores/sessions.js';
 
 describe('KanbanBoard.vue', () => {
   let pinia;
   let mockKanbanStore;
+  let commandButtonsStore;
+  let sessionsStore;
 
   beforeEach(() => {
     pinia = createPinia();
     setActivePinia(pinia);
     vi.clearAllMocks();
 
+    mockKanbanStoreData.board = createMockBoard();
+    mockKanbanStoreData.loading = false;
+    mockKanbanStoreData.error = null;
+    mockKanbanStoreData.fetchBoard.mockResolvedValue({});
+    mockKanbanStoreData.removeCard.mockResolvedValue({});
+    mockKanbanStoreData.moveCard.mockResolvedValue({});
+    mockKanbanStoreData.reorderCards.mockResolvedValue({});
+    mockKanbanStoreData.createLane.mockResolvedValue({});
+
     mockKanbanStore = useKanbanStore();
+    commandButtonsStore = useCommandButtonsStore();
+    sessionsStore = useSessionsStore();
   });
 
   function mountBoard(props = {}) {
@@ -390,6 +411,70 @@ describe('KanbanBoard.vue', () => {
       // Component state not exposed - skip assertion
       // Covered by E2E tests
       expect(addButton.exists()).toBe(true);
+    });
+  });
+
+  describe('Command button status indicators', () => {
+    beforeEach(() => {
+      commandButtonsStore.buttons = [
+        {
+          id: 'btn-visible',
+          projectId: 'proj-1',
+          label: 'Deploy',
+          command: 'npm run deploy',
+          showOnList: true,
+        },
+        {
+          id: 'btn-hidden',
+          projectId: 'proj-1',
+          label: 'Hidden',
+          command: 'npm run hidden',
+          showOnList: false,
+        },
+      ];
+    });
+
+    it('renders statuses for showOnList command buttons from the sessions store', () => {
+      sessionsStore.sessions = [
+        {
+          id: 'session-1',
+          latestCommandRuns: [
+            { runId: 'run-visible', buttonId: 'btn-visible', status: 'success', exitCode: 0 },
+            { runId: 'run-hidden', buttonId: 'btn-hidden', status: 'error', exitCode: 1 },
+          ],
+        },
+      ];
+
+      const wrapper = mountBoard();
+      const firstCard = wrapper.findAll('.kanban-card')[0];
+      const indicators = firstCard.findAll('[data-testid="button-status-indicator"]');
+
+      expect(indicators).toHaveLength(1);
+      expect(indicators[0].attributes('title')).toBe('Deploy: success');
+      expect(firstCard.text()).not.toContain('Hidden');
+    });
+
+    it('falls back to latestCommandRuns from the kanban card session', () => {
+      mockKanbanStore.board.lanes[0].cards[0].sessions[0].latestCommandRuns = [
+        { runId: 'run-card', buttonId: 'btn-visible', status: 'running' },
+      ];
+      sessionsStore.sessions = [];
+
+      const wrapper = mountBoard();
+      const firstCard = wrapper.findAll('.kanban-card')[0];
+      const indicator = firstCard.find('[data-testid="button-status-indicator"]');
+
+      expect(indicator.exists()).toBe(true);
+      expect(indicator.attributes('title')).toBe('Deploy: running');
+    });
+
+    it('does not render command statuses when no latest runs are available', () => {
+      sessionsStore.sessions = [{ id: 'session-1', latestCommandRuns: [] }];
+
+      const wrapper = mountBoard();
+      const firstCard = wrapper.findAll('.kanban-card')[0];
+
+      expect(firstCard.find('[data-testid="button-status-bar"]').exists()).toBe(false);
     });
   });
 });
