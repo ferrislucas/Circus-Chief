@@ -111,7 +111,7 @@ const props = defineProps({
 const emit = defineEmits(['confirm', 'cancel']);
 
 const runCleanup = ref(true);
-const removeFromBoard = ref(false);
+const removeFromBoard = ref(true);
 
 // Reset checkbox state whenever modal opens
 watch(
@@ -119,13 +119,17 @@ watch(
   (isOpen) => {
     if (isOpen) {
       runCleanup.value = true;
-      removeFromBoard.value = false;
+      removeFromBoard.value = true;
     }
   }
 );
 
 function handleConfirm() {
-  emit('confirm', { runCleanup: runCleanup.value, removeFromBoard: removeFromBoard.value });
+  emit('confirm', {
+    runCleanup: runCleanup.value,
+    // Only pass true when the checkbox is actually visible; otherwise always false.
+    removeFromBoard: props.isOnKanbanBoard ? removeFromBoard.value : false,
+  });
 }
 
 function cancel() {

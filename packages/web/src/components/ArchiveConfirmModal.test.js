@@ -102,12 +102,10 @@ describe('ArchiveConfirmModal.vue', () => {
       expect(labels.some(l => l.textContent.includes('Remove from Kanban board'))).toBe(true);
     });
 
-    it('emits removeFromBoard true when the checkbox is checked', async () => {
+    it('emits removeFromBoard true by default (checkbox pre-checked)', async () => {
       const onConfirm = vi.fn();
       mountModal({ isOnKanbanBoard: true, onConfirm });
-      const checkbox = document.querySelector('input[aria-label="Remove from Kanban board"]');
-      checkbox.click();
-      await nextTick();
+      // Default is checked — archive without touching the checkbox
       const buttons = document.querySelectorAll('button');
       const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archive');
       archiveBtn.click();
@@ -116,20 +114,38 @@ describe('ArchiveConfirmModal.vue', () => {
       expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: true });
     });
 
-    it('resets removeFromBoard to false when the modal re-opens', async () => {
-      const wrapper = mountModal({ isOpen: true, isOnKanbanBoard: true });
+    it('emits removeFromBoard false when the checkbox is unchecked', async () => {
+      const onConfirm = vi.fn();
+      mountModal({ isOnKanbanBoard: true, onConfirm });
       const checkbox = document.querySelector('input[aria-label="Remove from Kanban board"]');
+      // Checkbox starts checked; click to uncheck
       checkbox.click();
       await nextTick();
-      expect(checkbox.checked).toBe(true);
+      expect(checkbox.checked).toBe(false);
+      const buttons = document.querySelectorAll('button');
+      const archiveBtn = Array.from(buttons).find(b => b.textContent.trim() === 'Archive');
+      archiveBtn.click();
+      await nextTick();
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+      expect(onConfirm).toHaveBeenCalledWith({ runCleanup: true, removeFromBoard: false });
+    });
+
+    it('resets removeFromBoard to true (checked) when the modal re-opens', async () => {
+      const wrapper = mountModal({ isOpen: true, isOnKanbanBoard: true });
+      const checkbox = document.querySelector('input[aria-label="Remove from Kanban board"]');
+      // Uncheck it
+      checkbox.click();
+      await nextTick();
+      expect(checkbox.checked).toBe(false);
 
       await wrapper.setProps({ isOpen: false });
       await nextTick();
       await wrapper.setProps({ isOpen: true });
       await nextTick();
 
+      // Should reset back to checked (the default)
       const checkboxAfter = document.querySelector('input[aria-label="Remove from Kanban board"]');
-      expect(checkboxAfter.checked).toBe(false);
+      expect(checkboxAfter.checked).toBe(true);
     });
   });
 

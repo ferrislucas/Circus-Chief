@@ -2692,3 +2692,30 @@ export async function seedKanbanLane(
 
   return await response.json();
 }
+
+/**
+ * Seed a kanban card for testing, placing a session in a given lane.
+ * Cards are cleaned up automatically when the project is deleted (CASCADE).
+ */
+export async function seedKanbanCard(
+  projectId: string,
+  data: {
+    sessionId: string;
+    laneId: string;
+  }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/cards`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to create kanban card: ${response.status} ${errorText}`);
+  }
+
+  return await response.json();
+}
