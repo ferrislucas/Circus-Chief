@@ -8,11 +8,7 @@ import {
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import {
-  triggerOnEnterTemplate,
-  triggerOnEnterPrompt,
-  MAX_LANE_TRIGGER_DEPTH,
-} from './kanbanTriggers.js';
+import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
 
 /**
  * Helper to build full board response with lanes and cards
@@ -71,20 +67,15 @@ export function getFullBoard(projectId) {
 async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
   const { runOnEnterTemplate = true, depth = 0 } = options;
 
-  if (runOnEnterTemplate) {
-    const lane = kanbanLanes.getByIdWithTemplate(laneId);
-    if (lane?.onEnterTemplateId) {
-      await triggerOnEnterTemplate(sessionId, lane, { depth });
-    } else if (lane?.onEnterPrompt) {
-      await triggerOnEnterPrompt(sessionId, lane, { depth });
-    }
+  if (!runOnEnterTemplate) {
+    return;
   }
 
-  if (depth < MAX_LANE_TRIGGER_DEPTH) {
-    const session = sessions.getById(sessionId);
-    if (session?.status === 'waiting') {
-      await handleCompletionMove(sessionId, { depth });
-    }
+  const lane = kanbanLanes.getByIdWithTemplate(laneId);
+  if (lane?.onEnterTemplateId) {
+    await triggerOnEnterTemplate(sessionId, lane, { depth });
+  } else if (lane?.onEnterPrompt) {
+    await triggerOnEnterPrompt(sessionId, lane, { depth });
   }
 }
 
@@ -169,14 +160,14 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   return movedCard;
 }
 
-async function moveExistingSessionCard(session, card, targetLaneId, depth) {
+async function moveExistingSessionCard(session, card, targetLaneId) {
   if (card.laneId === targetLaneId) {
     return card;
   }
 
   return moveCard(card.id, targetLaneId, {
     runOnEnterTemplate: true,
-    depth: depth ?? session.laneTriggerDepth ?? 0,
+    depth: session.laneTriggerDepth || 0,
   });
 }
 
@@ -232,12 +223,7 @@ export async function handleTurnCompletion(sessionId) {
  *
  * @param {string} sessionId - The session that just completed its turn
  */
-export async function handleCompletionMove(sessionId, options = {}) {
-  const { depth = 0 } = options;
-  if (depth >= MAX_LANE_TRIGGER_DEPTH) {
-    return;
-  }
-
+export async function handleCompletionMove(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session) {
     return;
@@ -263,7 +249,7 @@ export async function handleCompletionMove(sessionId, options = {}) {
     return;
   }
 
-  await moveExistingSessionCard(session, card, targetLaneId, depth + 1);
+  await moveExistingSessionCard(session, card, targetLaneId);
 }
 
 /**

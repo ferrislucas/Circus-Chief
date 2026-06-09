@@ -59,6 +59,7 @@ vi.mock('./usageTracker.js', () => ({
 
 vi.mock('./kanbanService.js', () => ({
   handleTurnCompletion: vi.fn().mockResolvedValue(undefined),
+  handleCompletionMove: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { sessions, messages, workLogs, conversations } from '../database.js';
@@ -463,7 +464,7 @@ describe('streamEventHandler', () => {
       expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
     });
 
-    it('calls kanban turn completion hook with sessionId', async () => {
+    it('calls kanban completion hooks with sessionId', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
       sessions.getById.mockReturnValue({ projectId: 'proj-1' });
@@ -475,9 +476,10 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(kanbanService.handleTurnCompletion).toHaveBeenCalledWith('sess-1');
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
     });
 
-    it('does not call kanbanService.handleTurnCompletion when session was aborted', async () => {
+    it('does not call kanban completion hooks when session was aborted', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -487,9 +489,10 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(kanbanService.handleTurnCompletion).not.toHaveBeenCalled();
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
-    it('does not call kanbanService.handleTurnCompletion when rescheduled', async () => {
+    it('does not call kanban completion hooks when rescheduled', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -499,6 +502,7 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(kanbanService.handleTurnCompletion).not.toHaveBeenCalled();
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
     it('skips template trigger when auto-send fires', async () => {

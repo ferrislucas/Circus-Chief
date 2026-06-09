@@ -420,28 +420,29 @@ describe('kanbanService', () => {
     });
   });
 
-  // ── completion move on lane entry for already-finished sessions ────
+  // ── lane entry does NOT trigger completion move ────────────────────
   //
-  // Repro for the stranded-card bug: a session finishes its final turn
-  // (status `waiting`) BEFORE it has a card on the board. The card is then
-  // added to (or moved into) a lane whose completionTargetLaneId points
-  // elsewhere. Because the completion-move only runs on turn completion,
-  // and no further turn will ever complete, the card never advances.
+  // The completion target only advances a card when a turn actually
+  // completes *while parked in the lane* (handled on turn completion).
+  // Merely placing or moving a card into a lane must NOT advance it, even
+  // if the session happens to be in `waiting` — `waiting` means "ready for
+  // follow-up", not "finished work in this lane", and auto-jumping would
+  // make it impossible to drop a completed card into a lane and have it
+  // stay there.
 
-  describe('completion move on lane entry for already-finished sessions', () => {
-    it('advances an already-finished session when added to a lane with a completion target', async () => {
+  describe('lane entry does not trigger completion move', () => {
+    it('does not advance a waiting session when added to a completion-target lane', async () => {
       const session = createSession();
-      // Session already completed its final turn before being placed on the board
       sessions.update(session.id, { status: 'waiting' });
       kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
 
       await addSessionToBoard(session.id, lanes[0].id);
 
       const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[1].id);
+      expect(card.laneId).toBe(lanes[0].id);
     });
 
-    it('advances an already-finished session when moved into a lane with a completion target', async () => {
+    it('does not advance a waiting session when moved into a completion-target lane', async () => {
       const session = createSession();
       const card = await addSessionToBoard(session.id, lanes[0].id);
       sessions.update(session.id, { status: 'waiting' });
@@ -450,57 +451,7 @@ describe('kanbanService', () => {
       await moveCard(card.id, lanes[2].id);
 
       const finalCard = kanbanCards.getBySessionId(session.id);
-      expect(finalCard.laneId).toBe(lanes[3].id);
-    });
-
-    it('does not advance an error-status session on lane entry', async () => {
-      const session = createSession();
-      sessions.update(session.id, { status: 'error' });
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-
-      await addSessionToBoard(session.id, lanes[0].id);
-
-      const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[0].id);
-    });
-
-    it('does not advance a running session on lane entry', async () => {
-      const session = createSession();
-      sessions.update(session.id, { status: 'running' });
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-
-      await addSessionToBoard(session.id, lanes[0].id);
-
-      const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[0].id);
-    });
-
-    it('advances waiting sessions even when on-enter automation is disabled', async () => {
-      kanbanLanes.update(lanes[0].id, {
-        onEnterPrompt: 'do something',
-        completionTargetLaneId: lanes[1].id,
-      });
-      const session = createSession();
-      sessions.update(session.id, { status: 'waiting' });
-
-      await addSessionToBoard(session.id, lanes[0].id, { runOnEnterTemplate: false });
-
-      const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[1].id);
-      expect(runSession).not.toHaveBeenCalled();
-    });
-
-    it('chains completion moves for waiting sessions within the depth limit', async () => {
-      const session = createSession();
-      sessions.update(session.id, { status: 'waiting' });
-      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
-      kanbanLanes.update(lanes[1].id, { completionTargetLaneId: lanes[2].id });
-      kanbanLanes.update(lanes[2].id, { completionTargetLaneId: lanes[3].id });
-
-      await addSessionToBoard(session.id, lanes[0].id);
-
-      const card = kanbanCards.getBySessionId(session.id);
-      expect(card.laneId).toBe(lanes[3].id);
+      expect(finalCard.laneId).toBe(lanes[2].id);
     });
   });
 
