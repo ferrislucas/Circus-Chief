@@ -158,6 +158,27 @@ describe('Sessions API - PATCH effortLevel', () => {
     expect(res.body.error).toContain('Invalid effort level');
   });
 
+  it('rejects invalid model values with the valid model id list', async () => {
+    const res = await request(app)
+      .patch(`/api/sessions/${sessionId}`)
+      .send({ model: 'not-a-real-model' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
+    expect(res.body.error).toContain('Valid model ids are:');
+    expect(res.body.error).toContain('gpt-5.5');
+  });
+
+  it('updates model to a valid model id', async () => {
+    const res = await request(app)
+      .patch(`/api/sessions/${sessionId}`)
+      .send({ model: 'opus' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.model).toBe('opus');
+    expect(sessions.getById(sessionId).model).toBe('opus');
+  });
+
   it('does not update effortLevel when not provided', async () => {
     // Set initial value
     await request(app)

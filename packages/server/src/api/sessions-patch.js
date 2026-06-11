@@ -7,6 +7,7 @@ import { setSessionNameFromPr } from '../services/prUrlService.js';
 import { checkSessionCiStatusNow } from '../services/prStatusService.js';
 import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
+import { validateModelId } from './model-validation.js';
 
 const router = Router();
 
@@ -112,8 +113,8 @@ const FIELD_DEFINITIONS = [
   { field: 'status', validate: validateStatus },
   { field: 'mode', validate: validateMode },
   { field: 'nextTemplateId', validate: validateNextTemplateId },
-  { field: 'model' },
-  { field: 'pendingModel' },
+  { field: 'model', validate: validateModelId },
+  { field: 'pendingModel', validate: validateModelId },
   { field: 'autoSendPendingPrompt', transform: Boolean },
   { field: 'providerId', validate: validateProviderId },
   { field: 'prUrl', validate: validatePrUrl },
@@ -231,6 +232,14 @@ router.patch('/:id', requireSession, (req, res) => {
 
   if (Object.keys(updateData).length === 0) {
     return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  if (
+    updateData.scheduledAt != null &&
+    req.body.status === undefined &&
+    !['running', 'starting'].includes(req.session_.status)
+  ) {
+    updateData.status = 'scheduled';
   }
 
   const updated = sessions.update(req.params.id, updateData);
