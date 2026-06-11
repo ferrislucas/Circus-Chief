@@ -2670,8 +2670,9 @@ export async function getAgentCallFilterOptions() {
 // ============================================================
 
 /**
- * Seed a kanban lane for testing
- * Lanes are cleaned up automatically when the project is deleted (CASCADE)
+ * Seed a kanban lane for testing.
+ * Ensures the board exists first (GET /kanban auto-creates it when kanbanEnabled).
+ * Lanes are cleaned up automatically when the project is deleted (CASCADE).
  */
 export async function seedKanbanLane(
   projectId: string,
@@ -2680,6 +2681,9 @@ export async function seedKanbanLane(
     sortOrder?: number;
   }
 ) {
+  // Ensure the board exists before creating a lane
+  await fetch(`${API_URL}/api/projects/${projectId}/kanban`);
+
   const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/lanes`, {
     method: 'POST',
     headers: {
