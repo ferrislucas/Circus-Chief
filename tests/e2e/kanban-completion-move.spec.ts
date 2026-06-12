@@ -215,9 +215,7 @@ test.describe('Kanban lane completion move', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban Completion Move Test', '/tmp/test-kanban-completion', {
-      kanbanEnabled: true,
-    });
+    project = await seedProject('Kanban Completion Move Test', '/tmp/test-kanban-completion');
     // Force board + default lanes to exist before the UI loads.
     await getBoard(project.id);
   });

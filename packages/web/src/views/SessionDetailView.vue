@@ -31,7 +31,6 @@
         :summary="summary"
         :is-deleting="isDeleting"
         :button-statuses="buttonStatusesToDisplay"
-        :kanban-enabled="kanbanEnabledForCurrentSession"
         :git-status-summary="shortGitStatusSummary"
         :git-status-loading="gitStatusLoading"
         :git-status-error="gitStatusError"
@@ -296,11 +295,6 @@ const tabs = computed(() => [
   { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
   { id: 'commands', label: 'Commands' },
 ]);
-
-const kanbanEnabledForCurrentSession = computed(() =>
-  projectsStore.currentProject?.id === sessionsStore.currentSession?.projectId &&
-  projectsStore.currentProject?.kanbanEnabled === true
-);
 
 // The Kanban card (if any) for the current session's workflow. A card is keyed to
 // the workflow root, so resolve the root first and fall back to the session id in

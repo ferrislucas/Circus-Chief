@@ -66,7 +66,7 @@ vi.mock('../components/SessionHeaderPanel.vue', () => ({
   default: {
     name: 'SessionHeaderPanel',
     template: '<div class="session-header"><div class="session-header-row"><div class="session-name-wrapper"><h3 class="session-name">{{ session?.name }}</h3></div></div><button class="mock-add-to-board" @click="$emit(\'add-to-board\', session)">Add</button></div>',
-    props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses', 'kanbanEnabled'],
+    props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses'],
     emits: ['duplicate', 'copySessionId', 'archive', 'delete', 'star', 'add-to-board'],
   }
 }));
@@ -825,7 +825,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.text()).toContain(sessionName);
     });
 
-    it('passes Kanban enabled state to SessionHeaderPanel', async () => {
+    it('does not pass a project-level Kanban gate to SessionHeaderPanel', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -835,7 +835,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
 
       await router.push('/sessions/session-1');
@@ -857,7 +856,7 @@ describe('SessionDetailView', () => {
       await flushPromises();
 
       const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
-      expect(headerPanel.props('kanbanEnabled')).toBe(true);
+      expect(headerPanel.props()).not.toHaveProperty('canAddToBoard');
     });
 
     it('opens the lane selector when SessionHeaderPanel emits add-to-board', async () => {
@@ -870,7 +869,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
       kanbanStore.board = {
         lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
@@ -913,7 +911,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
       kanbanStore.board = {
         lanes: [
@@ -961,7 +958,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
       kanbanStore.board = {
         lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
@@ -1008,7 +1004,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
       kanbanStore.board = {
         lanes: [

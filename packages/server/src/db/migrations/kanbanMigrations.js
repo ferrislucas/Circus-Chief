@@ -9,6 +9,7 @@ export const kanbanMigrations = [
   {
     name: 'projects-add-kanban_enabled',
     up(db) {
+      // Deprecated: Kanban is always available, but migration history is append-only.
       addColumnIfMissing(db, 'projects', 'kanban_enabled', 'INTEGER NOT NULL DEFAULT 1');
     },
   },

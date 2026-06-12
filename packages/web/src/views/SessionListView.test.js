@@ -365,7 +365,7 @@ vi.mock('../composables/useApi.js', () => ({
 vi.mock('../components/SessionCard.vue', () => ({
   default: defineComponent({
     name: 'SessionCard',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'kanbanEnabled'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'canAddToBoard'],
     emits: ['retrySummary', 'archive', 'unarchive'],
     template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)" :data-pr-url="prUrl" :data-pr-summary="JSON.stringify(prSummary)"><slot /></div>',
   }),
@@ -3213,13 +3213,12 @@ describe('SessionListView Kanban behavior', () => {
     }
   }
 
-  it('renders Kanban tab when kanbanEnabled=true', async () => {
+  it('renders Kanban tab for projects', async () => {
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
         name: 'Test Project',
         workingDirectory: '/tmp',
-        kanbanEnabled: true,
       },
       fetchProject: vi.fn(),
     };
@@ -3234,13 +3233,12 @@ describe('SessionListView Kanban behavior', () => {
     expect(kanbanTab).toBeTruthy();
   });
 
-  it('labels the mobile Kanban option when kanbanEnabled=true', async () => {
+  it('labels the mobile Kanban option', async () => {
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
         name: 'Test Project',
         workingDirectory: '/tmp',
-        kanbanEnabled: true,
       },
       fetchProject: vi.fn(),
     };
@@ -3257,13 +3255,12 @@ describe('SessionListView Kanban behavior', () => {
     expect(kanbanOption).toBeTruthy();
   });
 
-  it('does not render the Kanban tab when kanbanEnabled=false', async () => {
+  it('renders the Kanban tab even without a project flag', async () => {
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
         name: 'Test Project',
         workingDirectory: '/tmp',
-        kanbanEnabled: false,
       },
       fetchProject: vi.fn(),
     };
@@ -3273,20 +3270,19 @@ describe('SessionListView Kanban behavior', () => {
     await flushAll(wrapper);
 
     const tabsText = wrapper.find('.tabs-desktop').text();
-    expect(tabsText).not.toContain('Kanban');
+    expect(tabsText).toContain('Kanban');
 
     const mobileSelect = wrapper.find('.tabs-mobile select');
-    expect(mobileSelect.text()).not.toContain('Kanban');
+    expect(mobileSelect.text()).toContain('Kanban');
   });
 
-  it('redirects to /sessions when the kanban route is reached but kanbanEnabled=false', async () => {
+  it('does not redirect away from the kanban route', async () => {
     mockRoute.name = 'ProjectKanban';
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
         name: 'Test Project',
         workingDirectory: '/tmp',
-        kanbanEnabled: false,
       },
       fetchProject: vi.fn(),
     };
@@ -3295,45 +3291,6 @@ describe('SessionListView Kanban behavior', () => {
     const wrapper = mount(SessionListView);
     await flushAll(wrapper);
 
-    expect(mockRouterReplace).toHaveBeenCalledWith(
-      '/projects/test-project-id/sessions'
-    );
-  });
-
-  it('passes kanbanEnabled=false to SessionCard when project has Kanban disabled', async () => {
-    mockProjectsStore = {
-      currentProject: {
-        id: 'test-project-id',
-        name: 'Test Project',
-        workingDirectory: '/tmp',
-        kanbanEnabled: false,
-      },
-      fetchProject: vi.fn(),
-    };
-    useProjectsStore.mockReturnValue(mockProjectsStore);
-
-    const wrapper = mount(SessionListView);
-    await flushAll(wrapper);
-
-    const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
-    expect(sessionCard.exists()).toBe(true);
-    expect(sessionCard.props('kanbanEnabled')).toBe(false);
-  });
-
-  it('passes kanbanEnabled=false to SessionCard when currentProject is not yet loaded', async () => {
-    mockProjectsStore = {
-      currentProject: null,
-      fetchProject: vi.fn(),
-    };
-    useProjectsStore.mockReturnValue(mockProjectsStore);
-
-    const wrapper = mount(SessionListView);
-    await flushAll(wrapper);
-
-    const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
-    if (sessionCard.exists()) {
-      // Fallback should be false, not true, now that Kanban is opt-in.
-      expect(sessionCard.props('kanbanEnabled')).toBe(false);
-    }
+    expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 });

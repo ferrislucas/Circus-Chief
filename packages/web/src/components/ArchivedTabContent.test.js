@@ -24,7 +24,7 @@ vi.mock('./SessionCard.vue', () => ({
   default: {
     name: 'SessionCard',
     template: '<div class="session-card-mock">SessionCard</div>',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showUnarchive', 'prUrl', 'prSummary', 'kanbanEnabled'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showUnarchive', 'prUrl', 'prSummary', 'canAddToBoard'],
   },
 }));
 
@@ -174,7 +174,7 @@ describe('ArchivedTabContent', () => {
       expect(sessionCard.props('prSummary')).toBe('Test summary');
     });
 
-    it('passes kanbanEnabled=false to SessionCard components', () => {
+    it('passes canAddToBoard=false to SessionCard components', () => {
       mockSessionsStore.archivedSessions = [
         { id: 'session-1', name: 'Archived Session' },
       ];
@@ -187,7 +187,7 @@ describe('ArchivedTabContent', () => {
 
       const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
       // Archived sessions should never show the Add to Board button
-      expect(sessionCard.props('kanbanEnabled')).toBe(false);
+      expect(sessionCard.props('canAddToBoard')).toBe(false);
     });
   });
 

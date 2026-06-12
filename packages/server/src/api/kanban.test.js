@@ -41,7 +41,7 @@ describe('Kanban API', () => {
     app.use(express.json());
     app.use('/api/projects/:projectId/kanban', kanbanRouter);
 
-    const project = projects.create('Test Project', '/tmp/test', null, { kanbanEnabled: true });
+    const project = projects.create('Test Project', '/tmp/test');
     projectId = project.id;
   });
 
@@ -79,15 +79,6 @@ describe('Kanban API', () => {
       expect(res.status).toBe(200);
       expect(res.body.lanes).toHaveLength(4);
       expect(res.body.lanes[0].name).toBe('To Do');
-    });
-
-    it('returns null when kanban is disabled', async () => {
-      projects.update(projectId, { kanbanEnabled: false });
-
-      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
-
-      expect(res.status).toBe(200);
-      expect(res.body).toBeNull();
     });
 
     it('returns 404 for non-existent project', async () => {
@@ -234,7 +225,7 @@ describe('Kanban API', () => {
 
     it('rejects completionTargetLaneId from another board', async () => {
       setupBoard();
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       const otherBoard = kanbanBoards.getOrCreateForProject(otherProject.id);
       const otherLanes = kanbanLanes.getByBoardId(otherBoard.id);
 
@@ -248,7 +239,7 @@ describe('Kanban API', () => {
 
     it('rejects updating a lane through a project route whose board does not own it', async () => {
       setupBoard();
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       kanbanBoards.getOrCreateForProject(otherProject.id);
 
       const res = await request(app)
@@ -407,7 +398,7 @@ describe('Kanban API', () => {
 
     it('rejects child sessions whose workflow root belongs to another project', async () => {
       setupBoard();
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       const root = sessions.create(otherProject.id, 'Other Root', 'Prompt');
       const child = sessions.create(otherProject.id, 'Other Child', 'Prompt', {
         mode: 'standard',
@@ -424,7 +415,7 @@ describe('Kanban API', () => {
 
     it('rejects a provided session that belongs to another project even if root is in this project', async () => {
       setupBoard();
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       // root lives in our project, child lives in otherProject
       const root = createSession('Root in This Project');
       const child = sessions.create(otherProject.id, 'Child in Other Project', 'Prompt', {

@@ -50,7 +50,7 @@ describe('kanbanService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    const project = projects.create('Test Project', '/tmp/test', null, { kanbanEnabled: true });
+    const project = projects.create('Test Project', '/tmp/test');
     projectId = project.id;
 
     const board = kanbanBoards.create(projectId);
@@ -83,14 +83,8 @@ describe('kanbanService', () => {
       expect(board).toBeNull();
     });
 
-    it('returns null when kanban is disabled', () => {
-      projects.update(projectId, { kanbanEnabled: false });
-      const board = getFullBoard(projectId);
-      expect(board).toBeNull();
-    });
-
     it('lazy-creates board if none exists', () => {
-      const project2 = projects.create('Project 2', '/tmp/test2', null, { kanbanEnabled: true });
+      const project2 = projects.create('Project 2', '/tmp/test2');
       const board = getFullBoard(project2.id);
 
       expect(board).not.toBeNull();
@@ -394,7 +388,7 @@ describe('kanbanService', () => {
     it('does nothing when the completion target is on another board', async () => {
       const session = createSession();
       kanbanCards.create(lanes[0].id, session.id);
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       const otherBoard = kanbanBoards.create(otherProject.id);
       const otherLanes = kanbanLanes.getByBoardId(otherBoard.id);
       kanbanLanes.update(lanes[0].id, { completionTargetLaneId: otherLanes[0].id });
