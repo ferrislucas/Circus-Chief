@@ -173,7 +173,9 @@ describe('Projects API', () => {
     });
 
     it('accepts ISO 8601 scheduledAt strings and stores Unix milliseconds', async () => {
-      const scheduledAt = '2026-06-12T14:00:00Z';
+      // Use a date 1 hour in the future to ensure it's always ahead of Date.now()
+      const futureDate = new Date(Date.now() + 3600000);
+      const scheduledAt = futureDate.toISOString();
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Scheduled prompt',
         scheduledAt,
@@ -804,51 +806,6 @@ describe('Projects API', () => {
           })
         );
       });
-    });
-  });
-
-  describe('POST /api/projects kanbanEnabled default', () => {
-    it('defaults kanbanEnabled to false when creating project without option', async () => {
-      const newDir = mkdtempSync(join(tmpdir(), 'projects-default-kanban-'));
-      try {
-        const res = await request(app).post('/api/projects').send({
-          name: 'Default Kanban Project',
-          workingDirectory: newDir,
-        });
-
-        expect(res.status).toBe(201);
-        expect(res.body.kanbanEnabled).toBe(false);
-      } finally {
-        rmSync(newDir, { recursive: true, force: true });
-      }
-    });
-
-    it('preserves kanbanEnabled=true when explicitly opted-in on POST', async () => {
-      const newDir = mkdtempSync(join(tmpdir(), 'projects-explicit-kanban-'));
-      try {
-        const res = await request(app).post('/api/projects').send({
-          name: 'Explicit Kanban Project',
-          workingDirectory: newDir,
-          kanbanEnabled: true,
-        });
-
-        expect(res.status).toBe(201);
-        expect(res.body.kanbanEnabled).toBe(true);
-      } finally {
-        rmSync(newDir, { recursive: true, force: true });
-      }
-    });
-
-    it('returns kanbanEnabled=true for pre-existing projects with the DB flag set', async () => {
-      // Simulate an existing project created before the default flipped
-      const existingProject = projects.create('Pre-existing Kanban Project', tempDir, null, {
-        kanbanEnabled: true,
-      });
-
-      const res = await request(app).get(`/api/projects/${existingProject.id}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.kanbanEnabled).toBe(true);
     });
   });
 

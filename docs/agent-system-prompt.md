@@ -16,7 +16,7 @@ This document describes the system prompt injected into every agent session and 
 | 6 | Canvas read instructions | `buildCanvasReadSystemPrompt()` | Yes |
 | 7 | Session management API | `buildSessionApiInstructions()` | Yes |
 | 8 | Circus Commands | `buildCommandButtonApiInstructions()` (in `commandButtonPrompts.js`) | Only when project has commands |
-| 9 | Kanban board API | `buildKanbanApiInstructions()` | Only when project has kanban enabled |
+| 9 | Kanban board API | `buildKanbanApiInstructions()` | Yes |
 
 The base URL used in all endpoint examples is derived from `CIRCUSCHIEF_API_URL` env var, falling back to `http://localhost:{PORT}`.
 
@@ -83,9 +83,9 @@ Included only when the project has commands configured. Built in `packages/serve
 | GET | `/api/sessions/{sessionId}/circus-commands/runs` | List all command runs |
 | POST | `/api/sessions/{sessionId}/circus-commands/runs/{run_id}/kill` | Kill a running command |
 
-### Kanban Board API (conditional)
+### Kanban Board API (always included)
 
-Included only when the project has kanban enabled. Also includes a dynamically populated list of available lanes with names and IDs.
+Included for every project. Also includes a dynamically populated list of available lanes with names and IDs.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

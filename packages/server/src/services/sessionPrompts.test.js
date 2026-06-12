@@ -40,7 +40,7 @@ describe('sessionPrompts', () => {
     sessions.getById.mockReturnValue(null);
     // Default mock: no attachments
     attachments.getBySessionId.mockReturnValue([]);
-    // Default mock: project without kanban enabled
+    // Default mock: existing project with no board yet.
     projects.getById.mockReturnValue(null);
     kanbanBoards.getByProjectId.mockReturnValue(null);
     kanbanLanes.getByBoardId.mockReturnValue([]);
@@ -509,8 +509,8 @@ describe('sessionPrompts', () => {
       });
     });
 
-    it('includes kanban API instructions when kanban is enabled', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: true });
+    it('includes kanban API instructions when the project exists', () => {
+      projects.getById.mockReturnValue({});
       kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
       kanbanLanes.getByBoardId.mockReturnValue([
         { id: 'lane-1', name: 'To Do' },
@@ -524,14 +524,6 @@ describe('sessionPrompts', () => {
       expect(result).toContain('/kanban');
     });
 
-    it('excludes kanban API instructions when kanban is disabled', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: false });
-
-      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
-
-      expect(result).not.toContain('Kanban Board API');
-    });
-
     it('excludes kanban API instructions when project is not found', () => {
       projects.getById.mockReturnValue(null);
 
@@ -541,7 +533,7 @@ describe('sessionPrompts', () => {
     });
 
     it('includes lane names in kanban instructions when board exists', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      projects.getById.mockReturnValue({});
       kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
       kanbanLanes.getByBoardId.mockReturnValue([
         { id: 'lane-1', name: 'To Do' },
@@ -558,7 +550,7 @@ describe('sessionPrompts', () => {
     });
 
     it('includes kanban instructions without lane context when no board exists yet', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      projects.getById.mockReturnValue({});
       kanbanBoards.getByProjectId.mockReturnValue(null);
 
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
@@ -568,7 +560,7 @@ describe('sessionPrompts', () => {
     });
 
     it('includes kanban API endpoints in instructions', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      projects.getById.mockReturnValue({});
       kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
       kanbanLanes.getByBoardId.mockReturnValue([]);
 
@@ -606,7 +598,7 @@ describe('sessionPrompts', () => {
 
       it('section appears between Session Management and Kanban', () => {
         commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-        projects.getById.mockReturnValue({ kanbanEnabled: true });
+        projects.getById.mockReturnValue({});
         kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
         kanbanLanes.getByBoardId.mockReturnValue([]);
 

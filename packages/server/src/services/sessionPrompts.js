@@ -312,14 +312,14 @@ ${buildProjectOps(apiUrl, sessionId)}`;
 }
 
 /**
- * Build Kanban API instructions for system prompt if Kanban is enabled for the project
+ * Build Kanban API instructions for system prompt.
  * @param {string} sessionId - Current session ID
  * @param {string} projectId - Current project ID
- * @returns {string} Kanban instructions or empty string if disabled
+ * @returns {string} Kanban instructions or empty string if the project is missing
  */
 function buildKanbanApiInstructions(sessionId, projectId) {
   const project = projects.getById(projectId);
-  if (!project || !project.kanbanEnabled) {
+  if (!project) {
     return '';
   }
 

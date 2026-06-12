@@ -483,7 +483,6 @@ export async function seedProject(
   options?: {
     onSessionCreated?: string;
     onSessionDeleted?: string;
-    kanbanEnabled?: boolean;
   }
 ) {
   // Ensure the working directory exists on disk so that anything which uses it
@@ -506,10 +505,6 @@ export async function seedProject(
   if (options?.onSessionDeleted) {
     body.onSessionDeleted = options.onSessionDeleted;
   }
-  if (options?.kanbanEnabled !== undefined) {
-    body.kanbanEnabled = options.kanbanEnabled;
-  }
-
   const response = await fetch(`${API_URL}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2677,7 +2672,7 @@ export async function getAgentCallFilterOptions() {
 
 /**
  * Seed a kanban lane for testing.
- * Ensures the board exists first (GET /kanban auto-creates it when kanbanEnabled).
+ * Ensures the board exists first (GET /kanban auto-creates it).
  * Lanes are cleaned up automatically when the project is deleted (CASCADE).
  */
 export async function seedKanbanLane(
