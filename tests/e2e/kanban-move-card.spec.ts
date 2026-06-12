@@ -14,9 +14,7 @@ test.describe('Kanban Move Card Modal', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban Move Test Project', '/tmp/test-kanban-move', {
-      kanbanEnabled: true,
-    });
+    project = await seedProject('Kanban Move Test Project', '/tmp/test-kanban-move');
     session = await seedSession(project.id, {
       prompt: 'Test move card',
       name: 'Move Test Session',

@@ -94,7 +94,6 @@
             Circus Time
           </button>
           <button
-            v-if="projectsStore.currentProject?.kanbanEnabled"
             class="tab"
             :class="{ active: activeTab === 'kanban' }"
             @click="router.push(`/projects/${route.params.id}/kanban`)"
@@ -135,7 +134,6 @@
             Circus Time
           </option>
           <option
-            v-if="projectsStore.currentProject?.kanbanEnabled"
             value="kanban"
           >
             Kanban
@@ -220,7 +218,6 @@
             :summary-loading="loadingSummaries[group.parent.id]"
             :summary-error="summaryErrors[group.parent.id]"
             :show-archive="true"
-            :kanban-enabled="projectsStore.currentProject?.kanbanEnabled ?? false"
             :pr-url="group.parent.prUrl"
             :pr-summary="summaries[group.parent.id]"
             @retry-summary="retryFetchSummary"
@@ -398,18 +395,6 @@ watch(
   async (newRouteName) => {
     if (newRouteName === 'ArchivedSessions') {
       await loadArchivedSessions();
-    }
-  },
-  { immediate: true }
-);
-
-// Redirect away from the Kanban tab when the feature is disabled
-// for the current project. Covers direct navigation to /projects/:id/kanban.
-watch(
-  [activeTab, () => projectsStore.currentProject?.kanbanEnabled],
-  ([tab, kanbanEnabled]) => {
-    if (tab === 'kanban' && kanbanEnabled === false) {
-      router.replace(`/projects/${route.params.id}/sessions`);
     }
   },
   { immediate: true }

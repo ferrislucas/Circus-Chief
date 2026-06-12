@@ -11,9 +11,9 @@
       v-if="!isChild"
       class="archive-actions"
     >
-      <!-- Add/move Kanban button for root sessions when Kanban is enabled. -->
+      <!-- Add/move Kanban button for root sessions when allowed. -->
       <button
-        v-if="kanbanEnabled"
+        v-if="canAddToBoard"
         class="add-to-board-btn"
         title="Add to kanban board"
         @click.stop.prevent="$emit('addToBoard')"
@@ -166,7 +166,7 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
-  kanbanEnabled: {
+  canAddToBoard: {
     type: Boolean,
     default: true,
   },

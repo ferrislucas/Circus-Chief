@@ -71,7 +71,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, kanbanEnabled, repoUrl } = result.data;
+  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, repoUrl } = result.data;
 
   const pathError = await validateWorktreePath(worktreePath);
   if (pathError) {
@@ -97,10 +97,6 @@ router.post('/', async (req, res) => {
     worktreePath: worktreePath || null,
     repoUrl: resolvedRepoUrl,
   };
-  if (kanbanEnabled !== undefined) {
-    createOptions.kanbanEnabled = kanbanEnabled;
-  }
-
   const project = projects.create(name, workingDirectory, systemPrompt || null, createOptions);
   res.status(201).json(project);
 });

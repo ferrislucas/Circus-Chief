@@ -41,9 +41,7 @@ test.describe('Kanban Board', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban Test Project', '/tmp/test-kanban', {
-      kanbanEnabled: true,
-    });
+    project = await seedProject('Kanban Test Project', '/tmp/test-kanban');
   });
 
   test.afterEach(async () => {

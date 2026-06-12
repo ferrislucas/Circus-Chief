@@ -1470,23 +1470,23 @@ describe('SessionCard', () => {
     });
   });
 
-  describe('kanbanEnabled prop', () => {
-    it('passes kanbanEnabled=true to SessionCardHeaderActions by default', () => {
+  describe('canAddToBoard prop', () => {
+    it('passes canAddToBoard=true to SessionCardHeaderActions by default', () => {
       const wrapper = mountComponent();
-      // The Add to Board button should be visible by default (kanbanEnabled defaults to true)
+      // The Add to Board button should be visible by default (canAddToBoard defaults to true)
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
-    it('hides Add to Board button when kanbanEnabled=false', () => {
+    it('hides Add to Board button when canAddToBoard=false', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: false,
+        canAddToBoard: false,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
     });
 
-    it('shows Add to Board button when kanbanEnabled=true and session is not on board', () => {
+    it('shows Add to Board button when canAddToBoard=true and session is not on board', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
@@ -1501,7 +1501,7 @@ describe('SessionCard', () => {
       });
 
       const wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });

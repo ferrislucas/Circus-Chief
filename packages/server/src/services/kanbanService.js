@@ -47,16 +47,11 @@ function buildFullBoardResponse(board) {
  * Lazy-creates the board with default lanes if it doesn't exist.
  *
  * @param {string} projectId - The project ID
- * @returns {Object|null} Full board with lanes and cards, or null if kanban is disabled
+ * @returns {Object|null} Full board with lanes and cards, or null if the project does not exist
  */
 export function getFullBoard(projectId) {
   const project = projects.getById(projectId);
   if (!project) {
-    return null;
-  }
-
-  // If kanban is disabled, return null
-  if (!project.kanbanEnabled) {
     return null;
   }
 

@@ -87,9 +87,7 @@ test.describe('Kanban on-enter automation', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban Automation Test', '/tmp/test-kanban-auto', {
-      kanbanEnabled: true,
-    });
+    project = await seedProject('Kanban Automation Test', '/tmp/test-kanban-auto');
     session = await seedSession(project.id, {
       prompt: 'Parent session',
       name: 'Automation Parent',
