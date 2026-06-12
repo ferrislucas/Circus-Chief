@@ -7,6 +7,7 @@ import { setSessionNameFromPr } from '../services/prUrlService.js';
 import { checkSessionCiStatusNow } from '../services/prStatusService.js';
 import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
+import { validateModelId } from './model-validation.js';
 
 const router = Router();
 
@@ -112,8 +113,8 @@ const FIELD_DEFINITIONS = [
   { field: 'status', validate: validateStatus },
   { field: 'mode', validate: validateMode },
   { field: 'nextTemplateId', validate: validateNextTemplateId },
-  { field: 'model' },
-  { field: 'pendingModel' },
+  { field: 'model', validate: validateModelId },
+  { field: 'pendingModel', validate: (value) => validateModelId(value, { fieldName: 'pendingModel' }) },
   { field: 'autoSendPendingPrompt', transform: Boolean },
   { field: 'providerId', validate: validateProviderId },
   { field: 'prUrl', validate: validatePrUrl },

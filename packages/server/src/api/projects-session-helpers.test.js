@@ -549,6 +549,15 @@ describe('applyTemplateOverrides', () => {
     expect(config.gitMode).toBe('branch');
   });
 
+  it('applies template overrides for model', async () => {
+    const { sessionTemplates } = await import('../database.js');
+    sessionTemplates.getById.mockReturnValue({ model: 'gpt-5.5' });
+
+    const config = { templateId: 'tmpl-1', model: 'opus', effortLevel: null };
+    applyTemplateOverrides(config);
+    expect(config.model).toBe('gpt-5.5');
+  });
+
   it('normalizes effortLevel "auto" to null', async () => {
     const { sessionTemplates } = await import('../database.js');
     sessionTemplates.getById.mockReturnValue({ effortLevel: 'auto' });

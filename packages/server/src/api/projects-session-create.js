@@ -11,12 +11,20 @@ import {
   setupAndStartSession,
 } from './projects-session-helpers.js';
 import { validateGitSettings } from './projects-helpers.js';
+import { validateModelId } from './model-validation.js';
 
 /**
  * Validate and prepare the session configuration from the request body.
  * Returns { config, nextTemplateId } on success, or { error, status } on failure.
  */
 export async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, project) {
+  if (Object.hasOwn(reqBody, 'model') && reqBody.model !== '') {
+    const modelResult = validateModelId(reqBody.model);
+    if (modelResult.error) {
+      return { error: modelResult.error, status: 400 };
+    }
+  }
+
   const projectDefs = projectDefaults.getByProjectId(projectId);
   const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
   const config = prepareSessionConfig(reqBody, projectDefs, systemDefaults);
@@ -47,6 +55,11 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
     return { error: nextTemplateError, status: 400 };
   }
   config.nextTemplateId = nextTemplateId;
+
+  const finalModelResult = validateModelId(config.model);
+  if (finalModelResult.error) {
+    return { error: finalModelResult.error, status: 400 };
+  }
 
   // Validate git settings for git repos
   const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);

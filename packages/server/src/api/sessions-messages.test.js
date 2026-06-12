@@ -145,6 +145,16 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     expect(refreshed.agentType).toBe('claude-code');
   });
 
+  it('rejects invalid model ids before dispatching continuation', async () => {
+    const res = await request(app)
+      .post(`/api/sessions/${claudeSession.id}/message`)
+      .send({ content: 'follow-up', model: 'not-a-real-model' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
+    expect(continueSession).not.toHaveBeenCalled();
+  });
+
   it('Codex session + different Codex model → 200 (same-kind switch works)', async () => {
     const res = await request(app)
       .post(`/api/sessions/${codexSession.id}/message`)
