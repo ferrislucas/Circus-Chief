@@ -11,7 +11,7 @@ import {
 /**
  * E2E tests for: Draft session model preservation on start
  *
- * Bug: When a draft session is created with a specific model (e.g., claude-opus-4-6-20250616),
+ * Bug: When a draft session is created with a specific model (e.g., claude-opus-4-6),
  * the model is correctly stored as `pendingModel` on the session. However, when the draft
  * session is later started via POST /sessions/:id/start, the model is lost because:
  *   1. The frontend doesn't send the model in the request body
@@ -43,7 +43,7 @@ test.describe('Draft session model preservation on start', () => {
       body: JSON.stringify({
         prompt: 'Test prompt for draft session',
         startImmediately: false,
-        model: 'claude-opus-4-6-20250616',
+        model: 'claude-opus-4-6',
         gitMode: 'none',
         gitBranch: 'main',
       }),
@@ -59,8 +59,8 @@ test.describe('Draft session model preservation on start', () => {
     expect(fetchedSession).not.toBeNull();
 
     // The model should be stored as both model and pendingModel
-    expect(fetchedSession.model).toBe('claude-opus-4-6-20250616');
-    expect(fetchedSession.pendingModel).toBe('claude-opus-4-6-20250616');
+    expect(fetchedSession.model).toBe('claude-opus-4-6');
+    expect(fetchedSession.pendingModel).toBe('claude-opus-4-6');
   });
 
   test('POST /start should use pendingModel when no model is sent in request body', async () => {
@@ -71,7 +71,7 @@ test.describe('Draft session model preservation on start', () => {
       body: JSON.stringify({
         prompt: 'Test prompt for starting draft',
         startImmediately: false,
-        model: 'claude-opus-4-6-20250616',
+        model: 'claude-opus-4-6',
         gitMode: 'none',
         gitBranch: 'main',
       }),
@@ -81,7 +81,7 @@ test.describe('Draft session model preservation on start', () => {
 
     // Verify pendingModel is set on the draft
     const draftSession = await getSession(session.id);
-    expect(draftSession.pendingModel).toBe('claude-opus-4-6-20250616');
+    expect(draftSession.pendingModel).toBe('claude-opus-4-6');
 
     // Start the session WITHOUT sending model in the request body
     // This mimics what the frontend currently does
@@ -117,7 +117,7 @@ test.describe('Draft session model preservation on start', () => {
       // To truly surface the bug, we need to verify what model the /start endpoint resolved.
       // We can do this by checking the response body or by verifying the session's model field
       // wasn't changed to null.
-      expect(startedSession.model).toBe('claude-opus-4-6-20250616');
+      expect(startedSession.model).toBe('claude-opus-4-6');
     }
   });
 
@@ -136,7 +136,7 @@ test.describe('Draft session model preservation on start', () => {
       body: JSON.stringify({
         prompt: 'Test model resolution',
         startImmediately: false,
-        model: 'claude-opus-4-6-20250616',
+        model: 'claude-opus-4-6',
         gitMode: 'none',
         gitBranch: 'main',
       }),
@@ -146,8 +146,8 @@ test.describe('Draft session model preservation on start', () => {
 
     // Step 2: Verify the draft has pendingModel set
     const draft = await getSession(session.id);
-    expect(draft.pendingModel).toBe('claude-opus-4-6-20250616');
-    expect(draft.model).toBe('claude-opus-4-6-20250616');
+    expect(draft.pendingModel).toBe('claude-opus-4-6');
+    expect(draft.model).toBe('claude-opus-4-6');
     expect(draft.status).toBe('waiting');
 
     // Step 3: Start the session without sending model in the body
@@ -176,8 +176,8 @@ test.describe('Draft session model preservation on start', () => {
     //
     // The fix should make the backend resolve:
     //   const model = req.body.model || session.pendingModel || session.model || null;
-    // which gives 'claude-opus-4-6-20250616' instead of null.
-    expect(startedSession.model).toBe('claude-opus-4-6-20250616');
+    // which gives 'claude-opus-4-6' instead of null.
+    expect(startedSession.model).toBe('claude-opus-4-6');
   });
 
   test('POST /start uses explicit model from request body over pendingModel', async () => {
@@ -191,7 +191,7 @@ test.describe('Draft session model preservation on start', () => {
       body: JSON.stringify({
         prompt: 'Test model override',
         startImmediately: false,
-        model: 'claude-opus-4-6-20250616',
+        model: 'claude-opus-4-6',
         gitMode: 'none',
         gitBranch: 'main',
       }),
@@ -205,7 +205,7 @@ test.describe('Draft session model preservation on start', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt: 'Test model override',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
       }),
     });
 
@@ -217,8 +217,8 @@ test.describe('Draft session model preservation on start', () => {
     // The explicitly provided model should win
     // Note: sessionManager line 861 does:
     //   sessions.update(sessionId, { status: 'running', ...(model && { model }) })
-    // So when model='claude-sonnet-4-20250514' (truthy), it DOES update session.model.
-    expect(startedSession.model).toBe('claude-sonnet-4-20250514');
+    // So when model='claude-sonnet-4-6' (truthy), it DOES update session.model.
+    expect(startedSession.model).toBe('claude-sonnet-4-6');
   });
 
   test('POST /start falls back to session.model when pendingModel is null', async () => {
@@ -232,7 +232,7 @@ test.describe('Draft session model preservation on start', () => {
       body: JSON.stringify({
         prompt: 'Test session.model fallback',
         startImmediately: false,
-        model: 'claude-opus-4-6-20250616',
+        model: 'claude-opus-4-6',
         gitMode: 'none',
         gitBranch: 'main',
       }),
@@ -246,7 +246,7 @@ test.describe('Draft session model preservation on start', () => {
     // Verify the state
     const patchedSession = await getSession(session.id);
     expect(patchedSession.pendingModel).toBeNull();
-    expect(patchedSession.model).toBe('claude-opus-4-6-20250616');
+    expect(patchedSession.model).toBe('claude-opus-4-6');
 
     // Step 3: Start without sending model
     const startResponse = await fetch(`${API_URL}/api/sessions/${session.id}/start`, {
@@ -262,7 +262,7 @@ test.describe('Draft session model preservation on start', () => {
     // BUG: The backend does `const model = req.body.model || null` and ignores
     // both session.pendingModel (already null) AND session.model.
     // With the fix, it should fall back to session.model.
-    expect(startedSession.model).toBe('claude-opus-4-6-20250616');
+    expect(startedSession.model).toBe('claude-opus-4-6');
   });
 
   test('pendingModel should be cleared after session is started', async () => {
@@ -277,7 +277,7 @@ test.describe('Draft session model preservation on start', () => {
       body: JSON.stringify({
         prompt: 'Test pendingModel cleanup',
         startImmediately: false,
-        model: 'claude-opus-4-6-20250616',
+        model: 'claude-opus-4-6',
         gitMode: 'none',
         gitBranch: 'main',
       }),
@@ -287,7 +287,7 @@ test.describe('Draft session model preservation on start', () => {
 
     // Verify pendingModel is set
     const draft = await getSession(session.id);
-    expect(draft.pendingModel).toBe('claude-opus-4-6-20250616');
+    expect(draft.pendingModel).toBe('claude-opus-4-6');
 
     // Step 2: Start the session
     await fetch(`${API_URL}/api/sessions/${session.id}/start`, {

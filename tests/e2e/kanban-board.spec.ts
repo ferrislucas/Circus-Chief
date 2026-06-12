@@ -1,11 +1,38 @@
 import { test, expect } from '@playwright/test';
 import {
+  API_URL,
   seedProject,
   seedSession,
   seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
+  seedCommandButton,
+  runCommandButton,
+  waitForCommandRunComplete,
+  waitForSessionToExist,
 } from './helpers';
+
+async function getKanbanBoard(projectId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban`);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to fetch kanban board: ${response.status} ${text}`);
+  }
+  return response.json();
+}
+
+async function addSessionToLane(projectId: string, sessionId: string, laneId: string) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/cards`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, laneId }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to add session to lane: ${response.status} ${text}`);
+  }
+  return response.json();
+}
 
 test.describe('Kanban Board', () => {
   test.describe.configure({ timeout: 60000 });
@@ -63,6 +90,50 @@ test.describe('Kanban Board', () => {
     // Assert the To Do lane contains exactly ONE card (not two from the race condition)
     const cards = lane.locator('.kanban-card');
     await expect(cards).toHaveCount(1);
+  });
+
+  test('kanban cards show Circus Command status indicators without navigating on click', async ({ page }) => {
+    const session = await seedSession(project.id, {
+      prompt: 'Test kanban command status',
+      name: 'Kanban Command Status Session',
+      startImmediately: false,
+    });
+    await waitForSessionToExist(session.id);
+
+    const board = await getKanbanBoard(project.id);
+    const todoLane = board.lanes.find((lane: any) => lane.name === 'To Do') || board.lanes[0];
+    await addSessionToLane(project.id, session.id, todoLane.id);
+
+    const visibleButton = await seedCommandButton(project.id, {
+      label: 'Kanban Visible Command',
+      command: 'echo "kanban visible"',
+      showOnList: true,
+    });
+    await seedCommandButton(project.id, {
+      label: 'Kanban Hidden Command',
+      command: 'echo "kanban hidden"',
+      showOnList: false,
+    });
+
+    const { runId } = await runCommandButton(session.id, visibleButton.id);
+    await waitForCommandRunComplete(session.id, runId, 10000);
+
+    await navigateAndWait(page, `/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    const card = page.locator('.kanban-card').filter({ hasText: 'Kanban Command Status Session' });
+    await expect(card).toBeVisible();
+
+    const indicator = card.locator('.button-status-indicator[title*="Kanban Visible Command"]');
+    await expect(indicator).toBeVisible({ timeout: 10000 });
+    await expect(card.locator('.button-status-indicator[title*="Kanban Hidden Command"]')).toHaveCount(0);
+
+    await indicator.click();
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/kanban`));
+    await expect(page.locator('[data-testid="button-status-modal"]')).toBeVisible();
+    await expect(page.locator('[data-testid="button-status-badge"]')).toContainText('Success');
   });
 
   test('child sessions should not appear in "Add Session" modal', async ({ page }) => {

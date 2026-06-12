@@ -33,9 +33,6 @@
       <p class="summary-empty-text">
         This session hasn't started yet.
       </p>
-      <p class="summary-empty-hint">
-        Start the session or send a message to see a summary here.
-      </p>
     </div>
 
     <!-- Overview Metrics -->
@@ -270,13 +267,6 @@ defineEmits(['open-session-overlay']);
   font-weight: 500;
   color: var(--color-text);
   margin: 0 0 0.5rem;
-}
-
-.summary-empty-hint {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  margin: 0;
-  line-height: 1.4;
 }
 
 .overview-metrics {

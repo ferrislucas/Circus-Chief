@@ -420,6 +420,41 @@ describe('kanbanService', () => {
     });
   });
 
+  // ── lane entry does NOT trigger completion move ────────────────────
+  //
+  // The completion target only advances a card when a turn actually
+  // completes *while parked in the lane* (handled on turn completion).
+  // Merely placing or moving a card into a lane must NOT advance it, even
+  // if the session happens to be in `waiting` — `waiting` means "ready for
+  // follow-up", not "finished work in this lane", and auto-jumping would
+  // make it impossible to drop a completed card into a lane and have it
+  // stay there.
+
+  describe('lane entry does not trigger completion move', () => {
+    it('does not advance a waiting session when added to a completion-target lane', async () => {
+      const session = createSession();
+      sessions.update(session.id, { status: 'waiting' });
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+
+      await addSessionToBoard(session.id, lanes[0].id);
+
+      const card = kanbanCards.getBySessionId(session.id);
+      expect(card.laneId).toBe(lanes[0].id);
+    });
+
+    it('does not advance a waiting session when moved into a completion-target lane', async () => {
+      const session = createSession();
+      const card = await addSessionToBoard(session.id, lanes[0].id);
+      sessions.update(session.id, { status: 'waiting' });
+      kanbanLanes.update(lanes[2].id, { completionTargetLaneId: lanes[3].id });
+
+      await moveCard(card.id, lanes[2].id);
+
+      const finalCard = kanbanCards.getBySessionId(session.id);
+      expect(finalCard.laneId).toBe(lanes[2].id);
+    });
+  });
+
   // ── removeSessionFromBoard ─────────────────────────────────────────
 
   describe('removeSessionFromBoard', () => {

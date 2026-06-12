@@ -5,6 +5,7 @@ import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
+import { validateModelId } from './model-validation.js';
 
 const router = Router();
 
@@ -60,6 +61,11 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
 
   if (req.session_.status !== 'waiting' && req.session_.status !== 'stopped' && req.session_.status !== 'error') {
     return res.status(400).json({ error: 'Session is not waiting for input' });
+  }
+
+  const modelResult = validateModelId(model);
+  if (modelResult.error) {
+    return res.status(400).json({ error: modelResult.error });
   }
 
   const crossKindError = checkCrossKindSwitch(req.session_, model);

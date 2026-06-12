@@ -11,25 +11,14 @@ import {
   setupAndStartSession,
 } from './projects-session-helpers.js';
 import { validateGitSettings } from './projects-helpers.js';
+import { validateModelId } from './model-validation.js';
 
 /**
- * Validate and prepare the session configuration from the request body.
- * Returns { config, nextTemplateId } on success, or { error, status } on failure.
+ * Run post-preparation validation on session config (parent session,
+ * template resolution, and git settings).
+ * Returns { nextTemplateId } on success, or { error, status } on failure.
  */
-export async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, project) {
-  const projectDefs = projectDefaults.getByProjectId(projectId);
-  const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
-  const config = prepareSessionConfig(reqBody, projectDefs, systemDefaults);
-  config.files = reqFiles || [];
-
-  if (!config.prompt) {
-    return { error: 'Prompt is required', status: 400 };
-  }
-
-  if (config.schedulingError) {
-    return { error: config.schedulingError, status: 400 };
-  }
-
+async function validatePreparedConfig(config, reqBody, projectId, project) {
   if (config.parentSessionId) {
     const parentSession = sessions.getById(config.parentSessionId);
     if (!parentSession) {
@@ -46,7 +35,6 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
   if (nextTemplateError) {
     return { error: nextTemplateError, status: 400 };
   }
-  config.nextTemplateId = nextTemplateId;
 
   // Validate git settings for git repos
   const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
@@ -55,7 +43,43 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
   }
   Object.assign(config, updatedConfig);
 
-  return { config, nextTemplateId };
+  return { nextTemplateId };
+}
+
+/**
+ * Validate and prepare the session configuration from the request body.
+ * Returns { config, nextTemplateId } on success, or { error, status } on failure.
+ */
+export async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, project) {
+  // Validate the explicitly requested model only — never the resolved default —
+  // so project/system defaults are never blocked.
+  if (Object.hasOwn(reqBody, 'model') && reqBody.model !== '') {
+    const modelResult = validateModelId(reqBody.model);
+    if (modelResult.error) {
+      return { error: modelResult.error, status: 400 };
+    }
+  }
+
+  const projectDefs = projectDefaults.getByProjectId(projectId);
+  const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
+  const config = prepareSessionConfig(reqBody, projectDefs, systemDefaults);
+  config.files = reqFiles || [];
+
+  if (!config.prompt) {
+    return { error: 'Prompt is required', status: 400 };
+  }
+
+  if (config.schedulingError) {
+    return { error: config.schedulingError, status: 400 };
+  }
+
+  const result = await validatePreparedConfig(config, reqBody, projectId, project);
+  if (result.error) {
+    return { error: result.error, status: result.status };
+  }
+
+  config.nextTemplateId = result.nextTemplateId;
+  return { config, nextTemplateId: result.nextTemplateId };
 }
 
 /**

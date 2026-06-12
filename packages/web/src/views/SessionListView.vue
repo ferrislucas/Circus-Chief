@@ -271,6 +271,7 @@
       :is-open="showArchiveModal"
       :session-name="sessionToArchive?.name || 'this session'"
       :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionToArchive?.gitWorktree && !sessionToArchive?.parentSessionId)"
+      :is-on-kanban-board="isArchiveSessionOnBoard"
       :loading="archiving"
       @confirm="confirmArchive"
       @cancel="cancelArchive"
@@ -435,12 +436,39 @@ function handleArchive(sessionId) {
   showArchiveModal.value = true;
 }
 
-async function confirmArchive(runCleanup) {
+// The Kanban card (if any) for the session-to-archive's workflow. A card is keyed
+// to the workflow root, so resolve the root first and fall back to the session id
+// in case the ancestor chain isn't fully loaded in the store.
+const archiveWorkflowCard = computed(() => {
+  const sessionId = sessionToArchive.value?.id;
+  if (!sessionId) return null;
+  const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  return (
+    kanbanStore.getCardBySessionId(rootId) ||
+    kanbanStore.getCardBySessionId(sessionId) ||
+    null
+  );
+});
+
+const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
+
+async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   if (!sessionToArchive.value) return;
   archiving.value = true;
+  // Capture before the finally block clears sessionToArchive.
+  const archiveProjectId = projectId.value;
+  const workflowCard = archiveWorkflowCard.value;
   try {
     await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
     uiStore.success('Session archived');
+
+    if (removeFromBoard && workflowCard && archiveProjectId) {
+      try {
+        await kanbanStore.removeCard(archiveProjectId, workflowCard.id);
+      } catch (removeError) {
+        uiStore.error(removeError.message || 'Failed to remove card from board');
+      }
+    }
   } catch (error) {
     uiStore.error(error.message || 'Failed to archive session');
   } finally {

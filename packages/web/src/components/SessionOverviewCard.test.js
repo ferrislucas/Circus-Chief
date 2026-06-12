@@ -129,7 +129,6 @@ describe('SessionOverviewCard.vue', () => {
       expect(wrapper.find('.session-overview').exists()).toBe(true);
       expect(wrapper.find('.overview-summary-empty').exists()).toBe(true);
       expect(wrapper.text()).toContain("This session hasn't started yet.");
-      expect(wrapper.text()).toContain('Start the session or send a message to see a summary here.');
       expect(wrapper.find('.overview-summary-empty button').exists()).toBe(false);
       expect(wrapper.find('.overview-summary-empty').text()).not.toContain('Generate summary');
     });
