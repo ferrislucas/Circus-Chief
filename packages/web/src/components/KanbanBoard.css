@@ -264,6 +264,10 @@
   text-transform: capitalize;
 }
 
+.card-command-status {
+  padding: 0 0.75rem 0.75rem;
+}
+
 .card-move-btn {
   position: absolute;
   top: 0.25rem;

@@ -172,6 +172,12 @@
                   </span>
                 </div>
               </router-link>
+              <CommandButtonStatusBar
+                v-if="card.sessions?.[0]"
+                class="card-command-status"
+                :button-statuses="cardButtonStatuses[card.sessions[0].id] || []"
+                :session-id="card.sessions[0].id"
+              />
               <!-- Card reorder arrows -->
               <div class="card-reorder-arrows">
                 <button
@@ -375,12 +381,15 @@ import { ref, computed, onMounted, watch, toRef } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { useCardDragDrop } from '../composables/useCardDragDrop.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
+import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
+import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import './KanbanBoard.css';
 
 const props = defineProps({
@@ -392,6 +401,7 @@ const props = defineProps({
 
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 
 // Local state
 const showAddLane = ref(false);
@@ -482,6 +492,35 @@ const isCardEffectivelyRunning = (session) => {
   return ['running', 'starting'].includes(session.status);
 };
 
+// Board-level map of session id → button-status indicators. Built once per
+// recompute (rather than per-card during render) so the buttonMap and the
+// store-session lookup are constructed a single time for the whole board.
+const cardButtonStatuses = computed(() => {
+  const result = {};
+  if (!props.projectId || !board.value) return result;
+
+  // Establish a reactive dependency on command-run WebSocket updates so the
+  // whole board recomputes when any run's status changes.
+  void sessionsStore.commandRunVersion;
+
+  const buttons = commandButtonsStore.getButtonsByProjectId(props.projectId);
+  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
+
+  // Build the store-session lookup once to avoid a per-card `.find()` scan.
+  const storeSessionsById = Object.fromEntries(
+    sessionsStore.sessions.map(s => [s.id, s])
+  );
+
+  for (const card of board.value.lanes.flatMap(l => l.cards || [])) {
+    const session = card.sessions?.[0];
+    if (!session?.id) continue;
+    const latestRuns =
+      storeSessionsById[session.id]?.latestCommandRuns || session.latestCommandRuns || [];
+    result[session.id] = mapRunsToButtonStatuses(buttonMap, latestRuns);
+  }
+
+  return result;
+});
 const handleRemoveCard = async (cardId) => {
   if (!confirm('Remove this session from the board?')) return;
 

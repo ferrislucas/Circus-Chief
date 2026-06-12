@@ -1724,6 +1724,12 @@ export async function getConversationMessages(sessionId: string, conversationId:
 
 function getDBPath(): string {
   if (process.env.DB_PATH) return process.env.DB_PATH;
+  // Fallback: read the .db-path sidecar file written by start-server.sh
+  const dbPathFile = join(process.cwd(), '.db-path');
+  if (existsSync(dbPathFile)) {
+    const path = readFileSync(dbPathFile, 'utf-8').trim();
+    if (path) return path;
+  }
   // Match the server's default location
   return join(os.homedir(), '.circuschief', 'circuschief.db');
 }
