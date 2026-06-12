@@ -37,6 +37,7 @@ const mockSessionsStoreData = {
   activeSessions: [],
   commandRunVersion: 0,
   toggleSessionStar: vi.fn(),
+  getSessionById: vi.fn((id) => mockSessionsStoreData.sessions.find((s) => s.id === id) || null),
   getWorkflowSessions: vi.fn((sessionId) => {
     // Default implementation: search both sessions and activeSessions
     const root = mockSessionsStoreData.sessions.find(s => s.id === sessionId)
@@ -139,6 +140,9 @@ describe('SessionCard', () => {
     mockSessionsStoreData.activeSessions = [];
     mockSessionsStoreData.commandRunVersion = 0;
     mockSessionsStoreData._currentSession = null;
+    mockSessionsStoreData.getSessionById.mockImplementation(
+      (id) => mockSessionsStoreData.sessions.find((s) => s.id === id) || null,
+    );
 
     // Reset commandButtons store mock data
     mockCommandButtonsData.buttons = [];

@@ -1,7 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { format } from 'date-fns';
 import KanbanBoard from './KanbanBoard.vue';
+import { useKanbanStore } from '../stores/kanban.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { useSessionsStore } from '../stores/sessions.js';
 
 const mockKanbanStoreData = vi.hoisted(() => ({
   board: null,
@@ -81,10 +85,6 @@ vi.mock('./MoveCardModal.vue', () => ({
   },
 }));
 
-import { useKanbanStore } from '../stores/kanban.js';
-import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { useSessionsStore } from '../stores/sessions.js';
-
 describe('KanbanBoard.vue', () => {
   let pinia;
   let mockKanbanStore;
@@ -94,6 +94,7 @@ describe('KanbanBoard.vue', () => {
   beforeEach(() => {
     pinia = createPinia();
     setActivePinia(pinia);
+    vi.useRealTimers();
     vi.clearAllMocks();
 
     mockKanbanStoreData.board = createMockBoard();
@@ -108,6 +109,10 @@ describe('KanbanBoard.vue', () => {
     mockKanbanStore = useKanbanStore();
     commandButtonsStore = useCommandButtonsStore();
     sessionsStore = useSessionsStore();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   function mountBoard(props = {}) {
@@ -184,6 +189,44 @@ describe('KanbanBoard.vue', () => {
       const moveButton = wrapper.find('.card-move-btn');
       expect(moveButton.exists()).toBe(true);
       // Click handler testing skipped - covered by E2E tests
+    });
+  });
+
+  describe('Scheduled session indicator', () => {
+    it('shows scheduled badge and relative time for a scheduled workflow session', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-01-10T12:00:00-06:00'));
+      const sessionsStore = useSessionsStore();
+      sessionsStore.sessions = [
+        { id: 'session-1', name: 'Session 1', status: 'waiting', scheduledAt: null },
+        {
+          id: 'session-1-child',
+          parentSessionId: 'session-1',
+          name: 'Scheduled child',
+          status: 'scheduled',
+          scheduledAt: '2026-01-10T14:00:00-06:00',
+        },
+      ];
+
+      const wrapper = mountBoard();
+
+      const scheduledInfo = wrapper.find('.card-scheduled-info');
+      expect(scheduledInfo.exists()).toBe(true);
+      expect(scheduledInfo.text()).toContain('scheduled');
+      expect(scheduledInfo.text()).toContain('in about 2 hours');
+      const expectedTitle = format(new Date('2026-01-10T14:00:00-06:00'), 'MMM d, h:mm a');
+      expect(scheduledInfo.find('.scheduled-time').attributes('title')).toBe(expectedTitle);
+    });
+
+    it('does not show scheduled badge when the workflow has no scheduled time', () => {
+      const sessionsStore = useSessionsStore();
+      sessionsStore.sessions = [
+        { id: 'session-1', name: 'Session 1', status: 'waiting', scheduledAt: null },
+      ];
+
+      const wrapper = mountBoard();
+
+      expect(wrapper.find('.card-scheduled-info').exists()).toBe(false);
     });
   });
 
