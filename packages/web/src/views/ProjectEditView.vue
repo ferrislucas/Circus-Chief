@@ -150,22 +150,6 @@
         :project-id="route.params.id"
       />
 
-      <details class="advanced-settings">
-        <summary>Kanban Board <span class="inline-block rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300 ml-2">Experimental</span></summary>
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input
-              v-model="kanbanEnabled"
-              type="checkbox"
-            >
-            Enable Kanban board
-          </label>
-          <p class="form-help">
-            <strong>Experimental.</strong> This feature is in active development and may change or be removed. Enable a Kanban board to visually organize sessions into lanes. Sessions can be dragged between lanes, and lanes can trigger automated workflows.
-          </p>
-        </div>
-      </details>
-
       <div
         v-if="error"
         class="error-message"
@@ -232,7 +216,6 @@ const repoUrl = ref('');
 const systemPrompt = ref('');
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
-const kanbanEnabled = ref(false);
 const detectingWorktreePath = ref(false);
 const sessionDefaultsRef = ref(null);
 
@@ -252,7 +235,6 @@ watch(() => projectsStore.currentProject, (project) => {
     systemPrompt.value = project.systemPrompt || defaultSystemPrompt;
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
-    kanbanEnabled.value = project.kanbanEnabled || false;
   }
 }, { immediate: true });
 
@@ -288,7 +270,6 @@ async function handleSubmit() {
       systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
-      kanbanEnabled: kanbanEnabled.value,
     });
 
     // Update defaults collected from child component

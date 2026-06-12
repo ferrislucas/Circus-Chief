@@ -129,7 +129,7 @@
           :date-to-show="dateToShow"
           :is-child="isChild"
           :is-on-board="isOnBoard"
-          :kanban-enabled="kanbanEnabled"
+          :can-add-to-board="canAddToBoard"
           :show-archive="showArchive"
           :show-unarchive="showUnarchive"
           :session-status="session.status"
@@ -236,7 +236,7 @@ const props = defineProps({
     type: Object,
     default: null,
   },
-  kanbanEnabled: {
+  canAddToBoard: {
     type: Boolean,
     default: true,
   },

@@ -20,10 +20,6 @@ export class ProjectRepository extends BaseRepository {
       prPollInterval: row.pr_poll_interval,
       repoUrl: row.repo_url,
       worktreePath: row.worktree_path,
-      // Kanban is an experimental feature, disabled by default for new projects.
-      // Fallback to `false` when the column is absent so missing data is
-      // treated as opt-out (consistent with create()).
-      kanbanEnabled: row.kanban_enabled === undefined ? false : Boolean(row.kanban_enabled),
       sessionCount: row.session_count ?? 0,
       lastActivityAt: row.last_activity_at ?? null,
       createdAt: row.created_at,
@@ -39,13 +35,12 @@ export class ProjectRepository extends BaseRepository {
       onSessionDeleted = null,
       prPollInterval = 60000,
       repoUrl = null,
-      kanbanEnabled = false,
       worktreePath = null,
     } = options;
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, kanban_enabled, worktree_path, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, working_directory, system_prompt, on_session_created, on_session_deleted, pr_poll_interval, repo_url, worktree_path, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -56,7 +51,6 @@ export class ProjectRepository extends BaseRepository {
         onSessionDeleted,
         prPollInterval,
         repoUrl,
-        kanbanEnabled ? 1 : 0,
         worktreePath,
         now,
         now
@@ -90,7 +84,6 @@ export class ProjectRepository extends BaseRepository {
     prPollInterval: { column: 'pr_poll_interval' },
     repoUrl: { column: 'repo_url' },
     worktreePath: { column: 'worktree_path' },
-    kanbanEnabled: { column: 'kanban_enabled', transform: (v) => v ? 1 : 0 },
   };
 
   update(id, data) {

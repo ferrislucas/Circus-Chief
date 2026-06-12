@@ -318,21 +318,21 @@ describe('SessionHeaderPanel', () => {
   });
 
   describe('add to board button', () => {
-    it('renders when Kanban is enabled for a root active session not on the board', () => {
-      const wrapper = mountPanel({ kanbanEnabled: true });
+    it('renders when adding to board is allowed for a root active session not on the board', () => {
+      const wrapper = mountPanel({ canAddToBoard: true });
 
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
-    it('hides when Kanban is disabled', () => {
-      const wrapper = mountPanel({ kanbanEnabled: false });
+    it('hides when adding to board is not allowed', () => {
+      const wrapper = mountPanel({ canAddToBoard: false });
 
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
     });
 
     it('hides for child sessions', () => {
       const wrapper = mountPanel({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         session: {
           id: 'session-1',
           name: 'Child Session',
@@ -350,7 +350,7 @@ describe('SessionHeaderPanel', () => {
 
     it('hides for archived sessions', () => {
       const wrapper = mountPanel({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         session: {
           id: 'session-1',
           name: 'Archived Session',
@@ -375,7 +375,7 @@ describe('SessionHeaderPanel', () => {
         name: 'In Progress',
       });
 
-      const wrapper = mountPanel({ kanbanEnabled: true });
+      const wrapper = mountPanel({ canAddToBoard: true });
 
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
       expect(wrapper.find('.lane-chip').exists()).toBe(true);
@@ -399,7 +399,7 @@ describe('SessionHeaderPanel', () => {
           summary: null,
           isDeleting: false,
           buttonStatuses: [],
-          kanbanEnabled: true,
+          canAddToBoard: true,
         },
         attrs: {
           onAddToBoard: addToBoardSpy,

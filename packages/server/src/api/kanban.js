@@ -55,7 +55,7 @@ function buildFullBoardResponse(board) {
 
 /**
  * GET /api/projects/:projectId/kanban
- * Get board with all lanes and cards. Auto-creates if kanban_enabled.
+ * Get board with all lanes and cards. Auto-creates if missing.
  */
 router.get('/', (req, res) => {
   const { projectId } = req.params;
@@ -63,11 +63,6 @@ router.get('/', (req, res) => {
   const project = projects.getById(projectId);
   if (!project) {
     return res.status(404).json({ error: 'Project not found' });
-  }
-
-  // If kanban is disabled, return null
-  if (!project.kanbanEnabled) {
-    return res.json(null);
   }
 
   // Get or create board

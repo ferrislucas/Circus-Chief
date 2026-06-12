@@ -17,9 +17,7 @@ test.describe('Archive Modal - Remove from Kanban Board', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Archive Kanban Test', '/tmp/test-archive-kanban', {
-      kanbanEnabled: true,
-    });
+    project = await seedProject('Archive Kanban Test', '/tmp/test-archive-kanban');
   });
 
   test.afterEach(async () => {
