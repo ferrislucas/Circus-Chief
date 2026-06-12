@@ -3,12 +3,6 @@
     v-if="hasTemplates"
     class="template-apply-selector"
   >
-    <label
-      class="template-apply-label"
-      for="apply-template-select"
-    >
-      Use Template
-    </label>
     <select
       id="apply-template-select"
       :value="selectedTemplateId"
@@ -99,13 +93,6 @@ defineExpose({ handleChange });
   display: flex;
   align-items: center;
   gap: 0.5rem;
-}
-
-.template-apply-label {
-  flex: 0 0 auto;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-soft);
 }
 
 .template-apply-selector .form-input {
