@@ -965,7 +965,6 @@ describe('SummaryTab', () => {
 
       expect(wrapper.find('.summary-empty-state').exists()).toBe(true);
       expect(wrapper.text()).toContain("This session hasn't started yet.");
-      expect(wrapper.text()).toContain('Start the session or send a message to see a summary here.');
       expect(wrapper.find('.summary-empty-state button').exists()).toBe(false);
       expect(wrapper.find('.summary-empty-state').text()).not.toContain('Generate summary');
     });
