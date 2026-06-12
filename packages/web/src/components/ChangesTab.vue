@@ -19,7 +19,7 @@
       <GitStatusSummary
         :status="gitStatus"
         :summary-text="gitStatusSummary"
-        :loading="gitStatusLoading"
+        :loading="loading || gitStatusLoading"
         :error="gitStatusError"
         @refresh-origin="handleRefreshOrigin"
       />
@@ -51,27 +51,16 @@
             Compare to {{ branchLabel }}
           </button>
         </div>
-        <div class="toolbar-actions">
+        <div
+          v-if="hasChanges"
+          class="toolbar-actions"
+        >
           <button
-            v-if="hasChanges"
             class="btn-link"
             :disabled="loading"
             @click="toggleAllFiles"
           >
             {{ allExpanded ? 'Collapse All' : 'Expand All' }}
-          </button>
-          <button
-            class="btn-link refresh-button"
-            :disabled="loading"
-            title="Refresh changes"
-            @click="fetchChanges"
-          >
-            <span
-              v-if="loading"
-              class="loading-spinner"
-            />
-            <span v-else>↻</span>
-            Refresh
           </button>
         </div>
       </div>
@@ -364,10 +353,10 @@ async function fetchChanges() {
 
 async function handleRefreshOrigin() {
   emit('refreshGitStatus');
-  if (props.refreshGitStatus) {
-    await props.refreshGitStatus({ fetch: true });
-  }
-  await fetchChanges();
+  await Promise.all([
+    props.refreshGitStatus ? props.refreshGitStatus({ fetch: true }) : null,
+    fetchChanges(),
+  ]);
 }
 
 // Fetch the default branch for comparison
@@ -552,9 +541,4 @@ defineExpose({
   gap: 0.5rem;
 }
 
-.refresh-button .loading-spinner {
-  width: 0.75rem;
-  height: 0.75rem;
-  border-width: 1.5px;
-}
 </style>
