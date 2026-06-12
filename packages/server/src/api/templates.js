@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { sessionTemplates } from '../database.js';
 import { CreateSessionTemplateRequest, UpdateSessionTemplateRequest } from '@circuschief/shared/contracts/templates';
+import { validateModelId } from './model-validation.js';
 
 const router = Router();
 
@@ -15,6 +16,11 @@ router.post('/', (req, res) => {
   const result = CreateSessionTemplateRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
+  }
+
+  const modelResult = validateModelId(result.data.model);
+  if (modelResult.error) {
+    return res.status(400).json({ error: modelResult.error });
   }
 
   const template = sessionTemplates.create({
@@ -43,6 +49,11 @@ router.patch('/:id', (req, res) => {
   const result = UpdateSessionTemplateRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
+  }
+
+  const modelResult = validateModelId(result.data.model);
+  if (modelResult.error) {
+    return res.status(400).json({ error: modelResult.error });
   }
 
   const updated = sessionTemplates.update(req.params.id, result.data);

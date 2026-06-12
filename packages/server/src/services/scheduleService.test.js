@@ -7,6 +7,9 @@ vi.mock('../database.js', () => ({
   sessions: {
     update: vi.fn(),
   },
+  modelProviders: {
+    getAllModelIds: vi.fn(() => ['claude-3-opus', 'gpt-5.5', 'haiku', 'opus', 'sonnet']),
+  },
 }));
 
 // Mock websocket
@@ -246,6 +249,19 @@ describe('scheduleService', () => {
       expect(sessions.update).toHaveBeenCalledWith('s1', expect.objectContaining({
         pendingModel: 'claude-3-opus',
       }));
+    });
+
+    it('throws ScheduleError when pendingModel is invalid', () => {
+      expect(() => configureSchedule(baseSession, {
+        scheduledAt: futureTimestamp,
+        pendingModel: 'not-a-real-model',
+      })).toThrow(ScheduleError);
+
+      expect(() => configureSchedule(baseSession, {
+        scheduledAt: futureTimestamp,
+        pendingModel: 'not-a-real-model',
+      })).toThrow('Invalid pendingModel id "not-a-real-model"');
+      expect(sessions.update).not.toHaveBeenCalled();
     });
 
     it('broadcasts status and session updates', async () => {

@@ -153,13 +153,13 @@ describe('Sessions API - pendingModel Field', () => {
         .expect(404);
     });
 
-    it('rejects invalid pendingModel values with the valid model id list', async () => {
+    it('rejects invalid pendingModel values', async () => {
       const response = await request(app)
         .patch(`/api/sessions/${session.id}`)
-        .send({ pendingModel: 'custom-model-name' })
+        .send({ pendingModel: 'not-a-real-model' })
         .expect(400);
 
-      expect(response.body.error).toContain('Invalid model id "custom-model-name"');
+      expect(response.body.error).toContain('Invalid pendingModel id "not-a-real-model"');
       expect(response.body.error).toContain('Valid model ids are:');
       expect(response.body.error).toContain('opus');
     });
@@ -288,6 +288,20 @@ describe('Sessions API - pendingModel Field', () => {
 
       expect(response.body.pendingModel).toBeNull();
     });
+
+    it('rejects invalid pendingModel when scheduling', async () => {
+      const scheduledAt = Date.now() + 3600000;
+
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({
+          scheduledAt,
+          pendingModel: 'not-a-real-model',
+        })
+        .expect(400);
+
+      expect(response.body.error).toContain('Invalid pendingModel id "not-a-real-model"');
+    });
   });
 
   describe('POST /api/sessions/:id/start - pendingModel fallback', () => {
@@ -297,7 +311,7 @@ describe('Sessions API - pendingModel Field', () => {
     });
 
     it('uses session.pendingModel when no model in request body', async () => {
-      sessions.update(session.id, { pendingModel: 'claude-opus-4-6-20250616' });
+      sessions.update(session.id, { pendingModel: 'opus' });
 
       await request(app)
         .post(`/api/sessions/${session.id}/start`)
@@ -307,24 +321,24 @@ describe('Sessions API - pendingModel Field', () => {
       expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
       // model is now inside the options object (4th argument)
       const optionsArg = vi.mocked(runSession).mock.calls[0][3];
-      expect(optionsArg.model).toBe('claude-opus-4-6-20250616');
+      expect(optionsArg.model).toBe('opus');
     });
 
     it('uses req.body.model over session.pendingModel when both exist', async () => {
-      sessions.update(session.id, { pendingModel: 'claude-opus-4-6-20250616' });
+      sessions.update(session.id, { pendingModel: 'opus' });
 
       await request(app)
         .post(`/api/sessions/${session.id}/start`)
-        .send({ model: 'claude-sonnet-4-5-20251219' })
+        .send({ model: 'sonnet' })
         .expect(200);
 
       expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
       const optionsArg = vi.mocked(runSession).mock.calls[0][3];
-      expect(optionsArg.model).toBe('claude-sonnet-4-5-20251219');
+      expect(optionsArg.model).toBe('sonnet');
     });
 
     it('falls back to session.model when pendingModel is null', async () => {
-      sessions.update(session.id, { model: 'claude-opus-4-6-20250616', pendingModel: null });
+      sessions.update(session.id, { model: 'opus', pendingModel: null });
 
       await request(app)
         .post(`/api/sessions/${session.id}/start`)
@@ -333,7 +347,7 @@ describe('Sessions API - pendingModel Field', () => {
 
       expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
       const optionsArg = vi.mocked(runSession).mock.calls[0][3];
-      expect(optionsArg.model).toBe('claude-opus-4-6-20250616');
+      expect(optionsArg.model).toBe('opus');
     });
 
     it('passes null model to runSession when no model is set anywhere', async () => {
@@ -349,7 +363,7 @@ describe('Sessions API - pendingModel Field', () => {
     });
 
     it('clears pendingModel after session is started', async () => {
-      sessions.update(session.id, { pendingModel: 'claude-opus-4-6-20250616' });
+      sessions.update(session.id, { pendingModel: 'opus' });
 
       await request(app)
         .post(`/api/sessions/${session.id}/start`)
@@ -358,6 +372,28 @@ describe('Sessions API - pendingModel Field', () => {
 
       const updated = sessions.getById(session.id);
       expect(updated.pendingModel).toBeNull();
+    });
+
+    it('rejects invalid request model', async () => {
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({ model: 'not-a-real-model' })
+        .expect(400);
+
+      expect(response.body.error).toContain('Invalid model id "not-a-real-model"');
+      expect(vi.mocked(runSession)).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid pendingModel fallback', async () => {
+      sessions.update(session.id, { pendingModel: 'not-a-real-model' });
+
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/start`)
+        .send({})
+        .expect(400);
+
+      expect(response.body.error).toContain('Invalid model id "not-a-real-model"');
+      expect(vi.mocked(runSession)).not.toHaveBeenCalled();
     });
   });
 

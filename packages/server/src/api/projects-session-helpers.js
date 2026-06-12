@@ -224,6 +224,9 @@ export function applyTemplateOverrides(configInput) {
   if (template.gitMode) {
     config.gitMode = template.gitMode;
   }
+  if (template.model) {
+    config.model = template.model;
+  }
   if (template.effortLevel !== null && template.effortLevel !== undefined) {
     config.effortLevel = template.effortLevel;
     // Normalize 'auto' to null (same as prepareSessionConfig)
