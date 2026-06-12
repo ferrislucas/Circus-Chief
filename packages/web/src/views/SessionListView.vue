@@ -66,7 +66,6 @@
             Sessions
           </button>
           <button
-            v-if="projectsStore.currentProject?.kanbanEnabled"
             class="tab"
             :class="{ active: activeTab === 'kanban' }"
             @click="router.push(`/projects/${route.params.id}/kanban`)"
@@ -122,10 +121,7 @@
           <option value="sessions">
             Sessions
           </option>
-          <option
-            v-if="projectsStore.currentProject?.kanbanEnabled"
-            value="kanban"
-          >
+          <option value="kanban">
             Kanban
           </option>
           <option value="commands">

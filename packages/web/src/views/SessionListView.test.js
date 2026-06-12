@@ -1641,7 +1641,6 @@ describe('SessionListView Archived Tab', () => {
   }
 
   it('renders Sessions tab as active by default', async () => {
-    mockProjectsStore.currentProject.kanbanEnabled = true;
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
