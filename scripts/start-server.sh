@@ -30,6 +30,11 @@
 # from, regardless of the caller's cwd.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# All relative paths below (.git detection, yarn build, node entrypoint) must
+# resolve against the same worktree as this script, even when a command runner
+# launches the script from a different cwd.
+cd "$PROJECT_ROOT" || exit 1
+
 PORT_FILE="$PROJECT_ROOT/.server-port"
 MAIN_PORT=5000
 WORKTREE_PORT_START=5001
