@@ -168,7 +168,8 @@ test.describe('Template Configuration Fields', () => {
     });
 
     // Navigate to project templates
-    await page.goto(`/projects/${project.id}/templates`);
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
     await expect(page.getByText('[TEST] Full Config')).toBeVisible({ timeout: 10000 });
 

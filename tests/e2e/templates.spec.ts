@@ -7,7 +7,7 @@ import {
   cleanupTemplates,
 } from './helpers';
 
-test.describe('Session Templates - Navigation', () => {
+test.describe('Session Templates - Tab Navigation', () => {
   let project: any;
 
   test.beforeEach(async () => {
@@ -21,12 +21,12 @@ test.describe('Session Templates - Navigation', () => {
     await cleanupTemplates();
   });
 
-  test('displays Sessions tab without a Templates tab', async ({ page }) => {
+  test('displays Sessions and Templates tabs', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
 
     await expect(page.locator('.tabs')).toBeVisible();
     await expect(page.locator('.tab:has-text("Sessions")')).toBeVisible();
-    await expect(page.locator('.tab:has-text("Templates")')).toHaveCount(0);
+    await expect(page.locator('.tab:has-text("Templates")')).toBeVisible();
   });
 
   test('Sessions tab is active by default', async ({ page }) => {
@@ -35,16 +35,22 @@ test.describe('Session Templates - Navigation', () => {
     await expect(page.locator('.tab.active')).toHaveText('Sessions');
   });
 
-  test('can open the template management route', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/templates`);
+  test('can switch to Templates tab', async ({ page }) => {
+    await page.goto(`/projects/${project.id}/sessions`);
+
+    await page.click('.tab:has-text("Templates")');
+
+    await expect(page.locator('.tab.active')).toHaveText('Templates');
     await expect(page.locator('.templates-panel')).toBeVisible();
   });
 
-  test('can return to Sessions from the template management route', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/templates`);
-    await expect(page.locator('.templates-panel')).toBeVisible();
-
+  test('can switch back to Sessions tab', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
+
+    await page.click('.tab:has-text("Templates")');
+    await expect(page.locator('.tab.active')).toHaveText('Templates');
+
+    await page.click('.tab:has-text("Sessions")');
     await expect(page.locator('.tab.active')).toHaveText('Sessions');
   });
 });
@@ -65,7 +71,8 @@ test.describe('Session Templates - Create Form', () => {
 
   test('New Template button opens create form', async ({ page }) => {
     await seedProjectTemplate(project.id, { name: '[TEST] Existing', prompt: 'Test prompt' });
-    await page.goto(`/projects/${project.id}/templates`);
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
     await expect(page.getByText('[TEST] Existing')).toBeVisible();
     await page.getByTestId('new-template-btn').click();
     await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
@@ -96,7 +103,8 @@ test.describe('Session Templates - Display', () => {
       prompt: 'Second project template',
     });
 
-    await page.goto(`/projects/${project.id}/templates`);
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
 
     await expect(page.getByText('[TEST] Project Template 1')).toBeVisible();
@@ -112,7 +120,8 @@ test.describe('Session Templates - Display', () => {
       prompt: longPrompt,
     });
 
-    await page.goto(`/projects/${project.id}/templates`);
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
 
     // Should show truncated text with ellipsis — scope to the template we created
@@ -129,7 +138,8 @@ test.describe('Session Templates - Display', () => {
       gitBranch: 'develop',
     });
 
-    await page.goto(`/projects/${project.id}/templates`);
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
     await expect(page.getByText('[TEST] Full Featured')).toBeVisible();
 
@@ -162,7 +172,8 @@ test.describe('Session Templates - Chaining', () => {
       prompt: 'Target prompt',
     });
 
-    await page.goto(`/projects/${project.id}/templates`);
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
     await expect(page.getByText('[TEST] Target Template')).toBeVisible();
     await page.getByTestId('new-template-btn').click();
     await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
@@ -185,7 +196,8 @@ test.describe('Session Templates - Chaining', () => {
       nextTemplateId: target.id,
     });
 
-    await page.goto(`/projects/${project.id}/templates`);
+    await page.goto(`/projects/${project.id}/sessions`);
+    await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.templates-panel')).toBeVisible();
 
     await expect(page.locator('.meta-badge-chain:has-text("[TEST] Chain Target")')).toBeVisible({ timeout: 10000 });

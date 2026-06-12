@@ -20,6 +20,8 @@ const mockRouterPush = vi.fn((path) => {
     mockRoute.name = 'ProjectCommands';
   } else if (path.includes('/circus-time')) {
     mockRoute.name = 'ProjectCircusTime';
+  } else if (path.includes('/templates')) {
+    mockRoute.name = 'ProjectTemplates';
   } else if (path.includes('/kanban')) {
     mockRoute.name = 'ProjectKanban';
   } else {
@@ -28,10 +30,10 @@ const mockRouterPush = vi.fn((path) => {
 });
 const mockRouterReplace = vi.fn();
 
-function findArchiveTab(wrapper) {
+function findTab(wrapper, text) {
   return wrapper
     .findAll('.tab')
-    .find(tab => tab.text() === 'Archive');
+    .find(tab => tab.text() === text);
 }
 
 // Mock vue-router
@@ -381,6 +383,14 @@ vi.mock('../components/CircusTimeTab.vue', () => ({
   default: defineComponent({
     name: 'CircusTimeTab',
     template: '<div class="circus-time-tab">Circus Time Tab</div>',
+  }),
+}));
+
+vi.mock('../components/TemplatesPanel.vue', () => ({
+  default: defineComponent({
+    name: 'TemplatesPanel',
+    props: ['projectId'],
+    template: '<div class="templates-panel">Templates Panel</div>',
   }),
 }));
 
@@ -981,7 +991,7 @@ describe('Status filtering', () => {
       expect(wrapper.find('.status-filters').exists()).toBe(true);
 
       // Click on another project tab
-      const commandsTab = wrapper.findAll('.tab')[2];
+      const commandsTab = findTab(wrapper, 'Commands');
       await commandsTab.trigger('click');
       await flushAll(wrapper);
 
@@ -1636,12 +1646,13 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     const tabs = wrapper.findAll('.tab');
-    expect(tabs.length).toBe(5);
+    expect(tabs.length).toBe(6);
     expect(tabs[0].text()).toBe('Sessions');
     expect(tabs[1].text()).toBe('Kanban');
     expect(tabs[2].text()).toBe('Commands');
     expect(tabs[3].text()).toBe('Circus Time');
-    expect(tabs[4].text()).toBe('Archive');
+    expect(tabs[4].text()).toBe('Templates');
+    expect(tabs[5].text()).toBe('Archive');
 
     // Sessions tab should be active
     expect(tabs[0].classes()).toContain('active');
@@ -1669,11 +1680,11 @@ describe('SessionListView Archived Tab', () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    let archivedTab = findArchiveTab(wrapper);
+    let archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
-    archivedTab = findArchiveTab(wrapper);
+    archivedTab = findTab(wrapper, 'Archive');
     expect(archivedTab.classes()).toContain('active');
   });
 
@@ -1685,7 +1696,7 @@ describe('SessionListView Archived Tab', () => {
     expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
 
     // Click Archived tab
-    const archivedTab = findArchiveTab(wrapper);
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -1697,7 +1708,7 @@ describe('SessionListView Archived Tab', () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    const archivedTab = findArchiveTab(wrapper);
+    const archivedTab = findTab(wrapper, 'Archive');
 
     // First click
     await archivedTab.trigger('click');
@@ -1722,7 +1733,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = findArchiveTab(wrapper);
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -1740,7 +1751,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = findArchiveTab(wrapper);
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -1765,7 +1776,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = findArchiveTab(wrapper);
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -1781,7 +1792,7 @@ describe('SessionListView Archived Tab', () => {
     expect(wrapper.find('.btn-primary').exists()).toBe(true);
 
     // Switch to Archived tab
-    const archivedTab = findArchiveTab(wrapper);
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -2052,7 +2063,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Click Archived tab
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2065,7 +2076,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab and wait for initial load
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2100,7 +2111,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to another non-archived tab
-      const commandsTab = wrapper.findAll('.tab')[2];
+      const commandsTab = findTab(wrapper, 'Commands');
       await commandsTab.trigger('click');
       await flushPromises();
 
@@ -2121,7 +2132,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Now switch to archived tab
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2134,7 +2145,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2176,7 +2187,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2199,7 +2210,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushAll(wrapper);
 
@@ -2213,7 +2224,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushAll(wrapper);
 
@@ -2254,7 +2265,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2275,7 +2286,7 @@ describe('SessionListView Archived Tab', () => {
       await flushPromises();
 
       // Switch to archived tab
-      const archivedTab = findArchiveTab(wrapper);
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2350,6 +2361,7 @@ describe('SessionListView Archived Tab', () => {
             DuplicateSessionButton: true,
             StatusIndicator: true,
             OverflowMenu: true,
+            TemplatesPanel: true,
           },
         },
       });
@@ -2407,6 +2419,7 @@ describe('SessionListView Archived Tab', () => {
             DuplicateSessionButton: true,
             StatusIndicator: true,
             OverflowMenu: true,
+            TemplatesPanel: true,
           },
         },
       });
@@ -2555,7 +2568,7 @@ describe('SessionListView batch summary fetching', () => {
     });
 
     // Switch to archived tab
-    const archivedTab = findArchiveTab(wrapper);
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -2581,7 +2594,7 @@ describe('SessionListView batch summary fetching', () => {
     await flushAll(wrapper);
 
     // Switch to archived tab
-    const archivedTab = findArchiveTab(wrapper);
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 

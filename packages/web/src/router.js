@@ -54,7 +54,7 @@ const routes = [
   {
     path: '/projects/:id/templates',
     name: 'ProjectTemplates',
-    component: () => import('./views/TemplateListView.vue'),
+    component: () => import('./views/SessionListView.vue'),
   },
   {
     path: '/projects/:id/scheduled',
