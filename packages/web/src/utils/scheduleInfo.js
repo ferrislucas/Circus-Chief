@@ -15,7 +15,7 @@ export function findNearestScheduledTime(rootSessionId) {
   const sessionsStore = useSessionsStore();
   const allSessions = sessionsStore.getWorkflowSessions(rootSessionId);
   const rootSession =
-    sessionsStore.getSessionById?.(rootSessionId) ||
+    sessionsStore.getSessionById(rootSessionId) ||
     allSessions.find((session) => session.id === rootSessionId);
   if (!rootSession) return null;
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { format } from 'date-fns';
 import KanbanBoard from './KanbanBoard.vue';
 import { useSessionsStore } from '../stores/sessions.js';
 
@@ -195,7 +196,8 @@ describe('KanbanBoard.vue', () => {
       expect(scheduledInfo.exists()).toBe(true);
       expect(scheduledInfo.text()).toContain('scheduled');
       expect(scheduledInfo.text()).toContain('in about 2 hours');
-      expect(scheduledInfo.find('.scheduled-time').attributes('title')).toBe('Jan 10, 2:00 PM');
+      const expectedTitle = format(new Date('2026-01-10T14:00:00-06:00'), 'MMM d, h:mm a');
+      expect(scheduledInfo.find('.scheduled-time').attributes('title')).toBe(expectedTitle);
     });
 
     it('does not show scheduled badge when the workflow has no scheduled time', () => {
