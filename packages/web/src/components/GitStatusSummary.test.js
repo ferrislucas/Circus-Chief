@@ -24,6 +24,8 @@ describe('GitStatusSummary', () => {
 
     const button = wrapper.find('.refresh-origin-button');
     expect(button.exists()).toBe(true);
+    expect(button.text()).toContain('Refresh');
+    expect(button.text()).not.toContain('from origin');
     expect(button.attributes('disabled')).toBeUndefined();
     await button.trigger('click');
 
@@ -39,5 +41,17 @@ describe('GitStatusSummary', () => {
     });
 
     expect(wrapper.text()).toContain('Not a git repository');
+  });
+
+  it('disables the refresh button and shows a spinner while loading', () => {
+    const wrapper = mount(GitStatusSummary, {
+      props: {
+        loading: true,
+      },
+    });
+
+    const button = wrapper.find('.refresh-origin-button');
+    expect(button.attributes('disabled')).toBeDefined();
+    expect(button.find('.loading-spinner').exists()).toBe(true);
   });
 });

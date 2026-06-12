@@ -14,10 +14,50 @@ import { validateGitSettings } from './projects-helpers.js';
 import { validateModelId } from './model-validation.js';
 
 /**
+ * Run post-preparation validation on session config (parent session,
+ * template resolution, and git settings).
+ * Returns { nextTemplateId } on success, or { error, status } on failure.
+ */
+async function validatePreparedConfig(config, reqBody, projectId, project) {
+  if (config.parentSessionId) {
+    const parentSession = sessions.getById(config.parentSessionId);
+    if (!parentSession) {
+      return { error: 'Parent session not found', status: 404 };
+    }
+    if (parentSession.projectId !== projectId) {
+      return { error: 'Parent session does not belong to this project', status: 400 };
+    }
+  }
+
+  // Apply template overrides and resolve nextTemplateId
+  applyTemplateOverrides(config);
+  const { nextTemplateId, error: nextTemplateError } = resolveNextTemplateId(reqBody, config.nextTemplateId || null);
+  if (nextTemplateError) {
+    return { error: nextTemplateError, status: 400 };
+  }
+
+  const finalModelResult = validateModelId(config.model);
+  if (finalModelResult.error) {
+    return { error: finalModelResult.error, status: 400 };
+  }
+
+  // Validate git settings for git repos
+  const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
+  if (gitError) {
+    return { error: gitError, status: 400 };
+  }
+  Object.assign(config, updatedConfig);
+
+  return { nextTemplateId };
+}
+
+/**
  * Validate and prepare the session configuration from the request body.
  * Returns { config, nextTemplateId } on success, or { error, status } on failure.
  */
 export async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, project) {
+  // Validate the explicitly requested model only — never the resolved default —
+  // so project/system defaults are never blocked.
   if (Object.hasOwn(reqBody, 'model') && reqBody.model !== '') {
     const modelResult = validateModelId(reqBody.model);
     if (modelResult.error) {
@@ -38,37 +78,13 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
     return { error: config.schedulingError, status: 400 };
   }
 
-  if (config.parentSessionId) {
-    const parentSession = sessions.getById(config.parentSessionId);
-    if (!parentSession) {
-      return { error: 'Parent session not found', status: 404 };
-    }
-    if (parentSession.projectId !== projectId) {
-      return { error: 'Parent session does not belong to this project', status: 400 };
-    }
+  const result = await validatePreparedConfig(config, reqBody, projectId, project);
+  if (result.error) {
+    return { error: result.error, status: result.status };
   }
 
-  // Apply template overrides and resolve nextTemplateId
-  applyTemplateOverrides(config);
-  const { nextTemplateId, error: nextTemplateError } = resolveNextTemplateId(reqBody, config.nextTemplateId || null);
-  if (nextTemplateError) {
-    return { error: nextTemplateError, status: 400 };
-  }
-  config.nextTemplateId = nextTemplateId;
-
-  const finalModelResult = validateModelId(config.model);
-  if (finalModelResult.error) {
-    return { error: finalModelResult.error, status: 400 };
-  }
-
-  // Validate git settings for git repos
-  const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
-  if (gitError) {
-    return { error: gitError, status: 400 };
-  }
-  Object.assign(config, updatedConfig);
-
-  return { config, nextTemplateId };
+  config.nextTemplateId = result.nextTemplateId;
+  return { config, nextTemplateId: result.nextTemplateId };
 }
 
 /**

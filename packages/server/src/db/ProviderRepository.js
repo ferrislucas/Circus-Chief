@@ -415,7 +415,8 @@ export class ProviderRepository extends BaseRepository {
   /**
    * Enumerate every valid model id: the distinct `model_id` values from the
    * `provider_models` table (built-in + user-registered) unioned with the
-   * SDK-handled tier aliases. Returned sorted and de-duplicated.
+   * SDK-handled tier aliases. Returned sorted and de-duplicated. This is the
+   * single source of truth for "is this model id valid?" checks.
    *
    * @returns {string[]} Sorted distinct list of valid model ids
    */

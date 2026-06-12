@@ -197,11 +197,13 @@ test.describe('Settings', () => {
 
   test.describe('Category 4: Summary Settings — Reset', () => {
     test.beforeEach(async () => {
-      // Pre-set non-default values via API
-      await updateSummarySettings({
+      // Pre-set non-default values via API and verify they persisted
+      const result = await updateSummarySettings({
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Custom title prompt for testing',
       });
+      // Verify the API actually saved the settings before navigating
+      expect(result.disableSessionSummaries).toBe(true);
     });
 
     test('reset to defaults shows confirmation dialog', async ({ page }) => {

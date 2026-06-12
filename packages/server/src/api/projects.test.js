@@ -231,10 +231,15 @@ describe('Projects API', () => {
         baseUrl: 'https://api.openai.test',
         apiKey: 'test-key',
       });
+      modelProviders.addModel(provider.id, {
+        modelId: 'gpt-4o-provider-json-test',
+        displayName: 'GPT 4o Provider JSON Test',
+        tier: 'custom',
+      });
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
-        model: 'gpt-5.5',
+        model: 'gpt-4o-provider-json-test',
         providerId: provider.id,
       });
 
@@ -250,11 +255,16 @@ describe('Projects API', () => {
         baseUrl: 'https://api.openai.test',
         apiKey: 'test-key',
       });
+      modelProviders.addModel(provider.id, {
+        modelId: 'gpt-4o-provider-multipart-test',
+        displayName: 'GPT 4o Provider Multipart Test',
+        tier: 'custom',
+      });
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/sessions`)
         .field('prompt', 'Test prompt')
-        .field('model', 'gpt-5.5')
+        .field('model', 'gpt-4o-provider-multipart-test')
         .field('providerId', provider.id)
         .attach('files', Buffer.from('hello'), 'hello.txt');
 
@@ -1406,6 +1416,11 @@ describe('Projects API', () => {
         baseUrl: 'https://api.override.test',
         apiKey: 'test-key',
       });
+      modelProviders.addModel(overrideProvider.id, {
+        modelId: 'override-model',
+        displayName: 'Override Model',
+        tier: 'custom',
+      });
 
       await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
         mode: 'plan',
@@ -1634,6 +1649,20 @@ describe('Projects API', () => {
 
       const session = sessions.getById(res.body.id);
       expect(session.model).toBe('haiku'); // Param overrides default
+    });
+
+    it('rejects invalid explicit model ids before creating a session', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+        model: 'not-a-real-model',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
+      expect(res.body.error).toContain('Valid model ids are:');
+      expect(res.body.error).toContain('gpt-5.5');
     });
 
     it('session model is null when no project default and no param', async () => {

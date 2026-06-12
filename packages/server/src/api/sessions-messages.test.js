@@ -127,6 +127,18 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     expect(continueSession).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects invalid model ids before dispatching continuation', async () => {
+    const res = await request(app)
+      .post(`/api/sessions/${claudeSession.id}/message`)
+      .send({ content: 'follow-up', model: 'not-a-real-model' });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
+    expect(res.body.error).toContain('Valid model ids are:');
+    expect(res.body.error).toContain('gpt-5.5');
+    expect(continueSession).not.toHaveBeenCalled();
+  });
+
   it('Claude session + Codex model → 400 CROSS_KIND_MODEL_SWITCH, continueSession NOT called', async () => {
     const res = await request(app)
       .post(`/api/sessions/${claudeSession.id}/message`)

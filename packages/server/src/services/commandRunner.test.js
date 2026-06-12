@@ -4,6 +4,7 @@ import {
   createCommandRunnerEnv,
   stripAnsiCodes,
   TerminalOutputProcessor,
+  wrapCommandForPlatform,
 } from './commandRunner.js';
 import * as osModule from 'os';
 
@@ -1004,7 +1005,7 @@ describe('CommandRunner', () => {
       // This test verifies the logic without actually executing commands
       // The key fix: script command is wrapped with platform-specific flags
       // - Linux: script -q -e -c [command] /dev/null (includes -e for exit code)
-      // - macOS/Darwin: script -q -c [command] /dev/null (no -e, uses close event instead)
+      // - macOS/Darwin: script -q /dev/null sh -c [command] < /dev/null (stdin redirected to avoid socket error)
       const currentPlatform = osModule.platform();
 
       // Verify that os.platform() is callable
@@ -1034,6 +1035,21 @@ describe('CommandRunner', () => {
 
       expect(exitCode).toBe(0);
       expect(output.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('wrapCommandForPlatform', () => {
+    it('macOS: redirects script stdin from /dev/null to avoid socket error', () => {
+      const wrapped = wrapCommandForPlatform('echo hello', 'darwin');
+
+      expect(wrapped).toContain('< /dev/null');
+    });
+
+    it('linux: uses -e flag and does not add stdin redirect', () => {
+      const wrapped = wrapCommandForPlatform('echo hello', 'linux');
+
+      expect(wrapped).toContain('-e');
+      expect(wrapped).not.toContain('< /dev/null');
     });
   });
 

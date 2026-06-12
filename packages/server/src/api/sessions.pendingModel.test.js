@@ -160,6 +160,8 @@ describe('Sessions API - pendingModel Field', () => {
         .expect(400);
 
       expect(response.body.error).toContain('Invalid pendingModel id "not-a-real-model"');
+      expect(response.body.error).toContain('Valid model ids are:');
+      expect(response.body.error).toContain('opus');
     });
   });
 

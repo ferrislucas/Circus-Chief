@@ -39,7 +39,7 @@
         v-if="loading"
         class="loading-spinner"
       />
-      Refresh from origin
+      Refresh
     </button>
   </section>
 </template>
