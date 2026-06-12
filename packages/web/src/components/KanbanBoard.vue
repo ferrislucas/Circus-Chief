@@ -141,7 +141,7 @@
               <CommandButtonStatusBar
                 v-if="card.sessions?.[0]"
                 class="card-command-status"
-                :button-statuses="getCardButtonStatuses(card)"
+                :button-statuses="cardButtonStatuses[card.sessions[0].id] || []"
                 :session-id="card.sessions[0].id"
               />
               <!-- Card reorder arrows -->
@@ -352,6 +352,7 @@ import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
+import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import './KanbanBoard.css';
 
 const props = defineProps({
@@ -428,29 +429,35 @@ const isCardEffectivelyRunning = (session) => {
   return ['running', 'starting'].includes(session.status);
 };
 
-const getCardButtonStatuses = (card) => {
-  const session = card.sessions?.[0];
-  if (!session?.id || !props.projectId) return [];
+// Board-level map of session id → button-status indicators. Built once per
+// recompute (rather than per-card during render) so the buttonMap and the
+// store-session lookup are constructed a single time for the whole board.
+const cardButtonStatuses = computed(() => {
+  const result = {};
+  if (!props.projectId || !board.value) return result;
 
-  // Access commandRunVersion to establish Vue dependency tracking for WebSocket updates.
-  // eslint-disable-next-line no-unused-vars
-  const _version = sessionsStore.commandRunVersion;
+  // Establish a reactive dependency on command-run WebSocket updates so the
+  // whole board recomputes when any run's status changes.
+  void sessionsStore.commandRunVersion;
 
   const buttons = commandButtonsStore.getButtonsByProjectId(props.projectId);
   const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
-  const storeSession = sessionsStore.sessions.find(s => s.id === session.id);
-  const latestRuns = storeSession?.latestCommandRuns || session.latestCommandRuns || [];
 
-  return latestRuns
-    .filter(run => buttonMap[run.buttonId]?.showOnList)
-    .map(run => ({
-      buttonId: run.buttonId,
-      label: buttonMap[run.buttonId].label,
-      command: buttonMap[run.buttonId].command,
-      status: run.status,
-      latestRun: run,
-    }));
-};
+  // Build the store-session lookup once to avoid a per-card `.find()` scan.
+  const storeSessionsById = Object.fromEntries(
+    sessionsStore.sessions.map(s => [s.id, s])
+  );
+
+  for (const card of board.value.lanes.flatMap(l => l.cards || [])) {
+    const session = card.sessions?.[0];
+    if (!session?.id) continue;
+    const latestRuns =
+      storeSessionsById[session.id]?.latestCommandRuns || session.latestCommandRuns || [];
+    result[session.id] = mapRunsToButtonStatuses(buttonMap, latestRuns);
+  }
+
+  return result;
+});
 
 // --- Card drag-and-drop ---
 const handleCardDragStart = (event, card, laneId, cardIndex) => {

@@ -178,6 +178,7 @@ import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { getStatusIconSvg } from './statusIcons';
+import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import SessionCardSummary from './SessionCardSummary.vue';
@@ -332,27 +333,19 @@ const buttonStatusesToDisplay = computed(() => {
   const projectId = props.session.projectId;
   if (!projectId) return [];
 
-  // Access commandRunVersion to establish Vue dependency tracking.
-  // eslint-disable-next-line no-unused-vars
-  const _version = sessionsStore.commandRunVersion;
+  // Establish a reactive dependency on command-run WebSocket updates so this
+  // recomputes when a run's status changes.
+  void sessionsStore.commandRunVersion;
 
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
   const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-  const sessionId = props.session.id;
-  const sessions = sessionsStore.sessions;
-  const storeSession = sessions.find(s => s.id === sessionId);
+  // Prefer the live store session's runs; fall back to the runs on the card's
+  // own session prop (used when the store hasn't hydrated this session yet).
+  const storeSession = sessionsStore.sessions.find(s => s.id === props.session.id);
   const latestRuns = storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
 
-  return latestRuns
-    .filter(run => buttonMap[run.buttonId]?.showOnList)
-    .map(run => ({
-      buttonId: run.buttonId,
-      label: buttonMap[run.buttonId].label,
-      command: buttonMap[run.buttonId].command,
-      status: run.status,
-      latestRun: run,
-    }));
+  return mapRunsToButtonStatuses(buttonMap, latestRuns);
 });
 
 const getStatusIcon = (status) => getStatusIconSvg(status);
