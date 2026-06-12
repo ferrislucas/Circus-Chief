@@ -2676,8 +2676,9 @@ export async function getAgentCallFilterOptions() {
 // ============================================================
 
 /**
- * Seed a kanban lane for testing
- * Lanes are cleaned up automatically when the project is deleted (CASCADE)
+ * Seed a kanban lane for testing.
+ * Ensures the board exists first (GET /kanban auto-creates it when kanbanEnabled).
+ * Lanes are cleaned up automatically when the project is deleted (CASCADE).
  */
 export async function seedKanbanLane(
   projectId: string,
@@ -2686,6 +2687,9 @@ export async function seedKanbanLane(
     sortOrder?: number;
   }
 ) {
+  // Ensure the board exists before creating a lane
+  await fetch(`${API_URL}/api/projects/${projectId}/kanban`);
+
   const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/lanes`, {
     method: 'POST',
     headers: {
@@ -2697,6 +2701,33 @@ export async function seedKanbanLane(
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Failed to create lane: ${response.status} ${errorText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Seed a kanban card for testing, placing a session in a given lane.
+ * Cards are cleaned up automatically when the project is deleted (CASCADE).
+ */
+export async function seedKanbanCard(
+  projectId: string,
+  data: {
+    sessionId: string;
+    laneId: string;
+  }
+) {
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/cards`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to create kanban card: ${response.status} ${errorText}`);
   }
 
   return await response.json();

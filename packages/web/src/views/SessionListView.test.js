@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent, reactive, ref, computed, watch, onUnmounted } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
+import { useKanbanStore } from '../stores/kanban.js';
 
 // Create mutable route params
 const mockRouteParams = { id: 'test-project-id' };
@@ -488,15 +489,17 @@ vi.mock('../components/ArchivedTabContent.vue', () => ({
 vi.mock('../components/ArchiveConfirmModal.vue', () => ({
   default: defineComponent({
     name: 'ArchiveConfirmModal',
-    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'loading'],
+    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'isOnKanbanBoard', 'loading'],
     emits: ['confirm', 'cancel'],
     template: `
       <div v-if="isOpen" class="archive-confirm-modal" data-testid="archive-confirm-modal">
         <span class="modal-session-name">{{ sessionName }}</span>
         <span class="modal-has-cleanup-script" :data-has-cleanup-script="hasCleanupScript"></span>
+        <span class="modal-is-on-kanban-board" :data-is-on-kanban-board="isOnKanbanBoard"></span>
         <span class="modal-loading" :data-loading="loading"></span>
-        <button class="modal-confirm-btn" @click="$emit('confirm', true)">Archive</button>
-        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', false)">Archive No Cleanup</button>
+        <button class="modal-confirm-btn" @click="$emit('confirm', { runCleanup: true, removeFromBoard: false })">Archive</button>
+        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', { runCleanup: false, removeFromBoard: false })">Archive No Cleanup</button>
+        <button class="modal-confirm-remove-board-btn" @click="$emit('confirm', { runCleanup: false, removeFromBoard: true })">Archive Remove Board</button>
         <button class="modal-cancel-btn" @click="$emit('cancel')">Cancel</button>
       </div>
     `,
@@ -568,6 +571,13 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
       this.scheduledFilter = filter;
     }),
     saveScheduledFilter: vi.fn(),
+    getRootSession: vi.fn(function(sessionId) {
+      let current = this.sessions.find(s => s.id === sessionId);
+      while (current?.parentSessionId) {
+        current = this.sessions.find(s => s.id === current.parentSessionId);
+      }
+      return current || null;
+    }),
     getWorkflowAggregatedStatus: vi.fn(function(sessionId) {
       // Find the session and return appropriate status
       const session = this.sessions.find(s => s.id === sessionId);
@@ -2717,6 +2727,130 @@ describe('SessionListView batch summary fetching', () => {
       await flushPromises();
 
       expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+    });
+
+    it('passes isOnKanbanBoard=false when the workflow has no card', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(false);
+    });
+
+    it('passes isOnKanbanBoard=true when the workflow root has a card', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      useKanbanStore().board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(true);
+    });
+
+    it('removes the workflow card after archive when removeFromBoard is checked', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const kanbanStore = useKanbanStore();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      const removeSpy = vi.spyOn(kanbanStore, 'removeCard').mockResolvedValue(undefined);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-remove-board-btn').trigger('click');
+      await flushPromises();
+
+      expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      expect(removeSpy).toHaveBeenCalledWith('test-project-id', 'card-1');
+    });
+
+    it('does not remove the card when removeFromBoard is unchecked', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const kanbanStore = useKanbanStore();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      const removeSpy = vi.spyOn(kanbanStore, 'removeCard').mockResolvedValue(undefined);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      expect(removeSpy).not.toHaveBeenCalled();
+    });
+
+    it('still archives successfully when card removal fails', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const kanbanStore = useKanbanStore();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      vi.spyOn(kanbanStore, 'removeCard').mockRejectedValue(new Error('Network error'));
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-remove-board-btn').trigger('click');
+      await flushPromises();
+
+      expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      // Modal still closes (archive considered successful)
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
     });
 
     it('closes modal and does not archive when cancel is clicked', async () => {
