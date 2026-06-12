@@ -70,10 +70,13 @@ vi.mock('../stores/sessions.js', () => ({
 }));
 
 // Mock kanban store
+const mockKanbanStoreData = {
+  isSessionOnBoard: vi.fn(() => false),
+  getCardBySessionId: vi.fn(() => null),
+  getLaneById: vi.fn(() => null),
+};
 vi.mock('../stores/kanban.js', () => ({
-  useKanbanStore: vi.fn(() => ({
-    isSessionOnBoard: vi.fn(() => false),
-  })),
+  useKanbanStore: vi.fn(() => mockKanbanStoreData),
 }));
 
 
@@ -84,6 +87,17 @@ vi.mock('./ButtonStatusModal.vue', () => ({
     props: ['button', 'latestRun', 'isOpen'],
     setup() {
       return () => h('div', { class: 'button-status-modal-mock' });
+    },
+  }),
+}));
+
+// Mock MoveCardModal component
+vi.mock('./MoveCardModal.vue', () => ({
+  default: defineComponent({
+    name: 'MoveCardModal',
+    props: ['isOpen', 'projectId', 'cardId', 'currentLaneId', 'sessionName'],
+    setup() {
+      return () => h('div', { class: 'move-card-modal-mock' });
     },
   }),
 }));
@@ -148,6 +162,11 @@ describe('SessionCard', () => {
     mockCommandButtonsData.buttons = [];
     mockCommandButtonsData.getButtonsByProjectId.mockImplementation(() => mockCommandButtonsData.buttons);
     mockCommandButtonsData.getLatestRunForButton.mockReturnValue(null);
+
+    // Reset kanban store mock data
+    mockKanbanStoreData.isSessionOnBoard.mockReturnValue(false);
+    mockKanbanStoreData.getCardBySessionId.mockReturnValue(null);
+    mockKanbanStoreData.getLaneById.mockReturnValue(null);
   });
   const baseSession = {
     id: 'session-123',
@@ -272,6 +291,58 @@ describe('SessionCard', () => {
       const html = wrapper.html();
       // Should still render PrIndicators even if summary is null
       expect(html).toContain('pr-indicators');
+    });
+  });
+
+  describe('kanban lane chip', () => {
+    it('does not render a lane chip when session is not on the board', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('.lane-chip').exists()).toBe(false);
+    });
+
+    it('renders lane chip for root sessions on the board', () => {
+      mockKanbanStoreData.getCardBySessionId.mockReturnValue({ id: 'card-1', laneId: 'lane-1' });
+      mockKanbanStoreData.getLaneById.mockReturnValue({ id: 'lane-1', name: 'Implementation' });
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      const chip = wrapper.find('.lane-chip');
+      expect(chip.exists()).toBe(true);
+      expect(chip.text()).toContain('Implementation');
+      expect(chip.attributes('title')).toBe('Move from Implementation to another lane');
+    });
+
+    it('does not render lane chip for child sessions', () => {
+      mockKanbanStoreData.getCardBySessionId.mockReturnValue({ id: 'card-1', laneId: 'lane-1' });
+      mockKanbanStoreData.getLaneById.mockReturnValue({ id: 'lane-1', name: 'Implementation' });
+
+      const wrapper = mountComponent({
+        isChild: true,
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      expect(wrapper.find('.lane-chip').exists()).toBe(false);
+    });
+
+    it('opens move modal when lane chip is clicked', async () => {
+      mockKanbanStoreData.getCardBySessionId.mockReturnValue({ id: 'card-1', laneId: 'lane-1' });
+      mockKanbanStoreData.getLaneById.mockReturnValue({ id: 'lane-1', name: 'Implementation' });
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      await wrapper.find('.lane-chip').trigger('click');
+
+      const modal = wrapper.findComponent({ name: 'MoveCardModal' });
+      expect(modal.exists()).toBe(true);
+      expect(modal.props('isOpen')).toBe(true);
+      expect(modal.props('projectId')).toBe('proj-1');
+      expect(modal.props('cardId')).toBe('card-1');
+      expect(modal.props('currentLaneId')).toBe('lane-1');
+      expect(modal.props('sessionName')).toBe('Test Session');
     });
   });
 
@@ -1425,6 +1496,8 @@ describe('SessionCard', () => {
       const { useKanbanStore } = await import('../stores/kanban.js');
       vi.mocked(useKanbanStore).mockReturnValue({
         isSessionOnBoard: vi.fn(() => true),
+        getCardBySessionId: vi.fn(() => null),
+        getLaneById: vi.fn(() => null),
       });
 
       const wrapper = mountComponent({
