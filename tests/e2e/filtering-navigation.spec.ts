@@ -459,7 +459,7 @@ test.describe('Archived Sessions Tab', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    const archivedTab = page.locator('.tabs-desktop .tabs-left button.tab').filter({ hasText: 'Archived' });
+    const archivedTab = page.locator('.tabs-desktop .tabs-left button.tab').filter({ hasText: 'Archive' });
     await expect(archivedTab).toBeVisible();
   });
 
@@ -468,14 +468,14 @@ test.describe('Archived Sessions Tab', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // URL should change to archived route
     await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/archived`));
 
     // Archived tab button should have active class
-    const archivedTab = page.locator('button.tab').filter({ hasText: 'Archived' });
+    const archivedTab = page.locator('button.tab').filter({ hasText: 'Archive' });
     await expect(archivedTab).toHaveClass(/active/);
   });
 
@@ -540,7 +540,7 @@ test.describe('Archived Sessions Tab', () => {
     await expect(page.locator('.session-name').filter({ hasText: 'Archived Only' })).not.toBeVisible();
 
     // Switch to Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // Should show 1 archived session

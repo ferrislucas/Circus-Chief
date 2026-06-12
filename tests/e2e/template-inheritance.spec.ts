@@ -40,8 +40,7 @@ test.describe('Template Inherit UI — Create Form', () => {
   });
 
   test('create form defaults to "Inherit from root session" for mode, model, and thinking', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
+    await page.goto(`/projects/${project.id}/templates`);
     await page.getByTestId('new-template-btn').click();
     await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
 
@@ -65,8 +64,7 @@ test.describe('Template Inherit UI — Create Form', () => {
   });
 
   test('creating a template with "Inherit" defaults saves null values to API', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
+    await page.goto(`/projects/${project.id}/templates`);
     await page.getByTestId('new-template-btn').click();
     await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
 
@@ -90,8 +88,7 @@ test.describe('Template Inherit UI — Create Form', () => {
   });
 
   test('creating a template with explicit YOLO mode saves "yolo" not null', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
+    await page.goto(`/projects/${project.id}/templates`);
     await page.getByTestId('new-template-btn').click();
     await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
 
@@ -112,8 +109,7 @@ test.describe('Template Inherit UI — Create Form', () => {
   });
 
   test('creating a template with thinking explicitly disabled saves false not null', async ({ page }) => {
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
+    await page.goto(`/projects/${project.id}/templates`);
     await page.getByTestId('new-template-btn').click();
     await expect(page.getByTestId('template-form')).toBeVisible({ timeout: 10000 });
 
@@ -162,8 +158,7 @@ test.describe('Template Inherit UI — Edit Form', () => {
     expect(template.mode).toBeNull();
     expect(template.thinkingEnabled).toBeNull();
 
-    await page.goto(`/projects/${project.id}/sessions`);
-    await page.click('.tab:has-text("Templates")');
+    await page.goto(`/projects/${project.id}/templates`);
     await expect(page.locator('.templates-panel')).toBeVisible({ timeout: 5000 });
 
     // Navigate to edit page

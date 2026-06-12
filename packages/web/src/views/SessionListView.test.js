@@ -980,12 +980,12 @@ describe('Status filtering', () => {
       // Filters should be visible on sessions tab
       expect(wrapper.find('.status-filters').exists()).toBe(true);
 
-      // Click on templates tab
-      const templatesTab = wrapper.findAll('.tab')[2];
-      await templatesTab.trigger('click');
+      // Click on another project tab
+      const commandsTab = wrapper.findAll('.tab')[2];
+      await commandsTab.trigger('click');
       await flushAll(wrapper);
 
-      // Filters should not be visible on templates tab
+      // Filters should not be visible outside the sessions tab
       expect(wrapper.find('.status-filters').exists()).toBe(false);
     });
 
@@ -2099,9 +2099,9 @@ describe('SessionListView Archived Tab', () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-      // Switch to templates tab (not archived)
-      const templatesTab = wrapper.findAll('.tab')[2];
-      await templatesTab.trigger('click');
+      // Switch to another non-archived tab
+      const commandsTab = wrapper.findAll('.tab')[2];
+      await commandsTab.trigger('click');
       await flushPromises();
 
       // Change the star filter

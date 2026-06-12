@@ -469,7 +469,7 @@ test.describe('Loading States & Spinners', () => {
     });
 
     // Click Archived tab — this triggers the delayed API call
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
 
     // Skeleton loaders should be visible while loading
     const skeleton = page.locator('.skeleton-list, .skeleton.card');
@@ -1043,7 +1043,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // All 3 archived sessions should be visible
@@ -1058,7 +1058,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(500);
 
@@ -1094,7 +1094,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
@@ -1134,7 +1134,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
@@ -1179,7 +1179,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 

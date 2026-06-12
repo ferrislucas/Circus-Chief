@@ -52,6 +52,11 @@ const routes = [
     component: () => import('./views/SessionListView.vue'),
   },
   {
+    path: '/projects/:id/templates',
+    name: 'ProjectTemplates',
+    component: () => import('./views/TemplateListView.vue'),
+  },
+  {
     path: '/projects/:id/scheduled',
     redirect: (to) => `/projects/${to.params.id}/sessions`,
   },
