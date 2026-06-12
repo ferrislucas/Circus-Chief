@@ -123,6 +123,7 @@ import { useModelInfo } from '../composables/useModelInfo.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
+import { appendTemplatePromptValue, buildTemplateSettingsFields } from '../utils/templateApply.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
@@ -619,38 +620,48 @@ async function handleApplyTemplate(templateId) {
 }
 
 async function appendTemplatePrompt(prompt) {
-  if (!prompt) return;
+  const newValue = appendTemplatePromptValue(input.value, prompt);
+  if (newValue === null) return;
 
-  const currentValue = input.value.trim();
-  const newValue = currentValue ? `${currentValue}\n\n${prompt}` : prompt;
   input.value = newValue;
 
   await nextTick();
-  if (canSendMessage.value && newValue.trim()) {
+  if (canSendMessage.value || isDraft.value) {
     savePendingPrompt(newValue);
   }
 }
 
 async function applyTemplateSettings(template) {
   try {
+    // Batch mode/thinking/effort into a single atomic update so a partial
+    // failure can't leave the session in an inconsistent state.
+    const fields = buildTemplateSettingsFields(template);
+    if (Object.keys(fields).length > 0) {
+      await sessionsStore.updateSessionFields(props.sessionId, fields);
+    }
+
     if (template.model) {
-      selectedModel.value = template.model;
-      if (Object.prototype.hasOwnProperty.call(template, 'providerId')) {
-        selectedProviderId.value = template.providerId ?? null;
-      }
-    }
-    if (template.mode) {
-      await sessionsStore.updateSessionMode(props.sessionId, template.mode);
-    }
-    if (template.thinkingEnabled != null) {
-      await sessionsStore.updateSessionThinking(props.sessionId, template.thinkingEnabled);
-    }
-    if (template.effortLevel != null) {
-      await sessionsStore.updateSessionFields(props.sessionId, { effortLevel: template.effortLevel });
+      const providerId = Object.prototype.hasOwnProperty.call(template, 'providerId')
+        ? (template.providerId ?? null)
+        : selectedProviderId.value;
+      await applyTemplateModel(template.model, providerId);
     }
   } catch (err) {
     uiStore.error(`Failed to apply template settings: ${err.message}`);
   }
+}
+
+async function applyTemplateModel(model, providerId) {
+  // Keep the local refs (which drive the ModelSelector UI) in sync, but
+  // persist explicitly rather than relying on the persistence watcher, which
+  // skips when the model was never initialized. Suppress the watcher so we
+  // don't issue a duplicate PATCH for the same change.
+  if (model !== selectedModel.value || providerId !== selectedProviderId.value) {
+    suppressNextModelPersist = true;
+    selectedModel.value = model;
+    selectedProviderId.value = providerId;
+  }
+  await sessionsStore.updateSessionModel(props.sessionId, model, providerId);
 }
 
 async function handleAutoSendToggle(enabled) {
