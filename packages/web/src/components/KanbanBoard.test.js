@@ -196,7 +196,6 @@ describe('KanbanBoard.vue', () => {
     it('shows scheduled badge and relative time for a scheduled workflow session', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-01-10T12:00:00-06:00'));
-      const sessionsStore = useSessionsStore();
       sessionsStore.sessions = [
         { id: 'session-1', name: 'Session 1', status: 'waiting', scheduledAt: null },
         {
@@ -219,7 +218,6 @@ describe('KanbanBoard.vue', () => {
     });
 
     it('does not show scheduled badge when the workflow has no scheduled time', () => {
-      const sessionsStore = useSessionsStore();
       sessionsStore.sessions = [
         { id: 'session-1', name: 'Session 1', status: 'waiting', scheduledAt: null },
       ];
