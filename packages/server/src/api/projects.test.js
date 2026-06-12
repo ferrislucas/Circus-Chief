@@ -173,7 +173,7 @@ describe('Projects API', () => {
     });
 
     it('accepts ISO 8601 scheduledAt strings and stores Unix milliseconds', async () => {
-      const scheduledAt = '2026-06-12T14:00:00Z';
+      const scheduledAt = '2099-06-12T14:00:00Z';
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Scheduled prompt',
         scheduledAt,
