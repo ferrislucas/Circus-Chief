@@ -12,7 +12,7 @@
       :title="`${indicator.label}: ${indicator.status}`"
       :aria-label="indicator.status"
       data-testid="button-status-indicator"
-      @click="selectedButtonForModal = indicator"
+      @click.stop="selectedButtonForModal = indicator"
       v-html="getStatusIcon(indicator.status)"
     />
     <!-- eslint-enable vue/no-v-html -->

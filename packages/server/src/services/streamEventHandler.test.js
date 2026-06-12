@@ -479,7 +479,7 @@ describe('streamEventHandler', () => {
       expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
     });
 
-    it('does not call kanbanService.handleTurnCompletion when session was aborted', async () => {
+    it('does not call kanban completion hooks when session was aborted', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -492,7 +492,7 @@ describe('streamEventHandler', () => {
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
-    it('does not call kanbanService.handleTurnCompletion when rescheduled', async () => {
+    it('does not call kanban completion hooks when rescheduled', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 

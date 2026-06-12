@@ -141,7 +141,47 @@
                     :pr-url="card.sessions[0].prUrl"
                   />
                 </div>
+                <div
+                  v-if="cardsScheduledInfo[card.id]?.showBadge"
+                  class="card-scheduled-info"
+                >
+                  <span class="status-badge status-scheduled">
+                    <svg
+                      class="schedule-icon-inline"
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="10"
+                      />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    scheduled
+                  </span>
+                  <span
+                    v-if="cardsScheduledInfo[card.id].timeDisplay"
+                    class="scheduled-time"
+                    :title="cardsScheduledInfo[card.id].absoluteTime"
+                  >
+                    {{ cardsScheduledInfo[card.id].timeDisplay }}
+                  </span>
+                </div>
               </router-link>
+              <CommandButtonStatusBar
+                v-if="card.sessions?.[0]"
+                class="card-command-status"
+                :button-statuses="cardButtonStatuses[card.sessions[0].id] || []"
+                :session-id="card.sessions[0].id"
+              />
               <!-- Card reorder arrows -->
               <div class="card-reorder-arrows">
                 <button
@@ -341,14 +381,20 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, toRef } from 'vue';
+import { formatDistanceToNow, format } from 'date-fns';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
+import { useCardDragDrop } from '../composables/useCardDragDrop.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
+import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
+import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import './KanbanBoard.css';
 
 const props = defineProps({
@@ -360,18 +406,50 @@ const props = defineProps({
 
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 
 // Local state
 const showAddLane = ref(false);
 const newLaneName = ref('');
 
-// Drag state (cards only)
-const dragType = ref(null); // 'card'
-const draggedCard = ref(null);
-const draggedCardLaneId = ref(null);
-const draggedCardIndex = ref(-1);
-const dropCardLaneId = ref(null);
-const dropCardIndex = ref(-1);
+// Computed
+const board = computed(() => kanbanStore.board);
+const loading = computed(() => kanbanStore.loading);
+const error = computed(() => kanbanStore.error);
+const cardsScheduledInfo = computed(() => {
+  const map = {};
+  if (!board.value?.lanes) return map;
+
+  for (const lane of board.value.lanes) {
+    for (const card of lane.cards || []) {
+      const session = card.sessions?.[0];
+      if (!session?.id) continue;
+
+      const nearest = findNearestScheduledTime(session.id);
+
+      if (nearest === null) {
+        map[card.id] = { showBadge: false, timeDisplay: null, absoluteTime: null };
+        continue;
+      }
+
+      const scheduledTime = new Date(nearest);
+      map[card.id] = {
+        showBadge: true,
+        timeDisplay: formatDistanceToNow(scheduledTime, { addSuffix: true }),
+        absoluteTime: format(scheduledTime, 'MMM d, h:mm a'),
+      };
+    }
+  }
+
+  return map;
+});
+
+// Drag-and-drop
+const {
+  dragType, draggedCard, dropCardLaneId, dropCardIndex,
+  handleCardDragStart, handleCardDragOver, handleDragEnd,
+  handleDrop, moveCardInLane,
+} = useCardDragDrop(board, kanbanStore.reorderCards, kanbanStore.moveCard, toRef(props, 'projectId'));
 
 // Modal state
 const showAddSessionModal = ref(false);
@@ -381,11 +459,6 @@ const selectedLaneForSettings = ref(null);
 const showMoveCardModal = ref(false);
 const selectedCardForMove = ref(null);
 const selectedCardCurrentLaneId = ref(null);
-
-// Computed
-const board = computed(() => kanbanStore.board);
-const loading = computed(() => kanbanStore.loading);
-const error = computed(() => kanbanStore.error);
 
 // Methods
 const fetchBoard = async () => {
@@ -424,126 +497,35 @@ const isCardEffectivelyRunning = (session) => {
   return ['running', 'starting'].includes(session.status);
 };
 
-// --- Card drag-and-drop ---
-const handleCardDragStart = (event, card, laneId, cardIndex) => {
-  dragType.value = 'card';
-  draggedCard.value = card;
-  draggedCardLaneId.value = laneId;
-  draggedCardIndex.value = cardIndex;
-  const dt = event.dataTransfer;
-  dt.effectAllowed = 'move';
-  dt.setData('text/plain', card.id);
-};
+// Board-level map of session id → button-status indicators. Built once per
+// recompute (rather than per-card during render) so the buttonMap and the
+// store-session lookup are constructed a single time for the whole board.
+const cardButtonStatuses = computed(() => {
+  const result = {};
+  if (!props.projectId || !board.value) return result;
 
-const handleCardDragOver = (event, laneId, cardIndex) => {
-  if (dragType.value !== 'card') return;
-  // Determine if above or below midpoint
-  const rect = event.currentTarget.getBoundingClientRect();
-  const midY = rect.top + rect.height / 2;
-  const index = event.clientY < midY ? cardIndex : cardIndex + 1;
+  // Establish a reactive dependency on command-run WebSocket updates so the
+  // whole board recomputes when any run's status changes.
+  void sessionsStore.commandRunVersion;
 
-  // Don't show indicator at the card's current position
-  if (laneId === draggedCardLaneId.value &&
-      (index === draggedCardIndex.value || index === draggedCardIndex.value + 1)) {
-    dropCardLaneId.value = null;
-    dropCardIndex.value = -1;
-  } else {
-    dropCardLaneId.value = laneId;
-    dropCardIndex.value = index;
-  }
-};
+  const buttons = commandButtonsStore.getButtonsByProjectId(props.projectId);
+  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-// --- Drag end ---
-const handleDragEnd = () => {
-  dragType.value = null;
-  draggedCard.value = null;
-  draggedCardLaneId.value = null;
-  draggedCardIndex.value = -1;
-  dropCardLaneId.value = null;
-  dropCardIndex.value = -1;
-};
+  // Build the store-session lookup once to avoid a per-card `.find()` scan.
+  const storeSessionsById = Object.fromEntries(
+    sessionsStore.sessions.map(s => [s.id, s])
+  );
 
-/**
- * Reorder cards within the same lane.
- * @param {string} laneId - The lane ID
- * @param {number} sourceIndex - Original card index
- * @param {number} dropIndex - Where the card was dropped
- */
-const reorderCardsInLane = async (laneId, sourceIndex, dropIndex) => {
-  const lane = board.value?.lanes?.find((l) => l.id === laneId);
-  if (!lane?.cards) return;
-
-  let targetIndex = dropIndex >= 0 ? dropIndex : lane.cards.length;
-  // Adjust for removal of source card
-  if (targetIndex > sourceIndex) targetIndex--;
-  if (targetIndex === sourceIndex) return;
-
-  const newOrder = lane.cards.map((c) => c.id);
-  const [movedId] = newOrder.splice(sourceIndex, 1);
-  newOrder.splice(targetIndex, 0, movedId);
-
-  try {
-    await kanbanStore.reorderCards(props.projectId, laneId, newOrder);
-  } catch (err) {
-    console.error('Failed to reorder cards:', err);
-  }
-};
-
-/**
- * Move a card to a different lane.
- * @param {string} cardId - The card ID
- * @param {string} targetLaneId - The target lane ID
- */
-const moveCardToLane = async (cardId, targetLaneId) => {
-  try {
-    await kanbanStore.moveCard(props.projectId, cardId, targetLaneId, {
-      runOnEnterTemplate: true,
-    });
-  } catch (err) {
-    console.error('Failed to move card:', err);
-  }
-};
-
-// --- Drop handler (card drops only) ---
-const handleDrop = async (event, targetLaneId) => {
-  event.preventDefault();
-
-  if (dragType.value !== 'card' || !draggedCard.value) {
-    handleDragEnd();
-    return;
+  for (const card of board.value.lanes.flatMap(l => l.cards || [])) {
+    const session = card.sessions?.[0];
+    if (!session?.id) continue;
+    const latestRuns =
+      storeSessionsById[session.id]?.latestCommandRuns || session.latestCommandRuns || [];
+    result[session.id] = mapRunsToButtonStatuses(buttonMap, latestRuns);
   }
 
-  const cardId = event.dataTransfer.getData('text/plain');
-  if (!cardId) {
-    handleDragEnd();
-    return;
-  }
-
-  const sourceLaneId = draggedCardLaneId.value;
-
-  if (sourceLaneId === targetLaneId) {
-    await reorderCardsInLane(targetLaneId, draggedCardIndex.value, dropCardIndex.value);
-  } else {
-    await moveCardToLane(cardId, targetLaneId);
-  }
-
-  handleDragEnd();
-};
-
-// --- Card reorder arrow handler ---
-const moveCardInLane = async (laneId, fromIndex, toIndex) => {
-  const lane = board.value?.lanes?.find((l) => l.id === laneId);
-  if (!lane?.cards) return;
-  const newOrder = lane.cards.map((c) => c.id);
-  const [movedId] = newOrder.splice(fromIndex, 1);
-  newOrder.splice(toIndex, 0, movedId);
-  try {
-    await kanbanStore.reorderCards(props.projectId, laneId, newOrder);
-  } catch (err) {
-    console.error('Failed to reorder cards:', err);
-  }
-};
-
+  return result;
+});
 const handleRemoveCard = async (cardId) => {
   if (!confirm('Remove this session from the board?')) return;
 

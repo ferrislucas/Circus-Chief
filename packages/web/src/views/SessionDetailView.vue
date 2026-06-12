@@ -121,6 +121,7 @@
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
         :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
+        :is-on-kanban-board="isArchiveSessionOnBoard"
         :loading="archiving"
         @confirm="confirmArchive"
         @cancel="cancelArchive"
@@ -300,6 +301,22 @@ const kanbanEnabledForCurrentSession = computed(() =>
   projectsStore.currentProject?.id === sessionsStore.currentSession?.projectId &&
   projectsStore.currentProject?.kanbanEnabled === true
 );
+
+// The Kanban card (if any) for the current session's workflow. A card is keyed to
+// the workflow root, so resolve the root first and fall back to the session id in
+// case the ancestor chain isn't fully loaded in the store.
+const archiveWorkflowCard = computed(() => {
+  const sessionId = sessionsStore.currentSession?.id;
+  if (!sessionId) return null;
+  const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  return (
+    kanbanStore.getCardBySessionId(rootId) ||
+    kanbanStore.getCardBySessionId(sessionId) ||
+    null
+  );
+});
+
+const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
 
 async function ensureProjectKanbanData(session) {
   if (!session?.projectId) return;
@@ -487,12 +504,23 @@ async function handleArchive() {
   }
 }
 
-async function confirmArchive(runCleanup) {
+async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   archiving.value = true;
+  // Capture before archiving: navigation below tears down this view.
+  const projectId = sessionsStore.currentSession?.projectId;
+  const workflowCard = archiveWorkflowCard.value;
   try {
-    const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
     uiStore.success('Session archived');
+
+    if (removeFromBoard && workflowCard && projectId) {
+      try {
+        await kanbanStore.removeCard(projectId, workflowCard.id);
+      } catch (removeErr) {
+        uiStore.error(removeErr.message || 'Failed to remove card from board');
+      }
+    }
+
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);
     } else {
