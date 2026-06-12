@@ -177,6 +177,7 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useKanbanStore } from '../stores/kanban.js';
+import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { getStatusIconSvg } from './statusIcons';
 import ButtonStatusModal from './ButtonStatusModal.vue';
 import PrIndicators from './PrIndicators.vue';
@@ -289,34 +290,7 @@ const runningSessionIds = computed(() => {
 
 const hasRunningSession = computed(() => runningSessionIds.value.length > 0);
 
-/** Find the nearest upcoming scheduledAt from any session in the workflow tree. */
-const nearestScheduledAt = computed(() => {
-  const now = Date.now();
-
-  // Check the session itself first (most relevant).
-  // Note: For self-scheduled sessions, we show the time even if it's in the past —
-  // this preserves backward compatibility and signals a potential scheduling issue.
-  if (props.session.status === 'scheduled' && props.session.scheduledAt) {
-    return props.session.scheduledAt;
-  }
-
-  // Find the earliest future scheduled time among children.
-  // Only future times are shown for children (past scheduled times mean the
-  // session should have already been triggered).
-  const allSessions = getWorkflowSessions();
-  let earliest = null;
-  for (const s of allSessions) {
-    // Skip the root session (already checked above)
-    if (s.id === props.session.id) continue;
-    if (s.status === 'scheduled' && s.scheduledAt) {
-      const t = new Date(s.scheduledAt).getTime();
-      if (t >= now && (earliest === null || t < earliest)) {
-        earliest = t;
-      }
-    }
-  }
-  return earliest;
-});
+const nearestScheduledAt = computed(() => findNearestScheduledTime(props.session.id));
 
 const scheduledTimeDisplay = computed(() => {
   if (!nearestScheduledAt.value) return null;

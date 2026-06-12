@@ -99,6 +99,7 @@ test.describe('Session Name Editing', () => {
 
     // Click the edit pencil icon
     await page.click('button.name-edit-trigger');
+    await page.waitForSelector('input.name-edit-input', { state: 'visible' });
 
     // Enter a new name
     await page.fill('input.name-edit-input', 'This Should Not Save');
@@ -129,6 +130,7 @@ test.describe('Session Name Editing', () => {
 
     // Click the edit pencil icon
     await page.click('button.name-edit-trigger');
+    await page.waitForSelector('input.name-edit-input', { state: 'visible' });
 
     // Enter a new name
     await page.fill('input.name-edit-input', 'This Should Not Save');
@@ -158,6 +160,7 @@ test.describe('Session Name Editing', () => {
 
     // Click the edit pencil icon
     await page.click('button.name-edit-trigger');
+    await page.waitForSelector('input.name-edit-input', { state: 'visible' });
 
     // Enter a new name and press Enter
     await page.fill('input.name-edit-input', 'Name Saved Via Enter');
