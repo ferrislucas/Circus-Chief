@@ -67,17 +67,11 @@
           </button>
           <button
             class="tab"
-            :class="{ active: activeTab === 'archived' }"
-            @click="router.push(`/projects/${route.params.id}/archived`)"
+            v-if="projectsStore.currentProject?.kanbanEnabled"
+            :class="{ active: activeTab === 'kanban' }"
+            @click="router.push(`/projects/${route.params.id}/kanban`)"
           >
-            Archived
-          </button>
-          <button
-            class="tab"
-            :class="{ active: activeTab === 'templates' }"
-            @click="router.push(`/projects/${route.params.id}/templates`)"
-          >
-            Templates
+            Kanban
           </button>
           <button
             class="tab"
@@ -94,12 +88,11 @@
             Circus Time
           </button>
           <button
-            v-if="projectsStore.currentProject?.kanbanEnabled"
             class="tab"
-            :class="{ active: activeTab === 'kanban' }"
-            @click="router.push(`/projects/${route.params.id}/kanban`)"
+            :class="{ active: activeTab === 'archived' }"
+            @click="router.push(`/projects/${route.params.id}/archived`)"
           >
-            Kanban
+            Archive
           </button>
         </div>
         <router-link
@@ -122,11 +115,11 @@
           <option value="sessions">
             Sessions
           </option>
-          <option value="archived">
-            Archived
-          </option>
-          <option value="templates">
-            Templates
+          <option
+            v-if="projectsStore.currentProject?.kanbanEnabled"
+            value="kanban"
+          >
+            Kanban
           </option>
           <option value="commands">
             Commands
@@ -134,11 +127,8 @@
           <option value="circus-time">
             Circus Time
           </option>
-          <option
-            v-if="projectsStore.currentProject?.kanbanEnabled"
-            value="kanban"
-          >
-            Kanban
+          <option value="archived">
+            Archive
           </option>
         </select>
       </div>
@@ -242,11 +232,6 @@
       @load-more="loadMoreArchived"
     />
 
-    <!-- Templates Tab -->
-    <div v-if="activeTab === 'templates'">
-      <TemplatesPanel :project-id="route.params.id" />
-    </div>
-
     <!-- Commands Tab -->
     <div v-if="activeTab === 'commands'">
       <CommandButtonsPanel :project-id="route.params.id" />
@@ -307,7 +292,6 @@ import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
-import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 import CircusTimeTab from '../components/CircusTimeTab.vue';
 import KanbanBoard from '../components/KanbanBoard.vue';
@@ -332,7 +316,6 @@ const activeTab = computed(() => {
   const routeName = route.name;
   switch (routeName) {
     case 'ArchivedSessions': return 'archived';
-    case 'ProjectTemplates': return 'templates';
     case 'ProjectCommands': return 'commands';
     case 'ProjectCircusTime': return 'circus-time';
     case 'ProjectKanban': return 'kanban';
@@ -346,7 +329,6 @@ function handleTabChange(tab) {
   const routes = {
     sessions: `/projects/${projectId}/sessions`,
     archived: `/projects/${projectId}/archived`,
-    templates: `/projects/${projectId}/templates`,
     commands: `/projects/${projectId}/commands`,
     'circus-time': `/projects/${projectId}/circus-time`,
     kanban: `/projects/${projectId}/kanban`,

@@ -15,8 +15,6 @@ const mockRouterPush = vi.fn((path) => {
   // Update the mock route based on the path so activeTab reflects navigation
   if (path.includes('/archived')) {
     mockRoute.name = 'ArchivedSessions';
-  } else if (path.includes('/templates')) {
-    mockRoute.name = 'ProjectTemplates';
   } else if (path.includes('/commands')) {
     mockRoute.name = 'ProjectCommands';
   } else if (path.includes('/circus-time')) {
@@ -28,6 +26,12 @@ const mockRouterPush = vi.fn((path) => {
   }
 });
 const mockRouterReplace = vi.fn();
+
+function findArchiveTab(wrapper) {
+  return wrapper
+    .findAll('.tab')
+    .find(tab => tab.text() === 'Archive');
+}
 
 // Mock vue-router
 vi.mock('vue-router', () => ({
@@ -361,14 +365,6 @@ vi.mock('../components/SessionCard.vue', () => ({
     props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'kanbanEnabled'],
     emits: ['retrySummary', 'archive', 'unarchive'],
     template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)" :data-pr-url="prUrl" :data-pr-summary="JSON.stringify(prSummary)"><slot /></div>',
-  }),
-}));
-
-vi.mock('../components/TemplatesPanel.vue', () => ({
-  default: defineComponent({
-    name: 'TemplatesPanel',
-    props: ['projectId'],
-    template: '<div class="templates-panel" />',
   }),
 }));
 
@@ -1625,16 +1621,17 @@ describe('SessionListView Archived Tab', () => {
   }
 
   it('renders Sessions tab as active by default', async () => {
+    mockProjectsStore.currentProject.kanbanEnabled = true;
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
     const tabs = wrapper.findAll('.tab');
     expect(tabs.length).toBe(5);
     expect(tabs[0].text()).toBe('Sessions');
-    expect(tabs[1].text()).toBe('Archived');
-    expect(tabs[2].text()).toBe('Templates');
-    expect(tabs[3].text()).toBe('Commands');
-    expect(tabs[4].text()).toBe('Circus Time');
+    expect(tabs[1].text()).toBe('Kanban');
+    expect(tabs[2].text()).toBe('Commands');
+    expect(tabs[3].text()).toBe('Circus Time');
+    expect(tabs[4].text()).toBe('Archive');
 
     // Sessions tab should be active
     expect(tabs[0].classes()).toContain('active');
@@ -1662,11 +1659,11 @@ describe('SessionListView Archived Tab', () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    let archivedTab = wrapper.findAll('.tab')[1];
+    let archivedTab = findArchiveTab(wrapper);
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
-    archivedTab = wrapper.findAll('.tab')[1];
+    archivedTab = findArchiveTab(wrapper);
     expect(archivedTab.classes()).toContain('active');
   });
 
@@ -1678,7 +1675,7 @@ describe('SessionListView Archived Tab', () => {
     expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
 
     // Click Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findArchiveTab(wrapper);
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -1690,7 +1687,7 @@ describe('SessionListView Archived Tab', () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findArchiveTab(wrapper);
 
     // First click
     await archivedTab.trigger('click');
@@ -1715,7 +1712,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findArchiveTab(wrapper);
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -1733,7 +1730,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findArchiveTab(wrapper);
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -1758,7 +1755,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findArchiveTab(wrapper);
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -1774,7 +1771,7 @@ describe('SessionListView Archived Tab', () => {
     expect(wrapper.find('.btn-primary').exists()).toBe(true);
 
     // Switch to Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findArchiveTab(wrapper);
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -2045,7 +2042,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Click Archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2058,7 +2055,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab and wait for initial load
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2114,7 +2111,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Now switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2127,7 +2124,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2169,7 +2166,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2192,7 +2189,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushAll(wrapper);
 
@@ -2206,7 +2203,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushAll(wrapper);
 
@@ -2247,7 +2244,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2268,7 +2265,7 @@ describe('SessionListView Archived Tab', () => {
       await flushPromises();
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findArchiveTab(wrapper);
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2334,7 +2331,6 @@ describe('SessionListView Archived Tab', () => {
         global: {
           plugins: [pinia],
           stubs: {
-            TemplatesPanel: true,
             CommandButtonsPanel: true,
             ConversationTab: true,
             ChangesTab: true,
@@ -2392,7 +2388,6 @@ describe('SessionListView Archived Tab', () => {
         global: {
           plugins: [pinia],
           stubs: {
-            TemplatesPanel: true,
             CommandButtonsPanel: true,
             ConversationTab: true,
             ChangesTab: true,
@@ -2550,7 +2545,7 @@ describe('SessionListView batch summary fetching', () => {
     });
 
     // Switch to archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findArchiveTab(wrapper);
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -2576,7 +2571,7 @@ describe('SessionListView batch summary fetching', () => {
     await flushAll(wrapper);
 
     // Switch to archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findArchiveTab(wrapper);
     await archivedTab.trigger('click');
     await flushPromises();
 
