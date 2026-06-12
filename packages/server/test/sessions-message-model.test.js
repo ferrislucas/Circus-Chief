@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, conversations } from '../src/database.js';
+import { projects, sessions, conversations, modelProviders } from '../src/database.js';
 import { mkdtempSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -169,6 +169,17 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('accepts custom provider model ID', async () => {
+      const provider = modelProviders.create({
+        name: 'Custom Provider',
+        type: 'custom',
+        baseUrl: 'https://example.test',
+        apiKey: 'test-key',
+      });
+      modelProviders.addModel(provider.id, {
+        modelId: 'custom-provider-model-v2',
+        displayName: 'Custom Provider Model v2',
+      });
+
       const response = await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .send({ content: 'Test message', model: 'custom-provider-model-v2' })

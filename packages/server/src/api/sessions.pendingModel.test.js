@@ -153,16 +153,15 @@ describe('Sessions API - pendingModel Field', () => {
         .expect(404);
     });
 
-    it('accepts any valid string as pendingModel (no validation)', async () => {
-      // pendingModel accepts any string, just like the model field
-      const customModel = 'custom-model-name';
-
+    it('rejects invalid pendingModel values with the valid model id list', async () => {
       const response = await request(app)
         .patch(`/api/sessions/${session.id}`)
-        .send({ pendingModel: customModel })
-        .expect(200);
+        .send({ pendingModel: 'custom-model-name' })
+        .expect(400);
 
-      expect(response.body.pendingModel).toBe(customModel);
+      expect(response.body.error).toContain('Invalid model id "custom-model-name"');
+      expect(response.body.error).toContain('Valid model ids are:');
+      expect(response.body.error).toContain('opus');
     });
   });
 

@@ -40,7 +40,7 @@ test.describe('Summary Tab Live Output', () => {
     const session = await seedSession(project.id, {
       prompt: 'Test summary live output',
       name: 'Summary Live Output Test',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       startImmediately: false,
     });
     await updateSessionStatus(session.id, 'running');
