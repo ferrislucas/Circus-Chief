@@ -69,6 +69,7 @@
       @auto-send-toggle="handleAutoSendToggle"
       @input="handleInput"
       @quick-response-insert="handleQuickResponseInsert"
+      @apply-template="handleApplyTemplate"
       @update:attached-files="attachedFiles = $event"
       @open-slash-command="showSlashCommandWizard = true"
       @thinking-toggle="handleThinkingToggle"
@@ -605,6 +606,50 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
         savePendingPrompt(newValue);
       }
     });
+  }
+}
+
+async function handleApplyTemplate(templateId) {
+  const template = templatesStore.getTemplateById(templateId);
+  if (!template) return;
+
+  await appendTemplatePrompt(template.prompt);
+
+  await applyTemplateSettings(template);
+}
+
+async function appendTemplatePrompt(prompt) {
+  if (!prompt) return;
+
+  const currentValue = input.value.trim();
+  const newValue = currentValue ? `${currentValue}\n\n${prompt}` : prompt;
+  input.value = newValue;
+
+  await nextTick();
+  if (canSendMessage.value && newValue.trim()) {
+    savePendingPrompt(newValue);
+  }
+}
+
+async function applyTemplateSettings(template) {
+  try {
+    if (template.model) {
+      selectedModel.value = template.model;
+      if (Object.prototype.hasOwnProperty.call(template, 'providerId')) {
+        selectedProviderId.value = template.providerId ?? null;
+      }
+    }
+    if (template.mode) {
+      await sessionsStore.updateSessionMode(props.sessionId, template.mode);
+    }
+    if (template.thinkingEnabled != null) {
+      await sessionsStore.updateSessionThinking(props.sessionId, template.thinkingEnabled);
+    }
+    if (template.effortLevel != null) {
+      await sessionsStore.updateSessionFields(props.sessionId, { effortLevel: template.effortLevel });
+    }
+  } catch (err) {
+    uiStore.error(`Failed to apply template settings: ${err.message}`);
   }
 }
 

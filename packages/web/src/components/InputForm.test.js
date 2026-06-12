@@ -22,6 +22,15 @@ vi.mock('./QuickResponsesPanel.vue', () => ({
   },
 }));
 
+vi.mock('./TemplateApplySelector.vue', () => ({
+  default: {
+    name: 'TemplateApplySelector',
+    props: ['projectId'],
+    emits: ['apply'],
+    template: '<button class="template-apply-selector" type="button" @click="$emit(\'apply\', \'template-1\')"></button>',
+  },
+}));
+
 vi.mock('./ModelSelector.vue', () => ({
   default: {
     name: 'ModelSelector',
@@ -318,6 +327,40 @@ describe('InputForm', () => {
     it('should hide QuickResponsesPanel when scheduled for future', () => {
       const wrapper = mountComponent({ isScheduledForFuture: true });
       expect(wrapper.findComponent({ name: 'QuickResponsesPanel' }).exists()).toBe(false);
+    });
+  });
+
+  describe('template apply selector', () => {
+    it('should show TemplateApplySelector when canSendMessage and not scheduled for future', () => {
+      const wrapper = mountComponent({ canSendMessage: true, isScheduledForFuture: false });
+      expect(wrapper.findComponent({ name: 'TemplateApplySelector' }).exists()).toBe(true);
+    });
+
+    it('should show TemplateApplySelector for draft sessions', () => {
+      const wrapper = mountComponent({ canSendMessage: false, isDraft: true, isScheduledForFuture: false });
+      expect(wrapper.findComponent({ name: 'TemplateApplySelector' }).exists()).toBe(true);
+    });
+
+    it('should hide TemplateApplySelector when running', () => {
+      const wrapper = mountComponent({
+        canSendMessage: false,
+        isDraft: false,
+        sessionStatus: 'running',
+      });
+      expect(wrapper.findComponent({ name: 'TemplateApplySelector' }).exists()).toBe(false);
+    });
+
+    it('should hide TemplateApplySelector when scheduled for future', () => {
+      const wrapper = mountComponent({ isScheduledForFuture: true });
+      expect(wrapper.findComponent({ name: 'TemplateApplySelector' }).exists()).toBe(false);
+    });
+
+    it('relays apply as applyTemplate', async () => {
+      const onApplyTemplate = vi.fn();
+      const wrapper = mountComponent({ onApplyTemplate });
+      wrapper.vm.handleApplyTemplate('template-1');
+
+      expect(onApplyTemplate).toHaveBeenCalledWith('template-1');
     });
   });
 
