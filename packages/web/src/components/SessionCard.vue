@@ -115,6 +115,49 @@
               v-html="getStatusIcon(indicator.status)"
             />
             <!-- eslint-enable vue/no-v-html -->
+
+            <!-- Kanban lane chip -->
+            <button
+              v-if="sessionLane && !isChild"
+              type="button"
+              class="lane-chip lane-chip-clickable"
+              :title="`Move from ${sessionLane.name} to another lane`"
+              @click.stop.prevent="showMoveCardModal = true"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect
+                  x="3"
+                  y="3"
+                  width="18"
+                  height="18"
+                  rx="2"
+                  ry="2"
+                />
+                <line
+                  x1="9"
+                  y1="3"
+                  x2="9"
+                  y2="21"
+                />
+                <line
+                  x1="15"
+                  y1="3"
+                  x2="15"
+                  y2="21"
+                />
+              </svg>
+              {{ sessionLane.name }}
+            </button>
           </p>
 
           <p
@@ -169,6 +212,18 @@
     :session-id="session.id"
     @close="selectedButtonForModal = null"
   />
+
+  <MoveCardModal
+    v-if="sessionCard && sessionLane"
+    :is-open="showMoveCardModal"
+    :project-id="session.projectId"
+    :card-id="sessionCard.id"
+    :current-lane-id="sessionLane.id"
+    :session-name="session.name"
+    @update:is-open="showMoveCardModal = $event"
+    @close="showMoveCardModal = false"
+    @moved="showMoveCardModal = false"
+  />
 </template>
 
 <script setup>
@@ -181,6 +236,7 @@ import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { getStatusIconSvg } from './statusIcons';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
+import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import SessionCardSummary from './SessionCardSummary.vue';
 import SessionCardHeaderActions from './SessionCardHeaderActions.vue';
@@ -190,6 +246,7 @@ const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const kanbanStore = useKanbanStore();
 const selectedButtonForModal = ref(null);
+const showMoveCardModal = ref(false);
 
 const props = defineProps({
   session: {
@@ -246,6 +303,11 @@ const emit = defineEmits(['retrySummary', 'archive', 'unarchive', 'addToBoard'])
 
 // Check if session is already on the kanban board
 const isOnBoard = computed(() => kanbanStore.isSessionOnBoard(props.session.id));
+const sessionCard = computed(() => kanbanStore.getCardBySessionId(props.session.id));
+const sessionLane = computed(() => {
+  if (!sessionCard.value) return null;
+  return kanbanStore.getLaneById(sessionCard.value.laneId);
+});
 
 const onAddToBoardClick = () => {
   emit('addToBoard', props.session);
@@ -441,6 +503,32 @@ const onStarClick = () => {
 .button-status-indicator:hover {
   transform: scale(1.15);
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.lane-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--color-bg-soft, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.lane-chip-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.lane-chip-clickable:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.lane-chip svg {
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .button-status-running {
