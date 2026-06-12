@@ -114,7 +114,7 @@ const FIELD_DEFINITIONS = [
   { field: 'mode', validate: validateMode },
   { field: 'nextTemplateId', validate: validateNextTemplateId },
   { field: 'model', validate: validateModelId },
-  { field: 'pendingModel', validate: validateModelId },
+  { field: 'pendingModel', validate: (value) => validateModelId(value, { fieldName: 'pendingModel' }) },
   { field: 'autoSendPendingPrompt', transform: Boolean },
   { field: 'providerId', validate: validateProviderId },
   { field: 'prUrl', validate: validatePrUrl },

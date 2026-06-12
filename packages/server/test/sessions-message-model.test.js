@@ -170,14 +170,15 @@ describe('Sessions API - Model Parameter', () => {
 
     it('accepts custom provider model ID', async () => {
       const provider = modelProviders.create({
-        name: 'Custom Provider',
-        type: 'custom',
-        baseUrl: 'https://example.test',
-        apiKey: 'test-key',
+        name: 'Custom Message Provider',
+        kind: 'anthropic',
+        baseUrl: 'https://api.custom-message.example',
+        authToken: 'token',
       });
       modelProviders.addModel(provider.id, {
         modelId: 'custom-provider-model-v2',
         displayName: 'Custom Provider Model v2',
+        tier: 'custom',
       });
 
       const response = await request(server)
@@ -193,6 +194,7 @@ describe('Sessions API - Model Parameter', () => {
         testTempDir,
         { systemPrompt: null, fileAttachments: [], model: 'custom-provider-model-v2' }
       );
+      modelProviders.delete(provider.id);
     });
 
     it('can switch models between messages', async () => {
@@ -271,6 +273,18 @@ describe('Sessions API - Model Parameter', () => {
     });
 
     it('starts draft session with custom model', async () => {
+      const provider = modelProviders.create({
+        name: 'Custom Draft Provider',
+        kind: 'anthropic',
+        baseUrl: 'https://api.custom-draft.example',
+        authToken: 'token',
+      });
+      modelProviders.addModel(provider.id, {
+        modelId: 'custom-provider-sonnet',
+        displayName: 'Custom Provider Sonnet',
+        tier: 'sonnet',
+      });
+
       const response = await request(server)
         .post(`/api/sessions/${session.id}/start`)
         .send({ model: 'custom-provider-sonnet' })
@@ -285,6 +299,7 @@ describe('Sessions API - Model Parameter', () => {
         testTempDir,
         { systemPrompt: null, fileAttachments: expect.any(Array), model: 'custom-provider-sonnet' }
       );
+      modelProviders.delete(provider.id);
     });
   });
 

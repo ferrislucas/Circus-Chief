@@ -11,19 +11,19 @@ import { MODEL_TIER_ALIASES } from '../db/ProviderRepository.js';
  * ignored (same as the resolver).
  *
  * @param {*} value - The requested model id
- * @param {{ allowNull?: boolean }} [options]
+ * @param {{ allowNull?: boolean, fieldName?: string }} [options]
  * @returns {{ error?: string, value?: * }}
  *   `{ value }` on success; `{ error }` (suitable for a 400) on failure.
  */
-export function validateModelId(value, { allowNull = true } = {}) {
+export function validateModelId(value, { allowNull = true, fieldName = 'model' } = {}) {
   // null / undefined → "clear" / "use default"
   if (value === null || value === undefined) {
     if (allowNull) return { value: value === undefined ? value : null };
-    return { error: 'model is required' };
+    return { error: `${fieldName} is required` };
   }
 
   if (typeof value !== 'string') {
-    return { error: 'model must be a string or null' };
+    return { error: `${fieldName} must be a string or null` };
   }
 
   // Empty string → treated as "not provided"; falls back to default.
@@ -44,6 +44,6 @@ export function validateModelId(value, { allowNull = true } = {}) {
   }
 
   return {
-    error: `Invalid model id "${value}". Valid model ids are: ${validIds.join(', ')}`,
+    error: `Invalid ${fieldName} id "${value}". Valid model ids are: ${validIds.join(', ')}`,
   };
 }

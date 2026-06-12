@@ -297,13 +297,13 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
 
     test('applies model default to session', async () => {
       const project = await seedProject('Model Default Test', '/tmp/model-default');
-      await setProjectSessionDefaults(project.id, { model: 'claude-opus-4-5-20251101' });
+      await setProjectSessionDefaults(project.id, { model: 'claude-opus-4-8' });
 
       const session = await seedSession(project.id, {
         prompt: 'Test prompt for model default',
       });
 
-      expect(session.model).toBe('claude-opus-4-5-20251101');
+      expect(session.model).toBe('claude-opus-4-8');
     });
 
     test('applies thinking default to session', async () => {

@@ -1,6 +1,7 @@
 import { sessions } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { validateModelId } from '../api/model-validation.js';
 
 /**
  * Custom error class for schedule operations, includes HTTP status code.
@@ -44,6 +45,10 @@ function extractSchedulingOptions(scheduleData) {
     }
   }
   if (scheduleData.pendingModel !== undefined) {
+    const modelResult = validateModelId(scheduleData.pendingModel, { fieldName: 'pendingModel' });
+    if (modelResult.error) {
+      throw new ScheduleError(modelResult.error, 400);
+    }
     options.pendingModel = scheduleData.pendingModel;
   }
 

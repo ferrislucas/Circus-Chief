@@ -36,6 +36,11 @@ async function validatePreparedConfig(config, reqBody, projectId, project) {
     return { error: nextTemplateError, status: 400 };
   }
 
+  const finalModelResult = validateModelId(config.model);
+  if (finalModelResult.error) {
+    return { error: finalModelResult.error, status: 400 };
+  }
+
   // Validate git settings for git repos
   const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
   if (gitError) {
