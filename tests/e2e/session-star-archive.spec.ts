@@ -257,7 +257,7 @@ test.describe('Archive / Unarchive Sessions', () => {
     await expect(page.locator('.session-name').filter({ hasText: session.name })).not.toBeVisible();
 
     // Navigate to Archived tab (tabs are buttons)
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
 
     // Wait for tab content to load
     await page.waitForLoadState('networkidle');
@@ -282,7 +282,7 @@ test.describe('Archive / Unarchive Sessions', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Navigate to Archived tab (tabs are buttons)
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // Verify session is in archived tab
@@ -388,7 +388,7 @@ test.describe('Archive / Unarchive Sessions', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Navigate to Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // Navigate to session detail (click on the session card)
