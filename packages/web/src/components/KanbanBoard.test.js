@@ -102,6 +102,20 @@ vi.mock('./PrIndicators.vue', () => ({
   }),
 }));
 
+// Helper that builds a matchMedia stub returning the given matches value.
+function makeMatchMedia(matches = false) {
+  return vi.fn().mockImplementation((query) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 describe('KanbanBoard.vue', () => {
   let pinia;
   let mockKanbanStore;
@@ -113,6 +127,9 @@ describe('KanbanBoard.vue', () => {
     setActivePinia(pinia);
     vi.useRealTimers();
     vi.clearAllMocks();
+    // Reset to wide screen and clear localStorage between tests.
+    window.matchMedia = makeMatchMedia(false);
+    localStorage.clear();
 
     mockKanbanStoreData.board = createMockBoard();
     mockKanbanStoreData.loading = false;
@@ -479,6 +496,169 @@ describe('KanbanBoard.vue', () => {
       // Component state not exposed - skip assertion
       // Covered by E2E tests
       expect(addButton.exists()).toBe(true);
+    });
+  });
+
+  describe('Layout toggle and accordion behavior', () => {
+    // Tests 1–7 from the plan
+
+    it('1. renders horizontal layout class by default on wide screens', () => {
+      // matchMedia returns matches: false (wide) — set in beforeEach
+      const wrapper = mountBoard();
+      const container = wrapper.find('.kanban-lanes-container');
+      expect(container.classes()).toContain('layout-horizontal');
+      expect(container.classes()).not.toContain('layout-vertical');
+    });
+
+    it('2. matchMedia narrow → renders vertical layout class when layoutMode is auto', () => {
+      // Simulate narrow screen
+      window.matchMedia = makeMatchMedia(true);
+      const wrapper = mountBoard();
+      const container = wrapper.find('.kanban-lanes-container');
+      expect(container.classes()).toContain('layout-vertical');
+      expect(container.classes()).not.toContain('layout-horizontal');
+    });
+
+    it('3. manual toggle to horizontal overrides narrow breakpoint', async () => {
+      // Start narrow so auto → vertical
+      window.matchMedia = makeMatchMedia(true);
+      const wrapper = mountBoard();
+      expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-vertical');
+
+      // Click the columns (horizontal) toggle button (first button)
+      const toggleBtns = wrapper.findAll('.layout-toggle-btn');
+      await toggleBtns[0].trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-horizontal');
+      expect(wrapper.find('.kanban-lanes-container').classes()).not.toContain('layout-vertical');
+    });
+
+    it('3. manual toggle to vertical overrides wide breakpoint', async () => {
+      // Wide screen so auto → horizontal
+      const wrapper = mountBoard();
+      expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-horizontal');
+
+      // Click the list (vertical) toggle button (second button)
+      const toggleBtns = wrapper.findAll('.layout-toggle-btn');
+      await toggleBtns[1].trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-vertical');
+    });
+
+    it('4. clicking a lane header in vertical mode collapses its cards', async () => {
+      localStorage.setItem('kanbanLayoutMode', 'vertical');
+      const wrapper = mountBoard();
+      await wrapper.vm.$nextTick();
+
+      const firstLane = wrapper.findAll('.kanban-lane')[0];
+      const laneCards = firstLane.find('.lane-cards');
+
+      // Initially all lanes are expanded (no display: none)
+      // Note: isVisible() requires attachment to document.body; use style check instead.
+      expect(laneCards.element.style.display).not.toBe('none');
+
+      // Collapse by clicking the header
+      const header = firstLane.find('.lane-header');
+      await header.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(laneCards.element.style.display).toBe('none');
+    });
+
+    it('4. clicking the same lane header again re-expands it', async () => {
+      localStorage.setItem('kanbanLayoutMode', 'vertical');
+      const wrapper = mountBoard();
+      await wrapper.vm.$nextTick();
+
+      const firstLane = wrapper.findAll('.kanban-lane')[0];
+      const laneCards = firstLane.find('.lane-cards');
+      const header = firstLane.find('.lane-header');
+
+      // Collapse
+      await header.trigger('click');
+      await wrapper.vm.$nextTick();
+      expect(laneCards.element.style.display).toBe('none');
+
+      // Re-expand
+      await header.trigger('click');
+      await wrapper.vm.$nextTick();
+      expect(laneCards.element.style.display).not.toBe('none');
+    });
+
+    it('5. settings gear click does not toggle accordion (click.stop)', async () => {
+      localStorage.setItem('kanbanLayoutMode', 'vertical');
+      const wrapper = mountBoard();
+      await wrapper.vm.$nextTick();
+
+      const firstLane = wrapper.findAll('.kanban-lane')[0];
+      const laneCards = firstLane.find('.lane-cards');
+
+      // Clicking the settings button should NOT collapse the lane (click.stop prevents propagation)
+      const settingsBtn = firstLane.find('.lane-settings-btn');
+      await settingsBtn.trigger('click');
+      await wrapper.vm.$nextTick();
+
+      expect(laneCards.element.style.display).not.toBe('none');
+    });
+
+    it('6. move-to-lane button and reorder arrows are present in vertical mode', () => {
+      localStorage.setItem('kanbanLayoutMode', 'vertical');
+      const wrapper = mountBoard();
+
+      // The layout class is applied so the CSS override (opacity: 1) activates.
+      expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-vertical');
+
+      // The buttons exist in the DOM (rendered, not removed by v-if).
+      expect(wrapper.find('.card-move-btn').exists()).toBe(true);
+      expect(wrapper.find('.card-reorder-arrows').exists()).toBe(true);
+      expect(wrapper.find('.card-reorder-btn').exists()).toBe(true);
+    });
+
+    describe('7. Persistence', () => {
+      it('toggling to vertical writes "vertical" to localStorage', async () => {
+        const wrapper = mountBoard();
+        const toggleBtns = wrapper.findAll('.layout-toggle-btn');
+        // Second button is the list/vertical toggle
+        await toggleBtns[1].trigger('click');
+        expect(localStorage.getItem('kanbanLayoutMode')).toBe('vertical');
+      });
+
+      it('toggling to horizontal writes "horizontal" to localStorage', async () => {
+        // Start in vertical so horizontal is a real change
+        localStorage.setItem('kanbanLayoutMode', 'vertical');
+        const wrapper = mountBoard();
+        const toggleBtns = wrapper.findAll('.layout-toggle-btn');
+        await toggleBtns[0].trigger('click');
+        expect(localStorage.getItem('kanbanLayoutMode')).toBe('horizontal');
+      });
+
+      it('fresh mount with "vertical" in localStorage renders vertical on first render', () => {
+        localStorage.setItem('kanbanLayoutMode', 'vertical');
+        const wrapper = mountBoard();
+        // No $nextTick needed — synchronous read during setup.
+        expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-vertical');
+      });
+
+      it('fresh mount with "horizontal" in localStorage renders horizontal on first render', () => {
+        localStorage.setItem('kanbanLayoutMode', 'horizontal');
+        const wrapper = mountBoard();
+        expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-horizontal');
+      });
+
+      it('fresh mount with invalid localStorage value falls back to auto (horizontal on wide)', () => {
+        localStorage.setItem('kanbanLayoutMode', 'invalid-layout-value');
+        const wrapper = mountBoard();
+        // Falls back to 'auto' → wide screen → horizontal
+        expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-horizontal');
+      });
+
+      it('fresh mount with missing localStorage value falls back to auto (horizontal on wide)', () => {
+        // localStorage is clear (cleared in beforeEach)
+        const wrapper = mountBoard();
+        expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-horizontal');
+      });
     });
   });
 
