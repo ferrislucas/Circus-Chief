@@ -336,4 +336,44 @@ describe('Workspace facade API', () => {
       expect(res.body.projectId).toBe(project2.id);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Phantom route guard (#1) — split routers must not expose cross-prefix routes
+  // ---------------------------------------------------------------------------
+  describe('phantom route guard', () => {
+    it('GET /api/workspaces/:projectId/workspaces → 404 (no longer a project list)', async () => {
+      // When the same router was double-mounted, this would have returned
+      // workspaces for the project. With split routers it should 404.
+      await request(app)
+        .get(`/api/workspaces/${project.id}/workspaces`)
+        .expect(404);
+    });
+
+    it('POST /api/projects/:workspaceId/sessions → 404 (project router has no /sessions route)', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+      await request(app)
+        .post(`/api/projects/${root.id}/sessions`)
+        .send({ prompt: 'Phantom route test' })
+        .expect(404);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // afterSessionId edge cases (#5)
+  // ---------------------------------------------------------------------------
+  describe('afterSessionId edge cases', () => {
+    it('falls back to root when afterSessionId is a completely unknown UUID', async () => {
+      const root = sessions.create(project.id, 'Root', 'root');
+      // A well-formed UUIDv4 that is guaranteed not to exist in the database
+      const unknownId = '00000000-0000-4000-a000-000000000099';
+
+      const res = await request(app)
+        .post(`/api/workspaces/${root.id}/sessions`)
+        .send({ prompt: 'Unknown after id', afterSessionId: unknownId })
+        .expect(201);
+
+      // Unknown session → falls back to workspace root
+      expect(res.body.parentSessionId).toBe(root.id);
+    });
+  });
 });

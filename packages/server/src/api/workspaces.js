@@ -1,5 +1,5 @@
 /**
- * Workspace facade router — /api/projects/:projectId/workspaces and /api/workspaces/:workspaceId
+ * Workspace facade routers — /api/projects/:projectId/workspaces and /api/workspaces/:workspaceId
  *
  * A "workspace" is an existing root session (parentSessionId IS NULL). The workspace ID
  * equals the root session's ID — no new DB table or migration is required.
@@ -7,6 +7,11 @@
  * These routes expose two unambiguous verbs for agent use:
  *   - Create / schedule a workspace  → POST /api/projects/:projectId/workspaces
  *   - Add / schedule a session       → POST /api/workspaces/:workspaceId/sessions
+ *
+ * Two separate Router instances are exported so that api/index.js can mount each
+ * at the right prefix without creating phantom cross-routes:
+ *   - projectWorkspacesRouter → mounted at /api/projects
+ *   - workspacesRouter        → mounted at /api/workspaces
  */
 
 import { Router } from 'express';
@@ -18,11 +23,16 @@ import {
   createSessionRow,
   startSessionOrFail,
 } from './projects-session-create.js';
+import {
+  CreateWorkspaceRequest,
+  CreateWorkspaceSessionRequest,
+} from '@circuschief/shared/contracts/workspaces';
 
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
 
-const router = Router();
+const projectWorkspacesRouter = Router();
+const workspacesRouter = Router();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -65,8 +75,16 @@ function resolveWorkspace(res, rawWorkspaceId, expectedProjectId = null) {
 
 /**
  * Resolve the parent attach point for a session being added to a workspace.
- * afterSessionId becomes the parent when it belongs to the workspace;
- * otherwise the new session attaches at the workspace root.
+ *
+ * Forgiving behaviour (by design): if afterSessionId is provided but does not
+ * resolve to a session within this workspace (unknown ID or a session that
+ * belongs to a different workspace), the new session silently attaches at the
+ * workspace root. Clients that need strict validation should verify the ID
+ * themselves before calling this endpoint.
+ *
+ * @param {object} workspace - The resolved workspace root session.
+ * @param {string|undefined} afterSessionId - Optional UUID of the preceding session.
+ * @returns {string} The parent session ID to use.
  */
 function resolveParentAttachPoint(workspace, afterSessionId) {
   if (!afterSessionId) return workspace.id;
@@ -94,8 +112,12 @@ function handleCreateError(res, session, error, label) {
 
 // ---------------------------------------------------------------------------
 // GET /api/projects/:projectId/workspaces — list workspaces (root sessions)
+//
+// Response shapes:
+//   Without `limit` query param → bare array of root session rows.
+//   With `limit` query param    → { workspaces: [...], pagination: { total, limit, offset, hasMore } }
 // ---------------------------------------------------------------------------
-router.get('/:projectId/workspaces', (req, res) => {
+projectWorkspacesRouter.get('/:projectId/workspaces', (req, res) => {
   const project = projects.getById(req.params.projectId);
   if (!project) {
     return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
@@ -142,9 +164,14 @@ router.get('/:projectId/workspaces', (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/projects/:projectId/workspaces — create a new workspace
 // ---------------------------------------------------------------------------
-router.post('/:projectId/workspaces', async (req, res) => {
+projectWorkspacesRouter.post('/:projectId/workspaces', async (req, res) => {
   let session = null;
   try {
+    const validation = CreateWorkspaceRequest.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
+    }
+
     const project = projects.getById(req.params.projectId);
     if (!project) {
       return res.status(404).json({ error: ERR_PROJECT_NOT_FOUND });
@@ -171,7 +198,7 @@ router.post('/:projectId/workspaces', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/workspaces/:workspaceId — workspace detail with its session tree
 // ---------------------------------------------------------------------------
-router.get('/:workspaceId', (req, res) => {
+workspacesRouter.get('/:workspaceId', (req, res) => {
   const resolved = resolveWorkspace(res, req.params.workspaceId);
   if (!resolved) return;
 
@@ -188,9 +215,14 @@ router.get('/:workspaceId', (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/workspaces/:workspaceId/sessions — add a session to a workspace
 // ---------------------------------------------------------------------------
-router.post('/:workspaceId/sessions', async (req, res) => {
+workspacesRouter.post('/:workspaceId/sessions', async (req, res) => {
   let session = null;
   try {
+    const validation = CreateWorkspaceSessionRequest.safeParse(req.body);
+    if (!validation.success) {
+      return res.status(400).json({ error: validation.error.issues[0]?.message || 'Invalid request body' });
+    }
+
     const resolved = resolveWorkspace(res, req.params.workspaceId);
     if (!resolved) return;
 
@@ -214,5 +246,4 @@ router.post('/:workspaceId/sessions', async (req, res) => {
   }
 });
 
-export { router as projectWorkspacesRouter, router as workspacesRouter };
-export default router;
+export { projectWorkspacesRouter, workspacesRouter };

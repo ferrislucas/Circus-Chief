@@ -63,20 +63,36 @@ export const CreateWorkspaceRequest = WorkspaceSessionFields;
 
 /**
  * POST /api/workspaces/:workspaceId/sessions — add a session to an existing workspace.
- * afterSessionId (optional): attach the new session after this session in the workspace tree.
- *   - If the session belongs to the workspace, it becomes the parent.
- *   - If omitted or outside the workspace, the workspace root is used as parent.
+ *
+ * afterSessionId (optional, UUID): attach the new session after this session in the
+ * workspace tree.
+ *   - If the session belongs to this workspace, it becomes the direct parent.
+ *   - If omitted, unknown, or from a different workspace, the workspace root is used
+ *     as the parent (forgiving — never an error).
  */
 export const CreateWorkspaceSessionRequest = WorkspaceSessionFields.extend({
   afterSessionId: z.string().uuid().optional(),
 });
 
 /**
- * @typedef {object} Workspace
+ * Shape returned by GET /api/projects/:projectId/workspaces (list item).
+ * Each entry is the raw root session row — no descendant sessions included.
+ *
+ * @typedef {object} WorkspaceListItem
  * @property {string} id - Workspace ID (= root session ID)
  * @property {string} projectId
  * @property {string} name
- * @property {string} status - Effective status of the root session
- * @property {number|null} nearestScheduledAt - Unix ms timestamp of the nearest scheduled session
- * @property {import('./sessions.js').Session[]} sessions - Descendant sessions (excludes root)
+ * @property {string} status - Status of the root session
+ */
+
+/**
+ * Shape returned by GET /api/workspaces/:workspaceId (detail).
+ * Includes the root session row plus its descendant sessions.
+ *
+ * @typedef {object} WorkspaceDetail
+ * @property {string} id - Workspace ID (= root session ID)
+ * @property {string} projectId
+ * @property {string} name
+ * @property {string} status - Status of the root session
+ * @property {object[]} sessions - Descendant sessions (excludes the root itself)
  */

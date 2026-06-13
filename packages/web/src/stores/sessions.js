@@ -121,7 +121,10 @@ export const useSessionsStore = defineStore('sessions', {
     getRootSession() {
       return (sessionId) => {
         let current = this._findSessionById(sessionId);
+        const visited = new Set();
         while (current?.parentSessionId) {
+          if (visited.has(current.id)) break; // cycle guard
+          visited.add(current.id);
           current = this._findSessionById(current.parentSessionId);
         }
         return current || null;
