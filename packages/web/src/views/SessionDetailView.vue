@@ -582,24 +582,28 @@ function getLaneIdForSession(sessionId) {
 }
 
 async function handleCopySessionId() {
+  // Copy the workspace ID (= root session ID) so agents and users can reference
+  // the whole workspace. Fall back to currentSessionId when the ancestor chain
+  // is not yet loaded in the store.
   const sessionId = currentSessionId.value;
+  const workspaceId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
   try {
-    await navigator.clipboard.writeText(sessionId);
-    uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+    await navigator.clipboard.writeText(workspaceId);
+    uiStore.success(`Workspace ID copied to clipboard: ${workspaceId}`);
   } catch (err) {
     try {
       const textarea = document.createElement('textarea');
-      textarea.value = sessionId;
+      textarea.value = workspaceId;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+      uiStore.success(`Workspace ID copied to clipboard: ${workspaceId}`);
     } catch (fallbackErr) {
       console.error('Copy failed:', fallbackErr);
-      uiStore.error('Failed to copy session ID');
+      uiStore.error('Failed to copy workspace ID');
     }
   }
 }

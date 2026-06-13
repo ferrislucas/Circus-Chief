@@ -235,16 +235,28 @@ curl ${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}/history/{version
 Where version 1 = oldest, and higher numbers are newer versions.`;
 }
 
-/** Build session CRUD operations section */
-function buildSessionCrudOps(apiUrl, projectId) {
-  return `### Create a New Session
+/** Build workspace and session CRUD operations section */
+function buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId) {
+  return `### Create a New Workspace
 \`\`\`bash
-curl -X POST ${apiUrl}/api/projects/${projectId}/sessions \\
+curl -X POST ${apiUrl}/api/projects/${projectId}/workspaces \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "Your task description here"}'
 \`\`\`
-Only \`prompt\` is required. Omitted settings are automatically derived from the project's session defaults, then system defaults, matching UI behavior.
-Optional override fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`model\`, \`providerId\`, \`gitBranch\`, \`gitMode\`, \`templateId\`, \`nextTemplateId\`, \`parentSessionId\` (to create a related follow-up session from the current session), \`startImmediately\`, \`scheduledAt\` (ISO 8601 date-time string with timezone, e.g. \`"2026-06-12T14:00:00Z"\`), \`autoRescheduleEnabled\`, \`rescheduleDelayMinutes\`, \`rescheduleOnTokenLimit\`, \`rescheduleOnServiceError\`, \`maxRescheduleCount\`, \`maxTotalTokens\`, and \`rescheduleAtTokenCount\`.
+Use this to **start a completely new line of work**. Only \`prompt\` is required.
+Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`model\`, \`providerId\`, \`gitBranch\`, \`gitMode\`, \`templateId\`, \`nextTemplateId\`, \`startImmediately\`, \`scheduledAt\` (ISO 8601 date-time string with timezone, e.g. \`"2026-06-12T14:00:00Z"\`), \`autoRescheduleEnabled\`, \`rescheduleDelayMinutes\`, \`rescheduleOnTokenLimit\`, \`rescheduleOnServiceError\`, \`maxRescheduleCount\`, \`maxTotalTokens\`, and \`rescheduleAtTokenCount\`.
+
+### Add a Session to this Workspace
+\`\`\`bash
+curl -X POST ${apiUrl}/api/workspaces/${workspaceId}/sessions \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt": "Your task description here"}'
+\`\`\`
+Use this to **continue work inside the current workspace**. The new session is attached at the workspace root by default.
+Pass \`"afterSessionId": "${sessionId}"\` to chain the new session directly after the current one (useful when you want the follow-on to be contextually linked to this session rather than the workspace root).
+Optional fields: same as creating a workspace plus \`afterSessionId\`. Add \`scheduledAt\` to schedule the new session without starting it immediately. Only schedule a new *workspace* when starting genuinely independent work; for continuations, schedule a *session within this workspace* instead.
+
+**Note:** "workspace" here refers to a group of related sessions. This is distinct from the Codex \`workspace-write\` sandbox mode — those are separate concepts.
 
 ### Send a Follow-up Message
 \`\`\`bash
@@ -258,6 +270,12 @@ curl -X POST ${apiUrl}/api/sessions/<session_id>/message \\
 curl ${apiUrl}/api/sessions
 curl ${apiUrl}/api/sessions/<session_id>
 curl ${apiUrl}/api/sessions/<session_id>/messages
+\`\`\`
+
+### List Workspaces / Get Workspace Detail
+\`\`\`bash
+curl ${apiUrl}/api/projects/${projectId}/workspaces
+curl ${apiUrl}/api/workspaces/${workspaceId}
 \`\`\`
 
 ### Stop / Restart / Delete a Session
@@ -298,6 +316,10 @@ curl -X POST ${apiUrl}/api/sessions/${sessionId}/summary  # Regenerate
 /** Build session API instructions for Claude to create/modify sessions */
 function buildSessionApiInstructions(sessionId, projectId) {
   const apiUrl = getApiBaseUrl();
+  // Compute the workspace ID (= root session ID) for this session. This is
+  // needed so agents can reference the current workspace in API calls without
+  // having to walk the parent chain themselves.
+  const workspaceId = sessions.getRootSessionId(sessionId) || sessionId;
   return `## Session Management API
 
 You can create and modify sessions in this system using curl or similar HTTP tools. Use the Bash tool to execute these commands.
@@ -305,8 +327,9 @@ You can create and modify sessions in this system using curl or similar HTTP too
 **Base URL:** ${apiUrl}
 **Current Session ID:** ${sessionId}
 **Current Project ID:** ${projectId}
+**Current Workspace ID:** ${workspaceId}
 
-${buildSessionCrudOps(apiUrl, projectId)}
+${buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId)}
 
 ${buildProjectOps(apiUrl, sessionId)}`;
 }
@@ -345,7 +368,7 @@ ${laneContext}
 curl ${apiUrl}/api/projects/${projectId}/kanban
 \`\`\`
 
-### Add Current Workflow to the Board
+### Add Current Workspace to the Board
 \`\`\`bash
 curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
   -H "Content-Type: application/json" \\

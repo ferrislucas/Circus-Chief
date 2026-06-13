@@ -173,6 +173,57 @@ export class SessionRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
+  /**
+   * Get only root sessions (workspaces) for a project — rows where parent_session_id IS NULL.
+   * Uses the same ordering and optional filters as getByProjectId.
+   */
+  getRootsByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
+    let sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE project_id = ? AND parent_session_id IS NULL`;
+    const params = [projectId];
+
+    if (archived !== null) {
+      sql += ` AND archived = ?`;
+      params.push(archived ? 1 : 0);
+    }
+
+    if (starred !== null) {
+      sql += ` AND starred = ?`;
+      params.push(starred ? 1 : 0);
+    }
+
+    sql += ` ORDER BY
+      COALESCE(last_activity_at, updated_at, created_at) DESC,
+      updated_at DESC,
+      created_at DESC,
+      rowid DESC`;
+
+    if (limit !== null) {
+      sql += ` LIMIT ? OFFSET ?`;
+      params.push(limit, offset);
+    }
+
+    const rows = this.db.prepare(sql).all(...params);
+    return this.mapAll(rows);
+  }
+
+  /** Count root sessions (workspaces) for a project */
+  getRootsCountByProjectId(projectId, { archived = null, starred = null } = {}) {
+    let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ? AND parent_session_id IS NULL`;
+    const params = [projectId];
+
+    if (archived !== null) {
+      sql += ` AND archived = ?`;
+      params.push(archived ? 1 : 0);
+    }
+
+    if (starred !== null) {
+      sql += ` AND starred = ?`;
+      params.push(starred ? 1 : 0);
+    }
+
+    return this.db.prepare(sql).get(...params).count;
+  }
+
   /** Get count of sessions for a project with optional archived/starred filters */
   getCountByProjectId(projectId, { archived = null, starred = null } = {}) {
     let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ?`;

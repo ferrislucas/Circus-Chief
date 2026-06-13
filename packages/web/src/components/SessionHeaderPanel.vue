@@ -16,7 +16,7 @@
         aria-label="Session actions"
         :is-archived="session.archived"
         :is-deleting="isDeleting"
-        copy-session-id-text="Copy ID"
+        copy-session-id-text="Copy Workspace ID"
         @duplicate="emit('duplicate')"
         @copy-session-id="emit('copySessionId')"
         @archive="emit('archive')"
