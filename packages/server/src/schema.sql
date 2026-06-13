@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS session_templates (
   model TEXT,
   mode TEXT DEFAULT 'yolo' CHECK(mode IN ('plan', 'standard', 'yolo')),
   effort_level TEXT CHECK(effort_level IN ('low', 'medium', 'high', 'max', 'auto')),
+  -- Orphaned column: the per-template "target lane" mechanism was removed.
+  -- Kept in the schema so existing databases (which ran the add-column
+  -- migration) and fresh databases stay structurally identical. No code reads
+  -- or writes it; completion_target_lane_id is the single source of truth.
   target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
   show_in_quick_responses INTEGER NOT NULL DEFAULT 0,
   quick_response_auto_submit INTEGER NOT NULL DEFAULT 0,
@@ -100,6 +104,11 @@ CREATE TABLE IF NOT EXISTS sessions (
   pending_model TEXT,
   auto_send_pending_prompt INTEGER DEFAULT 0,
   agent_type TEXT DEFAULT 'claude-code',
+  -- Orphaned column: the per-session "move to target lane on turn end"
+  -- mechanism was removed. Kept in the schema so existing databases (which ran
+  -- the add-column migration) and fresh databases stay structurally identical.
+  -- No code reads or writes it; completion_target_lane_id is the single source
+  -- of truth for kanban auto-advancement.
   target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
   lane_trigger_depth INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),

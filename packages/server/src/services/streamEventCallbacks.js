@@ -57,8 +57,7 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
     await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
   }
 
-  // Handle kanban lane movements based on targetLaneId
-  await kanbanService.handleTurnCompletion(sessionId);
+  // Advance the card to the current lane's completion target, if configured
   await kanbanService.handleCompletionMove(sessionId);
 
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)

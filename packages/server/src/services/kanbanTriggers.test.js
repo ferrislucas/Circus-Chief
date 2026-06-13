@@ -362,7 +362,7 @@ describe('kanbanTriggers', () => {
   describe('triggerOnEnterTemplate', () => {
     const session = { id: 's1', projectId: 'p1', name: 'Test Session', model: 'opus', mode: 'code', thinkingEnabled: false, gitBranch: null, gitWorktree: null };
     const project = { id: 'p1', workingDirectory: '/tmp/project', systemPrompt: 'You are helpful.' };
-    const template = { id: 't1', name: 'Review Template', prompt: 'Review: {{parentSession.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null, targetLaneId: null };
+    const template = { id: 't1', name: 'Review Template', prompt: 'Review: {{parentSession.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null };
     const lane = { id: 'lane-1', name: 'Review', onEnterTemplateId: 't1' };
 
     beforeEach(() => {
@@ -437,7 +437,6 @@ describe('kanbanTriggers', () => {
         parentSessionId: 's1',
         laneTriggerDepth: 1,
         nextTemplateId: null,
-        targetLaneId: null,
       }));
 
       // Broadcasts SESSION_CREATED
@@ -460,18 +459,16 @@ describe('kanbanTriggers', () => {
       }));
     });
 
-    it('sets nextTemplateId and targetLaneId from template', async () => {
+    it('sets nextTemplateId from template', async () => {
       sessionTemplates.getById.mockReturnValue({
         ...template,
         nextTemplateId: 'next-t1',
-        targetLaneId: 'target-lane-1',
       });
 
       await triggerOnEnterTemplate('s1', lane);
 
       expect(sessions.update).toHaveBeenCalledWith('new-1', expect.objectContaining({
         nextTemplateId: 'next-t1',
-        targetLaneId: 'target-lane-1',
       }));
     });
 
@@ -690,7 +687,7 @@ describe('kanbanTriggers', () => {
   describe('agentType resolution', () => {
     const baseSession = { id: 's1', projectId: 'p1', name: 'Test Session', model: 'opus', mode: 'code', thinkingEnabled: false, gitBranch: null, gitWorktree: null };
     const baseProject = { id: 'p1', workingDirectory: '/tmp/project', systemPrompt: 'You are helpful.' };
-    const baseTemplate = { id: 't1', name: 'Review Template', prompt: 'Review: {{parentSession.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null, targetLaneId: null };
+    const baseTemplate = { id: 't1', name: 'Review Template', prompt: 'Review: {{parentSession.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null };
     const baseLane = { id: 'lane-1', name: 'Review', onEnterTemplateId: 't1' };
 
     it('triggerOnEnterTemplate passes agentType resolved from model to sessions.create', async () => {

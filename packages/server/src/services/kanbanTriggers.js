@@ -157,7 +157,6 @@ async function buildChildSessionFromTemplate(template, session, lane, depth) {
   sessions.update(newSession.id, {
     parentSessionId: session.id,
     nextTemplateId: template.nextTemplateId || null,
-    targetLaneId: template.targetLaneId || null,
     laneTriggerDepth: depth + 1,
   });
 

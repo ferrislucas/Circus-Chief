@@ -141,7 +141,6 @@ export const DIRECT_FIELD_MAP = {
   pendingPrompt: 'pending_prompt',
   pendingModel: 'pending_model',
   effortLevel: 'effort_level',
-  targetLaneId: 'target_lane_id',
   laneTriggerDepth: 'lane_trigger_depth',
   agentType: 'agent_type',
 };
