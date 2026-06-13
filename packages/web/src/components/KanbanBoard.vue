@@ -1,5 +1,29 @@
 <template>
   <div class="kanban-board">
+    <!-- Board header bar: always rendered (outside the loading/error/empty chain) -->
+    <div class="board-header-bar">
+      <div class="layout-toggle">
+        <!-- Columns (horizontal) toggle -->
+        <button
+          class="layout-toggle-btn"
+          :class="{ active: effectiveLayout === 'horizontal' }"
+          title="Column layout"
+          @click="layoutMode = 'horizontal'"
+        >
+          <KanbanBoardIcon name="columns" />
+        </button>
+        <!-- List (vertical/accordion) toggle -->
+        <button
+          class="layout-toggle-btn"
+          :class="{ active: effectiveLayout === 'vertical' }"
+          title="List layout"
+          @click="layoutMode = 'vertical'"
+        >
+          <KanbanBoardIcon name="list" />
+        </button>
+      </div>
+    </div>
+
     <div
       v-if="loading"
       class="kanban-loading"
@@ -32,16 +56,28 @@
     <div
       v-else
       class="kanban-lanes-container"
+      :class="effectiveLayout === 'vertical' ? 'layout-vertical' : 'layout-horizontal'"
     >
       <div
         v-for="lane in board.lanes"
         :key="lane.id"
         class="kanban-lane"
-        @dragover.prevent="handleCardDragOver($event, lane.id, lane.cards?.length || 0)"
-        @drop="handleDrop($event, lane.id)"
+        @dragover.prevent="effectiveLayout === 'horizontal' ? handleCardDragOver($event, lane.id, lane.cards?.length || 0) : null"
+        @drop="effectiveLayout === 'horizontal' ? handleDrop($event, lane.id) : null"
       >
-        <div class="lane-header">
+        <div
+          class="lane-header"
+          :class="{ 'lane-header-accordion': effectiveLayout === 'vertical' }"
+          @click="handleLaneHeaderClick(lane.id)"
+        >
           <div class="lane-title-row">
+            <!-- Chevron: only shown in vertical/accordion mode -->
+            <KanbanBoardIcon
+              v-if="effectiveLayout === 'vertical'"
+              name="chevron"
+              class="lane-chevron"
+              :class="{ 'lane-chevron-expanded': expandedLanes[lane.id] }"
+            />
             <h3 class="lane-title">
               {{ lane.name }}
             </h3>
@@ -50,15 +86,7 @@
               class="lane-automation-indicator"
               title="Automation enabled"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
+              <KanbanBoardIcon name="automation" />
             </span>
           </div>
           <div class="lane-header-actions">
@@ -66,31 +94,18 @@
             <button
               class="lane-settings-btn"
               title="Lane settings"
-              @click="openLaneSettings(lane)"
+              @click.stop="openLaneSettings(lane)"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="3"
-                />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
+              <KanbanBoardIcon name="settings" />
             </button>
           </div>
         </div>
 
-        <div class="lane-cards">
+        <!-- Cards: always shown in horizontal; shown when expanded in vertical -->
+        <div
+          v-show="effectiveLayout === 'horizontal' || expandedLanes[lane.id]"
+          class="lane-cards"
+        >
           <template
             v-for="(card, cardIndex) in lane.cards"
             :key="card.id"
@@ -104,10 +119,10 @@
             <div
               class="kanban-card"
               :class="{ 'dragging': dragType === 'card' && draggedCard?.id === card.id }"
-              draggable="true"
-              @dragstart.stop="handleCardDragStart($event, card, lane.id, cardIndex)"
-              @dragover.prevent.stop="handleCardDragOver($event, lane.id, cardIndex)"
-              @dragend="handleDragEnd"
+              :draggable="effectiveLayout === 'horizontal'"
+              @dragstart.stop="effectiveLayout === 'horizontal' ? handleCardDragStart($event, card, lane.id, cardIndex) : null"
+              @dragover.prevent.stop="effectiveLayout === 'horizontal' ? handleCardDragOver($event, lane.id, cardIndex) : null"
+              @dragend="effectiveLayout === 'horizontal' ? handleDragEnd() : null"
             >
               <router-link
                 v-if="card.sessions?.[0]"
@@ -146,25 +161,10 @@
                   class="card-scheduled-info"
                 >
                   <span class="status-badge status-scheduled">
-                    <svg
+                    <KanbanBoardIcon
+                      name="schedule"
                       class="schedule-icon-inline"
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="12"
-                      height="12"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="10"
-                      />
-                      <polyline points="12 6 12 12 16 14" />
-                    </svg>
+                    />
                     scheduled
                   </span>
                   <span
@@ -190,19 +190,7 @@
                   title="Move card up"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex - 1)"
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <polyline points="18 15 12 9 6 15" />
-                  </svg>
+                  <KanbanBoardIcon name="reorder-up" />
                 </button>
                 <button
                   v-if="cardIndex < lane.cards.length - 1"
@@ -210,19 +198,7 @@
                   title="Move card down"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex + 1)"
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
+                  <KanbanBoardIcon name="reorder-down" />
                 </button>
               </div>
               <button
@@ -230,32 +206,7 @@
                 title="Move to lane"
                 @click.prevent="openMoveCardModal(card, lane.id)"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <polyline points="15 4 19 4 19 8" />
-                  <line
-                    x1="14"
-                    y1="10"
-                    x2="19"
-                    y2="4"
-                  />
-                  <polyline points="9 20 5 20 5 16" />
-                  <line
-                    x1="10"
-                    y1="14"
-                    x2="5"
-                    y2="20"
-                  />
-                </svg>
+                <KanbanBoardIcon name="move" />
               </button>
               <button
                 class="card-remove-btn"
@@ -282,8 +233,11 @@
           </div>
         </div>
 
-        <!-- Lane footer with automation info and add session button -->
-        <div class="lane-footer">
+        <!-- Lane footer: always shown in horizontal; shown when expanded in vertical -->
+        <div
+          v-show="effectiveLayout === 'horizontal' || expandedLanes[lane.id]"
+          class="lane-footer"
+        >
           <span
             v-if="lane.onEnterTemplateId"
             class="lane-automation"
@@ -381,7 +335,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, toRef } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch, toRef } from 'vue';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionsStore } from '../stores/sessions.js';
@@ -394,6 +348,7 @@ import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
+import KanbanBoardIcon from './KanbanBoardIcon.vue';
 import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import './KanbanBoard.css';
 
@@ -408,7 +363,101 @@ const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 
-// Local state
+// ==================== Layout state ====================
+
+const LAYOUT_MODE_KEY = 'kanbanLayoutMode';
+const VALID_LAYOUT_MODES = ['auto', 'horizontal', 'vertical'];
+
+function readLayoutMode() {
+  try {
+    const stored = localStorage.getItem(LAYOUT_MODE_KEY);
+    return VALID_LAYOUT_MODES.includes(stored) ? stored : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+function writeLayoutMode(value) {
+  try {
+    localStorage.setItem(LAYOUT_MODE_KEY, value);
+  } catch {
+    // ignore (e.g. private browsing with storage blocked)
+  }
+}
+
+// layoutMode: 'auto' | 'horizontal' | 'vertical'
+// Read synchronously from localStorage so first render uses the restored value.
+const layoutMode = ref(readLayoutMode());
+
+watch(layoutMode, (value) => {
+  writeLayoutMode(value);
+});
+
+// isNarrow: true when the viewport is <= 640px.
+// Initialized synchronously to avoid a flash on first render.
+const isNarrow = ref(
+  typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(max-width: 640px)').matches
+    : false
+);
+
+let _mql = null;
+const onMqlChange = (e) => { isNarrow.value = e.matches; };
+
+onMounted(() => {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    _mql = window.matchMedia('(max-width: 640px)');
+    isNarrow.value = _mql.matches;
+    _mql.addEventListener('change', onMqlChange);
+  }
+});
+
+onUnmounted(() => {
+  if (_mql) {
+    _mql.removeEventListener('change', onMqlChange);
+    _mql = null;
+  }
+});
+
+// effectiveLayout: the layout actually used for rendering.
+const effectiveLayout = computed(() => {
+  if (layoutMode.value === 'auto') {
+    return isNarrow.value ? 'vertical' : 'horizontal';
+  }
+  return layoutMode.value;
+});
+
+// expandedLanes: record of laneId → boolean (true = expanded).
+// All lanes start expanded by default.
+const expandedLanes = reactive({});
+
+watch(
+  () => kanbanStore.board?.lanes,
+  (lanes) => {
+    if (lanes) {
+      for (const lane of lanes) {
+        if (!(lane.id in expandedLanes)) {
+          expandedLanes[lane.id] = true;
+        }
+      }
+    }
+  },
+  { immediate: true }
+);
+
+const toggleLane = (laneId) => {
+  expandedLanes[laneId] = !expandedLanes[laneId];
+};
+
+// Called when the lane header is clicked; only toggles in vertical mode.
+const handleLaneHeaderClick = (laneId) => {
+  if (effectiveLayout.value === 'vertical') {
+    toggleLane(laneId);
+  }
+};
+
+// ==================== Local state ====================
+
 const showAddLane = ref(false);
 const newLaneName = ref('');
 
@@ -526,6 +575,7 @@ const cardButtonStatuses = computed(() => {
 
   return result;
 });
+
 const handleRemoveCard = async (cardId) => {
   if (!confirm('Remove this session from the board?')) return;
 
