@@ -207,7 +207,7 @@ describe('OrchestrationPanel', () => {
     //   expect(wrapper.emitted('openSchedule')).toBeTruthy();
     // });
 
-    it('uses correct title for draft sessions', () => {
+    it('uses correct title for draft workspaces', () => {
       const wrapper = mountComponent({
         currentTemplateId: 'template-1',
         inputHasContent: true,
@@ -215,10 +215,10 @@ describe('OrchestrationPanel', () => {
       });
 
       const button = wrapper.find('.btn-schedule');
-      expect(button.attributes('title')).toBe('Schedule this session to start later');
+      expect(button.attributes('title')).toBe('Schedule this workspace to start later');
     });
 
-    it('uses correct title for non-draft sessions', () => {
+    it('uses correct title for non-draft workspaces', () => {
       const wrapper = mountComponent({
         currentTemplateId: 'template-1',
         inputHasContent: true,

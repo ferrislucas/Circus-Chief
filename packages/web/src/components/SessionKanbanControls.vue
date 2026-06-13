@@ -2,7 +2,7 @@
   <!-- Star button (icon only) -->
   <button
     class="btn-icon btn-star"
-    :title="starred ? 'Unstar session' : 'Star session'"
+    :title="starred ? 'Unstar workspace' : 'Star workspace'"
     :class="{ 'is-starred': starred }"
     @click="emit('star')"
   >

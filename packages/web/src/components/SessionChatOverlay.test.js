@@ -159,7 +159,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getSessionSummary: vi.fn().mockResolvedValue(null),
     getProjectSessions: vi.fn().mockResolvedValue([]),
-    createSession: vi.fn().mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' }),
+    createSession: vi.fn().mockResolvedValue({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' }),
     updateSession: vi.fn().mockResolvedValue({}),
   },
 }));
@@ -215,7 +215,7 @@ describe('SessionChatOverlay', () => {
   let router;
   const rootSession = {
     id: 'sess-root',
-    name: 'Root Session',
+    name: 'Root Workspace',
     status: 'waiting',
     parentSessionId: null,
     projectId: 'proj-123',
@@ -345,7 +345,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not display root session name in header', async () => {
+    it('does not display root workspace name in header', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const name = document.querySelector('.overlay-root-name');
@@ -353,7 +353,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('renders ConversationTab with correct session id', async () => {
+    it('renders ConversationTab with correct workspace id', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       // Wait for async onMounted to complete (loadSessionData + setupSubscription)
@@ -365,7 +365,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('renders back to sessions link in header', async () => {
+    it('renders back to workspaces link in header', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({
         ...rootSession,
         projectId: 'proj-123',
@@ -375,15 +375,15 @@ describe('SessionChatOverlay', () => {
       const backLink = document.querySelector('.back-to-sessions-link');
       expect(backLink).toBeTruthy();
       expect(backLink.getAttribute('href')).toBe('/projects/proj-123/sessions');
-      expect(backLink.getAttribute('title')).toBe('Back to Sessions');
+      expect(backLink.getAttribute('title')).toBe('Back to Workspaces');
       // Verify SVG icons are present
       expect(backLink.querySelectorAll('svg').length).toBe(2);
-      // Verify "Sessions" text label is present
-      expect(backLink.textContent).toContain('Sessions');
+      // Verify "Workspaces" text label is present
+      expect(backLink.textContent).toContain('Workspaces');
       wrapper.unmount();
     });
 
-    it('back link defaults to home when session has no projectId', async () => {
+    it('back link defaults to home when workspace has no projectId', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({
         ...rootSession,
         projectId: null,
@@ -397,7 +397,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('back link has Sessions text label', async () => {
+    it('back link has Workspaces text label', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({
         ...rootSession,
         projectId: 'proj-123',
@@ -406,7 +406,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       const textSpan = document.querySelector('.back-to-sessions-text');
       expect(textSpan).toBeTruthy();
-      expect(textSpan.textContent).toBe('Sessions');
+      expect(textSpan.textContent).toBe('Workspaces');
       wrapper.unmount();
     });
 
@@ -456,7 +456,7 @@ describe('SessionChatOverlay', () => {
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle).toBeTruthy();
       expect(handle.getAttribute('role')).toBe('button');
-      expect(handle.getAttribute('aria-label')).toBe('Close session chat');
+      expect(handle.getAttribute('aria-label')).toBe('Close workspace chat');
       expect(handle.getAttribute('tabindex')).toBe('0');
       wrapper.unmount();
     });
@@ -707,10 +707,10 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('session tree picker integration', () => {
+  describe('workspace tree picker integration', () => {
     const childSession = {
       id: 'child-1',
-      name: 'Child Session',
+      name: 'Child Workspace',
       status: 'running',
       parentSessionId: 'sess-root',
       projectId: 'proj-123',
@@ -737,7 +737,7 @@ describe('SessionChatOverlay', () => {
       });
     }
 
-    it('does not show picker when sessionChain has only 1 session', async () => {
+    it('does not show picker when sessionChain has only 1 workspace', async () => {
       const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
@@ -753,7 +753,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('shows dropdown trigger when sessionChain has multiple sessions', async () => {
+    it('shows dropdown trigger when sessionChain has multiple workspaces', async () => {
       const wrapper = mountWithPicker();
       await nextTick();
       const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
@@ -794,13 +794,13 @@ describe('SessionChatOverlay', () => {
       const picker = document.querySelector('[data-testid="session-chat-picker"]');
       expect(picker).toBeTruthy();
       // The mock renders session names as text content
-      expect(picker.textContent).toContain('Root Session');
-      expect(picker.textContent).toContain('Child Session');
+      expect(picker.textContent).toContain('Root Workspace');
+      expect(picker.textContent).toContain('Child Workspace');
 
       wrapper.unmount();
     });
 
-    it('selecting a session calls selectSession and closes picker', async () => {
+    it('selecting a workspace calls selectSession and closes picker', async () => {
       mockSessionsStore.getSessionById.mockImplementation((id) => {
         if (id === 'sess-root') return rootSession;
         if (id === 'child-1') return childSession;
@@ -859,7 +859,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('displays active session name in dropdown trigger', async () => {
+    it('displays active workspace name in dropdown trigger', async () => {
       mockSessionsStore.getSessionById.mockReturnValue(rootSession);
 
       const wrapper = mountWithPicker();
@@ -964,18 +964,18 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('Add Session button', () => {
-    it('renders add session button in overlay', async () => {
+  describe('Add Workspace button', () => {
+    it('renders add workspace button in overlay', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
       expect(btn).toBeTruthy();
-      expect(btn.textContent.trim()).toContain('New Session');
+      expect(btn.textContent.trim()).toContain('New Workspace');
       wrapper.unmount();
     });
 
-    it('uses addSessionToList when creating a child session', async () => {
-      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+    it('uses addSessionToList when creating a child workspace', async () => {
+      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
       api.createSession.mockResolvedValue(newSession);
 
@@ -999,8 +999,8 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not duplicate a child session already present in the main store', async () => {
-      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+    it('does not duplicate a child workspace already present in the main store', async () => {
+      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.sessions = [newSession];
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
       api.createSession.mockResolvedValue(newSession);
@@ -1018,8 +1018,8 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('inherits git settings from parent session with worktree', async () => {
-      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+    it('inherits git settings from parent workspace with worktree', async () => {
+      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1035,7 +1035,7 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
         gitMode: 'worktree',
@@ -1045,7 +1045,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('omits git settings when parent has branch but no worktree', async () => {
-      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: null });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1063,7 +1063,7 @@ describe('SessionChatOverlay', () => {
       // triggering git checkout in directories that may not be git repos
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1071,7 +1071,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('omits git settings when parent has no git config', async () => {
-      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: null, gitWorktree: null });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1086,15 +1086,15 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
       wrapper.unmount();
     });
 
-    it('after creation, overlay switches activeSessionId to new session', async () => {
-      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+    it('after creation, overlay switches activeSessionId to new workspace', async () => {
+      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1115,8 +1115,8 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('emits session-created event after creation', async () => {
-      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+    it('emits workspace-created event after creation', async () => {
+      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1158,7 +1158,7 @@ describe('SessionChatOverlay', () => {
       expect(btn.textContent.trim()).toContain('Creating...');
 
       // Resolve the creation
-      resolveCreate({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+      resolveCreate({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' });
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
@@ -1198,14 +1198,14 @@ describe('SessionChatOverlay', () => {
       await new Promise(r => setTimeout(r, 50));
 
       expect(api.createSession).not.toHaveBeenCalled();
-      expect(mockUiStore.error).toHaveBeenCalledWith('Cannot create session: no project context');
+      expect(mockUiStore.error).toHaveBeenCalledWith('Cannot create workspace: no project context');
       wrapper.unmount();
     });
 
-    it('does not send gitBranch for non-git project sessions', async () => {
+    it('does not send gitBranch for non-git project workspaces', async () => {
       const nonGitSession = { ...rootSession, projectId: 'proj-123', gitBranch: null };
       mockSessionsStore.getSessionById.mockReturnValue(nonGitSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1219,17 +1219,17 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
       wrapper.unmount();
     });
 
-    it('propagates parent model to child session when parent has a model', async () => {
+    it('propagates parent model to child workspace when parent has a model', async () => {
       const codexSession = { ...rootSession, projectId: 'proj-123', model: 'gpt-5.4', gitBranch: null, gitWorktree: null };
       mockSessionsStore.getSessionById.mockReturnValue(codexSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1242,7 +1242,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
         model: 'gpt-5.4',
@@ -1255,7 +1255,7 @@ describe('SessionChatOverlay', () => {
       // Ensure no 'model' key is present at all
       delete noModelSession.model;
       mockSessionsStore.getSessionById.mockReturnValue(noModelSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1268,7 +1268,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1276,10 +1276,10 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('session switch loading state', () => {
+  describe('workspace switch loading state', () => {
     const childSession = {
       id: 'child-1',
-      name: 'Child Session',
+      name: 'Child Workspace',
       status: 'running',
       parentSessionId: 'sess-root',
       projectId: 'proj-123',
@@ -1289,7 +1289,7 @@ describe('SessionChatOverlay', () => {
       { session: childSession, depth: 1 },
     ];
 
-    it('shows loading spinner when switching sessions', async () => {
+    it('shows loading spinner when switching workspaces', async () => {
       // Setup: make fetchSession return a pending promise so we can
       // observe the spinner while data is loading.
       let resolveFetch;
@@ -1322,7 +1322,7 @@ describe('SessionChatOverlay', () => {
       // Spinner should be visible
       const spinner = document.querySelector('.session-switch-loading');
       expect(spinner).toBeTruthy();
-      expect(spinner.textContent).toContain('Loading session...');
+      expect(spinner.textContent).toContain('Loading workspace...');
 
       // ConversationTab should NOT be visible
       const conv = document.querySelector('.conversation-tab-mock');
@@ -1406,7 +1406,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not show spinner when selecting the already-active session', async () => {
+    it('does not show spinner when selecting the already-active workspace', async () => {
       const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
@@ -1431,8 +1431,8 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('active session spinner indicator', () => {
-    it('shows spinner when session is running', async () => {
+  describe('active workspace spinner indicator', () => {
+    it('shows spinner when workspace is running', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'running' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'running' };
       const wrapper = mountOverlay();
@@ -1442,7 +1442,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('shows spinner when session is starting', async () => {
+    it('shows spinner when workspace is starting', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'starting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'starting' };
       const wrapper = mountOverlay();
@@ -1452,7 +1452,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not show spinner when session is waiting', async () => {
+    it('does not show spinner when workspace is waiting', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'waiting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'waiting' };
       const wrapper = mountOverlay();
@@ -1462,7 +1462,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not show spinner when session is completed', async () => {
+    it('does not show spinner when workspace is completed', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'completed' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'completed' };
       const wrapper = mountOverlay();
@@ -1472,7 +1472,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not show spinner when session is error', async () => {
+    it('does not show spinner when workspace is error', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'error' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'error' };
       const wrapper = mountOverlay();
@@ -1482,36 +1482,36 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('close handle ARIA label reflects running session status', async () => {
+    it('close handle ARIA label reflects running workspace status', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'running' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'running' };
       const wrapper = mountOverlay();
       await nextTick();
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
-      expect(handle.getAttribute('aria-label')).toBe('Session running...');
-      expect(handle.getAttribute('title')).toBe('Session running...');
+      expect(handle.getAttribute('aria-label')).toBe('Workspace running...');
+      expect(handle.getAttribute('title')).toBe('Workspace running...');
       wrapper.unmount();
     });
 
-    it('close handle ARIA label reflects starting session status', async () => {
+    it('close handle ARIA label reflects starting workspace status', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'starting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'starting' };
       const wrapper = mountOverlay();
       await nextTick();
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
-      expect(handle.getAttribute('aria-label')).toBe('Session starting...');
-      expect(handle.getAttribute('title')).toBe('Session starting...');
+      expect(handle.getAttribute('aria-label')).toBe('Workspace starting...');
+      expect(handle.getAttribute('title')).toBe('Workspace starting...');
       wrapper.unmount();
     });
 
-    it('close handle ARIA label is "Close session chat" for inactive sessions', async () => {
+    it('close handle ARIA label is "Close workspace chat" for inactive workspaces', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'waiting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'waiting' };
       const wrapper = mountOverlay();
       await nextTick();
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
-      expect(handle.getAttribute('aria-label')).toBe('Close session chat');
-      expect(handle.getAttribute('title')).toBe('Close session chat');
+      expect(handle.getAttribute('aria-label')).toBe('Close workspace chat');
+      expect(handle.getAttribute('title')).toBe('Close workspace chat');
       wrapper.unmount();
     });
 
@@ -1521,7 +1521,7 @@ describe('SessionChatOverlay', () => {
       const wrapper = mountOverlay();
       await nextTick();
       const spinner = document.querySelector('.active-spinner');
-      expect(spinner.getAttribute('title')).toBe('Session running...');
+      expect(spinner.getAttribute('title')).toBe('Workspace running...');
       wrapper.unmount();
     });
 
@@ -1531,15 +1531,15 @@ describe('SessionChatOverlay', () => {
       const wrapper = mountOverlay();
       await nextTick();
       const spinner = document.querySelector('.active-spinner');
-      expect(spinner.getAttribute('title')).toBe('Session starting...');
+      expect(spinner.getAttribute('title')).toBe('Workspace starting...');
       wrapper.unmount();
     });
   });
 
-  describe('session switching state reset', () => {
+  describe('workspace switching state reset', () => {
     const childSession = {
       id: 'child-1',
-      name: 'Child Session',
+      name: 'Child Workspace',
       status: 'running',
       parentSessionId: 'sess-root',
       projectId: 'proj-123',
@@ -1547,7 +1547,7 @@ describe('SessionChatOverlay', () => {
 
     const chainSessions = [{ session: rootSession, depth: 0 }, { session: childSession, depth: 1 }];
 
-    it('clears stale state when switching sessions', async () => {
+    it('clears stale state when switching workspaces', async () => {
       mockSessionsStore.getSessionById.mockImplementation((id) => {
         if (id === 'sess-root') return rootSession;
         if (id === 'child-1') return childSession;
@@ -1581,7 +1581,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('fetches todos for new session after loading data', async () => {
+    it('fetches todos for new workspace after loading data', async () => {
       mockSessionsStore.getSessionById.mockImplementation((id) => {
         if (id === 'sess-root') return rootSession;
         if (id === 'child-1') return childSession;
@@ -1782,7 +1782,7 @@ describe('SessionChatOverlay', () => {
       expect(shellBlocks).not.toMatch(/--session-overlay-keyboard-bottom-inset/);
     });
 
-    it('only the composer spacer consumes the session keyboard bottom inset', () => {
+    it('only the composer spacer consumes the workspace keyboard bottom inset', () => {
       const spacerBlock = getStyleBlock('.session-chat-overlay--composer-focused :deep(.session-overlay-keyboard-spacer)');
       expect(spacerBlock).toMatch(/--session-overlay-keyboard-bottom-inset/);
 

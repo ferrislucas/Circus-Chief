@@ -54,7 +54,7 @@
       <button
         v-if="showArchive && canArchive"
         class="archive-btn"
-        title="Archive session"
+        title="Archive workspace"
         @click.stop.prevent="onArchiveClick"
       >
         <svg
@@ -83,7 +83,7 @@
       <button
         v-if="showUnarchive"
         class="archive-btn"
-        title="Unarchive session"
+        title="Unarchive workspace"
         @click.stop.prevent="onUnarchiveClick"
       >
         <svg
@@ -113,7 +113,7 @@
       <!-- Star button in actions (for mobile layout) -->
       <button
         class="star-btn star-btn-mobile"
-        :title="starred ? 'Unstar session' : 'Star session'"
+        :title="starred ? 'Unstar workspace' : 'Star workspace'"
         @click.stop.prevent="$emit('star')"
       >
         <svg
@@ -197,7 +197,7 @@ const onArchiveClick = () => {
 };
 
 const onUnarchiveClick = () => {
-  if (confirm('Restore this session to active?')) {
+  if (confirm('Restore this workspace to active?')) {
     emit('unarchive');
   }
 };

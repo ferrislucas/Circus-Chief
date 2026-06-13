@@ -527,7 +527,7 @@ const cardButtonStatuses = computed(() => {
   return result;
 });
 const handleRemoveCard = async (cardId) => {
-  if (!confirm('Remove this session from the board?')) return;
+  if (!confirm('Remove this workspace from the board?')) return;
 
   try {
     await kanbanStore.removeCard(props.projectId, cardId);

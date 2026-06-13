@@ -147,7 +147,7 @@
             placeholder="None"
           >
           <p class="form-help">
-            Proactively reschedule when session reaches this token count
+            Proactively reschedule when workspace reaches this token count
           </p>
         </div>
       </div>

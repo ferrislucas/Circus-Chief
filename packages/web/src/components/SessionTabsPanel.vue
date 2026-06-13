@@ -3,11 +3,11 @@
     <router-link
       :to="`/projects/${projectId}/sessions`"
       class="tab tab-back"
-      title="Back to Sessions"
+      title="Back to Workspaces"
     >
       <span
         class="back-icon"
-        title="Back to Sessions"
+        title="Back to Workspaces"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -95,7 +95,7 @@
           <span
             v-if="tab.id === 'chat' && isSessionActive"
             class="active-spinner"
-            :title="sessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
+            :title="sessionStatus === 'starting' ? 'Workspace starting...' : 'Workspace running...'"
           />
           <span
             v-if="tab.id === 'changes' && hasChangesAttention"

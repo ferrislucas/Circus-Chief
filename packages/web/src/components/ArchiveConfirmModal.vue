@@ -15,7 +15,7 @@
             id="archive-modal-title"
             class="modal-title"
           >
-            Archive Session
+            Archive Workspace
           </h2>
           <button
             class="close-btn"
@@ -92,7 +92,7 @@ const props = defineProps({
   },
   sessionName: {
     type: String,
-    default: 'this session',
+    default: 'this workspace',
   },
   hasCleanupScript: {
     type: Boolean,

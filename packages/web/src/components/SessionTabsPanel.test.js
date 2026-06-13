@@ -59,7 +59,7 @@ describe('SessionTabsPanel', () => {
       expect(text).toContain('Chat');
     });
 
-    it('renders back link with icon to sessions list', () => {
+    it('renders back link with icon to workspaces list', () => {
       const wrapper = mountPanel();
       const backLink = wrapper.find('.tab-back');
       expect(backLink.exists()).toBe(true);
@@ -67,7 +67,7 @@ describe('SessionTabsPanel', () => {
       // Verify icon is rendered instead of text
       expect(backLink.find('.back-icon').exists()).toBe(true);
       expect(backLink.findAll('svg').length).toBe(2);
-      expect(backLink.attributes('title')).toBe('Back to Sessions');
+      expect(backLink.attributes('title')).toBe('Back to Workspaces');
     });
 
     it('renders desktop tabs', () => {
@@ -102,12 +102,12 @@ describe('SessionTabsPanel', () => {
       expect(chatTab.attributes('href')).toBe('/sessions/session-1/chat');
     });
 
-    it('applies the session-detail layout marker class', () => {
+    it('applies the workspace-detail layout marker class', () => {
       const wrapper = mountPanel();
       expect(wrapper.find('.tabs.tabs-session-detail').exists()).toBe(true);
     });
 
-    it('nests tabs-desktop inside the session-detail container', () => {
+    it('nests tabs-desktop inside the workspace-detail container', () => {
       const wrapper = mountPanel();
       expect(wrapper.find('.tabs-session-detail .tabs-desktop').exists()).toBe(true);
     });
@@ -149,7 +149,7 @@ describe('SessionTabsPanel', () => {
   });
 
   describe('active chat indicator', () => {
-    it('shows active spinner on the desktop chat tab when session is active', () => {
+    it('shows active spinner on the desktop chat tab when workspace is active', () => {
       const wrapper = mountPanel({
         isSessionActive: true,
         sessionStatus: 'running',
@@ -159,7 +159,7 @@ describe('SessionTabsPanel', () => {
       expect(chatTab.find('.active-spinner').exists()).toBe(true);
     });
 
-    it('hides active spinner on the desktop chat tab when session is inactive', () => {
+    it('hides active spinner on the desktop chat tab when workspace is inactive', () => {
       const wrapper = mountPanel({
         isSessionActive: false,
         sessionStatus: 'running',
@@ -169,24 +169,24 @@ describe('SessionTabsPanel', () => {
       expect(chatTab.find('.active-spinner').exists()).toBe(false);
     });
 
-    it('uses starting title when session is starting', () => {
+    it('uses starting title when workspace is starting', () => {
       const wrapper = mountPanel({
         isSessionActive: true,
         sessionStatus: 'starting',
       });
 
       const chatTab = findDesktopChatTab(wrapper);
-      expect(chatTab.find('.active-spinner').attributes('title')).toBe('Session starting...');
+      expect(chatTab.find('.active-spinner').attributes('title')).toBe('Workspace starting...');
     });
 
-    it('uses running title when session is running', () => {
+    it('uses running title when workspace is running', () => {
       const wrapper = mountPanel({
         isSessionActive: true,
         sessionStatus: 'running',
       });
 
       const chatTab = findDesktopChatTab(wrapper);
-      expect(chatTab.find('.active-spinner').attributes('title')).toBe('Session running...');
+      expect(chatTab.find('.active-spinner').attributes('title')).toBe('Workspace running...');
     });
 
     it('does not render active spinner in mobile dropdown options', () => {

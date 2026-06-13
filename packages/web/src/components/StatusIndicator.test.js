@@ -161,7 +161,7 @@ describe('StatusIndicator.vue', () => {
       });
       const element = wrapper.find('.status-indicator');
       expect(element.exists()).toBe(true);
-      expect(element.attributes('aria-label')).toBe('Session is running');
+      expect(element.attributes('aria-label')).toBe('Workspace is running');
     });
 
     it('has aria-label for starting status', () => {

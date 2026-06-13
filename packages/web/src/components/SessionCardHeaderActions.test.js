@@ -121,7 +121,7 @@ describe('SessionCardHeaderActions', () => {
       });
       const archiveBtn = wrapper.find('.archive-btn');
       expect(archiveBtn.exists()).toBe(true);
-      expect(archiveBtn.attributes('title')).toBe('Archive session');
+      expect(archiveBtn.attributes('title')).toBe('Archive workspace');
     });
 
     it('hides archive button when sessionStatus is running', () => {
@@ -172,7 +172,7 @@ describe('SessionCardHeaderActions', () => {
       });
       const unarchiveBtn = wrapper.find('.archive-btn');
       expect(unarchiveBtn.exists()).toBe(true);
-      expect(unarchiveBtn.attributes('title')).toBe('Unarchive session');
+      expect(unarchiveBtn.attributes('title')).toBe('Unarchive workspace');
     });
 
     it('shows confirm dialog when unarchive button is clicked', async () => {
@@ -182,7 +182,7 @@ describe('SessionCardHeaderActions', () => {
       });
       const btn = wrapper.find('.archive-btn');
       await btn.trigger('click');
-      expect(confirmSpy).toHaveBeenCalledWith('Restore this session to active?');
+      expect(confirmSpy).toHaveBeenCalledWith('Restore this workspace to active?');
     });
 
     it('does not emit unarchive event when user cancels', async () => {

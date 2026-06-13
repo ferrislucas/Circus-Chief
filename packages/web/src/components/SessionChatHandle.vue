@@ -4,11 +4,11 @@
     tabindex="0"
     role="button"
     :aria-label="isSessionActive
-      ? (sessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
-      : 'Open session tree'"
+      ? (sessionStatus === 'starting' ? 'Workspace starting...' : 'Workspace running...')
+      : 'Open workspace tree'"
     :title="isSessionActive
-      ? (sessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
-      : 'Open session tree'"
+      ? (sessionStatus === 'starting' ? 'Workspace starting...' : 'Workspace running...')
+      : 'Open workspace tree'"
     data-testid="session-chat-handle"
     @click="handleOpen"
     @keydown.enter.prevent="handleOpen"
@@ -33,7 +33,7 @@
     </svg>
     <SessionRunningSpinner
       :active="isSessionActive"
-      :title="sessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
+      :title="sessionStatus === 'starting' ? 'Workspace starting...' : 'Workspace running...'"
     />
   </div>
 </template>

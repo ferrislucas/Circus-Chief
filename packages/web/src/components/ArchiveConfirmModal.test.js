@@ -16,7 +16,7 @@ describe('ArchiveConfirmModal.vue', () => {
 
   const defaultProps = {
     isOpen: true,
-    sessionName: 'My Session',
+    sessionName: 'My Workspace',
     hasCleanupScript: false,
   };
 
@@ -42,11 +42,11 @@ describe('ArchiveConfirmModal.vue', () => {
       expect(document.querySelector('.modal-backdrop')).not.toBeNull();
     });
 
-    it('displays the session name in the confirmation message', () => {
-      mountModal({ sessionName: 'My Session' });
+    it('displays the workspace name in the confirmation message', () => {
+      mountModal({ sessionName: 'My Workspace' });
       const message = document.querySelector('.confirm-message');
-      expect(message.textContent).toContain('My Session');
-      expect(message.querySelector('strong').textContent).toBe('My Session');
+      expect(message.textContent).toContain('My Workspace');
+      expect(message.querySelector('strong').textContent).toBe('My Workspace');
     });
   });
 

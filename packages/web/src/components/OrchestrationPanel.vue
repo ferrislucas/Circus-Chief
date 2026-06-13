@@ -45,7 +45,7 @@
           type="button"
           class="btn btn-secondary btn-schedule"
           :disabled="!inputHasContent || (!isDraft && sessionStatus === 'scheduled')"
-          :title="isDraft ? 'Schedule this session to start later' : 'Schedule this message to be sent later'"
+          :title="isDraft ? 'Schedule this workspace to start later' : 'Schedule this message to be sent later'"
           @click.stop="$emit('openSchedule')"
         >
           Scheduling

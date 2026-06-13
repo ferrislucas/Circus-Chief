@@ -13,7 +13,7 @@
 
       <!-- Overflow menu with secondary actions -->
       <OverflowMenu
-        aria-label="Session actions"
+        aria-label="Workspace actions"
         :is-archived="session.archived"
         :is-deleting="isDeleting"
         copy-session-id-text="Copy Workspace ID"

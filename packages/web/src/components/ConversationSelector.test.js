@@ -95,26 +95,26 @@ describe('ConversationSelector', () => {
     });
   });
 
-  describe('hidden state when session running', () => {
-    it('hides component when session is running', () => {
+  describe('hidden state when workspace running', () => {
+    it('hides component when workspace is running', () => {
       sessionsStore.currentSession = { id: 'session-123', status: 'running' };
       const wrapper = mountComponent();
       expect(wrapper.find('.conversation-selector').exists()).toBe(false);
     });
 
-    it('shows component when session is not running', () => {
+    it('shows component when workspace is not running', () => {
       sessionsStore.currentSession = { id: 'session-123', status: 'waiting' };
       const wrapper = mountComponent();
       expect(wrapper.find('.conversation-selector').exists()).toBe(true);
     });
 
-    it('hides component when session is starting', () => {
+    it('hides component when workspace is starting', () => {
       sessionsStore.currentSession = { id: 'session-123', status: 'starting' };
       const wrapper = mountComponent();
       expect(wrapper.find('.conversation-selector').exists()).toBe(false);
     });
 
-    it('shows component when session is completed', () => {
+    it('shows component when workspace is completed', () => {
       sessionsStore.currentSession = { id: 'session-123', status: 'completed' };
       const wrapper = mountComponent();
       expect(wrapper.find('.conversation-selector').exists()).toBe(true);

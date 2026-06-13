@@ -1,7 +1,7 @@
 <template>
   <div class="templates-panel">
     <div class="templates-header">
-      <h2>Session Templates</h2>
+      <h2>Workspace Templates</h2>
       <button
         v-if="!showCreateForm"
         class="btn btn-primary btn-sm"
@@ -36,7 +36,7 @@
           <ResizableTextarea
             v-model="formData.prompt"
             class="form-input form-textarea"
-            placeholder="Session prompt. Use {{rootSession.summary}} to reference root session data."
+            placeholder="Workspace prompt. Use {{workspace.summary}} to reference workspace data."
             :min-height="120"
             required
           />
@@ -102,7 +102,7 @@
             data-testid="mode-select"
           >
             <option :value="null">
-              Inherit from root session
+              Inherit from root workspace
             </option>
             <option value="plan">
               Plan
@@ -128,7 +128,7 @@
             data-testid="thinking-select"
           >
             <option :value="null">
-              Inherit from root session
+              Inherit from root workspace
             </option>
             <option :value="true">
               Enabled
@@ -145,7 +145,7 @@
             v-model="formData.gitBranch"
             type="text"
             class="form-input"
-            placeholder="Leave empty to inherit from root session"
+            placeholder="Leave empty to inherit from root workspace"
           >
         </div>
 
@@ -241,7 +241,7 @@
         v-if="projectTemplates.length === 0 && globalTemplates.length === 0 && !showCreateForm"
         class="empty-state"
       >
-        <p>No templates yet. Create a template to automate session workflows.</p>
+        <p>No templates yet. Create a template to automate workspace workflows.</p>
         <button
           class="btn btn-primary"
           data-testid="create-template-btn"

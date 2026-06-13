@@ -94,7 +94,7 @@ describe('ProjectEditView with Session Defaults', () => {
       // Check for details element with Session Defaults summary
       const details = wrapper.findAll('details');
       const sessionDefaultsSection = details.find(d =>
-        d.text().includes('Session Defaults')
+        d.text().includes('Workspace Defaults')
       );
 
       expect(sessionDefaultsSection).toBeDefined();
@@ -126,7 +126,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const text = wrapper.text();
       expect(text).toContain('Mode');
       expect(text).toContain('Enable thinking');
-      expect(text).toContain('Start sessions immediately');
+      expect(text).toContain('Start workspaces immediately');
       expect(text).toContain('Git Mode');
       expect(text).toContain('Default Git Branch');
       expect(text).toContain('Model');

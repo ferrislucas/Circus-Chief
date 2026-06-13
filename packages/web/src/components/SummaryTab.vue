@@ -59,7 +59,7 @@
     >
       <div class="summary-empty-state-content">
         <p class="summary-empty-state-text">
-          This session hasn't started yet.
+          This workspace hasn't started yet.
         </p>
       </div>
     </div>

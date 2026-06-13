@@ -53,7 +53,7 @@ describe('AddSessionToLaneModal.vue', () => {
     return wrapper;
   }
 
-  describe('session date rendering', () => {
+  describe('workspace date rendering', () => {
     it('renders lastActivityAt when present with "Last activity" tooltip', async () => {
       const activity = new Date('2024-06-15T12:00:00Z').getTime();
       const wrapper = await mountWithSessions([
