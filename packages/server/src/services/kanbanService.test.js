@@ -353,12 +353,64 @@ describe('kanbanService', () => {
       );
     });
 
-    it('does nothing when the session has no card', async () => {
+    it('does nothing when the session has no card and no ancestors with a card', async () => {
       const session = createSession();
 
       await handleCompletionMove(session.id);
 
       expect(kanbanCards.getBySessionId(session.id)).toBeNull();
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('moves the parent card when a lane-triggered child session completes', async () => {
+      // Parent has the card; child (spawned by on-enter prompt) has no card
+      const parent = createSession('Parent');
+      kanbanCards.create(lanes[0].id, parent.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+
+      const child = sessions.create(projectId, 'Child', 'Prompt');
+      sessions.update(child.id, { parentSessionId: parent.id, laneTriggerDepth: 1 });
+
+      await handleCompletionMove(child.id);
+
+      const card = kanbanCards.getBySessionId(parent.id);
+      expect(card.laneId).toBe(lanes[1].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
+        expect.objectContaining({
+          fromLaneId: lanes[0].id,
+          toLaneId: lanes[1].id,
+        })
+      );
+    });
+
+    it('walks the full ancestor chain when a grandchild session completes', async () => {
+      // Root has the card; child and grandchild have none (nested lane triggers)
+      const root = createSession('Root');
+      kanbanCards.create(lanes[0].id, root.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+
+      const child = sessions.create(projectId, 'Child', 'Prompt');
+      sessions.update(child.id, { parentSessionId: root.id, laneTriggerDepth: 1 });
+
+      const grandchild = sessions.create(projectId, 'Grandchild', 'Prompt');
+      sessions.update(grandchild.id, { parentSessionId: child.id, laneTriggerDepth: 2 });
+
+      await handleCompletionMove(grandchild.id);
+
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(card.laneId).toBe(lanes[1].id);
+    });
+
+    it('does nothing when child has no card and parent also has no card', async () => {
+      const parent = createSession('Parent');
+      // No card for parent either
+      const child = sessions.create(projectId, 'Child', 'Prompt');
+      sessions.update(child.id, { parentSessionId: parent.id });
+
+      await handleCompletionMove(child.id);
+
       expect(broadcastToProject).not.toHaveBeenCalled();
     });
 
@@ -411,6 +463,53 @@ describe('kanbanService', () => {
 
       const card = kanbanCards.getBySessionId(session.id);
       expect(card.laneId).toBe(lanes[2].id);
+    });
+  });
+
+  // ── on-enter prompt child completing advances the parent's card ───────
+  //
+  // Regression test for the bug where a card placed in a lane with both an
+  // onEnterPrompt AND a completionTargetLaneId would never advance: the
+  // on-enter trigger spawns a cardless child to do the work, and when that
+  // child finished its turn handleCompletionMove found no card and returned
+  // early, leaving the parent's card stuck in the originating lane forever.
+
+  describe('on-enter prompt child completing advances the parent card', () => {
+    it('moves the parent card when the lane-triggered child session completes its turn', async () => {
+      // Configure the lane with both an on-enter prompt and a completion target.
+      kanbanLanes.update(lanes[0].id, {
+        onEnterPrompt: 'Implement the plan',
+        completionTargetLaneId: lanes[1].id,
+      });
+
+      // Place the parent session on the board — this fires the on-enter trigger
+      // and creates a child session (runSession is mocked; the child is created
+      // synchronously by buildChildSessionFromPrompt before runSession is called).
+      const parent = createSession('Parent');
+      await addSessionToBoard(parent.id, lanes[0].id);
+
+      // Find the child that the on-enter trigger created.
+      const allSessions = sessions.getByProjectId(projectId);
+      const child = allSessions.find((s) => s.parentSessionId === parent.id);
+      expect(child).toBeDefined();
+      expect(kanbanCards.getBySessionId(child.id)).toBeNull(); // child has no card
+
+      vi.clearAllMocks();
+
+      // Simulate the child completing its turn.
+      await handleCompletionMove(child.id);
+
+      // The parent's card should have advanced to the completion target lane.
+      const card = kanbanCards.getBySessionId(parent.id);
+      expect(card.laneId).toBe(lanes[1].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
+        expect.objectContaining({
+          fromLaneId: lanes[0].id,
+          toLaneId: lanes[1].id,
+        })
+      );
     });
   });
 
