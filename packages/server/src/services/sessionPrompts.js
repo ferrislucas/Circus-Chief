@@ -437,29 +437,17 @@ CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working dir
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
   const apiUrl = getApiBaseUrl();
   const session = sessions.getById(sessionId);
-  const canvasWriteInstructions = buildCanvasWriteSystemPrompt(session);  // Pass session object
-  const canvasReadInstructions = buildCanvasReadSystemPrompt(session);    // Pass session object
-  const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
-  const commandButtonApiInstructions = buildCommandButtonApiInstructions(apiUrl, sessionId, projectId);
-  const kanbanApiInstructions = buildKanbanApiInstructions(sessionId, projectId);
-  const attachmentsContext = getSessionAttachmentsContext(sessionId);
-  const worktreeContext = buildWorktreeContext(session);
-  const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
-
-  // Prepend plan mode instructions if in plan mode
-  const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
-
   // Build prompt parts, filtering out empty sections
   const parts = [
-    modePrompt,
-    basePrompt,
-    worktreeContext,
-    attachmentsContext,
-    canvasWriteInstructions,
-    canvasReadInstructions,
-    sessionApiInstructions,
-    commandButtonApiInstructions,
-    kanbanApiInstructions
+    mode === 'plan' ? PLAN_MODE_PROMPT : '',
+    customSystemPrompt || DEFAULT_SYSTEM_PROMPT,
+    buildWorktreeContext(session),
+    getSessionAttachmentsContext(sessionId),
+    buildCanvasWriteSystemPrompt(session),
+    buildCanvasReadSystemPrompt(session),
+    buildSessionApiInstructions(sessionId, projectId),
+    buildCommandButtonApiInstructions(apiUrl, sessionId, projectId),
+    buildKanbanApiInstructions(sessionId, projectId),
   ].filter(Boolean);
 
   return parts.join('\n\n');

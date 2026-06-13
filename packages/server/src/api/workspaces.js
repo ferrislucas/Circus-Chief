@@ -11,8 +11,6 @@
 
 import { Router } from 'express';
 import { sessions, projects } from '../database.js';
-import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { determineInitialStatus } from './projects-session-helpers.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import {
@@ -23,7 +21,6 @@ import {
 
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const ERR_WORKSPACE_NOT_FOUND = 'Workspace not found';
-const ERR_SESSION_NOT_IN_WORKSPACE = 'Session does not belong to this workspace';
 
 const router = Router();
 
@@ -64,6 +61,35 @@ function resolveWorkspace(res, rawWorkspaceId, expectedProjectId = null) {
   }
 
   return { workspace, project };
+}
+
+/**
+ * Resolve the parent attach point for a session being added to a workspace.
+ * afterSessionId becomes the parent when it belongs to the workspace;
+ * otherwise the new session attaches at the workspace root.
+ */
+function resolveParentAttachPoint(workspace, afterSessionId) {
+  if (!afterSessionId) return workspace.id;
+  const afterSession = sessions.getById(afterSessionId);
+  if (!afterSession) return workspace.id;
+  const afterRoot = sessions.getRootSessionId(afterSession.id) || afterSession.id;
+  return afterRoot === workspace.id ? afterSession.id : workspace.id;
+}
+
+/**
+ * Handle a session-creation error: mark the session errored (if persisted) and
+ * respond 500. Shared by both create handlers.
+ */
+function handleCreateError(res, session, error, label) {
+  console.error(label, error);
+  if (session?.id) {
+    try {
+      sessions.update(session.id, { status: 'error', error: error.message });
+    } catch (updateError) {
+      console.error('Failed to mark session as errored:', updateError);
+    }
+  }
+  return res.status(500).json({ error: error.message || 'Internal server error' });
 }
 
 // ---------------------------------------------------------------------------
@@ -138,15 +164,7 @@ router.post('/:projectId/workspaces', async (req, res) => {
     session = createSessionRow(req.params.projectId, config, nextTemplateId, initialStatus);
     return await startSessionOrFail(req, res, { session, config, project, projectId: req.params.projectId });
   } catch (error) {
-    console.error('Workspace creation error:', error);
-    if (session && session.id) {
-      try {
-        sessions.update(session.id, { status: 'error', error: error.message });
-      } catch (updateError) {
-        console.error('Failed to mark session as errored:', updateError);
-      }
-    }
-    return res.status(500).json({ error: error.message || 'Internal server error' });
+    return handleCreateError(res, session, error, 'Workspace creation error:');
   }
 });
 
@@ -178,21 +196,7 @@ router.post('/:workspaceId/sessions', async (req, res) => {
 
     const { workspace, project } = resolved;
 
-    // Determine parent attach point:
-    //   - afterSessionId (if it belongs to the workspace) → use as parent
-    //   - otherwise → attach at the workspace root
-    let parentSessionId = workspace.id;
-    if (req.body.afterSessionId) {
-      const afterSession = sessions.getById(req.body.afterSessionId);
-      if (afterSession) {
-        const afterRoot = sessions.getRootSessionId(afterSession.id) || afterSession.id;
-        if (afterRoot === workspace.id) {
-          parentSessionId = afterSession.id;
-        }
-        // If it doesn't belong to this workspace, silently fall back to root
-      }
-    }
-
+    const parentSessionId = resolveParentAttachPoint(workspace, req.body.afterSessionId);
     const body = { ...req.body, parentSessionId, afterSessionId: undefined };
 
     const prepared = await validateAndPrepareSessionConfig(body, req.files, workspace.projectId, project);
@@ -206,15 +210,7 @@ router.post('/:workspaceId/sessions', async (req, res) => {
     session = createSessionRow(workspace.projectId, config, nextTemplateId, initialStatus);
     return await startSessionOrFail(req, res, { session, config, project, projectId: workspace.projectId });
   } catch (error) {
-    console.error('Workspace session creation error:', error);
-    if (session && session.id) {
-      try {
-        sessions.update(session.id, { status: 'error', error: error.message });
-      } catch (updateError) {
-        console.error('Failed to mark session as errored:', updateError);
-      }
-    }
-    return res.status(500).json({ error: error.message || 'Internal server error' });
+    return handleCreateError(res, session, error, 'Workspace session creation error:');
   }
 });
 

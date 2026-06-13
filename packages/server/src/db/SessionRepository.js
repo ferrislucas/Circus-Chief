@@ -3,6 +3,8 @@ import { databaseManager } from './DatabaseManager.js';
 import { messages, conversations, modelProviders } from './index.js';
 import {
   ACTIVITY_FIELDS_SQL,
+  SESSION_ORDER_BY,
+  applySessionFilters,
   mapTokenUsage,
   mapScheduling,
   parseCreateConfig,
@@ -146,31 +148,13 @@ export class SessionRepository extends BaseRepository {
   getByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
     let sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE project_id = ?`;
     const params = [projectId];
-
-    if (archived !== null) {
-      sql += ` AND archived = ?`;
-      params.push(archived ? 1 : 0);
-    }
-
-    if (starred !== null) {
-      sql += ` AND starred = ?`;
-      params.push(starred ? 1 : 0);
-    }
-
-    sql += ` ORDER BY
-      COALESCE(last_activity_at, updated_at, created_at) DESC,
-      updated_at DESC,
-      created_at DESC,
-      rowid DESC`;
-
-    // Add LIMIT/OFFSET for pagination
+    sql = applySessionFilters(sql, params, { archived, starred });
+    sql += SESSION_ORDER_BY;
     if (limit !== null) {
       sql += ` LIMIT ? OFFSET ?`;
       params.push(limit, offset);
     }
-
-    const rows = this.db.prepare(sql).all(...params);
-    return this.mapAll(rows);
+    return this.mapAll(this.db.prepare(sql).all(...params));
   }
 
   /**
@@ -180,47 +164,20 @@ export class SessionRepository extends BaseRepository {
   getRootsByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
     let sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE project_id = ? AND parent_session_id IS NULL`;
     const params = [projectId];
-
-    if (archived !== null) {
-      sql += ` AND archived = ?`;
-      params.push(archived ? 1 : 0);
-    }
-
-    if (starred !== null) {
-      sql += ` AND starred = ?`;
-      params.push(starred ? 1 : 0);
-    }
-
-    sql += ` ORDER BY
-      COALESCE(last_activity_at, updated_at, created_at) DESC,
-      updated_at DESC,
-      created_at DESC,
-      rowid DESC`;
-
+    sql = applySessionFilters(sql, params, { archived, starred });
+    sql += SESSION_ORDER_BY;
     if (limit !== null) {
       sql += ` LIMIT ? OFFSET ?`;
       params.push(limit, offset);
     }
-
-    const rows = this.db.prepare(sql).all(...params);
-    return this.mapAll(rows);
+    return this.mapAll(this.db.prepare(sql).all(...params));
   }
 
   /** Count root sessions (workspaces) for a project */
   getRootsCountByProjectId(projectId, { archived = null, starred = null } = {}) {
     let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ? AND parent_session_id IS NULL`;
     const params = [projectId];
-
-    if (archived !== null) {
-      sql += ` AND archived = ?`;
-      params.push(archived ? 1 : 0);
-    }
-
-    if (starred !== null) {
-      sql += ` AND starred = ?`;
-      params.push(starred ? 1 : 0);
-    }
-
+    sql = applySessionFilters(sql, params, { archived, starred });
     return this.db.prepare(sql).get(...params).count;
   }
 
@@ -228,17 +185,7 @@ export class SessionRepository extends BaseRepository {
   getCountByProjectId(projectId, { archived = null, starred = null } = {}) {
     let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ?`;
     const params = [projectId];
-
-    if (archived !== null) {
-      sql += ` AND archived = ?`;
-      params.push(archived ? 1 : 0);
-    }
-
-    if (starred !== null) {
-      sql += ` AND starred = ?`;
-      params.push(starred ? 1 : 0);
-    }
-
+    sql = applySessionFilters(sql, params, { archived, starred });
     return this.db.prepare(sql).get(...params).count;
   }
 
