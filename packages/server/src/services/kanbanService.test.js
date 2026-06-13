@@ -62,6 +62,13 @@ describe('kanbanService', () => {
     return sessions.create(projectId, name, 'Prompt');
   }
 
+  function createChildSession(parentId, name = 'Child Session') {
+    return sessions.create(projectId, name, 'Child Prompt', {
+      mode: 'standard',
+      parentSessionId: parentId,
+    });
+  }
+
   // ── getFullBoard ───────────────────────────────────────────────────
 
   describe('getFullBoard', () => {
@@ -166,6 +173,28 @@ describe('kanbanService', () => {
       const allSessions = sessions.getByProjectId(projectId);
       expect(allSessions).toHaveLength(1);
       expect(runSession).not.toHaveBeenCalled();
+    });
+
+    it('normalizes a child session id to the workspace root', async () => {
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+
+      const card = await addSessionToBoard(child.id, lanes[0].id);
+
+      // Card is keyed to the root, not the child
+      expect(card.sessions[0].id).toBe(root.id);
+      expect(kanbanCards.getBySessionId(root.id)).not.toBeNull();
+      expect(kanbanCards.getBySessionId(child.id)).toBeNull();
+    });
+
+    it('throws duplicate error when root already has a card and child id is passed', async () => {
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+      await addSessionToBoard(root.id, lanes[0].id);
+
+      await expect(addSessionToBoard(child.id, lanes[1].id)).rejects.toThrow(
+        'Session already has a card on the board'
+      );
     });
   });
 
@@ -329,6 +358,42 @@ describe('kanbanService', () => {
       const card = kanbanCards.getBySessionId(session.id);
       expect(card.laneId).toBe(lanes[0].id);
     });
+
+    it('moves the workspace card when a child session completes with targetLaneId set', async () => {
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+      // Card is keyed to the root
+      kanbanCards.create(lanes[0].id, root.id);
+      // Child has a target lane set
+      sessions.update(child.id, { targetLaneId: lanes[2].id });
+
+      await handleTurnCompletion(child.id);
+
+      // Workspace card moved, not a new per-child card
+      const rootCard = kanbanCards.getBySessionId(root.id);
+      expect(rootCard).not.toBeNull();
+      expect(rootCard.laneId).toBe(lanes[2].id);
+      expect(kanbanCards.getBySessionId(child.id)).toBeNull();
+
+      // targetLaneId cleared on the child that set it
+      const updatedChild = sessions.getById(child.id);
+      expect(updatedChild.targetLaneId).toBeNull();
+    });
+
+    it('creates workspace card in target lane when child completes and no card exists yet', async () => {
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+      sessions.update(child.id, { targetLaneId: lanes[1].id });
+
+      await handleTurnCompletion(child.id);
+
+      // One card created, keyed to the root
+      const rootCard = kanbanCards.getBySessionId(root.id);
+      expect(rootCard).not.toBeNull();
+      expect(rootCard.laneId).toBe(lanes[1].id);
+      // No separate card for the child
+      expect(kanbanCards.getBySessionId(child.id)).toBeNull();
+    });
   });
 
   // ── handleCompletionMove ──────────────────────────────────────────
@@ -412,6 +477,18 @@ describe('kanbanService', () => {
       const card = kanbanCards.getBySessionId(session.id);
       expect(card.laneId).toBe(lanes[2].id);
     });
+
+    it('moves the workspace card when invoked with a child session id', async () => {
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+      kanbanCards.create(lanes[0].id, root.id);
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+
+      await handleCompletionMove(child.id);
+
+      const rootCard = kanbanCards.getBySessionId(root.id);
+      expect(rootCard.laneId).toBe(lanes[1].id);
+    });
   });
 
   // ── lane entry does NOT trigger completion move ────────────────────
@@ -483,6 +560,21 @@ describe('kanbanService', () => {
       removeSessionFromBoard(session.id);
 
       expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('removes the workspace card when called with a child session id', () => {
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+      const card = kanbanCards.create(lanes[0].id, root.id);
+
+      removeSessionFromBoard(child.id);
+
+      expect(kanbanCards.getById(card.id)).toBeNull();
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED,
+        expect.objectContaining({ cardId: card.id })
+      );
     });
   });
 
@@ -562,6 +654,26 @@ describe('kanbanService', () => {
 
       // Should not throw - should log a warning
       await expect(addSessionToTemplateTargetLane(session.id, template.id)).resolves.toBeUndefined();
+    });
+
+    it('attaches card to workspace root when called with a child session id', async () => {
+      const template = sessionTemplates.create({
+        projectId,
+        name: 'Template',
+        prompt: 'Do it',
+        targetLaneId: lanes[2].id,
+      });
+
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+
+      await addSessionToTemplateTargetLane(child.id, template.id);
+
+      // Card is keyed to root, not child
+      const rootCard = kanbanCards.getBySessionId(root.id);
+      expect(rootCard).not.toBeNull();
+      expect(rootCard.laneId).toBe(lanes[2].id);
+      expect(kanbanCards.getBySessionId(child.id)).toBeNull();
     });
   });
 

@@ -600,6 +600,40 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Delete a Lane');
     });
 
+    it('uses workspaceId (not sessionId) and by-workspace routes in kanban instructions', () => {
+      projects.getById.mockReturnValue({});
+      kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
+      kanbanLanes.getByBoardId.mockReturnValue([]);
+
+      // getRootSessionId returns the session itself (it is a root)
+      sessions.getRootSessionId.mockReturnValue(sessionId);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      // Kanban add-to-board uses workspaceId
+      expect(result).toContain(`"workspaceId": "${sessionId}"`);
+      // Move and delete use by-workspace routes
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
+      // No sessionId field in kanban examples
+      expect(result).not.toContain(`"sessionId": "${sessionId}"`);
+      // No <card_id> placeholder in kanban examples
+      expect(result).not.toContain('kanban/cards/<card_id>');
+    });
+
+    it('falls back to sessionId as workspaceId when getRootSessionId returns null', () => {
+      projects.getById.mockReturnValue({});
+      kanbanBoards.getByProjectId.mockReturnValue(null);
+      kanbanLanes.getByBoardId.mockReturnValue([]);
+
+      sessions.getRootSessionId.mockReturnValue(null);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain(`"workspaceId": "${sessionId}"`);
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
+    });
+
     describe('command API instructions', () => {
       it('includes section when commands exist', () => {
         commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);

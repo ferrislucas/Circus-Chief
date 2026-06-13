@@ -217,26 +217,34 @@ describe('Kanban Contracts', () => {
   describe('CreateKanbanCardRequest', () => {
     it('validates valid request', () => {
       const result = CreateKanbanCardRequest.safeParse({
-        sessionId: UUID,
+        workspaceId: UUID,
         laneId: UUID2,
       });
       expect(result.success).toBe(true);
     });
 
-    it('requires sessionId', () => {
+    it('requires workspaceId', () => {
       const result = CreateKanbanCardRequest.safeParse({ laneId: UUID });
       expect(result.success).toBe(false);
     });
 
     it('requires laneId', () => {
-      const result = CreateKanbanCardRequest.safeParse({ sessionId: UUID });
+      const result = CreateKanbanCardRequest.safeParse({ workspaceId: UUID });
       expect(result.success).toBe(false);
     });
 
     it('rejects invalid UUIDs', () => {
       const result = CreateKanbanCardRequest.safeParse({
-        sessionId: 'bad',
+        workspaceId: 'bad',
         laneId: 'bad',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects sessionId (old field name — clean break)', () => {
+      const result = CreateKanbanCardRequest.safeParse({
+        sessionId: UUID,
+        laneId: UUID2,
       });
       expect(result.success).toBe(false);
     });

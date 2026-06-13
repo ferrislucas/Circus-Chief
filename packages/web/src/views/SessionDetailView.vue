@@ -560,7 +560,8 @@ async function addSessionToLane(lane) {
       await kanbanStore.moveCard(sessionToAdd.value.projectId, existingCard.id, lane.id);
       uiStore.success(`Session moved to "${lane.name}"`);
     } else {
-      await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, sessionToAdd.value.id, lane.id);
+      const workspaceId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;
+      await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, workspaceId, lane.id);
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();

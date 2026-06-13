@@ -347,6 +347,9 @@ function buildKanbanApiInstructions(sessionId, projectId) {
   }
 
   const apiUrl = getApiBaseUrl();
+  // Compute the workspace id for this session — the agent uses workspace
+  // addressing for all kanban operations.
+  const workspaceId = sessions.getRootSessionId(sessionId) || sessionId;
   const board = kanbanBoards.getByProjectId(projectId);
 
   // Get lane names for context
@@ -362,6 +365,8 @@ function buildKanbanApiInstructions(sessionId, projectId) {
   return `## Kanban Board API
 
 This project has a Kanban board enabled for organizing sessions visually. You can manage the board using these API endpoints.
+
+Note: Moving a workspace card moves all sessions in the workspace together.
 ${laneContext}
 ### Get Board with All Lanes and Cards
 \`\`\`bash
@@ -372,19 +377,19 @@ curl ${apiUrl}/api/projects/${projectId}/kanban
 \`\`\`bash
 curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
   -H "Content-Type: application/json" \\
-  -d '{"sessionId": "${sessionId}", "laneId": "<lane_id>"}'
+  -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
 \`\`\`
 
 ### Move a Card to a Different Lane
 \`\`\`bash
-curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/<card_id>/move \\
+curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/move \\
   -H "Content-Type: application/json" \\
   -d '{"targetLaneId": "<lane_id>"}'
 \`\`\`
 
 ### Remove a Card from the Board
 \`\`\`bash
-curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/<card_id>
+curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}
 \`\`\`
 
 ### Create a New Lane

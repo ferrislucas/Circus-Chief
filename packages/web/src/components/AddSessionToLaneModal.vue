@@ -225,7 +225,8 @@ async function handleAdd() {
 
   adding.value = true;
   try {
-    await kanbanStore.addSessionToBoard(props.projectId, selectedSessionId.value, props.laneId);
+    const workspaceId = sessionsStore.getRootSession(selectedSessionId.value)?.id || selectedSessionId.value;
+    await kanbanStore.addSessionToBoard(props.projectId, workspaceId, props.laneId);
     uiStore.success('Session added to board');
     emit('added', selectedSessionId.value);
     close();

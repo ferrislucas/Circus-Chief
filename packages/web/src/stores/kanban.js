@@ -237,14 +237,19 @@ export const useKanbanStore = defineStore('kanban', {
     },
 
     /**
-     * Add a session to the board
+     * Add a workspace to the board.
+     * @param {string} projectId
+     * @param {string} workspaceId - Workspace (root session) ID.  Callers
+     *   should resolve the root before calling, but the server normalizes
+     *   anyway as a fallback.
+     * @param {string} laneId
      */
-    async addSessionToBoard(projectId, sessionId, laneId) {
+    async addSessionToBoard(projectId, workspaceId, laneId) {
       this.loading = true;
       this.error = null;
 
       try {
-        const card = await api.createKanbanCard(projectId, { sessionId, laneId });
+        const card = await api.createKanbanCard(projectId, { workspaceId, laneId });
         // Add card to lane in state
         const lane = this.board?.lanes.find((l) => l.id === laneId);
         if (lane) {
