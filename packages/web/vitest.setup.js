@@ -2,6 +2,25 @@
 import { beforeEach, afterEach, vi } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 
+// Stub window.matchMedia (jsdom does not implement it).
+// Default: wide screen (matches = false for max-width: 640px).
+// Individual tests can override:
+//   window.matchMedia = vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  configurable: true,
+  value: vi.fn().mockImplementation((query) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+});
+
 // Mock DOMPurify for tests that use markdown rendering
 // This mock provides a simple sanitization function that removes script tags
 vi.mock('dompurify', () => ({
