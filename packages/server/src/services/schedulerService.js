@@ -296,31 +296,7 @@ class SchedulerService {
       `[SchedulerService] Rescheduling session ${sessionId} for ${delayMinutes} minutes from now (attempt ${newRescheduleCount})`
     );
 
-    let pendingPrompt;
-    let pendingConversationId = null;
-
-    if (retryExistingMessage && conversationId) {
-      // Existing-message retry: use the last user message from the active conversation
-      // and store pendingConversationId so startScheduledSession can route correctly.
-      const convMessages = messages.getByConversationId(conversationId);
-      const lastUserMessage = [...convMessages].reverse().find(msg => msg.role === 'user');
-
-      if (!lastUserMessage) {
-        // Fall back to Continue path if no user message found in conversation
-        console.warn(`[SchedulerService] No user message found in conversation ${conversationId}, falling back to Continue`);
-        pendingPrompt = 'Continue';
-        pendingConversationId = null;
-      } else {
-        pendingPrompt = lastUserMessage.content;
-        pendingConversationId = conversationId;
-        console.log(`[SchedulerService] Existing-message retry for session ${sessionId}, conversation ${conversationId}`);
-      }
-    } else {
-      // Continue path: next attempt sends "Continue" as a new user message
-      pendingPrompt = 'Continue';
-      pendingConversationId = null;
-      console.log(`[SchedulerService] Continue retry for session ${sessionId}`);
-    }
+    const { pendingPrompt, pendingConversationId } = this._resolvePendingPrompt(sessionId, retryExistingMessage, conversationId);
 
     // Update session to scheduled status with new time and pendingPrompt
     const updated = sessions.update(sessionId, {
@@ -335,6 +311,31 @@ class SchedulerService {
     broadcastRescheduledSession(sessionId, updated);
 
     return true;
+  }
+
+  /**
+   * Resolve the pending prompt and conversation ID for a reschedule attempt.
+   * @param {string} sessionId - Session ID (used for logging)
+   * @param {boolean} retryExistingMessage - Whether to retry the existing user message
+   * @param {string|null} conversationId - Active conversation to retry
+   * @returns {{ pendingPrompt: string, pendingConversationId: string|null }}
+   */
+  _resolvePendingPrompt(sessionId, retryExistingMessage, conversationId) {
+    if (retryExistingMessage && conversationId) {
+      const convMessages = messages.getByConversationId(conversationId);
+      const lastUserMessage = [...convMessages].reverse().find(msg => msg.role === 'user');
+
+      if (!lastUserMessage) {
+        console.warn(`[SchedulerService] No user message found in conversation ${conversationId}, falling back to Continue`);
+        return { pendingPrompt: 'Continue', pendingConversationId: null };
+      }
+
+      console.log(`[SchedulerService] Existing-message retry for session ${sessionId}, conversation ${conversationId}`);
+      return { pendingPrompt: lastUserMessage.content, pendingConversationId: conversationId };
+    }
+
+    console.log(`[SchedulerService] Continue retry for session ${sessionId}`);
+    return { pendingPrompt: 'Continue', pendingConversationId: null };
   }
 
   /**
