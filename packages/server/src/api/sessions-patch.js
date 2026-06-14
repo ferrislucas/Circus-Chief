@@ -83,6 +83,27 @@ function validateProviderId(value) {
 }
 
 /**
+ * Validate and normalize scheduledAt field.
+ * Accepts null (clear), numeric epoch milliseconds, or an ISO 8601 string.
+ * Rejects anything that cannot be unambiguously converted to a finite integer.
+ * @param {*} value
+ * @returns {{ error?: string, value: * }}
+ */
+function validateScheduledAt(value) {
+  if (value === null) return { value: null };
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return { error: 'Invalid scheduledAt' };
+    return { value: Math.trunc(value) };
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) return { error: 'Invalid scheduledAt' };
+    return { value: parsed };
+  }
+  return { error: 'Invalid scheduledAt' };
+}
+
+/**
  * Validate prUrl field
  * @param {*} value
  * @returns {{ error?: string, value: * }}
@@ -121,7 +142,7 @@ const FIELD_DEFINITIONS = [
   // Git fields
   { field: 'gitWorktree' },
   // Scheduling fields
-  { field: 'scheduledAt' },
+  { field: 'scheduledAt', validate: validateScheduledAt },
   { field: 'autoRescheduleEnabled', transform: Boolean },
   { field: 'rescheduleDelayMinutes', transform: (v) => parseInt(v, 10) },
   { field: 'rescheduleOnTokenLimit', transform: Boolean },
