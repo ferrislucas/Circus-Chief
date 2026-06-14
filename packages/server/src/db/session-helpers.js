@@ -75,6 +75,7 @@ export function mapScheduling(row) {
     maxTotalTokens: row.max_total_tokens,
     rescheduleCount: row.reschedule_count || 0,
     rescheduleAtTokenCount: row.reschedule_at_token_count,
+    pendingConversationId: row.pending_conversation_id || null,
   };
 }
 
@@ -140,6 +141,7 @@ export const DIRECT_FIELD_MAP = {
   rescheduleAtTokenCount: 'reschedule_at_token_count',
   pendingPrompt: 'pending_prompt',
   pendingModel: 'pending_model',
+  pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
   targetLaneId: 'target_lane_id',
   laneTriggerDepth: 'lane_trigger_depth',

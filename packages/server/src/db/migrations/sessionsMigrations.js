@@ -297,6 +297,17 @@ export const sessionsMigrations = [
     up(db) { migrateSessionsDefaultModeAndThinking(db); },
   },
 
+  // --- Pending conversation ID for existing-message retry on reschedule ---
+  {
+    name: 'sessions-add-pending_conversation_id',
+    up(db) {
+      addColumnIfMissing(
+        db, TABLE_SESSIONS, 'pending_conversation_id',
+        'TEXT REFERENCES conversations(id) ON DELETE SET NULL'
+      );
+    },
+  },
+
   // --- Repair scheduled_at ISO text values to epoch milliseconds ---
   {
     name: 'sessions-repair-scheduled_at-iso-text',
