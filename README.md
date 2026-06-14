@@ -16,6 +16,9 @@
 
 - **Agents can operate Circus Chief itself.** Each agent can inspect sessions, spawn follow-ups, schedule retries, stop/restart work, and react to results.
   ![Agents can operate Circus Chief itself](docs/screenshots/02-session-list-agent-control-desktop.png)
+- **Visual Kanban board per project.** Lanes can auto-move cards on completion and run a template or custom prompt when a card lands in them — so the board can drive the workflow, not just reflect it.
+  ![Visual Kanban board per project](docs/screenshots/15-kanban-board-desktop.png)
+  ![Kanban lane settings](docs/screenshots/16-kanban-lane-settings-desktop.png)
 - **Schedule work ahead of time.** Plan agent sessions for a later time, from one-off prompts to full template pipelines.
   ![Schedule work ahead of time](docs/screenshots/10-scheduled-session-desktop.png)
 - **Opt-in retry on usage limits.** Toggle it on for a session and, if it hits a token cap or provider outage, it reschedules itself and picks up where it left off.
