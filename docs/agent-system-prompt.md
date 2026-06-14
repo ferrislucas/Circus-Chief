@@ -37,21 +37,26 @@ Agents can post artifacts to the canvas and read them back.
 
 ### Session Management API (always included)
 
-The prompt provides the agent with its own session ID and project ID. All endpoints use `curl` examples.
+The prompt provides the agent with its own session ID, project ID, and current workspace ID. All endpoints use `curl` examples.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/projects/{projectId}/sessions` | Create a new session. Required body field: `prompt`. See optional fields below. |
+| POST | `/api/projects/{projectId}/workspaces` | Create a new workspace. Required body field: `prompt`. See optional fields below. |
+| POST | `/api/workspaces/{workspaceId}/sessions` | Add a session to the current workspace. Required body field: `prompt`. Use `afterSessionId` to chain the new session after the current session. |
 | POST | `/api/sessions/{session_id}/message` | Send a follow-up message. Body: `{"content": "..."}` |
 | GET | `/api/sessions` | List all active sessions |
 | GET | `/api/sessions/{session_id}` | Get session details |
 | GET | `/api/sessions/{session_id}/messages` | Get session messages |
+| GET | `/api/projects/{projectId}/workspaces` | List workspaces for the current project |
+| GET | `/api/workspaces/{workspaceId}` | Get workspace details |
 | POST | `/api/sessions/{session_id}/stop` | Stop a session |
 | POST | `/api/sessions/{session_id}/restart` | Restart a session |
 | DELETE | `/api/sessions/{session_id}` | Delete a session |
 | PATCH | `/api/sessions/{session_id}` | Update session settings. Example body: `{"thinkingEnabled": true, "effortLevel": "high"}` |
 
-**Optional fields for session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `parentSessionId` (to create a related follow-up session from the current session), `startImmediately`, `scheduledAt` (ISO 8601 date-time string with timezone, e.g. `"2026-06-12T14:00:00Z"`), `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, `rescheduleAtTokenCount`.
+**Optional fields for workspace/session creation:** `name`, `mode`, `thinkingEnabled` (boolean), `effortLevel` (low/medium/high/max/auto), `model`, `providerId`, `gitBranch`, `gitMode`, `templateId`, `nextTemplateId`, `parentSessionId` (to create a related follow-up session from the current session), `startImmediately`, `scheduledAt` (ISO 8601 date-time string with timezone, e.g. `"2026-06-12T14:00:00Z"`), `autoRescheduleEnabled`, `rescheduleDelayMinutes`, `rescheduleOnTokenLimit`, `rescheduleOnServiceError`, `maxRescheduleCount`, `maxTotalTokens`, `rescheduleAtTokenCount`, and `afterSessionId` when adding a session to an existing workspace.
+
+**Session update behavior:** `PATCH /api/sessions/{sessionId}` accepts `scheduledAt` as either an ISO 8601 string or a numeric epoch-milliseconds value. The API normalizes valid values to epoch milliseconds and rejects invalid inputs with `400`.
 
 **Auto-retry defaults:** API-created sessions automatically retry on token-limit exhaustion and provider outages. `autoRescheduleEnabled` defaults to `true` (pass `false` to opt out), `rescheduleOnTokenLimit` and `rescheduleOnServiceError` both default to `true`, and `maxRescheduleCount` defaults to `24` (≈ one day of hourly retries). Pass an explicit `maxRescheduleCount` to adjust the cap.
 
@@ -90,9 +95,9 @@ Included for every project. Also includes a dynamically populated list of availa
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/projects/{projectId}/kanban` | Get board with all lanes and cards |
-| POST | `/api/projects/{projectId}/kanban/cards` | Add session to board. Body: `{"sessionId": "...", "laneId": "..."}` |
-| PATCH | `/api/projects/{projectId}/kanban/cards/{card_id}/move` | Move card to a different lane. Body: `{"targetLaneId": "..."}` |
-| DELETE | `/api/projects/{projectId}/kanban/cards/{card_id}` | Remove a card |
+| POST | `/api/projects/{projectId}/kanban/cards` | Add current workspace to the board. Body: `{"workspaceId": "...", "laneId": "..."}` |
+| PATCH | `/api/projects/{projectId}/kanban/cards/by-workspace/{workspaceId}/move` | Move a workspace card to a different lane. Body: `{"targetLaneId": "..."}` |
+| DELETE | `/api/projects/{projectId}/kanban/cards/by-workspace/{workspaceId}` | Remove a workspace card |
 | POST | `/api/projects/{projectId}/kanban/lanes` | Create a new lane. Body: `{"name": "..."}` |
 | PATCH | `/api/projects/{projectId}/kanban/lanes/{lane_id}` | Update a lane. Body: `{"name": "..."}` |
 | DELETE | `/api/projects/{projectId}/kanban/lanes/{lane_id}` | Delete a lane |
