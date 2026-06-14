@@ -19,12 +19,12 @@ describe('SessionTabsPanel', () => {
   });
 
   const defaultTabs = [
-    { id: 'summary', label: 'Summary' },
-    { id: 'changes', label: 'Changes' },
-    { id: 'canvas', label: 'Canvas' },
-    { id: 'commands', label: 'Commands' },
+    { id: 'summary', label: 'Workspace Summary' },
+    { id: 'changes', label: 'Workspace Changes' },
+    { id: 'canvas', label: 'Workspace Canvas' },
+    { id: 'commands', label: 'Workspace Commands' },
     { id: 'circus-time', label: 'Circus Time' },
-    { id: 'chat', label: 'Chat', desktopOnly: true },
+    { id: 'chat', label: 'Workspace Chat', desktopOnly: true },
   ];
 
   function mountPanel(props = {}) {
@@ -51,12 +51,12 @@ describe('SessionTabsPanel', () => {
     it('renders all tab labels', () => {
       const wrapper = mountPanel();
       const text = wrapper.text();
-      expect(text).toContain('Summary');
-      expect(text).toContain('Changes');
-      expect(text).toContain('Canvas');
-      expect(text).toContain('Commands');
+      expect(text).toContain('Workspace Summary');
+      expect(text).toContain('Workspace Changes');
+      expect(text).toContain('Workspace Canvas');
+      expect(text).toContain('Workspace Commands');
       expect(text).toContain('Circus Time');
-      expect(text).toContain('Chat');
+      expect(text).toContain('Workspace Chat');
     });
 
     it('renders back link with icon to workspaces list', () => {
@@ -85,10 +85,10 @@ describe('SessionTabsPanel', () => {
       const options = wrapper.findAll('.tab-select option');
       expect(options.length).toBe(5);
       expect(options.map(option => option.text())).toEqual([
-        'Summary',
-        'Changes',
-        'Canvas',
-        'Commands',
+        'Workspace Summary',
+        'Workspace Changes',
+        'Workspace Canvas',
+        'Workspace Commands',
         'Circus Time',
       ]);
     });
@@ -196,26 +196,26 @@ describe('SessionTabsPanel', () => {
       });
 
       expect(wrapper.find('.tabs-mobile .active-spinner').exists()).toBe(false);
-      expect(wrapper.findAll('.tab-select option').some(option => option.text() === 'Chat')).toBe(false);
+      expect(wrapper.findAll('.tab-select option').some(option => option.text() === 'Workspace Chat')).toBe(false);
     });
   });
 
   describe('mobile dropdown', () => {
     it('shows dot indicator for changes in mobile', () => {
       const wrapper = mountPanel({ hasChanges: true });
-      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Changes'));
+      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Workspace Changes'));
       expect(option.text()).toContain('\u2022');
     });
 
     it('shows git attention text for changes in mobile', () => {
       const wrapper = mountPanel({ hasGitStatusWarning: true });
-      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Changes'));
-      expect(option.text()).toContain('Changes · Git attention');
+      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Workspace Changes'));
+      expect(option.text()).toContain('Workspace Changes · Git attention');
     });
 
     it('shows dot indicator for canvas items in mobile', () => {
       const wrapper = mountPanel({ canvasCount: 2 });
-      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Canvas'));
+      const option = wrapper.findAll('.tab-select option').find(o => o.text().includes('Workspace Canvas'));
       expect(option.text()).toContain('\u2022');
     });
 
@@ -231,7 +231,7 @@ describe('SessionTabsPanel', () => {
       const wrapper = mountPanel();
       const options = wrapper.findAll('.tab-select option');
       expect(options.some(option => option.attributes('value') === 'chat')).toBe(false);
-      expect(options.some(option => option.text() === 'Chat')).toBe(false);
+      expect(options.some(option => option.text() === 'Workspace Chat')).toBe(false);
     });
   });
 

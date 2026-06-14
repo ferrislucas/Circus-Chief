@@ -284,15 +284,15 @@ describe('SessionDetailView', () => {
         'commands',
       ]);
       expect(tabsPanel.props('tabs').map(tab => tab.label)).toEqual([
-        'Summary',
-        'Chat',
-        'Changes',
-        'Canvas',
-        'Commands',
+        'Workspace Summary',
+        'Workspace Chat',
+        'Workspace Changes',
+        'Workspace Canvas',
+        'Workspace Commands',
       ]);
       expect(tabsPanel.props('tabs').find(tab => tab.id === 'chat')).toEqual({
         id: 'chat',
-        label: 'Chat',
+        label: 'Workspace Chat',
         desktopOnly: true,
       });
     });

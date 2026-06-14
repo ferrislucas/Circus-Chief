@@ -289,11 +289,11 @@ const buttonStatusesToDisplay = computed(() => {
 });
 
 const tabs = computed(() => [
-  { id: 'summary', label: 'Summary' },
-  { id: 'chat', label: 'Chat', desktopOnly: true },
-  { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
-  { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
-  { id: 'commands', label: 'Commands' },
+  { id: 'summary', label: 'Workspace Summary' },
+  { id: 'chat', label: 'Workspace Chat', desktopOnly: true },
+  { id: 'changes', label: changesFileCount.value > 0 ? `Workspace Changes (${changesFileCount.value})` : 'Workspace Changes' },
+  { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Workspace Canvas (${canvasStore.groupedItems.length})` : 'Workspace Canvas' },
+  { id: 'commands', label: 'Workspace Commands' },
 ]);
 
 // The Kanban card (if any) for the current session's workflow. A card is keyed to
