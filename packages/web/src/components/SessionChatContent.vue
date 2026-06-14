@@ -118,7 +118,7 @@
         <button
           class="add-session-btn"
           data-testid="overlay-add-session-btn"
-          title="Create a new child workspace"
+          title="Create a new child session"
           :disabled="isCreatingSession"
           @click="addChildSession"
         >
@@ -146,7 +146,7 @@
               y2="12"
             />
           </svg>
-          {{ isCreatingSession ? 'Creating...' : 'New Workspace' }}
+          {{ isCreatingSession ? 'Creating...' : 'New Session' }}
         </button>
       </div>
     </div>
@@ -346,7 +346,7 @@ async function addChildSession() {
 
     const newSession = await api.createSession(currentSession.projectId, {
       prompt: ' ',
-      name: 'New Workspace',
+      name: 'New Session',
       parentSessionId: activeSessionId.value,
       startImmediately: false,
       ...(currentSession.model ? { model: currentSession.model } : {}),

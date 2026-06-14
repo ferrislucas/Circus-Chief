@@ -3131,7 +3131,7 @@ describe('Add Session button responsive labels', () => {
     const desktopBtn = wrapper.find('.tabs-desktop .btn-primary');
     expect(desktopBtn.exists()).toBe(true);
     expect(desktopBtn.find('.add-session-label-full').exists()).toBe(true);
-    expect(desktopBtn.find('.add-session-label-full').text()).toBe('+ Workspace');
+    expect(desktopBtn.find('.add-session-label-full').text()).toBe('+ Session');
     expect(desktopBtn.find('.add-session-label-short').exists()).toBe(true);
     expect(desktopBtn.find('.add-session-label-short').text()).toBe('+');
   });
@@ -3142,16 +3142,16 @@ describe('Add Session button responsive labels', () => {
 
     const desktopBtn = wrapper.find('.tabs-desktop .btn-primary');
     expect(desktopBtn.exists()).toBe(true);
-    expect(desktopBtn.attributes('aria-label')).toBe('New Workspace');
+    expect(desktopBtn.attributes('aria-label')).toBe('New Session');
   });
 
-  it('renders mobile button with "+ Workspace" text', async () => {
+  it('renders mobile button with "+ Session" text', async () => {
     const wrapper = mount(SessionListView);
     await flushAll(wrapper);
 
     const mobileBtn = wrapper.find('.mobile-only.btn-primary');
     expect(mobileBtn.exists()).toBe(true);
-    expect(mobileBtn.text()).toContain('+ Workspace');
+    expect(mobileBtn.text()).toContain('+ Session');
   });
 
   it('does not affect empty-state button text', async () => {
@@ -3164,7 +3164,7 @@ describe('Add Session button responsive labels', () => {
 
     const emptyStateBtn = wrapper.find('.empty-state .btn-primary');
     expect(emptyStateBtn.exists()).toBe(true);
-    expect(emptyStateBtn.text()).toBe('New Workspace');
+    expect(emptyStateBtn.text()).toBe('New Session');
   });
 });
 

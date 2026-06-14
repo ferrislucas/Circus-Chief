@@ -61,7 +61,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     createSession: vi.fn().mockResolvedValue({
       id: 'child-1',
-      name: 'New Workspace',
+      name: 'New Session',
       status: 'waiting',
       projectId: 'proj-1',
       parentSessionId: 'sess-root',

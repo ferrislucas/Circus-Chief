@@ -159,7 +159,7 @@ vi.mock('../composables/useApi.js', () => ({
   api: {
     getSessionSummary: vi.fn().mockResolvedValue(null),
     getProjectSessions: vi.fn().mockResolvedValue([]),
-    createSession: vi.fn().mockResolvedValue({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' }),
+    createSession: vi.fn().mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' }),
     updateSession: vi.fn().mockResolvedValue({}),
   },
 }));
@@ -970,12 +970,12 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
       expect(btn).toBeTruthy();
-      expect(btn.textContent.trim()).toContain('New Workspace');
+      expect(btn.textContent.trim()).toContain('New Session');
       wrapper.unmount();
     });
 
     it('uses addSessionToList when creating a child workspace', async () => {
-      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1000,7 +1000,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('does not duplicate a child workspace already present in the main store', async () => {
-      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.sessions = [newSession];
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
       api.createSession.mockResolvedValue(newSession);
@@ -1019,7 +1019,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('inherits git settings from parent workspace with worktree', async () => {
-      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1035,7 +1035,7 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
         gitMode: 'worktree',
@@ -1045,7 +1045,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('omits git settings when parent has branch but no worktree', async () => {
-      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: null });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1063,7 +1063,7 @@ describe('SessionChatOverlay', () => {
       // triggering git checkout in directories that may not be git repos
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1071,7 +1071,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('omits git settings when parent has no git config', async () => {
-      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: null, gitWorktree: null });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1086,7 +1086,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1094,7 +1094,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('after creation, overlay switches activeSessionId to new workspace', async () => {
-      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1116,7 +1116,7 @@ describe('SessionChatOverlay', () => {
     });
 
     it('emits workspace-created event after creation', async () => {
-      const newSession = { id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
+      const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
 
@@ -1158,7 +1158,7 @@ describe('SessionChatOverlay', () => {
       expect(btn.textContent.trim()).toContain('Creating...');
 
       // Resolve the creation
-      resolveCreate({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' });
+      resolveCreate({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
       await nextTick();
       await new Promise(r => setTimeout(r, 50));
 
@@ -1205,7 +1205,7 @@ describe('SessionChatOverlay', () => {
     it('does not send gitBranch for non-git project workspaces', async () => {
       const nonGitSession = { ...rootSession, projectId: 'proj-123', gitBranch: null };
       mockSessionsStore.getSessionById.mockReturnValue(nonGitSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' });
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1219,7 +1219,7 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1229,7 +1229,7 @@ describe('SessionChatOverlay', () => {
     it('propagates parent model to child workspace when parent has a model', async () => {
       const codexSession = { ...rootSession, projectId: 'proj-123', model: 'gpt-5.4', gitBranch: null, gitWorktree: null };
       mockSessionsStore.getSessionById.mockReturnValue(codexSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' });
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1242,7 +1242,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
         model: 'gpt-5.4',
@@ -1255,7 +1255,7 @@ describe('SessionChatOverlay', () => {
       // Ensure no 'model' key is present at all
       delete noModelSession.model;
       mockSessionsStore.getSessionById.mockReturnValue(noModelSession);
-      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Workspace', status: 'waiting', projectId: 'proj-123' });
+      api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
 
       const wrapper = mountOverlay();
       await nextTick();
@@ -1268,7 +1268,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });

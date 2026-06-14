@@ -49,7 +49,7 @@
         :to="`/projects/${route.params.id}/sessions/new`"
         class="btn btn-primary mobile-only"
       >
-        + Workspace
+        + Session
       </router-link>
     </div>
 
@@ -105,9 +105,9 @@
           v-if="activeTab === 'sessions'"
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary desktop-only"
-          aria-label="New Workspace"
+          aria-label="New Session"
         >
-          <span class="add-session-label-full">+ Workspace</span><span class="add-session-label-short">+</span>
+          <span class="add-session-label-full">+ Session</span><span class="add-session-label-short">+</span>
         </router-link>
       </div>
 
@@ -190,7 +190,7 @@
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary"
         >
-          New Workspace
+          New Session
         </router-link>
       </div>
 
