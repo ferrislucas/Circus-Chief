@@ -246,7 +246,7 @@ describe('SessionDetailView', () => {
   }
 
   describe('tabs configuration', () => {
-    it('includes Summary, Changes, Canvas, and Commands tabs', async () => {
+    it('passes the expected tab labels to SessionTabsPanel', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -282,6 +282,13 @@ describe('SessionDetailView', () => {
         'changes',
         'canvas',
         'commands',
+      ]);
+      expect(tabsPanel.props('tabs').map(tab => tab.label)).toEqual([
+        'Summary',
+        'Chat',
+        'Changes',
+        'Canvas',
+        'Commands',
       ]);
       expect(tabsPanel.props('tabs').find(tab => tab.id === 'chat')).toEqual({
         id: 'chat',

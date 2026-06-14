@@ -186,7 +186,7 @@
             </optgroup>
           </select>
           <p class="form-help">
-            When a session enters this lane, the selected template will automatically run.
+            When a workspace enters this lane, the selected template will automatically run.
           </p>
         </div>
 
@@ -204,7 +204,7 @@
             ref="promptTextareaRef"
             v-model="form.onEnterPrompt"
             class="form-input form-textarea"
-            placeholder="Enter the prompt to run when a session enters this lane..."
+            placeholder="Enter the prompt to run when a workspace enters this lane..."
             rows="4"
             :min-height="80"
           />
@@ -241,7 +241,7 @@
               class="toggle-chevron"
               :class="{ open: showAgentSettings }"
             >&#9654;</span>
-            Session Settings
+            Workspace Settings
           </button>
 
           <div
@@ -370,7 +370,7 @@
             Danger Zone
           </h4>
           <p class="danger-description">
-            Deleting this lane will remove all cards from it. Sessions will remain in the project.
+            Deleting this lane will remove all cards from it. Workspaces will remain in the project.
           </p>
           <button
             class="btn btn-danger"

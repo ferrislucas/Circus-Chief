@@ -17,6 +17,16 @@ describe('Settings API', { timeout: 30_000 }, () => {
     app.use('/api/settings', settingsRouter);
     server = app.listen(0);
 
+    // Remove any instance-property overrides that may have leaked from a prior
+    // test (e.g. the "handles errors gracefully" mock replacement).  Deleting
+    // the own-property restores visibility of the prototype method.
+    delete settings.setTokenCostWeights;
+    delete settings.resetTokenCostWeights;
+    delete settings.resetSummarySettings;
+    delete settings.resetGeneralSettings;
+    delete settings.setGeneralSettings;
+    delete settings.setSummarySettings;
+
     // Reset token weights to defaults before each test
     settings.resetTokenCostWeights();
     settings.resetSummarySettings();
@@ -193,18 +203,18 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
     it('handles errors gracefully', async () => {
       // Force an error by breaking the database connection
-      const originalGet = settings.getTokenCostWeights;
       settings.getTokenCostWeights = () => {
         throw new Error('Database error');
       };
 
-      const res = await request(server).get('/api/settings/token-weights');
+      try {
+        const res = await request(server).get('/api/settings/token-weights');
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe('Failed to get token weights');
-
-      // Restore original method
-      settings.getTokenCostWeights = originalGet;
+        expect(res.status).toBe(500);
+        expect(res.body.error).toBe('Failed to get token weights');
+      } finally {
+        delete settings.getTokenCostWeights;
+      }
     });
   });
 
@@ -312,19 +322,20 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('handles errors gracefully', async () => {
-      const originalSet = settings.setTokenCostWeights;
       settings.setTokenCostWeights = () => {
         throw new Error('Database error');
       };
 
-      const res = await request(server)
-        .put('/api/settings/token-weights')
-        .send(DEFAULT_TOKEN_COST_WEIGHTS);
+      try {
+        const res = await request(server)
+          .put('/api/settings/token-weights')
+          .send(DEFAULT_TOKEN_COST_WEIGHTS);
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe('Failed to update token weights');
-
-      settings.setTokenCostWeights = originalSet;
+        expect(res.status).toBe(500);
+        expect(res.body.error).toBe('Failed to update token weights');
+      } finally {
+        delete settings.setTokenCostWeights;
+      }
     });
 
     it('rejects request with missing body', async () => {
@@ -388,17 +399,18 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('handles errors gracefully', async () => {
-      const originalReset = settings.resetTokenCostWeights;
       settings.resetTokenCostWeights = () => {
         throw new Error('Database error');
       };
 
-      const res = await request(server).delete('/api/settings/token-weights');
+      try {
+        const res = await request(server).delete('/api/settings/token-weights');
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe('Failed to reset token weights');
-
-      settings.resetTokenCostWeights = originalReset;
+        expect(res.status).toBe(500);
+        expect(res.body.error).toBe('Failed to reset token weights');
+      } finally {
+        delete settings.resetTokenCostWeights;
+      }
     });
   });
 
@@ -463,18 +475,18 @@ describe('Settings API', { timeout: 30_000 }, () => {
 
     it('handles errors gracefully', async () => {
       // Force an error by breaking the database connection
-      const originalGet = settings.getGeneralSettings;
       settings.getGeneralSettings = () => {
         throw new Error('Database error');
       };
 
-      const res = await request(server).get('/api/settings/general');
+      try {
+        const res = await request(server).get('/api/settings/general');
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe('Failed to get general settings');
-
-      // Restore original method
-      settings.getGeneralSettings = originalGet;
+        expect(res.status).toBe(500);
+        expect(res.body.error).toBe('Failed to get general settings');
+      } finally {
+        delete settings.getGeneralSettings;
+      }
     });
   });
 
@@ -536,19 +548,20 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('handles errors gracefully', async () => {
-      const originalSet = settings.setGeneralSettings;
       settings.setGeneralSettings = () => {
         throw new Error('Database error');
       };
 
-      const res = await request(server)
-        .put('/api/settings/general')
-        .send({ disableAnalytics: false });
+      try {
+        const res = await request(server)
+          .put('/api/settings/general')
+          .send({ disableAnalytics: false });
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe('Failed to update general settings');
-
-      settings.setGeneralSettings = originalSet;
+        expect(res.status).toBe(500);
+        expect(res.body.error).toBe('Failed to update general settings');
+      } finally {
+        delete settings.setGeneralSettings;
+      }
     });
 
     it('rejects request with missing body', async () => {
@@ -609,17 +622,18 @@ describe('Settings API', { timeout: 30_000 }, () => {
     });
 
     it('handles errors gracefully', async () => {
-      const originalReset = settings.resetGeneralSettings;
       settings.resetGeneralSettings = () => {
         throw new Error('Database error');
       };
 
-      const res = await request(server).delete('/api/settings/general');
+      try {
+        const res = await request(server).delete('/api/settings/general');
 
-      expect(res.status).toBe(500);
-      expect(res.body.error).toBe('Failed to reset general settings');
-
-      settings.resetGeneralSettings = originalReset;
+        expect(res.status).toBe(500);
+        expect(res.body.error).toBe('Failed to reset general settings');
+      } finally {
+        delete settings.resetGeneralSettings;
+      }
     });
   });
 

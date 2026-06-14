@@ -23,7 +23,7 @@
       v-else-if="sessionsStore.archivedSessions.length === 0"
       class="empty-state"
     >
-      <p>No archived sessions. Archive completed sessions to keep your session list tidy.</p>
+      <p>No archived workspaces. Archive completed workspaces to keep your workspace list tidy.</p>
     </div>
 
     <div

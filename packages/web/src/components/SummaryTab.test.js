@@ -140,17 +140,17 @@ describe('SummaryTab', () => {
     await nextTick();
   }
 
-  describe('Session Overview', () => {
-    it('does not render session overview when no PR info', async () => {
+  describe('Workspace Overview', () => {
+    it('does not render workspace overview when no PR info', async () => {
       // Default session has no prUrl, so no PR info
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
       expect(wrapper.find('.session-overview').exists()).toBe(false);
-      expect(wrapper.text()).not.toContain('Session Overview');
+      expect(wrapper.text()).not.toContain('Workspace Overview');
     });
 
-    it('renders session overview when PR info exists', async () => {
+    it('renders workspace overview when PR info exists', async () => {
       // Setup session with PR URL and summary with prState
       sessionsStore.currentSession = {
         id: 'sess-123',
@@ -167,7 +167,7 @@ describe('SummaryTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.find('.session-overview').exists()).toBe(true);
-      expect(wrapper.text()).toContain('Session Overview');
+      expect(wrapper.text()).toContain('Workspace Overview');
     });
 
     it('does not render overview-stats div', async () => {
@@ -199,7 +199,7 @@ describe('SummaryTab', () => {
   });
 
   describe('SessionLogStream Integration', () => {
-    it('renders SessionLogStream when session status is running', async () => {
+    it('renders SessionLogStream when workspace status is running', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'running',
@@ -233,7 +233,7 @@ describe('SummaryTab', () => {
       expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(true);
     });
 
-    it('renders SessionLogStream when session status is starting', async () => {
+    it('renders SessionLogStream when workspace status is starting', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'starting',
@@ -337,7 +337,7 @@ describe('SummaryTab', () => {
       expect(logStream.props('sessionIds')).toEqual(['sess-456']);
     });
 
-    it('unmounts SessionLogStream when session status changes from running to completed', async () => {
+    it('unmounts SessionLogStream when workspace status changes from running to completed', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'running',
@@ -378,7 +378,7 @@ describe('SummaryTab', () => {
       expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
     });
 
-    it('does not render SessionLogStream when session is null', async () => {
+    it('does not render SessionLogStream when workspace is null', async () => {
       sessionsStore.currentSession = null;
       sessionsStore.sessions = [];
 
@@ -408,7 +408,7 @@ describe('SummaryTab', () => {
     });
   });
 
-  describe('Descendant Session Live Output', () => {
+  describe('Descendant Workspace Live Output', () => {
     function mountWithLogStream(props = { sessionId: 'sess-123' }) {
       return mount(SummaryTab, {
         props,
@@ -433,7 +433,7 @@ describe('SummaryTab', () => {
       });
     }
 
-    it('renders SessionLogStream when parent is waiting but a child session is running', async () => {
+    it('renders SessionLogStream when parent is waiting but a child workspace is running', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -451,7 +451,7 @@ describe('SummaryTab', () => {
       expect(logStream.exists()).toBe(true);
     });
 
-    it('includes running child session IDs in sessionIds prop', async () => {
+    it('includes running child workspace IDs in sessionIds prop', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -507,7 +507,7 @@ describe('SummaryTab', () => {
       expect(logStream.props('sessionIds')).toEqual(['grandchild-1']);
     });
 
-    it('excludes non-running child sessions from sessionIds', async () => {
+    it('excludes non-running child workspaces from sessionIds', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -546,7 +546,7 @@ describe('SummaryTab', () => {
       expect(wrapper.findComponent({ name: 'SessionLogStream' }).exists()).toBe(false);
     });
 
-    it('subscribes to WebSocket events for running descendant sessions', async () => {
+    it('subscribes to WebSocket events for running descendant workspaces', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -573,7 +573,7 @@ describe('SummaryTab', () => {
       expect(descendantSub.subscribe).toHaveBeenCalled();
     });
 
-    it('unsubscribes from descendant when child session stops running', async () => {
+    it('unsubscribes from descendant when child workspace stops running', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -665,7 +665,7 @@ describe('SummaryTab', () => {
       expect(useSessionSubscription).toHaveBeenCalledWith('child-new');
     });
 
-    it('includes starting child sessions in live output', async () => {
+    it('includes starting child workspaces in live output', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -701,7 +701,7 @@ describe('SummaryTab', () => {
           timestamp: Date.now(),
           role: 'assistant',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -711,21 +711,21 @@ describe('SummaryTab', () => {
       expect(wrapper.text()).toContain('Test response content');
     });
 
-    it('shows session name in latest response header', async () => {
+    it('shows workspace name in latest response header', async () => {
       api.getWorkflowLatestResponse.mockResolvedValue({
         message: {
           content: 'Response text',
           timestamp: Date.now(),
           role: 'assistant',
         },
-        sessionName: 'My Child Session',
+        sessionName: 'My Child Workspace',
       });
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
       expect(wrapper.find('.latest-response').exists()).toBe(true);
-      expect(wrapper.text()).toContain('from My Child Session');
+      expect(wrapper.text()).toContain('from My Child Workspace');
     });
 
     it('renders response content via MarkdownViewer', async () => {
@@ -735,7 +735,7 @@ describe('SummaryTab', () => {
           timestamp: Date.now(),
           role: 'assistant',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -755,7 +755,7 @@ describe('SummaryTab', () => {
           timestamp: Date.now(),
           role: 'assistant',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -772,7 +772,7 @@ describe('SummaryTab', () => {
           timestamp: Date.now(),
           role: 'assistant',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -789,7 +789,7 @@ describe('SummaryTab', () => {
           role: 'assistant',
           model: 'claude-opus-4-6',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -807,7 +807,7 @@ describe('SummaryTab', () => {
           timestamp: Date.now(),
           role: 'assistant',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -824,7 +824,7 @@ describe('SummaryTab', () => {
           role: 'assistant',
           model: null,
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -841,7 +841,7 @@ describe('SummaryTab', () => {
           role: 'assistant',
           model: 'some-custom-model-20250101',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -887,7 +887,7 @@ describe('SummaryTab', () => {
       expect(wrapper.text()).not.toContain('1h');
     });
 
-    it('falls back to wall-clock for running sessions without activeTimeMs', async () => {
+    it('falls back to wall-clock for running workspaces without activeTimeMs', async () => {
       const createdAt = Date.now() - 300000; // 5 minutes ago
       const wrapper = mountWithSession({
         id: 'sess-123',
@@ -903,7 +903,7 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.metric-label').exists() || wrapper.text()).toBeDefined();
     });
 
-    it('returns null for sessions with no activity and no tokens', async () => {
+    it('returns null for workspaces with no activity and no tokens', async () => {
       const wrapper = mountWithSession({
         id: 'sess-123',
         status: 'waiting',
@@ -919,7 +919,7 @@ describe('SummaryTab', () => {
       expect(wrapper.text()).not.toContain('Work Time');
     });
 
-    it('shows work time for non-active session with token usage even without activeTimeMs', async () => {
+    it('shows work time for non-active workspace with token usage even without activeTimeMs', async () => {
       const createdAt = Date.now() - 600000; // 10 minutes ago
       const wrapper = mountWithSession({
         id: 'sess-123',
@@ -959,12 +959,12 @@ describe('SummaryTab', () => {
   });
 
   describe('Empty State', () => {
-    it('shows empty state when session has no summary, no latest response, and is not running', async () => {
+    it('shows empty state when workspace has no summary, no latest response, and is not running', async () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
       expect(wrapper.find('.summary-empty-state').exists()).toBe(true);
-      expect(wrapper.text()).toContain("This session hasn't started yet.");
+      expect(wrapper.text()).toContain("This workspace hasn't started yet.");
       expect(wrapper.find('.summary-empty-state button').exists()).toBe(false);
       expect(wrapper.find('.summary-empty-state').text()).not.toContain('Generate summary');
     });
@@ -983,7 +983,7 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.session-overview').exists()).toBe(true);
       expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
       expect(wrapper.find('.session-overview .overview-summary-empty').exists()).toBe(true);
-      expect(wrapper.find('.session-overview').text()).toContain("This session hasn't started yet.");
+      expect(wrapper.find('.session-overview').text()).toContain("This workspace hasn't started yet.");
       expect(wrapper.find('.session-overview .overview-summary-empty button').exists()).toBe(false);
       expect(wrapper.find('.session-overview .overview-summary-empty').text()).not.toContain('Generate summary');
     });
@@ -1034,7 +1034,7 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.missing-summary-action button').text()).toContain('Generate summary');
     });
 
-    it('shows missing-summary-action for running session with latest response but no summary', async () => {
+    it('shows missing-summary-action for running workspace with latest response but no summary', async () => {
       sessionsStore.currentSession = { id: 'sess-123', status: 'running' };
       sessionsStore.sessions = [sessionsStore.currentSession];
       api.getWorkflowLatestResponse.mockResolvedValue({
@@ -1050,7 +1050,7 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.missing-summary-action button').text()).toContain('Generate summary');
     });
 
-    it('does not show empty state when session is running', async () => {
+    it('does not show empty state when workspace is running', async () => {
       sessionsStore.currentSession = { id: 'sess-123', status: 'running' };
       sessionsStore.sessions = [sessionsStore.currentSession];
 
@@ -1060,7 +1060,7 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
     });
 
-    it('does not show empty state when session is starting', async () => {
+    it('does not show empty state when workspace is starting', async () => {
       sessionsStore.currentSession = { id: 'sess-123', status: 'starting' };
       sessionsStore.sessions = [sessionsStore.currentSession];
 
@@ -1114,7 +1114,7 @@ describe('SummaryTab', () => {
           timestamp: Date.now(),
           role: 'assistant',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -1144,7 +1144,7 @@ describe('SummaryTab', () => {
           timestamp: Date.now(),
           role: 'assistant',
         },
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
       });
 
       const wrapper = mountComponent();
@@ -1203,12 +1203,12 @@ describe('SummaryTab', () => {
       expect(wrapper.find('.response-model').exists()).toBe(false);
     });
 
-    it('shows session name from current session in real-time update', async () => {
+    it('shows workspace name from current workspace in real-time update', async () => {
       // Set the session name
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
-        name: 'My Session',
+        name: 'My Workspace',
       };
       sessionsStore.sessions = [sessionsStore.currentSession];
 
@@ -1228,18 +1228,18 @@ describe('SummaryTab', () => {
       await flushAll(wrapper);
 
       expect(wrapper.find('.latest-response').exists()).toBe(true);
-      expect(wrapper.text()).toContain('from My Session');
+      expect(wrapper.text()).toContain('from My Workspace');
       expect(wrapper.text()).toContain('Real-time content');
     });
   });
 
-  describe('Scheduled Sessions', () => {
+  describe('Scheduled Workspaces', () => {
     it('passes parent + scheduled children to SessionOverviewCard when parent is scheduled', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'scheduled',
         scheduledAt: Date.now() + 3600000,
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [
@@ -1265,7 +1265,7 @@ describe('SummaryTab', () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [
@@ -1285,7 +1285,7 @@ describe('SummaryTab', () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [
@@ -1307,7 +1307,7 @@ describe('SummaryTab', () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [
@@ -1331,7 +1331,7 @@ describe('SummaryTab', () => {
         id: 'sess-123',
         status: 'scheduled',
         scheduledAt: null,
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [
@@ -1352,7 +1352,7 @@ describe('SummaryTab', () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [sessionsStore.currentSession];
@@ -1377,7 +1377,7 @@ describe('SummaryTab', () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [
@@ -1397,7 +1397,7 @@ describe('SummaryTab', () => {
         id: 'sess-123',
         status: 'scheduled',
         scheduledAt: Date.now() + 3600000,
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [sessionsStore.currentSession];
@@ -1412,7 +1412,7 @@ describe('SummaryTab', () => {
       expect(overviewCard.vm.$options.props.schedulingCountdown).toBeUndefined();
     });
 
-    it('passes correct projectId from session', async () => {
+    it('passes correct projectId from workspace', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -1435,7 +1435,7 @@ describe('SummaryTab', () => {
         id: 'sess-123',
         status: 'scheduled',
         scheduledAt: Date.now() + 3600000,
-        name: 'Parent Session',
+        name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [sessionsStore.currentSession];

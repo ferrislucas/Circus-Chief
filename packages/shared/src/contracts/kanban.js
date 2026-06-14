@@ -96,7 +96,7 @@ export const KanbanLaneResponse = z.object({
 
 // Card contracts
 export const CreateKanbanCardRequest = z.object({
-  sessionId: z.string().uuid(),
+  workspaceId: z.string().uuid(),
   laneId: z.string().uuid(),
 });
 

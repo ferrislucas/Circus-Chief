@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { kanbanBoards, kanbanLanes, kanbanCards, projects } from '../database.js';
+import { kanbanBoards, kanbanLanes, kanbanCards, projects, sessions } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
@@ -230,8 +230,23 @@ router.put('/lanes/reorder', (req, res) => {
 // ============== Card Endpoints ==============
 
 /**
+ * Helper: delete a card and broadcast KANBAN_CARD_REMOVED.
+ * Used by both the :cardId and by-workspace delete routes.
+ */
+function deleteCardById(card, projectId) {
+  const laneId = card.laneId;
+  kanbanCards.delete(card.id);
+  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
+    projectId,
+    cardId: card.id,
+    laneId,
+  });
+}
+
+/**
  * POST /api/projects/:projectId/kanban/cards
- * Add a session to the board (create card in a lane)
+ * Add a workspace to the board (create card in a lane).
+ * Body: { workspaceId, laneId }
  */
 router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req, res) => {
   const result = CreateKanbanCardRequest.safeParse(req.body);
@@ -240,10 +255,11 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
   }
 
   const { laneId } = result.data;
-  const sessionId = req.bodyRootSessionId;
+  // req.bodyRootSessionId is the normalized workspace root, already validated.
+  const workspaceId = req.bodyRootSessionId;
 
-  // Check if session already has a card
-  const existingCard = kanbanCards.getBySessionId(sessionId);
+  // Check if workspace already has a card
+  const existingCard = kanbanCards.getBySessionId(workspaceId);
   if (existingCard) {
     return res.status(409).json({ error: 'Session already has a card on the board' });
   }
@@ -255,7 +271,7 @@ router.post('/cards', resolveBodyRootSessionForProject('projectId'), async (req,
   }
 
   try {
-    const card = await addSessionToBoard(sessionId, laneId);
+    const card = await addSessionToBoard(workspaceId, laneId);
     res.status(201).json(card);
   } catch (error) {
     if (error.message === 'Session already has a card on the board') {
@@ -314,15 +330,69 @@ router.delete('/cards/:cardId', (req, res) => {
     return res.status(404).json({ error: 'Card not found' });
   }
 
-  const laneId = card.laneId;
-  kanbanCards.delete(cardId);
+  deleteCardById(card, projectId);
+  res.status(204).send();
+});
 
-  broadcastToProject(projectId, WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED, {
-    projectId,
-    cardId,
-    laneId,
-  });
+// ============== Workspace-addressed Card Routes (agent-friendly) ==============
 
+/**
+ * PATCH /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId/move
+ * Move the workspace's card to a different lane.
+ * No card ID needed — the agent addresses by workspace ID.
+ */
+router.patch('/cards/by-workspace/:workspaceId/move', async (req, res) => {
+  const { workspaceId: rawWorkspaceId } = req.params;
+
+  // Normalize to workspace root (forgiving if a child id is passed)
+  const workspaceId = sessions.getRootSessionId(rawWorkspaceId) || rawWorkspaceId;
+
+  const card = kanbanCards.getBySessionId(workspaceId);
+  if (!card) {
+    return res.status(404).json({ error: 'No card found for this workspace' });
+  }
+
+  const result = MoveKanbanCardRequest.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: result.error.issues[0].message });
+  }
+
+  const { targetLaneId, sortOrder, runOnEnterTemplate } = result.data;
+
+  const targetLane = kanbanLanes.getById(targetLaneId);
+  if (!targetLane) {
+    return res.status(404).json({ error: 'Target lane not found' });
+  }
+
+  try {
+    const movedCard = await moveCardService(card.id, targetLaneId, {
+      sortOrder,
+      runOnEnterTemplate,
+    });
+    res.json(movedCard);
+  } catch (error) {
+    console.error('Failed to move kanban card by workspace:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId
+ * Remove the workspace's card from the board.
+ * No card ID needed — the agent addresses by workspace ID.
+ */
+router.delete('/cards/by-workspace/:workspaceId', (req, res) => {
+  const { projectId, workspaceId: rawWorkspaceId } = req.params;
+
+  // Normalize to workspace root (forgiving if a child id is passed)
+  const workspaceId = sessions.getRootSessionId(rawWorkspaceId) || rawWorkspaceId;
+
+  const card = kanbanCards.getBySessionId(workspaceId);
+  if (!card) {
+    return res.status(404).json({ error: 'No card found for this workspace' });
+  }
+
+  deleteCardById(card, projectId);
   res.status(204).send();
 });
 

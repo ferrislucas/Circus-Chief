@@ -52,12 +52,12 @@ test.describe('Template Inherit UI — Create Form', () => {
     // Check that "Inherit from root session" options are present for all three selects
     const allSelects = page.locator('[data-testid="template-form"] select');
     const count = await allSelects.count();
-    // There should be at least 3 selects with the "Inherit from root session" option
+    // There should be at least 2 selects with the "Inherit from root workspace" option
     // (mode, thinking, possibly model through ModelSelector)
     let inheritOptions = 0;
     for (let i = 0; i < count; i++) {
       const options = await allSelects.nth(i).locator('option').allTextContents();
-      if (options.some(opt => opt.includes('Inherit from root session'))) {
+      if (options.some(opt => opt.includes('Inherit from root workspace'))) {
         inheritOptions++;
       }
     }

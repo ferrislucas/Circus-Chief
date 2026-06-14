@@ -6,7 +6,7 @@
         v-model="editNameValue"
         type="text"
         class="name-edit-input"
-        placeholder="Session name"
+        placeholder="Workspace name"
         @keyup.enter="saveSessionName"
         @keyup.escape="cancelEditName"
       >
@@ -90,7 +90,7 @@
       <span
         v-if="session.archived"
         class="archived-badge"
-        aria-label="Archived session"
+        aria-label="Archived workspace"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -118,7 +118,7 @@
       </span>
       <button
         class="btn-link name-edit-trigger"
-        title="Edit session name"
+        title="Edit workspace name"
         @click="startEditName"
       >
         <svg
@@ -186,7 +186,7 @@ async function saveSessionName() {
   const sessionId = props.sessionId;
 
   if (!newName) {
-    uiStore.error('Session name cannot be empty');
+    uiStore.error('Workspace name cannot be empty');
     return;
   }
 
@@ -196,11 +196,11 @@ async function saveSessionName() {
       manuallyNamed: true
     });
     sessionsStore.updateSession({ ...updated, id: sessionId });
-    uiStore.success('Session name updated');
+    uiStore.success('Workspace name updated');
     isEditingName.value = false;
     editNameValue.value = '';
   } catch (err) {
-    uiStore.error(err.message || 'Failed to update session name');
+    uiStore.error(err.message || 'Failed to update workspace name');
   }
 }
 

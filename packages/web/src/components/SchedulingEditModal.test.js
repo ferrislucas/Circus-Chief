@@ -22,7 +22,7 @@ describe('SchedulingEditModal.vue', () => {
   const scheduledSession = {
     id: 'session-1',
     projectId: 'project-1',
-    name: 'Scheduled Session',
+    name: 'Scheduled Workspace',
     status: 'scheduled',
     scheduledAt: Date.now() + 3600000,
     model: 'claude-sonnet-4-20250514',
@@ -42,7 +42,7 @@ describe('SchedulingEditModal.vue', () => {
   const runningSession = {
     id: 'session-2',
     projectId: 'project-1',
-    name: 'Running Session',
+    name: 'Running Workspace',
     status: 'running',
     model: 'claude-opus-4-20250514',
     mode: 'plan',
@@ -104,7 +104,7 @@ describe('SchedulingEditModal.vue', () => {
       expect(wrapper.emitted()).toBeDefined();
     });
 
-    it('accepts sessions with different statuses', () => {
+    it('accepts workspaces with different statuses', () => {
       const statuses = ['scheduled', 'running', 'waiting', 'completed', 'error'];
       statuses.forEach((status) => {
         const session = { ...scheduledSession, status };
@@ -115,7 +115,7 @@ describe('SchedulingEditModal.vue', () => {
   });
 
   describe('store integration', () => {
-    it('uses the sessions store', () => {
+    it('uses the workspaces store', () => {
       mountComponent();
       expect(useSessionsStore).toHaveBeenCalled();
     });
@@ -126,8 +126,8 @@ describe('SchedulingEditModal.vue', () => {
     });
   });
 
-  describe('session update integration', () => {
-    it('uses sessions store to update session', async () => {
+  describe('workspace update integration', () => {
+    it('uses workspaces store to update workspace', async () => {
       const mockUpdateSessionFields = vi.fn().mockResolvedValue({});
       useSessionsStore.mockReturnValue({ updateSessionFields: mockUpdateSessionFields });
       useUiStore.mockReturnValue({ success: vi.fn(), error: vi.fn() });
@@ -150,12 +150,12 @@ describe('SchedulingEditModal.vue', () => {
   });
 
   describe('modal structure and UI', () => {
-    it('does not render template chain section for non-scheduled sessions', () => {
+    it('does not render template chain section for non-scheduled workspaces', () => {
       const wrapper = mountComponent({ session: runningSession });
       expect(wrapper.text()).not.toContain('Template Chain');
     });
 
-    it('does not render scheduled time input for non-scheduled sessions', () => {
+    it('does not render scheduled time input for non-scheduled workspaces', () => {
       const wrapper = mountComponent({ session: runningSession });
       expect(wrapper.find('#scheduled-at').exists()).toBe(false);
     });
@@ -173,7 +173,7 @@ describe('SchedulingEditModal.vue', () => {
       expect(wrapper.find('.reschedule-settings').exists()).toBe(false);
     });
 
-    it('does not show reset option for sessions with rescheduleCount = 0', async () => {
+    it('does not show reset option for workspaces with rescheduleCount = 0', async () => {
       const wrapper = mountComponent({
         isOpen: false,
         session: { ...scheduledSession, rescheduleCount: 0 },
@@ -196,12 +196,12 @@ describe('SchedulingEditModal.vue', () => {
       expect(wrapper.findComponent({ name: 'ModeSelector' }).exists()).toBe(true);
     });
 
-    it('renders TemplateSelector component for scheduled sessions', () => {
+    it('renders TemplateSelector component for scheduled workspaces', () => {
       const wrapper = mountComponent({ session: scheduledSession });
       expect(wrapper.findComponent({ name: 'TemplateSelector' }).exists()).toBe(true);
     });
 
-    it('does not render TemplateSelector component for non-scheduled sessions', () => {
+    it('does not render TemplateSelector component for non-scheduled workspaces', () => {
       const wrapper = mountComponent({ session: runningSession });
       expect(wrapper.findComponent({ name: 'TemplateSelector' }).exists()).toBe(false);
     });

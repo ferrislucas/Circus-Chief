@@ -2712,12 +2712,13 @@ export async function seedKanbanCard(
     laneId: string;
   }
 ) {
+  const { sessionId, laneId, ...rest } = data;
   const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/cards`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ workspaceId: sessionId, laneId, ...rest }),
   });
 
   if (!response.ok) {

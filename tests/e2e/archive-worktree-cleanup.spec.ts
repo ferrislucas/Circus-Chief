@@ -33,7 +33,7 @@ test.describe('Archive Modal - Worktree Cleanup Checkbox', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open kebab menu and click Archive
-    await page.click('button[aria-label="Session actions"]');
+    await page.click('button[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
     await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click({ timeout: 10000 });
 
@@ -61,7 +61,7 @@ test.describe('Archive Modal - Worktree Cleanup Checkbox', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open kebab menu and click Archive
-    await page.click('button[aria-label="Session actions"]');
+    await page.click('button[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
     await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click({ timeout: 10000 });
 
@@ -88,7 +88,7 @@ test.describe('Archive Modal - Worktree Cleanup Checkbox', () => {
     await navigateAndWait(page, `/projects/${projectWithHook.id}/sessions`);
 
     // Click archive button on the session card
-    await page.locator('button.archive-btn[title="Archive session"]').first().click();
+    await page.locator('button.archive-btn[title="Archive workspace"]').first().click();
 
     // Verify modal is visible
     const modal = page.locator('.modal-backdrop');
@@ -114,7 +114,7 @@ test.describe('Archive Modal - Worktree Cleanup Checkbox', () => {
     await navigateAndWait(page, `/projects/${projectWithHook.id}/sessions`);
 
     // Click archive button on the session card
-    await page.locator('button.archive-btn[title="Archive session"]').first().click();
+    await page.locator('button.archive-btn[title="Archive workspace"]').first().click();
 
     // Verify modal is visible
     const modal = page.locator('.modal-backdrop');
@@ -139,7 +139,7 @@ test.describe('Archive Modal - Worktree Cleanup Checkbox', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open kebab menu and click Archive
-    await page.click('button[aria-label="Session actions"]');
+    await page.click('button[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
     await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click({ timeout: 10000 });
 

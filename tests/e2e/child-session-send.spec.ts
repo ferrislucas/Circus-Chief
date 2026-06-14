@@ -57,11 +57,11 @@ test.describe('Child Session Start from Overlay', () => {
 
     // 4. Wait for overlay to switch to the new draft child session
     const dropdownName = overlay.locator('.dropdown-name');
-    await expect(dropdownName).toContainText('New Session', { timeout: 10000 });
+    await expect(dropdownName).toContainText('New Workspace', { timeout: 10000 });
 
     // 5. Find the child session via API (need its ID for status checks)
     const allSessions = await getProjectSessions(project.id);
-    const childSession = allSessions.find((s: any) => s.name === 'New Session');
+    const childSession = allSessions.find((s: any) => s.name === 'New Workspace');
     expect(childSession).toBeDefined();
 
     // 6. Type prompt in the draft textarea

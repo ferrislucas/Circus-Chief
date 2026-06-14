@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <div class="project-title">
-          <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
+          <h1>{{ projectsStore.currentProject?.name || 'Workspaces' }}</h1>
           <a
             v-if="projectsStore.currentProject?.repoUrl"
             :href="projectsStore.currentProject.repoUrl"
@@ -63,7 +63,7 @@
             :class="{ active: activeTab === 'sessions' }"
             @click="router.push(`/projects/${route.params.id}/sessions`)"
           >
-            Sessions
+            Workspaces
           </button>
           <button
             class="tab"
@@ -119,7 +119,7 @@
           @change="handleTabChange($event.target.value)"
         >
           <option value="sessions">
-            Sessions
+            Workspaces
           </option>
           <option value="kanban">
             Kanban
@@ -185,7 +185,7 @@
         v-else-if="sessionsStore.sessions.length === 0"
         class="empty-state"
       >
-        <p>No sessions yet. Start a new session to interact with the agent.</p>
+        <p>No workspaces yet. Start a new workspace to interact with the agent.</p>
         <router-link
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary"
@@ -198,7 +198,7 @@
         v-else-if="filteredGroupedSessions.length === 0"
         class="empty-state"
       >
-        <p>No sessions match the current filter.</p>
+        <p>No workspaces match the current filter.</p>
       </div>
 
       <div
@@ -525,7 +525,8 @@ async function addSessionToLane(lane) {
       await kanbanStore.moveCard(route.params.id, existingCard.id, lane.id);
       uiStore.success(`Session moved to "${lane.name}"`);
     } else {
-      await kanbanStore.addSessionToBoard(route.params.id, sessionToAdd.value.id, lane.id);
+      const workspaceId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;
+      await kanbanStore.addSessionToBoard(route.params.id, workspaceId, lane.id);
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();

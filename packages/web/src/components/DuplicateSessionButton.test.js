@@ -45,7 +45,7 @@ describe('DuplicateSessionButton', () => {
     return mount(DuplicateSessionButton, {
       props: {
         sessionId: 'session-123',
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
         ...props,
       },
     });
@@ -69,8 +69,8 @@ describe('DuplicateSessionButton', () => {
     });
 
     it('accepts sessionName prop (optional)', () => {
-      const wrapper = mountComponent({ sessionName: 'My Session' });
-      expect(wrapper.props('sessionName')).toBe('My Session');
+      const wrapper = mountComponent({ sessionName: 'My Workspace' });
+      expect(wrapper.props('sessionName')).toBe('My Workspace');
     });
 
     it('has correct button classes', () => {
@@ -106,7 +106,7 @@ describe('DuplicateSessionButton', () => {
       const wrapper = mountComponent();
       mockSessionsStore.duplicateSession.mockResolvedValue({
         id: 'new-session',
-        name: 'Copy of Test Session',
+        name: 'Copy of Test Workspace',
       });
 
       await wrapper.find('button').trigger('click');
@@ -226,27 +226,27 @@ describe('DuplicateSessionButton', () => {
   });
 
   describe('success handling', () => {
-    it('calls uiStore.success with session name on success', async () => {
-      const wrapper = mountComponent({ sessionName: 'Original Session' });
+    it('calls uiStore.success with workspace name on success', async () => {
+      const wrapper = mountComponent({ sessionName: 'Original Workspace' });
       mockSessionsStore.duplicateSession.mockResolvedValue({
         id: 'new-session',
-        name: 'Copy of Original Session',
+        name: 'Copy of Original Workspace',
       });
 
       await wrapper.find('button').trigger('click');
       await flushPromises();
 
       expect(mockUiStore.success).toHaveBeenCalledWith(
-        expect.stringContaining('Session duplicated')
+        expect.stringContaining('Workspace duplicated')
       );
       expect(mockUiStore.success).toHaveBeenCalledWith(
-        expect.stringContaining('Copy of Original Session')
+        expect.stringContaining('Copy of Original Workspace')
       );
     });
 
-    it('emits success event with new session data', async () => {
+    it('emits success event with new workspace data', async () => {
       const wrapper = mountComponent();
-      const newSession = { id: 'new-session', name: 'Copy of Test Session' };
+      const newSession = { id: 'new-session', name: 'Copy of Test Workspace' };
       mockSessionsStore.duplicateSession.mockResolvedValue(newSession);
 
       await wrapper.find('button').trigger('click');
@@ -282,7 +282,7 @@ describe('DuplicateSessionButton', () => {
       const wrapper = mountComponent({ sessionName: undefined });
       mockSessionsStore.duplicateSession.mockResolvedValue({
         id: 'new-session',
-        name: 'Copy of session',
+        name: 'Copy of workspace',
       });
 
       await wrapper.find('button').trigger('click');
@@ -296,7 +296,7 @@ describe('DuplicateSessionButton', () => {
   describe('error handling', () => {
     it('calls uiStore.error on duplication failure', async () => {
       const wrapper = mountComponent();
-      const errorMessage = 'Failed to duplicate session';
+      const errorMessage = 'Failed to duplicate workspace';
       mockSessionsStore.duplicateSession.mockRejectedValue(
         new Error(errorMessage)
       );
@@ -365,7 +365,7 @@ describe('DuplicateSessionButton', () => {
       await wrapper.find('button').trigger('click');
       await flushPromises();
 
-      expect(mockUiStore.error).toHaveBeenCalledWith('Failed to duplicate session');
+      expect(mockUiStore.error).toHaveBeenCalledWith('Failed to duplicate workspace');
     });
   });
 
@@ -395,7 +395,7 @@ describe('DuplicateSessionButton', () => {
   describe('accessibility', () => {
     it('has proper title attribute', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('button').attributes('title')).toBe('Create a copy of this session with all data');
+      expect(wrapper.find('button').attributes('title')).toBe('Create a copy of this workspace with all data');
     });
 
     it('button is keyboard accessible', async () => {
@@ -414,7 +414,7 @@ describe('DuplicateSessionButton', () => {
       await wrapper.vm.$nextTick();
 
       expect(window.confirm).toHaveBeenCalledWith(
-        expect.stringContaining('Duplicate this session')
+        expect.stringContaining('Duplicate this workspace')
       );
     });
 

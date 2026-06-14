@@ -41,16 +41,15 @@ function buildSessionContext(session, summary) {
 }
 
 /**
- * Render a template prompt with parent session and root session context
+ * Render a template prompt with workspace (root session) context.
  * @param {string} templatePrompt - The Liquid template string
- * @param {{ parentSession: Object, parentSummary: Object|null, rootSession: Object, rootSummary: Object|null }} sessionContext - Session context objects
+ * @param {{ rootSession: Object, rootSummary: Object|null }} sessionContext - Session context objects
  * @returns {Promise<string>} The rendered prompt
  */
 export async function renderTemplatePrompt(templatePrompt, sessionContext) {
-  const { parentSession, parentSummary, rootSession, rootSummary } = sessionContext;
+  const { rootSession, rootSummary } = sessionContext;
   const context = {
-    parentSession: buildSessionContext(parentSession, parentSummary),
-    rootSession: buildSessionContext(rootSession, rootSummary),
+    workspace: buildSessionContext(rootSession, rootSummary),
   };
 
   return liquid.parseAndRender(templatePrompt, context);
@@ -187,11 +186,10 @@ export async function checkAndTriggerNextTemplate(sessionId) {
   console.log(`Template trigger: Triggering template "${template.name}" after session "${session.name}"`);
 
   try {
-    const parentSummary = sessionSummaries.getBySessionId(sessionId);
     const rootSession = getRootSession(session);
     const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
 
-    const renderedPrompt = await renderTemplatePrompt(template.prompt, { parentSession: session, parentSummary, rootSession, rootSummary });
+    const renderedPrompt = await renderTemplatePrompt(template.prompt, { rootSession, rootSummary });
     const settings = deriveSessionSettings(template, rootSession);
     const newSessionName = `${template.name} (from: ${session.name})`;
 

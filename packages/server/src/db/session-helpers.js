@@ -5,6 +5,28 @@
 
 import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
 
+/** Shared ORDER BY clause for session list queries (most-recent activity first). */
+export const SESSION_ORDER_BY =
+  ' ORDER BY COALESCE(last_activity_at, updated_at, created_at) DESC, ' +
+  'updated_at DESC, created_at DESC, rowid DESC';
+
+/**
+ * Append optional archived/starred WHERE filters to a session query.
+ * Pushes bound params onto `params` and returns the extended SQL string.
+ */
+export function applySessionFilters(sql, params, { archived = null, starred = null } = {}) {
+  let clause = sql;
+  if (archived !== null) {
+    clause += ' AND archived = ?';
+    params.push(archived ? 1 : 0);
+  }
+  if (starred !== null) {
+    clause += ' AND starred = ?';
+    params.push(starred ? 1 : 0);
+  }
+  return clause;
+}
+
 /** Reusable SQL fragment for computed activity fields on sessions */
 export const ACTIVITY_FIELDS_SQL = `
   (

@@ -74,11 +74,11 @@ export function KanbanApi(ApiClient) {
     // ============== Card Endpoints ==============
 
     /**
-     * Add a session to the kanban board (create a card)
+     * Add a workspace to the kanban board (create a card)
      * @param {string} projectId - Project ID
      * @param {Object} data - Card data
-     * @param {string} data.sessionId - Session ID to add
-     * @param {string} data.laneId - Lane to add the session to
+     * @param {string} data.workspaceId - Workspace (root session) ID to add
+     * @param {string} data.laneId - Lane to add the workspace to
      * @returns {Promise<Object>}
      */
     async createKanbanCard(projectId, data) {

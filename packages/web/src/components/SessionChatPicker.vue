@@ -2,7 +2,7 @@
   <div
     class="session-chat-picker"
     role="listbox"
-    aria-label="Session hierarchy"
+    aria-label="Workspace hierarchy"
     data-testid="session-chat-picker"
     @keydown="handleKeydown"
   >

@@ -3,7 +3,7 @@
     v-if="active"
     class="session-running-spinner active-spinner"
     :title="title"
-    aria-label="Session running"
+    aria-label="Workspace running"
   />
 </template>
 
@@ -15,7 +15,7 @@ defineProps({
   },
   title: {
     type: String,
-    default: 'Session running...',
+    default: 'Workspace running...',
   },
 });
 </script>

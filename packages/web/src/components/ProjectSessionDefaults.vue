@@ -1,8 +1,8 @@
 <template>
   <details class="advanced-settings">
-    <summary>Session Defaults</summary>
+    <summary>Workspace Defaults</summary>
     <p class="form-help">
-      Set default values for new sessions created in this project. These values can be overridden when creating individual sessions.
+      Set default values for new workspaces created in this project. These values can be overridden when creating individual workspaces.
     </p>
 
     <div class="form-group">
@@ -39,7 +39,7 @@
         Enable thinking (extended thinking) by default
       </label>
       <p class="form-help">
-        Enable the agent's extended thinking capability for new sessions.
+        Enable the agent's extended thinking capability for new workspaces.
       </p>
     </div>
 
@@ -70,7 +70,7 @@
         </option>
       </select>
       <p class="form-help">
-        Set the default effort level for new sessions. Controls how much effort the agent puts into responses.
+        Set the default effort level for new workspaces. Controls how much effort the agent puts into responses.
       </p>
     </div>
 
@@ -80,10 +80,10 @@
           v-model="defaultStartImmediately"
           type="checkbox"
         >
-        Start sessions immediately
+        Start workspaces immediately
       </label>
       <p class="form-help">
-        When enabled, sessions will start automatically. When disabled, sessions will be created in "waiting" state.
+        When enabled, workspaces will start automatically. When disabled, workspaces will be created in "waiting" state.
       </p>
     </div>
 
@@ -101,14 +101,14 @@
           No git isolation
         </option>
         <option value="branch">
-          Create branch for each session
+          Create branch for each workspace
         </option>
         <option value="worktree">
-          Create worktree for each session
+          Create worktree for each workspace
         </option>
       </select>
       <p class="form-help">
-        Controls how git changes are isolated for each session.
+        Controls how git changes are isolated for each workspace.
       </p>
     </div>
 
@@ -125,7 +125,7 @@
         placeholder="e.g., feature/ai-implementation"
       >
       <p class="form-help">
-        When using git branch mode, this is the branch name pattern for new sessions.
+        When using git branch mode, this is the branch name pattern for new workspaces.
       </p>
     </div>
 
@@ -142,7 +142,7 @@
         select-class="form-input"
       />
       <p class="form-help">
-        Choose the default model for new sessions in this project.
+        Choose the default model for new workspaces in this project.
       </p>
     </div>
 
@@ -215,7 +215,7 @@ function collectNonDefaultValues() {
 }
 
 async function handleResetDefaults() {
-  if (!confirm('Reset all session defaults to system defaults?')) return;
+  if (!confirm('Reset all workspace defaults to system defaults?')) return;
 
   savingDefaults.value = true;
 
@@ -229,7 +229,7 @@ async function handleResetDefaults() {
     defaultGitBranch.value = '';
     defaultModel.value = '';
     defaultProviderId.value = null;
-    uiStore.success('Session defaults reset to system defaults');
+    uiStore.success('Workspace defaults reset to system defaults');
   } catch (err) {
     uiStore.error(err.message);
   } finally {

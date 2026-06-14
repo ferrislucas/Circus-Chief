@@ -189,7 +189,7 @@ test.describe('Session Name Editing', () => {
     // Verify the pencil icon is visible
     const editTrigger = page.locator('button.name-edit-trigger');
     await expect(editTrigger).toBeVisible();
-    await expect(editTrigger).toHaveAttribute('title', 'Edit session name');
+    await expect(editTrigger).toHaveAttribute('title', 'Edit workspace name');
   });
 
   test('clear button is not visible before entering edit mode', async ({ page }) => {

@@ -252,7 +252,7 @@ const sendButtonDisabledReason = computed(() => {
     const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
     const now = new Date();
     if (scheduledTime > now) {
-      return `Session is scheduled for ${formatDistanceToNow(scheduledTime, { addSuffix: true })}`;
+      return `Workspace is scheduled for ${formatDistanceToNow(scheduledTime, { addSuffix: true })}`;
     }
   }
   return null;
@@ -273,12 +273,12 @@ const nextTemplate = computed(() => {
 const workingDirectory = computed(() => {
   const session = sessionsStore.currentSession;
   if (!session) {
-    console.log('[workingDirectory] No current session');
+    console.log('[workingDirectory] No current workspace');
     return null;
   }
 
   if (session.gitWorktree) {
-    console.log('[workingDirectory] Using session.gitWorktree:', session.gitWorktree);
+    console.log('[workingDirectory] Using workspace.gitWorktree:', session.gitWorktree);
     return session.gitWorktree;
   }
 

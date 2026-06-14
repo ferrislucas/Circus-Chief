@@ -94,14 +94,17 @@ export function requireRootSessionAndProject(req, res, next) {
 }
 
 /**
- * Middleware factory for project-scoped endpoints that receive a sessionId in
- * the JSON body and should operate on that session tree's root.
+ * Middleware factory for project-scoped endpoints that receive a workspaceId
+ * (= root session ID) in the JSON body and should operate on that session
+ * tree's root.  Forgiving normalization: if a child session id is provided,
+ * it is silently resolved to its workspace root (the service layer is
+ * authoritative; this is defense-in-depth only).
  */
 export function resolveBodyRootSessionForProject(projectParam = 'projectId') {
   return (req, res, next) => {
-    const providedSessionId = req.body?.sessionId;
+    const providedSessionId = req.body?.workspaceId;
     if (!providedSessionId) {
-      return res.status(400).json({ error: 'sessionId is required' });
+      return res.status(400).json({ error: 'workspaceId is required' });
     }
 
     const providedSession = sessions.getById(providedSessionId);

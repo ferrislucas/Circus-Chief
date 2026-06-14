@@ -32,19 +32,19 @@ describe('SessionOverviewCard.vue', () => {
     });
   }
 
-  describe('Scheduled Sessions', () => {
-    it('renders no scheduled sessions section when array is empty', () => {
+  describe('Scheduled Workspaces', () => {
+    it('renders no scheduled workspaces section when array is empty', () => {
       const wrapper = mountComponent({ scheduledSessions: [] });
       // The card should not render at all when there's no content
       expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(false);
     });
 
-    it('renders no scheduled sessions section when prop is omitted', () => {
+    it('renders no scheduled workspaces section when prop is omitted', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(false);
     });
 
-    it('renders scheduled sessions section when array has items', () => {
+    it('renders scheduled workspaces section when array has items', () => {
       const scheduledSessions = [
         { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
       ];
@@ -54,7 +54,7 @@ describe('SessionOverviewCard.vue', () => {
       });
 
       expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
-      expect(wrapper.find('.scheduled-sessions-heading').text()).toBe('Scheduled Sessions (1)');
+      expect(wrapper.find('.scheduled-sessions-heading').text()).toBe('Scheduled Workspaces (1)');
     });
 
     it('renders multiple ScheduledChildCard stubs', () => {
@@ -69,7 +69,7 @@ describe('SessionOverviewCard.vue', () => {
       });
 
       expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
-      expect(wrapper.find('.scheduled-sessions-heading').text()).toBe('Scheduled Sessions (3)');
+      expect(wrapper.find('.scheduled-sessions-heading').text()).toBe('Scheduled Workspaces (3)');
       const stubs = wrapper.findAll('.scheduled-child-card-stub');
       expect(stubs.length).toBe(3);
       expect(stubs[0].text()).toBe('Child 1');
@@ -93,7 +93,7 @@ describe('SessionOverviewCard.vue', () => {
       expect(cards[1].props('projectId')).toBe('proj-1');
     });
 
-    it('shows overview card when only scheduled sessions exist (no summary, PR, metrics)', () => {
+    it('shows overview card when only scheduled workspaces exist (no summary, PR, metrics)', () => {
       const scheduledSessions = [
         { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
       ];
@@ -106,7 +106,7 @@ describe('SessionOverviewCard.vue', () => {
       expect(wrapper.find('.overview-scheduled-sessions').exists()).toBe(true);
     });
 
-    it('does not show "Session Overview" header when only scheduled sessions exist', () => {
+    it('does not show "Workspace Overview" header when only scheduled workspaces exist', () => {
       const scheduledSessions = [
         { id: 'c1', name: 'Child 1', status: 'scheduled', scheduledAt: Date.now() + 3600000 },
       ];
@@ -128,7 +128,7 @@ describe('SessionOverviewCard.vue', () => {
 
       expect(wrapper.find('.session-overview').exists()).toBe(true);
       expect(wrapper.find('.overview-summary-empty').exists()).toBe(true);
-      expect(wrapper.text()).toContain("This session hasn't started yet.");
+      expect(wrapper.text()).toContain("This workspace hasn't started yet.");
       expect(wrapper.find('.overview-summary-empty button').exists()).toBe(false);
       expect(wrapper.find('.overview-summary-empty').text()).not.toContain('Generate summary');
     });

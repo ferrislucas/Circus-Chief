@@ -106,10 +106,10 @@ describe('OverflowMenu.vue', () => {
 
     it('kebab button has custom aria-label when provided', () => {
       const wrapper = mount(OverflowMenu, {
-        props: { ariaLabel: 'Session actions' }
+        props: { ariaLabel: 'Workspace actions' }
       });
       const button = wrapper.find('.btn-kebab');
-      expect(button.attributes('aria-label')).toBe('Session actions');
+      expect(button.attributes('aria-label')).toBe('Workspace actions');
     });
 
     it('kebab button has aria-expanded attribute that toggles', async () => {
@@ -153,13 +153,13 @@ describe('OverflowMenu.vue', () => {
   describe('Props Tests', () => {
     it('accepts custom text for Duplicate', async () => {
       const wrapper = mount(OverflowMenu, {
-        props: { duplicateText: 'Copy Session' }
+        props: { duplicateText: 'Copy Workspace' }
       });
       await wrapper.find('.btn-kebab').trigger('click');
       await wrapper.vm.$nextTick();
 
       const items = wrapper.findAll('.menu-item');
-      expect(items.some(item => item.text().includes('Copy Session'))).toBe(true);
+      expect(items.some(item => item.text().includes('Copy Workspace'))).toBe(true);
     });
 
     it('accepts custom text for Archive', async () => {

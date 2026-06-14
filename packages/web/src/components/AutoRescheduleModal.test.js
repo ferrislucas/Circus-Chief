@@ -26,7 +26,7 @@ describe('AutoRescheduleModal.vue', () => {
 
   const runningSession = {
     id: 'session-1',
-    name: 'Test Session',
+    name: 'Test Workspace',
     status: 'running',
     autoRescheduleEnabled: false,
     rescheduleDelayMinutes: 15,
@@ -36,7 +36,7 @@ describe('AutoRescheduleModal.vue', () => {
 
   const sessionWithReschedule = {
     id: 'session-2',
-    name: 'Test Session with Reschedule',
+    name: 'Test Workspace with Reschedule',
     status: 'running',
     autoRescheduleEnabled: true,
     rescheduleDelayMinutes: 30,
@@ -75,7 +75,7 @@ describe('AutoRescheduleModal.vue', () => {
       expect(wrapper.props('isOpen')).toBe(false);
     });
 
-    it('accepts sessions with different statuses', () => {
+    it('accepts workspaces with different statuses', () => {
       const completedSession = { ...runningSession, status: 'completed' };
       const wrapper = mountComponent({ session: completedSession });
       expect(wrapper.props('session').status).toBe('completed');
@@ -88,7 +88,7 @@ describe('AutoRescheduleModal.vue', () => {
   });
 
   describe('store integration', () => {
-    it('uses the sessions store', () => {
+    it('uses the workspaces store', () => {
       mountComponent();
       expect(useSessionsStore).toHaveBeenCalled();
     });
@@ -100,17 +100,17 @@ describe('AutoRescheduleModal.vue', () => {
   });
 
   describe('props validation', () => {
-    it('accepts session with reschedule enabled', () => {
+    it('accepts workspace with reschedule enabled', () => {
       const wrapper = mountComponent({ session: sessionWithReschedule });
       expect(wrapper.props('session').autoRescheduleEnabled).toBe(true);
     });
 
-    it('accepts session with reschedule disabled', () => {
+    it('accepts workspace with reschedule disabled', () => {
       const wrapper = mountComponent({ session: runningSession });
       expect(wrapper.props('session').autoRescheduleEnabled).toBe(false);
     });
 
-    it('accepts session with reschedule count > 0', () => {
+    it('accepts workspace with reschedule count > 0', () => {
       const sessionWithCount = { ...sessionWithReschedule, rescheduleCount: 5 };
       const wrapper = mountComponent({ session: sessionWithCount });
       expect(wrapper.props('session').rescheduleCount).toBe(5);
@@ -123,7 +123,7 @@ describe('AutoRescheduleModal.vue', () => {
       expect(wrapper.exists()).toBe(true);
     });
 
-    it('renders with different session statuses', () => {
+    it('renders with different workspace statuses', () => {
       const statuses = ['running', 'waiting', 'completed', 'error'];
       statuses.forEach((status) => {
         const session = { ...runningSession, status };

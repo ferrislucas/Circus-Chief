@@ -244,7 +244,7 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     config.agentType = resolveAgentTypeFromModel(config.model);
     const initialStatus = determineInitialStatus(config);
     session = createSessionRow(req.params.id, config, nextTemplateId, initialStatus);
-    return await startSessionOrFail(req, res, { session, config, project });
+    return await startSessionOrFail(req, res, { session, config, project, projectId: req.params.id });
   } catch (error) {
     console.error('Session creation error:', error);
 
