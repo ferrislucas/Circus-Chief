@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <div class="project-title">
-          <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
+          <h1>{{ projectsStore.currentProject?.name || 'Workspaces' }}</h1>
           <a
             v-if="projectsStore.currentProject?.repoUrl"
             :href="projectsStore.currentProject.repoUrl"
@@ -49,7 +49,7 @@
         :to="`/projects/${route.params.id}/sessions/new`"
         class="btn btn-primary mobile-only"
       >
-        + Session
+        + Workspace
       </router-link>
     </div>
 
@@ -63,7 +63,7 @@
             :class="{ active: activeTab === 'sessions' }"
             @click="router.push(`/projects/${route.params.id}/sessions`)"
           >
-            Sessions
+            Workspaces
           </button>
           <button
             class="tab"
@@ -105,9 +105,9 @@
           v-if="activeTab === 'sessions'"
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary desktop-only"
-          aria-label="New Session"
+          aria-label="New Workspace"
         >
-          <span class="add-session-label-full">+ Session</span><span class="add-session-label-short">+</span>
+          <span class="add-session-label-full">+ Workspace</span><span class="add-session-label-short">+</span>
         </router-link>
       </div>
 
@@ -119,7 +119,7 @@
           @change="handleTabChange($event.target.value)"
         >
           <option value="sessions">
-            Sessions
+            Workspaces
           </option>
           <option value="kanban">
             Kanban
@@ -185,12 +185,12 @@
         v-else-if="sessionsStore.sessions.length === 0"
         class="empty-state"
       >
-        <p>No sessions yet. Start a new session to interact with the agent.</p>
+        <p>No workspaces yet. Start a new workspace to interact with the agent.</p>
         <router-link
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary"
         >
-          New Session
+          New Workspace
         </router-link>
       </div>
 
@@ -198,7 +198,7 @@
         v-else-if="filteredGroupedSessions.length === 0"
         class="empty-state"
       >
-        <p>No sessions match the current filter.</p>
+        <p>No workspaces match the current filter.</p>
       </div>
 
       <div

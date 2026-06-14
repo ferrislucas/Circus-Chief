@@ -1386,7 +1386,7 @@ describe('Status filtering', () => {
 
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
-      expect(emptyState.text()).toContain('No sessions match the current filter');
+      expect(emptyState.text()).toContain('No workspaces match the current filter');
     });
 
     it('shows empty state message when idle filter returns no results', async () => {
@@ -1405,7 +1405,7 @@ describe('Status filtering', () => {
 
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
-      expect(emptyState.text()).toContain('No sessions match the current filter');
+      expect(emptyState.text()).toContain('No workspaces match the current filter');
     });
 
     it('shows waiting session when only starting and waiting exist (waiting is idle)', async () => {
@@ -1436,10 +1436,10 @@ describe('Status filtering', () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-      // Should show the "No sessions yet" empty state
+      // Should show the "No workspaces yet" empty state
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
-      expect(emptyState.text()).toContain('No sessions yet');
+      expect(emptyState.text()).toContain('No workspaces yet');
     });
 
     it('handles session list with only starting sessions', async () => {
@@ -1640,20 +1640,20 @@ describe('SessionListView Archived Tab', () => {
     }
   }
 
-  it('renders Sessions tab as active by default', async () => {
+  it('renders Workspaces tab as active by default', async () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
     const tabs = wrapper.findAll('.tab');
     expect(tabs.length).toBe(6);
-    expect(tabs[0].text()).toBe('Sessions');
+    expect(tabs[0].text()).toBe('Workspaces');
     expect(tabs[1].text()).toBe('Kanban');
     expect(tabs[2].text()).toBe('Commands');
     expect(tabs[3].text()).toBe('Circus Time');
     expect(tabs[4].text()).toBe('Templates');
     expect(tabs[5].text()).toBe('Archive');
 
-    // Sessions tab should be active
+    // Workspaces tab should be active
     expect(tabs[0].classes()).toContain('active');
     expect(tabs[1].classes()).not.toContain('active');
   });
@@ -1758,7 +1758,7 @@ describe('SessionListView Archived Tab', () => {
     expect(sessionCards.length).toBe(2);
   });
 
-  it('passes showArchive=true to SessionCards in Sessions tab', async () => {
+  it('passes showArchive=true to SessionCards in Workspaces tab', async () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
@@ -1783,11 +1783,11 @@ describe('SessionListView Archived Tab', () => {
     expect(sessionCards.length).toBe(1);
   });
 
-  it('hides New Session button on Archived tab', async () => {
+  it('hides New Workspace button on Archived tab', async () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    // Button should be visible on Sessions tab
+    // Button should be visible on Workspaces tab
     expect(wrapper.find('.btn-primary').exists()).toBe(true);
 
     // Switch to Archived tab
@@ -3131,7 +3131,7 @@ describe('Add Session button responsive labels', () => {
     const desktopBtn = wrapper.find('.tabs-desktop .btn-primary');
     expect(desktopBtn.exists()).toBe(true);
     expect(desktopBtn.find('.add-session-label-full').exists()).toBe(true);
-    expect(desktopBtn.find('.add-session-label-full').text()).toBe('+ Session');
+    expect(desktopBtn.find('.add-session-label-full').text()).toBe('+ Workspace');
     expect(desktopBtn.find('.add-session-label-short').exists()).toBe(true);
     expect(desktopBtn.find('.add-session-label-short').text()).toBe('+');
   });
@@ -3142,16 +3142,16 @@ describe('Add Session button responsive labels', () => {
 
     const desktopBtn = wrapper.find('.tabs-desktop .btn-primary');
     expect(desktopBtn.exists()).toBe(true);
-    expect(desktopBtn.attributes('aria-label')).toBe('New Session');
+    expect(desktopBtn.attributes('aria-label')).toBe('New Workspace');
   });
 
-  it('renders mobile button with "+ Session" text', async () => {
+  it('renders mobile button with "+ Workspace" text', async () => {
     const wrapper = mount(SessionListView);
     await flushAll(wrapper);
 
     const mobileBtn = wrapper.find('.mobile-only.btn-primary');
     expect(mobileBtn.exists()).toBe(true);
-    expect(mobileBtn.text()).toContain('+ Session');
+    expect(mobileBtn.text()).toContain('+ Workspace');
   });
 
   it('does not affect empty-state button text', async () => {
@@ -3164,7 +3164,7 @@ describe('Add Session button responsive labels', () => {
 
     const emptyStateBtn = wrapper.find('.empty-state .btn-primary');
     expect(emptyStateBtn.exists()).toBe(true);
-    expect(emptyStateBtn.text()).toBe('New Session');
+    expect(emptyStateBtn.text()).toBe('New Workspace');
   });
 });
 
