@@ -232,7 +232,7 @@
             v-if="loading"
             class="loading-spinner"
           />
-          {{ startImmediately ? 'Start Workspace' : 'Create Draft Workspace' }}
+          {{ startImmediately ? 'Start Workspace' : 'Create Workspace' }}
         </button>
       </div>
     </form>
