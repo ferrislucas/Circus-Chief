@@ -39,7 +39,7 @@ test.describe('Archive Modal - Remove from Kanban Board', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    await page.locator('button.archive-btn[title="Archive session"]').first().click();
+    await page.locator('button.archive-btn[title="Archive workspace"]').first().click();
 
     const modal = page.locator('.modal-backdrop');
     await expect(modal).toBeVisible({ timeout: 5000 });
@@ -65,7 +65,7 @@ test.describe('Archive Modal - Remove from Kanban Board', () => {
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-    await page.click('button[aria-label="Session actions"]');
+    await page.click('button[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
     await page.locator('button.menu-item').filter({ hasText: 'Archive' }).click({ timeout: 10000 });
 
@@ -92,7 +92,7 @@ test.describe('Archive Modal - Remove from Kanban Board', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    await page.locator('button.archive-btn[title="Archive session"]').first().click();
+    await page.locator('button.archive-btn[title="Archive workspace"]').first().click();
 
     const modal = page.locator('.modal-backdrop');
     await expect(modal).toBeVisible({ timeout: 5000 });
@@ -118,7 +118,7 @@ test.describe('Archive Modal - Remove from Kanban Board', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    await page.locator('button.archive-btn[title="Archive session"]').first().click();
+    await page.locator('button.archive-btn[title="Archive workspace"]').first().click();
 
     const modal = page.locator('.modal-backdrop');
     await expect(modal).toBeVisible({ timeout: 5000 });
@@ -149,7 +149,7 @@ test.describe('Archive Modal - Remove from Kanban Board', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    await page.locator('button.archive-btn[title="Archive session"]').first().click();
+    await page.locator('button.archive-btn[title="Archive workspace"]').first().click();
 
     const modal = page.locator('.modal-backdrop');
     await expect(modal).toBeVisible({ timeout: 5000 });

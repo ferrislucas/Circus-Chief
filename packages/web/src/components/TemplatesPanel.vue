@@ -86,7 +86,7 @@
           <ModelSelector
             v-model="formData.model"
             :allow-empty="true"
-            empty-label="Inherit from root session"
+            empty-label="Inherit from root workspace"
           />
         </div>
 

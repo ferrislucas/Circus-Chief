@@ -240,25 +240,6 @@ export async function handleTurnCompletion(sessionId) {
 }
 
 /**
- * Walk up the ancestor chain to find the nearest session that has a kanban card.
- * Returns null if no ancestor has a card.
- *
- * @param {Object} session - The starting session (not checked itself)
- * @returns {{ session: Object, card: Object }|null}
- */
-function findCardInAncestors(session) {
-  let current = session;
-  while (current.parentSessionId) {
-    const parent = sessions.getById(current.parentSessionId);
-    if (!parent) break;
-    const card = kanbanCards.getBySessionId(parent.id);
-    if (card) return { session: parent, card };
-    current = parent;
-  }
-  return null;
-}
-
-/**
  * Move an existing card based on the current lane's completion target.
  *
  * When the completing session has no card (e.g. it was spawned by a lane's

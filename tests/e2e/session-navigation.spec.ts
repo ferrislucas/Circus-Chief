@@ -55,6 +55,6 @@ test.describe('Session List Icon Navigation', () => {
     await navigateAndWait(page, `/sessions/${session.id}`);
 
     const backLink = page.locator('.tab-back');
-    await expect(backLink).toHaveAttribute('title', 'Back to Sessions');
+    await expect(backLink).toHaveAttribute('title', 'Back to Workspaces');
   });
 });
