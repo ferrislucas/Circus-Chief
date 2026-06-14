@@ -212,6 +212,28 @@ class SchedulerService {
     const { prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments } =
       await this.resolveScheduledPrompt(session, workingDirectory, project.systemPrompt);
 
+    // Check for existing-message retry first (takes precedence over fresh/continuation branches)
+    if (session.pendingConversationId) {
+      const pendingConversationId = session.pendingConversationId;
+
+      // Clear scheduler state and transition to starting
+      sessions.update(session.id, {
+        status: 'starting',
+        scheduledAt: null,
+        pendingPrompt: null,
+        pendingConversationId: null,
+      });
+      broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
+
+      await this.sessionManager.continueSessionWithExistingMessage(
+        session.id,
+        pendingConversationId,
+        workingDirectory,
+        { systemPrompt: effectiveSystemPrompt, model: session.pendingModel }
+      );
+      return;
+    }
+
     // Get the session messages to determine if this is initial or continuation
     const sessionMessages = messages.getBySessionId(session.id);
     const hasAssistantResponses = sessionMessages.some((msg) => msg.role === 'assistant');
@@ -242,9 +264,12 @@ class SchedulerService {
    * Reschedule a session with a delay
    * @param {string} sessionId - Session ID to reschedule
    * @param {string} reason - Reason for rescheduling
+   * @param {{ retryExistingMessage?: boolean, conversationId?: string|null }} [options]
+   *   - retryExistingMessage: if true, retry the existing user message instead of sending "Continue"
+   *   - conversationId: the active conversation to retry (required when retryExistingMessage is true)
    * @returns {boolean} True if rescheduled, false if limits reached
    */
-  async rescheduleSession(sessionId, reason) {
+  async rescheduleSession(sessionId, reason, { retryExistingMessage = false, conversationId = null } = {}) {
     const session = sessions.getById(sessionId);
     if (!session) {
       console.error(`[SchedulerService] Session not found: ${sessionId}`);
@@ -262,20 +287,6 @@ class SchedulerService {
       return false;
     }
 
-    // Get the last user message to use as pendingPrompt for restart
-    const sessionMessages = messages.getBySessionId(sessionId);
-    const lastUserMessage = [...sessionMessages].reverse().find(msg => msg.role === 'user');
-
-    if (!lastUserMessage) {
-      console.error(`[SchedulerService] No user message found for session ${sessionId}`);
-      sessions.update(sessionId, {
-        status: 'error',
-        error: `Cannot reschedule: No user message found. ${reason}`,
-      });
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'error' });
-      return false;
-    }
-
     // Calculate new scheduled time
     const newScheduledAt = Date.now() + session.rescheduleDelayMinutes * 60 * 1000;
     const delayMinutes = session.rescheduleDelayMinutes;
@@ -285,12 +296,39 @@ class SchedulerService {
       `[SchedulerService] Rescheduling session ${sessionId} for ${delayMinutes} minutes from now (attempt ${newRescheduleCount})`
     );
 
+    let pendingPrompt;
+    let pendingConversationId = null;
+
+    if (retryExistingMessage && conversationId) {
+      // Existing-message retry: use the last user message from the active conversation
+      // and store pendingConversationId so startScheduledSession can route correctly.
+      const convMessages = messages.getByConversationId(conversationId);
+      const lastUserMessage = [...convMessages].reverse().find(msg => msg.role === 'user');
+
+      if (!lastUserMessage) {
+        // Fall back to Continue path if no user message found in conversation
+        console.warn(`[SchedulerService] No user message found in conversation ${conversationId}, falling back to Continue`);
+        pendingPrompt = 'Continue';
+        pendingConversationId = null;
+      } else {
+        pendingPrompt = lastUserMessage.content;
+        pendingConversationId = conversationId;
+        console.log(`[SchedulerService] Existing-message retry for session ${sessionId}, conversation ${conversationId}`);
+      }
+    } else {
+      // Continue path: next attempt sends "Continue" as a new user message
+      pendingPrompt = 'Continue';
+      pendingConversationId = null;
+      console.log(`[SchedulerService] Continue retry for session ${sessionId}`);
+    }
+
     // Update session to scheduled status with new time and pendingPrompt
     const updated = sessions.update(sessionId, {
       status: 'scheduled',
-      scheduledAt: newScheduledAt,           // Fixed: camelCase
-      rescheduleCount: newRescheduleCount,   // Fixed: camelCase
-      pendingPrompt: lastUserMessage.content, // Set prompt for scheduler
+      scheduledAt: newScheduledAt,
+      rescheduleCount: newRescheduleCount,
+      pendingPrompt,
+      pendingConversationId,
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
 

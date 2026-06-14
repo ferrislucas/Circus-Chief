@@ -666,7 +666,11 @@ describe('streamEventHandler', () => {
 
       expect(result).toBe(true);
       expect(mockShouldReschedule).toHaveBeenCalledWith(mockSession, error, 'sess-1');
-      expect(mockScheduler.rescheduleSession).toHaveBeenCalledWith('sess-1', error.message);
+      expect(mockScheduler.rescheduleSession).toHaveBeenCalledWith(
+        'sess-1',
+        error.message,
+        expect.objectContaining({ retryExistingMessage: expect.any(Boolean) })
+      );
     });
 
     it('falls through to error handling when reschedule fails', async () => {

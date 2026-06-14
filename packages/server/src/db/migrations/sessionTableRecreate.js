@@ -56,6 +56,7 @@ export const SESSIONS_ALL_CURRENT_COLUMNS = `
     agent_type TEXT DEFAULT 'claude-code',
     target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
     lane_trigger_depth INTEGER NOT NULL DEFAULT 0,
+    pending_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 `;
@@ -72,7 +73,7 @@ export const SESSIONS_ALL_CURRENT_COLUMN_NAMES = [
   'max_reschedule_count', 'max_total_tokens', 'reschedule_count',
   'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
   'pending_model', 'auto_send_pending_prompt', 'agent_type', 'target_lane_id',
-  'lane_trigger_depth', 'created_at', 'updated_at',
+  'lane_trigger_depth', 'pending_conversation_id', 'created_at', 'updated_at',
 ];
 
 /**
