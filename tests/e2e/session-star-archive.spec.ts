@@ -294,8 +294,8 @@ test.describe('Archive / Unarchive Sessions', () => {
     // Wait for unarchive action to complete
     await page.waitForTimeout(1500);
 
-    // Navigate to Sessions tab (it's called "Sessions" not "Active")
-    await page.locator('button.tab').filter({ hasText: 'Sessions' }).click();
+    // Navigate to Workspaces tab (it's called "Workspaces" not "Active")
+    await page.locator('button.tab').filter({ hasText: 'Workspaces' }).click();
     await page.waitForLoadState('networkidle');
 
     // Session should reappear in active list

@@ -67,7 +67,7 @@ test.describe('Status Filter', () => {
 
     // Should show empty state
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No sessions match the current filter');
+    await expect(page.locator('.empty-state')).toContainText('No workspaces match the current filter');
 
     // No session cards visible
     await expect(page.locator('.session-card')).not.toBeVisible();
@@ -750,7 +750,7 @@ test.describe('Filter Combinations & Edge Cases', () => {
 
     // Should show empty state
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No sessions match the current filter');
+    await expect(page.locator('.empty-state')).toContainText('No workspaces match the current filter');
   });
 
   test('all three filter controls are visible on session list', async ({ page }) => {
