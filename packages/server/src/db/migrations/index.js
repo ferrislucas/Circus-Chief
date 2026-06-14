@@ -281,4 +281,7 @@ export const allMigrations = validateMigrations([
   // --- Providers enable/disable flag (appended last to keep column order
   //     stable relative to the providers-widen-kind-check-google table swap) ---
   pr.get('providers-add-enabled'),
+
+  // --- Repair sessions with ISO text in scheduled_at (should be epoch ms integers) ---
+  s.get('sessions-repair-scheduled_at-iso-text'),
 ]);

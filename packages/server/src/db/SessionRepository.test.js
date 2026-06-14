@@ -1476,6 +1476,34 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('getScheduledSessionsDue', () => {
+    it('returns due sessions after ISO text scheduled_at is repaired by migration', () => {
+      // 1. Create a scheduled session with a valid integer timestamp in the past
+      const session = repo.create(projectId, 'Stuck Session', 'Prompt', 'standard', false, null, null, 'scheduled');
+      repo.update(session.id, { scheduledAt: Date.now() - 1000 });
+
+      // 2. Overwrite stored value with an ISO text string (the bug)
+      repo.db.prepare('UPDATE sessions SET scheduled_at = ? WHERE id = ?').run('2020-01-01T00:00:00Z', session.id);
+
+      // 3. Confirm getScheduledSessionsDue does NOT return the session (reproduces the bug)
+      const beforeRepair = repo.getScheduledSessionsDue(Date.now());
+      expect(beforeRepair.find(s => s.id === session.id)).toBeUndefined();
+
+      // 4. Run the repair SQL (same as the migration)
+      repo.db.prepare(`
+        UPDATE sessions
+        SET scheduled_at = CAST(strftime('%s', scheduled_at) AS INTEGER) * 1000
+        WHERE scheduled_at IS NOT NULL
+          AND typeof(scheduled_at) = 'text'
+          AND scheduled_at GLOB '????-??-??T??:??:??*'
+      `).run();
+
+      // 5. Confirm the session is now returned
+      const afterRepair = repo.getScheduledSessionsDue(Date.now());
+      expect(afterRepair.find(s => s.id === session.id)).toBeDefined();
+    });
+  });
+
   describe('lastActivityAt', () => {
     it('populates lastActivityAt on session objects returned by getById', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');

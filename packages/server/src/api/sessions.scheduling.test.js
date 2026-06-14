@@ -112,5 +112,42 @@ describe('Sessions API - Scheduling PATCH behavior', () => {
       expect(response.body.status).toBe('starting');
       expect(response.body.scheduledAt).toBe(scheduledAt);
     });
+
+    it('normalizes ISO scheduledAt strings to epoch milliseconds', async () => {
+      const futureMs = Date.now() + 3600000;
+      const isoString = new Date(futureMs).toISOString();
+
+      const response = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ scheduledAt: isoString })
+        .expect(200);
+
+      expect(typeof response.body.scheduledAt).toBe('number');
+      expect(response.body.scheduledAt).toBe(futureMs);
+
+      const stored = sessions.getById(session.id);
+      expect(typeof stored.scheduledAt).toBe('number');
+      expect(stored.scheduledAt).toBe(futureMs);
+    });
+
+    it('rejects invalid scheduledAt strings with 400', async () => {
+      const response = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ scheduledAt: 'not-a-date' })
+        .expect(400);
+
+      expect(response.body.error).toBeTruthy();
+    });
+
+    it('rejects non-finite and non-date values with 400', async () => {
+      for (const bad of ['NaN', 'Infinity', [], {}]) {
+        const response = await request(app)
+          .patch(`/api/sessions/${session.id}`)
+          .send({ scheduledAt: bad })
+          .expect(400);
+
+        expect(response.body.error).toBeTruthy();
+      }
+    });
   });
 });
