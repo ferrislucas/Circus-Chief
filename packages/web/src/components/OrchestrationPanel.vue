@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { ref, defineOptions } from 'vue';
+import { ref, watch, defineOptions } from 'vue';
 import TemplateSelector from './TemplateSelector.vue';
 
 defineOptions({
@@ -119,7 +119,14 @@ const props = defineProps({
 
 const emit = defineEmits(['openSchedule', 'update:templateId', 'openAutoReschedule']);
 
-const isExpanded = ref(props.autoRescheduleEnabled || Boolean(props.currentTemplateId));
+const isExpanded = ref(Boolean(props.currentTemplateId));
+
+watch(
+  () => Boolean(props.currentTemplateId),
+  (hasTemplate) => {
+    if (hasTemplate) isExpanded.value = true;
+  }
+);
 
 function toggle() {
   isExpanded.value = !isExpanded.value;
