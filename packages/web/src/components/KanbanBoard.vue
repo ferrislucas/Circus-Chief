@@ -550,25 +550,11 @@ const fetchBoard = async () => {
   }
 };
 
-const getStatusIndicator = (status) => {
-  switch (status) {
-    case 'running':
-    case 'starting':
-      return '●';
-    case 'waiting':
-      return '◐';
-    case 'completed':
-      return '✓';
-    case 'error':
-      return '✕';
-    case 'stopped':
-      return '■';
-    case 'scheduled':
-      return '⏰';
-    default:
-      return '○';
-  }
+const STATUS_INDICATORS = {
+  running: '●', starting: '●', waiting: '◐', completed: '✓',
+  error: '✕', stopped: '■', scheduled: '⏰',
 };
+const getStatusIndicator = (status) => STATUS_INDICATORS[status] || '○';
 
 const isCardEffectivelyRunning = (session) => {
   if (!session?.id) return false;
