@@ -32,7 +32,7 @@ const createMockBoard = () => ({
           laneId: 'lane-1',
           sessions: [{
             id: 'session-1',
-            name: 'Session 1',
+            name: 'Workspace 1',
             status: 'waiting',
             mode: 'plan',
             prUrl: 'https://github.com/owner/repo/pull/123',
@@ -41,7 +41,7 @@ const createMockBoard = () => ({
         {
           id: 'card-2',
           laneId: 'lane-1',
-          sessions: [{ id: 'session-2', name: 'Session 2', status: 'running' }],
+          sessions: [{ id: 'session-2', name: 'Workspace 2', status: 'running' }],
         },
       ],
     },
@@ -54,7 +54,7 @@ const createMockBoard = () => ({
         {
           id: 'card-3',
           laneId: 'lane-2',
-          sessions: [{ id: 'session-3', name: 'Session 3', status: 'completed' }],
+          sessions: [{ id: 'session-3', name: 'Workspace 3', status: 'completed' }],
         },
       ],
     },
@@ -227,7 +227,7 @@ describe('KanbanBoard.vue', () => {
   });
 
   describe('PR indicators', () => {
-    it('shows a PR indicator for kanban cards whose session has a PR URL', () => {
+    it('shows a PR indicator for kanban cards whose workspace has a PR URL', () => {
       const wrapper = mountBoard();
 
       const prIndicators = wrapper.findAll('.pr-indicators');
@@ -236,12 +236,12 @@ describe('KanbanBoard.vue', () => {
     });
   });
 
-  describe('Scheduled session indicator', () => {
-    it('shows scheduled badge and relative time for a scheduled workflow session', () => {
+  describe('Scheduled workspace indicator', () => {
+    it('shows scheduled badge and relative time for a scheduled workflow workspace', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-01-10T12:00:00-06:00'));
       sessionsStore.sessions = [
-        { id: 'session-1', name: 'Session 1', status: 'waiting', scheduledAt: null },
+        { id: 'session-1', name: 'Workspace 1', status: 'waiting', scheduledAt: null },
         {
           id: 'session-1-child',
           parentSessionId: 'session-1',
@@ -263,7 +263,7 @@ describe('KanbanBoard.vue', () => {
 
     it('does not show scheduled badge when the workflow has no scheduled time', () => {
       sessionsStore.sessions = [
-        { id: 'session-1', name: 'Session 1', status: 'waiting', scheduledAt: null },
+        { id: 'session-1', name: 'Workspace 1', status: 'waiting', scheduledAt: null },
       ];
 
       const wrapper = mountBoard();
@@ -338,7 +338,7 @@ describe('KanbanBoard.vue', () => {
       // Covered by E2E tests
     });
 
-    it('MoveCardModal receives sessionName from card sessions', async () => {
+    it('MoveCardModal receives sessionName from card workspaces', async () => {
       const wrapper = mountBoard();
       const moveButton = wrapper.find('.card-move-btn');
       await moveButton.trigger('click');
@@ -350,7 +350,7 @@ describe('KanbanBoard.vue', () => {
       // Covered by E2E tests
     });
 
-    it('handles card with no sessions gracefully', async () => {
+    it('handles card with no workspaces gracefully', async () => {
       // Mock a card without sessions
       mockKanbanStore.board.lanes[0].cards[0].sessions = [];
       const wrapper = mountBoard();
@@ -482,14 +482,14 @@ describe('KanbanBoard.vue', () => {
     });
   });
 
-  describe('Add session button', () => {
-    it('renders add session button for each lane', () => {
+  describe('Add workspace button', () => {
+    it('renders add workspace button for each lane', () => {
       const wrapper = mountBoard();
       const addButtons = wrapper.findAll('.add-session-btn');
       expect(addButtons.length).toBe(2);
     });
 
-    it('opens add session modal when clicked', async () => {
+    it('opens add workspace modal when clicked', async () => {
       const wrapper = mountBoard();
       const addButton = wrapper.find('.add-session-btn');
       await addButton.trigger('click');
@@ -682,7 +682,7 @@ describe('KanbanBoard.vue', () => {
       ];
     });
 
-    it('renders statuses for showOnList command buttons from the sessions store', () => {
+    it('renders statuses for showOnList command buttons from the workspaces store', () => {
       sessionsStore.sessions = [
         {
           id: 'session-1',
@@ -702,7 +702,7 @@ describe('KanbanBoard.vue', () => {
       expect(firstCard.text()).not.toContain('Hidden');
     });
 
-    it('falls back to latestCommandRuns from the kanban card session', () => {
+    it('falls back to latestCommandRuns from the kanban card workspace', () => {
       mockKanbanStore.board.lanes[0].cards[0].sessions[0].latestCommandRuns = [
         { runId: 'run-card', buttonId: 'btn-visible', status: 'running' },
       ];

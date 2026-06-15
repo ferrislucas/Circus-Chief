@@ -118,18 +118,29 @@ export function createSessionRow(projectId, config, nextTemplateId, initialStatu
 /**
  * Run setupAndStartSession and translate any failure into an error response,
  * marking the session as errored and broadcasting the update.
+ *
+ * @param {object} req - Express request (used for res only; projectId must be explicit)
+ * @param {object} res - Express response
+ * @param {object} params
+ * @param {object} params.session - Created session row
+ * @param {object} params.config - Session config
+ * @param {object} params.project - Project record
+ * @param {string} params.projectId - Explicit project ID (do NOT read from req.params)
  */
-export async function startSessionOrFail(req, res, { session, config, project }) {
+export async function startSessionOrFail(req, res, { session, config, project, projectId }) {
+  // Fall back to req.params.id for backward-compat callers that haven't yet
+  // been updated to pass projectId explicitly.
+  const resolvedProjectId = projectId ?? req.params.id;
   try {
     const { updatedSession } = await setupAndStartSession({
-      session, config, project, projectId: req.params.id, files: config.files,
+      session, config, project, projectId: resolvedProjectId, files: config.files,
     });
     return res.status(201).json(updatedSession);
   } catch (error) {
     console.error('Git setup error:', error);
     const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
-    broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: req.params.id,
+    broadcastToProject(resolvedProjectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: resolvedProjectId,
       sessionId: session.id,
       session: updatedSession,
     });

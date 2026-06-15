@@ -58,7 +58,7 @@ describe('WorkflowSessionItem', () => {
     // Base session data
     baseSession = {
       id: 'sess-1',
-      name: 'Test Session',
+      name: 'Test Workspace',
       status: 'completed',
       createdAt: Date.now() - 3600000, // 1 hour ago
       scheduledAt: null,
@@ -92,9 +92,9 @@ describe('WorkflowSessionItem', () => {
       expect(wrapper.find('.workflow-session-item').exists()).toBe(true);
     });
 
-    it('displays session name', () => {
+    it('displays workspace name', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.workflow-session-name').text()).toBe('Test Session');
+      expect(wrapper.find('.workflow-session-name').text()).toBe('Test Workspace');
     });
 
     it('displays summary text', () => {
@@ -173,7 +173,7 @@ describe('WorkflowSessionItem', () => {
   });
 
   describe('displayDate computed property', () => {
-    it('shows scheduledAt date for scheduled sessions', () => {
+    it('shows scheduledAt date for scheduled workspaces', () => {
       const scheduledTime = Date.now() + 86400000; // Tomorrow
       const wrapper = mountComponent({
         status: 'scheduled',
@@ -186,7 +186,7 @@ describe('WorkflowSessionItem', () => {
       expect(dateText).toBeTruthy();
     });
 
-    it('shows lastActivityAt for non-scheduled sessions when available', () => {
+    it('shows lastActivityAt for non-scheduled workspaces when available', () => {
       const lastActivityTime = Date.now() - 1800000; // 30 minutes ago
       const wrapper = mountComponent({
         status: 'running',
@@ -228,7 +228,7 @@ describe('WorkflowSessionItem', () => {
       // Should show createdAt time
     });
 
-    it('shows time for sessions with activity today', () => {
+    it('shows time for workspaces with activity today', () => {
       const justNow = Date.now() - 1000; // 1 second ago
       const wrapper = mountComponent({
         status: 'completed',
@@ -241,7 +241,7 @@ describe('WorkflowSessionItem', () => {
       expect(dateText).toMatch(/at \d{1,2}:\d{2}/);
     });
 
-    it('shows date for sessions with activity yesterday or earlier', () => {
+    it('shows date for workspaces with activity yesterday or earlier', () => {
       const yesterday = Date.now() - 86400000 * 2; // 2 days ago
       const wrapper = mountComponent({
         status: 'completed',
@@ -352,7 +352,7 @@ describe('WorkflowSessionItem', () => {
   });
 
   describe('computed properties', () => {
-    it('computes displayDate correctly for scheduled sessions', () => {
+    it('computes displayDate correctly for scheduled workspaces', () => {
       const scheduledTime = Date.now() + 86400000;
       const wrapper = mountComponent({
         status: 'scheduled',
@@ -364,7 +364,7 @@ describe('WorkflowSessionItem', () => {
       expect(dateText).toBeTruthy();
     });
 
-    it('computes displayDate correctly for non-scheduled sessions', () => {
+    it('computes displayDate correctly for non-scheduled workspaces', () => {
       const createdTime = Date.now() - 3600000;
       const wrapper = mountComponent({
         status: 'running',
@@ -397,22 +397,22 @@ describe('WorkflowSessionItem', () => {
   });
 
   describe('SessionLogStream integration', () => {
-    it('renders SessionLogStream when child session status is "running"', () => {
+    it('renders SessionLogStream when child workspace status is "running"', () => {
       const wrapper = mountComponent({ status: 'running' });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
     });
 
-    it('renders SessionLogStream when child session status is "starting"', () => {
+    it('renders SessionLogStream when child workspace status is "starting"', () => {
       const wrapper = mountComponent({ status: 'starting' });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
     });
 
-    it('does NOT render SessionLogStream when child session status is "completed"', () => {
+    it('does NOT render SessionLogStream when child workspace status is "completed"', () => {
       const wrapper = mountComponent({ status: 'completed' });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
     });
 
-    it('passes correct session.id as sessionIds prop', () => {
+    it('passes correct workspace.id as sessionIds prop', () => {
       const wrapper = mountComponent({ id: 'child-session-42', status: 'running' });
       const logStream = wrapper.find('.session-log-stream-mock');
       expect(JSON.parse(logStream.attributes('data-session-ids'))).toEqual(['child-session-42']);

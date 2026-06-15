@@ -133,13 +133,12 @@ export function getTemplateSessionSettings(template, session) {
  * @returns {{ newSession: Object, renderedPrompt: string, settings: Object }}
  */
 async function buildChildSessionFromTemplate(template, session, lane, depth) {
-  // Render prompt with session context
-  const parentSummary = sessionSummaries.getBySessionId(session.id);
+  // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
   const renderedPrompt = await renderTemplatePrompt(
     template.prompt,
-    { parentSession: session, parentSummary, rootSession, rootSummary }
+    { rootSession, rootSummary }
   );
 
   // Get settings and create session
@@ -231,13 +230,12 @@ export async function triggerOnEnterTemplate(sessionId, lane, options = {}) {
  * @returns {Promise<{ newSession: Object, renderedPrompt: string, settings: Object }>}
  */
 async function buildChildSessionFromPrompt(lane, session, depth) {
-  // Render prompt with session context
-  const parentSummary = sessionSummaries.getBySessionId(session.id);
+  // Render prompt with workspace context
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
   const renderedPrompt = await renderTemplatePrompt(
     lane.onEnterPrompt,
-    { parentSession: session, parentSummary, rootSession, rootSummary }
+    { rootSession, rootSummary }
   );
 
   // Get settings and create session

@@ -67,7 +67,7 @@ test.describe('Status Filter', () => {
 
     // Should show empty state
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No sessions match the current filter');
+    await expect(page.locator('.empty-state')).toContainText('No workspaces match the current filter');
 
     // No session cards visible
     await expect(page.locator('.session-card')).not.toBeVisible();
@@ -483,7 +483,7 @@ test.describe('Archived Sessions Tab', () => {
     await navigateAndWait(page, `/projects/${project.id}/archived`);
 
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No archived sessions');
+    await expect(page.locator('.empty-state')).toContainText('No archived workspaces');
   });
 
   test('archived tab shows archived sessions', async ({ page }) => {
@@ -519,7 +519,7 @@ test.describe('Archived Sessions Tab', () => {
 
     // Click unarchive button on first session card
     const firstCard = page.locator('.session-card').first();
-    await firstCard.locator('.archive-btn[title="Unarchive session"]').click();
+    await firstCard.locator('.archive-btn[title="Unarchive workspace"]').click();
 
     // Wait for the session to be removed from the list
     await expect(page.locator('.session-card')).toHaveCount(1, { timeout: 5000 });
@@ -750,7 +750,7 @@ test.describe('Filter Combinations & Edge Cases', () => {
 
     // Should show empty state
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No sessions match the current filter');
+    await expect(page.locator('.empty-state')).toContainText('No workspaces match the current filter');
   });
 
   test('all three filter controls are visible on session list', async ({ page }) => {

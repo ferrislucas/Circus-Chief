@@ -45,7 +45,7 @@ describe('SessionCardWorkflowPanel.vue', () => {
     vi.clearAllMocks();
   });
 
-  describe('root session date rendering', () => {
+  describe('root workspace date rendering', () => {
     it('renders lastActivityAt when present with "Last activity" tooltip', () => {
       const ts = new Date('2024-06-15T12:00:00Z').getTime();
       const wrapper = mountPanel({ lastActivityAt: ts });

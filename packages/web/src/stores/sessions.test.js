@@ -5124,6 +5124,55 @@ describe('Sessions Store', () => {
     });
   });
 
+  describe('getRootSession', () => {
+    it('returns the session itself when it has no parent', () => {
+      const store = useSessionsStore();
+      store.sessions = [{ id: 'root', parentSessionId: null, status: 'stopped' }];
+
+      expect(store.getRootSession('root')?.id).toBe('root');
+    });
+
+    it('walks up the ancestor chain to return the root', () => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'root', parentSessionId: null, status: 'stopped' },
+        { id: 'child', parentSessionId: 'root', status: 'stopped' },
+        { id: 'grandchild', parentSessionId: 'child', status: 'stopped' },
+      ];
+
+      expect(store.getRootSession('grandchild')?.id).toBe('root');
+    });
+
+    it('returns null for an unknown sessionId', () => {
+      const store = useSessionsStore();
+      store.sessions = [];
+
+      expect(store.getRootSession('does-not-exist')).toBeNull();
+    });
+
+    it('does not hang on a self-referential cycle', () => {
+      const store = useSessionsStore();
+      // Session points to itself as its own parent — infinite loop without the guard
+      store.sessions = [{ id: 'cycle-a', parentSessionId: 'cycle-a', status: 'stopped' }];
+
+      const result = store.getRootSession('cycle-a');
+      // Must return without hanging; the cycle breaks and we get back the node we started from
+      expect(result).not.toBeNull();
+    });
+
+    it('does not hang on a two-node cycle', () => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'cycle-a', parentSessionId: 'cycle-b', status: 'stopped' },
+        { id: 'cycle-b', parentSessionId: 'cycle-a', status: 'stopped' },
+      ];
+
+      // Must return without hanging
+      const result = store.getRootSession('cycle-a');
+      expect(result).not.toBeNull();
+    });
+  });
+
   describe('addSessionToList', () => {
     it('does not add duplicate sessions with the same id', () => {
       const store = useSessionsStore();
@@ -5469,6 +5518,64 @@ describe('Sessions Store', () => {
       expect(store.recentSends['sess-1']).toBeDefined();
       expect(store.recentSends['sess-2']).toBeDefined();
       expect(store.recentSends['sess-3']).toBeDefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getRootSession — cycle guard (#6)
+  // ---------------------------------------------------------------------------
+  describe('getRootSession', () => {
+    it('returns the root session when given the root id', () => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'root-1', parentSessionId: null },
+        { id: 'child-1', parentSessionId: 'root-1' },
+      ];
+
+      expect(store.getRootSession('root-1').id).toBe('root-1');
+    });
+
+    it('walks up to the root from a child session', () => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'root-1', parentSessionId: null },
+        { id: 'child-1', parentSessionId: 'root-1' },
+        { id: 'grandchild-1', parentSessionId: 'child-1' },
+      ];
+
+      expect(store.getRootSession('grandchild-1').id).toBe('root-1');
+    });
+
+    it('returns null for an unknown session id', () => {
+      const store = useSessionsStore();
+      store.sessions = [{ id: 'root-1', parentSessionId: null }];
+
+      expect(store.getRootSession('does-not-exist')).toBeNull();
+    });
+
+    it('does not loop infinitely on a self-referential parentSessionId (cycle guard)', () => {
+      const store = useSessionsStore();
+      // Session that points to itself as parent
+      store.sessions = [
+        { id: 'cyclic-1', parentSessionId: 'cyclic-1' },
+      ];
+
+      // Must terminate and return the session rather than looping forever
+      const result = store.getRootSession('cyclic-1');
+      expect(result).not.toBeNull();
+    });
+
+    it('does not loop infinitely on a two-node cycle (cycle guard)', () => {
+      const store = useSessionsStore();
+      // A ↔ B
+      store.sessions = [
+        { id: 'node-a', parentSessionId: 'node-b' },
+        { id: 'node-b', parentSessionId: 'node-a' },
+      ];
+
+      // Must terminate — result may be either node, but must not hang
+      const result = store.getRootSession('node-a');
+      expect(result).not.toBeNull();
     });
   });
 });

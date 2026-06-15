@@ -7,7 +7,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2 class="modal-title">
-          Add Session to {{ laneName }}
+          Add Workspace to {{ laneName }}
         </h2>
         <button
           class="close-btn"
@@ -24,7 +24,7 @@
           <label
             for="session-search"
             class="form-label"
-          >Search Sessions</label>
+          >Search Workspaces</label>
           <input
             id="session-search"
             v-model="searchQuery"
@@ -42,7 +42,7 @@
             class="loading-state"
           >
             <span class="loading-spinner" />
-            Loading sessions...
+            Loading workspaces...
           </div>
 
           <div
@@ -50,10 +50,10 @@
             class="empty-state"
           >
             <p v-if="searchQuery">
-              No sessions matching "{{ searchQuery }}"
+              No workspaces matching "{{ searchQuery }}"
             </p>
             <p v-else>
-              No available sessions to add.
+              No available workspaces to add.
             </p>
           </div>
 
@@ -212,8 +212,8 @@ async function loadSessions() {
     const sessions = await api.getProjectSessions(props.projectId, false, null);
     availableSessions.value = Array.isArray(sessions) ? sessions : sessions?.sessions || [];
   } catch (err) {
-    console.error('Failed to load sessions:', err);
-    uiStore.error('Failed to load sessions');
+    console.error('Failed to load workspaces:', err);
+    uiStore.error('Failed to load workspaces');
     availableSessions.value = [];
   } finally {
     loading.value = false;
@@ -225,13 +225,14 @@ async function handleAdd() {
 
   adding.value = true;
   try {
-    await kanbanStore.addSessionToBoard(props.projectId, selectedSessionId.value, props.laneId);
-    uiStore.success('Session added to board');
+    const workspaceId = sessionsStore.getRootSession(selectedSessionId.value)?.id || selectedSessionId.value;
+    await kanbanStore.addSessionToBoard(props.projectId, workspaceId, props.laneId);
+    uiStore.success('Workspace added to board');
     emit('added', selectedSessionId.value);
     close();
   } catch (err) {
-    console.error('Failed to add session to board:', err);
-    uiStore.error(err.message || 'Failed to add session to board');
+    console.error('Failed to add workspace to board:', err);
+    uiStore.error(err.message || 'Failed to add workspace to board');
   } finally {
     adding.value = false;
   }

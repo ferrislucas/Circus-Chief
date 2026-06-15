@@ -41,7 +41,7 @@ const statusIcon = computed(() => statusIcons[props.status]);
 
 const isAnimated = computed(() => props.status === 'running' || props.status === 'starting');
 
-const ariaLabel = computed(() => `Session is ${statusText.value.toLowerCase()}`);
+const ariaLabel = computed(() => `Workspace is ${statusText.value.toLowerCase()}`);
 </script>
 
 <style scoped>

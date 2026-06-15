@@ -78,7 +78,7 @@ describe('SessionHeaderPanel', () => {
         sessionId: 'session-1',
         session: {
           id: 'session-1',
-          name: 'Test Session',
+          name: 'Test Workspace',
           status: 'waiting',
           projectId: 'proj-1',
           starred: false,
@@ -93,10 +93,10 @@ describe('SessionHeaderPanel', () => {
     });
   }
 
-  describe('session name display', () => {
-    it('renders session name', () => {
+  describe('workspace name display', () => {
+    it('renders workspace name', () => {
       const wrapper = mountPanel();
-      expect(wrapper.find('.session-name').text()).toBe('Test Session');
+      expect(wrapper.find('.session-name').text()).toBe('Test Workspace');
     });
 
     it('shows edit button when not editing', () => {
@@ -109,17 +109,17 @@ describe('SessionHeaderPanel', () => {
       expect(wrapper.find('.name-edit-form').exists()).toBe(false);
     });
 
-    it('does not render archived badge for active sessions', () => {
+    it('does not render archived badge for active workspaces', () => {
       const wrapper = mountPanel();
       expect(wrapper.find('.archived-badge').exists()).toBe(false);
       expect(wrapper.find('.session-header').classes()).not.toContain('is-archived');
     });
 
-    it('renders archived badge for archived sessions', () => {
+    it('renders archived badge for archived workspaces', () => {
       const wrapper = mountPanel({
         session: {
           id: 'session-1',
-          name: 'Archived Session',
+          name: 'Archived Workspace',
           status: 'completed',
           projectId: 'proj-1',
           starred: false,
@@ -131,7 +131,7 @@ describe('SessionHeaderPanel', () => {
       const badge = wrapper.find('.archived-badge');
       expect(badge.exists()).toBe(true);
       expect(badge.text()).toBe('Archived');
-      expect(badge.attributes('aria-label')).toBe('Archived session');
+      expect(badge.attributes('aria-label')).toBe('Archived workspace');
       expect(wrapper.find('.session-header').classes()).toContain('is-archived');
     });
   });
@@ -146,10 +146,10 @@ describe('SessionHeaderPanel', () => {
 
     it('populates input with current name', async () => {
       const wrapper = mountPanel({
-        session: { id: 'session-1', name: 'My Session', status: 'waiting' },
+        session: { id: 'session-1', name: 'My Workspace', status: 'waiting' },
       });
       await wrapper.find('.name-edit-trigger').trigger('click');
-      expect(wrapper.find('.name-edit-input').element.value).toBe('My Session');
+      expect(wrapper.find('.name-edit-input').element.value).toBe('My Workspace');
     });
 
     it('saves name when clicking save button', async () => {
@@ -284,7 +284,7 @@ describe('SessionHeaderPanel', () => {
       expect(starBtn.classes()).not.toContain('is-starred');
     });
 
-    it('renders starred state when session is starred', () => {
+    it('renders starred state when workspace is starred', () => {
       const wrapper = mountPanel({
         session: { id: 'session-1', name: 'Test', status: 'waiting', starred: true },
       });
@@ -292,18 +292,18 @@ describe('SessionHeaderPanel', () => {
       expect(starBtn.classes()).toContain('is-starred');
     });
 
-    it('has correct title for unstarred session', () => {
+    it('has correct title for unstarred workspace', () => {
       const wrapper = mountPanel();
       const starBtn = wrapper.find('.btn-star');
-      expect(starBtn.attributes('title')).toBe('Star session');
+      expect(starBtn.attributes('title')).toBe('Star workspace');
     });
 
-    it('has correct title for starred session', () => {
+    it('has correct title for starred workspace', () => {
       const wrapper = mountPanel({
         session: { id: 'session-1', name: 'Test', status: 'waiting', starred: true },
       });
       const starBtn = wrapper.find('.btn-star');
-      expect(starBtn.attributes('title')).toBe('Unstar session');
+      expect(starBtn.attributes('title')).toBe('Unstar workspace');
     });
 
     it('star button is clickable and exists', async () => {
@@ -318,7 +318,7 @@ describe('SessionHeaderPanel', () => {
   });
 
   describe('add to board button', () => {
-    it('renders when adding to board is allowed for a root active session not on the board', () => {
+    it('renders when adding to board is allowed for a root active workspace not on the board', () => {
       const wrapper = mountPanel({ canAddToBoard: true });
 
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
@@ -330,12 +330,12 @@ describe('SessionHeaderPanel', () => {
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
     });
 
-    it('hides for child sessions', () => {
+    it('hides for child workspaces', () => {
       const wrapper = mountPanel({
         canAddToBoard: true,
         session: {
           id: 'session-1',
-          name: 'Child Session',
+          name: 'Child Workspace',
           status: 'waiting',
           projectId: 'proj-1',
           parentSessionId: 'parent-1',
@@ -348,12 +348,12 @@ describe('SessionHeaderPanel', () => {
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
     });
 
-    it('hides for archived sessions', () => {
+    it('hides for archived workspaces', () => {
       const wrapper = mountPanel({
         canAddToBoard: true,
         session: {
           id: 'session-1',
-          name: 'Archived Session',
+          name: 'Archived Workspace',
           status: 'completed',
           projectId: 'proj-1',
           starred: false,
@@ -365,7 +365,7 @@ describe('SessionHeaderPanel', () => {
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
     });
 
-    it('hides when the session is already on the board', () => {
+    it('hides when the workspace is already on the board', () => {
       mockKanbanStoreInstance.getCardBySessionId.mockReturnValue({
         id: 'card-1',
         laneId: 'lane-1',
@@ -381,7 +381,7 @@ describe('SessionHeaderPanel', () => {
       expect(wrapper.find('.lane-chip').exists()).toBe(true);
     });
 
-    it('emits addToBoard with the session when clicked', async () => {
+    it('emits addToBoard with the workspace when clicked', async () => {
       const addToBoardSpy = vi.fn();
       const wrapper = mount(SessionHeaderPanel, {
         global: { plugins: [pinia] },
@@ -389,7 +389,7 @@ describe('SessionHeaderPanel', () => {
           sessionId: 'session-1',
           session: {
             id: 'session-1',
-            name: 'Test Session',
+            name: 'Test Workspace',
             status: 'waiting',
             projectId: 'proj-1',
             starred: false,
@@ -478,7 +478,7 @@ describe('SessionHeaderPanel', () => {
       expect(editor.props('sessionId')).toBe('session-1');
     });
 
-    it('passes prUrl from session to PrUrlEditor', () => {
+    it('passes prUrl from workspace to PrUrlEditor', () => {
       const wrapper = mountPanel({
         session: { id: 'session-1', name: 'Test', status: 'waiting', prUrl: 'https://github.com/a/b/pull/1' },
       });
@@ -524,8 +524,8 @@ describe('SessionHeaderPanel', () => {
       });
     });
 
-    describe('lane chip renders as button when session is on board', () => {
-      it('lane chip renders as a button when session is on the board', () => {
+    describe('lane chip renders as button when workspace is on board', () => {
+      it('lane chip renders as a button when workspace is on the board', () => {
         const wrapper = mountPanel();
         const laneChip = wrapper.find('.lane-chip');
         expect(laneChip.element.tagName.toLowerCase()).toBe('button');
@@ -570,7 +570,7 @@ describe('SessionHeaderPanel', () => {
     });
 
     describe('modal receives correct props', () => {
-      it('MoveCardModal receives projectId from session.projectId', async () => {
+      it('MoveCardModal receives projectId from workspace.projectId', async () => {
         const wrapper = mountPanel();
         const laneChip = wrapper.find('.lane-chip');
         await laneChip.trigger('click');
@@ -600,24 +600,24 @@ describe('SessionHeaderPanel', () => {
         expect(moveCardModal.props('currentLaneId')).toBe('lane-1');
       });
 
-      it('MoveCardModal receives sessionName from session', async () => {
+      it('MoveCardModal receives sessionName from workspace', async () => {
         const wrapper = mountPanel();
         const laneChip = wrapper.find('.lane-chip');
         await laneChip.trigger('click');
         await wrapper.vm.$nextTick();
 
         const moveCardModal = wrapper.findComponent({ name: 'MoveCardModal' });
-        expect(moveCardModal.props('sessionName')).toBe('Test Session');
+        expect(moveCardModal.props('sessionName')).toBe('Test Workspace');
       });
     });
 
-    describe('no lane chip when session not on board', () => {
+    describe('no lane chip when workspace not on board', () => {
       beforeEach(() => {
         mockKanbanStoreInstance.getCardBySessionId.mockReturnValue(null);
         mockKanbanStoreInstance.getLaneById.mockReturnValue(null);
       });
 
-      it('does not render lane chip when session is not on board', () => {
+      it('does not render lane chip when workspace is not on board', () => {
         const wrapper = mountPanel();
         const laneChip = wrapper.find('.lane-chip');
         expect(laneChip.exists()).toBe(false);

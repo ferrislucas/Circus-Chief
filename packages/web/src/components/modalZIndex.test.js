@@ -20,7 +20,7 @@ function getRuleZIndex(source, selector) {
 }
 
 describe('Overlay modal z-index regression guard', () => {
-  it('modals opened from the session overlay render above the overlay backdrop', () => {
+  it('modals opened from the workspace overlay render above the overlay backdrop', () => {
     const overlayZ = getRuleZIndex(readComponent('SessionChatOverlay.vue'), '.overlay-backdrop');
     const modalLayers = [
       ['AutoRescheduleModal.vue', '.modal-backdrop'],

@@ -7,7 +7,7 @@
       v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading || showNotStartedState"
       class="overview-header"
     >
-      <h3>Session Overview</h3>
+      <h3>Workspace Overview</h3>
     </div>
 
     <!-- Summary in Overview -->
@@ -31,7 +31,7 @@
       class="overview-summary overview-summary-empty"
     >
       <p class="summary-empty-text">
-        This session hasn't started yet.
+        This workspace hasn't started yet.
       </p>
     </div>
 
@@ -45,7 +45,7 @@
         class="metric"
       >
         <span class="metric-value">{{ sessionCount }}</span>
-        <span class="metric-label">Sessions</span>
+        <span class="metric-label">Workspaces</span>
       </div>
       <div
         v-if="hasNonZeroTokens"
@@ -140,7 +140,7 @@
       class="overview-scheduled-sessions"
     >
       <h4 class="scheduled-sessions-heading">
-        Scheduled Sessions ({{ scheduledSessions.length }})
+        Scheduled Workspaces ({{ scheduledSessions.length }})
       </h4>
       <div class="scheduled-sessions-list">
         <ScheduledChildCard

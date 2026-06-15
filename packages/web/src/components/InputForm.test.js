@@ -147,13 +147,13 @@ describe('InputForm', () => {
   });
 
   describe('placeholder text', () => {
-    it('should show follow-up placeholder for waiting sessions', () => {
+    it('should show follow-up placeholder for waiting workspaces', () => {
       const wrapper = mountComponent({ isDraft: false, isScheduledForFuture: false });
       const textarea = wrapper.findComponent({ name: 'ResizableTextarea' });
       expect(textarea.props('placeholder')).toBe('Send a follow-up message...');
     });
 
-    it('should show edit prompt placeholder for draft sessions', () => {
+    it('should show edit prompt placeholder for draft workspaces', () => {
       const wrapper = mountComponent({ isDraft: true });
       const textarea = wrapper.findComponent({ name: 'ResizableTextarea' });
       expect(textarea.props('placeholder')).toBe('Edit your prompt...');
@@ -336,7 +336,7 @@ describe('InputForm', () => {
       expect(wrapper.findComponent({ name: 'TemplateApplySelector' }).exists()).toBe(true);
     });
 
-    it('should show TemplateApplySelector for draft sessions', () => {
+    it('should show TemplateApplySelector for draft workspaces', () => {
       const wrapper = mountComponent({ canSendMessage: false, isDraft: true, isScheduledForFuture: false });
       expect(wrapper.findComponent({ name: 'TemplateApplySelector' }).exists()).toBe(true);
     });
@@ -370,7 +370,7 @@ describe('InputForm', () => {
       expect(wrapper.findComponent({ name: 'OrchestrationPanel' }).exists()).toBe(true);
     });
 
-    it('should show OrchestrationPanel for draft sessions', () => {
+    it('should show OrchestrationPanel for draft workspaces', () => {
       const wrapper = mountComponent({ isDraft: true, canSendMessage: false, isScheduledForFuture: false });
       expect(wrapper.findComponent({ name: 'OrchestrationPanel' }).exists()).toBe(true);
     });

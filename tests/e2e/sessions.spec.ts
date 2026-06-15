@@ -50,7 +50,7 @@ test.describe('New Session - Thinking Toggle', () => {
     // Thinking toggle is already enabled by default, no need to click
 
     // Submit the form
-    await page.click('button:has-text("Start Session")');
+    await page.click('button:has-text("Start Workspace")');
 
     // Wait for redirect to session detail and network to settle
     await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 30000 });
@@ -85,7 +85,7 @@ test.describe('New Session - Thinking Toggle', () => {
     await expect(checkbox).not.toBeChecked();
 
     // Submit the form
-    await page.click('button:has-text("Start Session")');
+    await page.click('button:has-text("Start Workspace")');
 
     // Wait for redirect to session detail and network to settle
     await expect(page).toHaveURL(/\/sessions\/[\w-]+/, { timeout: 30000 });
@@ -118,7 +118,7 @@ test.describe('Session Management', () => {
 
   test('displays empty state when no sessions exist', async ({ page }) => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
-    await expect(page.getByText('No sessions yet')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('No workspaces yet')).toBeVisible({ timeout: 10000 });
   });
 
   test('displays session messages', async ({ page }) => {

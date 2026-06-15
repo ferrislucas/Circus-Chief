@@ -8,7 +8,7 @@
       :value="selectedTemplateId"
       class="form-input"
       :disabled="loading"
-      title="Selecting a template will append its prompt and apply compatible session settings."
+      title="Selecting a template will append its prompt and apply compatible workspace settings."
       @change="handleChange"
     >
       <option value="">

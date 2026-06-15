@@ -203,10 +203,10 @@ test.describe('Template Variables', () => {
   });
 
   test('parentSession.name is substituted in prompt', async () => {
-    // Create a template that uses parentSession.name
+    // Create a template that uses workspace.name (formerly parentSession.name)
     const template = await seedProjectTemplate(project.id, {
       name: '[TEST] Name Variable Template',
-      prompt: 'The parent session was: {{parentSession.name}}',
+      prompt: 'The parent session was: {{workspace.name}}',
     });
 
     // Create parent session with known name, do NOT start it yet
@@ -238,7 +238,7 @@ test.describe('Template Variables', () => {
   test('parentSession.status is substituted in prompt', async () => {
     const template = await seedProjectTemplate(project.id, {
       name: '[TEST] Status Variable Template',
-      prompt: 'Parent status was: {{parentSession.status}}',
+      prompt: 'Parent status was: {{workspace.status}}',
     });
 
     const parent = await seedSession(project.id, {
@@ -260,7 +260,7 @@ test.describe('Template Variables', () => {
   test('parentSession.summary is substituted in prompt', async () => {
     const template = await seedProjectTemplate(project.id, {
       name: '[TEST] Summary Variable Template',
-      prompt: 'Summary: {{parentSession.summary}}',
+      prompt: 'Summary: {{workspace.summary}}',
     });
 
     const parent = await seedSession(project.id, {
@@ -287,7 +287,7 @@ test.describe('Template Variables', () => {
     // Create templates for the chain: B triggers C
     const templateC = await seedProjectTemplate(project.id, {
       name: '[TEST] Chain End C',
-      prompt: 'Root was: {{rootSession.name}}',
+      prompt: 'Root was: {{workspace.name}}',
     });
 
     const templateB = await seedProjectTemplate(project.id, {

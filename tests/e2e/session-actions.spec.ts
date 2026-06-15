@@ -52,10 +52,10 @@ test.describe('Duplicate Session', () => {
     await navigateAndWait(page, `/sessions/${session.id}`);
 
     // Wait explicitly for the kebab button to be rendered
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
 
     // Open overflow menu
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
 
     // Wait for menu to animate in and items to be interactive
     await page.waitForSelector('.menu-items', { timeout: 5000 });
@@ -136,10 +136,10 @@ test.describe('Delete Session', () => {
     await navigateAndWait(page, `/sessions/${session.id}`);
 
     // Wait explicitly for the kebab button to be rendered
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
 
     // Open overflow menu
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
 
     // Wait for menu to animate in
     await page.waitForSelector('.menu-items', { timeout: 5000 });
@@ -202,10 +202,10 @@ test.describe('Delete Session', () => {
     await navigateAndWait(page, `/sessions/${session.id}`);
 
     // Wait explicitly for the kebab button to be rendered
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
 
     // Open overflow menu
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
 
     // Wait for menu to animate in
     await page.waitForSelector('.menu-items', { timeout: 5000 });

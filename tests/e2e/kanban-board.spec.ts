@@ -25,7 +25,7 @@ async function addSessionToLane(projectId: string, sessionId: string, laneId: st
   const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/cards`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, laneId }),
+    body: JSON.stringify({ workspaceId: sessionId, laneId }),
   });
   if (!response.ok) {
     const text = await response.text();
@@ -199,7 +199,7 @@ test.describe('Kanban Board', () => {
     await expect(resizeHandle).toBeVisible();
   });
 
-  test('"Session Settings" section appears for custom prompt automation', async ({ page }) => {
+  test('"Workspace Settings" section appears for custom prompt automation', async ({ page }) => {
     await navigateAndWait(page, `/projects/${project.id}/kanban`, {
       waitFor: '.kanban-board',
     });
@@ -212,8 +212,8 @@ test.describe('Kanban Board', () => {
     await page.click('input[type="radio"][value="prompt"]');
     await expect(page.locator('textarea#custom-prompt')).toBeVisible();
 
-    // "Session Settings" toggle button should be visible
-    const sessionSettingsBtn = page.locator('button.section-toggle', { hasText: 'Session Settings' });
+    // "Workspace Settings" toggle button should be visible
+    const sessionSettingsBtn = page.locator('button.section-toggle', { hasText: 'Workspace Settings' });
     await expect(sessionSettingsBtn).toBeVisible();
 
     // Click to expand
@@ -227,7 +227,7 @@ test.describe('Kanban Board', () => {
     await expect(autoRescheduleLabel).toBeVisible();
   });
 
-  test('"Session Settings" section is hidden for template and none automation types', async ({ page }) => {
+  test('"Workspace Settings" section is hidden for template and none automation types', async ({ page }) => {
     await navigateAndWait(page, `/projects/${project.id}/kanban`, {
       waitFor: '.kanban-board',
     });
@@ -236,7 +236,7 @@ test.describe('Kanban Board', () => {
     await lane.locator('.lane-settings-btn').click();
     await expect(page.locator('.modal-content')).toBeVisible();
 
-    const sessionSettingsBtn = page.locator('button.section-toggle', { hasText: 'Session Settings' });
+    const sessionSettingsBtn = page.locator('button.section-toggle', { hasText: 'Workspace Settings' });
 
     // "None" radio: section should NOT be visible
     await page.click('input[type="radio"][value="none"]');
@@ -291,7 +291,7 @@ test.describe('Kanban Board', () => {
     // Enter a prompt
     await page.fill('textarea#custom-prompt', 'Test prompt for agent settings');
 
-    // Expand "Session Settings"
+    // Expand "Workspace Settings"
     await page.click('button.section-toggle');
     await expect(page.locator('.agent-settings-body')).toBeVisible();
 
@@ -311,7 +311,7 @@ test.describe('Kanban Board', () => {
     const promptRadio = page.locator('input[type="radio"][value="prompt"]');
     await expect(promptRadio).toBeChecked();
 
-    // Session Settings section should be auto-expanded (auto-reschedule was enabled)
+    // Workspace Settings section should be auto-expanded (auto-reschedule was enabled)
     await expect(page.locator('.agent-settings-body')).toBeVisible();
 
     // Auto-reschedule should still be enabled - check the checkbox with force (input is hidden)
@@ -356,8 +356,8 @@ test.describe('Kanban Board', () => {
     const noneRadio = page.locator('input[type="radio"][value="none"]');
     await expect(noneRadio).toBeChecked();
 
-    // Session Settings section should NOT be visible
-    const sessionSettingsBtn = page.locator('button.section-toggle', { hasText: 'Session Settings' });
+    // Workspace Settings section should NOT be visible
+    const sessionSettingsBtn = page.locator('button.section-toggle', { hasText: 'Workspace Settings' });
     await expect(sessionSettingsBtn).not.toBeVisible();
   });
 });
