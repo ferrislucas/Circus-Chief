@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia';
 import { api } from '../composables/useApi.js';
 
+// Tracks an in-flight fetch so concurrent callers (e.g. ConversationTab and the
+// TemplateApplySelector both mounting) share one request instead of racing.
+let inFlightFetch = null;
+let inFlightProjectId = null;
+
 export const useTemplatesStore = defineStore('templates', {
   state: () => ({
     projectTemplates: [],
@@ -39,18 +44,30 @@ export const useTemplatesStore = defineStore('templates', {
 
   actions: {
     async fetchProjectTemplates(projectId) {
+      // Share an existing in-flight request for the same project.
+      if (inFlightFetch && inFlightProjectId === projectId) {
+        return inFlightFetch;
+      }
+
       this.loading = true;
       this.error = null;
-      try {
-        const result = await api.getProjectTemplates(projectId);
-        this.projectTemplates = result.project || [];
-        this.globalTemplates = result.global || [];
-        this.currentProjectId = projectId;
-      } catch (err) {
-        this.error = err.message;
-      } finally {
-        this.loading = false;
-      }
+      inFlightProjectId = projectId;
+      inFlightFetch = (async () => {
+        try {
+          const result = await api.getProjectTemplates(projectId);
+          this.projectTemplates = result.project || [];
+          this.globalTemplates = result.global || [];
+          this.currentProjectId = projectId;
+        } catch (err) {
+          this.error = err.message;
+        } finally {
+          this.loading = false;
+          inFlightFetch = null;
+          inFlightProjectId = null;
+        }
+      })();
+
+      return inFlightFetch;
     },
 
     async createProjectTemplate(projectId, data) {

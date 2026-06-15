@@ -20,11 +20,11 @@
             tabindex="0"
             role="button"
             :aria-label="isOverlaySessionActive
-              ? (effectiveOverlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
-              : 'Close session chat'"
+              ? (effectiveOverlaySessionStatus === 'starting' ? 'Workspace starting...' : 'Workspace running...')
+              : 'Close workspace chat'"
             :title="isOverlaySessionActive
-              ? (effectiveOverlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...')
-              : 'Close session chat'"
+              ? (effectiveOverlaySessionStatus === 'starting' ? 'Workspace starting...' : 'Workspace running...')
+              : 'Close workspace chat'"
             data-testid="session-chat-overlay-close-handle"
             @click="close"
             @keydown.enter.prevent="close"
@@ -49,7 +49,7 @@
             <span
               v-if="isOverlaySessionActive"
               class="active-spinner"
-              :title="effectiveOverlaySessionStatus === 'starting' ? 'Session starting...' : 'Session running...'"
+              :title="effectiveOverlaySessionStatus === 'starting' ? 'Workspace starting...' : 'Workspace running...'"
             />
           </div>
 

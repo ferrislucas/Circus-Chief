@@ -29,57 +29,50 @@ Create a draft pr and ensure all changes are committed and pushed.`,
 /**
  * The six default global session templates created on a fresh database.
  *
- * Workflow templates (show_in_quick_responses = false):
- *   - Review the plan
- *   - Implement the plan on the canvas
- *   - Create/update PR
- *
- * Quick-response-backed templates (show_in_quick_responses = true):
- *   - Put a plan on the canvas  (auto_submit = false, sort_order = 0)
- *   - Yes                       (auto_submit = true,  sort_order = 1)
- *   - Continue                  (auto_submit = true,  sort_order = 2)
+ * All defaults are visible as quick responses. Only the short affirmative
+ * actions auto-submit.
  */
 export const DEFAULT_SESSION_TEMPLATES = [
   {
     name: 'Review the plan',
     prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.REVIEW,
-    showInQuickResponses: false,
+    showInQuickResponses: true,
     quickResponseAutoSubmit: false,
     quickResponseSortOrder: 0,
   },
   {
     name: 'Implement the plan on the canvas',
     prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.IMPLEMENT,
-    showInQuickResponses: false,
+    showInQuickResponses: true,
     quickResponseAutoSubmit: false,
-    quickResponseSortOrder: 0,
+    quickResponseSortOrder: 1,
   },
   {
     name: 'Create/update PR',
     prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.PR,
-    showInQuickResponses: false,
+    showInQuickResponses: true,
     quickResponseAutoSubmit: false,
-    quickResponseSortOrder: 0,
+    quickResponseSortOrder: 2,
   },
   {
     name: 'Put a plan on the canvas',
     prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.PUT_PLAN,
     showInQuickResponses: true,
     quickResponseAutoSubmit: false,
-    quickResponseSortOrder: 0,
+    quickResponseSortOrder: 3,
   },
   {
     name: 'Yes',
     prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.YES,
     showInQuickResponses: true,
     quickResponseAutoSubmit: true,
-    quickResponseSortOrder: 1,
+    quickResponseSortOrder: 4,
   },
   {
     name: 'Continue',
     prompt: DEFAULT_SESSION_TEMPLATE_PROMPTS.CONTINUE,
     showInQuickResponses: true,
     quickResponseAutoSubmit: true,
-    quickResponseSortOrder: 2,
+    quickResponseSortOrder: 5,
   },
 ];

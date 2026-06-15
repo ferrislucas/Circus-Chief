@@ -47,7 +47,7 @@ describe('useScheduleCancel', () => {
 
       await cancelScheduledSession('sess-1');
 
-      expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
+      expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled workspace?');
     });
 
     it('does not call updateSessionFields when user dismisses confirm', async () => {
@@ -86,7 +86,7 @@ describe('useScheduleCancel', () => {
 
       await cancelScheduledSession('sess-1');
 
-      expect(mockUiStore.success).toHaveBeenCalledWith('Session cancelled');
+      expect(mockUiStore.success).toHaveBeenCalledWith('Workspace cancelled');
     });
 
     it('returns true on successful cancellation', async () => {
@@ -132,7 +132,7 @@ describe('useScheduleCancel', () => {
       const { cancelScheduledSession } = createCancel();
       await cancelScheduledSession('sess-1');
 
-      expect(mockUiStore.error).toHaveBeenCalledWith('Failed to cancel session: Network error');
+      expect(mockUiStore.error).toHaveBeenCalledWith('Failed to cancel workspace: Network error');
     });
 
     it('returns false when updateSessionFields rejects', async () => {

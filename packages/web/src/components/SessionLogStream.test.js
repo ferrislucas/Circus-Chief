@@ -183,7 +183,7 @@ describe('SessionLogStream', () => {
   });
 
   describe('multiple sessionIds', () => {
-    it('merges work logs from multiple sessions', () => {
+    it('merges work logs from multiple workspaces', () => {
       mockStreamingStore.getSessionWorkLogs.mockImplementation((id) => {
         if (id === 'session-a') return [{ id: 'a1', type: 'tool_use', tool: 'Read', summary: 'From A' }];
         if (id === 'session-b') return [{ id: 'b1', type: 'tool_use', tool: 'Write', summary: 'From B' }];
@@ -210,7 +210,7 @@ describe('SessionLogStream', () => {
       expect(entries).toHaveLength(15);
     });
 
-    it('shows partial text from the first session that has it', () => {
+    it('shows partial text from the first workspace that has it', () => {
       mockStreamingStore.getSessionPartialText.mockImplementation((id) => {
         if (id === 'session-a') return '';
         if (id === 'session-b') return 'Partial from B';
@@ -221,7 +221,7 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('.log-partial').text()).toBe('Partial from B');
     });
 
-    it('shows thinking from the first session that has it', () => {
+    it('shows thinking from the first workspace that has it', () => {
       mockStreamingStore.getPartialThinking.mockImplementation((id) => {
         if (id === 'session-a') return null;
         if (id === 'session-b') return 'Thinking from B';
@@ -251,7 +251,7 @@ describe('SessionLogStream', () => {
       ]);
     }
 
-    it('renders model badge in expanded header when session is in state.sessions', () => {
+    it('renders model badge in expanded header when workspace is in state.workspaces', () => {
       mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: 'claude-sonnet-4-20250514' }];
       seedWorkLog();
 
@@ -260,7 +260,7 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-sonnet-4-20250514');
     });
 
-    it('renders model badge when session is only in state.activeSessions', () => {
+    it('renders model badge when workspace is only in state.activeSessions', () => {
       mockSessionsStore.activeSessions = [{ id: 'session-1', status: 'running', model: 'claude-opus-4-20250514' }];
       seedWorkLog();
 
@@ -269,7 +269,7 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-opus-4-20250514');
     });
 
-    it('renders model badge when session is state.currentSession', () => {
+    it('renders model badge when workspace is state.currentSession', () => {
       mockSessionsStore.currentSession = { id: 'session-1', status: 'running', model: 'claude-haiku-4-5-20251001' };
       seedWorkLog();
 
@@ -288,7 +288,7 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('[data-testid="live-output-model-collapsed"]').text()).toContain('claude-sonnet-4-20250514');
     });
 
-    it('hides badge when session has no model field', () => {
+    it('hides badge when workspace has no model field', () => {
       mockSessionsStore.sessions = [{ id: 'session-1', status: 'running', model: null }];
       seedWorkLog();
 
@@ -296,7 +296,7 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(false);
     });
 
-    it('hides badge when session is not found in any store array', () => {
+    it('hides badge when workspace is not found in any store array', () => {
       // All store arrays are empty (reset in beforeEach)
       seedWorkLog();
 
@@ -304,7 +304,7 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(false);
     });
 
-    it('picks the first session in sessionIds that has a model', () => {
+    it('picks the first workspace in sessionIds that has a model', () => {
       mockSessionsStore.sessions = [{ id: 'parent', model: null }];
       mockSessionsStore.activeSessions = [{ id: 'child', model: 'claude-sonnet-4-20250514' }];
       seedWorkLog();

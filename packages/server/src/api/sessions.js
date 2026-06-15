@@ -241,6 +241,23 @@ router.get('/:id/default-branch', requireSessionAndProject, async (req, res) => 
   }
 });
 
+// GET /api/sessions/:id/git-status - Get compact upstream/local git status
+// Query params:
+//   fetch: 'true' to fetch origin before computing status
+router.get('/:id/git-status', requireSessionAndProject, async (req, res) => {
+  try {
+    const status = await gitService.getSessionGitStatus(req.workingDirectory, {
+      fetch: req.query.fetch === 'true',
+    });
+    res.json({
+      workingDirectory: req.workingDirectory,
+      ...status,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/sessions/:id/files-count - Get count of modified files
 // Uses a 60-second TTL cache to avoid expensive git operations on every request
 router.get('/:id/files-count', requireSession, async (req, res) => {

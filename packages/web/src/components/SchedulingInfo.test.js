@@ -40,7 +40,7 @@ describe('SchedulingInfo.vue', () => {
 
   const scheduledSession = {
     id: 'session-1',
-    name: 'Test Session',
+    name: 'Test Workspace',
     status: 'scheduled',
     scheduledAt: now + 3600000, // 1 hour from now
     autoRescheduleEnabled: false,
@@ -48,8 +48,8 @@ describe('SchedulingInfo.vue', () => {
     maxRescheduleCount: null,
   };
 
-  describe('scheduled session display', () => {
-    it('displays scheduled session info when status is "scheduled"', () => {
+  describe('scheduled workspace display', () => {
+    it('displays scheduled workspace info when status is "scheduled"', () => {
       const wrapper = mount(SchedulingInfo, {
         props: {
           session: scheduledSession,
@@ -57,7 +57,7 @@ describe('SchedulingInfo.vue', () => {
       });
 
       expect(wrapper.find('.scheduling-info').exists()).toBe(true);
-      expect(wrapper.find('.info-title').text()).toBe('Scheduled Session');
+      expect(wrapper.find('.info-title').text()).toBe('Scheduled Workspace');
       expect(wrapper.text()).toContain('Starting');
     });
 
@@ -105,7 +105,7 @@ describe('SchedulingInfo.vue', () => {
       expect(countdownText).toContain('in');
     });
 
-    it('displays absolute time for scheduled session', () => {
+    it('displays absolute time for scheduled workspace', () => {
       const wrapper = mount(SchedulingInfo, {
         props: {
           session: scheduledSession,
@@ -117,7 +117,7 @@ describe('SchedulingInfo.vue', () => {
       expect(wrapper.find('.absolute-time').text()).toMatch(/\w+,/);
     });
 
-    it('displays action buttons for scheduled session', () => {
+    it('displays action buttons for scheduled workspace', () => {
       const wrapper = mount(SchedulingInfo, {
         props: {
           session: scheduledSession,
@@ -130,7 +130,7 @@ describe('SchedulingInfo.vue', () => {
       expect(buttons[1].text()).toBe('Cancel');
     });
 
-    it('shows auto-reschedule badge for scheduled session with reschedule enabled', () => {
+    it('shows auto-reschedule badge for scheduled workspace with reschedule enabled', () => {
       const sessionWithReschedule = {
         ...scheduledSession,
         autoRescheduleEnabled: true,
@@ -187,8 +187,8 @@ describe('SchedulingInfo.vue', () => {
     });
   });
 
-  describe('no content for non-scheduled/non-rescheduling sessions', () => {
-    it('renders nothing for completed sessions without reschedule', () => {
+  describe('no content for non-scheduled/non-rescheduling workspaces', () => {
+    it('renders nothing for completed workspaces without reschedule', () => {
       const completedSession = {
         ...scheduledSession,
         status: 'completed',
@@ -205,7 +205,7 @@ describe('SchedulingInfo.vue', () => {
       expect(wrapper.find('.auto-reschedule-panel').exists()).toBe(false);
     });
 
-    it('renders nothing for error sessions without reschedule', () => {
+    it('renders nothing for error workspaces without reschedule', () => {
       const errorSession = {
         ...scheduledSession,
         status: 'error',
@@ -245,7 +245,7 @@ describe('SchedulingInfo.vue', () => {
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
-      expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
+      expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled workspace?');
     });
 
     it('calls updateSessionFields with status stopped and scheduledAt null when confirmed', async () => {
@@ -280,7 +280,7 @@ describe('SchedulingInfo.vue', () => {
       await cancelButton.trigger('click');
       await wrapper.vm.$nextTick();
 
-      expect(sharedUiStore.success).toHaveBeenCalledWith('Session cancelled');
+      expect(sharedUiStore.success).toHaveBeenCalledWith('Workspace cancelled');
     });
 
     it('does not call updateSessionFields when user dismisses confirm', async () => {
@@ -338,7 +338,7 @@ describe('SchedulingInfo.vue', () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
       await wrapper.vm.$nextTick();
 
-      expect(sharedUiStore.error).toHaveBeenCalledWith('Failed to cancel session: Network error');
+      expect(sharedUiStore.error).toHaveBeenCalledWith('Failed to cancel workspace: Network error');
     });
 
     it('re-enables Cancel button after error', async () => {

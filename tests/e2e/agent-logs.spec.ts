@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import {
   seedProject,
   seedSession,
+  seedChildSession,
   seedAgentCallLog,
   cleanupCreatedResources,
 } from './helpers';
@@ -139,6 +140,25 @@ test.describe('Agent Logs - Settings Tab', () => {
     await expect(link).toBeVisible();
     const href = await link.getAttribute('href');
     expect(href).toContain(`/sessions/${session.id}`);
+  });
+
+  test('session column links child session logs to the root session detail page', async ({ page }) => {
+    const child = await seedChildSession(project.id, session.id, {
+      prompt: 'child session for agent logs',
+      name: 'Child Logs Test Session',
+    });
+    await seedAgentCallLog(child.id);
+
+    await scopeLogsToSession(page, child.id);
+    await page.goto('/settings/logs');
+    await page.waitForLoadState('networkidle');
+
+    const link = page.locator('a.session-link').first();
+    await expect(link).toBeVisible();
+    await expect(link).toHaveText('Child Logs Test Session');
+    const href = await link.getAttribute('href');
+    expect(href).toContain(`/sessions/${session.id}`);
+    expect(href).not.toContain(`/sessions/${child.id}`);
   });
 
   test('tokens column displays locale-formatted total token count', async ({ page }) => {
@@ -401,11 +421,11 @@ test.describe('Agent Logs - Settings Tab', () => {
     await page.goto('/settings/logs');
     await page.waitForLoadState('networkidle');
 
-    // The "Session" column is not sortable
-    const sessionHeader = page.locator('th.th').filter({ hasText: 'Session' });
+    // The "Workspace" column is not sortable
+    const sessionHeader = page.locator('th.th').filter({ hasText: 'Workspace' });
     await sessionHeader.click();
 
-    // No sort indicator in "Session" header
+    // No sort indicator in "Workspace" header
     await expect(sessionHeader.locator('.sort-indicator')).not.toBeVisible();
 
     // Default sort on "Started" should remain unchanged

@@ -48,7 +48,7 @@
             id="prompt"
             v-model="formData.prompt"
             class="form-input form-textarea"
-            placeholder="Session prompt. Use {{rootSession.summary}} to reference root session data."
+            placeholder="Workspace prompt. Use {{workspace.summary}} to reference workspace data."
             :min-height="120"
             required
           />

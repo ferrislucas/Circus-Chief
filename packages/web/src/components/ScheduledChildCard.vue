@@ -133,7 +133,7 @@ const absoluteTimeDisplay = computed(() => {
 });
 
 async function handleCancel() {
-  if (!confirm('Cancel this scheduled session?')) {
+  if (!confirm('Cancel this scheduled workspace?')) {
     return;
   }
 
@@ -142,10 +142,10 @@ async function handleCancel() {
     await sessionsStore.updateSessionFields(props.session.id, {
       status: 'stopped',
     });
-    uiStore.success('Session cancelled');
+    uiStore.success('Workspace cancelled');
   } catch (error) {
-    console.error('Failed to cancel session:', error);
-    uiStore.error(`Failed to cancel session: ${error.message}`);
+    console.error('Failed to cancel workspace:', error);
+    uiStore.error(`Failed to cancel workspace: ${error.message}`);
   } finally {
     loading.value = false;
   }

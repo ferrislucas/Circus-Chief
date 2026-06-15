@@ -91,7 +91,7 @@ test.describe('Session Message Persistence After Response Completes', () => {
     // Step 2: Fill in the prompt and submit
     const prompt = 'Reply with exactly: "UI creation persistence test." Nothing else.';
     await page.fill('textarea[id="prompt"]', prompt);
-    await page.click('button:has-text("Start Session")');
+    await page.click('button:has-text("Start Workspace")');
 
     // Step 3: Wait for redirect to the actual session detail page (not /sessions/new)
     // Session IDs are UUIDs, so require at least one hyphen-separated hex group

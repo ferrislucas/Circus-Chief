@@ -69,7 +69,7 @@ describe('Templates API', () => {
         thinkingEnabled: true,
         gitBranch: 'feature-branch',
         gitMode: 'worktree',
-        model: 'claude-sonnet-4-20250514',
+        model: 'sonnet',
         mode: 'plan',
       });
 
@@ -78,7 +78,7 @@ describe('Templates API', () => {
       expect(res.body.thinkingEnabled).toBe(true);
       expect(res.body.gitBranch).toBe('feature-branch');
       expect(res.body.gitMode).toBe('worktree');
-      expect(res.body.model).toBe('claude-sonnet-4-20250514');
+      expect(res.body.model).toBe('sonnet');
       expect(res.body.mode).toBe('plan');
     });
 
@@ -96,6 +96,17 @@ describe('Templates API', () => {
       });
 
       expect(res.status).toBe(400);
+    });
+
+    it('returns 400 for invalid model', async () => {
+      const res = await request(app).post('/api/templates').send({
+        name: 'Bad Model Template',
+        prompt: 'Do something',
+        model: 'not-a-real-model',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
     });
   });
 
@@ -188,11 +199,11 @@ describe('Templates API', () => {
       });
 
       const res = await request(app).patch(`/api/templates/${template.id}`).send({
-        model: 'claude-opus-4-20250514',
+        model: 'opus',
       });
 
       expect(res.status).toBe(200);
-      expect(res.body.model).toBe('claude-opus-4-20250514');
+      expect(res.body.model).toBe('opus');
     });
 
     it('updates mode field', async () => {
@@ -248,17 +259,32 @@ describe('Templates API', () => {
       });
 
       const res = await request(app).patch(`/api/templates/${template.id}`).send({
-        model: 'claude-sonnet-4-20250514',
+        model: 'sonnet',
         mode: 'plan',
         gitBranch: 'develop',
         gitMode: 'worktree',
       });
 
       expect(res.status).toBe(200);
-      expect(res.body.model).toBe('claude-sonnet-4-20250514');
+      expect(res.body.model).toBe('sonnet');
       expect(res.body.mode).toBe('plan');
       expect(res.body.gitBranch).toBe('develop');
       expect(res.body.gitMode).toBe('worktree');
+    });
+
+    it('returns 400 when updating model to an invalid id', async () => {
+      const template = sessionTemplates.create({
+        projectId: null,
+        name: 'Template',
+        prompt: 'Prompt',
+      });
+
+      const res = await request(app).patch(`/api/templates/${template.id}`).send({
+        model: 'not-a-real-model',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
     });
 
     it('accepts the template own ID as nextTemplateId (self-reference)', async () => {

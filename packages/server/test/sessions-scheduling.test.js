@@ -400,6 +400,25 @@ describe('Sessions API - Scheduling Endpoints', () => {
     });
   });
 
+  describe('PATCH /api/sessions/:id - ISO scheduledAt normalization', () => {
+    it('PATCH with ISO string stores numeric scheduledAt and promotes to scheduled status', async () => {
+      // Put the session into waiting so auto-promotion to scheduled can fire
+      sessions.update(session.id, { status: 'waiting' });
+
+      const futureMs = Date.now() + 3600000;
+      const isoString = new Date(futureMs).toISOString();
+
+      const res = await request(app)
+        .patch(`/api/sessions/${session.id}`)
+        .send({ scheduledAt: isoString })
+        .expect(200);
+
+      expect(typeof res.body.scheduledAt).toBe('number');
+      expect(res.body.scheduledAt).toBe(futureMs);
+      expect(res.body.status).toBe('scheduled');
+    });
+  });
+
   describe('scheduling with rescheduling', () => {
     it('creates a complete reschedule scenario', async () => {
       const res = await request(app)

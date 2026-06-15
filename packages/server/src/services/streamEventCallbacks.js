@@ -1,4 +1,4 @@
-import { sessions, conversations } from '../database.js';
+import { sessions, conversations, messages } from '../database.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
@@ -59,6 +59,10 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
 
   // Handle kanban lane movements based on targetLaneId
   await kanbanService.handleTurnCompletion(sessionId);
+  // Advance the card to its current lane's completion target now that the
+  // session has finished a turn successfully. This is the only correct
+  // trigger: work was actually done while parked in this lane.
+  await kanbanService.handleCompletionMove(sessionId);
 
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
@@ -103,6 +107,51 @@ export async function handleTurnCompletion(sessionId, workingDirectory, callback
 }
 
 /**
+ * Determine retry mode for a session error reschedule.
+ * Returns { retryExistingMessage, conversationId }.
+ *
+ * If the active conversation has a last user message and no assistant message
+ * after it, we retry the existing user message (no duplicate). Otherwise we
+ * schedule a "Continue" prompt.
+ *
+ * @param {string} sessionId
+ * @returns {{ retryExistingMessage: boolean, conversationId: string|null }}
+ */
+function computeRetryMode(sessionId) {
+  const activeConversationId = activeConversationIds.get(sessionId);
+  if (!activeConversationId) {
+    return { retryExistingMessage: false, conversationId: null };
+  }
+
+  const convMessages = messages.getByConversationId(activeConversationId);
+  // Find the last user message index and whether an assistant message follows it
+  let lastUserIndex = -1;
+  for (let i = convMessages.length - 1; i >= 0; i--) {
+    if (convMessages[i].role === 'user') {
+      lastUserIndex = i;
+      break;
+    }
+  }
+
+  if (lastUserIndex === -1) {
+    // No user message found — can't retry existing message
+    return { retryExistingMessage: false, conversationId: null };
+  }
+
+  const hasAssistantAfterLastUser = convMessages
+    .slice(lastUserIndex + 1)
+    .some(m => m.role === 'assistant');
+
+  if (!hasAssistantAfterLastUser) {
+    // The turn hasn't started yet: retry the existing user message
+    return { retryExistingMessage: true, conversationId: activeConversationId };
+  }
+
+  // Partial turn already has assistant content: next attempt should Continue
+  return { retryExistingMessage: false, conversationId: null };
+}
+
+/**
  * Try to reschedule the session due to an error.
  * Returns true if rescheduled, false otherwise.
  * @param {string} sessionId
@@ -116,9 +165,17 @@ async function tryRescheduleOnError(sessionId, error, shouldRescheduleOnError, s
   if (!session || !shouldRescheduleOnError(session, error, sessionId)) {
     return false;
   }
-  const rescheduled = await schedulerService.rescheduleSession(sessionId, error.message);
+
+  // Determine retry mode: re-use existing user message or send "Continue"
+  const { retryExistingMessage, conversationId } = computeRetryMode(sessionId);
+
+  const rescheduled = await schedulerService.rescheduleSession(
+    sessionId,
+    error.message,
+    { retryExistingMessage, conversationId }
+  );
   if (rescheduled) {
-    console.log(`[SessionManager] Session ${sessionId} rescheduled due to error`);
+    console.log(`[SessionManager] Session ${sessionId} rescheduled due to error (retryExistingMessage=${retryExistingMessage})`);
     return true;
   }
   return false;

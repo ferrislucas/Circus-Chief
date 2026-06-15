@@ -362,7 +362,7 @@ describe('kanbanTriggers', () => {
   describe('triggerOnEnterTemplate', () => {
     const session = { id: 's1', projectId: 'p1', name: 'Test Session', model: 'opus', mode: 'code', thinkingEnabled: false, gitBranch: null, gitWorktree: null };
     const project = { id: 'p1', workingDirectory: '/tmp/project', systemPrompt: 'You are helpful.' };
-    const template = { id: 't1', name: 'Review Template', prompt: 'Review: {{parentSession.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null, targetLaneId: null };
+    const template = { id: 't1', name: 'Review Template', prompt: 'Review: {{workspace.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null, targetLaneId: null };
     const lane = { id: 'lane-1', name: 'Review', onEnterTemplateId: 't1' };
 
     beforeEach(() => {
@@ -421,7 +421,7 @@ describe('kanbanTriggers', () => {
       // Renders the template prompt
       expect(renderTemplatePrompt).toHaveBeenCalledWith(
         template.prompt,
-        expect.objectContaining({ parentSession: session })
+        expect.objectContaining({ rootSession: session })
       );
 
       // Creates the session with correct name and settings
@@ -491,22 +491,18 @@ describe('kanbanTriggers', () => {
       await expect(triggerOnEnterTemplate('s1', lane)).resolves.toBeUndefined();
     });
 
-    it('fetches parent and root summaries for template rendering', async () => {
+    it('fetches root summary for workspace context in template rendering', async () => {
       const rootSession = { id: 'root-1', projectId: 'p1', name: 'Root' };
       getRootSession.mockReturnValue(rootSession);
       sessionSummaries.getBySessionId
-        .mockReturnValueOnce({ fullSummary: 'Parent summary' })  // parent
         .mockReturnValueOnce({ fullSummary: 'Root summary' });   // root
 
       await triggerOnEnterTemplate('s1', lane);
 
-      expect(sessionSummaries.getBySessionId).toHaveBeenCalledWith('s1');
       expect(sessionSummaries.getBySessionId).toHaveBeenCalledWith('root-1');
       expect(renderTemplatePrompt).toHaveBeenCalledWith(
         template.prompt,
         {
-          parentSession: session,
-          parentSummary: { fullSummary: 'Parent summary' },
           rootSession,
           rootSummary: { fullSummary: 'Root summary' },
         }
@@ -520,7 +516,7 @@ describe('kanbanTriggers', () => {
     const lane = {
       id: 'lane-1',
       name: 'In Progress',
-      onEnterPrompt: 'Work on: {{parentSession.name}}',
+      onEnterPrompt: 'Work on: {{workspace.name}}',
       onEnterThinkingEnabled: undefined,
       onEnterModel: null,
       onEnterMode: null,
@@ -568,7 +564,7 @@ describe('kanbanTriggers', () => {
       // Renders the prompt
       expect(renderTemplatePrompt).toHaveBeenCalledWith(
         lane.onEnterPrompt,
-        expect.objectContaining({ parentSession: session })
+        expect.objectContaining({ rootSession: session })
       );
 
       // Creates session with lane settings
@@ -690,7 +686,7 @@ describe('kanbanTriggers', () => {
   describe('agentType resolution', () => {
     const baseSession = { id: 's1', projectId: 'p1', name: 'Test Session', model: 'opus', mode: 'code', thinkingEnabled: false, gitBranch: null, gitWorktree: null };
     const baseProject = { id: 'p1', workingDirectory: '/tmp/project', systemPrompt: 'You are helpful.' };
-    const baseTemplate = { id: 't1', name: 'Review Template', prompt: 'Review: {{parentSession.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null, targetLaneId: null };
+    const baseTemplate = { id: 't1', name: 'Review Template', prompt: 'Review: {{workspace.summary}}', thinkingEnabled: null, model: null, mode: null, gitBranch: null, gitMode: null, nextTemplateId: null, targetLaneId: null };
     const baseLane = { id: 'lane-1', name: 'Review', onEnterTemplateId: 't1' };
 
     it('triggerOnEnterTemplate passes agentType resolved from model to sessions.create', async () => {
@@ -728,7 +724,7 @@ describe('kanbanTriggers', () => {
       runSession.mockResolvedValue(undefined);
       resolveAgentTypeFromModel.mockReturnValue('codex');
 
-      const codexLane = { id: 'lane-2', name: 'In Progress', onEnterPrompt: 'Work on: {{parentSession.name}}', onEnterModel: 'gpt-5.2', onEnterThinkingEnabled: undefined, onEnterMode: null, onEnterEffortLevel: null, onEnterAutoRescheduleEnabled: false };
+      const codexLane = { id: 'lane-2', name: 'In Progress', onEnterPrompt: 'Work on: {{workspace.name}}', onEnterModel: 'gpt-5.2', onEnterThinkingEnabled: undefined, onEnterMode: null, onEnterEffortLevel: null, onEnterAutoRescheduleEnabled: false };
 
       await triggerOnEnterPrompt('s1', codexLane);
 

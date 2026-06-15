@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick, defineComponent, reactive, ref, computed, watch, onUnmounted } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
+import { useKanbanStore } from '../stores/kanban.js';
 
 // Create mutable route params
 const mockRouteParams = { id: 'test-project-id' };
@@ -15,12 +16,12 @@ const mockRouterPush = vi.fn((path) => {
   // Update the mock route based on the path so activeTab reflects navigation
   if (path.includes('/archived')) {
     mockRoute.name = 'ArchivedSessions';
-  } else if (path.includes('/templates')) {
-    mockRoute.name = 'ProjectTemplates';
   } else if (path.includes('/commands')) {
     mockRoute.name = 'ProjectCommands';
   } else if (path.includes('/circus-time')) {
     mockRoute.name = 'ProjectCircusTime';
+  } else if (path.includes('/templates')) {
+    mockRoute.name = 'ProjectTemplates';
   } else if (path.includes('/kanban')) {
     mockRoute.name = 'ProjectKanban';
   } else {
@@ -28,6 +29,12 @@ const mockRouterPush = vi.fn((path) => {
   }
 });
 const mockRouterReplace = vi.fn();
+
+function findTab(wrapper, text) {
+  return wrapper
+    .findAll('.tab')
+    .find(tab => tab.text() === text);
+}
 
 // Mock vue-router
 vi.mock('vue-router', () => ({
@@ -358,17 +365,9 @@ vi.mock('../composables/useApi.js', () => ({
 vi.mock('../components/SessionCard.vue', () => ({
   default: defineComponent({
     name: 'SessionCard',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'kanbanEnabled'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showArchive', 'showUnarchive', 'prUrl', 'prSummary', 'canAddToBoard'],
     emits: ['retrySummary', 'archive', 'unarchive'],
     template: '<div class="session-card" :data-session-id="session.id" :data-summary="JSON.stringify(summary)" :data-pr-url="prUrl" :data-pr-summary="JSON.stringify(prSummary)"><slot /></div>',
-  }),
-}));
-
-vi.mock('../components/TemplatesPanel.vue', () => ({
-  default: defineComponent({
-    name: 'TemplatesPanel',
-    props: ['projectId'],
-    template: '<div class="templates-panel" />',
   }),
 }));
 
@@ -384,6 +383,14 @@ vi.mock('../components/CircusTimeTab.vue', () => ({
   default: defineComponent({
     name: 'CircusTimeTab',
     template: '<div class="circus-time-tab">Circus Time Tab</div>',
+  }),
+}));
+
+vi.mock('../components/TemplatesPanel.vue', () => ({
+  default: defineComponent({
+    name: 'TemplatesPanel',
+    props: ['projectId'],
+    template: '<div class="templates-panel">Templates Panel</div>',
   }),
 }));
 
@@ -488,15 +495,17 @@ vi.mock('../components/ArchivedTabContent.vue', () => ({
 vi.mock('../components/ArchiveConfirmModal.vue', () => ({
   default: defineComponent({
     name: 'ArchiveConfirmModal',
-    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'loading'],
+    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'isOnKanbanBoard', 'loading'],
     emits: ['confirm', 'cancel'],
     template: `
       <div v-if="isOpen" class="archive-confirm-modal" data-testid="archive-confirm-modal">
         <span class="modal-session-name">{{ sessionName }}</span>
         <span class="modal-has-cleanup-script" :data-has-cleanup-script="hasCleanupScript"></span>
+        <span class="modal-is-on-kanban-board" :data-is-on-kanban-board="isOnKanbanBoard"></span>
         <span class="modal-loading" :data-loading="loading"></span>
-        <button class="modal-confirm-btn" @click="$emit('confirm', true)">Archive</button>
-        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', false)">Archive No Cleanup</button>
+        <button class="modal-confirm-btn" @click="$emit('confirm', { runCleanup: true, removeFromBoard: false })">Archive</button>
+        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', { runCleanup: false, removeFromBoard: false })">Archive No Cleanup</button>
+        <button class="modal-confirm-remove-board-btn" @click="$emit('confirm', { runCleanup: false, removeFromBoard: true })">Archive Remove Board</button>
         <button class="modal-cancel-btn" @click="$emit('cancel')">Cancel</button>
       </div>
     `,
@@ -568,6 +577,13 @@ function createSessionsStoreMock(sessions = [], overrides = {}) {
       this.scheduledFilter = filter;
     }),
     saveScheduledFilter: vi.fn(),
+    getRootSession: vi.fn(function(sessionId) {
+      let current = this.sessions.find(s => s.id === sessionId);
+      while (current?.parentSessionId) {
+        current = this.sessions.find(s => s.id === current.parentSessionId);
+      }
+      return current || null;
+    }),
     getWorkflowAggregatedStatus: vi.fn(function(sessionId) {
       // Find the session and return appropriate status
       const session = this.sessions.find(s => s.id === sessionId);
@@ -974,12 +990,12 @@ describe('Status filtering', () => {
       // Filters should be visible on sessions tab
       expect(wrapper.find('.status-filters').exists()).toBe(true);
 
-      // Click on templates tab
-      const templatesTab = wrapper.findAll('.tab')[2];
-      await templatesTab.trigger('click');
+      // Click on another project tab
+      const commandsTab = findTab(wrapper, 'Commands');
+      await commandsTab.trigger('click');
       await flushAll(wrapper);
 
-      // Filters should not be visible on templates tab
+      // Filters should not be visible outside the sessions tab
       expect(wrapper.find('.status-filters').exists()).toBe(false);
     });
 
@@ -1370,7 +1386,7 @@ describe('Status filtering', () => {
 
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
-      expect(emptyState.text()).toContain('No sessions match the current filter');
+      expect(emptyState.text()).toContain('No workspaces match the current filter');
     });
 
     it('shows empty state message when idle filter returns no results', async () => {
@@ -1389,7 +1405,7 @@ describe('Status filtering', () => {
 
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
-      expect(emptyState.text()).toContain('No sessions match the current filter');
+      expect(emptyState.text()).toContain('No workspaces match the current filter');
     });
 
     it('shows waiting session when only starting and waiting exist (waiting is idle)', async () => {
@@ -1420,10 +1436,10 @@ describe('Status filtering', () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-      // Should show the "No sessions yet" empty state
+      // Should show the "No workspaces yet" empty state
       const emptyState = wrapper.find('.empty-state');
       expect(emptyState.exists()).toBe(true);
-      expect(emptyState.text()).toContain('No sessions yet');
+      expect(emptyState.text()).toContain('No workspaces yet');
     });
 
     it('handles session list with only starting sessions', async () => {
@@ -1624,19 +1640,20 @@ describe('SessionListView Archived Tab', () => {
     }
   }
 
-  it('renders Sessions tab as active by default', async () => {
+  it('renders Workspaces tab as active by default', async () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
     const tabs = wrapper.findAll('.tab');
-    expect(tabs.length).toBe(5);
-    expect(tabs[0].text()).toBe('Sessions');
-    expect(tabs[1].text()).toBe('Archived');
-    expect(tabs[2].text()).toBe('Templates');
-    expect(tabs[3].text()).toBe('Commands');
-    expect(tabs[4].text()).toBe('Circus Time');
+    expect(tabs.length).toBe(6);
+    expect(tabs[0].text()).toBe('Workspaces');
+    expect(tabs[1].text()).toBe('Kanban');
+    expect(tabs[2].text()).toBe('Commands');
+    expect(tabs[3].text()).toBe('Circus Time');
+    expect(tabs[4].text()).toBe('Templates');
+    expect(tabs[5].text()).toBe('Archive');
 
-    // Sessions tab should be active
+    // Workspaces tab should be active
     expect(tabs[0].classes()).toContain('active');
     expect(tabs[1].classes()).not.toContain('active');
   });
@@ -1662,11 +1679,11 @@ describe('SessionListView Archived Tab', () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    let archivedTab = wrapper.findAll('.tab')[1];
+    let archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
-    archivedTab = wrapper.findAll('.tab')[1];
+    archivedTab = findTab(wrapper, 'Archive');
     expect(archivedTab.classes()).toContain('active');
   });
 
@@ -1678,7 +1695,7 @@ describe('SessionListView Archived Tab', () => {
     expect(mockSessionsStore.fetchArchivedSessions).not.toHaveBeenCalled();
 
     // Click Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -1690,7 +1707,7 @@ describe('SessionListView Archived Tab', () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findTab(wrapper, 'Archive');
 
     // First click
     await archivedTab.trigger('click');
@@ -1715,7 +1732,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -1733,7 +1750,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -1741,7 +1758,7 @@ describe('SessionListView Archived Tab', () => {
     expect(sessionCards.length).toBe(2);
   });
 
-  it('passes showArchive=true to SessionCards in Sessions tab', async () => {
+  it('passes showArchive=true to SessionCards in Workspaces tab', async () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
@@ -1758,7 +1775,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
     // Switch to Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -1766,15 +1783,15 @@ describe('SessionListView Archived Tab', () => {
     expect(sessionCards.length).toBe(1);
   });
 
-  it('hides New Session button on Archived tab', async () => {
+  it('hides New Workspace button on Archived tab', async () => {
     const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-    // Button should be visible on Sessions tab
+    // Button should be visible on Workspaces tab
     expect(wrapper.find('.btn-primary').exists()).toBe(true);
 
     // Switch to Archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushAll(wrapper);
 
@@ -2045,7 +2062,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Click Archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2058,7 +2075,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab and wait for initial load
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2092,9 +2109,9 @@ describe('SessionListView Archived Tab', () => {
       const wrapper = mount(SessionListView);
       await flushAll(wrapper);
 
-      // Switch to templates tab (not archived)
-      const templatesTab = wrapper.findAll('.tab')[2];
-      await templatesTab.trigger('click');
+      // Switch to another non-archived tab
+      const commandsTab = findTab(wrapper, 'Commands');
+      await commandsTab.trigger('click');
       await flushPromises();
 
       // Change the star filter
@@ -2114,7 +2131,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Now switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2127,7 +2144,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2169,7 +2186,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2192,7 +2209,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushAll(wrapper);
 
@@ -2206,7 +2223,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushAll(wrapper);
 
@@ -2247,7 +2264,7 @@ describe('SessionListView Archived Tab', () => {
       await flushAll(wrapper);
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2268,7 +2285,7 @@ describe('SessionListView Archived Tab', () => {
       await flushPromises();
 
       // Switch to archived tab
-      const archivedTab = wrapper.findAll('.tab')[1];
+      const archivedTab = findTab(wrapper, 'Archive');
       await archivedTab.trigger('click');
       await flushPromises();
 
@@ -2334,7 +2351,6 @@ describe('SessionListView Archived Tab', () => {
         global: {
           plugins: [pinia],
           stubs: {
-            TemplatesPanel: true,
             CommandButtonsPanel: true,
             ConversationTab: true,
             ChangesTab: true,
@@ -2344,6 +2360,7 @@ describe('SessionListView Archived Tab', () => {
             DuplicateSessionButton: true,
             StatusIndicator: true,
             OverflowMenu: true,
+            TemplatesPanel: true,
           },
         },
       });
@@ -2392,7 +2409,6 @@ describe('SessionListView Archived Tab', () => {
         global: {
           plugins: [pinia],
           stubs: {
-            TemplatesPanel: true,
             CommandButtonsPanel: true,
             ConversationTab: true,
             ChangesTab: true,
@@ -2402,6 +2418,7 @@ describe('SessionListView Archived Tab', () => {
             DuplicateSessionButton: true,
             StatusIndicator: true,
             OverflowMenu: true,
+            TemplatesPanel: true,
           },
         },
       });
@@ -2550,7 +2567,7 @@ describe('SessionListView batch summary fetching', () => {
     });
 
     // Switch to archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -2576,7 +2593,7 @@ describe('SessionListView batch summary fetching', () => {
     await flushAll(wrapper);
 
     // Switch to archived tab
-    const archivedTab = wrapper.findAll('.tab')[1];
+    const archivedTab = findTab(wrapper, 'Archive');
     await archivedTab.trigger('click');
     await flushPromises();
 
@@ -2717,6 +2734,130 @@ describe('SessionListView batch summary fetching', () => {
       await flushPromises();
 
       expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+    });
+
+    it('passes isOnKanbanBoard=false when the workflow has no card', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(false);
+    });
+
+    it('passes isOnKanbanBoard=true when the workflow root has a card', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      useKanbanStore().board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(true);
+    });
+
+    it('removes the workflow card after archive when removeFromBoard is checked', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const kanbanStore = useKanbanStore();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      const removeSpy = vi.spyOn(kanbanStore, 'removeCard').mockResolvedValue(undefined);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-remove-board-btn').trigger('click');
+      await flushPromises();
+
+      expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      expect(removeSpy).toHaveBeenCalledWith('test-project-id', 'card-1');
+    });
+
+    it('does not remove the card when removeFromBoard is unchecked', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const kanbanStore = useKanbanStore();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      const removeSpy = vi.spyOn(kanbanStore, 'removeCard').mockResolvedValue(undefined);
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      expect(removeSpy).not.toHaveBeenCalled();
+    });
+
+    it('still archives successfully when card removal fails', async () => {
+      mockSessionsStore = createSessionsStoreMock([
+        { id: 'session-1', name: 'Session 1', status: 'completed' },
+      ]);
+      useSessionsStore.mockReturnValue(mockSessionsStore);
+
+      const wrapper = mount(SessionListView);
+      await flushAll(wrapper);
+
+      const kanbanStore = useKanbanStore();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      vi.spyOn(kanbanStore, 'removeCard').mockRejectedValue(new Error('Network error'));
+
+      const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
+      await sessionCard.vm.$emit('archive', 'session-1');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-remove-board-btn').trigger('click');
+      await flushPromises();
+
+      expect(mockSessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      // Modal still closes (archive considered successful)
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
     });
 
     it('closes modal and does not archive when cancel is clicked', async () => {
@@ -3071,13 +3212,12 @@ describe('SessionListView Kanban behavior', () => {
     }
   }
 
-  it('renders Kanban tab when kanbanEnabled=true', async () => {
+  it('renders Kanban tab for projects', async () => {
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
         name: 'Test Project',
         workingDirectory: '/tmp',
-        kanbanEnabled: true,
       },
       fetchProject: vi.fn(),
     };
@@ -3092,13 +3232,12 @@ describe('SessionListView Kanban behavior', () => {
     expect(kanbanTab).toBeTruthy();
   });
 
-  it('labels the mobile Kanban option when kanbanEnabled=true', async () => {
+  it('labels the mobile Kanban option', async () => {
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
         name: 'Test Project',
         workingDirectory: '/tmp',
-        kanbanEnabled: true,
       },
       fetchProject: vi.fn(),
     };
@@ -3115,13 +3254,12 @@ describe('SessionListView Kanban behavior', () => {
     expect(kanbanOption).toBeTruthy();
   });
 
-  it('does not render the Kanban tab when kanbanEnabled=false', async () => {
+  it('renders the Kanban tab even without a project flag', async () => {
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
         name: 'Test Project',
         workingDirectory: '/tmp',
-        kanbanEnabled: false,
       },
       fetchProject: vi.fn(),
     };
@@ -3131,20 +3269,19 @@ describe('SessionListView Kanban behavior', () => {
     await flushAll(wrapper);
 
     const tabsText = wrapper.find('.tabs-desktop').text();
-    expect(tabsText).not.toContain('Kanban');
+    expect(tabsText).toContain('Kanban');
 
     const mobileSelect = wrapper.find('.tabs-mobile select');
-    expect(mobileSelect.text()).not.toContain('Kanban');
+    expect(mobileSelect.text()).toContain('Kanban');
   });
 
-  it('redirects to /sessions when the kanban route is reached but kanbanEnabled=false', async () => {
+  it('does not redirect away from the kanban route', async () => {
     mockRoute.name = 'ProjectKanban';
     mockProjectsStore = {
       currentProject: {
         id: 'test-project-id',
         name: 'Test Project',
         workingDirectory: '/tmp',
-        kanbanEnabled: false,
       },
       fetchProject: vi.fn(),
     };
@@ -3153,45 +3290,6 @@ describe('SessionListView Kanban behavior', () => {
     const wrapper = mount(SessionListView);
     await flushAll(wrapper);
 
-    expect(mockRouterReplace).toHaveBeenCalledWith(
-      '/projects/test-project-id/sessions'
-    );
-  });
-
-  it('passes kanbanEnabled=false to SessionCard when project has Kanban disabled', async () => {
-    mockProjectsStore = {
-      currentProject: {
-        id: 'test-project-id',
-        name: 'Test Project',
-        workingDirectory: '/tmp',
-        kanbanEnabled: false,
-      },
-      fetchProject: vi.fn(),
-    };
-    useProjectsStore.mockReturnValue(mockProjectsStore);
-
-    const wrapper = mount(SessionListView);
-    await flushAll(wrapper);
-
-    const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
-    expect(sessionCard.exists()).toBe(true);
-    expect(sessionCard.props('kanbanEnabled')).toBe(false);
-  });
-
-  it('passes kanbanEnabled=false to SessionCard when currentProject is not yet loaded', async () => {
-    mockProjectsStore = {
-      currentProject: null,
-      fetchProject: vi.fn(),
-    };
-    useProjectsStore.mockReturnValue(mockProjectsStore);
-
-    const wrapper = mount(SessionListView);
-    await flushAll(wrapper);
-
-    const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
-    if (sessionCard.exists()) {
-      // Fallback should be false, not true, now that Kanban is opt-in.
-      expect(sessionCard.props('kanbanEnabled')).toBe(false);
-    }
+    expect(mockRouterReplace).not.toHaveBeenCalled();
   });
 });

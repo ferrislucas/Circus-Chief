@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils';
 import SummaryContent from './SummaryContent.vue';
 
 const baseSummary = {
-  fullSummary: 'This session implemented a new feature.',
+  fullSummary: 'This workspace implemented a new feature.',
   filesModified: ['src/auth.js'],
   generatedAt: new Date('2024-01-15T10:30:00Z').getTime(),
 };

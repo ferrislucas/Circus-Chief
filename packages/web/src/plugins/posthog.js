@@ -30,7 +30,7 @@ export function initPostHog(options = {}) {
     // The npm app is intentionally served from localhost for every real user.
     // PostHog's 2026 defaults classify localhost as internal/test traffic,
     // which hides normal npx usage in projects with internal-user filters.
-    internal_or_test_user_hostname: undefined,
+    internal_or_test_user_hostname: null,
 
     // DISABLE SESSION RECORDING
     disable_session_recording: true,

@@ -11,25 +11,14 @@ import {
   setupAndStartSession,
 } from './projects-session-helpers.js';
 import { validateGitSettings } from './projects-helpers.js';
+import { validateModelId } from './model-validation.js';
 
 /**
- * Validate and prepare the session configuration from the request body.
- * Returns { config, nextTemplateId } on success, or { error, status } on failure.
+ * Run post-preparation validation on session config (parent session,
+ * template resolution, and git settings).
+ * Returns { nextTemplateId } on success, or { error, status } on failure.
  */
-export async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, project) {
-  const projectDefs = projectDefaults.getByProjectId(projectId);
-  const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
-  const config = prepareSessionConfig(reqBody, projectDefs, systemDefaults);
-  config.files = reqFiles || [];
-
-  if (!config.prompt) {
-    return { error: 'Prompt is required', status: 400 };
-  }
-
-  if (config.schedulingError) {
-    return { error: config.schedulingError, status: 400 };
-  }
-
+async function validatePreparedConfig(config, reqBody, projectId, project) {
   if (config.parentSessionId) {
     const parentSession = sessions.getById(config.parentSessionId);
     if (!parentSession) {
@@ -46,7 +35,11 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
   if (nextTemplateError) {
     return { error: nextTemplateError, status: 400 };
   }
-  config.nextTemplateId = nextTemplateId;
+
+  const finalModelResult = validateModelId(config.model);
+  if (finalModelResult.error) {
+    return { error: finalModelResult.error, status: 400 };
+  }
 
   // Validate git settings for git repos
   const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
@@ -55,7 +48,43 @@ export async function validateAndPrepareSessionConfig(reqBody, reqFiles, project
   }
   Object.assign(config, updatedConfig);
 
-  return { config, nextTemplateId };
+  return { nextTemplateId };
+}
+
+/**
+ * Validate and prepare the session configuration from the request body.
+ * Returns { config, nextTemplateId } on success, or { error, status } on failure.
+ */
+export async function validateAndPrepareSessionConfig(reqBody, reqFiles, projectId, project) {
+  // Validate the explicitly requested model only — never the resolved default —
+  // so project/system defaults are never blocked.
+  if (Object.hasOwn(reqBody, 'model') && reqBody.model !== '') {
+    const modelResult = validateModelId(reqBody.model);
+    if (modelResult.error) {
+      return { error: modelResult.error, status: 400 };
+    }
+  }
+
+  const projectDefs = projectDefaults.getByProjectId(projectId);
+  const systemDefaults = ProjectDefaultsRepository.getSystemDefaults();
+  const config = prepareSessionConfig(reqBody, projectDefs, systemDefaults);
+  config.files = reqFiles || [];
+
+  if (!config.prompt) {
+    return { error: 'Prompt is required', status: 400 };
+  }
+
+  if (config.schedulingError) {
+    return { error: config.schedulingError, status: 400 };
+  }
+
+  const result = await validatePreparedConfig(config, reqBody, projectId, project);
+  if (result.error) {
+    return { error: result.error, status: result.status };
+  }
+
+  config.nextTemplateId = result.nextTemplateId;
+  return { config, nextTemplateId: result.nextTemplateId };
 }
 
 /**
@@ -89,18 +118,29 @@ export function createSessionRow(projectId, config, nextTemplateId, initialStatu
 /**
  * Run setupAndStartSession and translate any failure into an error response,
  * marking the session as errored and broadcasting the update.
+ *
+ * @param {object} req - Express request (used for res only; projectId must be explicit)
+ * @param {object} res - Express response
+ * @param {object} params
+ * @param {object} params.session - Created session row
+ * @param {object} params.config - Session config
+ * @param {object} params.project - Project record
+ * @param {string} params.projectId - Explicit project ID (do NOT read from req.params)
  */
-export async function startSessionOrFail(req, res, { session, config, project }) {
+export async function startSessionOrFail(req, res, { session, config, project, projectId }) {
+  // Fall back to req.params.id for backward-compat callers that haven't yet
+  // been updated to pass projectId explicitly.
+  const resolvedProjectId = projectId ?? req.params.id;
   try {
     const { updatedSession } = await setupAndStartSession({
-      session, config, project, projectId: req.params.id, files: config.files,
+      session, config, project, projectId: resolvedProjectId, files: config.files,
     });
     return res.status(201).json(updatedSession);
   } catch (error) {
     console.error('Git setup error:', error);
     const updatedSession = sessions.update(session.id, { status: 'error', error: error.message });
-    broadcastToProject(req.params.id, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: req.params.id,
+    broadcastToProject(resolvedProjectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: resolvedProjectId,
       sessionId: session.id,
       session: updatedSession,
     });

@@ -11,9 +11,6 @@ node scripts/build-package.js --version=0.2.0 --posthog-key=phc_xxxxx
 # Build for publishing — environment variables (for CI/CD)
 POSTHOG_KEY=phc_xxxxx node scripts/build-package.js --version=0.2.0
 
-# Build for local testing (no analytics)
-node scripts/build-package.js --version=0.2.0
-
 # Run E2E tests against the built package
 ./scripts/pw.sh test-package
 
@@ -23,8 +20,8 @@ cd /tmp && mkdir test && cd test
 npm install /path/to/dist-package/circuschief-0.2.0.tgz
 npx circuschief
 
-# Publish
-cd dist-package && npm publish
+# Publish through the wrapper
+./scripts/publish.sh 0.2.0 123456
 ```
 
 ## PostHog Analytics Configuration
@@ -35,7 +32,7 @@ The PostHog API key is a **public client-side key** (always visible in the brows
 
 | Value | CLI flag | Environment variable | `.env.production` | Default |
 |-------|----------|---------------------|-------------------|---------|
-| API key | `--posthog-key=<key>` | `POSTHOG_KEY` | `VITE_POSTHOG_KEY` | empty (analytics disabled) |
+| API key | `--posthog-key=<key>` | `POSTHOG_KEY` | `VITE_POSTHOG_KEY` | required |
 | API host | `--posthog-host=<host>` | `POSTHOG_HOST` | `VITE_POSTHOG_HOST` | `https://us.i.posthog.com` |
 
 CLI flags take precedence over environment variables, which take precedence over `.env.production`.
@@ -59,9 +56,10 @@ The build script reads `.env.production` automatically and injects the key into 
 
 ### Notes
 
-- Omitting the key from all sources produces a working package with analytics disabled
-- `scripts/start-package-server.sh` intentionally provides no key since E2E tests don't need analytics
-- After the Vite build, the script verifies the key appears in the output bundle (if one was provided)
+- Omitting the key from all sources fails package builds and makes `scripts/publish.sh` abort before `npm publish`
+- `scripts/start-package-server.sh` provides `phc_test_package_key` by default so E2E package tests do not depend on a local `.env.production`
+- After the Vite build, the script verifies the configured key appears in the output bundle
+- The PostHog client key is public, but it must be intentionally configured before publishing
 
 ### GitHub Actions
 
@@ -82,8 +80,9 @@ The app is a monorepo with three packages (`server`, `web`, `shared`) that use Y
 1. **Building the frontend** — runs `vite build` to produce static HTML/CSS/JS in `packages/web/dist/`
 2. **Copying the source tree** — copies `packages/server/src/`, `packages/shared/src/`, and `packages/web/dist/` into `dist-package/`, preserving the same directory structure
 3. **Rewriting imports** — transforms `@circuschief/shared` imports into relative paths (e.g., `../../shared/src/index.js`)
-4. **Generating package.json** — merges runtime dependencies from `server` and `shared` into a single flat `package.json`
+4. **Generating package.json** — merges runtime dependencies from `server` and `shared` into a single flat `package.json`, then writes sanitized internal `server` and `shared` manifests at the publish version
 5. **Writing the CLI entry point** — produces a `bin/cli.js` that sets `NODE_ENV=production` before starting the server
+6. **Verifying the artifact** — checks manifest versions, generated CLI `--version`, and stale workspace dependency metadata before the artifact is considered publishable
 
 ## Why This Approach
 
@@ -120,8 +119,10 @@ dist-package/
   packages/
     server/
       bin/cli.js
+      package.json  (sanitized, publish version)
       src/          (server source, imports rewritten)
     shared/
+      package.json  (sanitized, publish version)
       src/          (shared source, copied as-is)
     web/
       dist/         (pre-built frontend)
@@ -159,7 +160,7 @@ The build script filters out `*.test.js` files from both `server` and `shared` p
 
 ### What it does
 
-1. **Builds the package** — runs `scripts/build-package.js` to produce `dist-package/`
+1. **Builds the package** — runs `scripts/build-package.js` with a fake test PostHog key to produce `dist-package/`
 2. **Packs a tarball** — runs `npm pack` inside `dist-package/`, producing a `.tgz` identical to what `npm publish` would upload
 3. **Installs in an isolated directory** — creates `.package-test/` with a fresh `package.json` and installs the tarball via `npm install`, simulating a real user install
 4. **Symlinks test cassettes** — links `tests/` into the install directory so VCR replay cassettes are reachable at the expected relative path

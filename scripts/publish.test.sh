@@ -11,6 +11,7 @@
 set -euo pipefail
 
 SCRIPT="$(cd "$(dirname "$0")" && pwd)/publish.sh"
+REAL_NODE="$(command -v node)"
 PASS=0
 FAIL=0
 
@@ -65,6 +66,8 @@ assert_output_not_includes() {
 
 # --- Setup: create a temp mock npm directory ---
 MOCK_DIR=$(mktemp -d)
+MISSING_ENV_PROD="$MOCK_DIR/env.production.missing"
+TEST_ENV_PROD="$MOCK_DIR/env.production"
 cleanup() {
   rm -rf "$MOCK_DIR"
 }
@@ -79,7 +82,21 @@ run_with_mock() {
 $mock_body
 MOCK_EOF
   chmod +x "$MOCK_DIR/npm"
-  PATH="$MOCK_DIR:$PATH" bash "$SCRIPT" "$@" 2>&1
+  cat > "$MOCK_DIR/node" <<MOCK_EOF
+#!/usr/bin/env bash
+FIRST="\${1:-}"
+if [[ "\$FIRST" == */check-posthog-publish-config.js ]]; then
+  exec "$REAL_NODE" "\$@"
+elif [[ "\$FIRST" == */build-package.js ]]; then
+  echo "mock build \$*"
+  exit 0
+else
+  exec "$REAL_NODE" "\$@"
+fi
+MOCK_EOF
+  chmod +x "$MOCK_DIR/node"
+  POSTHOG_ENV_PRODUCTION_PATH="${POSTHOG_ENV_PRODUCTION_PATH:-$MISSING_ENV_PROD}" \
+    PATH="$MOCK_DIR:$PATH" bash "$SCRIPT" "$@" 2>&1
 }
 
 # --- Syntax check first ---
@@ -138,7 +155,7 @@ assert_output_includes "Usage:" "$OUTPUT" "zero args prints usage"
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 2: Two args (9.9.9 000000) → fails at npm whoami, not at parsing"
-OUTPUT=$(run_with_mock "$MOCK_NOT_LOGGED_IN" 9.9.9 000000 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_NOT_LOGGED_IN" 9.9.9 000000 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "two args fails (expected: npm whoami)"
 assert_output_includes "Publishing circuschief v9.9.9" "$OUTPUT" "two args sets VERSION=9.9.9"
 assert_output_not_includes "Usage:" "$OUTPUT" "two args does not print usage"
@@ -157,7 +174,7 @@ assert_output_includes "OTP is required" "$OUTPUT" "one-arg version mentions mis
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 4: One arg (OTP 123456) → auto-bump minor"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_VIEW" 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_VIEW" 123456 2>&1) && RC=$? || RC=$?
 assert_exit 0 "$RC" "auto-bump succeeds"
 assert_output_includes "Next: 1.5.0" "$OUTPUT" "auto-bump from 1.4.2 → 1.5.0"
 assert_output_includes "Publishing circuschief v1.5.0" "$OUTPUT" "VERSION set to 1.5.0"
@@ -176,7 +193,7 @@ assert_output_includes "version must be semver" "$OUTPUT" "-y rejected"
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 6: Pre-release latest → error"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_PRERELEASE" 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_PRERELEASE" 123456 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "pre-release latest exits 1"
 assert_output_includes "pre-release" "$OUTPUT" "pre-release error message"
 
@@ -185,7 +202,7 @@ assert_output_includes "pre-release" "$OUTPUT" "pre-release error message"
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 7: Never published → 0.1.0"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_EMPTY" 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_EMPTY" 123456 2>&1) && RC=$? || RC=$?
 assert_exit 0 "$RC" "never-published succeeds"
 assert_output_includes "Next: 0.1.0" "$OUTPUT" "never-published starts at 0.1.0"
 assert_output_includes "Publishing circuschief v0.1.0" "$OUTPUT" "VERSION set to 0.1.0"
@@ -195,7 +212,7 @@ assert_output_includes "Publishing circuschief v0.1.0" "$OUTPUT" "VERSION set to
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 8: Unparseable npm output → error"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_GARBAGE" 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_GARBAGE" 123456 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "unparseable npm output exits 1"
 assert_output_includes "could not parse" "$OUTPUT" "unparseable error message"
 
@@ -222,10 +239,39 @@ assert_output_includes "version must be semver" "$OUTPUT" "--yes rejected"
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 11: One arg (OTP 123456) → auto-bump without prompt"
-OUTPUT=$(run_with_mock "$MOCK_LOGGED_IN_VIEW" 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_VIEW" 123456 2>&1) && RC=$? || RC=$?
 assert_exit 0 "$RC" "auto-bump succeeds"
 assert_output_includes "Next: 1.5.0" "$OUTPUT" "auto-bump still calculates next version"
 assert_output_not_includes "Proceed?" "$OUTPUT" "auto-bump does not prompt"
+
+# --------------------------------------------------------------------------------
+# Test 12: Missing PostHog key aborts before npm login/build/publish
+# --------------------------------------------------------------------------------
+echo ""
+echo "Test 12: Missing PostHog key → aborts before publish"
+OUTPUT=$(
+  unset POSTHOG_KEY VITE_POSTHOG_KEY POSTHOG_HOST VITE_POSTHOG_HOST
+  export POSTHOG_ENV_PRODUCTION_PATH="$MISSING_ENV_PROD"
+  run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 000000 2>&1
+) && RC=$? || RC=$?
+assert_exit 1 "$RC" "missing PostHog key exits 1"
+assert_output_includes "PostHog key is missing" "$OUTPUT" "missing key mentions PostHog configuration"
+assert_output_not_includes "published" "$OUTPUT" "missing key does not call npm publish"
+assert_output_not_includes "Checking npm login" "$OUTPUT" "missing key aborts before npm login"
+
+# --------------------------------------------------------------------------------
+# Test 13: .env.production satisfies PostHog preflight
+# --------------------------------------------------------------------------------
+echo ""
+echo "Test 13: .env.production key → preflight passes"
+printf '%s\n' 'VITE_POSTHOG_KEY=phc_test_env_publish_key' > "$TEST_ENV_PROD"
+OUTPUT=$(
+  unset POSTHOG_KEY VITE_POSTHOG_KEY
+  export POSTHOG_ENV_PRODUCTION_PATH="$TEST_ENV_PROD"
+  run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 000000 2>&1
+) && RC=$? || RC=$?
+assert_exit 0 "$RC" ".env.production satisfies preflight"
+assert_output_includes "published" "$OUTPUT" ".env.production flow reaches npm publish"
 
 # --- Summary ---
 echo ""

@@ -3,11 +3,11 @@
     <router-link
       :to="`/projects/${projectId}/sessions`"
       class="tab tab-back"
-      title="Back to Sessions"
+      title="Back to Workspaces"
     >
       <span
         class="back-icon"
-        title="Back to Sessions"
+        title="Back to Workspaces"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -90,17 +90,24 @@
         :to="`/sessions/${sessionId}/${tab.id}`"
         :class="['tab', { active: activeTab === tab.id }]"
       >
-        {{ tab.label }}
-        <span
-          v-if="tab.id === 'changes' && hasChanges"
-          class="changes-indicator"
-          title="Uncommitted changes"
-        />
-        <span
-          v-if="tab.id === 'canvas' && canvasCount > 0"
-          class="canvas-indicator"
-          title="Canvas contains files"
-        />
+        <span class="tab-label">
+          <span class="tab-label-text">{{ tab.label }}</span>
+          <span
+            v-if="tab.id === 'chat' && isSessionActive"
+            class="active-spinner"
+            :title="sessionStatus === 'starting' ? 'Workspace starting...' : 'Workspace running...'"
+          />
+          <span
+            v-if="tab.id === 'changes' && hasChangesAttention"
+            class="changes-indicator"
+            :title="gitStatusTitle || 'Uncommitted changes'"
+          />
+          <span
+            v-if="tab.id === 'canvas' && canvasCount > 0"
+            class="canvas-indicator"
+            title="Canvas contains files"
+          />
+        </span>
       </router-link>
     </div>
 
@@ -116,7 +123,7 @@
           :key="tab.id"
           :value="tab.id"
         >
-          {{ tab.label }}{{ tab.id === 'changes' && hasChanges ? ' \u2022' : '' }}{{ tab.id === 'canvas' && canvasCount > 0 ? ' \u2022' : '' }}
+          {{ mobileTabLabel(tab) }}{{ tab.id === 'canvas' && canvasCount > 0 ? ' \u2022' : '' }}
         </option>
       </select>
     </div>
@@ -158,11 +165,37 @@ const props = defineProps({
     type: Number,
     default: 0,
   },
+  /** Whether any session in the current chain is active */
+  isSessionActive: {
+    type: Boolean,
+    default: false,
+  },
+  /** Active session status for the chat tab spinner tooltip */
+  sessionStatus: {
+    type: String,
+    default: '',
+  },
+  hasGitStatusWarning: {
+    type: Boolean,
+    default: false,
+  },
+  gitStatusTitle: {
+    type: String,
+    default: '',
+  },
 });
 
 const router = useRouter();
 
 const mobileTabs = computed(() => props.tabs.filter(tab => tab.desktopOnly !== true));
+const hasChangesAttention = computed(() => props.hasGitStatusWarning || props.hasChanges);
+
+function mobileTabLabel(tab) {
+  if (tab.id !== 'changes') return tab.label;
+  if (props.hasGitStatusWarning) return `${tab.label} · Git attention`;
+  if (props.hasChanges) return `${tab.label} \u2022`;
+  return tab.label;
+}
 
 function navigateToTab(tabId) {
   router.push(`/sessions/${props.sessionId}/${tabId}`);
@@ -190,6 +223,16 @@ function navigateToTab(tabId) {
   vertical-align: middle;
 }
 
+.active-spinner {
+  flex: 0 0 auto;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid rgba(6, 182, 212, 0.3);
+  border-top-color: #06b6d4;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
 .tabs-mobile {
   align-items: center;
   gap: 0.5rem;
@@ -212,11 +255,38 @@ function navigateToTab(tabId) {
 }
 
 .tabs-session-detail .tabs-desktop .tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1 1 0;
   text-align: center;
   min-width: 0;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tab-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tab-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

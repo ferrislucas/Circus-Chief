@@ -1,4 +1,5 @@
 import { createClaudeCodeSpawner } from './nodeSpawnHelper.js';
+import { resolveClaudeMcpServers } from './claudeMcpConfigResolver.js';
 import {
   buildSystemPromptConfig,
   getGeminiApprovalModeForSession,
@@ -12,10 +13,14 @@ import {
  */
 function buildClaudeCodeQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt,
-  model, sessionEnv, resumeSessionId = null,
+  model, sessionEnv, resumeSessionId = null, claudeMcpConfigHomeDirectory,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'claude-haiku-4-5-20251001' : model;
+  const { mcpServers } = resolveClaudeMcpServers({
+    workingDirectory,
+    ...(claudeMcpConfigHomeDirectory ? { homeDirectory: claudeMcpConfigHomeDirectory } : {}),
+  });
 
   return {
     prompt,
@@ -32,6 +37,7 @@ function buildClaudeCodeQueryParams({
       spawnClaudeCodeProcess: createClaudeCodeSpawner(),
       model: effectiveModel,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
+      ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     },
   };
 }

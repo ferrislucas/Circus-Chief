@@ -7,6 +7,7 @@ import { setSessionNameFromPr } from '../services/prUrlService.js';
 import { checkSessionCiStatusNow } from '../services/prStatusService.js';
 import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
+import { validateModelId } from './model-validation.js';
 
 const router = Router();
 
@@ -82,6 +83,27 @@ function validateProviderId(value) {
 }
 
 /**
+ * Validate and normalize scheduledAt field.
+ * Accepts null (clear), numeric epoch milliseconds, or an ISO 8601 string.
+ * Rejects anything that cannot be unambiguously converted to a finite integer.
+ * @param {*} value
+ * @returns {{ error?: string, value: * }}
+ */
+function validateScheduledAt(value) {
+  if (value === null) return { value: null };
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return { error: 'Invalid scheduledAt' };
+    return { value: Math.trunc(value) };
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) return { error: 'Invalid scheduledAt' };
+    return { value: parsed };
+  }
+  return { error: 'Invalid scheduledAt' };
+}
+
+/**
  * Validate prUrl field
  * @param {*} value
  * @returns {{ error?: string, value: * }}
@@ -112,15 +134,15 @@ const FIELD_DEFINITIONS = [
   { field: 'status', validate: validateStatus },
   { field: 'mode', validate: validateMode },
   { field: 'nextTemplateId', validate: validateNextTemplateId },
-  { field: 'model' },
-  { field: 'pendingModel' },
+  { field: 'model', validate: validateModelId },
+  { field: 'pendingModel', validate: (value) => validateModelId(value, { fieldName: 'pendingModel' }) },
   { field: 'autoSendPendingPrompt', transform: Boolean },
   { field: 'providerId', validate: validateProviderId },
   { field: 'prUrl', validate: validatePrUrl },
   // Git fields
   { field: 'gitWorktree' },
   // Scheduling fields
-  { field: 'scheduledAt' },
+  { field: 'scheduledAt', validate: validateScheduledAt },
   { field: 'autoRescheduleEnabled', transform: Boolean },
   { field: 'rescheduleDelayMinutes', transform: (v) => parseInt(v, 10) },
   { field: 'rescheduleOnTokenLimit', transform: Boolean },
@@ -231,6 +253,14 @@ router.patch('/:id', requireSession, (req, res) => {
 
   if (Object.keys(updateData).length === 0) {
     return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  if (
+    updateData.scheduledAt != null &&
+    req.body.status === undefined &&
+    !['running', 'starting'].includes(req.session_.status)
+  ) {
+    updateData.status = 'scheduled';
   }
 
   const updated = sessions.update(req.params.id, updateData);

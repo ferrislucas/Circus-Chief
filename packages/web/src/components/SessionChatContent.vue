@@ -42,7 +42,7 @@
           v-if="mode !== 'embedded'"
           :to="backToSessionsUrl"
           class="back-to-sessions-link"
-          title="Back to Sessions"
+          title="Back to Workspaces"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -113,7 +113,7 @@
               y2="18"
             />
           </svg>
-          <span class="back-to-sessions-text">Sessions</span>
+          <span class="back-to-sessions-text">Workspaces</span>
         </router-link>
         <button
           class="add-session-btn"
@@ -146,7 +146,7 @@
               y2="12"
             />
           </svg>
-          {{ isCreatingSession ? 'Creating...' : 'New Session' }}
+          {{ isCreatingSession ? 'Creating...' : 'New Workspace' }}
         </button>
       </div>
     </div>
@@ -160,7 +160,7 @@
         class="session-switch-loading"
       >
         <span class="session-switch-spinner" />
-        <span class="session-switch-text">Loading session...</span>
+        <span class="session-switch-text">Loading workspace...</span>
       </div>
       <ConversationTab
         v-else
@@ -335,7 +335,7 @@ async function addChildSession() {
 
   const currentSession = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
   if (!currentSession?.projectId) {
-    uiStore.error('Cannot create session: no project context');
+    uiStore.error('Cannot create workspace: no project context');
     return;
   }
 
@@ -346,7 +346,7 @@ async function addChildSession() {
 
     const newSession = await api.createSession(currentSession.projectId, {
       prompt: ' ',
-      name: 'New Session',
+      name: 'New Workspace',
       parentSessionId: activeSessionId.value,
       startImmediately: false,
       ...(currentSession.model ? { model: currentSession.model } : {}),
@@ -357,7 +357,7 @@ async function addChildSession() {
     emit('session-created', newSession);
     await switchToSession(newSession.id);
   } catch (err) {
-    uiStore.error(err.message || 'Failed to create child session');
+    uiStore.error(err.message || 'Failed to create child workspace');
   } finally {
     isCreatingSession.value = false;
   }
@@ -402,7 +402,7 @@ async function loadSessionData(sessionId) {
       todosStore.fetchTodos(sessionId, sessionsStore.activeConversationId);
     }
   } catch (err) {
-    console.error('[SessionChatContent] Failed to load session data:', err);
+    console.error('[SessionChatContent] Failed to load workspace data:', err);
   }
 }
 
