@@ -165,4 +165,42 @@ test.describe('Scheduled Session File Upload', () => {
     expect(attachments.length).toBe(1);
     expect(attachments[0].filename).toBe('immediate-file.txt');
   });
+
+  test('started scheduled session links uploaded attachments to the initial user message', async () => {
+    const serverInfoResponse = await fetch(`${API_URL}/api/server-info`);
+    const serverInfo = await serverInfoResponse.json();
+    test.skip(!serverInfo.schedulerRunning, 'Scheduler is disabled for this test server');
+
+    const scheduledTime = new Date(Date.now() + 1000).toISOString();
+    const promptText = 'Analyze the scheduled attachment after start';
+
+    const formData = new FormData();
+    formData.append('prompt', promptText);
+    formData.append('scheduledAt', scheduledTime);
+    formData.append('startImmediately', 'false');
+    formData.append('files', new Blob(['scheduler file content'], { type: 'text/plain' }), 'scheduler-file.txt');
+
+    const response = await fetch(`${API_URL}/api/projects/${project.id}/sessions`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    expect(response.ok).toBe(true);
+    const session = await response.json();
+    expect(session.status).toBe('scheduled');
+
+    let userMessage: any = null;
+    const start = Date.now();
+    while (Date.now() - start < 45000) {
+      const messages = await getSessionMessages(session.id);
+      userMessage = messages.find((message: any) => message.role === 'user');
+      if (userMessage?.attachments?.length > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    expect(userMessage).toBeTruthy();
+    expect(userMessage.content).toBe(promptText);
+    expect(userMessage.attachments).toHaveLength(1);
+    expect(userMessage.attachments[0].filename).toBe('scheduler-file.txt');
+  });
 });

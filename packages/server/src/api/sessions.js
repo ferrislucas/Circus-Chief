@@ -176,10 +176,7 @@ router.get('/:id/changes', requireSessionAndProject, async (req, res) => {
 // Returns attachments regardless of whether they are linked to a message yet
 // (useful for scheduled sessions where files are uploaded before any message exists)
 router.get('/:id/attachments', requireSession, (req, res) => {
-  const sessionAttachments = attachments.getBySessionId(req.params.id);
-  // Return without content field for efficiency (same pattern as getByMessageIdWithoutContent)
-  const result = sessionAttachments.map(({ content, ...rest }) => rest);
-  res.json(result);
+  res.json(attachments.getBySessionIdWithoutContent(req.params.id));
 });
 
 // Image MIME types for the file endpoint
