@@ -3,7 +3,8 @@ import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
-import { resolveProviderFromModel, buildSessionEnv, resolveAgentTypeFromModel } from './sessionProvider.js';
+import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
+import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import {
   shouldRescheduleOnError,
   _checkProactiveReschedule,
@@ -240,33 +241,15 @@ function buildModelAndProvider(session, sessionId, model) {
 
   let updatedSession = session;
   if (model) {
-    const update = { model };
-
     // Defense in depth: if this is still a draft (no assistant messages),
-    // also re-derive agent_type so it stays in sync with the chosen model.
+    // re-derive agentType so it stays in sync with the chosen model.
     // After the first assistant turn this is locked.
-    if (sessionHasNoAssistantMessages(sessionId)) {
-      const derivedAgentType = resolveAgentTypeFromModel(model);
-      if (derivedAgentType && derivedAgentType !== session.agentType) {
-        update.agentType = derivedAgentType;
-      }
-    }
-
-    sessions.update(sessionId, update);
+    const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, model);
+    sessions.update(sessionId, { model, ...agentTypeUpdate });
     updatedSession = sessions.getById(sessionId);
   }
 
   return { effectiveModel, sessionEnv, modelChanged, session: updatedSession };
-}
-
-/**
- * Check whether a session has no assistant messages (i.e. is still a draft).
- * @param {string} sessionId
- * @returns {boolean}
- */
-function sessionHasNoAssistantMessages(sessionId) {
-  const allMessages = messages.getBySessionId(sessionId);
-  return !allMessages.some(m => m.role === 'assistant');
 }
 
 /**

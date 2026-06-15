@@ -294,7 +294,9 @@ describe('sessionManager custom provider integration', () => {
       expect(queryParams.options.env.CUSTOM_VAR_1).toBe('value1');
       expect(queryParams.options.env.CUSTOM_VAR_2).toBe('value2');
 
-      // Cleanup
+      // Cleanup - clear session's provider reference before deleting provider to avoid FK constraint
+      // (deriveAgentTypeUpdate persists providerId onto the session at run time)
+      sessions.update(session.id, { providerId: null });
       modelProviders.delete(providerWithExtras.id);
     });
   });
@@ -325,7 +327,9 @@ describe('sessionManager custom provider integration', () => {
       expect(mockQuery.mock.calls[1][0].options.env.ANTHROPIC_BASE_URL).toBe('https://api.second-provider.com');
       expect(mockQuery.mock.calls[1][0].options.env.ANTHROPIC_API_KEY).toBe('second-auth-token');
 
-      // Cleanup
+      // Cleanup - clear session's provider reference before deleting provider to avoid FK constraint
+      // (deriveAgentTypeUpdate persists providerId onto the session at run time)
+      sessions.update(session.id, { providerId: null });
       modelProviders.delete(secondProvider.id);
     });
   });
