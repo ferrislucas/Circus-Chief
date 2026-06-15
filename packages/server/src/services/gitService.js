@@ -32,6 +32,100 @@ export {
 const execAsync = promisify(exec);
 export const DEFAULT_GIT_MAX_BUFFER = 100 * 1024 * 1024;
 
+/** Default timeout for git subprocesses (ms). Override with GIT_TIMEOUT_MS env var. */
+export const DEFAULT_GIT_TIMEOUT_MS = 30_000;
+
+/**
+ * Non-interactive git environment defaults.
+ *
+ * GIT_TERMINAL_PROMPT=0  — prevents HTTP(S) credential prompts from blocking.
+ * GIT_ASKPASS=true       — points git's credential helper at /bin/true (no output),
+ *                          so git surfaces auth failures quickly rather than hanging.
+ * GIT_SSH_COMMAND        — disables SSH host-key/auth prompts and bounds TCP connect.
+ */
+export const DEFAULT_GIT_ENV = {
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_ASKPASS: 'true',
+  GIT_SSH_COMMAND: 'ssh -oBatchMode=yes -oConnectTimeout=10',
+};
+
+/**
+ * Classify a git error into a structured category based on stderr/message content.
+ * @param {Error} err
+ * @param {string} command - The git command that failed (e.g. 'git fetch origin')
+ * @returns {{ code: string, message: string, detail: string, remediation: string }}
+ */
+export function classifyGitError(err, command = '') {
+  const text = [err.message || '', err.stderr || '', err.stdout || ''].join(' ').toLowerCase();
+
+  if (err.killed || text.includes('timed out') || text.includes('timeout')) {
+    return {
+      code: 'git_timeout',
+      message: `Git command timed out: ${command}`,
+      detail: 'The git operation did not complete within the allowed time.',
+      remediation: 'Check that the remote is reachable and try again. If the remote is slow, consider increasing GIT_TIMEOUT_MS.',
+    };
+  }
+
+  if (
+    text.includes('terminal prompts disabled') ||
+    text.includes('could not read username') ||
+    text.includes('could not read password') ||
+    text.includes('authentication failed') ||
+    text.includes('http 401') ||
+    text.includes('http 403') ||
+    text.includes('403 forbidden') ||
+    text.includes('401 unauthorized')
+  ) {
+    return {
+      code: 'git_credential_required',
+      message: 'Git authentication failed.',
+      detail: 'The remote requires credentials that were not provided or were rejected.',
+      remediation: 'Sign in or refresh credentials for the git host, then retry session creation.',
+    };
+  }
+
+  if (
+    text.includes('permission denied') ||
+    text.includes('publickey') ||
+    text.includes('access denied')
+  ) {
+    return {
+      code: 'git_permission_denied',
+      message: 'Git permission denied.',
+      detail: 'SSH key or access permissions are not configured for this remote.',
+      remediation: 'Verify your SSH key is added to the git host and has access to this repository.',
+    };
+  }
+
+  if (
+    text.includes('repository not found') ||
+    text.includes('not found') ||
+    text.includes('does not exist') ||
+    text.includes('unable to connect') ||
+    text.includes('could not resolve host') ||
+    text.includes('name or service not known') ||
+    text.includes('network is unreachable') ||
+    text.includes('connection refused') ||
+    text.includes('connection timed out') ||
+    text.includes('no route to host')
+  ) {
+    return {
+      code: 'git_remote_unreachable',
+      message: 'Git could not reach the remote repository.',
+      detail: 'The configured remote may be unreachable or the repository may not exist.',
+      remediation: 'Check the project remote URL and make sure this machine can reach the git host.',
+    };
+  }
+
+  return {
+    code: 'git_unknown',
+    message: `Git command failed: ${err.message || command}`,
+    detail: 'An unexpected git error occurred.',
+    remediation: 'Check the server logs for more details.',
+  };
+}
+
 // Cache for default branch detection: directory -> { branch, timestamp }
 const defaultBranchCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -75,14 +169,27 @@ function evictOldestCacheEntries() {
  * @returns {Promise<string>}
  */
 export async function git(directory, command, opts = {}) {
+  const timeoutMs = opts.timeout ?? (Number(process.env.GIT_TIMEOUT_MS) || DEFAULT_GIT_TIMEOUT_MS);
   const execOpts = {
     cwd: directory,
     maxBuffer: opts.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
+    timeout: timeoutMs,
+    env: { ...process.env, ...DEFAULT_GIT_ENV, ...(opts.env || {}) },
   };
-  if (opts.env) execOpts.env = opts.env;
-  if (opts.timeout) execOpts.timeout = opts.timeout;
-  const { stdout } = await execAsync(`git ${command}`, execOpts);
-  return stdout.trim();
+  try {
+    const { stdout } = await execAsync(`git ${command}`, execOpts);
+    return stdout.trim();
+  } catch (err) {
+    // Normalize timeout errors for clarity
+    if (err.killed || (err.signal && err.code === null)) {
+      const msg = `Git command timed out after ${timeoutMs}ms: git ${command}`;
+      const timeoutErr = new Error(msg);
+      timeoutErr.code = 'GIT_TIMEOUT';
+      timeoutErr.originalError = err;
+      throw timeoutErr;
+    }
+    throw err;
+  }
 }
 
 function shellQuote(value) {
@@ -139,16 +246,17 @@ export async function getOriginDefaultBranch(directory) {
 
   // Try GitHub CLI first - most accurate method
   try {
+    const ghTimeoutMs = Number(process.env.GH_REPO_VIEW_TIMEOUT_MS) || 10_000;
     const { stdout } = await execAsync(
       'gh repo view --json defaultBranchRef --jq ".defaultBranchRef.name"',
-      { cwd: directory }
+      { cwd: directory, timeout: ghTimeoutMs }
     );
     const branchName = stdout.trim();
     if (branchName) {
       branch = `origin/${branchName}`;
     }
   } catch {
-    // gh CLI not available or failed, fall back to git commands
+    // gh CLI not available, timed out, or failed — fall back to git commands
   }
 
   if (!branch) {

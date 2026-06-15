@@ -360,6 +360,22 @@ export class SessionRepository extends BaseRepository {
     return this.mapAll(rows);
   }
 
+  /**
+   * Get sessions stuck in 'starting' whose updated_at is older than the given cutoff timestamp.
+   * Used by the boot-time stale-startup recovery sweep.
+   * @param {number} cutoff - Absolute timestamp; rows with updated_at < cutoff are stale.
+   * @returns {Array<object>}
+   */
+  getStaleStartingSessions(cutoff) {
+    const rows = this.db
+      .prepare(
+        `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
+         WHERE status = 'starting' AND updated_at < ? AND archived = 0`
+      )
+      .all(cutoff);
+    return this.mapAll(rows);
+  }
+
   /** Get all scheduled sessions, optionally filtered by project */
   getScheduledSessions(projectId = null) {
     let sql = `SELECT s.*, p.name as project_name, ${ACTIVITY_FIELDS_SQL}
