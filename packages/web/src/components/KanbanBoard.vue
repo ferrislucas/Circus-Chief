@@ -431,14 +431,45 @@ const effectiveLayout = computed(() => {
 // All lanes start expanded by default.
 const expandedLanes = reactive({});
 
+// ==================== Lane collapse persistence ====================
+
+const EXPANDED_LANES_KEY = 'kanbanExpandedLanes';
+
+function readExpandedLanes(projectId) {
+  try {
+    const raw = localStorage.getItem(`${EXPANDED_LANES_KEY}:${projectId}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const result = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'boolean') {
+        result[k] = v;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function writeExpandedLanes(projectId, expandedMap) {
+  try {
+    localStorage.setItem(`${EXPANDED_LANES_KEY}:${projectId}`, JSON.stringify(expandedMap));
+  } catch {
+    // ignore (e.g. private browsing with storage blocked)
+  }
+}
+
 watch(
-  () => kanbanStore.board?.lanes,
-  (lanes) => {
+  [() => props.projectId, () => kanbanStore.board?.lanes],
+  ([projectId, lanes]) => {
     if (lanes) {
+      // Clear old-project state to avoid leaking across project switches.
+      for (const k in expandedLanes) delete expandedLanes[k];
+      const saved = readExpandedLanes(projectId);
       for (const lane of lanes) {
-        if (!(lane.id in expandedLanes)) {
-          expandedLanes[lane.id] = true;
-        }
+        expandedLanes[lane.id] = typeof saved[lane.id] === 'boolean' ? saved[lane.id] : true;
       }
     }
   },
@@ -447,6 +478,7 @@ watch(
 
 const toggleLane = (laneId) => {
   expandedLanes[laneId] = !expandedLanes[laneId];
+  writeExpandedLanes(props.projectId, { ...expandedLanes });
 };
 
 // Called when the lane header is clicked; only toggles in vertical mode.
