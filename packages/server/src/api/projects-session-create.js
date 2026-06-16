@@ -118,6 +118,88 @@ export function createSessionRow(projectId, config, nextTemplateId, initialStatu
 }
 
 /**
+ * Build the user-facing message and structured git error (if any) for a
+ * session-startup failure. Timeouts get a plain message; other errors are
+ * classified via classifyGitError so actionable categories (credential,
+ * permission, remote unreachable) get a richer message. Unknown git errors keep
+ * their original message so raw detail is not hidden behind a generic wrapper.
+ * @returns {{ userMessage: string, structuredError: object|null }}
+ */
+function enrichStartupError(error, isTimeout) {
+  if (isTimeout) {
+    return { userMessage: error.message, structuredError: null };
+  }
+  // Real git subprocess errors carry .stderr; GIT_TIMEOUT carries .code.
+  const looksLikeGitError =
+    error.code === 'GIT_TIMEOUT' ||
+    error.stderr !== undefined ||
+    (error.message && error.message.includes('timed out'));
+  if (!looksLikeGitError) {
+    return { userMessage: error.message, structuredError: null };
+  }
+  const structuredError = classifyGitError(error, error.message);
+  if (structuredError.code === 'git_unknown') {
+    return { userMessage: error.message, structuredError };
+  }
+  const userMessage = structuredError.remediation
+    ? `${structuredError.message} ${structuredError.remediation}`
+    : structuredError.message;
+  return { userMessage, structuredError };
+}
+
+/** JSON body for a startup-failure response (includes gitError when known). */
+function buildStartupErrorBody(error, isTimeout, startupTimeoutMs, structuredError) {
+  return {
+    error: isTimeout
+      ? `Session startup timed out after ${startupTimeoutMs}ms`
+      : `Git setup failed: ${error.message}`,
+    ...(structuredError ? { gitError: structuredError } : {}),
+  };
+}
+
+/**
+ * Translate a session-startup failure into the error response. If the session is
+ * still 'starting', mark it errored and broadcast SESSION_UPDATED; either way,
+ * send the appropriate response (504 on timeout, 500 otherwise). Returns the
+ * Express response (already sent).
+ */
+function handleStartupFailure(res, error, {
+  session, resolvedProjectId, isTimeout, startupTimeoutMs, userMessage, structuredError,
+}) {
+  // Guard: skip the update if the session already moved out of 'starting'
+  // (e.g. via a concurrent recovery sweep or a previous error handler).
+  const current = sessions.getById(session.id);
+  if (current && current.status !== 'starting') {
+    return res.status(isTimeout ? 504 : 500).json(
+      buildStartupErrorBody(error, isTimeout, startupTimeoutMs, structuredError)
+    );
+  }
+
+  const updatedSession = sessions.update(session.id, {
+    status: 'error',
+    error: isTimeout
+      ? `Session startup timed out after ${startupTimeoutMs}ms`
+      : userMessage,
+  });
+  broadcastToProject(resolvedProjectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+    projectId: resolvedProjectId,
+    sessionId: session.id,
+    session: updatedSession,
+    ...(structuredError ? { gitError: structuredError } : {}),
+  });
+
+  if (isTimeout) {
+    return res.status(504).json({
+      error: `Session startup timed out after ${startupTimeoutMs}ms`,
+    });
+  }
+
+  return res.status(500).json(
+    buildStartupErrorBody(error, isTimeout, startupTimeoutMs, structuredError)
+  );
+}
+
+/**
  * Run setupAndStartSession and translate any failure into an error response,
  * marking the session as errored and broadcasting the update.
  *
@@ -159,67 +241,11 @@ export async function startSessionOrFail(req, res, { session, config, project, p
     setupPromise.catch(() => {});
 
     const isTimeout = error instanceof TimeoutError;
-
     console.error(isTimeout ? 'Session startup timeout:' : 'Session startup error:', error);
 
-    // Classify git errors for a structured user-facing message.
-    // Only enhance the stored message for recognized, actionable categories
-    // (credential, permission, remote unreachable, timeout); leave unknown
-    // errors with their original message so existing tests and log tooling
-    // continue to see the raw error text.
-    let userMessage = error.message;
-    let structuredError = null;
-    if (!isTimeout) {
-      // Check if the error looks like a git error (code or message hints)
-      const looksLikeGitError =
-        error.code === 'GIT_TIMEOUT' ||
-        error.stderr !== undefined ||  // real git subprocess errors carry .stderr
-        (error.message && error.message.includes('timed out'));
-      if (looksLikeGitError) {
-        structuredError = classifyGitError(error, error.message);
-        // Only substitute a richer message for specific, actionable categories.
-        // For git_unknown fall back to the original message so the raw detail
-        // is not hidden behind a generic wrapper.
-        if (structuredError.code !== 'git_unknown') {
-          userMessage = structuredError.remediation
-            ? `${structuredError.message} ${structuredError.remediation}`
-            : structuredError.message;
-        }
-      }
-    }
-
-    // Guard: skip update if session was already moved out of 'starting'
-    // (e.g. by a concurrent recovery sweep or previous error handler).
-    const current = sessions.getById(session.id);
-    if (current && current.status !== 'starting') {
-      return res.status(isTimeout ? 504 : 500).json({
-        error: isTimeout ? `Session startup timed out after ${startupTimeoutMs}ms` : `Git setup failed: ${error.message}`,
-        ...(structuredError ? { gitError: structuredError } : {}),
-      });
-    }
-
-    const updatedSession = sessions.update(session.id, {
-      status: 'error',
-      error: isTimeout
-        ? `Session startup timed out after ${startupTimeoutMs}ms`
-        : userMessage,
-    });
-    broadcastToProject(resolvedProjectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
-      projectId: resolvedProjectId,
-      sessionId: session.id,
-      session: updatedSession,
-      ...(structuredError ? { gitError: structuredError } : {}),
-    });
-
-    if (isTimeout) {
-      return res.status(504).json({
-        error: `Session startup timed out after ${startupTimeoutMs}ms`,
-      });
-    }
-
-    return res.status(500).json({
-      error: `Git setup failed: ${error.message}`,
-      ...(structuredError ? { gitError: structuredError } : {}),
+    const { userMessage, structuredError } = enrichStartupError(error, isTimeout);
+    return handleStartupFailure(res, error, {
+      session, resolvedProjectId, isTimeout, startupTimeoutMs, userMessage, structuredError,
     });
   }
 }
