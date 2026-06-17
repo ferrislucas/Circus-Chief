@@ -59,10 +59,7 @@
     >
       <div class="summary-empty-state-content">
         <p class="summary-empty-state-text">
-          This session hasn't started yet.
-        </p>
-        <p class="summary-empty-state-hint">
-          Start the session or send a message to see a summary here.
+          This workspace hasn't started yet.
         </p>
       </div>
     </div>
@@ -145,13 +142,13 @@ const isRunning = computed(() => {
 const allScheduledSessions = computed(() => {
   const result = [];
   // Include parent if scheduled
-  if (session.value?.status === 'scheduled') {
+  if (session.value?.status === 'scheduled' && session.value.scheduledAt) {
     result.push(session.value);
   }
   // Include all scheduled descendants
   const descendants = sessionsStore.getAllDescendants(props.sessionId);
   for (const d of descendants) {
-    if (d.status === 'scheduled') {
+    if (d.status === 'scheduled' && d.scheduledAt) {
       result.push(d);
     }
   }
@@ -306,13 +303,6 @@ async function handleRegenerate() {
   font-weight: 500;
   color: var(--color-text);
   margin: 0 0 0.5rem;
-}
-
-.summary-empty-state-hint {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  margin: 0;
-  line-height: 1.4;
 }
 
 .missing-summary-action {

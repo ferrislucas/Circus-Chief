@@ -382,7 +382,7 @@ describe('CanvasTab', () => {
       expect(canvasStore.items).toHaveLength(2);
     });
 
-    it('uses the session ID from props for fetch', async () => {
+    it('uses the workspace ID from props for fetch', async () => {
       api.getAllCanvasItems.mockResolvedValue([]);
 
       mountComponent({ sessionId: 'different-session' });

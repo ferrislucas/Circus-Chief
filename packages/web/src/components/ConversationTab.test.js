@@ -44,13 +44,6 @@ vi.mock('../stores/providers.js', () => ({
   })),
 }));
 
-// Mock the quick responses store
-vi.mock('../stores/quickResponses.js', () => ({
-  useQuickResponsesStore: vi.fn(() => ({
-    fetchForProject: vi.fn(),
-  })),
-}));
-
 // Mock the templates store
 vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: vi.fn(() => ({
@@ -108,7 +101,6 @@ import { useUiStore } from '../stores/ui.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProvidersStore } from '../stores/providers.js';
 import { useTemplatesStore } from '../stores/templates.js';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
 
 vi.mock('./LiveWorkLogPanel.vue', () => ({
   default: {
@@ -253,7 +245,7 @@ describe.skip('ConversationTab', () => {
       expect(wrapper.find('.messages').exists()).toBe(true);
     });
 
-    it('renders input form when session is waiting', async () => {
+    it('renders input form when workspace is waiting', async () => {
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard' };
 
       const wrapper = mountComponent();
@@ -262,7 +254,7 @@ describe.skip('ConversationTab', () => {
       expect(wrapper.find('.input-form').exists()).toBe(true);
     });
 
-    it('renders input form when session is stopped', async () => {
+    it('renders input form when workspace is stopped', async () => {
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'stopped', mode: 'standard' };
 
       const wrapper = mountComponent();
@@ -408,7 +400,7 @@ describe.skip('ConversationTab', () => {
     });
   });
 
-  describe('Session states', () => {
+  describe('Workspace states', () => {
     it('shows stop button when running', async () => {
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'running', mode: 'standard' };
 
@@ -429,7 +421,7 @@ describe.skip('ConversationTab', () => {
       expect(wrapper.find('.btn-restart').text()).toContain('Restart');
     });
 
-    it('allows sending message when session is stopped', async () => {
+    it('allows sending message when workspace is stopped', async () => {
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'stopped', mode: 'standard' };
 
       const wrapper = mountComponent();
@@ -581,8 +573,8 @@ describe.skip('ConversationTab', () => {
     });
   });
 
-  describe('Session actions', () => {
-    it('stops session on stop button click', async () => {
+  describe('Workspace actions', () => {
+    it('stops workspace on stop button click', async () => {
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'running', mode: 'standard' };
 
       const wrapper = mountComponent();
@@ -594,7 +586,7 @@ describe.skip('ConversationTab', () => {
       expect(mockSessionsStore.stopSession).toHaveBeenCalledWith('sess-123');
     });
 
-    it('restarts session on restart button click', async () => {
+    it('restarts workspace on restart button click', async () => {
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'error', mode: 'standard' };
 
       const wrapper = mountComponent();
@@ -607,8 +599,8 @@ describe.skip('ConversationTab', () => {
     });
   });
 
-  describe('Draft session start - model passthrough', () => {
-    it('passes pendingModel to startSession when starting a draft session', async () => {
+  describe('Draft workspace start - model passthrough', () => {
+    it('passes pendingModel to startSession when starting a draft workspace', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -633,7 +625,7 @@ describe.skip('ConversationTab', () => {
       );
     });
 
-    it('falls back to session.model when pendingModel is null', async () => {
+    it('falls back to workspace.model when pendingModel is null', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -808,7 +800,7 @@ describe.skip('ConversationTab', () => {
     });
   });
 
-  describe('Partial thinking - per-session isolation', () => {
+  describe('Partial thinking - per-workspace isolation', () => {
     it('passes sessionId to setPartialThinking when thinking content arrives', async () => {
       // This test verifies that the component correctly passes the sessionId parameter
       // when setting partial thinking content, ensuring proper per-session isolation
@@ -925,7 +917,7 @@ describe.skip('ConversationTab', () => {
  * Error Handling UX Tests
  *
  * These tests validate the improved error handling when a Claude session encounters an error.
- * Instead of showing a blocking "Session error" message with a required restart button,
+ * Instead of showing a blocking "Workspace error" message with a required restart button,
  * the new UX displays:
  * 1. The actual error message
  * 2. An input form that allows continuing the conversation
@@ -1023,7 +1015,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
   }
 
   describe('Input form availability in error state', () => {
-    it('renders input form when session status is error', async () => {
+    it('renders input form when workspace status is error', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'error',
@@ -1037,7 +1029,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       expect(wrapper.find('.input-form').exists()).toBe(true);
     });
 
-    it('displays send button when session status is error', async () => {
+    it('displays send button when workspace status is error', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'error',
@@ -1051,7 +1043,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       expect(wrapper.find('.btn-send-full').exists()).toBe(true);
     });
 
-    it('allows typing in textarea when session status is error', async () => {
+    it('allows typing in textarea when workspace status is error', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'error',
@@ -1137,7 +1129,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       expect(resizableTextarea.exists()).toBe(true);
     });
 
-    it('input form is shown when session is running (for queuing prompts)', async () => {
+    it('input form is shown when workspace is running (for queuing prompts)', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'running',
@@ -1189,7 +1181,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       expect(textarea.element.value).toBe('Test input');
     });
 
-    it('ResizableTextarea placeholder changes based on session type', async () => {
+    it('ResizableTextarea placeholder changes based on workspace type', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -1205,7 +1197,7 @@ describe('ConversationTab - Error Handling Improvements', () => {
       expect(textarea.attributes('placeholder')).toBe('Send a follow-up message...');
     });
 
-    it('ResizableTextarea placeholder for draft sessions', async () => {
+    it('ResizableTextarea placeholder for draft workspaces', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -2395,7 +2387,7 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
   }
 
   describe('Model defaults when activeConversation is null', () => {
-    it('defaults to sonnet when activeConversation is null and session has no model', async () => {
+    it('defaults to sonnet when activeConversation is null and workspace has no model', async () => {
       // Bug scenario: activeConversation is null, session.model is null
       mockSessionsStore.activeConversation = null;
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard', model: null };
@@ -2409,7 +2401,7 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
       expect(modelSelector.attributes('data-model')).toBe('sonnet');
     });
 
-    it('uses session model when activeConversation is null but session has a model', async () => {
+    it('uses workspace model when activeConversation is null but workspace has a model', async () => {
       // Session has a model set, but no active conversation yet
       mockSessionsStore.activeConversation = null;
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard', model: 'opus' };
@@ -2458,7 +2450,7 @@ describe('ConversationTab - Model Initialization with null activeConversation', 
       );
     });
 
-    it('sends message with session model when activeConversation is null but session has model', async () => {
+    it('sends message with workspace model when activeConversation is null but workspace has model', async () => {
       // Session has a model, should use that instead of 'sonnet'
       mockSessionsStore.activeConversation = null;
       mockSessionsStore.currentSession = { id: 'sess-123', status: 'waiting', mode: 'standard', model: 'haiku' };
@@ -3339,7 +3331,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   }
 
   describe('Initial model selection', () => {
-    it('sets selectedModel from session.model on initial load', async () => {
+    it('sets selectedModel from workspace.model on initial load', async () => {
       mockSessionsStore.currentSession.model = 'opus';
 
       const wrapper = mountComponent();
@@ -3349,7 +3341,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(modelSelector.attributes('data-model')).toBe('opus');
     });
 
-    it('falls back to sonnet when session has no model', async () => {
+    it('falls back to sonnet when workspace has no model', async () => {
       mockSessionsStore.currentSession.model = null;
 
       const wrapper = mountComponent();
@@ -3392,7 +3384,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(modelSelector.attributes('data-model')).toBe('opus');
     });
 
-    it('preserves user-selected model when session status changes trigger state updates', async () => {
+    it('preserves user-selected model when workspace status changes trigger state updates', async () => {
       // Start with sonnet (default)
       mockSessionsStore.currentSession.model = null;
 
@@ -3442,7 +3434,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(mockSessionsStore.updateSessionModel).toHaveBeenCalledWith('sess-123', 'opus', null);
     });
 
-    it('calls updateSessionModel with correct session ID', async () => {
+    it('calls updateSessionModel with correct workspace ID', async () => {
       mockSessionsStore.currentSession.model = 'sonnet';
       mockSessionsStore.currentSession.id = 'sess-456';
 
@@ -3499,7 +3491,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   });
 
   describe('Model preserved across stop/restart cycle', () => {
-    it('sends message with user-selected model after stopping session', async () => {
+    it('sends message with user-selected model after stopping workspace', async () => {
       // Start in waiting state with user selecting opus, then session runs and stops
       mockSessionsStore.currentSession.model = null;
       mockSessionsStore.currentSession.status = 'waiting';
@@ -3533,7 +3525,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(modelSelector.attributes('data-model')).toBe('opus');
     });
 
-    it('retains model selection when session goes from waiting through running to error', async () => {
+    it('retains model selection when workspace goes from waiting through running to error', async () => {
       // Start in waiting state so ModelSelector is rendered for initial model read
       mockSessionsStore.currentSession.model = 'opus';
       mockSessionsStore.currentSession.status = 'waiting';
@@ -3559,7 +3551,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(modelSelector.attributes('data-model')).toBe('opus');
     });
 
-    it('retains model selection when session goes from waiting through running to stopped', async () => {
+    it('retains model selection when workspace goes from waiting through running to stopped', async () => {
       mockSessionsStore.currentSession.model = 'haiku';
       mockSessionsStore.currentSession.status = 'waiting';
 
@@ -3582,7 +3574,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   });
 
   describe('model display in running state', () => {
-    it('shows model display name next to stop button when session is running', async () => {
+    it('shows model display name next to stop button when workspace is running', async () => {
       mockSessionsStore.currentSession.status = 'running';
       mockSessionsStore.currentSession.model = 'claude-opus-4-6';
 
@@ -3594,7 +3586,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(modelLabel.text()).toBe('Opus 4.6');
     });
 
-    it('does not show model label when session has no model set', async () => {
+    it('does not show model label when workspace has no model set', async () => {
       mockSessionsStore.currentSession.status = 'running';
       mockSessionsStore.currentSession.model = null;
 
@@ -3643,12 +3635,13 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   });
 
   describe('SchedulingInfo rendering', () => {
-    it('renders SchedulingInfo when currentSession exists', async () => {
+    it('renders SchedulingInfo for scheduled workspaces with a scheduledAt timestamp', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
-        status: 'waiting',
+        status: 'scheduled',
         thinkingEnabled: false,
         mode: 'standard',
+        scheduledAt: Date.now() + 3600000,
         autoRescheduleEnabled: true,
       };
 
@@ -3657,6 +3650,22 @@ describe('ConversationTab - Model selector persistence on stop', () => {
 
       const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
       expect(schedulingInfo.exists()).toBe(true);
+    });
+
+    it('does not render SchedulingInfo for waiting workspaces with no scheduledAt timestamp', async () => {
+      mockSessionsStore.currentSession = {
+        id: 'sess-123',
+        status: 'waiting',
+        thinkingEnabled: false,
+        mode: 'standard',
+        scheduledAt: null,
+      };
+
+      const wrapper = mountComponent();
+      await flushAll(wrapper);
+
+      const schedulingInfo = wrapper.findComponent({ name: 'SchedulingInfo' });
+      expect(schedulingInfo.exists()).toBe(false);
     });
 
     it('does not render SchedulingInfo when currentSession is null', async () => {
@@ -3669,12 +3678,13 @@ describe('ConversationTab - Model selector persistence on stop', () => {
       expect(schedulingInfo.exists()).toBe(false);
     });
 
-    it('passes current session as prop to SchedulingInfo', async () => {
+    it('passes current workspace as prop to SchedulingInfo', async () => {
       const testSession = {
         id: 'sess-456',
-        status: 'waiting',
+        status: 'scheduled',
         thinkingEnabled: false,
         mode: 'standard',
+        scheduledAt: Date.now() + 3600000,
         autoRescheduleEnabled: false,
       };
       mockSessionsStore.currentSession = testSession;
@@ -3689,7 +3699,7 @@ describe('ConversationTab - Model selector persistence on stop', () => {
   });
 });
 
-describe('ConversationTab - Watcher session-scoping guards', () => {
+describe('ConversationTab - Watcher workspace-scoping guards', () => {
   let mockSessionsStore;
   let consoleError;
 
@@ -3862,7 +3872,7 @@ describe('ConversationTab - Watcher session-scoping guards', () => {
     expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('parent-1');
   });
 
-  it('status watcher DOES refetch on running -> completed when session matches', async () => {
+  it('status watcher DOES refetch on running -> completed when workspace matches', async () => {
     mockSessionsStore.currentSession = {
       id: 'parent-1', status: 'running', thinkingEnabled: false, mode: 'standard',
     };
@@ -3882,7 +3892,7 @@ describe('ConversationTab - Watcher session-scoping guards', () => {
     expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('parent-1');
   });
 
-  it('status watcher does not refetch for non-running -> waiting transitions even when session matches', async () => {
+  it('status watcher does not refetch for non-running -> waiting transitions even when workspace matches', async () => {
     // Start at 'waiting', not 'running'
     mockSessionsStore.currentSession = {
       id: 'parent-1', status: 'waiting', thinkingEnabled: false, mode: 'standard',
@@ -3981,7 +3991,7 @@ describe('ConversationTab - Watcher session-scoping guards', () => {
     expect(mockSessionsStore.fetchMessages).not.toHaveBeenCalled();
   });
 
-  it('status watcher guard still allows auto-send reset when session ID does not match', async () => {
+  it('status watcher guard still allows auto-send reset when workspace ID does not match', async () => {
     mockSessionsStore.currentSession = {
       id: 'parent-1', status: 'running', thinkingEnabled: false, mode: 'standard',
       autoSendPendingPrompt: true,
@@ -4119,8 +4129,8 @@ describe('ConversationTab - Input clearing on submit', () => {
     await wrapper.vm.$nextTick?.();
   }
 
-  describe('Draft session - input clearing on successful start', () => {
-    it('clears textarea after successful draft session start', async () => {
+  describe('Draft workspace - input clearing on successful start', () => {
+    it('clears textarea after successful draft workspace start', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -4149,7 +4159,7 @@ describe('ConversationTab - Input clearing on submit', () => {
       expect(textarea.element.value).toBe('');
     });
 
-    it('preserves textarea content when draft session start fails', async () => {
+    it('preserves textarea content when draft workspace start fails', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',

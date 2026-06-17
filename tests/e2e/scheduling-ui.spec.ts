@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { seedProject, seedSession, cleanupAll, navigateAndWait, openSessionOverlay } from './helpers';
+import { seedProject, seedSession, cleanupAll, navigateAndWait, openSessionOverlay, closeSessionChat } from './helpers';
 
 test.describe('Scheduling UI', () => {
   test.describe.configure({ timeout: 60000 });
@@ -137,13 +137,13 @@ test.describe('Scheduling UI', () => {
       // Expected: Should show "in about 1 hour" or similar future time
       // Actual (bug): Shows "56 years ago" or other incorrect past time
 
-      // Wait for the scheduling info panel to appear (scoped to overlay to avoid duplicate from SummaryTab)
-      const overlay = page.getByTestId('session-chat-overlay');
-      const schedulingPanel = overlay.locator('.scheduling-info.scheduled-panel');
+      // Wait for the scheduling info panel to appear (scoped to chat content to avoid duplicate from SummaryTab)
+      const chatContent = page.locator('.session-chat-content');
+      const schedulingPanel = chatContent.locator('.scheduling-info.scheduled-panel');
       await expect(schedulingPanel).toBeVisible({ timeout: 5000 });
 
       // Get the countdown text element
-      const countdownText = overlay.locator('.countdown-text strong');
+      const countdownText = chatContent.locator('.countdown-text strong');
       await expect(countdownText).toBeVisible({ timeout: 3000 });
 
       // Get the text content
@@ -162,7 +162,7 @@ test.describe('Scheduling UI', () => {
       await page.waitForLoadState('networkidle');
       await openSessionOverlay(page);
 
-      const overlayAfterReload = page.getByTestId('session-chat-overlay');
+      const overlayAfterReload = page.locator('.session-chat-content');
       const countdownTextAfterReload = overlayAfterReload.locator('.countdown-text strong');
       await expect(countdownTextAfterReload).toBeVisible({ timeout: 5000 });
 
@@ -202,18 +202,13 @@ test.describe('Scheduling UI', () => {
       const modal = page.locator('.modal-backdrop');
       await expect(modal).not.toBeVisible({ timeout: 10000 });
 
-      // Close the overlay to see the summary tab
-      const closeButton = page.locator('.overlay-close-handle');
-      await expect(closeButton).toBeVisible({ timeout: 5000 });
-      await closeButton.click();
-
-      // Wait for overlay to fully disappear
-      await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout: 5000 });
+      // Close the chat to see the summary tab
+      await closeSessionChat(page);
 
       // Verify scheduling info is visible in the overview card
       const schedulingSection = page.locator('.overview-scheduled-sessions');
       await expect(schedulingSection).toBeVisible({ timeout: 5000 });
-      await expect(schedulingSection).toContainText('Scheduled Sessions');
+      await expect(schedulingSection).toContainText('Scheduled Workspaces');
       await expect(schedulingSection).toContainText('Edit');
     });
 
@@ -241,15 +236,8 @@ test.describe('Scheduling UI', () => {
       const modal = page.locator('.modal-backdrop');
       await expect(modal).not.toBeVisible({ timeout: 10000 });
 
-      // Close the overlay
-      const closeButton = page.locator('[data-testid="session-chat-overlay-close-handle"]');
-      await expect(closeButton).toBeVisible({ timeout: 5000 });
-      await closeButton.click();
-
-      // Wait for overlay to be fully removed from DOM (not just hidden — the CSS transition
-      // may keep it in the DOM briefly after it becomes invisible)
-      await expect(page.locator('[data-testid="session-chat-overlay"]')).not.toBeVisible({ timeout: 5000 });
-      await page.locator('[data-testid="session-chat-overlay"]').waitFor({ state: 'detached', timeout: 5000 });
+      // Close the chat to go back to the summary tab
+      await closeSessionChat(page);
 
       // Click the Edit button inside a ScheduledChildCard
       await page.click('.timing-action-btn');

@@ -29,8 +29,8 @@ test.describe('Session Overlay Auto-Open', () => {
     // Fill in the prompt textarea
     await page.fill('textarea[id="prompt"]', 'Test overlay auto-open');
 
-    // Submit the form (default is startImmediately=true → button text is "Start Session")
-    await page.click('button:has-text("Start Session")');
+    // Submit the form (default is startImmediately=true → button text is "Start Workspace")
+    await page.click('button:has-text("Start Workspace")');
 
     // Wait for redirect to the session detail page
     await page.waitForURL(/\/sessions\/[\w-]+/, { timeout: 30000 });

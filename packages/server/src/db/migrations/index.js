@@ -240,18 +240,10 @@ export const allMigrations = validateMigrations([
   k.get('session_templates-add-target_lane_id'),
   k.get('kanban_lanes-add-on_enter_prompt'),
   k.get('kanban_lanes-add-agent-settings'),
+  k.get('kanban_lanes-add-completion_target_lane_id'),
 
   // --- Sessions default mode / thinking defaults (table recreation) ---
   s.get('sessions-migrate-default-mode-thinking'),
-
-  // --- Seed default global quick responses ---
-  m.get('quick_responses-seed-defaults'),
-
-  // --- Convert legacy quick responses into template-backed quick responses ---
-  m.get('session_templates-convert-quick-responses'),
-
-  // --- Seed default global session templates ---
-  m.get('session_templates-seed-defaults'),
 
   // --- Update built-in Opus model to 4.7 ---
   pr.get('providers-update-built-in-opus-4-7'),
@@ -265,9 +257,35 @@ export const allMigrations = validateMigrations([
   // --- Update expired Gemini Flash Lite preview model to stable GA ---
   pr.get('providers-update-gemini-flash-lite-model'),
 
+  // --- Backfill official OpenAI commit attribution ---
+  pr.get('providers-backfill-built-in-openai-attribution'),
+
+  // --- Update built-in Opus model to 4.8 ---
+  pr.get('providers-update-built-in-opus-4-8'),
+
   // --- Project session defaults: add 'current' git mode ---
   p.get('project_session_defaults-git_mode-add-current'),
 
   // --- Repair missing session parent links from worktree paths ---
   repairMissingSessionParentsFromWorktree,
+
+  // --- Session summaries workflow fingerprint ---
+  c.get('session_summaries-add-workflow_fingerprint'),
+
+  // --- Session summaries own LLM-generated content (incremental merge approach) ---
+  c.get('session_summaries-add-own_short_summary'),
+  c.get('session_summaries-add-own_full_summary'),
+  c.get('session_summaries-add-own_key_actions'),
+  c.get('session_summaries-add-own_files_modified'),
+  c.get('session_summaries-add-own_outcome'),
+
+  // --- Providers enable/disable flag (appended last to keep column order
+  //     stable relative to the providers-widen-kind-check-google table swap) ---
+  pr.get('providers-add-enabled'),
+
+  // --- Pending conversation ID for existing-message retry on reschedule ---
+  s.get('sessions-add-pending_conversation_id'),
+
+  // --- Repair sessions with ISO text in scheduled_at (should be epoch ms integers) ---
+  s.get('sessions-repair-scheduled_at-iso-text'),
 ]);

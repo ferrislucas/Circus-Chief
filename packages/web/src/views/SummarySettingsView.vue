@@ -18,10 +18,10 @@
           v-model="disableSessionSummaries"
           type="checkbox"
         >
-        Disable session summaries
+        Disable workspace summaries
       </label>
       <p class="form-help">
-        When enabled, automatic session summaries will not be generated. Session summaries provide an overview of what was accomplished.
+        When enabled, automatic workspace summaries will not be generated. Workspace summaries provide an overview of what was accomplished.
       </p>
     </div>
 
@@ -48,7 +48,7 @@
       <label
         class="form-label"
         for="sessionTitlePrompt"
-      >Custom Session Title Prompt</label>
+      >Custom Workspace Title Prompt</label>
       <ResizableTextarea
         id="sessionTitlePrompt"
         v-model="sessionTitlePrompt"
@@ -57,7 +57,7 @@
         :max-height="400"
       />
       <p class="form-help">
-        Customize how session titles are generated.
+        Customize how workspace titles are generated.
       </p>
     </div>
 

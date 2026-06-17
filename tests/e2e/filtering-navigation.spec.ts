@@ -67,7 +67,7 @@ test.describe('Status Filter', () => {
 
     // Should show empty state
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No sessions match the current filter');
+    await expect(page.locator('.empty-state')).toContainText('No workspaces match the current filter');
 
     // No session cards visible
     await expect(page.locator('.session-card')).not.toBeVisible();
@@ -459,7 +459,7 @@ test.describe('Archived Sessions Tab', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    const archivedTab = page.locator('.tabs-desktop .tabs-left button.tab').filter({ hasText: 'Archived' });
+    const archivedTab = page.locator('.tabs-desktop .tabs-left button.tab').filter({ hasText: 'Archive' });
     await expect(archivedTab).toBeVisible();
   });
 
@@ -468,14 +468,14 @@ test.describe('Archived Sessions Tab', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // URL should change to archived route
     await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/archived`));
 
     // Archived tab button should have active class
-    const archivedTab = page.locator('button.tab').filter({ hasText: 'Archived' });
+    const archivedTab = page.locator('button.tab').filter({ hasText: 'Archive' });
     await expect(archivedTab).toHaveClass(/active/);
   });
 
@@ -483,7 +483,7 @@ test.describe('Archived Sessions Tab', () => {
     await navigateAndWait(page, `/projects/${project.id}/archived`);
 
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No archived sessions');
+    await expect(page.locator('.empty-state')).toContainText('No archived workspaces');
   });
 
   test('archived tab shows archived sessions', async ({ page }) => {
@@ -519,7 +519,7 @@ test.describe('Archived Sessions Tab', () => {
 
     // Click unarchive button on first session card
     const firstCard = page.locator('.session-card').first();
-    await firstCard.locator('.archive-btn[title="Unarchive session"]').click();
+    await firstCard.locator('.archive-btn[title="Unarchive workspace"]').click();
 
     // Wait for the session to be removed from the list
     await expect(page.locator('.session-card')).toHaveCount(1, { timeout: 5000 });
@@ -540,7 +540,7 @@ test.describe('Archived Sessions Tab', () => {
     await expect(page.locator('.session-name').filter({ hasText: 'Archived Only' })).not.toBeVisible();
 
     // Switch to Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // Should show 1 archived session
@@ -551,7 +551,7 @@ test.describe('Archived Sessions Tab', () => {
 });
 
 // ============================================================
-// Category 5: Session Detail Tab Navigation (6 tests)
+// Category 5: Session Detail Tab Navigation (7 tests)
 // ============================================================
 
 test.describe('Session Detail Tab Navigation', () => {
@@ -605,6 +605,8 @@ test.describe('Session Detail Tab Navigation', () => {
     await page.locator('.tabs-desktop .tab').filter({ hasText: 'Commands' }).click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${session.id}/commands`));
     await expect(page.locator('.tabs-desktop .tab').filter({ hasText: 'Commands' })).toHaveClass(/active/);
+
+    await expect(page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' })).toHaveCount(0);
   });
 
   test('deep linking to a specific tab works', async ({ page }) => {
@@ -616,6 +618,29 @@ test.describe('Session Detail Tab Navigation', () => {
 
     // URL should stay at canvas
     await expect(page).toHaveURL(new RegExp(`/sessions/${session.id}/canvas`));
+  });
+
+  test('project-level Circus Time tab shows the CTA', async ({ page }) => {
+    await navigateAndWait(page, `/projects/${project.id}/circus-time`);
+
+    const circusTimeTab = page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' });
+    await expect(circusTimeTab).toHaveClass(/active/);
+    await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/circus-time`));
+    await expect(page.getByRole('heading', { name: 'Circus Time' })).toBeVisible();
+
+    const ctaLink = page.getByRole('link', { name: 'Get Circus Time' });
+    await expect(ctaLink).toHaveAttribute(
+      'href',
+      'https://mydayoff.lemonsqueezy.com/checkout/buy/2a60bdc7-058c-43d8-965b-6b7d785f0842'
+    );
+  });
+
+  test('legacy session-level Circus Time URL stays on session detail without Circus Time tab', async ({ page }) => {
+    await navigateAndWait(page, `/sessions/${session.id}/circus-time`);
+
+    await expect(page).toHaveURL(new RegExp(`/sessions/${session.id}/circus-time`));
+    await expect(page.locator('.tabs-desktop .tab').filter({ hasText: 'Circus Time' })).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Circus Time' })).toHaveCount(0);
   });
 
   test('back button navigates between tabs correctly', async ({ page }) => {
@@ -725,7 +750,7 @@ test.describe('Filter Combinations & Edge Cases', () => {
 
     // Should show empty state
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No sessions match the current filter');
+    await expect(page.locator('.empty-state')).toContainText('No workspaces match the current filter');
   });
 
   test('all three filter controls are visible on session list', async ({ page }) => {

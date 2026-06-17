@@ -182,4 +182,18 @@ describe('SessionFormOptions', () => {
     await flushAll(wrapper);
     expect(wrapper.find('[data-agent-badge="codex"]').exists()).toBe(false);
   });
+
+  it('renders options-row container that wraps all option controls', async () => {
+    const wrapper = mountForm();
+    await flushAll(wrapper);
+
+    const optionsRow = wrapper.find('.options-row');
+    expect(optionsRow.exists()).toBe(true);
+
+    // Verify all major option controls are nested inside the options-row
+    expect(optionsRow.find('.mode-selector-wrapper').exists()).toBe(true);
+    expect(optionsRow.find('.model-selector-wrapper').exists()).toBe(true);
+    expect(optionsRow.find('.effort-selector-wrapper').exists()).toBe(true);
+    expect(optionsRow.find('.thinking-toggle').exists()).toBe(true);
+  });
 });

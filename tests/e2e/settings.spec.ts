@@ -102,7 +102,7 @@ test.describe('Settings', () => {
       const checkboxLabels = page.locator('.checkbox-label');
       await expect(checkboxLabels).toHaveCount(1);
 
-      await expect(checkboxLabels.nth(0)).toContainText('Disable session summaries');
+      await expect(checkboxLabels.nth(0)).toContainText('Disable workspace summaries');
     });
 
     test('form shows session title prompt textarea', async ({ page }) => {
@@ -110,7 +110,7 @@ test.describe('Settings', () => {
       await page.waitForSelector('form.form.card', { timeout: 10000 });
 
       await expect(page.locator('label.form-label[for="sessionTitlePrompt"]')).toBeVisible();
-      await expect(page.locator('label.form-label[for="sessionTitlePrompt"]')).toHaveText('Custom Session Title Prompt');
+      await expect(page.locator('label.form-label[for="sessionTitlePrompt"]')).toHaveText('Custom Workspace Title Prompt');
 
       const textarea = page.locator('textarea#sessionTitlePrompt');
       await expect(textarea).toBeVisible();
@@ -145,7 +145,7 @@ test.describe('Settings', () => {
     });
 
     test('checking disable session summaries and saving persists the setting', async ({ page }) => {
-      await page.locator('.checkbox-label:has-text("Disable session summaries") input').check();
+      await page.locator('.checkbox-label:has-text("Disable workspace summaries") input').check();
       await page.locator('button[type="submit"]').click();
 
       await expect(page.locator('.toast-message')).toHaveText('Summary settings saved successfully', { timeout: 10000 });
@@ -155,7 +155,7 @@ test.describe('Settings', () => {
       await page.reload();
       await page.waitForSelector('form.form.card', { timeout: 10000 });
 
-      await expect(page.locator('.checkbox-label:has-text("Disable session summaries") input')).toBeChecked();
+      await expect(page.locator('.checkbox-label:has-text("Disable workspace summaries") input')).toBeChecked();
 
       // Verify via API
       const settings = await getSummarySettings();
@@ -181,7 +181,7 @@ test.describe('Settings', () => {
     });
 
     test('saving multiple settings at once persists all changes', async ({ page }) => {
-      await page.locator('.checkbox-label:has-text("Disable session summaries") input').check();
+      await page.locator('.checkbox-label:has-text("Disable workspace summaries") input').check();
       await page.locator('textarea#sessionTitlePrompt').fill('Custom prompt');
       await page.locator('button[type="submit"]').click();
 
@@ -197,11 +197,13 @@ test.describe('Settings', () => {
 
   test.describe('Category 4: Summary Settings — Reset', () => {
     test.beforeEach(async () => {
-      // Pre-set non-default values via API
-      await updateSummarySettings({
+      // Pre-set non-default values via API and verify they persisted
+      const result = await updateSummarySettings({
         disableSessionSummaries: true,
         sessionTitlePrompt: 'Custom title prompt for testing',
       });
+      // Verify the API actually saved the settings before navigating
+      expect(result.disableSessionSummaries).toBe(true);
     });
 
     test('reset to defaults shows confirmation dialog', async ({ page }) => {
@@ -209,7 +211,7 @@ test.describe('Settings', () => {
       await page.waitForSelector('form.form.card', { timeout: 10000 });
 
       // Verify pre-conditions loaded
-      await expect(page.locator('.checkbox-label:has-text("Disable session summaries") input')).toBeChecked();
+      await expect(page.locator('.checkbox-label:has-text("Disable workspace summaries") input')).toBeChecked();
 
       // Register dialog handler to dismiss
       page.once('dialog', async (dialog) => {
@@ -225,7 +227,7 @@ test.describe('Settings', () => {
       await page.waitForSelector('form.form.card', { timeout: 10000 });
 
       // Verify pre-conditions loaded
-      await expect(page.locator('.checkbox-label:has-text("Disable session summaries") input')).toBeChecked();
+      await expect(page.locator('.checkbox-label:has-text("Disable workspace summaries") input')).toBeChecked();
 
       // Register dialog handler to accept
       page.once('dialog', async (dialog) => {
@@ -240,7 +242,7 @@ test.describe('Settings', () => {
       await page.waitForSelector('form.form.card', { timeout: 10000 });
 
       // Checkboxes should match defaults
-      await expect(page.locator('.checkbox-label:has-text("Disable session summaries") input')).not.toBeChecked();
+      await expect(page.locator('.checkbox-label:has-text("Disable workspace summaries") input')).not.toBeChecked();
 
       // Textarea should show default prompt
       const textarea = page.locator('textarea#sessionTitlePrompt');
@@ -258,7 +260,7 @@ test.describe('Settings', () => {
       await page.waitForSelector('form.form.card', { timeout: 10000 });
 
       // Verify pre-conditions loaded
-      await expect(page.locator('.checkbox-label:has-text("Disable session summaries") input')).toBeChecked();
+      await expect(page.locator('.checkbox-label:has-text("Disable workspace summaries") input')).toBeChecked();
 
       // Register dialog handler to dismiss
       page.once('dialog', async (dialog) => {
@@ -272,7 +274,7 @@ test.describe('Settings', () => {
       // Assertions can proceed immediately
 
       // Checkbox should remain checked
-      await expect(page.locator('.checkbox-label:has-text("Disable session summaries") input')).toBeChecked();
+      await expect(page.locator('.checkbox-label:has-text("Disable workspace summaries") input')).toBeChecked();
 
       // Textarea should still contain custom text
       await expect(page.locator('textarea#sessionTitlePrompt')).toHaveValue('Custom title prompt for testing');

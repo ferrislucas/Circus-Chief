@@ -53,6 +53,13 @@ describe('e2eSpawnCapture', () => {
         'acceptEdits',
         '--setting-sources',
         'user,project,local',
+        '--mcp-config',
+        JSON.stringify({
+          mcpServers: {
+            safeName: { command: 'node', args: ['secret.js'], env: { TOKEN: 'secret' } },
+            remoteName: { type: 'http', url: 'https://secret.example.test/mcp', headers: { Authorization: 'Bearer secret' } },
+          },
+        }),
       ],
       cwd: tempDir,
     });
@@ -67,9 +74,16 @@ describe('e2eSpawnCapture', () => {
         settings: '{"attribution":{"commit":"Claude"}}',
         permissionMode: 'acceptEdits',
         settingSources: 'user,project,local',
+        mcpServers: [
+          { name: 'safeName', transport: 'stdio' },
+          { name: 'remoteName', transport: 'http' },
+        ],
       },
     });
     expect(record.args).toContain('--model');
+    expect(record.args).toContain('[redacted]');
+    expect(JSON.stringify(record)).not.toContain('secret.js');
+    expect(JSON.stringify(record)).not.toContain('Bearer secret');
     expect(record.capturedAt).toEqual(expect.any(String));
   });
 

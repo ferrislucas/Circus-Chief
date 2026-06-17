@@ -87,6 +87,7 @@ export const UpdateProviderRequest = z
     apiTimeoutMs: z.number().int().positive().nullable().optional(),
     additionalEnvVars: z.record(z.string()).nullable().optional(),
     commitAttributionOverride: CommitAttributionOverride.optional(),
+    enabled: z.boolean().optional(),
   })
   .strict();
 
@@ -100,6 +101,7 @@ export const ProviderResponse = z.object({
   additionalEnvVars: z.record(z.string()).nullable(),
   commitAttributionOverride: z.string().nullable(),
   isBuiltIn: z.boolean(),
+  enabled: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number(),
   models: z.array(

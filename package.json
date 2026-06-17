@@ -13,12 +13,12 @@
     "test:integration": "vitest run --config tests/integration/vitest.config.js",
     "test:coverage": "yarn workspaces run test:coverage",
     "test:e2e": "./scripts/pw.sh test",
-    "test:publish-script": "bash scripts/publish.test.sh",
+    "test:publish-script": "bash scripts/publish.test.sh && bash scripts/package-artifact.test.sh",
     "lint": "npx eslint packages/*/src"
   },
   "devDependencies": {
     "@playwright/test": "^1.57.0",
-    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/coverage-v8": "4.1.0",
     "concurrently": "^8.2.2",
     "eslint": "8.56.0",
     "eslint-plugin-sonarjs": "^4.0.2",

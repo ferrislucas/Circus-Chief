@@ -5,6 +5,7 @@ import { createRouter, createMemoryHistory } from 'vue-router';
 import { h, defineComponent, nextTick } from 'vue';
 import SessionChatOverlay from './SessionChatOverlay.vue';
 import sessionChatOverlaySource from './SessionChatOverlay.vue?raw';
+import sessionChatContentSource from './SessionChatContent.vue?raw';
 import { api } from '../composables/useApi.js';
 import { generateWorktreeBranch } from '@circuschief/shared';
 
@@ -19,6 +20,24 @@ Object.defineProperty(window, 'scrollTo', {
   writable: true,
   value: vi.fn(),
 });
+
+if (!window.requestAnimationFrame) {
+  Object.defineProperty(window, 'requestAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (callback) => window.setTimeout(() => callback(performance.now()), 0),
+  });
+}
+globalThis.requestAnimationFrame = window.requestAnimationFrame;
+
+if (!window.cancelAnimationFrame) {
+  Object.defineProperty(window, 'cancelAnimationFrame', {
+    configurable: true,
+    writable: true,
+    value: (id) => window.clearTimeout(id),
+  });
+}
+globalThis.cancelAnimationFrame = window.cancelAnimationFrame;
 
 // Mock @circuschief/shared
 vi.mock('@circuschief/shared', () => ({
@@ -196,7 +215,7 @@ describe('SessionChatOverlay', () => {
   let router;
   const rootSession = {
     id: 'sess-root',
-    name: 'Root Session',
+    name: 'Root Workspace',
     status: 'waiting',
     parentSessionId: null,
     projectId: 'proj-123',
@@ -269,18 +288,43 @@ describe('SessionChatOverlay', () => {
     });
   }
 
+  async function mountOverlaySettled(propsOverrides = {}) {
+    const wrapper = mountOverlay(propsOverrides);
+    await nextTick();
+    await new Promise(r => setTimeout(r, 10));
+    return wrapper;
+  }
+
+  function getStyleSource(selector) {
+    return sessionChatOverlaySource.includes(`${selector} {`)
+      ? sessionChatOverlaySource
+      : sessionChatContentSource;
+  }
+
+  function getStyleSelector(selector) {
+    if (selector === '.overlay-content') return '.session-chat-content';
+    if (selector.startsWith('.session-chat-overlay :deep(')) {
+      return selector.replace('.session-chat-overlay', '.session-chat-content');
+    }
+    return selector;
+  }
+
   function getStyleBlock(selector) {
-    const start = sessionChatOverlaySource.indexOf(`${selector} {`);
+    const styleSelector = getStyleSelector(selector);
+    const source = getStyleSource(styleSelector);
+    const start = source.indexOf(`${styleSelector} {`);
     expect(start).toBeGreaterThanOrEqual(0);
-    const end = sessionChatOverlaySource.indexOf('\n}', start);
+    const end = source.indexOf('\n}', start);
     expect(end).toBeGreaterThan(start);
-    return sessionChatOverlaySource.slice(start, end + 2);
+    return source.slice(start, end + 2);
   }
 
   function getStyleBlocks(selector) {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const styleSelector = getStyleSelector(selector);
+    const source = getStyleSource(styleSelector);
+    const escaped = styleSelector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const pattern = new RegExp(`${escaped}\\s*\\{[^}]*\\}`, 'g');
-    const blocks = sessionChatOverlaySource.match(pattern) || [];
+    const blocks = source.match(pattern) || [];
     expect(blocks.length).toBeGreaterThan(0);
     return blocks;
   }
@@ -301,15 +345,15 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('displays active session name in header', async () => {
+    it('does not display root workspace name in header', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const name = document.querySelector('.overlay-root-name');
-      expect(name.textContent).toBe('Root Session');
+      expect(name).toBeNull();
       wrapper.unmount();
     });
 
-    it('renders ConversationTab with correct session id', async () => {
+    it('renders ConversationTab with correct workspace id', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       // Wait for async onMounted to complete (loadSessionData + setupSubscription)
@@ -321,7 +365,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('renders back to sessions link in header', async () => {
+    it('renders back to workspaces link in header', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({
         ...rootSession,
         projectId: 'proj-123',
@@ -331,15 +375,15 @@ describe('SessionChatOverlay', () => {
       const backLink = document.querySelector('.back-to-sessions-link');
       expect(backLink).toBeTruthy();
       expect(backLink.getAttribute('href')).toBe('/projects/proj-123/sessions');
-      expect(backLink.getAttribute('title')).toBe('Back to Sessions');
+      expect(backLink.getAttribute('title')).toBe('Back to Workspaces');
       // Verify SVG icons are present
       expect(backLink.querySelectorAll('svg').length).toBe(2);
-      // Verify "Sessions" text label is present
-      expect(backLink.textContent).toContain('Sessions');
+      // Verify "Workspaces" text label is present
+      expect(backLink.textContent).toContain('Workspaces');
       wrapper.unmount();
     });
 
-    it('back link defaults to home when session has no projectId', async () => {
+    it('back link defaults to home when workspace has no projectId', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({
         ...rootSession,
         projectId: null,
@@ -353,7 +397,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('back link has Sessions text label', async () => {
+    it('back link has Workspaces text label', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({
         ...rootSession,
         projectId: 'proj-123',
@@ -362,7 +406,7 @@ describe('SessionChatOverlay', () => {
       await nextTick();
       const textSpan = document.querySelector('.back-to-sessions-text');
       expect(textSpan).toBeTruthy();
-      expect(textSpan.textContent).toBe('Sessions');
+      expect(textSpan.textContent).toBe('Workspaces');
       wrapper.unmount();
     });
 
@@ -412,7 +456,7 @@ describe('SessionChatOverlay', () => {
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
       expect(handle).toBeTruthy();
       expect(handle.getAttribute('role')).toBe('button');
-      expect(handle.getAttribute('aria-label')).toBe('Close session chat');
+      expect(handle.getAttribute('aria-label')).toBe('Close workspace chat');
       expect(handle.getAttribute('tabindex')).toBe('0');
       wrapper.unmount();
     });
@@ -663,10 +707,10 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('session tree picker integration', () => {
+  describe('workspace tree picker integration', () => {
     const childSession = {
       id: 'child-1',
-      name: 'Child Session',
+      name: 'Child Workspace',
       status: 'running',
       parentSessionId: 'sess-root',
       projectId: 'proj-123',
@@ -693,7 +737,7 @@ describe('SessionChatOverlay', () => {
       });
     }
 
-    it('does not show picker when sessionChain has only 1 session', async () => {
+    it('does not show picker when sessionChain has only 1 workspace', async () => {
       const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
@@ -709,7 +753,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('shows dropdown trigger when sessionChain has multiple sessions', async () => {
+    it('shows dropdown trigger when sessionChain has multiple workspaces', async () => {
       const wrapper = mountWithPicker();
       await nextTick();
       const trigger = document.querySelector('[data-testid="overlay-picker-trigger"]');
@@ -750,13 +794,13 @@ describe('SessionChatOverlay', () => {
       const picker = document.querySelector('[data-testid="session-chat-picker"]');
       expect(picker).toBeTruthy();
       // The mock renders session names as text content
-      expect(picker.textContent).toContain('Root Session');
-      expect(picker.textContent).toContain('Child Session');
+      expect(picker.textContent).toContain('Root Workspace');
+      expect(picker.textContent).toContain('Child Workspace');
 
       wrapper.unmount();
     });
 
-    it('selecting a session calls selectSession and closes picker', async () => {
+    it('selecting a workspace calls selectSession and closes picker', async () => {
       mockSessionsStore.getSessionById.mockImplementation((id) => {
         if (id === 'sess-root') return rootSession;
         if (id === 'child-1') return childSession;
@@ -815,7 +859,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('displays active session name in dropdown trigger', async () => {
+    it('displays active workspace name in dropdown trigger', async () => {
       mockSessionsStore.getSessionById.mockReturnValue(rootSession);
 
       const wrapper = mountWithPicker();
@@ -920,17 +964,17 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('Add Session button', () => {
-    it('renders add session button in overlay', async () => {
+  describe('Add Workspace button', () => {
+    it('renders add workspace button in overlay', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
       expect(btn).toBeTruthy();
-      expect(btn.textContent.trim()).toContain('New Session');
+      expect(btn.textContent.trim()).toContain('New Workspace');
       wrapper.unmount();
     });
 
-    it('uses addSessionToList when creating a child session', async () => {
+    it('uses addSessionToList when creating a child workspace', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
       api.createSession.mockResolvedValue(newSession);
@@ -955,7 +999,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not duplicate a child session already present in the main store', async () => {
+    it('does not duplicate a child workspace already present in the main store', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.sessions = [newSession];
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123' });
@@ -974,7 +1018,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('inherits git settings from parent session with worktree', async () => {
+    it('inherits git settings from parent workspace with worktree', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
@@ -991,7 +1035,7 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
         gitMode: 'worktree',
@@ -1019,7 +1063,7 @@ describe('SessionChatOverlay', () => {
       // triggering git checkout in directories that may not be git repos
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1042,14 +1086,14 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
       wrapper.unmount();
     });
 
-    it('after creation, overlay switches activeSessionId to new session', async () => {
+    it('after creation, overlay switches activeSessionId to new workspace', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
@@ -1071,7 +1115,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('emits session-created event after creation', async () => {
+    it('emits workspace-created event after creation', async () => {
       const newSession = { id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123', parentSessionId: 'sess-root' };
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, projectId: 'proj-123', gitBranch: 'feature/parent-branch', gitWorktree: '/path/to/worktree' });
       api.createSession.mockResolvedValue(newSession);
@@ -1154,11 +1198,11 @@ describe('SessionChatOverlay', () => {
       await new Promise(r => setTimeout(r, 50));
 
       expect(api.createSession).not.toHaveBeenCalled();
-      expect(mockUiStore.error).toHaveBeenCalledWith('Cannot create session: no project context');
+      expect(mockUiStore.error).toHaveBeenCalledWith('Cannot create workspace: no project context');
       wrapper.unmount();
     });
 
-    it('does not send gitBranch for non-git project sessions', async () => {
+    it('does not send gitBranch for non-git project workspaces', async () => {
       const nonGitSession = { ...rootSession, projectId: 'proj-123', gitBranch: null };
       mockSessionsStore.getSessionById.mockReturnValue(nonGitSession);
       api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
@@ -1175,14 +1219,14 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
       wrapper.unmount();
     });
 
-    it('propagates parent model to child session when parent has a model', async () => {
+    it('propagates parent model to child workspace when parent has a model', async () => {
       const codexSession = { ...rootSession, projectId: 'proj-123', model: 'gpt-5.4', gitBranch: null, gitWorktree: null };
       mockSessionsStore.getSessionById.mockReturnValue(codexSession);
       api.createSession.mockResolvedValue({ id: 'new-sess', name: 'New Session', status: 'waiting', projectId: 'proj-123' });
@@ -1198,7 +1242,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
         model: 'gpt-5.4',
@@ -1224,7 +1268,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Session',
+        name: 'New Workspace',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1232,10 +1276,10 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('session switch loading state', () => {
+  describe('workspace switch loading state', () => {
     const childSession = {
       id: 'child-1',
-      name: 'Child Session',
+      name: 'Child Workspace',
       status: 'running',
       parentSessionId: 'sess-root',
       projectId: 'proj-123',
@@ -1245,7 +1289,7 @@ describe('SessionChatOverlay', () => {
       { session: childSession, depth: 1 },
     ];
 
-    it('shows loading spinner when switching sessions', async () => {
+    it('shows loading spinner when switching workspaces', async () => {
       // Setup: make fetchSession return a pending promise so we can
       // observe the spinner while data is loading.
       let resolveFetch;
@@ -1278,7 +1322,7 @@ describe('SessionChatOverlay', () => {
       // Spinner should be visible
       const spinner = document.querySelector('.session-switch-loading');
       expect(spinner).toBeTruthy();
-      expect(spinner.textContent).toContain('Loading session...');
+      expect(spinner.textContent).toContain('Loading workspace...');
 
       // ConversationTab should NOT be visible
       const conv = document.querySelector('.conversation-tab-mock');
@@ -1362,7 +1406,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not show spinner when selecting the already-active session', async () => {
+    it('does not show spinner when selecting the already-active workspace', async () => {
       const wrapper = mount(SessionChatOverlay, {
         props: {
           sessionId: 'sess-root',
@@ -1387,8 +1431,8 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('active session spinner indicator', () => {
-    it('shows spinner when session is running', async () => {
+  describe('active workspace spinner indicator', () => {
+    it('shows spinner when workspace is running', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'running' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'running' };
       const wrapper = mountOverlay();
@@ -1398,7 +1442,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('shows spinner when session is starting', async () => {
+    it('shows spinner when workspace is starting', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'starting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'starting' };
       const wrapper = mountOverlay();
@@ -1408,7 +1452,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not show spinner when session is waiting', async () => {
+    it('does not show spinner when workspace is waiting', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'waiting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'waiting' };
       const wrapper = mountOverlay();
@@ -1418,7 +1462,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not show spinner when session is completed', async () => {
+    it('does not show spinner when workspace is completed', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'completed' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'completed' };
       const wrapper = mountOverlay();
@@ -1428,7 +1472,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('does not show spinner when session is error', async () => {
+    it('does not show spinner when workspace is error', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'error' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'error' };
       const wrapper = mountOverlay();
@@ -1438,36 +1482,36 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('close handle ARIA label reflects running session status', async () => {
+    it('close handle ARIA label reflects running workspace status', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'running' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'running' };
       const wrapper = mountOverlay();
       await nextTick();
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
-      expect(handle.getAttribute('aria-label')).toBe('Session running...');
-      expect(handle.getAttribute('title')).toBe('Session running...');
+      expect(handle.getAttribute('aria-label')).toBe('Workspace running...');
+      expect(handle.getAttribute('title')).toBe('Workspace running...');
       wrapper.unmount();
     });
 
-    it('close handle ARIA label reflects starting session status', async () => {
+    it('close handle ARIA label reflects starting workspace status', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'starting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'starting' };
       const wrapper = mountOverlay();
       await nextTick();
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
-      expect(handle.getAttribute('aria-label')).toBe('Session starting...');
-      expect(handle.getAttribute('title')).toBe('Session starting...');
+      expect(handle.getAttribute('aria-label')).toBe('Workspace starting...');
+      expect(handle.getAttribute('title')).toBe('Workspace starting...');
       wrapper.unmount();
     });
 
-    it('close handle ARIA label is "Close session chat" for inactive sessions', async () => {
+    it('close handle ARIA label is "Close workspace chat" for inactive workspaces', async () => {
       mockSessionsStore.getSessionById.mockReturnValue({ ...rootSession, status: 'waiting' });
       mockSessionsStore.currentSession = { ...rootSession, status: 'waiting' };
       const wrapper = mountOverlay();
       await nextTick();
       const handle = document.querySelector('[data-testid="session-chat-overlay-close-handle"]');
-      expect(handle.getAttribute('aria-label')).toBe('Close session chat');
-      expect(handle.getAttribute('title')).toBe('Close session chat');
+      expect(handle.getAttribute('aria-label')).toBe('Close workspace chat');
+      expect(handle.getAttribute('title')).toBe('Close workspace chat');
       wrapper.unmount();
     });
 
@@ -1477,7 +1521,7 @@ describe('SessionChatOverlay', () => {
       const wrapper = mountOverlay();
       await nextTick();
       const spinner = document.querySelector('.active-spinner');
-      expect(spinner.getAttribute('title')).toBe('Session running...');
+      expect(spinner.getAttribute('title')).toBe('Workspace running...');
       wrapper.unmount();
     });
 
@@ -1487,15 +1531,15 @@ describe('SessionChatOverlay', () => {
       const wrapper = mountOverlay();
       await nextTick();
       const spinner = document.querySelector('.active-spinner');
-      expect(spinner.getAttribute('title')).toBe('Session starting...');
+      expect(spinner.getAttribute('title')).toBe('Workspace starting...');
       wrapper.unmount();
     });
   });
 
-  describe('session switching state reset', () => {
+  describe('workspace switching state reset', () => {
     const childSession = {
       id: 'child-1',
-      name: 'Child Session',
+      name: 'Child Workspace',
       status: 'running',
       parentSessionId: 'sess-root',
       projectId: 'proj-123',
@@ -1503,7 +1547,7 @@ describe('SessionChatOverlay', () => {
 
     const chainSessions = [{ session: rootSession, depth: 0 }, { session: childSession, depth: 1 }];
 
-    it('clears stale state when switching sessions', async () => {
+    it('clears stale state when switching workspaces', async () => {
       mockSessionsStore.getSessionById.mockImplementation((id) => {
         if (id === 'sess-root') return rootSession;
         if (id === 'child-1') return childSession;
@@ -1537,7 +1581,7 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('fetches todos for new session after loading data', async () => {
+    it('fetches todos for new workspace after loading data', async () => {
       mockSessionsStore.getSessionById.mockImplementation((id) => {
         if (id === 'sess-root') return rootSession;
         if (id === 'child-1') return childSession;
@@ -1629,13 +1673,15 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('backdrop stylesheet keeps the shell fixed to the full layout viewport', () => {
+    it('backdrop stylesheet keeps the shell fixed to the full viewport', () => {
       const block = getStyleBlock('.overlay-backdrop');
       expect(block).toMatch(/position:\s*fixed/);
       expect(block).toMatch(/inset:\s*0/);
-      expect(block).toMatch(/min-height:\s*100vh/);
-      expect(block).toMatch(/min-height:\s*100dvh/);
+      expect(block).toMatch(/width:\s*100vw/);
+      expect(block).toMatch(/max-width:\s*100vw/);
       expect(block).toMatch(/z-index:\s*1200/);
+      expect(block).toMatch(/touch-action:\s*none/);
+      expect(block).not.toMatch(/min-height:\s*100dvh/);
     });
 
     it('no backdrop stylesheet block uses visual viewport shell geometry', () => {
@@ -1651,7 +1697,6 @@ describe('SessionChatOverlay', () => {
         expect(block).not.toMatch(/(?:^|[;\s])bottom\s*:/);
         expect(block).not.toMatch(/(?:^|[;\s])left\s*:/);
         expect(block).not.toMatch(/(?:^|[;\s])height\s*:/);
-        expect(block).not.toMatch(/(?:^|[;\s])width\s*:/);
       }
     });
 
@@ -1668,37 +1713,61 @@ describe('SessionChatOverlay', () => {
       const block = getStyleBlock('.overlay-panel-wrapper');
       expect(block).toMatch(/position:\s*absolute/);
       expect(block).toMatch(/inset:\s*0 0 0 auto/);
+      expect(block).toMatch(/width:\s*100%/);
+      expect(block).toMatch(/max-width:\s*900px/);
+      expect(block).toMatch(/min-width:\s*0/);
       expect(block).toMatch(/height:\s*100%/);
-      expect(block).toMatch(/min-height:\s*100%/);
-      expect(block).toMatch(/min-height:\s*100dvh/);
+      expect(block).toMatch(/min-height:\s*0/);
+      expect(block).toMatch(/overflow:\s*hidden/);
       expect(block).not.toMatch(/position:\s*fixed/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
       expect(block).not.toMatch(/top:\s*var\(/);
     });
 
-    it('overlay content has a viewport-height floor without visual viewport padding', () => {
+    it('overlay content is a fixed-height grid without visual viewport padding', () => {
       const block = getStyleBlock('.overlay-content');
-      expect(block).toMatch(/min-height:\s*100%/);
-      expect(block).toMatch(/min-height:\s*100dvh/);
-      expect(block).toMatch(/overflow:\s*clip/);
+      expect(block).toMatch(/height:\s*100%/);
+      expect(block).toMatch(/min-height:\s*0/);
+      expect(block).toMatch(/display:\s*grid/);
+      expect(block).toMatch(/grid-template-rows:\s*auto minmax\(0,\s*1fr\)/);
+      expect(block).toMatch(/overflow:\s*hidden/);
       expect(block).toMatch(/padding:\s*0/);
+      expect(block).not.toMatch(/min-height:\s*100dvh/);
       expect(block).not.toMatch(/padding-top/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
     });
 
-    it('overlay header stays sticky and consumes only the sanitized top chrome inset', () => {
+    it('overlay header is normal flow and does not consume a top chrome inset', () => {
       const block = getStyleBlock('.overlay-header');
       expect(block).toMatch(/--overlay-header-base-padding-top:\s*0\.75rem/);
-      expect(block).toMatch(/position:\s*-webkit-sticky/);
-      expect(block).toMatch(/position:\s*sticky/);
-      expect(block).toMatch(/top:\s*0/);
-      expect(block).toMatch(/padding:\s*var\(--overlay-header-base-padding-top\)\s*1rem\s*0\.375rem/);
+      expect(block).toMatch(/position:\s*relative/);
+      expect(block).toMatch(/top:\s*auto/);
       expect(block).toMatch(/max\(var\(--overlay-header-base-padding-top\),\s*env\(safe-area-inset-top\)\)/);
-      expect(block).toMatch(/--session-overlay-top-chrome-inset/);
+      expect(block).not.toMatch(/position:\s*-webkit-sticky/);
+      expect(block).not.toMatch(/position:\s*sticky/);
+      expect(block).not.toMatch(/--session-overlay-top-chrome-inset/);
       expect(block).not.toMatch(/--viewport-offset-top/);
       expect(block).not.toMatch(/--visual-viewport-height/);
+    });
+
+    it('overlay body is the only vertical scroll container', () => {
+      const block = getStyleBlock('.overlay-body');
+      expect(block).toMatch(/overflow-y:\s*auto/);
+      expect(block).toMatch(/-webkit-overflow-scrolling:\s*touch/);
+      expect(block).toMatch(/touch-action:\s*pan-y/);
+      expect(getStyleBlock('.overlay-content')).toMatch(/overflow:\s*hidden/);
+      expect(sessionChatContentSource).toMatch(/\.session-chat-content :deep\(\.messages\)/);
+      expect(getStyleBlock('.session-chat-overlay :deep(.messages)')).toMatch(/overflow-y:\s*visible !important/);
+    });
+
+    it('conversation tab is not an overflow ancestor for sticky scroll controls', () => {
+      const block = getStyleBlock('.session-chat-overlay :deep(.conversation-tab)');
+      expect(block).toMatch(/width:\s*100%/);
+      expect(block).toMatch(/max-width:\s*100%/);
+      expect(block).toMatch(/min-width:\s*0/);
+      expect(block).not.toMatch(/overflow/);
     });
 
     it('overlay shell keeps visual viewport variables out of all shell geometry', () => {
@@ -1713,7 +1782,7 @@ describe('SessionChatOverlay', () => {
       expect(shellBlocks).not.toMatch(/--session-overlay-keyboard-bottom-inset/);
     });
 
-    it('only the composer spacer consumes the session keyboard bottom inset', () => {
+    it('only the composer spacer consumes the workspace keyboard bottom inset', () => {
       const spacerBlock = getStyleBlock('.session-chat-overlay--composer-focused :deep(.session-overlay-keyboard-spacer)');
       expect(spacerBlock).toMatch(/--session-overlay-keyboard-bottom-inset/);
 
@@ -1767,11 +1836,12 @@ describe('SessionChatOverlay', () => {
       wrapper.unmount();
     });
 
-    it('runDriftCheck skips repeated prompt visibility checks while text editing is active', () => {
-      expect(sessionChatOverlaySource).toMatch(/isActiveTextEditing/);
-      expect(sessionChatOverlaySource).toMatch(
-        /if\s*\(\s*isOverlayPromptFocused\.value\s*&&\s*!isActiveTextEditing\(\)\s*\)\s*\{\s*requestPromptVisibilityCheck\(\);/s,
-      );
+    it('has no overlay drift watchdog or header visibility repair source', () => {
+      expect(sessionChatOverlaySource).not.toMatch(/DRIFT_CHECK_INTERVAL_MS/);
+      expect(sessionChatOverlaySource).not.toMatch(/checkOverlayViewportDrift/);
+      expect(sessionChatOverlaySource).not.toMatch(/ensureOverlayHeaderVisible/);
+      expect(sessionChatOverlaySource).not.toMatch(/scheduleEnsureOverlayHeaderVisible/);
+      expect(sessionChatOverlaySource).not.toMatch(/clearHeaderVisibilityRaf/);
     });
 
     it('content, header, and body declare solid backgrounds', () => {
@@ -1794,26 +1864,69 @@ describe('SessionChatOverlay', () => {
       expect(sessionChatOverlaySource).not.toMatch(/focusOutRaf/);
     });
 
-    it('lockBodyScroll does not call window.scrollTo(0, 0) at mount time', async () => {
-      const spy = vi.spyOn(window, 'scrollTo');
-      const wrapper = mountOverlay();
-      await nextTick();
-
-      // scrollTo may be invoked elsewhere (e.g. Vue router in some setups),
-      // but Phase 3 removed the explicit lockBodyScroll scrollTo(0, 0) call.
-      const calledWithZeroZero = spy.mock.calls.some(
-        (args) => args[0] === 0 && args[1] === 0,
-      );
-      expect(calledWithZeroZero).toBe(false);
-
-      spy.mockRestore();
-      wrapper.unmount();
-    });
-
-    it('locks body scroll and pins #app while mounted', async () => {
+    it('locks background scroll with classes without moving the page app', async () => {
       const app = document.createElement('div');
       app.id = 'app';
       document.body.appendChild(app);
+      const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 123,
+      });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+
+      expect(document.documentElement.classList.contains('session-overlay-open')).toBe(true);
+      expect(document.body.classList.contains('session-overlay-open')).toBe(true);
+      expect(app.style.position).toBe('');
+      expect(app.style.top).toBe('');
+      expect(app.style.left).toBe('');
+      expect(app.style.right).toBe('');
+      expect(app.style.width).toBe('');
+      expect(document.body.style.position).toBe('');
+      expect(document.body.style.top).toBe('');
+      expect(document.body.style.overflow).toBe('');
+      expect(scrollToSpy).not.toHaveBeenCalled();
+
+      wrapper.unmount();
+      expect(document.documentElement.classList.contains('session-overlay-open')).toBe(false);
+      expect(document.body.classList.contains('session-overlay-open')).toBe(false);
+      expect(app.style.position).toBe('');
+      expect(app.style.top).toBe('');
+
+      scrollToSpy.mockRestore();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+      app.remove();
+    });
+
+    it('restores saved scroll on unmount only if background scroll changed while locked', async () => {
+      let currentScrollY = 123;
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        get: () => currentScrollY,
+      });
+      const scrollToSpy = vi.spyOn(window, 'scrollTo').mockImplementation((x, y) => {
+        currentScrollY = y;
+      });
+
+      const wrapper = mountOverlay();
+      await nextTick();
+      currentScrollY = 150;
+      wrapper.unmount();
+
+      expect(scrollToSpy).toHaveBeenCalledWith(0, 123);
+      scrollToSpy.mockRestore();
+      Object.defineProperty(window, 'scrollY', {
+        configurable: true,
+        value: 0,
+      });
+    });
+
+    it('does not call scrollTo on unmount when page scroll did not change', async () => {
       Object.defineProperty(window, 'scrollY', {
         configurable: true,
         value: 123,
@@ -1822,29 +1935,14 @@ describe('SessionChatOverlay', () => {
 
       const wrapper = mountOverlay();
       await nextTick();
-
-      expect(document.body.style.overflow).toBe('hidden');
-      expect(app.style.position).toBe('fixed');
-      expect(app.style.top).toBe('-123px');
-      expect(app.style.left).toBe('0px');
-      expect(app.style.right).toBe('0px');
-      expect(app.style.width).toBe('100%');
-
       wrapper.unmount();
-      expect(document.body.style.overflow).toBe('');
-      expect(app.style.position).toBe('');
-      expect(app.style.top).toBe('');
-      expect(app.style.left).toBe('');
-      expect(app.style.right).toBe('');
-      expect(app.style.width).toBe('');
-      expect(scrollToSpy).toHaveBeenCalledWith(0, 123);
 
+      expect(scrollToSpy).not.toHaveBeenCalled();
       scrollToSpy.mockRestore();
       Object.defineProperty(window, 'scrollY', {
         configurable: true,
         value: 0,
       });
-      app.remove();
     });
 
     it('does not expose dead focus or visual viewport settling state', async () => {
@@ -1867,10 +1965,70 @@ describe('SessionChatOverlay', () => {
       expect(wrapper.vm.applyLayoutViewport).toBeUndefined();
       expect(wrapper.vm.markRecentBlur).toBeUndefined();
       expect(wrapper.vm.isRecentBlur).toBeUndefined();
-      // But the surviving API is still present.
+      expect(wrapper.vm.ensureOverlayHeaderVisible).toBeUndefined();
+      expect(wrapper.vm.scheduleEnsureOverlayHeaderVisible).toBeUndefined();
+      expect(wrapper.vm.clearHeaderVisibilityRaf).toBeUndefined();
       expect(wrapper.vm.overlayBodyRef).toBeDefined();
       expect(typeof wrapper.vm.afterLeave).toBe('function');
       wrapper.unmount();
+    });
+
+    it('focus returning before delayed blur does not clear composer focus state', async () => {
+      const wrapper = await mountOverlaySettled();
+      const conversationTab = wrapper.findComponent({ name: 'ConversationTab' });
+      const textarea = document.createElement('textarea');
+
+      await conversationTab.vm.$emit('prompt-focus', new FocusEvent('focus'));
+      await nextTick();
+      Object.defineProperty(document, 'activeElement', {
+        configurable: true,
+        value: textarea,
+      });
+      await conversationTab.vm.$emit('prompt-blur', { target: textarea });
+      await new Promise(r => setTimeout(r, 90));
+      await nextTick();
+
+      expect(document.querySelector('.session-chat-overlay').classList.contains('session-chat-overlay--composer-focused')).toBe(true);
+
+      wrapper.unmount();
+    });
+
+    it('blur handling does not mutate overlay-body scrollTop', async () => {
+      const wrapper = await mountOverlaySettled();
+      const body = document.querySelector('.overlay-body');
+      body.scrollTop = 500;
+
+      await wrapper.findComponent({ name: 'ConversationTab' }).vm.$emit('prompt-blur', {
+        target: document.createElement('textarea'),
+      });
+
+      expect(body.scrollTop).toBe(500);
+      wrapper.unmount();
+    });
+
+    it('unmount cancels prompt visibility RAF and delayed blur timer', async () => {
+      const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame');
+      const clearTimeoutSpy = vi.spyOn(window, 'clearTimeout');
+      const requestAnimationFrameSpy = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation(() => 123);
+      const wrapper = await mountOverlaySettled();
+      const conversationTab = wrapper.findComponent({ name: 'ConversationTab' });
+
+      requestAnimationFrameSpy.mockClear();
+      await conversationTab.vm.$emit('prompt-focus', new FocusEvent('focus'));
+      await conversationTab.vm.$emit('prompt-blur', {
+        target: document.createElement('textarea'),
+      });
+
+      wrapper.unmount();
+
+      expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(123);
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+
+      requestAnimationFrameSpy.mockRestore();
+      cancelAnimationFrameSpy.mockRestore();
+      clearTimeoutSpy.mockRestore();
     });
   });
 

@@ -13,8 +13,19 @@ import { configureSchedule, ScheduleError } from '../services/scheduleService.js
 const router = Router();
 
 // GET /api/sessions/:id/summary - Get workflow summary
+// ?scope=session  — return only this exact session's own summary (no root resolution, no generation)
+// ?generate=true  — (default scope) trigger LLM generation when no summary exists
 router.get('/:id/summary', requireRootSessionAndProject, async (req, res) => {
-  // Check if generateIfMissing query param is set
+  // scope=session: return the exact session's own summary, ignoring generate param
+  if (req.query.scope === 'session') {
+    const summary = sessionSummaries.getBySessionId(req.params.id);
+    if (!summary) {
+      return res.status(404).json({ error: 'Summary not found' });
+    }
+    return res.json(summary);
+  }
+
+  // Default: workflow-root scoped summary (may trigger generation)
   const generateIfMissing = req.query.generate === 'true';
 
   try {
@@ -42,9 +53,10 @@ router.post('/:id/summary', requireRootSessionAndProject, async (req, res) => {
 });
 
 // PUT /api/sessions/:id/summary - Directly set workflow summary data (for testing/seeding)
+// Resolves to the workflow root before writing and applies coverage repair + fingerprinting.
 router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   try {
-    const summary = sessionSummaries.upsert(req.rootSessionId, req.body);
+    const summary = summaryService.saveManualSummary(req.params.id, req.body);
     res.json(summary);
   } catch (error) {
     res.status(500).json({ error: error.message });

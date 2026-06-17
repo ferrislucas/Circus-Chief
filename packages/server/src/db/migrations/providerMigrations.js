@@ -1,5 +1,6 @@
 import { OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
-import { addColumnIfMissing, tableExists } from './migrationUtils.js';
+import { addColumnIfMissing, tableExists, getTableSql } from './migrationUtils.js';
+import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
 function seedBuiltInAnthropicProvider(db) {
   const providerId = 'anthropic-default';
@@ -19,7 +20,8 @@ function seedBuiltInAnthropicProvider(db) {
     { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
     { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: 'Balanced', tier: 'sonnet' },
     { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Previous generation', tier: 'opus' },
-    { id: 'anthropic-opus-4-7', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Most capable (default)', tier: 'opus' },
+    { id: 'anthropic-opus-4-7', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Previous generation', tier: 'opus' },
+    { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', description: 'Most capable (default)', tier: 'opus' },
   ];
 
   const insertModel = db.prepare(
@@ -39,10 +41,10 @@ function seedBuiltInOpenAIProvider(db) {
 
   db.prepare(
     `INSERT OR IGNORE INTO providers (
-       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
+       id, name, base_url, auth_token, kind, commit_attribution_override, is_built_in, created_at, updated_at
      )
-     VALUES (?, ?, NULL, NULL, 'openai', 1, ?, ?)`
-  ).run(providerId, 'OpenAI (Official)', now, now);
+     VALUES (?, ?, NULL, NULL, 'openai', ?, 1, ?, ?)`
+  ).run(providerId, 'OpenAI (Official)', BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, now, now);
 
   const insertModel = db.prepare(
     `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
@@ -78,6 +80,17 @@ function seedBuiltInGoogleProvider(db) {
 function seedBuiltInProviders(db) {
   seedBuiltInAnthropicProvider(db);
   seedBuiltInOpenAIProvider(db);
+}
+
+function backfillBuiltInOpenAIAttribution(db) {
+  db.prepare(
+    `UPDATE providers
+     SET commit_attribution_override = ?, updated_at = ?
+     WHERE id = 'openai-default'
+       AND is_built_in = 1
+       AND kind = 'openai'
+       AND commit_attribution_override IS NULL`
+  ).run(BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, Date.now());
 }
 
 function updateBuiltInModels(db) {
@@ -186,6 +199,20 @@ export const providerMigrations = [
   {
     name: 'providers-widen-kind-check-google',
     up(db) {
+      // Idempotency guard: this migration recreates the `providers` table via
+      // `INSERT OR IGNORE INTO providers_new SELECT * FROM providers`, which is
+      // sensitive to column count. Once any later migration adds a column (e.g.
+      // `enabled`), re-running this `SELECT *` copy into the fixed 11-column
+      // `providers_new` definition would fail with a column-count mismatch.
+      // Since migrations run on every startup, skip the recreation when the
+      // table's CHECK already permits 'google' (the only thing this migration
+      // changes). Fresh DBs are created with the wide CHECK already, so this is
+      // effectively a no-op there too.
+      const existingSql = getTableSql(db, 'providers') || '';
+      if (existingSql.includes("'google'")) {
+        return;
+      }
+
       // SQLite CHECK constraints are baked into the table definition and can't
       // be altered in-place. Recreate the table with the wider CHECK.
       //
@@ -245,6 +272,33 @@ export const providerMigrations = [
          SET model = ?
          WHERE model = ?`
       ).run('gemini-2.5-flash-lite', 'gemini-2.5-flash-lite-preview-06-17');
+    },
+  },
+  {
+    name: 'providers-backfill-built-in-openai-attribution',
+    up(db) { backfillBuiltInOpenAIAttribution(db); },
+  },
+  {
+    name: 'providers-update-built-in-opus-4-8',
+    up(db) {
+      const providerId = 'anthropic-default';
+
+      db.prepare(
+        `UPDATE provider_models
+         SET description = ?
+         WHERE provider_id = ? AND id = ?`
+      ).run('Previous generation', providerId, 'anthropic-opus-4-7');
+
+      db.prepare(
+        `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run('anthropic-opus-4-8', providerId, 'claude-opus-4-8', 'Opus 4.8', 'Most capable (default)', 'opus', Date.now());
+    },
+  },
+  {
+    name: 'providers-add-enabled',
+    up(db) {
+      addColumnIfMissing(db, 'providers', 'enabled', 'INTEGER NOT NULL DEFAULT 1');
     },
   },
 ];

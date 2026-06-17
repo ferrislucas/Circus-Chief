@@ -7,6 +7,5 @@ export { CommandButtonsApi } from './CommandButtonsApi.js';
 export { SettingsApi } from './SettingsApi.js';
 export { ConversationsApi } from './ConversationsApi.js';
 export { TemplatesApi } from './TemplatesApi.js';
-export { QuickResponsesApi } from './QuickResponsesApi.js';
 export { MiscApi } from './MiscApi.js';
 export { KanbanApi } from './KanbanApi.js';

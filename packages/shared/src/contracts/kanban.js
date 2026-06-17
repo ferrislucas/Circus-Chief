@@ -55,6 +55,7 @@ export const UpdateKanbanLaneRequest = z.object({
   onEnterMaxRescheduleCount: z.number().nullable().optional(),
   onEnterMaxTotalTokens: z.number().nullable().optional(),
   onEnterRescheduleAtTokenCount: z.number().nullable().optional(),
+  completionTargetLaneId: z.string().uuid().nullable().optional(),
 }).refine(
   (data) => {
     // Mutual exclusivity: can't have both template and prompt set
@@ -88,13 +89,14 @@ export const KanbanLaneResponse = z.object({
   onEnterMaxRescheduleCount: z.number().nullable(),
   onEnterMaxTotalTokens: z.number().nullable(),
   onEnterRescheduleAtTokenCount: z.number().nullable(),
+  completionTargetLaneId: z.string().uuid().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
 
 // Card contracts
 export const CreateKanbanCardRequest = z.object({
-  sessionId: z.string().uuid(),
+  workspaceId: z.string().uuid(),
   laneId: z.string().uuid(),
 });
 

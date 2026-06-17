@@ -126,7 +126,8 @@ describe('sessionManager - Proactive Rescheduling', () => {
 
       expect(mockSchedulerService.rescheduleSession).toHaveBeenCalledWith(
         session.id,
-        expect.stringContaining('Token threshold reached')
+        expect.stringContaining('Token threshold reached'),
+        { retryExistingMessage: false }
       );
     });
 
@@ -170,7 +171,8 @@ describe('sessionManager - Proactive Rescheduling', () => {
       expect(mockSchedulerService.hasReachedLimits).toHaveBeenCalled();
       expect(mockSchedulerService.rescheduleSession).toHaveBeenCalledWith(
         session.id,
-        expect.stringContaining('Token threshold reached')
+        expect.stringContaining('Token threshold reached'),
+        { retryExistingMessage: false }
       );
     });
 
@@ -205,7 +207,8 @@ describe('sessionManager - Proactive Rescheduling', () => {
 
       expect(mockSchedulerService.rescheduleSession).toHaveBeenCalledWith(
         session.id,
-        expect.stringContaining('Token threshold reached')
+        expect.stringContaining('Token threshold reached'),
+        { retryExistingMessage: false }
       );
     });
 
@@ -222,7 +225,8 @@ describe('sessionManager - Proactive Rescheduling', () => {
 
       expect(mockSchedulerService.rescheduleSession).toHaveBeenCalledWith(
         session.id,
-        expect.stringContaining('Token threshold reached')
+        expect.stringContaining('Token threshold reached'),
+        { retryExistingMessage: false }
       );
     });
 
@@ -319,7 +323,8 @@ describe('sessionManager - Proactive Rescheduling', () => {
 
       expect(mockSchedulerService.rescheduleSession).toHaveBeenCalledWith(
         session.id,
-        expect.any(String)
+        expect.any(String),
+        { retryExistingMessage: false }
       );
     });
 
@@ -399,7 +404,8 @@ describe('sessionManager - Proactive Rescheduling', () => {
 
       expect(mockSchedulerService.rescheduleSession).toHaveBeenCalledWith(
         session.id,
-        expect.stringContaining('Token threshold reached')
+        expect.stringContaining('Token threshold reached'),
+        { retryExistingMessage: false }
       );
     });
 

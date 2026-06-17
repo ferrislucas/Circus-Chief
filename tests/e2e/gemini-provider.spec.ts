@@ -56,11 +56,11 @@ test.describe('Gemini provider flow', () => {
     // Select the Gemini model and submit the form
     await page.locator('#model-select').selectOption(geminiOptionKey);
 
-    await page.locator('#prompt textarea').first().fill(GEMINI_PROMPT);
+    await page.locator('textarea#prompt').fill(GEMINI_PROMPT);
     await page.locator('.btn-submit').click();
 
     // Wait for navigation to session detail
-    await expect(page).toHaveURL(/\/sessions\/(?!new$)[^/]+$/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/sessions\/[a-f0-9-]+(?:\/chat)?$/, { timeout: 15000 });
     const sessionId = page.url().match(/\/sessions\/([^/?#]+)/)?.[1];
     expect(sessionId).toBeTruthy();
 

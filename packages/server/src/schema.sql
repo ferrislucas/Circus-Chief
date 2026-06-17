@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS session_templates (
   show_in_quick_responses INTEGER NOT NULL DEFAULT 0,
   quick_response_auto_submit INTEGER NOT NULL DEFAULT 0,
   quick_response_sort_order INTEGER NOT NULL DEFAULT 0,
-  legacy_quick_response_id TEXT UNIQUE,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -199,6 +198,11 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
   short_summary TEXT NOT NULL,
   full_summary TEXT NOT NULL,
+  own_short_summary TEXT,
+  own_full_summary TEXT,
+  own_key_actions TEXT,
+  own_files_modified TEXT,
+  own_outcome TEXT,
   key_actions TEXT,
   files_modified TEXT,
   outcome TEXT,
@@ -209,6 +213,7 @@ CREATE TABLE IF NOT EXISTS session_summaries (
   ci_status TEXT,
   ci_failures TEXT,
   last_summarized_message_id TEXT,
+  workflow_fingerprint TEXT,
   generated_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
@@ -247,18 +252,6 @@ CREATE TABLE IF NOT EXISTS command_runs (
   exit_code INTEGER,
   started_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   completed_at INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS quick_responses (
-  id TEXT PRIMARY KEY,
-  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
-  label TEXT NOT NULL,
-  content TEXT NOT NULL,
-  auto_submit INTEGER NOT NULL DEFAULT 0,
-  category TEXT,
-  sort_order INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
 CREATE TABLE IF NOT EXISTS project_session_defaults (
@@ -331,6 +324,7 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_max_reschedule_count INTEGER,
   on_enter_max_total_tokens INTEGER,
   on_enter_reschedule_at_token_count INTEGER,
+  completion_target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -376,8 +370,6 @@ CREATE INDEX IF NOT EXISTS idx_command_buttons_project ON command_buttons(projec
 CREATE INDEX IF NOT EXISTS idx_command_runs_session ON command_runs(session_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_button ON command_runs(button_id);
 CREATE INDEX IF NOT EXISTS idx_command_runs_status ON command_runs(status);
-CREATE INDEX IF NOT EXISTS idx_quick_responses_project ON quick_responses(project_id);
-CREATE INDEX IF NOT EXISTS idx_quick_responses_sort ON quick_responses(project_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
 CREATE INDEX IF NOT EXISTS idx_project_defaults_projectId ON project_session_defaults(project_id);
 CREATE INDEX IF NOT EXISTS idx_agent_call_logs_session ON agent_call_logs(session_id);

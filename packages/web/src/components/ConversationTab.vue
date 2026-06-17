@@ -69,6 +69,7 @@
       @auto-send-toggle="handleAutoSendToggle"
       @input="handleInput"
       @quick-response-insert="handleQuickResponseInsert"
+      @apply-template="handleApplyTemplate"
       @update:attached-files="attachedFiles = $event"
       @open-slash-command="showSlashCommandWizard = true"
       @thinking-toggle="handleThinkingToggle"
@@ -81,7 +82,7 @@
 
     <!-- Scheduling Info Panel (scheduled countdown + auto-reschedule status) -->
     <SchedulingInfo
-      v-if="sessionsStore.currentSession"
+      v-if="showSchedulingInfo"
       :session="sessionsStore.currentSession"
     />
 
@@ -122,6 +123,7 @@ import { useModelInfo } from '../composables/useModelInfo.js';
 import { useDraftSaving } from '../composables/useDraftSaving.js';
 import { useSessionControl } from '../composables/useSessionControl.js';
 import { useConnectionStatus } from '../composables/useConnectionStatus.js';
+import { appendTemplatePromptValue, buildTemplateSettingsFields } from '../utils/templateApply.js';
 import TodoDrawer from './TodoDrawer.vue';
 import ConversationPanel from './ConversationPanel.vue';
 import ConversationMessages from './ConversationMessages.vue';
@@ -250,13 +252,17 @@ const sendButtonDisabledReason = computed(() => {
     const scheduledTime = new Date(sessionsStore.currentSession.scheduledAt);
     const now = new Date();
     if (scheduledTime > now) {
-      return `Session is scheduled for ${formatDistanceToNow(scheduledTime, { addSuffix: true })}`;
+      return `Workspace is scheduled for ${formatDistanceToNow(scheduledTime, { addSuffix: true })}`;
     }
   }
   return null;
 });
 
 const isScheduledForFuture = computed(() => sessionsStore.isScheduledDraft(sessionsStore.currentSession));
+
+const showSchedulingInfo = computed(() =>
+  sessionsStore.currentSession?.status === 'scheduled' && Boolean(sessionsStore.currentSession.scheduledAt)
+);
 
 const nextTemplate = computed(() => {
   const templateId = sessionsStore.currentSession?.nextTemplateId;
@@ -267,12 +273,12 @@ const nextTemplate = computed(() => {
 const workingDirectory = computed(() => {
   const session = sessionsStore.currentSession;
   if (!session) {
-    console.log('[workingDirectory] No current session');
+    console.log('[workingDirectory] No current workspace');
     return null;
   }
 
   if (session.gitWorktree) {
-    console.log('[workingDirectory] Using session.gitWorktree:', session.gitWorktree);
+    console.log('[workingDirectory] Using workspace.gitWorktree:', session.gitWorktree);
     return session.gitWorktree;
   }
 
@@ -602,6 +608,60 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
       }
     });
   }
+}
+
+async function handleApplyTemplate(templateId) {
+  const template = templatesStore.getTemplateById(templateId);
+  if (!template) return;
+
+  await appendTemplatePrompt(template.prompt);
+
+  await applyTemplateSettings(template);
+}
+
+async function appendTemplatePrompt(prompt) {
+  const newValue = appendTemplatePromptValue(input.value, prompt);
+  if (newValue === null) return;
+
+  input.value = newValue;
+
+  await nextTick();
+  if (canSendMessage.value || isDraft.value) {
+    savePendingPrompt(newValue);
+  }
+}
+
+async function applyTemplateSettings(template) {
+  try {
+    // Batch mode/thinking/effort into a single atomic update so a partial
+    // failure can't leave the session in an inconsistent state.
+    const fields = buildTemplateSettingsFields(template);
+    if (Object.keys(fields).length > 0) {
+      await sessionsStore.updateSessionFields(props.sessionId, fields);
+    }
+
+    if (template.model) {
+      const providerId = Object.prototype.hasOwnProperty.call(template, 'providerId')
+        ? (template.providerId ?? null)
+        : selectedProviderId.value;
+      await applyTemplateModel(template.model, providerId);
+    }
+  } catch (err) {
+    uiStore.error(`Failed to apply template settings: ${err.message}`);
+  }
+}
+
+async function applyTemplateModel(model, providerId) {
+  // Keep the local refs (which drive the ModelSelector UI) in sync, but
+  // persist explicitly rather than relying on the persistence watcher, which
+  // skips when the model was never initialized. Suppress the watcher so we
+  // don't issue a duplicate PATCH for the same change.
+  if (model !== selectedModel.value || providerId !== selectedProviderId.value) {
+    suppressNextModelPersist = true;
+    selectedModel.value = model;
+    selectedProviderId.value = providerId;
+  }
+  await sessionsStore.updateSessionModel(props.sessionId, model, providerId);
 }
 
 async function handleAutoSendToggle(enabled) {

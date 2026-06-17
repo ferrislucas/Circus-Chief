@@ -10,7 +10,7 @@ import { determineInitialStatus } from './projects-session-helpers.js';
 import { buildRunsBySession } from './projects-helpers.js';
 import { resolveAgentTypeFromModel } from '../services/sessionProvider.js';
 import { access, constants } from 'fs/promises';
-import { dirname, isAbsolute } from 'path';
+import { dirname, isAbsolute, join } from 'path';
 import { getRepositoryUrl } from '../services/gitService.js';
 import { validateAndPrepareSessionConfig, createSessionRow, startSessionOrFail } from './projects-session-create.js';
 
@@ -42,6 +42,20 @@ export async function validateWorktreePath(worktreePath) {
   return null; // valid
 }
 
+function prepareProjectUpdate(project, data) {
+  const update = { ...data };
+
+  if (
+    update.workingDirectory !== undefined
+    && update.worktreePath !== undefined
+    && update.worktreePath === join(project.workingDirectory, '.worktrees')
+  ) {
+    update.worktreePath = join(update.workingDirectory, '.worktrees');
+  }
+
+  return update;
+}
+
 const router = Router();
 
 // GET /api/projects - List all projects
@@ -57,7 +71,7 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, kanbanEnabled, repoUrl } = result.data;
+  const { name, workingDirectory, systemPrompt, onSessionCreated, onSessionDeleted, worktreePath, repoUrl } = result.data;
 
   const pathError = await validateWorktreePath(worktreePath);
   if (pathError) {
@@ -83,10 +97,6 @@ router.post('/', async (req, res) => {
     worktreePath: worktreePath || null,
     repoUrl: resolvedRepoUrl,
   };
-  if (kanbanEnabled !== undefined) {
-    createOptions.kanbanEnabled = kanbanEnabled;
-  }
-
   const project = projects.create(name, workingDirectory, systemPrompt || null, createOptions);
   res.status(201).json(project);
 });
@@ -112,14 +122,16 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ error: result.error.issues[0].message });
   }
 
-  if (result.data.worktreePath !== undefined) {
-    const pathError = await validateWorktreePath(result.data.worktreePath);
+  const update = prepareProjectUpdate(project, result.data);
+
+  if (update.worktreePath !== undefined) {
+    const pathError = await validateWorktreePath(update.worktreePath);
     if (pathError) {
       return res.status(400).json({ error: pathError });
     }
   }
 
-  const updated = projects.update(req.params.id, result.data);
+  const updated = projects.update(req.params.id, update);
   res.json(updated);
 });
 
@@ -232,7 +244,7 @@ router.post('/:id/sessions', uploadMiddleware('files', 10), handleUploadError, a
     config.agentType = resolveAgentTypeFromModel(config.model);
     const initialStatus = determineInitialStatus(config);
     session = createSessionRow(req.params.id, config, nextTemplateId, initialStatus);
-    return await startSessionOrFail(req, res, { session, config, project });
+    return await startSessionOrFail(req, res, { session, config, project, projectId: req.params.id });
   } catch (error) {
     console.error('Session creation error:', error);
 

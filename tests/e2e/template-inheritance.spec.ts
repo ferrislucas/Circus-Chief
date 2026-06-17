@@ -16,6 +16,7 @@ import {
   getTemplate,
   getProjectTemplates,
   navigateAndWait,
+  openSessionOverlay,
 } from './helpers';
 
 test.describe.configure({ timeout: 60000 });
@@ -51,12 +52,12 @@ test.describe('Template Inherit UI — Create Form', () => {
     // Check that "Inherit from root session" options are present for all three selects
     const allSelects = page.locator('[data-testid="template-form"] select');
     const count = await allSelects.count();
-    // There should be at least 3 selects with the "Inherit from root session" option
+    // There should be at least 2 selects with the "Inherit from root workspace" option
     // (mode, thinking, possibly model through ModelSelector)
     let inheritOptions = 0;
     for (let i = 0; i < count; i++) {
       const options = await allSelects.nth(i).locator('option').allTextContents();
-      if (options.some(opt => opt.includes('Inherit from root session'))) {
+      if (options.some(opt => opt.includes('Inherit from root workspace'))) {
         inheritOptions++;
       }
     }
@@ -663,13 +664,7 @@ test.describe('Template Model Inheritance — Conversation Overlay Verification'
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    await page.waitForTimeout(400); // Wait for slide-in animation
-    return overlay;
+    return openSessionOverlay(page);
   }
 
   test('child session inherits model from root and shows it in overlay ModelSelector', async ({ page }) => {

@@ -1,7 +1,19 @@
 import { sessions, messages, conversations, projects, attachments } from '../database.js';
-import { broadcastToSession } from '../websocket.js';
+import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as slashCommandService from './slashCommandService.js';
+
+function broadcastRescheduledSession(sessionId, updated) {
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_UPDATED, { sessionId, session: updated });
+  if (updated?.projectId) {
+    broadcastToProject(updated.projectId, WS_MESSAGE_TYPES.SESSION_UPDATED, {
+      projectId: updated.projectId,
+      sessionId,
+      session: updated,
+    });
+  }
+}
 
 /**
  * Service for managing scheduled session execution
@@ -200,6 +212,28 @@ class SchedulerService {
     const { prompt, effectivePrompt, effectiveSystemPrompt, sessionAttachments } =
       await this.resolveScheduledPrompt(session, workingDirectory, project.systemPrompt);
 
+    // Check for existing-message retry first (takes precedence over fresh/continuation branches)
+    if (session.pendingConversationId) {
+      const pendingConversationId = session.pendingConversationId;
+
+      // Clear scheduler state and transition to starting
+      sessions.update(session.id, {
+        status: 'starting',
+        scheduledAt: null,
+        pendingPrompt: null,
+        pendingConversationId: null,
+      });
+      broadcastToSession(session.id, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId: session.id, status: 'starting' });
+
+      await this.sessionManager.continueSessionWithExistingMessage(
+        session.id,
+        pendingConversationId,
+        workingDirectory,
+        { systemPrompt: effectiveSystemPrompt, model: session.pendingModel }
+      );
+      return;
+    }
+
     // Get the session messages to determine if this is initial or continuation
     const sessionMessages = messages.getBySessionId(session.id);
     const hasAssistantResponses = sessionMessages.some((msg) => msg.role === 'assistant');
@@ -230,9 +264,12 @@ class SchedulerService {
    * Reschedule a session with a delay
    * @param {string} sessionId - Session ID to reschedule
    * @param {string} reason - Reason for rescheduling
+   * @param {{ retryExistingMessage?: boolean, conversationId?: string|null }} [options]
+   *   - retryExistingMessage: if true, retry the existing user message instead of sending "Continue"
+   *   - conversationId: the active conversation to retry (required when retryExistingMessage is true)
    * @returns {boolean} True if rescheduled, false if limits reached
    */
-  async rescheduleSession(sessionId, reason) {
+  async rescheduleSession(sessionId, reason, { retryExistingMessage = false, conversationId = null } = {}) {
     const session = sessions.getById(sessionId);
     if (!session) {
       console.error(`[SchedulerService] Session not found: ${sessionId}`);
@@ -250,20 +287,6 @@ class SchedulerService {
       return false;
     }
 
-    // Get the last user message to use as pendingPrompt for restart
-    const sessionMessages = messages.getBySessionId(sessionId);
-    const lastUserMessage = [...sessionMessages].reverse().find(msg => msg.role === 'user');
-
-    if (!lastUserMessage) {
-      console.error(`[SchedulerService] No user message found for session ${sessionId}`);
-      sessions.update(sessionId, {
-        status: 'error',
-        error: `Cannot reschedule: No user message found. ${reason}`,
-      });
-      broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'error' });
-      return false;
-    }
-
     // Calculate new scheduled time
     const newScheduledAt = Date.now() + session.rescheduleDelayMinutes * 60 * 1000;
     const delayMinutes = session.rescheduleDelayMinutes;
@@ -273,18 +296,46 @@ class SchedulerService {
       `[SchedulerService] Rescheduling session ${sessionId} for ${delayMinutes} minutes from now (attempt ${newRescheduleCount})`
     );
 
+    const { pendingPrompt, pendingConversationId } = this._resolvePendingPrompt(sessionId, retryExistingMessage, conversationId);
+
     // Update session to scheduled status with new time and pendingPrompt
-    sessions.update(sessionId, {
+    const updated = sessions.update(sessionId, {
       status: 'scheduled',
-      scheduledAt: newScheduledAt,           // Fixed: camelCase
-      rescheduleCount: newRescheduleCount,   // Fixed: camelCase
-      pendingPrompt: lastUserMessage.content, // Set prompt for scheduler
+      scheduledAt: newScheduledAt,
+      rescheduleCount: newRescheduleCount,
+      pendingPrompt,
+      pendingConversationId,
       error: `Rescheduled (${newRescheduleCount}x): ${reason}`,
     });
 
-    broadcastToSession(sessionId, WS_MESSAGE_TYPES.SESSION_STATUS, { sessionId, status: 'scheduled' });
+    broadcastRescheduledSession(sessionId, updated);
 
     return true;
+  }
+
+  /**
+   * Resolve the pending prompt and conversation ID for a reschedule attempt.
+   * @param {string} sessionId - Session ID (used for logging)
+   * @param {boolean} retryExistingMessage - Whether to retry the existing user message
+   * @param {string|null} conversationId - Active conversation to retry
+   * @returns {{ pendingPrompt: string, pendingConversationId: string|null }}
+   */
+  _resolvePendingPrompt(sessionId, retryExistingMessage, conversationId) {
+    if (retryExistingMessage && conversationId) {
+      const convMessages = messages.getByConversationId(conversationId);
+      const lastUserMessage = [...convMessages].reverse().find(msg => msg.role === 'user');
+
+      if (!lastUserMessage) {
+        console.warn(`[SchedulerService] No user message found in conversation ${conversationId}, falling back to Continue`);
+        return { pendingPrompt: 'Continue', pendingConversationId: null };
+      }
+
+      console.log(`[SchedulerService] Existing-message retry for session ${sessionId}, conversation ${conversationId}`);
+      return { pendingPrompt: lastUserMessage.content, pendingConversationId: conversationId };
+    }
+
+    console.log(`[SchedulerService] Continue retry for session ${sessionId}`);
+    return { pendingPrompt: 'Continue', pendingConversationId: null };
   }
 
   /**

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   cleanupCreatedResources,
   navigateAndWait,
+  openSessionOverlay,
   seedConversationTokens,
   seedProject,
   seedSession,
@@ -21,12 +22,7 @@ test.describe('Token usage display', () => {
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    return overlay;
+    return openSessionOverlay(page);
   }
 
   test('conversation overlay shows raw token total and breakdown', async ({ page }) => {

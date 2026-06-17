@@ -53,6 +53,18 @@
             </h3>
           </div>
           <div class="provider-actions">
+            <label
+              v-if="provider.isBuiltIn"
+              class="provider-toggle"
+            >
+              <input
+                type="checkbox"
+                :checked="provider.enabled !== false"
+                :disabled="togglingProviderId === provider.id"
+                @change="toggleProvider(provider, $event.target.checked)"
+              >
+              <span class="toggle-label">Enabled</span>
+            </label>
             <button
               v-if="!provider.isBuiltIn"
               class="btn btn-sm"
@@ -180,6 +192,7 @@ const attributionOnly = ref(false);
 const providerToDelete = ref(null);
 const deleting = ref(false);
 const testingProviderId = ref(null);
+const togglingProviderId = ref(null);
 
 onMounted(() => {
   providersStore.fetchProviders();
@@ -223,6 +236,18 @@ function getBuiltInProviderDescription(provider) {
   }
 
   return 'Uses official Anthropic API';
+}
+
+async function toggleProvider(provider, enabled) {
+  togglingProviderId.value = provider.id;
+  try {
+    await providersStore.updateProvider(provider.id, { enabled });
+    uiStore.success(`${provider.name} ${enabled ? 'enabled' : 'disabled'}`);
+  } catch (err) {
+    uiStore.error(`Failed to update provider: ${err.message}`);
+  } finally {
+    togglingProviderId.value = null;
+  }
 }
 
 async function testProvider(providerId) {
@@ -329,9 +354,30 @@ async function deleteProvider() {
 .provider-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 0.5rem;
   flex-shrink: 0;
+}
+
+.provider-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  user-select: none;
+}
+
+.provider-toggle input[type='checkbox'] {
+  cursor: pointer;
+  accent-color: var(--color-primary, #06b6d4);
+}
+
+.provider-toggle input[type='checkbox']:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .provider-details {

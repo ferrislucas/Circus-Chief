@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
+import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
+import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
 
 describe('DatabaseManager', () => {
   let manager;
@@ -793,5 +795,101 @@ describe('DatabaseManager', () => {
       expect(providerModelsSchema.sql).toContain('REFERENCES providers(id)');
       expect(providerModelsSchema.sql).not.toContain('REFERENCES model_providers');
     });
+  });
+
+  describe('default session template bootstrap (integration)', () => {
+    it('fresh in-memory DB contains exactly six default global templates', () => {
+      const db = manager.get();
+      const rows = db.prepare(
+        'SELECT * FROM session_templates WHERE project_id IS NULL ORDER BY name'
+      ).all();
+
+      expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
+      const names = rows.map(r => r.name).sort();
+      expect(names).toEqual(DEFAULT_SESSION_TEMPLATES.map(t => t.name).sort());
+    });
+
+    it('fresh in-memory DB does not expose legacy quick response IDs on session_templates', () => {
+      const db = manager.get();
+      const columns = db.prepare('PRAGMA table_info(session_templates)').all();
+      expect(columns.map((column) => column.name)).not.toContain('legacy_quick_response_id');
+    });
+
+    it('fresh in-memory DB does not create the legacy quick_responses table', () => {
+      const db = manager.get();
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'quick_responses'"
+      ).get();
+      expect(table).toBeUndefined();
+    });
+
+    it('all default templates are quick-response-visible in sort order', () => {
+      const db = manager.get();
+      const rows = db.prepare(`
+        SELECT name, prompt, quick_response_auto_submit, quick_response_sort_order
+        FROM session_templates
+        WHERE project_id IS NULL AND show_in_quick_responses = 1
+        ORDER BY quick_response_sort_order
+      `).all();
+
+      expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
+      for (const [index, expected] of DEFAULT_SESSION_TEMPLATES.entries()) {
+        expect(rows[index].name).toBe(expected.name);
+        expect(rows[index].prompt).toBe(expected.prompt);
+        expect(rows[index].quick_response_auto_submit).toBe(
+          expected.quickResponseAutoSubmit ? 1 : 0
+        );
+        expect(rows[index].quick_response_sort_order).toBe(expected.quickResponseSortOrder);
+      }
+    });
+
+    it('fresh DB sets the default_session_templates_bootstrapped flag', () => {
+      const db = manager.get();
+      const setting = db.prepare(
+        "SELECT value FROM app_settings WHERE key = 'default_session_templates_bootstrapped'"
+      ).get();
+      expect(setting?.value).toBe('true');
+    });
+
+    it('existing DB with bootstrap flag set and zero templates: startup does not recreate defaults', () => {
+      const db = manager.get();
+
+      // Delete all session templates and ensure flag remains set
+      db.prepare('DELETE FROM session_templates').run();
+      const flagSet = db.prepare(
+        "SELECT value FROM app_settings WHERE key = 'default_session_templates_bootstrapped'"
+      ).get();
+      expect(flagSet?.value).toBe('true');
+
+      // Simulate another startup (flag already set — no templates should be inserted)
+      bootstrapDefaultSessionTemplates(db, { isFirstRun: true });
+
+      const count = db.prepare('SELECT COUNT(*) AS cnt FROM session_templates').get().cnt;
+      expect(count).toBe(0);
+    });
+
+    it('existing DB without bootstrap flag and zero templates: sets flag but does NOT recreate defaults', () => {
+      // Simulates upgrading from an old version: the DB exists (isFirstRun=false) but
+      // the flag has never been written. User may have already deleted templates before
+      // upgrading — they should stay deleted.
+      const db = manager.get();
+
+      // Pretend the flag was never written
+      db.prepare("DELETE FROM app_settings WHERE key = 'default_session_templates_bootstrapped'").run();
+      db.prepare('DELETE FROM session_templates').run();
+
+      bootstrapDefaultSessionTemplates(db, { isFirstRun: false });
+
+      // Flag should now be set
+      const setting = db.prepare(
+        "SELECT value FROM app_settings WHERE key = 'default_session_templates_bootstrapped'"
+      ).get();
+      expect(setting?.value).toBe('true');
+
+      // No templates should have been created
+      const count = db.prepare('SELECT COUNT(*) AS cnt FROM session_templates').get().cnt;
+      expect(count).toBe(0);
+    });
+
   });
 });

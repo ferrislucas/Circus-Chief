@@ -19,6 +19,12 @@ import {
   waitForSessionToExist,
 } from './helpers';
 
+function sessionIdFromCurrentUrl(page: { url: () => string }) {
+  const match = page.url().match(/\/sessions\/([0-9a-f-]+)/);
+  if (!match) throw new Error(`Could not extract session id from URL: ${page.url()}`);
+  return match[1];
+}
+
 /**
  * Effort Level Feature - E2E Tests
  *
@@ -340,14 +346,13 @@ test.describe('Effort Level Feature - E2E Tests', () => {
 
       // Fill prompt and submit - use correct selectors
       await page.locator('textarea[id="prompt"]').fill('Test prompt with high effort');
-      await page.click('button:has-text("Start Session")');
+      await page.click('button:has-text("Start Workspace")');
 
       // Wait for redirect to session detail page (UUID pattern)
       await expect(page).toHaveURL(/\/sessions\/[0-9a-f]{8}-/, { timeout: 30000 });
 
       // Extract sessionId from URL
-      const url = page.url();
-      const sessionId = url.split('/').pop();
+      const sessionId = sessionIdFromCurrentUrl(page);
 
       // CRITICAL: Wait for session to exist in database
       await waitForSessionToExist(sessionId);
@@ -368,14 +373,13 @@ test.describe('Effort Level Feature - E2E Tests', () => {
 
       // Fill prompt and submit - use correct button text
       await page.locator('textarea[id="prompt"]').fill('Test prompt with low effort');
-      await page.click('button:has-text("Start Session")');
+      await page.click('button:has-text("Start Workspace")');
 
       // Wait for redirect to session detail page (UUID pattern)
       await expect(page).toHaveURL(/\/sessions\/[0-9a-f]{8}-/, { timeout: 30000 });
 
       // Extract sessionId from URL
-      const url = page.url();
-      const sessionId = url.split('/').pop();
+      const sessionId = sessionIdFromCurrentUrl(page);
 
       // CRITICAL: Wait for session to exist in database
       await waitForSessionToExist(sessionId);
@@ -399,14 +403,13 @@ test.describe('Effort Level Feature - E2E Tests', () => {
 
         // Fill prompt and submit - use correct selector
         await page.locator('textarea[id="prompt"]').fill(`Test prompt with ${level} effort`);
-        await page.click('button:has-text("Start Session")');
+        await page.click('button:has-text("Start Workspace")');
 
         // Wait for redirect to session detail page (UUID pattern)
         await expect(page).toHaveURL(/\/sessions\/[0-9a-f]{8}-/, { timeout: 30000 });
 
         // Extract sessionId from URL
-        const url = page.url();
-        const sessionId = url.split('/').pop();
+        const sessionId = sessionIdFromCurrentUrl(page);
 
         // CRITICAL: Wait for session to exist in database
         await waitForSessionToExist(sessionId);

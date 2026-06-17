@@ -11,7 +11,7 @@ import {
   getSession,
 } from './helpers';
 
-test.describe('Scheduled Session Name Click Opens Overlay', () => {
+test.describe('Scheduled Session Name Click Opens Chat', () => {
   test.describe.configure({ timeout: 60000 });
 
   let project: any;
@@ -25,7 +25,7 @@ test.describe('Scheduled Session Name Click Opens Overlay', () => {
     await cleanupAll();
   });
 
-  test('clicking a scheduled child session name opens overlay with that session selected', async ({ page }) => {
+  test('clicking a scheduled child session name opens chat with that session selected', async ({ page }) => {
     // Create a parent session (not scheduled, so it doesn't appear in its own scheduled list)
     const parent = await seedSession(project.id, {
       prompt: 'Parent prompt',
@@ -53,15 +53,12 @@ test.describe('Scheduled Session Name Click Opens Overlay', () => {
     await expect(nameButton).toBeVisible();
     await expect(nameButton).toContainText('Child Scheduled');
 
-    // Record URL before click
-    const urlBefore = page.url();
-
-    // Click the child's name button
+    // Click the child's name button — opens overlay (mobile) or chat tab (desktop)
     await nameButton.click();
 
-    // Verify overlay opens
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible();
+    // Verify chat content is visible (overlay or embedded tab)
+    const chatContent = page.locator('.session-chat-content');
+    await expect(chatContent).toBeVisible({ timeout: 5000 });
 
     // Open the picker dropdown
     const pickerDropdown = page.locator('[data-testid="overlay-picker-trigger"]');
@@ -75,12 +72,9 @@ test.describe('Scheduled Session Name Click Opens Overlay', () => {
     // Verify the child session is selected in the picker
     const activePickerItem = page.locator('.picker-item--active .picker-item-name');
     await expect(activePickerItem).toContainText('Child Scheduled');
-
-    // Verify URL did not change (no navigation)
-    expect(page.url()).toBe(urlBefore);
   });
 
-  test('clicking a scheduled root session name opens overlay on that session', async ({ page }) => {
+  test('clicking a scheduled root session name opens chat on that session', async ({ page }) => {
     // Create a scheduled root session (it appears in its own scheduled list)
     const session = await seedSession(project.id, {
       prompt: 'Root scheduled prompt',
@@ -102,17 +96,11 @@ test.describe('Scheduled Session Name Click Opens Overlay', () => {
     await expect(nameButton).toBeVisible();
     await expect(nameButton).toContainText('Root Scheduled');
 
-    // Record URL before click
-    const urlBefore = page.url();
-
-    // Click the session's own name button
+    // Click the session's own name button — opens overlay (mobile) or chat tab (desktop)
     await nameButton.click();
 
-    // Verify overlay opens
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible();
-
-    // Verify URL did not change (no navigation)
-    expect(page.url()).toBe(urlBefore);
+    // Verify chat content is visible (overlay or embedded tab)
+    const chatContent = page.locator('.session-chat-content');
+    await expect(chatContent).toBeVisible({ timeout: 5000 });
   });
 });

@@ -1,10 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 import {
   seedProject,
   seedSession,
   seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
+  openSessionOverlay,
   waitForSessionToExist,
 } from './helpers';
 
@@ -39,17 +40,12 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await cleanupCreatedResources();
   });
 
-  async function openOverlayAndPicker(page: any, sessionId: string) {
+  async function openOverlayAndPicker(page: Page, sessionId: string) {
     await navigateAndWait(page, `/sessions/${sessionId}`, {
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    await page.waitForTimeout(400);
+    const overlay = await openSessionOverlay(page);
 
     // Open the picker dropdown
     const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -59,6 +55,39 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await expect(picker).toBeVisible({ timeout: 5000 });
 
     return { overlay, picker };
+  }
+
+  async function expectOptionsToBeHitTestVisible(page: Page, picker: Locator) {
+    const visibility = await picker.locator('[role="option"]').evaluateAll((options) => {
+      return options.map((option, index) => {
+        const rect = option.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const topElement = document.elementFromPoint(x, y);
+        const isHitTestVisible = Boolean(topElement && option.contains(topElement));
+
+        return {
+          index,
+          name: option.querySelector('.picker-item-name')?.textContent?.trim() || '',
+          isHitTestVisible,
+          topClass: topElement instanceof HTMLElement ? topElement.className : '',
+          center: { x, y },
+          rect: {
+            top: rect.top,
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+          },
+        };
+      });
+    });
+
+    expect(visibility.filter(item => !item.isHitTestVisible)).toEqual([]);
+
+    const headerOverflow = await page.locator('.overlay-header').evaluate((header) => {
+      return window.getComputedStyle(header).overflow;
+    });
+    expect(headerOverflow).toBe('visible');
   }
 
   test('picker shows all 4 child sessions plus parent (5 total)', async ({ page }) => {
@@ -77,6 +106,15 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await expect(picker).toContainText('Child Session 2');
     await expect(picker).toContainText('Child Session 3');
     await expect(picker).toContainText('Child Session 4');
+  });
+
+  test('picker options are visually available and not clipped by overlay header', async ({ page }) => {
+    const { picker } = await openOverlayAndPicker(page, parentSession.id);
+
+    const items = picker.locator('[role="option"]');
+    await expect(items).toHaveCount(5, { timeout: 10000 });
+
+    await expectOptionsToBeHitTestVisible(page, picker);
   });
 
   test('picker items have uniform padding (flat layout)', async ({ page }) => {
@@ -137,11 +175,7 @@ test.describe('Session Tree Picker Shows All Children', () => {
     // Picker should close
     await expect(picker).not.toBeVisible({ timeout: 5000 });
 
-    // The overlay-root-name always shows the root (parent) session name
-    const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
-
-    // The dropdown should now show the selected child session name
+    // The dropdown should now show the selected child session name.
     const dropdownName = overlay.locator('.dropdown-name');
     await expect(dropdownName).toContainText('Child Session 4', { timeout: 5000 });
   });

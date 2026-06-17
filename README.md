@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="packages/web/public/logo.png" alt="Circus Chief" width="200" />
-</p>
-
 <h1 align="center">Circus Chief</h1>
 
 <p align="center">
@@ -10,12 +6,21 @@
   Works with API key or subscription-based authorization.
 </p>
 
+<p align="center">
+  <img src="packages/web/public/circus-chief-logo.gif" alt="Circus Chief" width="200" />
+</p>
+
 ---
 
 ## Features
 
 - **Agents can operate Circus Chief itself.** Each agent can inspect sessions, spawn follow-ups, schedule retries, stop/restart work, and react to results.
   ![Agents can operate Circus Chief itself](docs/screenshots/02-session-list-agent-control-desktop.png)
+- **Visual Kanban board per project.** Lanes can auto-move cards on completion and run a template or custom prompt when a card lands in them — so the board can drive the workflow, not just reflect it.
+  ![Visual Kanban board per project](docs/screenshots/15-kanban-board-desktop.png)
+  ![Kanban lane settings](docs/screenshots/16-kanban-lane-settings-desktop.png)
+- **Schedule work ahead of time.** Plan agent sessions for a later time, from one-off prompts to full template pipelines.
+  ![Schedule work ahead of time](docs/screenshots/10-scheduled-session-desktop.png)
 - **Opt-in retry on usage limits.** Toggle it on for a session and, if it hits a token cap or provider outage, it reschedules itself and picks up where it left off.
   ![Opt-in retry on usage limits](docs/screenshots/11-retry-reschedule-controls-desktop.png)
 - **Configurable, chainable templates.** Each template defines a prompt and session settings, and one template can auto-launch the next. Example pipeline: *plan → review plan → implement the plan → review implementation → open PR* — templates can invoke themselves.

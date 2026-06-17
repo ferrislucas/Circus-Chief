@@ -5,6 +5,7 @@ import { dirname, join } from 'path';
 import crypto from 'crypto';
 import { allMigrations } from './migrations/index.js';
 import { seedBaselineData } from './seedBaselineData.js';
+import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -29,6 +30,11 @@ export class DatabaseManager {
     this.#db.pragma('journal_mode = WAL');
     this.#db.pragma('foreign_keys = ON');
 
+    // Detect first run BEFORE executing schema so we can distinguish a fresh
+    // database from an existing one being upgraded. A first-run database has
+    // no application tables yet; an existing one already has them.
+    const isFirstRun = !this.#hasApplicationTables();
+
     // Run schema
     const schema = readFileSync(join(__dirname, '..', 'schema.sql'), 'utf-8');
     this.#db.exec(schema);
@@ -39,7 +45,23 @@ export class DatabaseManager {
     // Run post-baseline migrations for existing databases.
     this.#runMigrations();
 
+    // Bootstrap default session templates once on a fresh database only.
+    bootstrapDefaultSessionTemplates(this.#db, { isFirstRun });
+
     return this.#db;
+  }
+
+  /**
+   * Return true when the database already contains application tables (i.e. it
+   * is an existing database, not freshly created).
+   * @private
+   * @returns {boolean}
+   */
+  #hasApplicationTables() {
+    const row = this.#db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='projects' LIMIT 1")
+      .get();
+    return row !== undefined;
   }
 
   /**

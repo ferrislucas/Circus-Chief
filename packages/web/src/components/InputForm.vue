@@ -8,6 +8,12 @@
       @focusin="handlePromptFocus"
       @focusout="handlePromptBlur"
     >
+      <TemplateApplySelector
+        v-if="(canSendMessage || isDraft) && !isScheduledForFuture"
+        :project-id="projectId"
+        @apply="handleApplyTemplate"
+      />
+
       <ResizableTextarea
         ref="textareaRef"
         :model-value="modelValue"
@@ -149,6 +155,7 @@ import { ref, computed } from 'vue';
 import { formatDistanceToNow } from 'date-fns';
 import { useSubmitShortcut } from '../composables/useSubmitShortcut.js';
 import ResizableTextarea from './ResizableTextarea.vue';
+import TemplateApplySelector from './TemplateApplySelector.vue';
 import QuickResponsesPanel from './QuickResponsesPanel.vue';
 import ModelSelector from './ModelSelector.vue';
 import ModeSelector from './ModeSelector.vue';
@@ -187,6 +194,7 @@ const emit = defineEmits([
   'submit',
   'input',
   'quickResponseInsert',
+  'applyTemplate',
   'update:attachedFiles',
   'openSlashCommand',
   'thinkingToggle',
@@ -221,6 +229,10 @@ function handleSubmit() {
   emit('submit');
 }
 
+function handleApplyTemplate(templateId) {
+  emit('applyTemplate', templateId);
+}
+
 function handlePromptFocus(event) {
   emit('prompt-focus', event);
 }
@@ -239,6 +251,7 @@ function clearFiles() {
 defineExpose({
   textareaRef,
   clearFiles,
+  handleApplyTemplate,
 });
 </script>
 

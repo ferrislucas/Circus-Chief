@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { expectFullyInViewport, expectHitTestable } from './helpers';
 
 /**
  * E2E tests for System Resource Indicators.
@@ -27,37 +28,48 @@ test.describe('System Resource Indicators', () => {
 
   test('indicators appear in the header within 15 seconds', async ({ page }) => {
     // Wait for the container to become visible (hidden until first WS broadcast)
-    const container = await page.waitForSelector('[data-testid="system-indicators"]', {
-      timeout: 15000,
-    });
-    expect(container).toBeTruthy();
+    const container = page.locator('[data-testid="system-indicators"]');
+    await expect(container).toBeVisible({ timeout: 15000 });
+    await expectFullyInViewport(container);
   });
 
   test('all three indicators are present after data arrives', async ({ page }) => {
     // Wait for container to appear
-    await page.waitForSelector('[data-testid="system-indicators"]', { timeout: 15000 });
+    await expect(page.locator('[data-testid="system-indicators"]')).toBeVisible({ timeout: 15000 });
 
     // CPU and memory are always present
-    expect(await page.locator('[data-testid="indicator-cpu"]').count()).toBe(1);
-    expect(await page.locator('[data-testid="indicator-memory"]').count()).toBe(1);
+    const cpu = page.locator('[data-testid="indicator-cpu"]');
+    const memory = page.locator('[data-testid="indicator-memory"]');
+    await expect(cpu).toHaveCount(1);
+    await expect(memory).toHaveCount(1);
+    await expectHitTestable(cpu);
+    await expectHitTestable(memory);
 
     // Disk may or may not be present depending on OS support (null on failure)
     // Just verify it doesn't cause an error
-    const diskCount = await page.locator('[data-testid="indicator-disk"]').count();
+    const disk = page.locator('[data-testid="indicator-disk"]');
+    const diskCount = await disk.count();
     expect(diskCount).toBeGreaterThanOrEqual(0);
     expect(diskCount).toBeLessThanOrEqual(1);
+    if (diskCount === 1) {
+      await expectHitTestable(disk);
+    }
   });
 
   test('bars have non-zero width after data arrives', async ({ page }) => {
-    await page.waitForSelector('[data-testid="system-indicators"]', { timeout: 15000 });
+    await expect(page.locator('[data-testid="system-indicators"]')).toBeVisible({ timeout: 15000 });
 
     // Check CPU bar width
     const cpuBar = page.locator('[data-testid="indicator-bar-cpu"]');
+    await expect(cpuBar).toBeVisible();
+    await expectFullyInViewport(cpuBar);
     const cpuWidth = await cpuBar.evaluate((el) => el.getBoundingClientRect().width);
     expect(cpuWidth).toBeGreaterThan(0);
 
     // Check memory bar width
     const memBar = page.locator('[data-testid="indicator-bar-memory"]');
+    await expect(memBar).toBeVisible();
+    await expectFullyInViewport(memBar);
     const memWidth = await memBar.evaluate((el) => el.getBoundingClientRect().width);
     expect(memWidth).toBeGreaterThan(0);
   });
@@ -103,7 +115,8 @@ test.describe('System Resource Indicators', () => {
     await page.waitForTimeout(6000);
 
     // Component should still be visible
-    expect(await page.locator('[data-testid="system-indicators"]').isVisible()).toBe(true);
+    await expect(page.locator('[data-testid="system-indicators"]')).toBeVisible();
+    await expectFullyInViewport(page.locator('[data-testid="system-indicators"]'));
 
     // Tooltip should still be in the correct format
     const updatedCpuTitle = await cpuEl.getAttribute('title');

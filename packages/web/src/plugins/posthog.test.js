@@ -21,6 +21,7 @@ describe('PostHog Plugin', () => {
         api_host: 'https://us.i.posthog.com',
         disable_session_recording: true,
         defaults: '2026-01-30',
+        internal_or_test_user_hostname: null,
         respect_dnt: true,
         persistence: 'localStorage',
         autocapture: true,
@@ -65,6 +66,23 @@ describe('PostHog Plugin', () => {
         expect.any(String),
         expect.objectContaining({
           disable_session_recording: true,
+        })
+      );
+
+      vi.unstubAllEnvs();
+    });
+
+    it('does not classify localhost npx users as internal/test users', async () => {
+      vi.stubEnv('VITE_POSTHOG_KEY', 'phc_test_key');
+
+      const { initPostHog } = await import('./posthog.js');
+      initPostHog();
+
+      expect(posthog.init).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          defaults: '2026-01-30',
+          internal_or_test_user_hostname: null,
         })
       );
 

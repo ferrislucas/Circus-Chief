@@ -10,6 +10,7 @@ import { useTodosStore } from '../stores/todos.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useProjectsStore } from '../stores/projects.js';
 import { useUiStore } from '../stores/ui.js';
+import { useKanbanStore } from '../stores/kanban.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const websocketHandlers = vi.hoisted(() => new Map());
@@ -53,12 +54,20 @@ vi.mock('../components/SessionChatOverlay.vue', () => ({
     emits: ['close', 'session-created']
   }
 }));
+vi.mock('../components/SessionChatContent.vue', () => ({
+  default: {
+    name: 'SessionChatContent',
+    template: '<div class="session-chat-content" data-testid="session-chat-content">Chat Content</div>',
+    props: ['sessionId', 'sessionChain', 'summariesMap', 'mode'],
+    emits: ['session-created', 'prompt-focus', 'prompt-blur', 'picker-open-change', 'active-session-change'],
+  }
+}));
 vi.mock('../components/SessionHeaderPanel.vue', () => ({
   default: {
     name: 'SessionHeaderPanel',
-    template: '<div class="session-header"><div class="session-header-row"><div class="session-name-wrapper"><h3 class="session-name">{{ session?.name }}</h3></div></div></div>',
+    template: '<div class="session-header"><div class="session-header-row"><div class="session-name-wrapper"><h3 class="session-name">{{ session?.name }}</h3></div></div><button class="mock-add-to-board" @click="$emit(\'add-to-board\', session)">Add</button></div>',
     props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses'],
-    emits: ['duplicate', 'copySessionId', 'archive', 'delete', 'star'],
+    emits: ['duplicate', 'copySessionId', 'archive', 'delete', 'star', 'add-to-board'],
   }
 }));
 vi.mock('../components/SessionTabsPanel.vue', () => ({
@@ -71,19 +80,43 @@ vi.mock('../components/SessionTabsPanel.vue', () => ({
 vi.mock('../components/ArchiveConfirmModal.vue', () => ({
   default: {
     name: 'ArchiveConfirmModal',
-    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'loading'],
+    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'isOnKanbanBoard', 'loading'],
     emits: ['confirm', 'cancel'],
     template: `
       <div v-if="isOpen" class="archive-confirm-modal" data-testid="archive-confirm-modal">
         <span class="modal-session-name">{{ sessionName }}</span>
         <span class="modal-has-cleanup-script" :data-has-cleanup-script="hasCleanupScript"></span>
+        <span class="modal-is-on-kanban-board" :data-is-on-kanban-board="isOnKanbanBoard"></span>
         <span class="modal-loading" :data-loading="loading"></span>
-        <button class="modal-confirm-btn" @click="$emit('confirm', true)">Archive</button>
-        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', false)">Archive No Cleanup</button>
+        <button class="modal-confirm-btn" @click="$emit('confirm', { runCleanup: true, removeFromBoard: false })">Archive</button>
+        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', { runCleanup: false, removeFromBoard: false })">Archive No Cleanup</button>
+        <button class="modal-confirm-remove-board-btn" @click="$emit('confirm', { runCleanup: false, removeFromBoard: true })">Archive Remove Board</button>
         <button class="modal-cancel-btn" @click="$emit('cancel')">Cancel</button>
       </div>
     `,
   }
+}));
+vi.mock('../components/KanbanLaneSelectorModal.vue', () => ({
+  default: {
+    name: 'KanbanLaneSelectorModal',
+    props: ['isOpen', 'sessionName', 'lanes', 'currentLaneId'],
+    emits: ['close', 'select-lane'],
+    template: `
+      <div v-if="isOpen" class="kanban-lane-selector-modal">
+        <span class="selector-session-name">{{ sessionName }}</span>
+        <span class="selector-current-lane">{{ currentLaneId }}</span>
+        <button
+          v-for="lane in lanes"
+          :key="lane.id"
+          class="mock-lane-option"
+          @click="$emit('select-lane', lane)"
+        >
+          {{ lane.name }}
+        </button>
+        <button class="mock-close-selector" @click="$emit('close')">Close</button>
+      </div>
+    `,
+  },
 }));
 vi.mock('../composables/useApi.js', () => ({
   api: {
@@ -151,6 +184,7 @@ describe('SessionDetailView', () => {
   let router;
   let sessionsStore;
   let projectsStore;
+  let kanbanStore;
   let canvasStore;
   let todosStore;
   // Track mounted wrappers for cleanup to prevent memory leaks (OOM)
@@ -158,6 +192,11 @@ describe('SessionDetailView', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 640,
+    });
     websocketHandlers.clear();
     pinia = createPinia();
     setActivePinia(pinia);
@@ -171,6 +210,7 @@ describe('SessionDetailView', () => {
 
     sessionsStore = useSessionsStore();
     projectsStore = useProjectsStore();
+    kanbanStore = useKanbanStore();
     canvasStore = useCanvasStore();
     todosStore = useTodosStore();
 
@@ -206,11 +246,12 @@ describe('SessionDetailView', () => {
   }
 
   describe('tabs configuration', () => {
-    it('includes Summary, Changes, Canvas, Commands tabs', async () => {
+    it('passes the expected tab labels to SessionTabsPanel', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
-        status: 'running'
+        status: 'running',
+        projectId: 'project-1'
       };
 
       await router.push('/sessions/session-1');
@@ -233,9 +274,27 @@ describe('SessionDetailView', () => {
 
       await flushPromises();
 
-      const text = wrapper.text();
-      // The exact tab names may vary, but these components should be referenced
-      expect(wrapper.findComponent({ name: 'SummaryTab' }).exists() || text).toBeTruthy();
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.exists()).toBe(true);
+      expect(tabsPanel.props('tabs').map(tab => tab.id)).toEqual([
+        'summary',
+        'chat',
+        'changes',
+        'canvas',
+        'commands',
+      ]);
+      expect(tabsPanel.props('tabs').map(tab => tab.label)).toEqual([
+        'Summary',
+        'Chat',
+        'Changes',
+        'Canvas',
+        'Commands',
+      ]);
+      expect(tabsPanel.props('tabs').find(tab => tab.id === 'chat')).toEqual({
+        id: 'chat',
+        label: 'Chat',
+        desktopOnly: true,
+      });
     });
 
     it('renders correct tab content for selected tab', async () => {
@@ -771,6 +830,228 @@ describe('SessionDetailView', () => {
 
       // The mock template still renders the name
       expect(wrapper.text()).toContain(sessionName);
+    });
+
+    it('does not pass a project-level Kanban gate to SessionHeaderPanel', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+      };
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      expect(headerPanel.props()).not.toHaveProperty('canAddToBoard');
+    });
+
+    it('opens the lane selector when SessionHeaderPanel emits add-to-board', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+      };
+      kanbanStore.board = {
+        lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
+      };
+      kanbanStore.currentProjectId = 'proj-1';
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await wrapper.find('.mock-add-to-board').trigger('click');
+      await nextTick();
+
+      const selector = wrapper.findComponent({ name: 'KanbanLaneSelectorModal' });
+      expect(selector.props('isOpen')).toBe(true);
+      expect(selector.props('sessionName')).toBe('Test Session');
+      expect(wrapper.find('.kanban-lane-selector-modal').exists()).toBe(true);
+    });
+
+    it('passes the current lane to the detail selector when the session is already on the board', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+      };
+      kanbanStore.board = {
+        lanes: [
+          {
+            id: 'lane-1',
+            name: 'Todo',
+            cards: [{ id: 'card-1', laneId: 'lane-1', sessions: [{ id: 'session-1' }] }],
+          },
+          { id: 'lane-2', name: 'Done', cards: [] },
+        ],
+      };
+      kanbanStore.currentProjectId = 'proj-1';
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await wrapper.find('.mock-add-to-board').trigger('click');
+      await nextTick();
+
+      const selector = wrapper.findComponent({ name: 'KanbanLaneSelectorModal' });
+      expect(selector.props('currentLaneId')).toBe('lane-1');
+    });
+
+    it('adds the current session to the selected lane from the detail selector', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+      };
+      kanbanStore.board = {
+        lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
+      };
+      kanbanStore.currentProjectId = 'proj-1';
+      const addSpy = vi.spyOn(kanbanStore, 'addSessionToBoard').mockResolvedValue({
+        id: 'card-1',
+        laneId: 'lane-1',
+      });
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await wrapper.find('.mock-add-to-board').trigger('click');
+      await wrapper.find('.mock-lane-option').trigger('click');
+      await flushPromises();
+
+      expect(addSpy).toHaveBeenCalledWith('proj-1', 'session-1', 'lane-1');
+      const selector = wrapper.findComponent({ name: 'KanbanLaneSelectorModal' });
+      expect(selector.props('isOpen')).toBe(false);
+    });
+
+    it('moves an existing board card from the detail selector', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+      };
+      projectsStore.currentProject = {
+        id: 'proj-1',
+        name: 'Project 1',
+      };
+      kanbanStore.board = {
+        lanes: [
+          {
+            id: 'lane-1',
+            name: 'Todo',
+            cards: [{ id: 'card-1', laneId: 'lane-1', sessions: [{ id: 'session-1' }] }],
+          },
+          { id: 'lane-2', name: 'Done', cards: [] },
+        ],
+      };
+      kanbanStore.currentProjectId = 'proj-1';
+      const addSpy = vi.spyOn(kanbanStore, 'addSessionToBoard');
+      const moveSpy = vi.spyOn(kanbanStore, 'moveCard').mockResolvedValue({
+        id: 'card-1',
+        laneId: 'lane-2',
+      });
+
+      await router.push('/sessions/session-1');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ChangesTab: true,
+            CanvasTab: true,
+            SummaryTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await wrapper.find('.mock-add-to-board').trigger('click');
+      await wrapper.findAll('.mock-lane-option')[1].trigger('click');
+      await flushPromises();
+
+      expect(moveSpy).toHaveBeenCalledWith('proj-1', 'card-1', 'lane-2');
+      expect(addSpy).not.toHaveBeenCalled();
     });
   });
 
@@ -2425,6 +2706,10 @@ describe('SessionDetailView', () => {
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
       expect(treeHandle.props('sessionStatus')).toBe('running');
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(true);
+      expect(tabsPanel.props('sessionStatus')).toBe('running');
     });
 
     it('passes isSessionActive=true to SessionChatHandle when starting', async () => {
@@ -2456,6 +2741,10 @@ describe('SessionDetailView', () => {
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
       expect(treeHandle.props('sessionStatus')).toBe('starting');
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(true);
+      expect(tabsPanel.props('sessionStatus')).toBe('starting');
     });
 
     it('passes isSessionActive=false to SessionChatHandle when completed', async () => {
@@ -2486,6 +2775,9 @@ describe('SessionDetailView', () => {
 
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(false);
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(false);
     });
 
     it('passes isSessionActive=false to SessionChatHandle when waiting', async () => {
@@ -2710,6 +3002,9 @@ describe('SessionDetailView', () => {
 
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('isSessionActive')).toBe(true);
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('isSessionActive')).toBe(true);
     });
 
     it('passes isSessionActive=true when root is waiting and a child session is starting', async () => {
@@ -2825,6 +3120,9 @@ describe('SessionDetailView', () => {
 
       const treeHandle = wrapper.findComponent({ name: 'SessionChatHandle' });
       expect(treeHandle.props('sessionStatus')).toBe('running');
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('sessionStatus')).toBe('running');
     });
 
     it('updates isSessionActive reactively when sessionChain changes', async () => {
@@ -4418,6 +4716,88 @@ describe('SessionDetailView', () => {
       expect(router.currentRoute.value.query.overlay).toBeUndefined();
     });
 
+    it('routes desktop ?overlay=open requests to the embedded chat tab', async () => {
+      window.innerWidth = 641;
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      await router.push('/sessions/session-1?overlay=open');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      expect(wrapper.vm.chatOverlayOpen).toBe(false);
+      expect(router.currentRoute.value.path).toBe('/sessions/session-1/chat');
+      expect(router.currentRoute.value.query.overlay).toBeUndefined();
+
+      const chatContent = wrapper.findComponent({ name: 'SessionChatContent' });
+      expect(chatContent.exists()).toBe(true);
+      expect(chatContent.props('mode')).toBe('embedded');
+      expect(chatContent.props('sessionId')).toBe('session-1');
+      expect(wrapper.findComponent({ name: 'SessionChatOverlay' }).exists()).toBe(false);
+    });
+
+    it('renders the embedded chat tab from a direct route', async () => {
+      sessionsStore.currentSession = {
+        id: 'session-1',
+        name: 'Test Session',
+        status: 'running',
+        projectId: 'proj-1',
+      };
+      sessionsStore.sessions = [sessionsStore.currentSession];
+
+      await router.push('/sessions/session-1/chat');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const tabsPanel = wrapper.findComponent({ name: 'SessionTabsPanel' });
+      expect(tabsPanel.props('activeTab')).toBe('chat');
+
+      const chatContent = wrapper.findComponent({ name: 'SessionChatContent' });
+      expect(chatContent.exists()).toBe(true);
+      expect(chatContent.props('mode')).toBe('embedded');
+      expect(chatContent.props('sessionId')).toBe('session-1');
+      expect(chatContent.props('sessionChain')).toEqual(wrapper.vm.sessionChain);
+      expect(chatContent.props('summariesMap')).toEqual(wrapper.vm.summariesMap);
+      expect(wrapper.findComponent({ name: 'SessionChatOverlay' }).exists()).toBe(false);
+    });
+
     it('does not auto-open tree overlay without query param', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
@@ -4572,6 +4952,118 @@ describe('SessionDetailView', () => {
       await flushPromises();
 
       expect(sessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+    });
+
+    it('passes isOnKanbanBoard=false when the workflow has no card', async () => {
+      const wrapper = await mountWithSession();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(false);
+    });
+
+    it('passes isOnKanbanBoard=true when the workflow root has a card', async () => {
+      const wrapper = await mountWithSession();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(true);
+    });
+
+    it('resolves the workflow root card for a child session', async () => {
+      const wrapper = await mountWithSession({ parentSessionId: 'root-1' });
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'root-1', name: 'Root', status: 'completed', projectId: 'proj-1' },
+      ];
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-root', sessions: [{ id: 'root-1' }] }] },
+        ],
+      };
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(true);
+    });
+
+    it('removes the workflow card after archive when removeFromBoard is checked', async () => {
+      const wrapper = await mountWithSession();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      const removeSpy = vi.spyOn(kanbanStore, 'removeCard').mockResolvedValue(undefined);
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-remove-board-btn').trigger('click');
+      await flushPromises();
+
+      expect(sessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      expect(removeSpy).toHaveBeenCalledWith('proj-1', 'card-1');
+    });
+
+    it('does not remove the card when removeFromBoard is unchecked', async () => {
+      const wrapper = await mountWithSession();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      const removeSpy = vi.spyOn(kanbanStore, 'removeCard').mockResolvedValue(undefined);
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      expect(removeSpy).not.toHaveBeenCalled();
+    });
+
+    it('still archives successfully when card removal fails', async () => {
+      const wrapper = await mountWithSession();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      vi.spyOn(kanbanStore, 'removeCard').mockRejectedValue(new Error('Network error'));
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-remove-board-btn').trigger('click');
+      await flushPromises();
+
+      expect(sessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      // Modal still closes (archive considered successful)
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
     });
 
     it('closes modal and does not archive when cancel is clicked', async () => {

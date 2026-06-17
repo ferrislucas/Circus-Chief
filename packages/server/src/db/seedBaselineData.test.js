@@ -4,19 +4,20 @@ import { DatabaseManager } from './DatabaseManager.js';
 import {
   BUILT_IN_ANTHROPIC_MODELS,
   BUILT_IN_ANTHROPIC_PROVIDER,
+  BUILT_IN_OPENAI_COMMIT_ATTRIBUTION,
   BUILT_IN_OPENAI_MODELS,
   BUILT_IN_OPENAI_PROVIDER,
   BUILT_IN_GOOGLE_MODELS,
-  DEFAULT_QUICK_RESPONSES,
-  DEFAULT_SESSION_TEMPLATES,
   seedBaselineData,
 } from './seedBaselineData.js';
+import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
+import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
 
 function withDb(fn) {
   const manager = new DatabaseManager();
   const db = manager.init(':memory:');
   try {
-    return fn(db);
+    return fn(db, manager);
   } finally {
     manager.close();
   }
@@ -42,7 +43,7 @@ describe('seedBaselineData', () => {
         is_built_in: 1,
         base_url: null,
         auth_token: null,
-        commit_attribution_override: null,
+        commit_attribution_override: BUILT_IN_OPENAI_COMMIT_ATTRIBUTION,
       });
     });
   });
@@ -86,87 +87,105 @@ describe('seedBaselineData', () => {
     });
   });
 
-  it('creates default global quick responses in sort order', () => {
+  it('does not create the legacy quick_responses table on startup', () => {
     withDb((db) => {
-      const rows = db.prepare(
-        'SELECT project_id, label, content, auto_submit, category, sort_order FROM quick_responses ORDER BY sort_order'
-      ).all();
-
-      expect(rows).toHaveLength(DEFAULT_QUICK_RESPONSES.length);
-      expect(rows.map((row) => ({
-        projectId: row.project_id,
-        label: row.label,
-        content: row.content,
-        autoSubmit: row.auto_submit === 1,
-        category: row.category,
-        sortOrder: row.sort_order,
-      }))).toEqual(DEFAULT_QUICK_RESPONSES.map((row) => ({
-        projectId: null,
-        label: row.label,
-        content: row.content,
-        autoSubmit: row.autoSubmit,
-        category: null,
-        sortOrder: row.sortOrder,
-      })));
+      const table = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'quick_responses'"
+      ).get();
+      expect(table).toBeUndefined();
     });
   });
 
-  it('creates expected default global session templates with golden prompts', () => {
+  it('creates exactly six default global session templates on a fresh DB', () => {
     withDb((db) => {
       const rows = db.prepare(
-        'SELECT project_id, name, prompt, thinking_enabled, mode, next_template_id, git_branch, git_mode, model, effort_level, target_lane_id FROM session_templates WHERE project_id IS NULL AND (legacy_quick_response_id IS NULL) ORDER BY name'
+        'SELECT * FROM session_templates WHERE project_id IS NULL ORDER BY name'
       ).all();
 
       expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
-      for (const expected of DEFAULT_SESSION_TEMPLATES) {
-        const actual = rows.find((row) => row.name === expected.name);
-        expect(actual).toMatchObject({
-          project_id: null,
+
+      const names = rows.map((r) => r.name).sort();
+      expect(names).toEqual(DEFAULT_SESSION_TEMPLATES.map((t) => t.name).sort());
+    });
+  });
+
+  it('creates no hidden workflow templates on a fresh DB', () => {
+    withDb((db) => {
+      const count = db.prepare(
+        'SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND show_in_quick_responses = 0'
+      ).get().cnt;
+
+      expect(count).toBe(0);
+    });
+  });
+
+  it('creates all default templates as quick-response-visible with expected fields and sort order', () => {
+    withDb((db) => {
+      const rows = db.prepare(
+        `SELECT name, prompt, thinking_enabled, mode, show_in_quick_responses,
+                quick_response_auto_submit, quick_response_sort_order
+         FROM session_templates
+         WHERE project_id IS NULL AND show_in_quick_responses = 1
+         ORDER BY quick_response_sort_order`
+      ).all();
+
+      expect(rows).toHaveLength(DEFAULT_SESSION_TEMPLATES.length);
+
+      for (const [index, expected] of DEFAULT_SESSION_TEMPLATES.entries()) {
+        expect(rows[index]).toMatchObject({
+          name: expected.name,
           prompt: expected.prompt,
           thinking_enabled: 1,
           mode: 'yolo',
-          next_template_id: null,
-          git_branch: null,
-          git_mode: null,
-          model: null,
-          effort_level: null,
-          target_lane_id: null,
+          show_in_quick_responses: 1,
+          quick_response_auto_submit: expected.quickResponseAutoSubmit ? 1 : 0,
+          quick_response_sort_order: expected.quickResponseSortOrder,
         });
       }
     });
   });
 
-  it('does not duplicate rows when rerun', () => {
+  it('sets the bootstrap flag so a second startup does not recreate deleted templates', () => {
+    withDb((db) => {
+      // Verify the bootstrap flag was set
+      const setting = db.prepare(
+        "SELECT value FROM app_settings WHERE key = 'default_session_templates_bootstrapped'"
+      ).get();
+      expect(setting?.value).toBe('true');
+
+      // Delete all session templates (simulate a user deleting defaults)
+      db.prepare('DELETE FROM session_templates').run();
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates').get().cnt).toBe(0);
+
+      // Calling bootstrapDefaultSessionTemplates again is a no-op since the flag is set.
+      bootstrapDefaultSessionTemplates(db, { isFirstRun: true });
+
+      // Templates should still be gone
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates').get().cnt).toBe(0);
+    });
+  });
+
+  it('does not duplicate providers or models when seedBaselineData is rerun', () => {
     withDb((db) => {
       seedBaselineData(db);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM providers').get().cnt).toBe(3);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM provider_models').get().cnt)
         .toBe(BUILT_IN_ANTHROPIC_MODELS.length + BUILT_IN_OPENAI_MODELS.length + BUILT_IN_GOOGLE_MODELS.length);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt)
-        .toBe(DEFAULT_QUICK_RESPONSES.length);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL').get().cnt)
-        .toBe(DEFAULT_SESSION_TEMPLATES.length);
     });
   });
 
-  it('keeps quick response empty-table behavior', () => {
-    withDb((db) => {
-      db.prepare('DELETE FROM quick_responses').run();
-      const now = Date.now();
-      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-        .run('project-quick-response', 'Project', '/tmp/project', now, now);
-      db.prepare(
-        'INSERT INTO quick_responses (id, project_id, label, content, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      ).run('project-response', 'project-quick-response', 'Project', 'Project', 0, now, now);
-
-      seedBaselineData(db);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM quick_responses').get().cnt).toBe(1);
-    });
-  });
-
-  it('seeds global templates when only project-scoped templates exist', () => {
-    withDb((db) => {
+  it('seeds global templates when only project-scoped templates exist (bootstrap not yet set)', () => {
+    // This test directly calls bootstrapDefaultSessionTemplates to verify it
+    // creates defaults when the flag is not set and isFirstRun is true, even
+    // when project-scoped templates already exist.
+    const manager = new DatabaseManager();
+    const db = manager.init(':memory:');
+    try {
+      // Reset bootstrap flag and remove all templates
+      db.prepare("DELETE FROM app_settings WHERE key = 'default_session_templates_bootstrapped'").run();
       db.prepare('DELETE FROM session_templates').run();
+
+      // Insert a project-scoped template
       const now = Date.now();
       db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run('project-template-owner', 'Project', '/tmp/project', now, now);
@@ -176,11 +195,15 @@ describe('seedBaselineData', () => {
         ) VALUES (?, ?, ?, ?, 1, 'yolo', ?, ?)`
       ).run('project-template', 'project-template-owner', 'Project Template', 'Project prompt', now, now);
 
-      seedBaselineData(db);
-      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL AND legacy_quick_response_id IS NULL').get().cnt)
+      // Bootstrap with isFirstRun = true (flag is gone, so it should insert defaults)
+      bootstrapDefaultSessionTemplates(db, { isFirstRun: true });
+
+      expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NULL').get().cnt)
         .toBe(DEFAULT_SESSION_TEMPLATES.length);
       expect(db.prepare('SELECT COUNT(*) AS cnt FROM session_templates WHERE project_id IS NOT NULL').get().cnt)
         .toBe(1);
-    });
+    } finally {
+      manager.close();
+    }
   });
 });

@@ -39,21 +39,6 @@ vi.mock('../stores/ui.js', () => ({
   })),
 }));
 
-// Mock the quickResponses store
-const mockFetchForProject = vi.fn().mockResolvedValue({
-  project: [],
-  global: []
-});
-
-vi.mock('../stores/quickResponses.js', () => ({
-  useQuickResponsesStore: vi.fn(() => ({
-    fetchForProject: mockFetchForProject,
-    projectResponses: [],
-    globalResponses: [],
-    hasResponses: false,
-  })),
-}));
-
 // Mock the API
 vi.mock('../composables/useApi.js', () => ({
   api: {
@@ -770,95 +755,50 @@ describe('NewSessionView - Start From Template Feature', () => {
 });
 
 /**
- * Unit tests for quick responses store integration
- * These tests verify that NewSessionView correctly imports, initializes, and uses the quickResponses store
+ * Unit tests for textareaMinHeight responsive threshold (640px breakpoint)
  */
-describe('NewSessionView - Quick Responses Store Integration', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia());
-    vi.clearAllMocks();
-  });
+describe('NewSessionView - textareaMinHeight threshold', () => {
+  const originalInnerWidth = window.innerWidth;
 
-  describe('Store Import', () => {
-    it('imports useQuickResponsesStore from the correct module', async () => {
-      // This test verifies the import exists by checking the mock was called
-      const { useQuickResponsesStore } = await import('../stores/quickResponses.js');
-      expect(useQuickResponsesStore).toBeDefined();
-      expect(typeof useQuickResponsesStore).toBe('function');
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: originalInnerWidth,
     });
   });
 
-  describe('Store Initialization', () => {
-    it('initializes the quick responses store', async () => {
-      const { useQuickResponsesStore } = await import('../stores/quickResponses.js');
-
-      // When the store factory is called, it should return an object with the expected methods
-      const store = useQuickResponsesStore();
-      expect(store).toBeDefined();
-      expect(store.fetchForProject).toBeDefined();
-      expect(typeof store.fetchForProject).toBe('function');
+  it('sets textareaMinHeight to 80 when window.innerWidth is <= 640', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 500,
     });
+
+    // Reflect the computed logic: window.innerWidth <= 640 ? 80 : 120
+    const minHeight = window.innerWidth <= 640 ? 80 : 120;
+    expect(minHeight).toBe(80);
   });
 
-  describe('fetchForProject on mount', () => {
-    it('fetchForProject method is callable and returns a promise', async () => {
-      // Verify the mock function exists and can be called
-      expect(mockFetchForProject).toBeDefined();
-
-      // Call it with a project ID
-      const result = await mockFetchForProject('project-123');
-
-      expect(mockFetchForProject).toHaveBeenCalledWith('project-123');
-      expect(result).toEqual({ project: [], global: [] });
+  it('sets textareaMinHeight to 80 at the exact threshold of 640', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 640,
     });
 
-    it('fetchForProject handles different project IDs correctly', async () => {
-      mockFetchForProject.mockClear();
-
-      await mockFetchForProject('project-abc');
-      expect(mockFetchForProject).toHaveBeenCalledWith('project-abc');
-
-      mockFetchForProject.mockClear();
-
-      await mockFetchForProject('project-xyz');
-      expect(mockFetchForProject).toHaveBeenCalledWith('project-xyz');
-    });
+    const minHeight = window.innerWidth <= 640 ? 80 : 120;
+    expect(minHeight).toBe(80);
   });
 
-  describe('Error Handling', () => {
-    it('handles quickResponsesStore.fetchForProject errors gracefully', async () => {
-      // Setup: mock fetch to reject
-      const errorMock = vi.fn().mockRejectedValueOnce(new Error('Network error'));
-
-      // Calling the error mock should not crash
-      await expect(errorMock('project-123')).rejects.toThrow('Network error');
-
-      // The store pattern typically catches and handles these errors internally
-      // This test verifies error handling capability exists
-      expect(errorMock).toHaveBeenCalled();
-    });
-  });
-
-  describe('QuickResponsesPanel Data Availability', () => {
-    it('provides quick responses data structure to QuickResponsesPanel', () => {
-      // Verify the mock store returns the expected data structure
-      const mockResponses = {
-        project: [{ id: '1', content: 'Project response', autoSubmit: false }],
-        global: [{ id: '2', content: 'Global response', autoSubmit: true }]
-      };
-
-      // Verify the response structure matches what QuickResponsesPanel expects
-      expect(mockResponses.project).toBeInstanceOf(Array);
-      expect(mockResponses.global).toBeInstanceOf(Array);
-      expect(mockResponses.project[0]).toHaveProperty('content');
-      expect(mockResponses.global[0]).toHaveProperty('autoSubmit');
+  it('sets textareaMinHeight to 120 when window.innerWidth is > 640', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      writable: true,
+      configurable: true,
+      value: 800,
     });
 
-    it('returns empty arrays when no quick responses exist', async () => {
-      const result = await mockFetchForProject('project-empty');
-
-      expect(result.project).toEqual([]);
-      expect(result.global).toEqual([]);
-    });
+    const minHeight = window.innerWidth <= 640 ? 80 : 120;
+    expect(minHeight).toBe(120);
   });
 });

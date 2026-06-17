@@ -14,7 +14,7 @@ export function useScheduleCancel(sessionsStore) {
   const uiStore = useUiStore();
 
   async function cancelScheduledSession(sessionId) {
-    if (!confirm('Cancel this scheduled session?')) return false;
+    if (!confirm('Cancel this scheduled workspace?')) return false;
 
     cancelling.value = true;
     try {
@@ -22,10 +22,10 @@ export function useScheduleCancel(sessionsStore) {
         status: 'stopped',
         scheduledAt: null,
       });
-      uiStore.success('Session cancelled');
+      uiStore.success('Workspace cancelled');
       return true;
     } catch (err) {
-      uiStore.error(`Failed to cancel session: ${err.message}`);
+      uiStore.error(`Failed to cancel workspace: ${err.message}`);
       return false;
     } finally {
       cancelling.value = false;

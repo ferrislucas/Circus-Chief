@@ -129,7 +129,7 @@ const imageErrors = ref({});
 // Load image for a file
 async function loadImage(fileIndex, filePath) {
   if (!props.sessionId) {
-    imageErrors.value[fileIndex] = 'Session ID not available';
+    imageErrors.value[fileIndex] = 'Workspace ID not available';
     return;
   }
 

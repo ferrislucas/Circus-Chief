@@ -131,6 +131,28 @@ describe('summaryClaudeClient', () => {
       expect(callArgs.options.outputFormat.schema).toEqual(customSchema);
     });
 
+    it('isolates the summary call from tools, MCP servers, and filesystem settings', async () => {
+      await callClaude('Test prompt', [], 'running');
+
+      const callArgs = query.mock.calls[0][0];
+      // Summary generation must be a pure text->JSON task. Inheriting the
+      // agentic toolbelt/MCP caused "Reached maximum number of turns (1)".
+      expect(callArgs.options.settingSources).toEqual([]);
+      expect(callArgs.options.strictMcpConfig).toBe(true);
+      expect(callArgs.options.mcpServers).toEqual({});
+      expect(callArgs.options.allowedTools).toEqual([]);
+    });
+
+    it('uses maxTurns >= 2 to allow the SDK-internal StructuredOutput tool-use cycle', async () => {
+      await callClaude('Test prompt', [], 'running');
+
+      const callArgs = query.mock.calls[0][0];
+      // outputFormat injects a StructuredOutput tool internally. The model calls it on
+      // turn 1; the SDK needs at least one more turn to process the tool result.
+      // maxTurns: 1 causes "Reached maximum number of turns (1)" errors for ALL summaries.
+      expect(callArgs.options.maxTurns).toBeGreaterThanOrEqual(2);
+    });
+
     it('starts agent call logging when logMeta provided', async () => {
       await callClaude('Test prompt', [], 'running', {
         logMeta: {

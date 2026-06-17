@@ -17,6 +17,7 @@ import {
 } from './helpers';
 
 const CLAUDE_ATTRIBUTION = 'Co-authored-by: Claude E2E <claude-e2e@example.com>';
+const OFFICIAL_CODEX_ATTRIBUTION = 'Co-authored-by: Codex <noreply@openai.com>';
 const CODEX_ATTRIBUTION = 'Co-authored-by: Codex E2E <codex-e2e@example.com>';
 
 test.describe.configure({ mode: 'serial' });
@@ -25,22 +26,22 @@ test.describe('Commit attribution provider settings', () => {
   test.beforeEach(async () => {
     await cleanupProviders();
     await cleanupCreatedResources();
-    await resetBuiltInAttribution();
+    await resetBuiltInAttributionDefaults();
   });
 
   test.afterEach(async () => {
-    await resetBuiltInAttribution();
+    await resetBuiltInAttributionDefaults();
     await cleanupProviders();
     await cleanupCreatedResources();
   });
 
-  test('built-in providers show blank attribution by default and hide connection controls', async ({ page }) => {
+  test('built-in providers show default attribution and hide connection controls', async ({ page }) => {
     const anthropic = await builtInProvider('anthropic');
     const openai = await builtInProvider('openai');
 
     await expectBuiltInAttributionModal(page, anthropic.name, '');
     await closeModal(page);
-    await expectBuiltInAttributionModal(page, openai.name, '');
+    await expectBuiltInAttributionModal(page, openai.name, OFFICIAL_CODEX_ATTRIBUTION);
   });
 
   test('built-in Anthropic override persists after reload and clears to null', async ({ page }) => {
@@ -61,7 +62,7 @@ test.describe('Commit attribution provider settings', () => {
   test('built-in OpenAI override persists after reload and clears to null', async ({ page }) => {
     const openai = await builtInProvider('openai');
 
-    await saveBuiltInAttribution(page, openai.name, CODEX_ATTRIBUTION);
+    await saveBuiltInAttribution(page, openai.name, CODEX_ATTRIBUTION, OFFICIAL_CODEX_ATTRIBUTION);
     await page.reload();
     await expectBuiltInAttributionModal(page, openai.name, CODEX_ATTRIBUTION);
 
@@ -123,12 +124,12 @@ test.describe('Commit attribution launch behavior', () => {
     test.skip(!captureEnabled, 'Set E2E_AGENT_SPAWN_CAPTURE_FILE before starting the e2e server to enable spawn-capture launch assertions.');
     await cleanupProviders();
     await cleanupCreatedResources();
-    await resetBuiltInAttribution();
+    await resetBuiltInAttributionDefaults();
     clearCaptureFile();
   });
 
   test.afterEach(async () => {
-    await resetBuiltInAttribution();
+    await resetBuiltInAttributionDefaults();
     await cleanupProviders();
     await cleanupCreatedResources();
     clearCaptureFile();
@@ -188,7 +189,22 @@ test.describe('Commit attribution launch behavior', () => {
     expectAttributionEnv(await waitForSpawn('claude-code'), CLAUDE_ATTRIBUTION);
   });
 
-  test('built-in OpenAI blank attribution does not pass commit attribution env or native config', async () => {
+  test('built-in OpenAI default attribution passes commit attribution env', async () => {
+    const project = await seedProject('Codex Blank Attribution Project', process.cwd());
+    const session = await seedSession(project.id, {
+      prompt: 'Codex default attribution e2e',
+      model: await firstBuiltInOpenAIModel(),
+      startImmediately: true,
+    });
+
+    await waitForStatus(session.id, 'waiting', 60000);
+    expectAttributionEnv(await waitForSpawn('codex'), OFFICIAL_CODEX_ATTRIBUTION);
+  });
+
+  test('built-in OpenAI cleared attribution does not pass commit attribution env or native config', async () => {
+    const openai = await builtInProvider('openai');
+    await updateProvider(openai.id, { commitAttributionOverride: null });
+
     const project = await seedProject('Codex Blank Attribution Project', process.cwd());
     const session = await seedSession(project.id, {
       prompt: 'Codex blank attribution e2e',
@@ -264,8 +280,8 @@ async function expectBuiltInAttributionModal(page: any, providerName: string, ex
   await expect(modal.locator('button:has-text("Delete")')).toHaveCount(0);
 }
 
-async function saveBuiltInAttribution(page: any, providerName: string, value: string) {
-  await expectBuiltInAttributionModal(page, providerName, '');
+async function saveBuiltInAttribution(page: any, providerName: string, value: string, initialValue = '') {
+  await expectBuiltInAttributionModal(page, providerName, initialValue);
   await page.locator('#commit-attribution-override').fill(value);
   await page.locator('.modal-footer .btn-primary').click();
   await expect(page.locator('.modal')).toBeHidden();
@@ -290,12 +306,14 @@ async function closeModal(page: any) {
   await expect(page.locator('.modal')).toBeHidden();
 }
 
-async function resetBuiltInAttribution() {
+async function resetBuiltInAttributionDefaults() {
   const providers = await getProviders();
   await Promise.all(
     providers
       .filter((provider: any) => provider.isBuiltIn)
-      .map((provider: any) => updateProvider(provider.id, { commitAttributionOverride: null }))
+      .map((provider: any) => updateProvider(provider.id, {
+        commitAttributionOverride: provider.kind === 'openai' ? OFFICIAL_CODEX_ATTRIBUTION : null,
+      }))
   );
 }
 

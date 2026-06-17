@@ -102,6 +102,22 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
   });
 
   describe('Model Selector', () => {
+    it('renders the resizable prompt textarea in create form', async () => {
+      const wrapper = mount(TemplatesPanel, {
+        props: { projectId: 'proj-1' },
+        global: {
+          plugins: [pinia],
+          stubs: { 'router-link': true },
+        },
+      });
+
+      await wrapper.find('[data-testid="new-template-btn"]').trigger('click');
+
+      const promptTextarea = wrapper.findComponent({ name: 'ResizableTextarea' });
+      expect(promptTextarea.exists()).toBe(true);
+      expect(promptTextarea.props('minHeight')).toBe(120);
+    });
+
     it('renders Model selector in create form', async () => {
       const wrapper = mount(TemplatesPanel, {
         props: { projectId: 'proj-1' },

@@ -5,6 +5,7 @@ import {
   seedChildSession,
   cleanupCreatedResources,
   navigateAndWait,
+  openSessionOverlay,
   waitForSessionToExist,
   seedUserMessage,
   seedAssistantMessage,
@@ -59,14 +60,7 @@ test.describe('Session Chat Overlay - Auto-select by most recent conversation ac
       waitFor: '.session-detail',
       timeout: 15000,
     });
-    const handle = page.locator('[data-testid="session-chat-handle"]');
-    await expect(handle).toBeVisible({ timeout: 10000 });
-    await handle.click();
-    const overlay = page.locator('[data-testid="session-chat-overlay"]');
-    await expect(overlay).toBeVisible({ timeout: 5000 });
-    // Wait for slide-in animation to complete (300ms + buffer)
-    await page.waitForTimeout(400);
-    return overlay;
+    return openSessionOverlay(page);
   }
 
   test('overlay selects child with most recent conversation activity, not the parent', async ({ page }) => {
@@ -82,7 +76,7 @@ test.describe('Session Chat Overlay - Auto-select by most recent conversation ac
 
     // The overlay should auto-select the child with the most recent conversation
     // activity (childSession2), NOT the parent session.
-    // The .dropdown-name shows the active session; .overlay-root-name always shows the root.
+    // The .dropdown-name shows the active session.
     const activeName = overlay.locator('.dropdown-name');
     await expect(activeName).toContainText('Second Child', { timeout: 5000 });
   });
@@ -122,17 +116,15 @@ test.describe('Session Chat Overlay - Auto-select by most recent conversation ac
     await expect(activeName).toContainText('First Child', { timeout: 5000 });
   });
 
-  test('overlay selects parent when no sessions have conversation messages', async ({ page }) => {
+  test('overlay selects most recent session when no sessions have conversation messages', async ({ page }) => {
     // No messages seeded anywhere - all sessions have equal (zero) conversation activity.
-    // In this case, with no conversation activity to differentiate, the overlay should
-    // fall back to the current (parent) session.
+    // In this case, the picker falls back to the same recency sort used by the
+    // session tree.
 
     const overlay = await openOverlay(page, parentSession.id);
 
-    // When no children have activity, the overlay root name shows "Parent Session"
-    // and no dropdown-name selector is present (or it shows the parent).
-    const rootName = overlay.locator('.overlay-root-name');
-    await expect(rootName).toContainText('Parent Session', { timeout: 5000 });
+    const activeName = overlay.locator('.dropdown-name');
+    await expect(activeName).toContainText('Second Child', { timeout: 5000 });
   });
 
   test('overlay selects grandchild with most recent conversation activity in deep tree', async ({ page }) => {

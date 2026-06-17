@@ -31,11 +31,16 @@
         :summary="summary"
         :is-deleting="isDeleting"
         :button-statuses="buttonStatusesToDisplay"
+        :git-status-summary="shortGitStatusSummary"
+        :git-status-loading="gitStatusLoading"
+        :git-status-error="gitStatusError"
+        :has-actionable-git-status="hasActionableGitStatus"
         @duplicate="handleDuplicate"
         @copy-session-id="handleCopySessionId"
         @archive="handleArchive"
         @delete="handleDelete"
         @star="handleStar"
+        @add-to-board="handleAddToBoard"
       />
 
       <SessionTabsPanel
@@ -44,7 +49,11 @@
         :active-tab="activeTab"
         :tabs="tabs"
         :has-changes="hasChanges"
+        :has-git-status-warning="hasActionableGitStatus"
+        :git-status-title="gitStatusIndicatorTitle"
         :canvas-count="canvasStore.groupedItems.length"
+        :is-session-active="isSessionActive"
+        :session-status="activeSessionStatus"
       />
 
       <div class="tab-content">
@@ -60,6 +69,11 @@
           v-else-if="activeTab === 'changes'"
           :key="route.params.id"
           :session-id="route.params.id"
+          :git-status="gitStatus"
+          :git-status-summary="gitStatusSummary"
+          :git-status-loading="gitStatusLoading"
+          :git-status-error="gitStatusError"
+          :refresh-git-status="refreshGitStatus"
           @update:file-count="changesFileCount = $event"
         />
         <CanvasTab
@@ -72,6 +86,14 @@
           :key="route.params.id"
           :session-id="route.params.id"
           :project-id="sessionsStore.currentSession?.projectId"
+        />
+        <SessionChatContent
+          v-else-if="activeTab === 'chat'"
+          :session-id="overlaySessionId"
+          :session-chain="sessionChain"
+          :summaries-map="summariesMap"
+          mode="embedded"
+          @session-created="handleOverlaySessionCreated"
         />
       </div>
 
@@ -98,9 +120,19 @@
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
         :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
+        :is-on-kanban-board="isArchiveSessionOnBoard"
         :loading="archiving"
         @confirm="confirmArchive"
         @cancel="cancelArchive"
+      />
+
+      <KanbanLaneSelectorModal
+        :is-open="showLaneSelectorModal"
+        :session-name="sessionToAdd?.name || ''"
+        :lanes="kanbanStore.board?.lanes || []"
+        :current-lane-id="currentLaneIdForSessionToAdd"
+        @close="closeLaneSelectorModal"
+        @select-lane="addSessionToLane"
       />
     </template>
   </div>
@@ -117,6 +149,8 @@ import { useUiStore } from '../stores/ui.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { useSessionInitializer } from '../composables/useSessionInitializer.js';
+import { useSessionTree } from '../composables/useSessionTree.js';
+import { useSessionGitStatus } from '../composables/useSessionGitStatus.js';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
@@ -125,11 +159,11 @@ import SessionHeaderPanel from '../components/SessionHeaderPanel.vue';
 import SessionTabsPanel from '../components/SessionTabsPanel.vue';
 import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
+import SessionChatContent from '../components/SessionChatContent.vue';
 import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
+import KanbanLaneSelectorModal from '../components/KanbanLaneSelectorModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
-import { api } from '../composables/useApi.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
-import { sortSessionChain } from '../utils/sessionPickerRecency.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
 const route = useRoute();
@@ -144,18 +178,25 @@ const kanbanStore = useKanbanStore();
 
 const { send, on, off } = useWebSocket();
 
-// Track current project subscription for cleanup on route change and unmount
 let currentProjectSubscriptionId = null;
 
-// Reactive session ID that tracks route changes
-// Used by the polling composable to track the current session
 const currentSessionId = ref(route.params.id);
-
-// Set viewedSessionId immediately so that stale in-flight fetchSession requests
-// from a previous session's polling cannot overwrite currentSession.
 sessionsStore.viewedSessionId = route.params.id;
 
-// Use composable for polling and file changes
+const {
+  gitStatus,
+  loading: gitStatusLoading,
+  error: gitStatusError,
+  summaryText: gitStatusSummary,
+  shortSummaryText: shortGitStatusSummary,
+  indicatorTitle: gitStatusIndicatorTitle,
+  hasActionableGitStatus,
+  refresh: refreshGitStatus,
+  reset: resetGitStatus,
+} = useSessionGitStatus({
+  getSessionId: () => currentSessionId.value,
+});
+
 const {
   hasChanges,
   changesFileCount,
@@ -167,28 +208,22 @@ const {
   getSessionId: () => currentSessionId.value,
   getSessionStatus: () => sessionsStore.currentSession?.status,
   sessionsStore,
+  refreshGitStatus,
 });
 
 const summary = ref(null);
 const isDeleting = ref(false);
-const chatOverlayOpen = ref(false);
 const showArchiveModal = ref(false);
 const archiving = ref(false);
+const showLaneSelectorModal = ref(false);
+const sessionToAdd = ref(null);
 
-// Session ID to pass to the overlay - resolves to running child if present
-const overlaySessionId = ref(route.params.id);
-const preferredOverlaySessionId = ref(null);
-const preferredOverlaySession = ref(null);
+const currentLaneIdForSessionToAdd = computed(() => {
+  if (!sessionToAdd.value?.id) return null;
+  return getLaneIdForSession(sessionToAdd.value.id);
+});
 
-// Session chain state (lifted from SessionChatOverlay)
-const sessionChain = ref([]);
-const summariesMap = ref({});
-const hasDescendants = computed(() => sessionChain.value.length > 1);
-
-// Readiness signal for E2E tests. Flips to true once the store has loaded
-// the current session AND the session-tree initial fetch has resolved.
-// Resets to false when the route id changes, so tests can wait on it after
-// navigation without racing the hydration lifecycle.
+// Readiness signal for E2E tests
 const sessionChainReady = ref(false);
 const isReady = computed(() =>
   !sessionsStore.loading &&
@@ -196,247 +231,26 @@ const isReady = computed(() =>
   sessionChainReady.value,
 );
 
-/**
- * Merge project sessions into the store without triggering loading state.
- */
-async function mergeProjectSessionsToStore(projectId) {
-  try {
-    const projectSessions = await api.getProjectSessions(projectId, false, null);
-    for (const s of projectSessions) {
-      const idx = sessionsStore.sessions.findIndex(existing => existing.id === s.id);
-      if (idx >= 0) {
-        sessionsStore.sessions[idx] = s;
-      } else {
-        sessionsStore.sessions.push(s);
-      }
-    }
-  } catch {
-    // Not critical if project sessions fail to load
-  }
-}
+// Session tree composable (chain building, overlay target, chat navigation)
+const {
+  chatOverlayOpen,
+  overlaySessionId,
+  sessionChain,
+  summariesMap,
+  isSessionActive,
+  activeSessionStatus,
+  buildSessionChain,
+  resolveOverlayTarget,
+  openChatDestination,
+  handleOverlayOpen,
+  handleScheduledSessionClick,
+  handleSessionUpdated,
+  handleSessionCreated,
+  handleOverlaySessionCreated,
+  handleOverlayClose,
+  resetPreferred,
+} = useSessionTree(currentSessionId, sessionChainReady);
 
-/**
- * Find the root session, handling fallback cases.
- * @returns {{ root: object|null, earlyReturn: object[]|null }}
- */
-function findRootSession(sessionId) {
-  const root = sessionsStore.getRootSession(sessionId);
-  if (root) return { root, earlyReturn: null };
-
-  const current = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
-  if (current && !current.parentSessionId) return { root: current, earlyReturn: null };
-  if (current) return { root: null, earlyReturn: [{ session: current, depth: 0 }] };
-  return { root: null, earlyReturn: null };
-}
-
-/**
- * Walk the tree depth-first from root, collecting {session, depth} entries.
- */
-function collectTreeDepthFirst(root) {
-  const tree = [];
-  function walk(session, depth) {
-    tree.push({ session, depth });
-    const children = sessionsStore.getChildSessions(session.id);
-    for (const child of children) walk(child, depth + 1);
-  }
-  walk(root, 0);
-  return tree;
-}
-
-/**
- * Build the full session tree from root, flattened depth-first with depth info.
- * Fetches project sessions and summaries for each session in the tree.
- */
-async function buildSessionChain() {
-  const sessionId = currentSessionId.value;
-  const existingSession = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
-  if (!existingSession) {
-    try { await sessionsStore.fetchSession(sessionId, false); } catch { return; }
-  }
-
-  const session = sessionsStore.getSessionById(sessionId) || sessionsStore.currentSession;
-  if (session?.projectId) await mergeProjectSessionsToStore(session.projectId);
-
-  const { root, earlyReturn } = findRootSession(sessionId);
-  if (earlyReturn) { sessionChain.value = sortSessionChain(earlyReturn); return; }
-  if (!root) return;
-
-  const tree = sortSessionChain(collectTreeDepthFirst(root));
-  sessionChain.value = tree;
-
-  // Fetch summaries for all sessions in the tree (non-blocking)
-  for (const entry of tree) {
-    if (!summariesMap.value[entry.session.id]) {
-      api.getSessionSummary(entry.session.id)
-        .then(fetchedSummary => { if (fetchedSummary) summariesMap.value = { ...summariesMap.value, [entry.session.id]: fetchedSummary }; })
-        .catch(() => { /* Summaries are not critical */ });
-    }
-  }
-}
-
-/**
- * Resolve the overlay target session ID.
- * Priority order:
- * 1. Running/starting children (most recent picker recency)
- * 2. Session with the most recent picker recency
- * 3. Current session (fallback)
- */
-function resolveOverlayTarget() {
-  const chain = sessionChain.value;
-
-  if (preferredOverlaySessionId.value) {
-    const preferred = chain.find(entry => entry.session.id === preferredOverlaySessionId.value);
-    if (preferred) {
-      overlaySessionId.value = preferred.session.id;
-      return;
-    }
-    if (preferredOverlaySession.value?.id === preferredOverlaySessionId.value) {
-      overlaySessionId.value = preferredOverlaySession.value.id;
-      return;
-    }
-  }
-
-  // No children — use the current session
-  if (chain.length <= 1) {
-    overlaySessionId.value = currentSessionId.value;
-    return;
-  }
-
-  // 1) Prefer running/starting children (skip the root at index 0)
-  const runningChildren = chain
-    .filter(entry => entry.session.status === 'running' || entry.session.status === 'starting')
-    .filter(entry => entry.session.id !== currentSessionId.value);
-
-  if (runningChildren.length > 0) {
-    const sorted = sortSessionChain(runningChildren);
-    overlaySessionId.value = sorted[0].session.id;
-    return;
-  }
-
-  const withActivity = sortSessionChain(chain)
-    .filter(entry => entry.pickerTimestamp);
-
-  if (withActivity.length > 0) {
-    overlaySessionId.value = withActivity[0].session.id;
-    return;
-  }
-
-  // 3) No conversation activity anywhere — use the current session
-  overlaySessionId.value = currentSessionId.value;
-}
-
-/**
- * Handle SESSION_UPDATED WebSocket events.
- * When a session in our tree changes status, update the sessionChain snapshot
- * so that isSessionActive and activeSessionStatus recompute correctly.
- */
-function handleSessionUpdated(msg) {
-  const updatedSession = msg.session;
-  if (!updatedSession) return;
-
-  // Update the session in sessionChain if it's part of our tree
-  const idx = sessionChain.value.findIndex(
-    entry => entry.session.id === updatedSession.id
-  );
-  if (idx >= 0) {
-    const updatedEntries = [...sessionChain.value];
-    // Replace the stale snapshot with the updated one, preserving depth.
-    updatedEntries[idx] = {
-      ...sessionChain.value[idx],
-      session: updatedSession,
-    };
-    sessionChain.value = sortSessionChain(updatedEntries);
-  }
-}
-
-/**
- * Handle SESSION_CREATED WebSocket events.
- * When the overlay is closed and a new child session is created in our tree,
- * update overlaySessionId so the next open navigates to the new child.
- */
-function handleSessionCreated(msg) {
-  const projectId = sessionsStore.currentSession?.projectId;
-  if (!projectId || msg.projectId !== projectId) return;
-
-  const newSession = msg.session;
-  if (!newSession?.parentSessionId) return;
-
-  // Only act when overlay is closed
-  if (chatOverlayOpen.value) return;
-
-  // Check if the new session's parent is in our session tree
-  const isChildOfTree = sessionChain.value.some(
-    entry => entry.session.id === newSession.parentSessionId
-  );
-  if (!isChildOfTree) return;
-
-  // Add to store so getters work
-  sessionsStore.addSessionToList(newSession);
-
-  // Update overlay target BEFORE the async chain rebuild so it's set immediately
-  if (newSession.status === 'running' || newSession.status === 'starting') {
-    overlaySessionId.value = newSession.id;
-  }
-
-  // Rebuild the tree to include the new child (async, fire-and-forget)
-  buildSessionChain();
-}
-
-function handleOverlayOpen() {
-  resolveOverlayTarget();
-  chatOverlayOpen.value = true;
-}
-
-async function handleScheduledSessionClick(sessionId) {
-  // Rebuild session chain to ensure the target session is included
-  await buildSessionChain();
-  preferredOverlaySessionId.value = sessionId;
-  overlaySessionId.value = sessionId;
-  chatOverlayOpen.value = true;
-}
-
-async function handleOverlaySessionCreated(session) {
-  const createdSession = typeof session === 'string'
-    ? sessionsStore.getSessionById(session)
-    : session;
-  const sessionId = typeof session === 'string' ? session : session?.id;
-  if (!sessionId) return;
-
-  preferredOverlaySessionId.value = sessionId;
-  preferredOverlaySession.value = createdSession || null;
-  overlaySessionId.value = sessionId;
-
-  if (createdSession) {
-    sessionsStore.addSessionToList(createdSession);
-  }
-
-  await buildSessionChain();
-  if (
-    preferredOverlaySession.value &&
-    !sessionChain.value.some(entry => entry.session.id === sessionId)
-  ) {
-    const parentEntry = sessionChain.value.find(
-      entry => entry.session.id === preferredOverlaySession.value.parentSessionId
-    );
-    sessionChain.value = sortSessionChain([
-      { session: preferredOverlaySession.value, depth: parentEntry ? parentEntry.depth + 1 : 0 },
-      ...sessionChain.value,
-    ]);
-  }
-  resolveOverlayTarget();
-}
-
-async function handleOverlayClose() {
-  chatOverlayOpen.value = false;
-  sessionsStore.viewedSessionId = currentSessionId.value;
-
-  // With overlay store isolation the main store is never touched by the overlay.
-  // A lightweight re-fetch picks up any server-side changes made while the overlay
-  // was open (e.g. status changes, new messages from other clients).
-  await sessionsStore.fetchSession(currentSessionId.value, false);
-}
-
-// Use composable for session initialization and WebSocket management
 const { cleanup, initializeSession } = useSessionInitializer({
   summary,
   hasChanges,
@@ -445,6 +259,7 @@ const { cleanup, initializeSession } = useSessionInitializer({
   startPolling,
   stopPolling,
   resetPolling,
+  refreshGitStatus,
   onReconnectCallback: buildSessionChain,
 });
 
@@ -452,7 +267,6 @@ const activeTab = computed(() => route.params.tab || 'summary');
 
 // Command button status indicators for real-time updates (mirrors SessionCard behavior)
 const buttonStatusesToDisplay = computed(() => {
-  // Access commandRunVersion to establish Vue dependency tracking.
   // eslint-disable-next-line no-unused-vars
   const _version = sessionsStore.commandRunVersion;
 
@@ -474,37 +288,44 @@ const buttonStatusesToDisplay = computed(() => {
     }));
 });
 
-const isSessionActive = computed(() => {
-  // Check current session first (fast path)
-  const status = sessionsStore.currentSession?.status;
-  if (status === 'running' || status === 'starting') return true;
-
-  // Also check if any session in the chain (descendants) is running/starting
-  return sessionChain.value.some(entry =>
-    entry.session.status === 'running' || entry.session.status === 'starting'
-  );
-});
-
-const activeSessionStatus = computed(() => {
-  const currentStatus = sessionsStore.currentSession?.status;
-  if (currentStatus === 'running' || currentStatus === 'starting') return currentStatus;
-
-  // Find the first running/starting session in the chain
-  const active = sessionChain.value.find(entry =>
-    entry.session.status === 'running' || entry.session.status === 'starting'
-  );
-  return active?.session.status || currentStatus;
-});
-
 const tabs = computed(() => [
   { id: 'summary', label: 'Summary' },
+  { id: 'chat', label: 'Chat', desktopOnly: true },
   { id: 'changes', label: changesFileCount.value > 0 ? `Changes (${changesFileCount.value})` : 'Changes' },
   { id: 'canvas', label: canvasStore.groupedItems.length > 0 ? `Canvas (${canvasStore.groupedItems.length})` : 'Canvas' },
-  { id: 'commands', label: 'Commands' }
+  { id: 'commands', label: 'Commands' },
 ]);
 
-// Watch for status changes from any source (optimistic updates, WebSocket, etc.)
-// This ensures polling starts even when status is updated directly in the store
+// The Kanban card (if any) for the current session's workflow. A card is keyed to
+// the workflow root, so resolve the root first and fall back to the session id in
+// case the ancestor chain isn't fully loaded in the store.
+const archiveWorkflowCard = computed(() => {
+  const sessionId = sessionsStore.currentSession?.id;
+  if (!sessionId) return null;
+  const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  return (
+    kanbanStore.getCardBySessionId(rootId) ||
+    kanbanStore.getCardBySessionId(sessionId) ||
+    null
+  );
+});
+
+const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
+
+async function ensureProjectKanbanData(session) {
+  if (!session?.projectId) return;
+
+  if (projectsStore.currentProject?.id !== session.projectId) {
+    await projectsStore.fetchProject(session.projectId);
+  }
+
+  if (kanbanStore.currentProjectId !== session.projectId) {
+    kanbanStore.fetchBoard(session.projectId).catch(err => {
+      console.warn('Failed to fetch kanban board:', err);
+    });
+  }
+}
+
 watch(
   () => sessionsStore.currentSession?.status,
   (newStatus, oldStatus) => {
@@ -517,77 +338,50 @@ watch(
 );
 
 onMounted(async () => {
-  // Register the SESSION_CREATED and SESSION_UPDATED handlers
   on(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
   on(WS_MESSAGE_TYPES.SESSION_UPDATED, handleSessionUpdated);
 
-  // Initialize the session with WebSocket subscription and data fetching
   await initializeSession(currentSessionId.value);
 
-  // Fetch project data so ArchiveConfirmModal can check for cleanup scripts
   const projectId = sessionsStore.currentSession?.projectId;
-  if (projectId && !projectsStore.currentProject) {
-    await projectsStore.fetchProject(projectId);
-  }
+  await ensureProjectKanbanData(sessionsStore.currentSession);
 
-  // Build session chain BEFORE resolving overlay target (resolveOverlayTarget reads sessionChain)
   await buildSessionChain();
   sessionChainReady.value = true;
   resolveOverlayTarget();
 
-  // Subscribe to project channel for SESSION_CREATED events
   if (projectId) {
     send(WS_MESSAGE_TYPES.SUBSCRIBE_PROJECT, { projectId });
     currentProjectSubscriptionId = projectId;
   }
 
-  // Auto-open tree overlay if requested via query param (e.g., after new session creation)
   if (route.query.overlay === 'open') {
-    chatOverlayOpen.value = true;
-    // Clear the query param so refresh doesn't re-open.
-    // Use path only — do NOT spread the route object (it's a read-only proxy).
-    router.replace({ path: route.path, query: {} });
-  }
-
-  // Fetch kanban board so SessionHeaderPanel can show lane chip
-  const session = sessionsStore.currentSession;
-  if (session?.projectId) {
-    kanbanStore.fetchBoard(session.projectId).catch(err => {
-      console.warn('Failed to fetch kanban board:', err);
-    });
+    await openChatDestination({ replaceQuery: true });
   }
 });
 
-// Watch for session changes within the same component (e.g., navigating between sessions)
-// CRITICAL: This fixes the WebSocket subscription leak bug
 watch(
   () => route.params.id,
   async (newSessionId, oldSessionId) => {
     if (newSessionId && newSessionId !== oldSessionId) {
-      // Set viewedSessionId BEFORE cleanup so that any in-flight fetchSession
-      // from the old session's polling is discarded.
       sessionsStore.viewedSessionId = newSessionId;
-      // Reset readiness so tests (and any caller watching isReady) observe
-      // the hydration transition for the new session.
       sessionChainReady.value = false;
-      preferredOverlaySessionId.value = null;
-      preferredOverlaySession.value = null;
+      resetPreferred();
       cleanup();
       currentSessionId.value = newSessionId;
+      resetGitStatus();
       await initializeSession(newSessionId);
 
-      // Fetch project data if project changed so ArchiveConfirmModal can check for cleanup scripts
       const newProjectId = sessionsStore.currentSession?.projectId;
-      if (newProjectId && projectsStore.currentProject?.id !== newProjectId) {
-        await projectsStore.fetchProject(newProjectId);
-      }
+      await ensureProjectKanbanData(sessionsStore.currentSession);
 
-      // Build session chain BEFORE resolving overlay target (resolveOverlayTarget reads sessionChain)
       await buildSessionChain();
       sessionChainReady.value = true;
       resolveOverlayTarget();
+      if (route.query.overlay === 'open') {
+        await openChatDestination({ replaceQuery: true });
+      }
 
-      // Update project subscription if project changed
       if (newProjectId !== currentProjectSubscriptionId) {
         if (currentProjectSubscriptionId) {
           send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
@@ -601,7 +395,14 @@ watch(
   }
 );
 
-// Watch for conversation changes to refetch todos (scoped to conversation)
+watch(
+  () => route.query.overlay,
+  async (overlay, previousOverlay) => {
+    if (overlay !== 'open' || previousOverlay === 'open' || !sessionChainReady.value) return;
+    await openChatDestination({ replaceQuery: true });
+  }
+);
+
 watch(
   () => sessionsStore.activeConversationId,
   async (newConvId, oldConvId) => {
@@ -612,7 +413,6 @@ watch(
   }
 );
 
-// Handle component reactivation (keep-alive) - refresh data when view becomes active again
 onActivated(() => {
   if (currentSessionId.value) {
     sessionsStore.fetchConversations(currentSessionId.value);
@@ -621,16 +421,13 @@ onActivated(() => {
 
 onUnmounted(() => {
   cleanup();
-  // Unsubscribe from project channel
+  resetGitStatus();
   if (currentProjectSubscriptionId) {
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
     currentProjectSubscriptionId = null;
   }
-  // Remove the SESSION_CREATED and SESSION_UPDATED handlers
   off(WS_MESSAGE_TYPES.SESSION_CREATED, handleSessionCreated);
   off(WS_MESSAGE_TYPES.SESSION_UPDATED, handleSessionUpdated);
-  // Clear viewedSessionId so other views (e.g., SessionListView) can use
-  // fetchSession without the guard blocking them.
   sessionsStore.viewedSessionId = null;
 });
 
@@ -681,7 +478,6 @@ async function handleArchive() {
   const isArchived = sessionsStore.currentSession?.archived;
 
   if (isArchived) {
-    // Unarchive path: keep simple confirm dialog
     if (!confirm('Restore this session to active?')) {
       return;
     }
@@ -698,17 +494,27 @@ async function handleArchive() {
       uiStore.error(err.message);
     }
   } else {
-    // Archive path: show modal with cleanup option
     showArchiveModal.value = true;
   }
 }
 
-async function confirmArchive(runCleanup) {
+async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   archiving.value = true;
+  // Capture before archiving: navigation below tears down this view.
+  const projectId = sessionsStore.currentSession?.projectId;
+  const workflowCard = archiveWorkflowCard.value;
   try {
-    const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
     uiStore.success('Session archived');
+
+    if (removeFromBoard && workflowCard && projectId) {
+      try {
+        await kanbanStore.removeCard(projectId, workflowCard.id);
+      } catch (removeErr) {
+        uiStore.error(removeErr.message || 'Failed to remove card from board');
+      }
+    }
+
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);
     } else {
@@ -734,30 +540,75 @@ async function handleStar() {
   }
 }
 
-async function handleCopySessionId() {
-  const sessionId = currentSessionId.value;
+function handleAddToBoard(session) {
+  sessionToAdd.value = session;
+  showLaneSelectorModal.value = true;
+}
+
+function closeLaneSelectorModal() {
+  showLaneSelectorModal.value = false;
+  sessionToAdd.value = null;
+}
+
+async function addSessionToLane(lane) {
+  if (!sessionToAdd.value || !lane) return;
+
   try {
-    await navigator.clipboard.writeText(sessionId);
-    uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+    const existingCard = kanbanStore.getCardBySessionId(sessionToAdd.value.id);
+    if (existingCard) {
+      if (currentLaneIdForSessionToAdd.value === lane.id) return;
+      await kanbanStore.moveCard(sessionToAdd.value.projectId, existingCard.id, lane.id);
+      uiStore.success(`Session moved to "${lane.name}"`);
+    } else {
+      const workspaceId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;
+      await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, workspaceId, lane.id);
+      uiStore.success(`Session added to "${lane.name}"`);
+    }
+    closeLaneSelectorModal();
+  } catch (err) {
+    console.error('Failed to add session to board:', err);
+    uiStore.error(err.message || 'Failed to add session to board');
+  }
+}
+
+function getLaneIdForSession(sessionId) {
+  const card = kanbanStore.getCardBySessionId(sessionId);
+  if (!card) return null;
+  if (card.laneId) return card.laneId;
+
+  const lane = kanbanStore.board?.lanes?.find((candidate) =>
+    candidate.cards?.some((candidateCard) => candidateCard.id === card.id)
+  );
+  return lane?.id || null;
+}
+
+async function handleCopySessionId() {
+  // Copy the workspace ID (= root session ID) so agents and users can reference
+  // the whole workspace. Fall back to currentSessionId when the ancestor chain
+  // is not yet loaded in the store.
+  const sessionId = currentSessionId.value;
+  const workspaceId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  try {
+    await navigator.clipboard.writeText(workspaceId);
+    uiStore.success(`Workspace ID copied to clipboard: ${workspaceId}`);
   } catch (err) {
     try {
       const textarea = document.createElement('textarea');
-      textarea.value = sessionId;
+      textarea.value = workspaceId;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+      uiStore.success(`Workspace ID copied to clipboard: ${workspaceId}`);
     } catch (fallbackErr) {
       console.error('Copy failed:', fallbackErr);
-      uiStore.error('Failed to copy session ID');
+      uiStore.error('Failed to copy workspace ID');
     }
   }
 }
 
-// Expose for testing
 defineExpose({
   overlaySessionId,
   chatOverlayOpen,

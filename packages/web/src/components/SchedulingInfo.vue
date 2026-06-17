@@ -1,13 +1,13 @@
 <template>
   <!-- Scheduled Session Info -->
   <div
-    v-if="session.status === 'scheduled'"
+    v-if="hasScheduledTime"
     class="scheduling-info scheduled-panel"
   >
     <div class="info-header">
       <span class="info-icon">⏰</span>
       <h3 class="info-title">
-        Scheduled Session
+        Scheduled Workspace
       </h3>
     </div>
 
@@ -51,7 +51,7 @@
 
   <!-- Edit Modal for scheduled sessions -->
   <SchedulingEditModal
-    v-if="session.status === 'scheduled'"
+    v-if="hasScheduledTime"
     :is-open="showEditModal"
     :session="session"
     @close="showEditModal = false"
@@ -79,9 +79,17 @@ const showEditModal = ref(false);
 const countdownTime = ref(new Date());
 let countdownInterval = null;
 
-const countdownDisplay = computed(() => formatDistanceToNow(new Date(props.session.scheduledAt), { addSuffix: true }));
+const hasScheduledTime = computed(() => props.session.status === 'scheduled' && Boolean(props.session.scheduledAt));
 
-const absoluteTimeDisplay = computed(() => format(new Date(props.session.scheduledAt), 'EEEE, MMMM d, yyyy h:mm a'));
+const scheduledTime = computed(() => (hasScheduledTime.value ? new Date(props.session.scheduledAt) : null));
+
+const countdownDisplay = computed(() => (
+  scheduledTime.value ? formatDistanceToNow(scheduledTime.value, { addSuffix: true }) : ''
+));
+
+const absoluteTimeDisplay = computed(() => (
+  scheduledTime.value ? format(scheduledTime.value, 'EEEE, MMMM d, yyyy h:mm a') : ''
+));
 
 function handleSaved() {
   // Settings updated, modal will close

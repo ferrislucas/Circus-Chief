@@ -32,6 +32,25 @@ export {
 const execAsync = promisify(exec);
 export const DEFAULT_GIT_MAX_BUFFER = 100 * 1024 * 1024;
 
+/** Default timeout for git subprocesses (ms). Override with GIT_TIMEOUT_MS env var. */
+export const DEFAULT_GIT_TIMEOUT_MS = 30_000;
+
+/**
+ * Non-interactive git environment defaults.
+ *
+ * GIT_TERMINAL_PROMPT=0  — prevents HTTP(S) credential prompts from blocking.
+ * GIT_ASKPASS=true       — points git's credential helper at /bin/true (no output),
+ *                          so git surfaces auth failures quickly rather than hanging.
+ * GIT_SSH_COMMAND        — disables SSH host-key/auth prompts and bounds TCP connect.
+ */
+export const DEFAULT_GIT_ENV = {
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_ASKPASS: 'true',
+  GIT_SSH_COMMAND: 'ssh -oBatchMode=yes -oConnectTimeout=10',
+};
+
+export { classifyGitError } from './gitErrorClassify.js';
+
 // Cache for default branch detection: directory -> { branch, timestamp }
 const defaultBranchCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -75,14 +94,27 @@ function evictOldestCacheEntries() {
  * @returns {Promise<string>}
  */
 export async function git(directory, command, opts = {}) {
+  const timeoutMs = opts.timeout ?? (Number(process.env.GIT_TIMEOUT_MS) || DEFAULT_GIT_TIMEOUT_MS);
   const execOpts = {
     cwd: directory,
     maxBuffer: opts.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
+    timeout: timeoutMs,
+    env: { ...process.env, ...DEFAULT_GIT_ENV, ...(opts.env || {}) },
   };
-  if (opts.env) execOpts.env = opts.env;
-  if (opts.timeout) execOpts.timeout = opts.timeout;
-  const { stdout } = await execAsync(`git ${command}`, execOpts);
-  return stdout.trim();
+  try {
+    const { stdout } = await execAsync(`git ${command}`, execOpts);
+    return stdout.trim();
+  } catch (err) {
+    // Normalize timeout errors for clarity
+    if (err.killed || (err.signal && err.code === null)) {
+      const msg = `Git command timed out after ${timeoutMs}ms: git ${command}`;
+      const timeoutErr = new Error(msg);
+      timeoutErr.code = 'GIT_TIMEOUT';
+      timeoutErr.originalError = err;
+      throw timeoutErr;
+    }
+    throw err;
+  }
 }
 
 function shellQuote(value) {
@@ -139,16 +171,17 @@ export async function getOriginDefaultBranch(directory) {
 
   // Try GitHub CLI first - most accurate method
   try {
+    const ghTimeoutMs = Number(process.env.GH_REPO_VIEW_TIMEOUT_MS) || 10_000;
     const { stdout } = await execAsync(
       'gh repo view --json defaultBranchRef --jq ".defaultBranchRef.name"',
-      { cwd: directory }
+      { cwd: directory, timeout: ghTimeoutMs }
     );
     const branchName = stdout.trim();
     if (branchName) {
       branch = `origin/${branchName}`;
     }
   } catch {
-    // gh CLI not available or failed, fall back to git commands
+    // gh CLI not available, timed out, or failed — fall back to git commands
   }
 
   if (!branch) {
@@ -248,6 +281,126 @@ export async function getCurrentBranch(directory) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Get the configured upstream branch for HEAD.
+ * @param {string} directory
+ * @returns {Promise<string|null>}
+ */
+export async function getBranchUpstream(directory) {
+  try {
+    return await git(directory, 'rev-parse --abbrev-ref --symbolic-full-name @{u}');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get ahead/behind counts relative to an upstream branch.
+ * @param {string} directory
+ * @param {string} upstreamBranch
+ * @returns {Promise<{aheadCount: number, behindCount: number}>}
+ */
+export async function getAheadBehindCounts(directory, upstreamBranch) {
+  const output = await git(directory, `rev-list --left-right --count ${shellQuote(upstreamBranch)}...HEAD`);
+  const [behindRaw = '0', aheadRaw = '0'] = output.split(/\s+/);
+  return {
+    behindCount: Number.parseInt(behindRaw, 10) || 0,
+    aheadCount: Number.parseInt(aheadRaw, 10) || 0,
+  };
+}
+
+function parsePorcelainPath(line) {
+  const rawPath = line.slice(3).trim();
+  if (!rawPath) return null;
+
+  const renameSeparator = ' -> ';
+  if (rawPath.includes(renameSeparator)) {
+    return rawPath.split(renameSeparator).pop();
+  }
+
+  return rawPath;
+}
+
+/**
+ * Count unique paths with uncommitted local changes.
+ * @param {string} directory
+ * @returns {Promise<number>}
+ */
+export async function getLocalChangeCount(directory) {
+  const output = await git(directory, 'status --porcelain=v1');
+  if (!output) return 0;
+
+  const paths = new Set();
+  for (const line of output.split('\n')) {
+    const path = parsePorcelainPath(line);
+    if (path) paths.add(path);
+  }
+  return paths.size;
+}
+
+/**
+ * Fetch origin with pruning. Intended for explicit user refreshes, not polling.
+ * @param {string} directory
+ * @returns {Promise<void>}
+ */
+export async function fetchOrigin(directory) {
+  await git(directory, 'fetch origin --prune', { timeout: 10_000 });
+}
+
+function computeSyncStatus({ currentBranch, upstreamBranch, aheadCount, behindCount, localChangeCount }) {
+  if (!currentBranch) return 'unknown';
+  if (!upstreamBranch) return 'unpublished';
+  if (aheadCount > 0 && behindCount > 0) return 'diverged';
+  if (behindCount > 0) return 'behind';
+  if (aheadCount > 0) return 'ahead';
+  if (localChangeCount > 0) return 'dirty';
+  return 'clean';
+}
+
+/**
+ * Get compact Git repository status for a session worktree.
+ * @param {string} directory
+ * @param {Object} [options]
+ * @param {boolean} [options.fetch=false]
+ * @returns {Promise<Object>}
+ */
+export async function getSessionGitStatus(directory, options = {}) {
+  const fetched = options.fetch === true;
+  if (fetched) {
+    await fetchOrigin(directory);
+  }
+
+  const currentBranch = await getCurrentBranch(directory);
+  const localChangeCount = await getLocalChangeCount(directory);
+  const upstreamBranch = currentBranch ? await getBranchUpstream(directory) : null;
+  const counts = upstreamBranch
+    ? await getAheadBehindCounts(directory, upstreamBranch)
+    : { aheadCount: 0, behindCount: 0 };
+  const syncStatus = computeSyncStatus({
+    currentBranch,
+    upstreamBranch,
+    aheadCount: counts.aheadCount,
+    behindCount: counts.behindCount,
+    localChangeCount,
+  });
+
+  return {
+    currentBranch,
+    upstreamBranch,
+    hasUpstream: Boolean(upstreamBranch),
+    hasUncommittedChanges: localChangeCount > 0,
+    localChangeCount,
+    aheadCount: counts.aheadCount,
+    behindCount: counts.behindCount,
+    isDiverged: counts.aheadCount > 0 && counts.behindCount > 0,
+    isUnpushed: counts.aheadCount > 0 || syncStatus === 'unpublished',
+    isBehind: counts.behindCount > 0,
+    syncStatus,
+    lastCheckedAt: new Date().toISOString(),
+    fetched,
+  };
 }
 
 /**

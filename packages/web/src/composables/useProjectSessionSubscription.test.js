@@ -33,6 +33,7 @@ const mockKanbanStore = {
   handleCardMoved: vi.fn(),
   handleCardAdded: vi.fn(),
   handleCardRemoved: vi.fn(),
+  handleSessionUpdated: vi.fn(),
 };
 
 // Mock useProjectSubscription - all "on" handlers must return a cleanup function
@@ -132,6 +133,7 @@ describe('useProjectSessionSubscription', () => {
     mockKanbanStore.handleCardMoved.mockReset();
     mockKanbanStore.handleCardAdded.mockReset();
     mockKanbanStore.handleCardRemoved.mockReset();
+    mockKanbanStore.handleSessionUpdated.mockReset();
 
     mockSubscribe.mockReset();
     mockUnsubscribe.mockReset();
@@ -287,6 +289,7 @@ describe('useProjectSessionSubscription', () => {
       handler(updatedSession);
 
       expect(mockSessionsStore.updateSession).toHaveBeenCalledWith(updatedSession);
+      expect(mockKanbanStore.handleSessionUpdated).toHaveBeenCalledWith(updatedSession);
     });
 
     it('registers session deleted handler', async () => {

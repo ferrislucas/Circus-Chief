@@ -70,7 +70,7 @@ else
 fi
 
 echo "=== Building package ==="
-node "$SCRIPT_DIR/build-package.js"
+POSTHOG_KEY="${POSTHOG_KEY:-phc_test_package_key}" node "$SCRIPT_DIR/build-package.js"
 
 echo ""
 echo "=== Packing tarball ==="

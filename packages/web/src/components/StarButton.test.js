@@ -275,7 +275,7 @@ describe('StarButton', () => {
         },
       });
 
-      expect(wrapper.find('button').attributes('title')).toBe('Unstar session');
+      expect(wrapper.find('button').attributes('title')).toBe('Unstar workspace');
     });
 
     it('has title attribute when not starred', () => {
@@ -286,7 +286,7 @@ describe('StarButton', () => {
         },
       });
 
-      expect(wrapper.find('button').attributes('title')).toBe('Star session');
+      expect(wrapper.find('button').attributes('title')).toBe('Star workspace');
     });
   });
 });

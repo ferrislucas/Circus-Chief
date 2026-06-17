@@ -4,9 +4,9 @@
       :to="`/projects/${route.params.id}/sessions`"
       class="back-link"
     >
-      &larr; Sessions
+      &larr; Workspaces
     </router-link>
-    <h1>New Session</h1>
+    <h1>New Workspace</h1>
 
     <form
       class="form card"
@@ -151,7 +151,7 @@
             class="form-input"
           >
             <option :value="null">
-              None - single session
+              None - single workspace
             </option>
             <optgroup
               v-if="projectTemplates.length"
@@ -179,7 +179,7 @@
             </optgroup>
           </select>
           <p class="form-help">
-            After this session completes, the selected template will automatically start a new session.
+            After this workspace completes, the selected template will automatically start a new workspace.
           </p>
         </div>
 
@@ -191,14 +191,14 @@
           <label
             class="form-label"
             for="parent-session"
-          >Parent Session (optional)</label>
+          >Parent Workspace (optional)</label>
           <select
             id="parent-session"
             v-model="parentSessionId"
             class="form-input"
           >
             <option :value="null">
-              None - create standalone session
+              None - create standalone workspace
             </option>
             <option
               v-for="session in availableSessions"
@@ -209,7 +209,7 @@
             </option>
           </select>
           <p class="form-help">
-            Choose a parent session to link this as a child session. Child sessions help organize related work.
+            Choose a parent workspace to link this as a child workspace. Child workspaces help organize related work.
           </p>
         </div>
       </div>
@@ -232,7 +232,7 @@
             v-if="loading"
             class="loading-spinner"
           />
-          {{ startImmediately ? 'Start Session' : 'Create Draft' }}
+          {{ startImmediately ? 'Start Workspace' : 'Create Workspace' }}
         </button>
       </div>
     </form>
@@ -300,7 +300,7 @@ const loading = ref(false);
 const showSlashCommandWizard = ref(false);
 
 // Rec 9: Responsive textarea min height
-const textareaMinHeight = computed(() => window.innerWidth <= 480 ? 80 : 120);
+const textareaMinHeight = computed(() => window.innerWidth <= 640 ? 80 : 120);
 
 // Create keyboard shortcut handler for form submission
 const handleKeydown = useSubmitShortcut(() => {
@@ -550,14 +550,29 @@ h1 {
   margin-bottom: 0.5rem;
 }
 
-@media (max-width: 480px) {
-  h1 {
-    margin-bottom: 0.5rem;
-    font-size: 1.5rem;
+@media (max-width: 640px) {
+  /* Remove container side padding so form goes edge-to-edge */
+  .container {
+    padding: 0;
   }
 
+  /* Collapse card chrome — no border, no radius, reduced padding */
   .form.card {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
     padding: 0.75rem;
+  }
+
+  /* Compact header */
+  h1 {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .back-link {
+    margin-bottom: 0;
+    font-size: 0.8rem;
   }
 }
 
@@ -567,8 +582,8 @@ h1 {
     bottom: 0;
     background: var(--color-background-soft, var(--color-bg-soft, #1a1a2e));
     border-top: 1px solid var(--color-border);
-    padding: 0.75rem 1rem;
-    margin: 0 -1rem -1rem;
+    padding: 0.75rem;
+    margin: 0 -0.75rem -0.75rem;
     padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
     z-index: 10;
   }
