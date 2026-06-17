@@ -1,8 +1,29 @@
-import { describe, it, expect } from 'vitest';
-import path from 'path';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { dirname, isAbsolute, join } from 'path';
+import { tmpdir } from 'os';
 import { getNodeBinDir, createRobustEnv, createClaudeCodeSpawner } from './nodeSpawnHelper.js';
 
 describe('nodeSpawnHelper', () => {
+  const originalCaptureFile = process.env.E2E_AGENT_SPAWN_CAPTURE_FILE;
+  let tempDir;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'node-spawn-helper-test-'));
+    delete process.env.E2E_AGENT_SPAWN_CAPTURE_FILE;
+  });
+
+  afterEach(() => {
+    if (originalCaptureFile === undefined) {
+      delete process.env.E2E_AGENT_SPAWN_CAPTURE_FILE;
+    } else {
+      process.env.E2E_AGENT_SPAWN_CAPTURE_FILE = originalCaptureFile;
+    }
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   describe('getNodeBinDir', () => {
     it('returns the directory containing the Node binary', () => {
       const nodeBinDir = getNodeBinDir();
@@ -12,12 +33,12 @@ describe('nodeSpawnHelper', () => {
       expect(typeof nodeBinDir).toBe('string');
 
       // Should be the parent directory of process.execPath
-      expect(nodeBinDir).toBe(path.dirname(process.execPath));
+      expect(nodeBinDir).toBe(dirname(process.execPath));
     });
 
     it('returns absolute path', () => {
       const nodeBinDir = getNodeBinDir();
-      expect(path.isAbsolute(nodeBinDir)).toBe(true);
+      expect(isAbsolute(nodeBinDir)).toBe(true);
     });
   });
 
@@ -95,5 +116,46 @@ describe('nodeSpawnHelper', () => {
         });
       }).not.toThrow(); // The spawn itself might fail, but the function should execute
     });
+
+    it('captures Claude SDK launches with sanitized MCP config when E2E capture is enabled', async () => {
+      const captureFile = join(tempDir, 'capture.jsonl');
+      process.env.E2E_AGENT_SPAWN_CAPTURE_FILE = captureFile;
+
+      const spawner = createClaudeCodeSpawner();
+      const processStub = spawner({
+        command: 'claude',
+        args: [
+          '--model',
+          'claude-sonnet-4-20250514',
+          '--setting-sources',
+          'user,project,local',
+          '--mcp-config',
+          JSON.stringify({
+            mcpServers: {
+              testServer: { command: 'node', args: ['secret-server.js'] },
+            },
+          }),
+        ],
+        cwd: tempDir,
+        env: {},
+        signal: new AbortController().signal,
+      });
+
+      await collectProcessClose(processStub);
+
+      const record = JSON.parse(readFileSync(captureFile, 'utf8').trim());
+      expect(record.options.settingSources).toBe('user,project,local');
+      expect(record.options.mcpServers).toEqual([
+        { name: 'testServer', transport: 'stdio' },
+      ]);
+      expect(record.args).toContain('[redacted]');
+      expect(JSON.stringify(record)).not.toContain('secret-server.js');
+    });
   });
 });
+
+function collectProcessClose(processStub) {
+  return new Promise((resolve) => {
+    processStub.once('close', resolve);
+  });
+}

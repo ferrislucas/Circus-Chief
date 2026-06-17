@@ -2,6 +2,7 @@ import { sessions, messages, attachments, conversations } from '../database.js';
 import { createCodexSpawner } from './codexSpawnHelper.js';
 import { createGeminiSpawner } from './geminiSpawnHelper.js';
 import { resolveProviderFromModel, resolveProviderMetadataFromModel, buildSessionEnv } from './sessionProvider.js';
+import { reconcileAgentTypeForRun, deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { LoggingAgentWrapper } from '../agents/LoggingAgentWrapper.js';
 import { VCRAgentAdapter } from '../agents/vcr/VCRAgentAdapter.js';
@@ -214,11 +215,15 @@ function buildContinueModelAndEnv(session, sessionId, model) {
   const modelChanged = Boolean(model && session.model && model !== session.model);
 
   // Update session.model to track the user-requested model (short format)
-  // This must happen AFTER modelChanged detection so we compare old vs new
+  // This must happen AFTER modelChanged detection so we compare old vs new.
+  // Defense in depth: re-derive agentType using the effective model so that a
+  // stale stored agentType is corrected even when no explicit model is passed.
   let updatedSession = session;
-  if (model) {
-    sessions.update(sessionId, { model });
-    updatedSession = sessions.getById(sessionId); // refresh
+  // Only reconcile agentType here — providerId is managed by PATCH and SessionRepository.create.
+  const agentTypeUpdate = effectiveModel ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: session.providerId }) : {};
+  if (model || Object.keys(agentTypeUpdate).length > 0) {
+    sessions.update(sessionId, { ...(model && { model }), ...agentTypeUpdate });
+    updatedSession = sessions.getById(sessionId);
   }
 
   return {
@@ -395,7 +400,6 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   // Get the active conversation for this session (created in SessionRepository.create)
   const activeConversation = conversations.ensureActiveConversation(sessionId);
   activeConversationIds.set(sessionId, activeConversation.id);
-  console.log(`[SESSION] runSession: ensured active conversation ${activeConversation.id} for session ${sessionId}`);
 
   // Update status to running and track the user-requested model (short format) on the session
   sessions.update(sessionId, { status: 'running', ...(model && { model }) });
@@ -411,6 +415,11 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
 
   // Build prompt with attachment context
   const promptWithAttachments = buildPromptWithAttachments(prompt, fileAttachments);
+
+  // Defense in depth: re-derive and persist the correct agent kind before creating
+  // the adapter — self-heals legacy corrupted rows and any entry point that
+  // bypasses the PATCH guard.
+  session = reconcileAgentTypeForRun(session, sessionId, model);
 
   // Create agent via gateway (or mock agent in mock mode)
   const agentType = session.agentType || 'claude-code';
@@ -433,13 +442,7 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   });
 
   // Log query params for debugging third-party provider issues
-  console.log(`[SessionManager] runSession query params:`, {
-    model: queryParams.options?.model || '[not set - using SDK default]',
-    hasEnv: Boolean(queryParams.options?.env),
-    envBaseUrl: queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]',
-    envApiKey: queryParams.options?.env?.ANTHROPIC_API_KEY ? '[SET]' : '[not set]',
-    envAuthToken: queryParams.options?.env?.ANTHROPIC_AUTH_TOKEN ? '[SET]' : '[not set]',
-  });
+  console.log(`[SessionManager] runSession: model=${queryParams.options?.model || '[default]'} baseUrl=${queryParams.options?.env?.ANTHROPIC_BASE_URL || '[not set]'}`);
 
   // Logging metadata for agent call tracking
   const agentCallMeta = {

@@ -24,7 +24,7 @@ vi.mock('./SessionCard.vue', () => ({
   default: {
     name: 'SessionCard',
     template: '<div class="session-card-mock">SessionCard</div>',
-    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showUnarchive', 'prUrl', 'prSummary', 'kanbanEnabled'],
+    props: ['session', 'showSummary', 'summary', 'summaryLoading', 'summaryError', 'showUnarchive', 'prUrl', 'prSummary', 'canAddToBoard'],
   },
 }));
 
@@ -78,7 +78,7 @@ describe('ArchivedTabContent', () => {
   });
 
   describe('loading state', () => {
-    it('shows skeleton when loading and no sessions', () => {
+    it('shows skeleton when loading and no workspaces', () => {
       mockSessionsStore.archivedPagination.loading = true;
       mockSessionsStore.archivedSessions = [];
 
@@ -88,7 +88,7 @@ describe('ArchivedTabContent', () => {
       expect(wrapper.findAll('.skeleton')).toHaveLength(3);
     });
 
-    it('does not show skeleton when loading but has sessions', () => {
+    it('does not show skeleton when loading but has workspaces', () => {
       mockSessionsStore.archivedPagination.loading = true;
       mockSessionsStore.archivedSessions = [
         { id: 'session-1' },
@@ -102,28 +102,28 @@ describe('ArchivedTabContent', () => {
 
   describe('error state', () => {
     it('shows error message when store has error', () => {
-      mockSessionsStore.error = 'Failed to load sessions';
+      mockSessionsStore.error = 'Failed to load workspaces';
       mockSessionsStore.archivedSessions = [];
 
       const wrapper = mountComponent();
 
       expect(wrapper.find('.error-message').exists()).toBe(true);
-      expect(wrapper.find('.error-message').text()).toBe('Failed to load sessions');
+      expect(wrapper.find('.error-message').text()).toBe('Failed to load workspaces');
     });
   });
 
   describe('empty state', () => {
-    it('shows empty state when no archived sessions', () => {
+    it('shows empty state when no archived workspaces', () => {
       mockSessionsStore.archivedPagination.loading = false;
       mockSessionsStore.archivedSessions = [];
 
       const wrapper = mountComponent();
 
       expect(wrapper.find('.empty-state').exists()).toBe(true);
-      expect(wrapper.find('.empty-state').text()).toContain('No archived sessions');
+      expect(wrapper.find('.empty-state').text()).toContain('No archived workspaces');
     });
 
-    it('does not show empty state when there are sessions', () => {
+    it('does not show empty state when there are workspaces', () => {
       mockSessionsStore.archivedSessions = [
         { id: 'session-1' },
       ];
@@ -134,11 +134,11 @@ describe('ArchivedTabContent', () => {
     });
   });
 
-  describe('session list', () => {
-    it('renders session cards for each archived session', () => {
+  describe('workspace list', () => {
+    it('renders workspace cards for each archived workspace', () => {
       mockSessionsStore.archivedSessions = [
-        { id: 'session-1', name: 'Session 1' },
-        { id: 'session-2', name: 'Session 2' },
+        { id: 'session-1', name: 'Workspace 1' },
+        { id: 'session-2', name: 'Workspace 2' },
       ];
 
       const wrapper = mountComponent({
@@ -174,9 +174,9 @@ describe('ArchivedTabContent', () => {
       expect(sessionCard.props('prSummary')).toBe('Test summary');
     });
 
-    it('passes kanbanEnabled=false to SessionCard components', () => {
+    it('passes canAddToBoard=false to SessionCard components', () => {
       mockSessionsStore.archivedSessions = [
-        { id: 'session-1', name: 'Archived Session' },
+        { id: 'session-1', name: 'Archived Workspace' },
       ];
 
       const wrapper = mountComponent({
@@ -187,7 +187,7 @@ describe('ArchivedTabContent', () => {
 
       const sessionCard = wrapper.findComponent({ name: 'SessionCard' });
       // Archived sessions should never show the Add to Board button
-      expect(sessionCard.props('kanbanEnabled')).toBe(false);
+      expect(sessionCard.props('canAddToBoard')).toBe(false);
     });
   });
 

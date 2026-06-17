@@ -235,16 +235,28 @@ curl ${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}/history/{version
 Where version 1 = oldest, and higher numbers are newer versions.`;
 }
 
-/** Build session CRUD operations section */
-function buildSessionCrudOps(apiUrl, projectId) {
-  return `### Create a New Session
+/** Build workspace and session CRUD operations section */
+function buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId) {
+  return `### Create a New Workspace
 \`\`\`bash
-curl -X POST ${apiUrl}/api/projects/${projectId}/sessions \\
+curl -X POST ${apiUrl}/api/projects/${projectId}/workspaces \\
   -H "Content-Type: application/json" \\
   -d '{"prompt": "Your task description here"}'
 \`\`\`
-Only \`prompt\` is required. Omitted settings are automatically derived from the project's session defaults, then system defaults, matching UI behavior.
-Optional override fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`model\`, \`providerId\`, \`gitBranch\`, \`gitMode\`, \`templateId\`, \`nextTemplateId\`, \`parentSessionId\` (to create a related follow-up session from the current session), \`startImmediately\`, \`scheduledAt\` (ISO 8601 date-time string with timezone, e.g. \`"2026-06-12T14:00:00Z"\`), \`autoRescheduleEnabled\`, \`rescheduleDelayMinutes\`, \`rescheduleOnTokenLimit\`, \`rescheduleOnServiceError\`, \`maxRescheduleCount\`, \`maxTotalTokens\`, and \`rescheduleAtTokenCount\`.
+Use this to **start a completely new line of work**. Only \`prompt\` is required.
+Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLevel\` (low/medium/high/max/auto), \`model\`, \`providerId\`, \`gitBranch\`, \`gitMode\`, \`templateId\`, \`nextTemplateId\`, \`startImmediately\`, \`scheduledAt\` (ISO 8601 date-time string with timezone, e.g. \`"2026-06-12T14:00:00Z"\`), \`autoRescheduleEnabled\`, \`rescheduleDelayMinutes\`, \`rescheduleOnTokenLimit\`, \`rescheduleOnServiceError\`, \`maxRescheduleCount\`, \`maxTotalTokens\`, and \`rescheduleAtTokenCount\`.
+
+### Add a Session to this Workspace
+\`\`\`bash
+curl -X POST ${apiUrl}/api/workspaces/${workspaceId}/sessions \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt": "Your task description here"}'
+\`\`\`
+Use this to **continue work inside the current workspace**. The new session is attached at the workspace root by default.
+Pass \`"afterSessionId": "${sessionId}"\` to chain the new session directly after the current one (useful when you want the follow-on to be contextually linked to this session rather than the workspace root).
+Optional fields: same as creating a workspace plus \`afterSessionId\`. Add \`scheduledAt\` to schedule the new session without starting it immediately. Only schedule a new *workspace* when starting genuinely independent work; for continuations, schedule a *session within this workspace* instead.
+
+**Note:** "workspace" here refers to a group of related sessions. This is distinct from the Codex \`workspace-write\` sandbox mode — those are separate concepts.
 
 ### Send a Follow-up Message
 \`\`\`bash
@@ -258,6 +270,12 @@ curl -X POST ${apiUrl}/api/sessions/<session_id>/message \\
 curl ${apiUrl}/api/sessions
 curl ${apiUrl}/api/sessions/<session_id>
 curl ${apiUrl}/api/sessions/<session_id>/messages
+\`\`\`
+
+### List Workspaces / Get Workspace Detail
+\`\`\`bash
+curl ${apiUrl}/api/projects/${projectId}/workspaces
+curl ${apiUrl}/api/workspaces/${workspaceId}
 \`\`\`
 
 ### Stop / Restart / Delete a Session
@@ -298,6 +316,10 @@ curl -X POST ${apiUrl}/api/sessions/${sessionId}/summary  # Regenerate
 /** Build session API instructions for Claude to create/modify sessions */
 function buildSessionApiInstructions(sessionId, projectId) {
   const apiUrl = getApiBaseUrl();
+  // Compute the workspace ID (= root session ID) for this session. This is
+  // needed so agents can reference the current workspace in API calls without
+  // having to walk the parent chain themselves.
+  const workspaceId = sessions.getRootSessionId(sessionId) || sessionId;
   return `## Session Management API
 
 You can create and modify sessions in this system using curl or similar HTTP tools. Use the Bash tool to execute these commands.
@@ -305,25 +327,29 @@ You can create and modify sessions in this system using curl or similar HTTP too
 **Base URL:** ${apiUrl}
 **Current Session ID:** ${sessionId}
 **Current Project ID:** ${projectId}
+**Current Workspace ID:** ${workspaceId}
 
-${buildSessionCrudOps(apiUrl, projectId)}
+${buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId)}
 
 ${buildProjectOps(apiUrl, sessionId)}`;
 }
 
 /**
- * Build Kanban API instructions for system prompt if Kanban is enabled for the project
+ * Build Kanban API instructions for system prompt.
  * @param {string} sessionId - Current session ID
  * @param {string} projectId - Current project ID
- * @returns {string} Kanban instructions or empty string if disabled
+ * @returns {string} Kanban instructions or empty string if the project is missing
  */
 function buildKanbanApiInstructions(sessionId, projectId) {
   const project = projects.getById(projectId);
-  if (!project || !project.kanbanEnabled) {
+  if (!project) {
     return '';
   }
 
   const apiUrl = getApiBaseUrl();
+  // Compute the workspace id for this session — the agent uses workspace
+  // addressing for all kanban operations.
+  const workspaceId = sessions.getRootSessionId(sessionId) || sessionId;
   const board = kanbanBoards.getByProjectId(projectId);
 
   // Get lane names for context
@@ -339,29 +365,31 @@ function buildKanbanApiInstructions(sessionId, projectId) {
   return `## Kanban Board API
 
 This project has a Kanban board enabled for organizing sessions visually. You can manage the board using these API endpoints.
+
+Note: Moving a workspace card moves all sessions in the workspace together.
 ${laneContext}
 ### Get Board with All Lanes and Cards
 \`\`\`bash
 curl ${apiUrl}/api/projects/${projectId}/kanban
 \`\`\`
 
-### Add Current Workflow to the Board
+### Add Current Workspace to the Board
 \`\`\`bash
 curl -X POST ${apiUrl}/api/projects/${projectId}/kanban/cards \\
   -H "Content-Type: application/json" \\
-  -d '{"sessionId": "${sessionId}", "laneId": "<lane_id>"}'
+  -d '{"workspaceId": "${workspaceId}", "laneId": "<lane_id>"}'
 \`\`\`
 
 ### Move a Card to a Different Lane
 \`\`\`bash
-curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/<card_id>/move \\
+curl -X PATCH ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}/move \\
   -H "Content-Type: application/json" \\
   -d '{"targetLaneId": "<lane_id>"}'
 \`\`\`
 
 ### Remove a Card from the Board
 \`\`\`bash
-curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/<card_id>
+curl -X DELETE ${apiUrl}/api/projects/${projectId}/kanban/cards/by-workspace/${workspaceId}
 \`\`\`
 
 ### Create a New Lane
@@ -414,29 +442,17 @@ CRITICAL: Do NOT use \`cd\` to navigate to the main repository. Your working dir
 export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt, mode) {
   const apiUrl = getApiBaseUrl();
   const session = sessions.getById(sessionId);
-  const canvasWriteInstructions = buildCanvasWriteSystemPrompt(session);  // Pass session object
-  const canvasReadInstructions = buildCanvasReadSystemPrompt(session);    // Pass session object
-  const sessionApiInstructions = buildSessionApiInstructions(sessionId, projectId);
-  const commandButtonApiInstructions = buildCommandButtonApiInstructions(apiUrl, sessionId, projectId);
-  const kanbanApiInstructions = buildKanbanApiInstructions(sessionId, projectId);
-  const attachmentsContext = getSessionAttachmentsContext(sessionId);
-  const worktreeContext = buildWorktreeContext(session);
-  const basePrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
-
-  // Prepend plan mode instructions if in plan mode
-  const modePrompt = mode === 'plan' ? PLAN_MODE_PROMPT : '';
-
   // Build prompt parts, filtering out empty sections
   const parts = [
-    modePrompt,
-    basePrompt,
-    worktreeContext,
-    attachmentsContext,
-    canvasWriteInstructions,
-    canvasReadInstructions,
-    sessionApiInstructions,
-    commandButtonApiInstructions,
-    kanbanApiInstructions
+    mode === 'plan' ? PLAN_MODE_PROMPT : '',
+    customSystemPrompt || DEFAULT_SYSTEM_PROMPT,
+    buildWorktreeContext(session),
+    getSessionAttachmentsContext(sessionId),
+    buildCanvasWriteSystemPrompt(session),
+    buildCanvasReadSystemPrompt(session),
+    buildSessionApiInstructions(sessionId, projectId),
+    buildCommandButtonApiInstructions(apiUrl, sessionId, projectId),
+    buildKanbanApiInstructions(sessionId, projectId),
   ].filter(Boolean);
 
   return parts.join('\n\n');

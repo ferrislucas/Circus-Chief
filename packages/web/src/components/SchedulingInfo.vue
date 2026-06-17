@@ -7,7 +7,7 @@
     <div class="info-header">
       <span class="info-icon">⏰</span>
       <h3 class="info-title">
-        Scheduled Session
+        Scheduled Workspace
       </h3>
     </div>
 

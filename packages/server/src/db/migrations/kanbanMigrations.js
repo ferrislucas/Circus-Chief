@@ -9,6 +9,7 @@ export const kanbanMigrations = [
   {
     name: 'projects-add-kanban_enabled',
     up(db) {
+      // Deprecated: Kanban is always available, but migration history is append-only.
       addColumnIfMissing(db, 'projects', 'kanban_enabled', 'INTEGER NOT NULL DEFAULT 1');
     },
   },
@@ -94,6 +95,12 @@ export const kanbanMigrations = [
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_max_reschedule_count', 'INTEGER');
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_max_total_tokens', 'INTEGER');
       addColumnIfMissing(db, 'kanban_lanes', 'on_enter_reschedule_at_token_count', 'INTEGER');
+    },
+  },
+  {
+    name: 'kanban_lanes-add-completion_target_lane_id',
+    up(db) {
+      addColumnIfMissing(db, 'kanban_lanes', 'completion_target_lane_id', 'TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL');
     },
   },
 ];

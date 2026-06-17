@@ -45,7 +45,7 @@ async function addSessionToLane(projectId: string, sessionId: string, laneId: st
   const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/cards`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sessionId, laneId }),
+    body: JSON.stringify({ workspaceId: sessionId, laneId }),
   });
   if (!response.ok) {
     const text = await response.text();
@@ -87,9 +87,7 @@ test.describe('Kanban on-enter automation', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban Automation Test', '/tmp/test-kanban-auto', {
-      kanbanEnabled: true,
-    });
+    project = await seedProject('Kanban Automation Test', '/tmp/test-kanban-auto');
     session = await seedSession(project.id, {
       prompt: 'Parent session',
       name: 'Automation Parent',

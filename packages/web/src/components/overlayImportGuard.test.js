@@ -27,7 +27,6 @@ import RunningState from './RunningState.vue?raw';
 import StreamingMessage from './StreamingMessage.vue?raw';
 import MessageItem from './MessageItem.vue?raw';
 import StaleBadge from './StaleBadge.vue?raw';
-import QuickResponseSettings from './QuickResponseSettings.vue?raw';
 import LiveWorkLogPanel from './LiveWorkLogPanel.vue?raw';
 import ModelSelector from './ModelSelector.vue?raw';
 
@@ -50,7 +49,6 @@ const overlayComponents = [
   { name: 'StreamingMessage.vue', source: StreamingMessage },
   { name: 'MessageItem.vue', source: MessageItem },
   { name: 'StaleBadge.vue', source: StaleBadge },
-  { name: 'QuickResponseSettings.vue', source: QuickResponseSettings },
   { name: 'LiveWorkLogPanel.vue', source: LiveWorkLogPanel },
   { name: 'ModelSelector.vue', source: ModelSelector },
 ];

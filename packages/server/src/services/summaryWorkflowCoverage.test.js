@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { projects, sessions, sessionSummaries } from '../database.js';
 
 // Mock websocket to avoid server dependency
@@ -165,7 +165,7 @@ describe('summaryWorkflowCoverage', () => {
       expect(reviewedPrCount).toBe(1);
     });
 
-    it('computes aggregate outcome: completed descendant upgrades root ongoing', () => {
+    it('keeps aggregate ongoing when parent-owned work is still ongoing', () => {
       const child = makeChild('Child', {
         shortSummary: 'Child done',
         fullSummary: 'Child full',
@@ -183,10 +183,10 @@ describe('summaryWorkflowCoverage', () => {
       };
 
       const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
-      expect(result.outcome).toBe('completed');
+      expect(result.outcome).toBe('ongoing');
     });
 
-    it('computes aggregate outcome: partial descendant upgrades root ongoing', () => {
+    it('keeps aggregate ongoing when parent is ongoing and descendant is partial', () => {
       const child = makeChild('Child', {
         shortSummary: 'Child partial',
         fullSummary: 'Child full',
@@ -204,10 +204,10 @@ describe('summaryWorkflowCoverage', () => {
       };
 
       const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
-      expect(result.outcome).toBe('partial');
+      expect(result.outcome).toBe('ongoing');
     });
 
-    it('does not downgrade root outcome when root is more final than descendant', () => {
+    it('reports aggregate ongoing when any descendant is ongoing', () => {
       const child = makeChild('Child', {
         shortSummary: 'Child ongoing',
         fullSummary: 'Child full',
@@ -225,7 +225,70 @@ describe('summaryWorkflowCoverage', () => {
       };
 
       const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
+      expect(result.outcome).toBe('ongoing');
+    });
+
+    it('reports completed when parent and descendants are completed', () => {
+      const child = makeChild('Child', {
+        shortSummary: 'Child completed',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+        filesModified: [],
+        keyActions: [],
+      });
+
+      const summaryData = {
+        shortSummary: 'Root completed',
+        fullSummary: 'Root full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'completed',
+      };
+
+      const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
       expect(result.outcome).toBe('completed');
+    });
+
+    it('reports completed when only descendant work exists and all descendants completed', () => {
+      const child = makeChild('Child', {
+        shortSummary: 'Child completed',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+        filesModified: [],
+        keyActions: [],
+      });
+
+      const summaryData = {
+        shortSummary: 'Root orchestrator',
+        fullSummary: 'Root full',
+        keyActions: [],
+        filesModified: [],
+        outcome: null,
+      };
+
+      const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
+      expect(result.outcome).toBe('completed');
+    });
+
+    it('reports failed when any descendant failed', () => {
+      const child = makeChild('Child', {
+        shortSummary: 'Child failed',
+        fullSummary: 'Child full',
+        outcome: 'failed',
+        filesModified: [],
+        keyActions: [],
+      });
+
+      const summaryData = {
+        shortSummary: 'Root completed',
+        fullSummary: 'Root full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'completed',
+      };
+
+      const result = validateAndRepairWorkflowCoverage(summaryData, [child]);
+      expect(result.outcome).toBe('failed');
     });
 
     it('handles descendants with no summaries gracefully', () => {
@@ -271,7 +334,7 @@ describe('summaryWorkflowCoverage', () => {
       expect(summaryData.outcome).toBe('ongoing');
       // Result has the repaired data
       expect(result.filesModified).toContain('child.js');
-      expect(result.outcome).toBe('completed');
+      expect(result.outcome).toBe('ongoing');
     });
   });
 
@@ -434,6 +497,64 @@ describe('summaryWorkflowCoverage', () => {
       const result = buildFallbackSummaryAddition([childA, childB]);
       expect(result).toContain('Child A');
       expect(result).toContain('Child B');
+    });
+
+    describe('when pre-fetched pairs are provided', () => {
+      afterEach(() => {
+        vi.restoreAllMocks();
+      });
+
+      it('skips the internal DB fetch when pairs are provided', () => {
+        const child = makeChild('Prefetched Child', {
+          shortSummary: 'Done',
+          fullSummary: 'Full done',
+          outcome: 'completed',
+        });
+        const summary = sessionSummaries.getBySessionId(child.id);
+
+        const getBySessionIdSpy = vi.spyOn(sessionSummaries, 'getBySessionId');
+        const pairs = [{ session: child, summary }];
+
+        const result = buildFallbackSummaryAddition([child], pairs);
+
+        expect(getBySessionIdSpy).not.toHaveBeenCalled();
+        expect(result).toContain('Prefetched Child');
+        expect(result).toContain('completed');
+      });
+    });
+  });
+
+  describe('validateAndRepairWorkflowCoverage — pre-fetched pairs', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('skips the internal DB fetch when pairs are provided', () => {
+      const child = makeChild('Prefetched Child', {
+        shortSummary: 'Child done',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+        filesModified: ['child.js'],
+        keyActions: ['Implemented X'],
+      });
+      const summary = sessionSummaries.getBySessionId(child.id);
+
+      const getBySessionIdSpy = vi.spyOn(sessionSummaries, 'getBySessionId');
+      const pairs = [{ session: child, summary }];
+
+      const summaryData = {
+        shortSummary: 'Root',
+        fullSummary: 'Root full',
+        keyActions: [],
+        filesModified: [],
+        outcome: 'ongoing',
+      };
+
+      const result = validateAndRepairWorkflowCoverage(summaryData, [child], pairs);
+
+      expect(getBySessionIdSpy).not.toHaveBeenCalled();
+      expect(result.filesModified).toContain('child.js');
+      expect(result.keyActions).toContain('Implemented X');
     });
   });
 });

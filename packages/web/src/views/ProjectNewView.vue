@@ -93,16 +93,16 @@
           <label
             class="form-label"
             for="onSessionCreated"
-          >On Session Created</label>
+          >On Workspace Created</label>
           <textarea
             id="onSessionCreated"
             v-model="onSessionCreated"
             class="form-input form-textarea-small"
             rows="3"
-            placeholder="Shell command to run when a session is created..."
+            placeholder="Shell command to run when a workspace is created..."
           />
           <p class="form-help">
-            Runs in the background after session creation. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
+            Runs in the background after workspace creation. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
           </p>
         </div>
 
@@ -110,16 +110,16 @@
           <label
             class="form-label"
             for="onSessionDeleted"
-          >On Session Deleted</label>
+          >On Workspace Deleted</label>
           <textarea
             id="onSessionDeleted"
             v-model="onSessionDeleted"
             class="form-input form-textarea-small"
             rows="3"
-            placeholder="Shell command to run when a session is deleted..."
+            placeholder="Shell command to run when a workspace is deleted..."
           />
           <p class="form-help">
-            Runs in the background after session deletion. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
+            Runs in the background after workspace deletion. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
           </p>
         </div>
       </details>

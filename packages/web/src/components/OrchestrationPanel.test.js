@@ -48,11 +48,9 @@ describe('OrchestrationPanel', () => {
       expect(wrapper.find('.orchestration-content').exists()).toBe(true);
     });
 
-    it('starts expanded when autoRescheduleEnabled is true', () => {
-      const wrapper = mountComponent({
-        autoRescheduleEnabled: true,
-      });
-      expect(wrapper.find('.orchestration-content').exists()).toBe(true);
+    it('starts collapsed when autoRescheduleEnabled is true (retry settings do not expand panel)', () => {
+      const wrapper = mountComponent({ autoRescheduleEnabled: true, currentTemplateId: null });
+      expect(wrapper.find('.orchestration-content').exists()).toBe(false);
     });
 
     it('starts expanded when both currentTemplateId and autoRescheduleEnabled are set', () => {
@@ -207,7 +205,7 @@ describe('OrchestrationPanel', () => {
     //   expect(wrapper.emitted('openSchedule')).toBeTruthy();
     // });
 
-    it('uses correct title for draft sessions', () => {
+    it('uses correct title for draft workspaces', () => {
       const wrapper = mountComponent({
         currentTemplateId: 'template-1',
         inputHasContent: true,
@@ -215,10 +213,10 @@ describe('OrchestrationPanel', () => {
       });
 
       const button = wrapper.find('.btn-schedule');
-      expect(button.attributes('title')).toBe('Schedule this session to start later');
+      expect(button.attributes('title')).toBe('Schedule this workspace to start later');
     });
 
-    it('uses correct title for non-draft sessions', () => {
+    it('uses correct title for non-draft workspaces', () => {
       const wrapper = mountComponent({
         currentTemplateId: 'template-1',
         inputHasContent: true,
@@ -316,6 +314,33 @@ describe('OrchestrationPanel', () => {
 
       // Change props - should maintain expanded state
       await wrapper.setProps({ sessionStatus: 'running' });
+      expect(wrapper.find('.orchestration-content').exists()).toBe(true);
+    });
+  });
+
+  describe('reactive watcher for currentTemplateId', () => {
+    it('expands when currentTemplateId prop changes from null to a value after mount', async () => {
+      const wrapper = mountComponent({ currentTemplateId: null });
+      expect(wrapper.find('.orchestration-content').exists()).toBe(false);
+
+      await wrapper.setProps({ currentTemplateId: 'template-1' });
+      expect(wrapper.find('.orchestration-content').exists()).toBe(true);
+    });
+
+    it('does not expand when autoRescheduleEnabled changes from false to true after mount', async () => {
+      const wrapper = mountComponent({ autoRescheduleEnabled: false, currentTemplateId: null });
+      expect(wrapper.find('.orchestration-content').exists()).toBe(false);
+
+      await wrapper.setProps({ autoRescheduleEnabled: true });
+      expect(wrapper.find('.orchestration-content').exists()).toBe(false);
+    });
+
+    it('does not collapse when currentTemplateId is removed after user had expanded', async () => {
+      const wrapper = mountComponent({ currentTemplateId: 'template-1' });
+      expect(wrapper.find('.orchestration-content').exists()).toBe(true);
+
+      // Watcher only opens, never closes
+      await wrapper.setProps({ currentTemplateId: null });
       expect(wrapper.find('.orchestration-content').exists()).toBe(true);
     });
   });

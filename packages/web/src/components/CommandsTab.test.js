@@ -134,7 +134,7 @@ describe('CommandsTab', () => {
           sessionId: 'session-2', // Different session
           startedAt: Date.now() - 5000,
           status: 'success',
-          output: 'Different session run'
+          output: 'Different workspace run'
         }
       };
 

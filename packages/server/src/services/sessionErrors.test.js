@@ -297,7 +297,8 @@ describe('sessionErrors', () => {
       expect(result).toBe(true);
       expect(schedulerService.rescheduleSession).toHaveBeenCalledWith(
         'sess-1',
-        expect.stringContaining('Token threshold reached')
+        expect.stringContaining('Token threshold reached'),
+        { retryExistingMessage: false }
       );
     });
 

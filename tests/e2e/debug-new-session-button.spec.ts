@@ -141,13 +141,13 @@ test.describe('Debug: New Session Button', () => {
       console.log('Overlay not visible after click (may have closed)');
     }
 
-    // Check that the session detail page switched to "New Session"
+    // Check that the session detail page switched to "New Workspace"
     const pageTitle = page.locator('[data-testid="session-name"]');
     try {
-      await expect(pageTitle).toHaveText('New Session', { timeout: 5000 });
-      console.log('Page successfully switched to New Session');
+      await expect(pageTitle).toHaveText('New Workspace', { timeout: 5000 });
+      console.log('Page successfully switched to New Workspace');
     } catch (e) {
-      console.log('Failed to confirm page switched to New Session');
+      console.log('Failed to confirm page switched to New Workspace');
     }
 
     // Report resource and console errors

@@ -19,14 +19,14 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.76",
-    "@anthropic-ai/sdk": "^0.71.2",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.163",
+    "@anthropic-ai/sdk": "^0.93.0",
     "@circuschief/shared": "1.0.0",
     "better-sqlite3": "^12.1.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "http-proxy-middleware": "^3.0.5",
-    "liquidjs": "^10.25.7",
+    "liquidjs": "^10.26.0",
     "multer": "^2.1.1",
     "nanoid": "^3.3.0",
     "openai": "^4.104.0",

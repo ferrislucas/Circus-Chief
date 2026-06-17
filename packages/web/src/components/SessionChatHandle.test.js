@@ -19,7 +19,7 @@ describe('SessionChatHandle', () => {
       expect(wrapper.find('[data-testid="session-chat-handle"]').exists()).toBe(true);
     });
 
-    it('renders the handle with session-chat-handle class', () => {
+    it('renders the handle with workspace-chat-handle class', () => {
       const wrapper = mountComponent();
       expect(wrapper.find('.session-chat-handle').exists()).toBe(true);
     });
@@ -28,7 +28,7 @@ describe('SessionChatHandle', () => {
       const wrapper = mountComponent();
       const handle = wrapper.find('.session-chat-handle');
       expect(handle.attributes('role')).toBe('button');
-      expect(handle.attributes('aria-label')).toBe('Open session tree');
+      expect(handle.attributes('aria-label')).toBe('Open workspace tree');
     });
 
     it('is focusable with tabindex 0', () => {
@@ -42,7 +42,7 @@ describe('SessionChatHandle', () => {
       expect(wrapper.find('svg.handle-icon').exists()).toBe(true);
     });
 
-    it('has z-index 900 via the session-chat-handle class', () => {
+    it('has z-index 900 via the workspace-chat-handle class', () => {
       const wrapper = mountComponent();
       const handle = wrapper.find('.session-chat-handle');
       expect(handle.exists()).toBe(true);
@@ -52,7 +52,7 @@ describe('SessionChatHandle', () => {
     });
   });
 
-  describe('session active spinner', () => {
+  describe('workspace active spinner', () => {
     it('shows spinner when isSessionActive is true', () => {
       const wrapper = mountComponent({ isSessionActive: true, sessionStatus: 'running' });
       expect(wrapper.find('.active-spinner').exists()).toBe(true);
@@ -63,28 +63,28 @@ describe('SessionChatHandle', () => {
       expect(wrapper.find('.active-spinner').exists()).toBe(false);
     });
 
-    it('shows correct tooltip when session is running', () => {
+    it('shows correct tooltip when workspace is running', () => {
       const wrapper = mountComponent({ isSessionActive: true, sessionStatus: 'running' });
       const spinner = wrapper.find('.active-spinner');
-      expect(spinner.attributes('title')).toBe('Session running...');
+      expect(spinner.attributes('title')).toBe('Workspace running...');
     });
 
-    it('shows correct tooltip when session is starting', () => {
+    it('shows correct tooltip when workspace is starting', () => {
       const wrapper = mountComponent({ isSessionActive: true, sessionStatus: 'starting' });
       const spinner = wrapper.find('.active-spinner');
-      expect(spinner.attributes('title')).toBe('Session starting...');
+      expect(spinner.attributes('title')).toBe('Workspace starting...');
     });
 
-    it('updates handle tooltip when session is active', () => {
+    it('updates handle tooltip when workspace is active', () => {
       const wrapper = mountComponent({ isSessionActive: true, sessionStatus: 'running' });
       const handle = wrapper.find('.session-chat-handle');
-      expect(handle.attributes('title')).toBe('Session running...');
+      expect(handle.attributes('title')).toBe('Workspace running...');
     });
 
-    it('shows default tooltip when session is not active', () => {
+    it('shows default tooltip when workspace is not active', () => {
       const wrapper = mountComponent({ isSessionActive: false });
       const handle = wrapper.find('.session-chat-handle');
-      expect(handle.attributes('title')).toBe('Open session tree');
+      expect(handle.attributes('title')).toBe('Open workspace tree');
     });
   });
 

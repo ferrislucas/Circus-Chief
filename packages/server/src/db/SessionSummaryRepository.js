@@ -8,6 +8,11 @@ import { databaseManager } from './DatabaseManager.js';
 const SUMMARY_FIELDS = {
   shortSummary: { column: 'short_summary', transform: (v) => v },
   fullSummary: { column: 'full_summary', transform: (v) => v },
+  ownShortSummary: { column: 'own_short_summary', transform: (v) => v },
+  ownFullSummary: { column: 'own_full_summary', transform: (v) => v },
+  ownKeyActions: { column: 'own_key_actions', transform: (v) => (v == null ? null : JSON.stringify(v)) },
+  ownFilesModified: { column: 'own_files_modified', transform: (v) => (v == null ? null : JSON.stringify(v)) },
+  ownOutcome: { column: 'own_outcome', transform: (v) => v },
   keyActions: { column: 'key_actions', transform: (v) => JSON.stringify(v) },
   filesModified: { column: 'files_modified', transform: (v) => JSON.stringify(v) },
   outcome: { column: 'outcome', transform: (v) => v },
@@ -29,6 +34,52 @@ function optionalBoolToDb(value) {
   return value ? 1 : 0;
 }
 
+function parseJsonArray(value, fallback = []) {
+  if (value == null) return fallback;
+  const parsed = JSON.parse(value);
+  return Array.isArray(parsed) ? parsed : fallback;
+}
+
+function nullable(value) {
+  return value ?? null;
+}
+
+function optionalJson(value) {
+  return value == null ? null : JSON.stringify(value);
+}
+
+function defaultJson(value) {
+  return value ? JSON.stringify(value) : null;
+}
+
+function buildCreateValues(id, sessionId, data, now) {
+  return [
+    id,
+    sessionId,
+    data.shortSummary ?? '',
+    data.fullSummary ?? '',
+    nullable(data.ownShortSummary),
+    nullable(data.ownFullSummary),
+    optionalJson(data.ownKeyActions),
+    optionalJson(data.ownFilesModified),
+    nullable(data.ownOutcome),
+    defaultJson(data.keyActions),
+    defaultJson(data.filesModified),
+    data.outcome || 'ongoing',
+    data.messageCount || 0,
+    nullable(data.lastSummarizedMessageId),
+    optionalBoolToDb(data.prMerged),
+    nullable(data.prState),
+    optionalBoolToDb(data.hasMergeConflicts),
+    nullable(data.ciStatus),
+    defaultJson(data.ciFailures),
+    nullable(data.workflowFingerprint),
+    now,
+    now,
+    now,
+  ];
+}
+
 /**
  * Session summary repository class
  */
@@ -43,8 +94,13 @@ export class SessionSummaryRepository extends BaseRepository {
       sessionId: row.session_id,
       shortSummary: row.short_summary,
       fullSummary: row.full_summary,
-      keyActions: row.key_actions ? JSON.parse(row.key_actions) : [],
-      filesModified: row.files_modified ? JSON.parse(row.files_modified) : [],
+      ownShortSummary: row.own_short_summary ?? null,
+      ownFullSummary: row.own_full_summary ?? null,
+      ownKeyActions: parseJsonArray(row.own_key_actions, null),
+      ownFilesModified: parseJsonArray(row.own_files_modified, null),
+      ownOutcome: row.own_outcome ?? null,
+      keyActions: parseJsonArray(row.key_actions),
+      filesModified: parseJsonArray(row.files_modified),
       outcome: row.outcome,
       messageCount: row.message_count,
       lastSummarizedMessageId: row.last_summarized_message_id,
@@ -53,7 +109,7 @@ export class SessionSummaryRepository extends BaseRepository {
       hasMergeConflicts: row.has_merge_conflicts !== null ? Boolean(row.has_merge_conflicts) : null,
       ciStatus: row.ci_status,
       ciFailures: row.ci_failures ? JSON.parse(row.ci_failures) : [],
-      workflowFingerprint: row.workflow_fingerprint || null,
+      workflowFingerprint: row.workflow_fingerprint ?? null,
       generatedAt: row.generated_at,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -84,29 +140,10 @@ export class SessionSummaryRepository extends BaseRepository {
     this.db
       .prepare(
         `INSERT INTO session_summaries
-         (id, session_id, short_summary, full_summary, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, workflow_fingerprint, generated_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, short_summary, full_summary, own_short_summary, own_full_summary, own_key_actions, own_files_modified, own_outcome, key_actions, files_modified, outcome, message_count, last_summarized_message_id, pr_merged, pr_state, has_merge_conflicts, ci_status, ci_failures, workflow_fingerprint, generated_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(
-        id,
-        sessionId,
-        data.shortSummary,
-        data.fullSummary,
-        data.keyActions ? JSON.stringify(data.keyActions) : null,
-        data.filesModified ? JSON.stringify(data.filesModified) : null,
-        data.outcome || 'ongoing',
-        data.messageCount || 0,
-        data.lastSummarizedMessageId || null,
-        optionalBoolToDb(data.prMerged),
-        data.prState || null,
-        optionalBoolToDb(data.hasMergeConflicts),
-        data.ciStatus || null,
-        data.ciFailures ? JSON.stringify(data.ciFailures) : null,
-        data.workflowFingerprint || null,
-        now,
-        now,
-        now
-      );
+      .run(...buildCreateValues(id, sessionId, data, now));
     return this.getById(id);
   }
 
@@ -192,6 +229,11 @@ export class SessionSummaryRepository extends BaseRepository {
       this.create(targetSessionId, {
         shortSummary: summary.shortSummary,
         fullSummary: summary.fullSummary,
+        ownShortSummary: summary.ownShortSummary,
+        ownFullSummary: summary.ownFullSummary,
+        ownKeyActions: summary.ownKeyActions,
+        ownFilesModified: summary.ownFilesModified,
+        ownOutcome: summary.ownOutcome,
         keyActions: summary.keyActions,
         filesModified: summary.filesModified,
         outcome: summary.outcome,

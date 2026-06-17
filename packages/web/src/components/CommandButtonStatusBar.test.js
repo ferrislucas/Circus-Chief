@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
+import { defineComponent } from 'vue';
 import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 
 describe('CommandButtonStatusBar', () => {
@@ -144,6 +145,43 @@ describe('CommandButtonStatusBar', () => {
 
     // Modal should appear
     expect(wrapper.findComponent({ name: 'ButtonStatusModal' }).exists()).toBe(true);
+  });
+
+  it('stops click propagation from status indicators', async () => {
+    const onParentClick = vi.fn();
+    const Parent = defineComponent({
+      components: { CommandButtonStatusBar },
+      setup() {
+        return {
+          onParentClick,
+          buttonStatuses: [
+            {
+              buttonId: 'btn-1',
+              label: 'Test',
+              status: 'success',
+              latestRun: { runId: 'run-1', status: 'success', exitCode: 0 },
+            },
+          ],
+        };
+      },
+      template: `
+        <div class="parent-click-target" @click="onParentClick">
+          <CommandButtonStatusBar :button-statuses="buttonStatuses" />
+        </div>
+      `,
+    });
+
+    const wrapper = mount(Parent, {
+      global: {
+        stubs: {
+          ButtonStatusModal: true,
+        },
+      },
+    });
+
+    await wrapper.find('.button-status-indicator').trigger('click');
+
+    expect(onParentClick).not.toHaveBeenCalled();
   });
 
   it('passes command property to modal when available', async () => {

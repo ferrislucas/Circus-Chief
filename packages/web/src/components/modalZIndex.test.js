@@ -20,28 +20,18 @@ function getRuleZIndex(source, selector) {
 }
 
 describe('Overlay modal z-index regression guard', () => {
-  it('modals opened from the session overlay render above the overlay backdrop', () => {
+  it('modals opened from the workspace overlay render above the overlay backdrop', () => {
     const overlayZ = getRuleZIndex(readComponent('SessionChatOverlay.vue'), '.overlay-backdrop');
     const modalLayers = [
       ['AutoRescheduleModal.vue', '.modal-backdrop'],
       ['SchedulingEditModal.vue', '.modal-backdrop'],
       ['ScheduleSessionModal.vue', '.modal-backdrop'],
       ['SlashCommandWizard.vue', '.wizard-overlay'],
-      ['QuickResponseSettings.vue', '.settings-overlay'],
     ];
 
     for (const [fileName, selector] of modalLayers) {
       const modalZ = getRuleZIndex(readComponent(fileName), selector);
       expect(modalZ, `${fileName} ${selector}`).toBeGreaterThan(overlayZ);
     }
-  });
-
-  it('quick response dialog renders above quick response settings', () => {
-    const settingsZ = getRuleZIndex(readComponent('QuickResponseSettings.vue'), '.settings-overlay');
-    const dialogZ = getRuleZIndex(readComponent('QuickResponseDialog.vue'), '.dialog-overlay');
-    const confirmZ = getRuleZIndex(readComponent('QuickResponseSettings.vue'), '.confirm-overlay');
-
-    expect(dialogZ).toBeGreaterThan(settingsZ);
-    expect(confirmZ).toBeGreaterThan(settingsZ);
   });
 });

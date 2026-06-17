@@ -33,6 +33,24 @@ describe('SessionsApi', () => {
     });
   });
 
+  describe('getSessionGitStatus', () => {
+    it('fetches git status without fetch by default', async () => {
+      mockFetch.mockReturnValue(mockResponse({ syncStatus: 'clean' }));
+
+      await client.getSessionGitStatus('sess-123');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/git-status', expect.any(Object));
+    });
+
+    it('adds fetch=true only when requested', async () => {
+      mockFetch.mockReturnValue(mockResponse({ syncStatus: 'behind', fetched: true }));
+
+      await client.getSessionGitStatus('sess-123', { fetch: true });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/git-status?fetch=true', expect.any(Object));
+    });
+  });
+
   describe('getProjectSessions', () => {
     it('fetches sessions for project without filters', async () => {
       mockFetch.mockReturnValue(mockResponse([]));

@@ -15,13 +15,10 @@ function shouldRenderLiquid(value) {
 async function renderLiquidForSession(content, session) {
   if (content === undefined) return undefined;
 
-  const parentSummary = sessionSummaries.getBySessionId(session.id);
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
 
   return renderTemplatePrompt(content, {
-    parentSession: session,
-    parentSummary,
     rootSession,
     rootSummary,
   });

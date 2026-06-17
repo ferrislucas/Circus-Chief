@@ -6,16 +6,12 @@ import { createPinia, setActivePinia } from 'pinia';
 import ProjectEditView from './ProjectEditView.vue';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared/constants';
 
 // Mock the API and components
 vi.mock('../composables/useApi.js');
 vi.mock('../components/PathChooser.vue', () => ({
   default: { name: 'PathChooser', template: '<input />' }
-}));
-vi.mock('../components/QuickResponseSettings.vue', () => ({
-  default: { name: 'QuickResponseSettings', template: '<div />' }
 }));
 vi.mock('../components/ModelSelector.vue', () => ({
   default: {
@@ -46,7 +42,6 @@ describe('ProjectEditView with Session Defaults', () => {
   let router;
   let projectsStore;
   let defaultsStore;
-  let quickResponsesStore;
 
   beforeEach(() => {
     pinia = createPinia();
@@ -62,7 +57,6 @@ describe('ProjectEditView with Session Defaults', () => {
 
     projectsStore = useProjectsStore();
     defaultsStore = useProjectDefaultsStore();
-    quickResponsesStore = useQuickResponsesStore();
 
     // Mock store methods
     vi.spyOn(projectsStore, 'fetchProject').mockResolvedValue(undefined);
@@ -75,9 +69,6 @@ describe('ProjectEditView with Session Defaults', () => {
     vi.spyOn(defaultsStore, 'fetchDefaults').mockResolvedValue(null);
     vi.spyOn(defaultsStore, 'updateDefaults').mockResolvedValue({});
     vi.spyOn(defaultsStore, 'resetDefaults').mockResolvedValue(null);
-
-    // Mock quick responses store
-    vi.spyOn(quickResponsesStore, 'fetchForProject').mockResolvedValue({ project: [], global: [] });
   });
 
   describe('Session Defaults Section', () => {
@@ -103,7 +94,7 @@ describe('ProjectEditView with Session Defaults', () => {
       // Check for details element with Session Defaults summary
       const details = wrapper.findAll('details');
       const sessionDefaultsSection = details.find(d =>
-        d.text().includes('Session Defaults')
+        d.text().includes('Workspace Defaults')
       );
 
       expect(sessionDefaultsSection).toBeDefined();
@@ -135,7 +126,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const text = wrapper.text();
       expect(text).toContain('Mode');
       expect(text).toContain('Enable thinking');
-      expect(text).toContain('Start sessions immediately');
+      expect(text).toContain('Start workspaces immediately');
       expect(text).toContain('Git Mode');
       expect(text).toContain('Default Git Branch');
       expect(text).toContain('Model');
@@ -864,234 +855,6 @@ describe('ProjectEditView with Session Defaults', () => {
     });
   });
 
-  describe('Quick Responses Section', () => {
-    it('displays Quick Responses collapsible section', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      const text = wrapper.text();
-      expect(text).toContain('Quick Responses');
-      expect(text).toContain('Quick responses are shortcuts');
-    });
-
-    it('displays Manage Quick Responses button', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Expand details element to reveal button
-      const details = wrapper.findAll('details');
-      for (const detail of details) {
-        detail.element.open = true;
-      }
-      await flushAll(wrapper);
-
-      const text = wrapper.text();
-      expect(text).toContain('Manage Quick Responses');
-    });
-
-    it('opens QuickResponseSettings modal on button click', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      // Navigate router to the correct route first
-      await router.push('/projects/proj-1/edit');
-      await router.isReady();
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            PathChooser: true,
-            QuickResponseSettings: {
-              name: 'QuickResponseSettings',
-              template: '<div></div>',
-              props: ['isOpen', 'projectId']
-            }
-          }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Expand details to show button
-      const details = wrapper.findAll('details');
-      for (const detail of details) {
-        detail.element.open = true;
-      }
-      await flushAll(wrapper);
-
-      // Find and click the Manage Quick Responses button
-      const allButtons = wrapper.findAll('button');
-      const manageButton = allButtons.find(btn => btn.text().includes('Manage Quick Responses'));
-
-      if (manageButton) {
-        await manageButton.trigger('click');
-        await flushAll(wrapper);
-
-        // Verify the modal button was clicked successfully
-        expect(manageButton).toBeDefined();
-        // Component should render
-        expect(wrapper.exists()).toBe(true);
-      }
-    });
-
-    it('fetches quick responses for project on mount', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      // Navigate router to the correct route first
-      await router.push('/projects/proj-1/edit');
-      await router.isReady();
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Verify fetchForProject was called with project ID
-      expect(quickResponsesStore.fetchForProject).toHaveBeenCalledWith('proj-1');
-    });
-
-    it('passes projectId to QuickResponseSettings modal', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      // Navigate router to the correct route first
-      await router.push('/projects/proj-1/edit');
-      await router.isReady();
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            PathChooser: true,
-            QuickResponseSettings: {
-              name: 'QuickResponseSettings',
-              template: '<div></div>',
-              props: ['isOpen', 'projectId']
-            }
-          }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Verify the component is properly mounted with correct project
-      expect(wrapper.text()).toContain('Manage Quick Responses');
-      expect(wrapper.exists()).toBe(true);
-    });
-
-    it('closes QuickResponseSettings modal when close event is emitted', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      // Navigate router to the correct route first
-      await router.push('/projects/proj-1/edit');
-      await router.isReady();
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: {
-            PathChooser: true,
-            QuickResponseSettings: {
-              name: 'QuickResponseSettings',
-              template: '<div></div>',
-              props: ['isOpen', 'projectId'],
-              emits: ['close']
-            }
-          }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Click to open modal
-      const allButtons = wrapper.findAll('button');
-      const manageButton = allButtons.find(btn => btn.text().includes('Manage Quick Responses'));
-
-      if (manageButton) {
-        await manageButton.trigger('click');
-        await flushAll(wrapper);
-
-        // Verify the modal button interaction
-        expect(manageButton).toBeDefined();
-        // Component should render and handle the button click
-        expect(wrapper.exists()).toBe(true);
-      }
-    });
-
-    it('displays help text explaining quick responses', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Expand the Quick Responses section
-      const details = wrapper.findAll('details');
-      for (const detail of details) {
-        if (detail.text().includes('Quick Responses')) {
-          detail.element.open = true;
-          break;
-        }
-      }
-      await flushAll(wrapper);
-
-      const text = wrapper.text();
-      expect(text).toContain('project-specific or global responses');
-    });
-  });
-
   describe('Effective Worktree Path display', () => {
     it('shows the working directory + /.worktrees when worktreePath is empty', async () => {
       projectsStore.currentProject = {
@@ -1104,7 +867,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const wrapper = mount(ProjectEditView, {
         global: {
           plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
+          stubs: { PathChooser: true }
         }
       });
 
@@ -1126,7 +889,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const wrapper = mount(ProjectEditView, {
         global: {
           plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
+          stubs: { PathChooser: true }
         }
       });
 
@@ -1148,7 +911,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const wrapper = mount(ProjectEditView, {
         global: {
           plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
+          stubs: { PathChooser: true }
         }
       });
 
@@ -1157,63 +920,6 @@ describe('ProjectEditView with Session Defaults', () => {
       const codeEls = wrapper.findAll('code');
       const effectiveCode = codeEls.find(c => c.text().includes('/tmp/myrepo/.worktrees/{sessionId}'));
       expect(effectiveCode).toBeDefined();
-    });
-  });
-
-  describe('Kanban Experimental labeling', () => {
-    it('renders "Experimental" badge in the Kanban Board section summary', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Locate the Kanban details section
-      const kanbanDetails = wrapper.findAll('details').find(d =>
-        d.text().includes('Kanban Board')
-      );
-      expect(kanbanDetails).toBeDefined();
-
-      const summaryText = kanbanDetails.find('summary').text();
-      expect(summaryText).toContain('Experimental');
-    });
-
-    it('shows experimental warning copy inside the Kanban Board section', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true, QuickResponseSettings: true }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Expand the Kanban details section
-      const kanbanDetails = wrapper.findAll('details').find(d =>
-        d.text().includes('Kanban Board')
-      );
-      expect(kanbanDetails).toBeDefined();
-      kanbanDetails.element.open = true;
-      await flushAll(wrapper);
-
-      const sectionText = kanbanDetails.text();
-      expect(sectionText).toContain('Experimental');
-      expect(sectionText).toContain('may change or be removed');
     });
   });
 });

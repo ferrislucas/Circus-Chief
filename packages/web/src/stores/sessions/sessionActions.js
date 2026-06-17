@@ -265,7 +265,9 @@ export const sessionActions = {
       }
 
       const updated = await api.updateSession(sessionId, updateData);
-      this._updateSessionInAllLists(sessionId, updateData);
+      // Merge the server response (not just updateData) so server-derived fields
+      // like agentType and providerId stay in sync after a model change.
+      this._updateSessionInAllLists(sessionId, updated);
       return updated;
     } catch (err) { this.error = err.message; throw err; }
   },

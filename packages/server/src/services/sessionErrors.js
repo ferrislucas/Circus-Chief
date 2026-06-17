@@ -161,10 +161,12 @@ export async function _checkProactiveReschedule(sessionId) {
       return false;
     }
 
-    // Gracefully reschedule
+    // Gracefully reschedule — proactive rescheduling always continues
+    // (turn completed, so "Continue" is the correct next prompt)
     await schedulerService.rescheduleSession(
       sessionId,
-      `Token threshold reached (${totalTokens.toLocaleString()} tokens)`
+      `Token threshold reached (${totalTokens.toLocaleString()} tokens)`,
+      { retryExistingMessage: false }
     );
     return true;
   }

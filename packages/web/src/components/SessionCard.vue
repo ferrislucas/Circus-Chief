@@ -115,6 +115,49 @@
               v-html="getStatusIcon(indicator.status)"
             />
             <!-- eslint-enable vue/no-v-html -->
+
+            <!-- Kanban lane chip -->
+            <button
+              v-if="sessionLane && !isChild"
+              type="button"
+              class="lane-chip lane-chip-clickable"
+              :title="`Move from ${sessionLane.name} to another lane`"
+              @click.stop.prevent="showMoveCardModal = true"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <rect
+                  x="3"
+                  y="3"
+                  width="18"
+                  height="18"
+                  rx="2"
+                  ry="2"
+                />
+                <line
+                  x1="9"
+                  y1="3"
+                  x2="9"
+                  y2="21"
+                />
+                <line
+                  x1="15"
+                  y1="3"
+                  x2="15"
+                  y2="21"
+                />
+              </svg>
+              {{ sessionLane.name }}
+            </button>
           </p>
 
           <p
@@ -129,7 +172,7 @@
           :date-to-show="dateToShow"
           :is-child="isChild"
           :is-on-board="isOnBoard"
-          :kanban-enabled="kanbanEnabled"
+          :can-add-to-board="canAddToBoard"
           :show-archive="showArchive"
           :show-unarchive="showUnarchive"
           :session-status="session.status"
@@ -169,6 +212,18 @@
     :session-id="session.id"
     @close="selectedButtonForModal = null"
   />
+
+  <MoveCardModal
+    v-if="sessionCard && sessionLane"
+    :is-open="showMoveCardModal"
+    :project-id="session.projectId"
+    :card-id="sessionCard.id"
+    :current-lane-id="sessionLane.id"
+    :session-name="session.name"
+    @update:is-open="showMoveCardModal = $event"
+    @close="showMoveCardModal = false"
+    @moved="showMoveCardModal = false"
+  />
 </template>
 
 <script setup>
@@ -177,8 +232,11 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useKanbanStore } from '../stores/kanban.js';
+import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
 import { getStatusIconSvg } from './statusIcons';
+import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import ButtonStatusModal from './ButtonStatusModal.vue';
+import MoveCardModal from './MoveCardModal.vue';
 import PrIndicators from './PrIndicators.vue';
 import SessionCardSummary from './SessionCardSummary.vue';
 import SessionCardHeaderActions from './SessionCardHeaderActions.vue';
@@ -188,6 +246,7 @@ const sessionsStore = useSessionsStore();
 const commandButtonsStore = useCommandButtonsStore();
 const kanbanStore = useKanbanStore();
 const selectedButtonForModal = ref(null);
+const showMoveCardModal = ref(false);
 
 const props = defineProps({
   session: {
@@ -234,7 +293,7 @@ const props = defineProps({
     type: Object,
     default: null,
   },
-  kanbanEnabled: {
+  canAddToBoard: {
     type: Boolean,
     default: true,
   },
@@ -244,6 +303,11 @@ const emit = defineEmits(['retrySummary', 'archive', 'unarchive', 'addToBoard'])
 
 // Check if session is already on the kanban board
 const isOnBoard = computed(() => kanbanStore.isSessionOnBoard(props.session.id));
+const sessionCard = computed(() => kanbanStore.getCardBySessionId(props.session.id));
+const sessionLane = computed(() => {
+  if (!sessionCard.value) return null;
+  return kanbanStore.getLaneById(sessionCard.value.laneId);
+});
 
 const onAddToBoardClick = () => {
   emit('addToBoard', props.session);
@@ -289,34 +353,7 @@ const runningSessionIds = computed(() => {
 
 const hasRunningSession = computed(() => runningSessionIds.value.length > 0);
 
-/** Find the nearest upcoming scheduledAt from any session in the workflow tree. */
-const nearestScheduledAt = computed(() => {
-  const now = Date.now();
-
-  // Check the session itself first (most relevant).
-  // Note: For self-scheduled sessions, we show the time even if it's in the past —
-  // this preserves backward compatibility and signals a potential scheduling issue.
-  if (props.session.status === 'scheduled' && props.session.scheduledAt) {
-    return props.session.scheduledAt;
-  }
-
-  // Find the earliest future scheduled time among children.
-  // Only future times are shown for children (past scheduled times mean the
-  // session should have already been triggered).
-  const allSessions = getWorkflowSessions();
-  let earliest = null;
-  for (const s of allSessions) {
-    // Skip the root session (already checked above)
-    if (s.id === props.session.id) continue;
-    if (s.status === 'scheduled' && s.scheduledAt) {
-      const t = new Date(s.scheduledAt).getTime();
-      if (t >= now && (earliest === null || t < earliest)) {
-        earliest = t;
-      }
-    }
-  }
-  return earliest;
-});
+const nearestScheduledAt = computed(() => findNearestScheduledTime(props.session.id));
 
 const scheduledTimeDisplay = computed(() => {
   if (!nearestScheduledAt.value) return null;
@@ -332,27 +369,19 @@ const buttonStatusesToDisplay = computed(() => {
   const projectId = props.session.projectId;
   if (!projectId) return [];
 
-  // Access commandRunVersion to establish Vue dependency tracking.
-  // eslint-disable-next-line no-unused-vars
-  const _version = sessionsStore.commandRunVersion;
+  // Establish a reactive dependency on command-run WebSocket updates so this
+  // recomputes when a run's status changes.
+  void sessionsStore.commandRunVersion;
 
   const buttons = commandButtonsStore.getButtonsByProjectId(projectId);
   const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-  const sessionId = props.session.id;
-  const sessions = sessionsStore.sessions;
-  const storeSession = sessions.find(s => s.id === sessionId);
+  // Prefer the live store session's runs; fall back to the runs on the card's
+  // own session prop (used when the store hasn't hydrated this session yet).
+  const storeSession = sessionsStore.sessions.find(s => s.id === props.session.id);
   const latestRuns = storeSession?.latestCommandRuns || props.session.latestCommandRuns || [];
 
-  return latestRuns
-    .filter(run => buttonMap[run.buttonId]?.showOnList)
-    .map(run => ({
-      buttonId: run.buttonId,
-      label: buttonMap[run.buttonId].label,
-      command: buttonMap[run.buttonId].command,
-      status: run.status,
-      latestRun: run,
-    }));
+  return mapRunsToButtonStatuses(buttonMap, latestRuns);
 });
 
 const getStatusIcon = (status) => getStatusIconSvg(status);
@@ -474,6 +503,32 @@ const onStarClick = () => {
 .button-status-indicator:hover {
   transform: scale(1.15);
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+.lane-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--color-bg-soft, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: var(--color-text-soft);
+}
+
+.lane-chip-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.lane-chip-clickable:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.lane-chip svg {
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .button-status-running {

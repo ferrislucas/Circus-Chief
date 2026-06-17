@@ -57,7 +57,7 @@ describe('MoveCardModal.vue', () => {
     projectId: 'proj-1',
     cardId: 'card-1',
     currentLaneId: 'lane-1',
-    sessionName: 'Test Session',
+    sessionName: 'Test Workspace',
   };
 
   function mountModal(props = {}) {
@@ -107,7 +107,7 @@ describe('MoveCardModal.vue', () => {
       expect(wrapper.props('projectId')).toBe('proj-1');
       expect(wrapper.props('cardId')).toBe('card-1');
       expect(wrapper.props('currentLaneId')).toBe('lane-1');
-      expect(wrapper.props('sessionName')).toBe('Test Session');
+      expect(wrapper.props('sessionName')).toBe('Test Workspace');
     });
 
     it('handles empty sessionName gracefully', () => {
@@ -410,7 +410,7 @@ describe('MoveCardModal.vue', () => {
     it('shows confirm dialog when Remove from Board button is clicked', async () => {
       const wrapper = mountModal();
       await wrapper.find('.btn-danger').trigger('click');
-      expect(global.confirm).toHaveBeenCalledWith('Remove this session from the board?');
+      expect(global.confirm).toHaveBeenCalledWith('Remove this workspace from the board?');
     });
 
     it('does not remove card when confirm dialog is cancelled', async () => {
@@ -467,9 +467,9 @@ describe('MoveCardModal.vue', () => {
 
   describe('Accessibility - Remove button', () => {
     it('has proper aria-label on remove button', () => {
-      const wrapper = mountModal({ sessionName: 'Test Session' });
+      const wrapper = mountModal({ sessionName: 'Test Workspace' });
       const removeButton = wrapper.find('.btn-danger');
-      expect(removeButton.attributes('aria-label')).toBe('Remove Test Session from board');
+      expect(removeButton.attributes('aria-label')).toBe('Remove Test Workspace from board');
     });
 
     it('shows "Remove from Board" text initially', () => {

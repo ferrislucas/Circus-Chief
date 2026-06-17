@@ -5,13 +5,13 @@ import templatesRouter from './templates.js';
 import canvasRouter from './canvas.js';
 import gitRouter from './git.js';
 import filesystemRouter from './filesystem.js';
-import quickResponsesRouter from './quickResponses.js';
 import settingsRouter from './settings.js';
 import providersRouter from './providers.js';
 import commandsRouter from './commands.js';
 import metricsRouter from './metrics.js';
 import kanbanRouter from './kanban.js';
 import agentsRouter from './agents.js';
+import { projectWorkspacesRouter, workspacesRouter } from './workspaces.js';
 import { getDbPath } from '../database.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { isE2ESpawnCaptureEnabled } from '../services/e2eSpawnCapture.js';
@@ -36,6 +36,9 @@ router.get('/server-info', (_req, res) => {
 
 router.use('/projects', projectsRouter);
 router.use('/sessions', sessionsRouter);
+// Workspace facade: project-scoped list/create and workspace-scoped detail/add-session
+router.use('/projects', projectWorkspacesRouter);
+router.use('/workspaces', workspacesRouter);
 router.use('/templates', templatesRouter);
 router.use('/git', gitRouter);
 router.use('/filesystem', filesystemRouter);
@@ -52,8 +55,5 @@ router.use('/projects/:projectId/kanban', kanbanRouter);
 
 // Metrics routes (agent call stats)
 router.use('/', metricsRouter);
-
-// Quick responses routes (nested under both projects and standalone)
-router.use('/', quickResponsesRouter);
 
 export default router;

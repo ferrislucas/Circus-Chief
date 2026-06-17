@@ -229,6 +229,21 @@ export function SessionsApi(ApiClient) {
     },
 
     /**
+     * Get compact git status for a session.
+     * @param {string} sessionId
+     * @param {Object} [options]
+     * @param {boolean} [options.fetch=false] - Fetch origin before computing status
+     * @returns {Promise<Object>}
+     */
+    async getSessionGitStatus(sessionId, options = {}) {
+      const params = {};
+      if (options.fetch === true) {
+        params.fetch = true;
+      }
+      return this._get(this._buildQueryPath(`/sessions/${sessionId}/git-status`, params));
+    },
+
+    /**
      * Get count of files modified compared to the default branch
      * @param {string} sessionId - Session ID
      * @returns {Promise<{count: number}>}

@@ -174,7 +174,7 @@ async function handleExecute(args) {
 
   // Execute mode - send to session
   if (!props.sessionId) {
-    uiStore.error('No session available to execute command');
+    uiStore.error('No workspace available to execute command');
     return;
   }
 

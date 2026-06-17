@@ -8,8 +8,9 @@ import {
 } from './helpers';
 
 test.describe('Git-backed project session creation', () => {
-  // Session creation can be slow under load
-  test.describe.configure({ timeout: 60000 });
+  // These tests create and remove git worktrees in the same repository.
+  // Keep them serial so cleanup and git worktree operations do not race.
+  test.describe.configure({ mode: 'serial', timeout: 60000 });
 
   let project: any;
 
@@ -40,8 +41,8 @@ test.describe('Git-backed project session creation', () => {
     const prompt = 'Test git session creation without explicit git settings';
     await page.fill('textarea[id="prompt"]', prompt);
 
-    // Click "Start Session"
-    await page.click('button:has-text("Start Session")');
+    // Click "Start Workspace"
+    await page.click('button:has-text("Start Workspace")');
 
     // Should redirect to session detail page (successful creation)
     await expect(page).toHaveURL(/\/sessions\/(?!new(?:$|[/?#]))[0-9a-f-]+(?:\/chat)?$/, { timeout: 30000 });
@@ -149,8 +150,8 @@ test.describe('Git-backed project session creation', () => {
       await currentButton.click();
     }
 
-    // Click "Start Session"
-    await page.click('button:has-text("Start Session")');
+    // Click "Start Workspace"
+    await page.click('button:has-text("Start Workspace")');
 
     // Should redirect to session detail page
     await expect(page).toHaveURL(/\/sessions\/(?!new(?:$|[/?#]))[0-9a-f-]+(?:\/chat)?$/, { timeout: 30000 });

@@ -6,6 +6,14 @@ let logger = {
 };
 
 /**
+ * Get the timeout for best-effort fetch operations (ms).
+ * Read at call time so tests can override GIT_FETCH_TIMEOUT_MS without mocking.
+ */
+function getFetchTimeoutMs() {
+  return Number(process.env.GIT_FETCH_TIMEOUT_MS) || 10_000;
+}
+
+/**
  * Set a custom logger for git worktree warnings.
  * @param {Object} customLogger - Logger object with a warn method
  */
@@ -14,17 +22,18 @@ export function _setWorktreeLogger(customLogger) {
 }
 
 /**
- * Safely fetch from origin remote.
- * Logs a warning if fetch fails but does not throw.
+ * Safely fetch from origin remote with a short bounded timeout.
+ * Logs a warning if fetch fails or times out but does not throw.
+ * Worktree creation always continues from local refs on failure.
  * @param {string} directory - The git repository directory
  * @returns {Promise<boolean>} - True if fetch succeeded, false otherwise
  */
 async function safeFetchOrigin(directory) {
   try {
-    await git(directory, 'fetch origin');
+    await git(directory, 'fetch origin', { timeout: getFetchTimeoutMs() });
     return true;
   } catch (err) {
-    // No origin or network unavailable, proceed without fetch
+    // No origin, network unavailable, or timed out — proceed with local refs
     logger.warn('Could not fetch from origin, proceeding with local refs:', err.message);
     return false;
   }

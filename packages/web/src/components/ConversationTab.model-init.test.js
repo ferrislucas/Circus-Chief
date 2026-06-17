@@ -78,13 +78,6 @@ vi.mock('../stores/providers.js', () => ({
   })),
 }));
 
-// Mock the quick responses store
-vi.mock('../stores/quickResponses.js', () => ({
-  useQuickResponsesStore: vi.fn(() => ({
-    fetchForProject: vi.fn(),
-  })),
-}));
-
 // Mock the templates store
 vi.mock('../stores/templates.js', () => ({
   useTemplatesStore: vi.fn(() => ({
@@ -310,7 +303,7 @@ describe('ConversationTab - Model Initialization Bug', () => {
       expect(modelValue).toBe('sonnet');
     });
 
-    it('should use session model as fallback when conversation has no model', async () => {
+    it('should use workspace model as fallback when conversation has no model', async () => {
       // Setup: Conversation exists but has no model, session has a model
       mockSessionsStore.currentSession = {
         id: 'sess-123',
@@ -337,7 +330,7 @@ describe('ConversationTab - Model Initialization Bug', () => {
       expect(modelValue).toBe('opus');
     });
 
-    it('should use project default model when session and conversation have no model', async () => {
+    it('should use project default model when workspace and conversation have no model', async () => {
       // Setup: Neither conversation nor session has a model, but project has a default
       mockDefaultsStore.getDefaultsForProject.mockReturnValue({
         model: 'haiku',
@@ -498,8 +491,8 @@ describe('ConversationTab - Model Initialization Bug', () => {
     });
   });
 
-  describe('Draft session input clearing on start', () => {
-    it('should clear textarea when draft session starts successfully', async () => {
+  describe('Draft workspace input clearing on start', () => {
+    it('should clear textarea when draft workspace starts successfully', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -531,7 +524,7 @@ describe('ConversationTab - Model Initialization Bug', () => {
       expect(textarea.element.value).toBe('');
     });
 
-    it('should not clear textarea when draft session fails to start', async () => {
+    it('should not clear textarea when draft workspace fails to start', async () => {
       mockSessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',

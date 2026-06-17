@@ -58,7 +58,7 @@ test.describe('Cross-kind model switching', () => {
 
     const claudeSession = await seedSession(project.id, {
       prompt: 'Claude root',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       startImmediately: false,
     });
     const codexSession = await seedSession(project.id, {
@@ -95,7 +95,7 @@ test.describe('Cross-kind model switching', () => {
     const project = await seedProject('Cross Kind UI Project', process.cwd());
     const session = await seedSession(project.id, {
       prompt: 'Claude UI root',
-      model: 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-6',
       startImmediately: false,
     });
 

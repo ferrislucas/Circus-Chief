@@ -6,8 +6,8 @@ Circus Chief is distributed as an npm package named `circuschief`. End users run
 
 The build/publish/run flow:
 
-1. **Build** (`node scripts/build-package.js`): Vite compiles the Vue.js frontend into static assets, then the script assembles a publish-ready tree under `dist-package/`. Server-side code requires no compilation — the JS sources are copied as-is and `@circuschief/shared` imports are rewritten to relative paths so the package can run without workspace tooling.
-2. **Publish** (`scripts/publish.sh`): Runs the build, then `npm publish` from `dist-package/`. The package ships with the pre-built frontend included.
+1. **Build** (`node scripts/build-package.js`): Verifies PostHog publish configuration, Vite compiles the Vue.js frontend into static assets, then the script assembles a publish-ready tree under `dist-package/`. Server-side code requires no compilation — the JS sources are copied as-is and `@circuschief/shared` imports are rewritten to relative paths so the package can run without workspace tooling.
+2. **Publish** (`scripts/publish.sh`): Verifies PostHog publish configuration before npm login or build, runs the build, then `npm publish` from `dist-package/`. The package ships with the pre-built frontend included.
 3. **Run** (`npx circuschief`): The `bin/cli.js` shim sets `NODE_ENV=production` and starts the Express server, which serves the pre-built frontend as static files.
 
 ## Build-time vs runtime variables
@@ -40,26 +40,28 @@ NODE_ENV=production yarn workspace @circuschief/server start
 
 ```bash
 # Build the publishable package (defaults to version 0.1.0 if --version is omitted)
-node scripts/build-package.js --version=0.2.0
+POSTHOG_KEY=phc_xxxxx node scripts/build-package.js --version=0.2.0
 ```
 
 What the script does:
 
 1. Cleans and recreates `dist-package/`.
 2. Builds the frontend with `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` injected.
-3. If a PostHog key was provided, **verifies** the key appears in one of the built JS bundles and fails the build if it doesn't.
-4. Copies `packages/web/dist/`, `packages/server/src/` (minus `*.test.js`), `packages/server/bin/`, and `packages/shared/src/` + `package.json` into `dist-package/packages/...`.
+3. Requires a PostHog key and **verifies** the key appears in one of the built JS bundles, failing the build if it doesn't.
+4. Copies `packages/web/dist/`, `packages/server/src/` (minus `*.test.js`), `packages/server/bin/`, and `packages/shared/src/` into `dist-package/packages/...`.
 5. Rewrites all `from '@circuschief/shared'` / `from '@circuschief/shared/...'` imports in the copied server code to relative paths into `packages/shared/src/`. **Only static `import ... from '...'` syntax is handled** — `require()` and dynamic `import()` of `@circuschief/shared` would need script changes.
 6. Writes a publish-ready `dist-package/package.json` with:
    - `name: circuschief`, the given `--version`, `type: module`, `bin.circuschief`, `engines.node: >=18`
    - Merged runtime deps from `server` + `shared` (workspace reference to `@circuschief/shared` removed)
-   - A `files` array limiting the published tarball to `packages/server/bin/`, `packages/server/src/`, `packages/shared/src/`, `packages/shared/package.json`, and `packages/web/dist/`
-7. Overwrites `packages/server/bin/cli.js` with a production shim that sets `NODE_ENV=production` and imports `../src/index.js`.
+   - A `files` array limiting the published tarball to `packages/server/bin/`, `packages/server/src/`, `packages/server/package.json`, `packages/shared/src/`, `packages/shared/package.json`, and `packages/web/dist/`
+7. Writes sanitized internal `packages/server/package.json` and `packages/shared/package.json` manifests with the publish version and no workspace-only scripts or dependency metadata.
+8. Overwrites `packages/server/bin/cli.js` with a production shim that sets `NODE_ENV=production` and imports `../src/index.js`.
+9. Verifies the generated artifact versions, internal manifests, CLI `--version` output, and absence of stale internal workspace references.
 
 ### Testing the package locally
 
 ```bash
-node scripts/build-package.js --version=0.0.0-test
+POSTHOG_KEY=phc_test_publish_key node scripts/build-package.js --version=0.0.0-test
 cd dist-package
 npm pack
 # Then from any directory:
@@ -85,7 +87,7 @@ VCR_MODE=record ./scripts/pw.sh test-package
 
 Under the hood, `pw.sh test-package` sets `USE_PACKAGE_SERVER=true` and delegates server startup to `scripts/start-package-server.sh`, which reproduces a realistic end-user install. The key difference is that the server is launched from an installed tarball, not from the repo checkout.
 
-1. Runs `node scripts/build-package.js` to produce `dist-package/`.
+1. Runs `scripts/build-package.js` with `POSTHOG_KEY=phc_test_package_key` by default to produce `dist-package/`.
 2. `cd dist-package && npm pack` to produce a `circuschief-<version>.tgz` tarball.
 3. Creates an isolated temp install directory (`$TMPDIR/circuschief-package-test.XXXXXX`) with a minimal `package.json`.
 4. `npm install`s the tarball into that directory — this is the same path `npx circuschief` takes for real users.
@@ -135,13 +137,14 @@ Arguments:
 
 What the script does:
 
-1. Verifies you're logged in (`npm whoami`) and aborts with an error if not.
-2. If `version` is omitted, queries npm for the latest published version and auto-bumps the minor version (e.g. `1.4.2` → `1.5.0`).
-3. Runs `node scripts/build-package.js --version=$VERSION`.
-4. Runs `npm publish --otp=$OTP` from inside `dist-package/`.
-5. Prints install/run hints (`npx circuschief`, `npx circuschief@<version>`).
+1. If `version` is omitted, queries npm for the latest published version and auto-bumps the minor version (e.g. `1.4.2` → `1.5.0`).
+2. Verifies a PostHog key is configured and aborts before npm login, build, or `npm publish` when absent.
+3. Verifies you're logged in (`npm whoami`) and aborts with an error if not.
+4. Runs `node scripts/build-package.js --version=$VERSION`.
+5. Runs `npm publish --otp=$OTP` from inside `dist-package/`.
+6. Prints install/run hints (`npx circuschief`, `npx circuschief@<version>`).
 
-Before publishing, make sure `VITE_POSTHOG_KEY` is available via one of the sources listed below so analytics actually ship in the bundle.
+Before publishing, make sure `POSTHOG_KEY` or `VITE_POSTHOG_KEY` is available via one of the sources listed below. The PostHog client key is public, but publishing requires it to be intentionally configured.
 
 ## Analytics
 
@@ -153,7 +156,7 @@ This application uses [PostHog](https://posthog.com) for anonymous usage analyti
   2. `POSTHOG_KEY` environment variable
   3. `VITE_POSTHOG_KEY` from `.env.production` in the repo root
 - The PostHog host is resolved the same way (`--posthog-host=...` / `POSTHOG_HOST` / `VITE_POSTHOG_HOST`) and defaults to `https://us.i.posthog.com`.
-- When no key is provided (local dev, CI, contributor forks), analytics are completely disabled — no PostHog code loads, no network requests are made, and the build prints a warning instead of failing.
-- When a key is provided, the build **fails** if the key is not found in the generated JS bundle, so you can't accidentally ship a build with analytics missing.
+- Package builds and publishing fail when no key is provided. Package E2E startup provides a fake test key by default so tests do not depend on a developer machine's `.env.production`.
+- The build **fails** if the key is not found in the generated JS bundle, so you can't accidentally ship a build with analytics missing.
 - The PostHog client API key is a public key (like a Google Analytics tracking ID), not a secret.
 - Browser Do Not Track (`respect_dnt: true`) is honored.

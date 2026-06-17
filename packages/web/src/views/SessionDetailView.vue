@@ -31,11 +31,16 @@
         :summary="summary"
         :is-deleting="isDeleting"
         :button-statuses="buttonStatusesToDisplay"
+        :git-status-summary="shortGitStatusSummary"
+        :git-status-loading="gitStatusLoading"
+        :git-status-error="gitStatusError"
+        :has-actionable-git-status="hasActionableGitStatus"
         @duplicate="handleDuplicate"
         @copy-session-id="handleCopySessionId"
         @archive="handleArchive"
         @delete="handleDelete"
         @star="handleStar"
+        @add-to-board="handleAddToBoard"
       />
 
       <SessionTabsPanel
@@ -44,7 +49,11 @@
         :active-tab="activeTab"
         :tabs="tabs"
         :has-changes="hasChanges"
+        :has-git-status-warning="hasActionableGitStatus"
+        :git-status-title="gitStatusIndicatorTitle"
         :canvas-count="canvasStore.groupedItems.length"
+        :is-session-active="isSessionActive"
+        :session-status="activeSessionStatus"
       />
 
       <div class="tab-content">
@@ -60,6 +69,11 @@
           v-else-if="activeTab === 'changes'"
           :key="route.params.id"
           :session-id="route.params.id"
+          :git-status="gitStatus"
+          :git-status-summary="gitStatusSummary"
+          :git-status-loading="gitStatusLoading"
+          :git-status-error="gitStatusError"
+          :refresh-git-status="refreshGitStatus"
           @update:file-count="changesFileCount = $event"
         />
         <CanvasTab
@@ -106,9 +120,19 @@
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
         :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
+        :is-on-kanban-board="isArchiveSessionOnBoard"
         :loading="archiving"
         @confirm="confirmArchive"
         @cancel="cancelArchive"
+      />
+
+      <KanbanLaneSelectorModal
+        :is-open="showLaneSelectorModal"
+        :session-name="sessionToAdd?.name || ''"
+        :lanes="kanbanStore.board?.lanes || []"
+        :current-lane-id="currentLaneIdForSessionToAdd"
+        @close="closeLaneSelectorModal"
+        @select-lane="addSessionToLane"
       />
     </template>
   </div>
@@ -126,6 +150,7 @@ import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionPolling } from '../composables/useSessionPolling.js';
 import { useSessionInitializer } from '../composables/useSessionInitializer.js';
 import { useSessionTree } from '../composables/useSessionTree.js';
+import { useSessionGitStatus } from '../composables/useSessionGitStatus.js';
 import ChangesTab from '../components/ChangesTab.vue';
 import CanvasTab from '../components/CanvasTab.vue';
 import SummaryTab from '../components/SummaryTab.vue';
@@ -136,6 +161,7 @@ import SessionChatHandle from '../components/SessionChatHandle.vue';
 import SessionChatOverlay from '../components/SessionChatOverlay.vue';
 import SessionChatContent from '../components/SessionChatContent.vue';
 import ArchiveConfirmModal from '../components/ArchiveConfirmModal.vue';
+import KanbanLaneSelectorModal from '../components/KanbanLaneSelectorModal.vue';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useWebSocket } from '../composables/useWebSocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
@@ -158,6 +184,20 @@ const currentSessionId = ref(route.params.id);
 sessionsStore.viewedSessionId = route.params.id;
 
 const {
+  gitStatus,
+  loading: gitStatusLoading,
+  error: gitStatusError,
+  summaryText: gitStatusSummary,
+  shortSummaryText: shortGitStatusSummary,
+  indicatorTitle: gitStatusIndicatorTitle,
+  hasActionableGitStatus,
+  refresh: refreshGitStatus,
+  reset: resetGitStatus,
+} = useSessionGitStatus({
+  getSessionId: () => currentSessionId.value,
+});
+
+const {
   hasChanges,
   changesFileCount,
   checkForChanges,
@@ -168,12 +208,20 @@ const {
   getSessionId: () => currentSessionId.value,
   getSessionStatus: () => sessionsStore.currentSession?.status,
   sessionsStore,
+  refreshGitStatus,
 });
 
 const summary = ref(null);
 const isDeleting = ref(false);
 const showArchiveModal = ref(false);
 const archiving = ref(false);
+const showLaneSelectorModal = ref(false);
+const sessionToAdd = ref(null);
+
+const currentLaneIdForSessionToAdd = computed(() => {
+  if (!sessionToAdd.value?.id) return null;
+  return getLaneIdForSession(sessionToAdd.value.id);
+});
 
 // Readiness signal for E2E tests
 const sessionChainReady = ref(false);
@@ -211,6 +259,7 @@ const { cleanup, initializeSession } = useSessionInitializer({
   startPolling,
   stopPolling,
   resetPolling,
+  refreshGitStatus,
   onReconnectCallback: buildSessionChain,
 });
 
@@ -247,6 +296,36 @@ const tabs = computed(() => [
   { id: 'commands', label: 'Commands' },
 ]);
 
+// The Kanban card (if any) for the current session's workflow. A card is keyed to
+// the workflow root, so resolve the root first and fall back to the session id in
+// case the ancestor chain isn't fully loaded in the store.
+const archiveWorkflowCard = computed(() => {
+  const sessionId = sessionsStore.currentSession?.id;
+  if (!sessionId) return null;
+  const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  return (
+    kanbanStore.getCardBySessionId(rootId) ||
+    kanbanStore.getCardBySessionId(sessionId) ||
+    null
+  );
+});
+
+const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
+
+async function ensureProjectKanbanData(session) {
+  if (!session?.projectId) return;
+
+  if (projectsStore.currentProject?.id !== session.projectId) {
+    await projectsStore.fetchProject(session.projectId);
+  }
+
+  if (kanbanStore.currentProjectId !== session.projectId) {
+    kanbanStore.fetchBoard(session.projectId).catch(err => {
+      console.warn('Failed to fetch kanban board:', err);
+    });
+  }
+}
+
 watch(
   () => sessionsStore.currentSession?.status,
   (newStatus, oldStatus) => {
@@ -265,9 +344,7 @@ onMounted(async () => {
   await initializeSession(currentSessionId.value);
 
   const projectId = sessionsStore.currentSession?.projectId;
-  if (projectId && !projectsStore.currentProject) {
-    await projectsStore.fetchProject(projectId);
-  }
+  await ensureProjectKanbanData(sessionsStore.currentSession);
 
   await buildSessionChain();
   sessionChainReady.value = true;
@@ -281,13 +358,6 @@ onMounted(async () => {
   if (route.query.overlay === 'open') {
     await openChatDestination({ replaceQuery: true });
   }
-
-  const session = sessionsStore.currentSession;
-  if (session?.projectId) {
-    kanbanStore.fetchBoard(session.projectId).catch(err => {
-      console.warn('Failed to fetch kanban board:', err);
-    });
-  }
 });
 
 watch(
@@ -299,12 +369,11 @@ watch(
       resetPreferred();
       cleanup();
       currentSessionId.value = newSessionId;
+      resetGitStatus();
       await initializeSession(newSessionId);
 
       const newProjectId = sessionsStore.currentSession?.projectId;
-      if (newProjectId && projectsStore.currentProject?.id !== newProjectId) {
-        await projectsStore.fetchProject(newProjectId);
-      }
+      await ensureProjectKanbanData(sessionsStore.currentSession);
 
       await buildSessionChain();
       sessionChainReady.value = true;
@@ -352,6 +421,7 @@ onActivated(() => {
 
 onUnmounted(() => {
   cleanup();
+  resetGitStatus();
   if (currentProjectSubscriptionId) {
     send(WS_MESSAGE_TYPES.UNSUBSCRIBE_PROJECT, { projectId: currentProjectSubscriptionId });
     currentProjectSubscriptionId = null;
@@ -428,12 +498,23 @@ async function handleArchive() {
   }
 }
 
-async function confirmArchive(runCleanup) {
+async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   archiving.value = true;
+  // Capture before archiving: navigation below tears down this view.
+  const projectId = sessionsStore.currentSession?.projectId;
+  const workflowCard = archiveWorkflowCard.value;
   try {
-    const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
     uiStore.success('Session archived');
+
+    if (removeFromBoard && workflowCard && projectId) {
+      try {
+        await kanbanStore.removeCard(projectId, workflowCard.id);
+      } catch (removeErr) {
+        uiStore.error(removeErr.message || 'Failed to remove card from board');
+      }
+    }
+
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);
     } else {
@@ -459,25 +540,71 @@ async function handleStar() {
   }
 }
 
-async function handleCopySessionId() {
-  const sessionId = currentSessionId.value;
+function handleAddToBoard(session) {
+  sessionToAdd.value = session;
+  showLaneSelectorModal.value = true;
+}
+
+function closeLaneSelectorModal() {
+  showLaneSelectorModal.value = false;
+  sessionToAdd.value = null;
+}
+
+async function addSessionToLane(lane) {
+  if (!sessionToAdd.value || !lane) return;
+
   try {
-    await navigator.clipboard.writeText(sessionId);
-    uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+    const existingCard = kanbanStore.getCardBySessionId(sessionToAdd.value.id);
+    if (existingCard) {
+      if (currentLaneIdForSessionToAdd.value === lane.id) return;
+      await kanbanStore.moveCard(sessionToAdd.value.projectId, existingCard.id, lane.id);
+      uiStore.success(`Session moved to "${lane.name}"`);
+    } else {
+      const workspaceId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;
+      await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, workspaceId, lane.id);
+      uiStore.success(`Session added to "${lane.name}"`);
+    }
+    closeLaneSelectorModal();
+  } catch (err) {
+    console.error('Failed to add session to board:', err);
+    uiStore.error(err.message || 'Failed to add session to board');
+  }
+}
+
+function getLaneIdForSession(sessionId) {
+  const card = kanbanStore.getCardBySessionId(sessionId);
+  if (!card) return null;
+  if (card.laneId) return card.laneId;
+
+  const lane = kanbanStore.board?.lanes?.find((candidate) =>
+    candidate.cards?.some((candidateCard) => candidateCard.id === card.id)
+  );
+  return lane?.id || null;
+}
+
+async function handleCopySessionId() {
+  // Copy the workspace ID (= root session ID) so agents and users can reference
+  // the whole workspace. Fall back to currentSessionId when the ancestor chain
+  // is not yet loaded in the store.
+  const sessionId = currentSessionId.value;
+  const workspaceId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  try {
+    await navigator.clipboard.writeText(workspaceId);
+    uiStore.success(`Workspace ID copied to clipboard: ${workspaceId}`);
   } catch (err) {
     try {
       const textarea = document.createElement('textarea');
-      textarea.value = sessionId;
+      textarea.value = workspaceId;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+      uiStore.success(`Workspace ID copied to clipboard: ${workspaceId}`);
     } catch (fallbackErr) {
       console.error('Copy failed:', fallbackErr);
-      uiStore.error('Failed to copy session ID');
+      uiStore.error('Failed to copy workspace ID');
     }
   }
 }

@@ -47,9 +47,9 @@ export function bootstrapDefaultSessionTemplates(db, { isFirstRun }) {
         next_template_id, thinking_enabled,
         git_branch, git_mode, model, mode, effort_level, target_lane_id,
         show_in_quick_responses, quick_response_auto_submit,
-        quick_response_sort_order, legacy_quick_response_id,
+        quick_response_sort_order,
         created_at, updated_at
-      ) VALUES (?, NULL, ?, ?, NULL, 1, NULL, NULL, NULL, 'yolo', NULL, NULL, ?, ?, ?, NULL, ?, ?)
+      ) VALUES (?, NULL, ?, ?, NULL, 1, NULL, NULL, NULL, 'yolo', NULL, NULL, ?, ?, ?, ?, ?)
     `);
 
     for (const item of DEFAULT_SESSION_TEMPLATES) {

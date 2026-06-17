@@ -1,4 +1,8 @@
 import { test, expect, Page } from '@playwright/test';
+import { execSync } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import {
   seedProject,
   seedSession,
@@ -147,8 +151,8 @@ test.describe('Toast Notifications', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Archive
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
@@ -171,7 +175,7 @@ test.describe('Toast Notifications', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Duplicate
-    const kebab = page.locator('button.btn-kebab[aria-label="Session actions"]');
+    const kebab = page.locator('button.btn-kebab[aria-label="Workspace actions"]');
     await expect(kebab).toBeVisible({ timeout: 8000 });
     await kebab.click();
     const menuItems = page.locator('.menu-items');
@@ -199,8 +203,8 @@ test.describe('Toast Notifications', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a toast
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
@@ -222,8 +226,8 @@ test.describe('Toast Notifications', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a toast
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
@@ -248,8 +252,8 @@ test.describe('Toast Notifications', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive to produce a success toast
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
@@ -282,8 +286,8 @@ test.describe('Toast Notifications', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Trigger archive (will fail due to intercepted route)
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
@@ -317,8 +321,8 @@ test.describe('Toast Notifications', () => {
     // Let's use the approach of triggering the archive, which creates both an info and success toast
 
     // Trigger archive - this creates "Session archived" toast
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Archive' }).click();
@@ -465,7 +469,7 @@ test.describe('Loading States & Spinners', () => {
     });
 
     // Click Archived tab — this triggers the delayed API call
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
 
     // Skeleton loaders should be visible while loading
     const skeleton = page.locator('.skeleton-list, .skeleton.card');
@@ -491,8 +495,8 @@ test.describe('Loading States & Spinners', () => {
     });
 
     // Open overflow menu and click Delete
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item.is-danger').filter({ hasText: 'Delete' }).click();
@@ -620,8 +624,8 @@ test.describe('Overflow Menu', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Click kebab button
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
 
     // Menu items should be visible
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
@@ -639,8 +643,8 @@ test.describe('Overflow Menu', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
 
     // Click overlay
@@ -654,8 +658,8 @@ test.describe('Overflow Menu', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(200);
 
@@ -670,8 +674,8 @@ test.describe('Overflow Menu', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(200);
 
@@ -696,8 +700,8 @@ test.describe('Overflow Menu', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
     await page.waitForTimeout(200);
 
@@ -727,7 +731,7 @@ test.describe('Overflow Menu', () => {
   test('overflow menu has correct ARIA attributes', async ({ page }) => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
-    const kebab = page.locator('button.btn-kebab[aria-label="Session actions"]');
+    const kebab = page.locator('button.btn-kebab[aria-label="Workspace actions"]');
     await expect(kebab).toBeVisible({ timeout: 8000 });
 
     // Before opening: aria-expanded should be false
@@ -752,8 +756,8 @@ test.describe('Overflow Menu', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open menu
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
 
     // Delete button should have .is-danger class
@@ -799,8 +803,8 @@ test.describe('Modal Dialogs', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Delete
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item.is-danger').filter({ hasText: 'Delete' }).click();
@@ -817,8 +821,8 @@ test.describe('Modal Dialogs', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Delete
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item.is-danger').filter({ hasText: 'Delete' }).click();
@@ -842,8 +846,8 @@ test.describe('Modal Dialogs', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Delete
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item.is-danger').filter({ hasText: 'Delete' }).click();
@@ -866,8 +870,8 @@ test.describe('Modal Dialogs', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
 
     // Open overflow menu and click Duplicate
-    await page.waitForSelector('button.btn-kebab[aria-label="Session actions"]', { timeout: 8000 });
-    await page.click('button.btn-kebab[aria-label="Session actions"]');
+    await page.waitForSelector('button.btn-kebab[aria-label="Workspace actions"]', { timeout: 8000 });
+    await page.click('button.btn-kebab[aria-label="Workspace actions"]');
     await page.waitForSelector('.menu-items', { timeout: 5000 });
     await page.waitForTimeout(200);
     await page.locator('.menu-items button.menu-item').filter({ hasText: 'Duplicate' }).click();
@@ -1039,7 +1043,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // All 3 archived sessions should be visible
@@ -1054,7 +1058,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(500);
 
@@ -1090,7 +1094,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
@@ -1130,7 +1134,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
@@ -1175,7 +1179,7 @@ test.describe('Pagination / Load More', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 
@@ -1199,14 +1203,18 @@ test.describe('Pagination / Load More', () => {
 test.describe('Tab Indicators', () => {
   let project: any;
   let session: any;
+  let tmpDir: string;
 
   test.beforeEach(async () => {
-    project = await seedProject('Indicators', '/tmp/test');
+    tmpDir = mkdtempSync(join(tmpdir(), 'e2e-indicators-'));
+    execSync('git init', { cwd: tmpDir });
+    project = await seedProject('Indicators', tmpDir);
     session = await seedSession(project.id, { prompt: 'test', name: 'Indicator Test', startImmediately: false });
   });
 
   test.afterEach(async () => {
     await cleanupCreatedResources();
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
   test('canvas tab shows indicator dot when items exist', async ({ page }) => {

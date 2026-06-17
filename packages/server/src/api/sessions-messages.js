@@ -6,6 +6,7 @@ import { requireSession, requireSessionAndProject } from '../middleware/sessionL
 import * as slashCommandService from '../services/slashCommandService.js';
 import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
 import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
+import { validateModelId } from './model-validation.js';
 
 const router = Router();
 
@@ -14,16 +15,37 @@ function shouldRenderLiquid(value) {
 }
 
 async function renderLiquidForSession(content, session) {
-  const parentSummary = sessionSummaries.getBySessionId(session.id);
   const rootSession = getRootSession(session);
   const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
 
   return renderTemplatePrompt(content, {
-    parentSession: session,
-    parentSummary,
     rootSession,
     rootSummary,
   });
+}
+
+// Validate a follow-up message request. Returns an error descriptor
+// { status, body } when the request is invalid, otherwise null.
+function validateMessageRequest(session, content, model) {
+  if (!content) {
+    return { status: 400, body: { error: 'Content is required' } };
+  }
+
+  if (session.status !== 'waiting' && session.status !== 'stopped' && session.status !== 'error') {
+    return { status: 400, body: { error: 'Session is not waiting for input' } };
+  }
+
+  const modelResult = validateModelId(model);
+  if (modelResult.error) {
+    return { status: 400, body: { error: modelResult.error } };
+  }
+
+  const crossKindError = checkCrossKindSwitch(session, model);
+  if (crossKindError) {
+    return { status: 400, body: crossKindError };
+  }
+
+  return null;
 }
 
 // GET /api/sessions/:id/messages - Get session messages
@@ -73,17 +95,9 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
   const renderLiquid = shouldRenderLiquid(req.body.renderLiquid);
   const files = req.files || [];
 
-  if (!content) {
-    return res.status(400).json({ error: 'Content is required' });
-  }
-
-  if (req.session_.status !== 'waiting' && req.session_.status !== 'stopped' && req.session_.status !== 'error') {
-    return res.status(400).json({ error: 'Session is not waiting for input' });
-  }
-
-  const crossKindError = checkCrossKindSwitch(req.session_, model);
-  if (crossKindError) {
-    return res.status(400).json(crossKindError);
+  const validationError = validateMessageRequest(req.session_, content, model);
+  if (validationError) {
+    return res.status(validationError.status).json(validationError.body);
   }
 
   try {
