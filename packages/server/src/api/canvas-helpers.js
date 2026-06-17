@@ -6,6 +6,9 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 const MIME_TEXT_PLAIN = 'text/plain';
 const MIME_TEXT_MARKDOWN = 'text/markdown';
 
+// Video extensions for canvas type detection
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm']);
+
 // Map file extensions to MIME types for binary files (images/PDF/video)
 export const MIME_TYPES = {
   '.png': 'image/png',
@@ -112,7 +115,7 @@ export function isBinaryContent(buffer) {
 export function getTypeFromExtension(ext) {
   if (MIME_TYPES[ext]) {
     if (ext === '.pdf') return 'pdf';
-    if (ext === '.mp4' || ext === '.mov' || ext === '.webm') return 'video';
+    if (VIDEO_EXTENSIONS.has(ext)) return 'video';
     return 'image';
   }
   if (ext === '.json' || ext === '.jsonc' || ext === '.json5') {
