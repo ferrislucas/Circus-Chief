@@ -974,20 +974,16 @@ export async function sendMessageWithFiles(
 }
 
 /**
- * Get attachments for a session
+ * Get attachments for a session.
+ * Uses the direct /api/sessions/:id/attachments endpoint which returns all
+ * attachments for the session regardless of whether they are linked to a
+ * message yet (important for scheduled sessions where files are uploaded
+ * before any message exists).
  */
 export async function getSessionAttachments(sessionId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/messages`);
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/attachments`);
   if (!response.ok) return [];
-  const messages = await response.json();
-  // Collect all attachments from all messages
-  const allAttachments: any[] = [];
-  for (const msg of messages) {
-    if (msg.attachments && msg.attachments.length > 0) {
-      allAttachments.push(...msg.attachments);
-    }
-  }
-  return allAttachments;
+  return response.json();
 }
 
 // ============================================================
