@@ -111,7 +111,7 @@ describe('ProjectListView', () => {
 
       const steps = wrapper.findAll('.step-card');
       expect(steps).toHaveLength(3);
-      expect(steps[0].text()).toContain('Pick a repo folder');
+      expect(steps[0].text()).toContain('Pick a project folder');
       expect(steps[1].text()).toContain('Create coding sessions');
       expect(steps[2].text()).toContain('Track changes');
     });

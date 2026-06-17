@@ -50,7 +50,7 @@
             1
           </div>
           <h3 class="step-title">
-            Pick a repo folder
+            Pick a project folder
           </h3>
           <p class="step-desc">
             Point to any codebase on your machine
