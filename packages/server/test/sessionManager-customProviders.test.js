@@ -217,6 +217,30 @@ describe('sessionManager custom provider integration', () => {
 
       expect(mockQuery.mock.calls[1][0].options.model).toBe('custom-opus-v2');
     });
+
+    it('does not mutate providerId when model changes to one owned by a different provider (regression: buildModelAndProvider)', async () => {
+      // Create a second provider with a different sonnet model
+      const secondProvider = modelProviders.create({
+        name: 'Second Provider',
+        baseUrl: 'https://api.second-provider.com',
+        authToken: 'second-auth-token',
+      });
+      modelProviders.addModel(secondProvider.id, { modelId: 'second-sonnet-model', displayName: 'Second Sonnet', tier: 'sonnet' });
+
+      // Create a draft session explicitly pinned to customProvider
+      session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
+      sessions.update(session.id, { providerId: customProvider.id });
+
+      // Continue with a model owned by secondProvider — providerId must not change
+      mockQuery.mockImplementation(() => createMockQueryResponse('second-sonnet-model'));
+      await continueSession(session.id, 'follow-up', '/tmp/test', { model: 'second-sonnet-model' });
+
+      const updatedSession = sessions.getById(session.id);
+      expect(updatedSession.providerId).toBe(customProvider.id);
+
+      // Cleanup
+      modelProviders.delete(secondProvider.id);
+    });
   });
 
   describe('without custom provider (default behavior)', () => {
@@ -294,9 +318,7 @@ describe('sessionManager custom provider integration', () => {
       expect(queryParams.options.env.CUSTOM_VAR_1).toBe('value1');
       expect(queryParams.options.env.CUSTOM_VAR_2).toBe('value2');
 
-      // Cleanup - clear session's provider reference before deleting provider to avoid FK constraint
-      // (deriveAgentTypeUpdate persists providerId onto the session at run time)
-      sessions.update(session.id, { providerId: null });
+      // Cleanup
       modelProviders.delete(providerWithExtras.id);
     });
   });
@@ -327,9 +349,7 @@ describe('sessionManager custom provider integration', () => {
       expect(mockQuery.mock.calls[1][0].options.env.ANTHROPIC_BASE_URL).toBe('https://api.second-provider.com');
       expect(mockQuery.mock.calls[1][0].options.env.ANTHROPIC_API_KEY).toBe('second-auth-token');
 
-      // Cleanup - clear session's provider reference before deleting provider to avoid FK constraint
-      // (deriveAgentTypeUpdate persists providerId onto the session at run time)
-      sessions.update(session.id, { providerId: null });
+      // Cleanup
       modelProviders.delete(secondProvider.id);
     });
   });

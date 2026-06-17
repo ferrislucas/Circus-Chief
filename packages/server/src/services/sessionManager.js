@@ -244,7 +244,10 @@ function buildModelAndProvider(session, sessionId, model) {
     // Defense in depth: if this is still a draft (no assistant messages),
     // re-derive agentType so it stays in sync with the chosen model.
     // After the first assistant turn this is locked.
-    const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, model);
+    // Only reconcile agentType here — providerId is managed by PATCH and
+    // SessionRepository.create. Suppress providerId auto-set by passing the
+    // current value as the explicit override (mirrors sessionExecution.js).
+    const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, model, { providerId: session.providerId });
     sessions.update(sessionId, { model, ...agentTypeUpdate });
     updatedSession = sessions.getById(sessionId);
   }
