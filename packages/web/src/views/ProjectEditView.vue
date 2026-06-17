@@ -277,7 +277,7 @@ async function handleSubmit() {
       await defaultsStore.updateDefaults(route.params.id, defaultsData);
     }
 
-    uiStore.success('Repository updated');
+    uiStore.success('Project updated');
     router.push(`/projects/${route.params.id}/sessions`);
   } catch (err) {
     error.value = err.message;
@@ -291,7 +291,7 @@ async function handleDelete() {
 
   try {
     await projectsStore.deleteProject(route.params.id);
-    uiStore.success('Repository removed');
+    uiStore.success('Project removed');
     router.push('/');
   } catch (err) {
     error.value = err.message;

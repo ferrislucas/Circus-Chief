@@ -51,7 +51,7 @@ describe('ProjectListView', () => {
   });
 
   describe('Page Header', () => {
-    it('displays "Repositories" as page title', async () => {
+    it('displays "Projects" as page title', async () => {
       projectsStore.projects = [];
       projectsStore.loading = false;
       projectsStore.error = null;
@@ -62,10 +62,10 @@ describe('ProjectListView', () => {
 
       await flushAll(wrapper);
 
-      expect(wrapper.find('h1').text()).toBe('Repositories');
+      expect(wrapper.find('h1').text()).toBe('Projects');
     });
 
-    it('shows "Add Repository" button', async () => {
+    it('shows "Add Project" button', async () => {
       projectsStore.projects = [];
       projectsStore.loading = false;
       projectsStore.error = null;
@@ -79,7 +79,7 @@ describe('ProjectListView', () => {
       const link = wrapper.find('.page-header .btn-primary');
       expect(link.exists()).toBe(true);
       // Desktop label should be visible
-      expect(link.find('.add-repo-label-full').text()).toBe('Add Repository');
+      expect(link.find('.add-repo-label-full').text()).toBe('Add Project');
     });
   });
 
@@ -129,7 +129,7 @@ describe('ProjectListView', () => {
 
       const cta = wrapper.find('.cta-button');
       expect(cta.exists()).toBe(true);
-      expect(cta.text()).toBe('Add Your First Repository');
+      expect(cta.text()).toBe('Add Your First Project');
       // router-link renders as <a href="...">; the 'to' prop becomes the href attribute
       expect(cta.attributes('href')).toBe('/projects/new');
     });
