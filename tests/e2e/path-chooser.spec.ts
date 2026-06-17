@@ -216,7 +216,7 @@ test.describe('Path Chooser Selection', () => {
     expect(inputValue).toBe('/tmp');
 
     // Submit form
-    await page.click('button:has-text("Add Repository")');
+    await page.click('button:has-text("Add Project")');
 
     // Should redirect to sessions page
     await expect(page).toHaveURL(/\/projects\/.*\/sessions/);
@@ -232,7 +232,7 @@ test.describe('Path Chooser Selection', () => {
     // the create-project request to 400 and the URL to stay on /projects/new.
     await page.fill('.path-chooser input', '/tmp');
 
-    await page.click('button:has-text("Add Repository")');
+    await page.click('button:has-text("Add Project")');
 
     await expect(page).toHaveURL(/\/projects\/.*\/sessions/);
   });
