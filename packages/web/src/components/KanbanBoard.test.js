@@ -660,6 +660,99 @@ describe('KanbanBoard.vue', () => {
         expect(wrapper.find('.kanban-lanes-container').classes()).toContain('layout-horizontal');
       });
     });
+
+    describe('8. Lane collapse persistence', () => {
+      it('collapsing a lane in vertical mode writes the project-scoped key to localStorage', async () => {
+        localStorage.setItem('kanbanLayoutMode', 'vertical');
+        const wrapper = mountBoard({ projectId: 'proj-1' });
+        await wrapper.vm.$nextTick();
+
+        const laneHeaders = wrapper.findAll('.lane-header');
+        await laneHeaders[0].trigger('click');
+        await wrapper.vm.$nextTick();
+
+        const stored = localStorage.getItem('kanbanExpandedLanes:proj-1');
+        expect(stored).not.toBeNull();
+        const parsed = JSON.parse(stored);
+        expect(parsed['lane-1']).toBe(false);
+      });
+
+      it('fresh mount with a saved collapsed state renders that lane collapsed', async () => {
+        localStorage.setItem('kanbanLayoutMode', 'vertical');
+        localStorage.setItem(
+          'kanbanExpandedLanes:proj-1',
+          JSON.stringify({ 'lane-1': false, 'lane-2': true })
+        );
+        const wrapper = mountBoard({ projectId: 'proj-1' });
+        await wrapper.vm.$nextTick();
+
+        // lane-1 cards container should be hidden
+        const laneCards = wrapper.findAll('.lane-cards');
+        expect(laneCards[0].element.style.display).toBe('none');
+        // lane-2 should be visible
+        expect(laneCards[1].element.style.display).not.toBe('none');
+      });
+
+      it('fresh mount defaults lanes not present in saved state to expanded', async () => {
+        localStorage.setItem('kanbanLayoutMode', 'vertical');
+        // Only save state for lane-2; lane-1 has no saved state
+        localStorage.setItem(
+          'kanbanExpandedLanes:proj-1',
+          JSON.stringify({ 'lane-2': false })
+        );
+        const wrapper = mountBoard({ projectId: 'proj-1' });
+        await wrapper.vm.$nextTick();
+
+        const laneCards = wrapper.findAll('.lane-cards');
+        // lane-1 has no saved state → defaults to expanded
+        expect(laneCards[0].element.style.display).not.toBe('none');
+        // lane-2 has saved collapsed state
+        expect(laneCards[1].element.style.display).toBe('none');
+      });
+
+      it('two mounts with different projectId values do not share collapse state', async () => {
+        localStorage.setItem('kanbanLayoutMode', 'vertical');
+        // Collapse lane-1 for proj-1
+        localStorage.setItem(
+          'kanbanExpandedLanes:proj-1',
+          JSON.stringify({ 'lane-1': false, 'lane-2': true })
+        );
+        // proj-2 has no saved state
+        const wrapper = mountBoard({ projectId: 'proj-2' });
+        await wrapper.vm.$nextTick();
+
+        const laneCards = wrapper.findAll('.lane-cards');
+        // proj-2 has no saved state, so all lanes default to expanded
+        expect(laneCards[0].element.style.display).not.toBe('none');
+        expect(laneCards[1].element.style.display).not.toBe('none');
+      });
+
+      it('invalid JSON in localStorage falls back safely (all lanes expanded)', async () => {
+        localStorage.setItem('kanbanLayoutMode', 'vertical');
+        localStorage.setItem('kanbanExpandedLanes:proj-1', 'not-valid-json{{{');
+        const wrapper = mountBoard({ projectId: 'proj-1' });
+        await wrapper.vm.$nextTick();
+
+        const laneCards = wrapper.findAll('.lane-cards');
+        expect(laneCards[0].element.style.display).not.toBe('none');
+        expect(laneCards[1].element.style.display).not.toBe('none');
+      });
+
+      it('non-boolean values in stored JSON fall back to expanded', async () => {
+        localStorage.setItem('kanbanLayoutMode', 'vertical');
+        // Values like "0", null, 1 are not booleans and must be ignored
+        localStorage.setItem(
+          'kanbanExpandedLanes:proj-1',
+          JSON.stringify({ 'lane-1': 0, 'lane-2': null })
+        );
+        const wrapper = mountBoard({ projectId: 'proj-1' });
+        await wrapper.vm.$nextTick();
+
+        const laneCards = wrapper.findAll('.lane-cards');
+        expect(laneCards[0].element.style.display).not.toBe('none');
+        expect(laneCards[1].element.style.display).not.toBe('none');
+      });
+    });
   });
 
   describe('Command button status indicators', () => {

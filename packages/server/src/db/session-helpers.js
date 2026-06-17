@@ -4,6 +4,29 @@
  */
 
 import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+// Imported only to resolve agent type from a model at call time (runtime), so the
+// ES-module cycle (index → SessionRepository → session-helpers → index) is safe.
+import { modelProviders } from './index.js';
+
+/** Fallback agent runtime when none can be derived from the model/provider. */
+export const DEFAULT_AGENT_TYPE = 'claude-code';
+
+/**
+ * Resolve the agent type ('claude-code' or 'codex') from a model ID by looking
+ * up which provider owns the model. Inlined here (rather than in sessionProvider)
+ * to avoid a circular dependency:
+ *   database.js (index) → SessionRepository → sessionProvider → database.js
+ * @param {string|null} modelId
+ * @returns {'claude-code'|'codex'}
+ */
+export function resolveAgentTypeFromModel(modelId) {
+  if (!modelId) return DEFAULT_AGENT_TYPE;
+  const provider = modelProviders.getProviderByModelId(modelId);
+  if (!provider) return DEFAULT_AGENT_TYPE;
+  // ProviderRepository.getAgentTypeForProvider maps kind → agent adapter
+  const agentType = modelProviders.getAgentTypeForProvider(provider.id);
+  return agentType || DEFAULT_AGENT_TYPE;
+}
 
 /** Shared ORDER BY clause for session list queries (most-recent activity first). */
 export const SESSION_ORDER_BY =

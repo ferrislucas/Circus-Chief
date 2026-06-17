@@ -32,6 +32,25 @@ export {
 const execAsync = promisify(exec);
 export const DEFAULT_GIT_MAX_BUFFER = 100 * 1024 * 1024;
 
+/** Default timeout for git subprocesses (ms). Override with GIT_TIMEOUT_MS env var. */
+export const DEFAULT_GIT_TIMEOUT_MS = 30_000;
+
+/**
+ * Non-interactive git environment defaults.
+ *
+ * GIT_TERMINAL_PROMPT=0  — prevents HTTP(S) credential prompts from blocking.
+ * GIT_ASKPASS=true       — points git's credential helper at /bin/true (no output),
+ *                          so git surfaces auth failures quickly rather than hanging.
+ * GIT_SSH_COMMAND        — disables SSH host-key/auth prompts and bounds TCP connect.
+ */
+export const DEFAULT_GIT_ENV = {
+  GIT_TERMINAL_PROMPT: '0',
+  GIT_ASKPASS: 'true',
+  GIT_SSH_COMMAND: 'ssh -oBatchMode=yes -oConnectTimeout=10',
+};
+
+export { classifyGitError } from './gitErrorClassify.js';
+
 // Cache for default branch detection: directory -> { branch, timestamp }
 const defaultBranchCache = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -75,14 +94,27 @@ function evictOldestCacheEntries() {
  * @returns {Promise<string>}
  */
 export async function git(directory, command, opts = {}) {
+  const timeoutMs = opts.timeout ?? (Number(process.env.GIT_TIMEOUT_MS) || DEFAULT_GIT_TIMEOUT_MS);
   const execOpts = {
     cwd: directory,
     maxBuffer: opts.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
+    timeout: timeoutMs,
+    env: { ...process.env, ...DEFAULT_GIT_ENV, ...(opts.env || {}) },
   };
-  if (opts.env) execOpts.env = opts.env;
-  if (opts.timeout) execOpts.timeout = opts.timeout;
-  const { stdout } = await execAsync(`git ${command}`, execOpts);
-  return stdout.trim();
+  try {
+    const { stdout } = await execAsync(`git ${command}`, execOpts);
+    return stdout.trim();
+  } catch (err) {
+    // Normalize timeout errors for clarity
+    if (err.killed || (err.signal && err.code === null)) {
+      const msg = `Git command timed out after ${timeoutMs}ms: git ${command}`;
+      const timeoutErr = new Error(msg);
+      timeoutErr.code = 'GIT_TIMEOUT';
+      timeoutErr.originalError = err;
+      throw timeoutErr;
+    }
+    throw err;
+  }
 }
 
 function shellQuote(value) {
@@ -139,16 +171,17 @@ export async function getOriginDefaultBranch(directory) {
 
   // Try GitHub CLI first - most accurate method
   try {
+    const ghTimeoutMs = Number(process.env.GH_REPO_VIEW_TIMEOUT_MS) || 10_000;
     const { stdout } = await execAsync(
       'gh repo view --json defaultBranchRef --jq ".defaultBranchRef.name"',
-      { cwd: directory }
+      { cwd: directory, timeout: ghTimeoutMs }
     );
     const branchName = stdout.trim();
     if (branchName) {
       branch = `origin/${branchName}`;
     }
   } catch {
-    // gh CLI not available or failed, fall back to git commands
+    // gh CLI not available, timed out, or failed — fall back to git commands
   }
 
   if (!branch) {
