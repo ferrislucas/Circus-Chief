@@ -48,7 +48,6 @@ const overlayGetters = {
 
   sessions: () => useSessionsStore().sessions,
   archivedSessions: () => useSessionsStore().archivedSessions,
-  activeSessions: () => useSessionsStore().activeSessions,
 
   _findSessionById() { return (id) => useSessionsStore()._findSessionById(id); },
   _findChildren() { return (parentId) => useSessionsStore()._findChildren(parentId); },
@@ -217,7 +216,7 @@ const overlayActions = {
  *   runningUsage, loading, error, commandRunVersion
  *
  * Proxied getters (delegate to the main store for global / list-level data):
- *   sessions, archivedSessions, activeSessions, getSessionById, getRootSession,
+ *   sessions, archivedSessions, getSessionById, getRootSession,
  *   getChildSessions, hasChildren, getChildCount, getAllDescendants, getSessionPath,
  *   _findSessionById, _findChildren, groupedSessions, getWorkflowEffectiveStatus,
  *   getWorkflowAggregatedStatus, getWorkflowSessions

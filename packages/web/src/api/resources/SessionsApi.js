@@ -75,14 +75,6 @@ function normalizeCreateSessionData(data) {
 export function SessionsApi(ApiClient) {
   Object.assign(ApiClient.prototype, {
     /**
-     * Get all active/waiting sessions across all projects
-     * @returns {Promise<Array>}
-     */
-    async getActiveSessions() {
-      return this._get('/sessions');
-    },
-
-    /**
      * Get all sessions for a project
      * @param {string} projectId - Project ID
      * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)

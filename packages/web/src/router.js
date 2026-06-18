@@ -71,11 +71,6 @@ const routes = [
     component: () => import('./views/NewSessionView.vue'),
   },
   {
-    path: '/sessions/active',
-    name: 'ActiveSessions',
-    component: () => import('./views/ActiveSessionsView.vue'),
-  },
-  {
     path: '/sessions/:id/:tab?',
     name: 'SessionDetail',
     component: () => import('./views/SessionDetailView.vue'),

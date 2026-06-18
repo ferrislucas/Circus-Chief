@@ -5,7 +5,6 @@ import { useSessionsStore } from './sessions.js';
 // Mock the API module
 vi.mock('../composables/useApi.js', () => ({
   api: {
-    getActiveSessions: vi.fn(),
     getProjectSessions: vi.fn(),
     getSession: vi.fn(),
     getSessionMessages: vi.fn(),
@@ -2553,18 +2552,6 @@ describe('Sessions Store', () => {
         expect(store.archivedSessions[0].archived).toBe(true);
       });
 
-      it('removes session from activeSessions when archiving', async () => {
-        const store = useSessionsStore();
-
-        store.activeSessions = [{ id: 'session-1', status: 'waiting', archived: false }];
-
-        api.archiveSession.mockResolvedValue({ id: 'session-1', status: 'waiting', archived: true });
-
-        await store.archiveSession('session-1');
-
-        expect(store.activeSessions).toHaveLength(0);
-      });
-
       it('updates currentSession archived flag when archiving current session', async () => {
         const store = useSessionsStore();
 
@@ -2684,18 +2671,6 @@ describe('Sessions Store', () => {
         await store.toggleSessionStar('session-1');
 
         expect(store.archivedSessions[0].starred).toBe(true);
-      });
-
-      it('toggles starred status in activeSessions array', async () => {
-        const store = useSessionsStore();
-
-        store.activeSessions = [{ id: 'session-1', starred: false }];
-
-        api.toggleSessionStar.mockResolvedValue({ id: 'session-1', starred: true });
-
-        await store.toggleSessionStar('session-1');
-
-        expect(store.activeSessions[0].starred).toBe(true);
       });
 
       it('updates currentSession starred flag when toggling current session', async () => {
@@ -2966,18 +2941,6 @@ describe('Sessions Store', () => {
         expect(store.archivedSessions).toHaveLength(0);
         expect(store.sessions).toHaveLength(1);
         expect(store.sessions[0].id).toBe('session-1');
-      });
-
-      it('removes from activeSessions when archived', () => {
-        const store = useSessionsStore();
-
-        store.activeSessions = [{ id: 'session-1', status: 'waiting' }];
-        store.sessions = [{ id: 'session-1', status: 'waiting' }];
-        store.archivedSessions = [];
-
-        store.updateSession({ id: 'session-1', archived: true });
-
-        expect(store.activeSessions).toHaveLength(0);
       });
 
       it('preserves gitBranch when archiving a new session', () => {
@@ -3582,28 +3545,6 @@ describe('Sessions Store', () => {
       store.updateSessionCommandRun('session-1', 'btn-1', runData);
 
       expect(store.archivedSessions[0].latestCommandRuns[0]).toEqual(runData);
-    });
-
-    it('updates run in activeSessions list', () => {
-      const store = useSessionsStore();
-      const session = {
-        id: 'session-1',
-        name: 'Test',
-        status: 'running',
-        latestCommandRuns: [],
-      };
-      store.activeSessions = [session];
-
-      const runData = {
-        buttonId: 'btn-1',
-        status: 'running',
-        runId: 'run-1',
-        startedAt: Date.now(),
-      };
-
-      store.updateSessionCommandRun('session-1', 'btn-1', runData);
-
-      expect(store.activeSessions[0].latestCommandRuns[0]).toEqual(runData);
     });
 
     it('updates run in currentSession', () => {
@@ -5049,71 +4990,13 @@ describe('Sessions Store', () => {
         expect(result.totalCount).toBe(1); // only the child (descendants only)
       });
 
-      it('finds child in activeSessions when parent is in sessions', () => {
-        const store = useSessionsStore();
-        store.sessions = [
-          { id: 'root', status: 'waiting', parentSessionId: null },
-        ];
-        store.activeSessions = [
-          { id: 'child-1', status: 'running', parentSessionId: 'root' },
-        ];
-
-        const result = store.getWorkflowAggregatedStatus('root');
-
-        expect(result.runningCount).toBe(1);
-      });
-
-      it('finds root in activeSessions', () => {
-        const store = useSessionsStore();
-        store.sessions = [];
-        store.activeSessions = [
-          { id: 'root', status: 'waiting', parentSessionId: null },
-          { id: 'child-1', status: 'running', parentSessionId: 'root' },
-        ];
-
-        const result = store.getWorkflowAggregatedStatus('root');
-
-        expect(result.effectiveStatus).toBe('running');
-        expect(result.runningCount).toBe(1);
-      });
-
-      it('deduplicates when session exists in both arrays', () => {
-        const store = useSessionsStore();
-        const child = { id: 'child-1', status: 'running', parentSessionId: 'root' };
-        store.sessions = [
-          { id: 'root', status: 'waiting', parentSessionId: null },
-          child,
-        ];
-        store.activeSessions = [child];
-
-        const result = store.getWorkflowAggregatedStatus('root');
-
-        expect(result.runningCount).toBe(1);
-        expect(result.totalCount).toBe(1);
-      });
     });
 
     describe('getWorkflowEffectiveStatus', () => {
-      it('returns running when child is only in activeSessions', () => {
-        const store = useSessionsStore();
-        store.sessions = [
-          { id: 'root', status: 'waiting', parentSessionId: null },
-        ];
-        store.activeSessions = [
-          { id: 'child-1', status: 'running', parentSessionId: 'root' },
-        ];
-
-        const result = store.getWorkflowEffectiveStatus('root');
-
-        expect(result).toBe('running');
-      });
-
-      it('returns idle when no running sessions exist in either array', () => {
+      it('returns idle when no running sessions exist', () => {
         const store = useSessionsStore();
         store.sessions = [
           { id: 'root', status: 'completed', parentSessionId: null },
-        ];
-        store.activeSessions = [
           { id: 'child-1', status: 'completed', parentSessionId: 'root' },
         ];
 
@@ -5185,7 +5068,6 @@ describe('Sessions Store', () => {
 
       expect(store.sessions.filter(s => s.id === newSession.id)).toHaveLength(1);
       expect(store.sessions).toHaveLength(2);
-      expect(store.activeSessions.filter(s => s.id === newSession.id)).toHaveLength(1);
     });
   });
 
@@ -5199,10 +5081,6 @@ describe('Sessions Store', () => {
       ];
       store.archivedSessions = [
         { id: 'sess-4', name: 'Archived 1', status: 'archived' },
-      ];
-      store.activeSessions = [
-        { id: 'sess-1', name: 'Session 1', status: 'idle' },
-        { id: 'sess-2', name: 'Session 2', status: 'idle' },
       ];
       store.currentSession = { id: 'sess-1', name: 'Session 1', status: 'idle' };
     });
@@ -5222,13 +5100,6 @@ describe('Sessions Store', () => {
       expect(store.archivedSessions[0].status).toBe('running');
     });
 
-    it('updates session in activeSessions array', () => {
-      const store = useSessionsStore();
-      store._updateSessionInAllLists('sess-2', { status: 'running' });
-
-      expect(store.activeSessions[1].status).toBe('running');
-    });
-
     it('updates currentSession when it matches', () => {
       const store = useSessionsStore();
       store._updateSessionInAllLists('sess-1', { status: 'running', model: 'claude-3-opus' });
@@ -5244,13 +5115,12 @@ describe('Sessions Store', () => {
       expect(store.currentSession.status).toBe('idle');
     });
 
-    it('handles updating session that exists in multiple arrays', () => {
+    it('handles updating session that exists in sessions and currentSession', () => {
       const store = useSessionsStore();
       store._updateSessionInAllLists('sess-1', { status: 'running' });
 
-      // sess-1 is in sessions, activeSessions, and currentSession
+      // sess-1 is in sessions and currentSession
       expect(store.sessions[0].status).toBe('running');
-      expect(store.activeSessions[0].status).toBe('running');
       expect(store.currentSession.status).toBe('running');
     });
 

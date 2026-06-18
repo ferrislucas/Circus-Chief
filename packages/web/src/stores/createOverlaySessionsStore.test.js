@@ -21,7 +21,6 @@ vi.mock('../composables/useApi.js', () => ({
     deleteConversation: vi.fn(),
     branchConversation: vi.fn(),
     getSessionTodos: vi.fn(),
-    getActiveSessions: vi.fn(),
     getProjectSessions: vi.fn(),
     createSession: vi.fn(),
     deleteSession: vi.fn(),
@@ -557,15 +556,6 @@ describe('createOverlaySessionsStore', () => {
 
     expect(overlayStore.archivedSessions).toBe(mainStore.archivedSessions);
     expect(overlayStore.archivedSessions).toHaveLength(1);
-  });
-
-  it('proxied getter: activeSessions delegates to main store', () => {
-    const mainStore = useSessionsStore();
-    const overlayStore = createOverlaySessionsStore();
-
-    mainStore.sessions.push({ id: 'sess-1', status: 'running', archived: false });
-
-    expect(overlayStore.activeSessions).toBe(mainStore.activeSessions);
   });
 
   it('proxied getter: hasChildren delegates to main store', () => {
