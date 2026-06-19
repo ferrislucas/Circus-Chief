@@ -451,7 +451,7 @@ export function buildSystemPromptConfig(sessionId, projectId, customSystemPrompt
     buildCanvasWriteSystemPrompt(session),
     buildCanvasReadSystemPrompt(session),
     buildSessionApiInstructions(sessionId, projectId),
-    buildCommandButtonApiInstructions(apiUrl, sessionId, projectId),
+    buildCommandButtonApiInstructions(apiUrl, sessionId),
     buildKanbanApiInstructions(sessionId, projectId),
   ].filter(Boolean);
 
