@@ -11,6 +11,7 @@ import {
   waitForStatus,
   waitForChildSession,
   getProjectSessions,
+  updateSessionStatus,
 } from './helpers';
 
 /**
@@ -488,6 +489,68 @@ test.describe('Kanban lane completion move', () => {
     expect(child).toBeTruthy();
     expect(child.parentSessionId).toBe(session.id);
     expect(child.name).toContain('Completion Template (lane: Done)');
+  });
+
+  // ----------------------------------------------------------------
+  // Test 6: completing the original/root session must not advance a lane whose
+  // on-enter automation has created an active child session to do that lane's
+  // work. This reproduces the observed failure mode where the parent session
+  // finished after moving the workspace card into Implementation, causing the
+  // card to jump to Testing before the Implementation child finished.
+  // ----------------------------------------------------------------
+  test('root completion does not advance a lane while its on-enter child is still running', async ({
+    page,
+  }) => {
+    const sessionName = 'Completion Guard Parent';
+    const board = await getBoard(project.id);
+    const inProgressLane = getLaneByName(board, 'In Progress');
+
+    // "In Progress" represents the implementation lane: entering it creates a
+    // child session to perform the work, and completion should eventually move
+    // the workspace to Done.
+    await setLaneOnEnter(project.id, inProgressLane.id, { onEnterPrompt: VCR_PROMPT });
+
+    const session = await seedSession(project.id, {
+      prompt: VCR_PROMPT,
+      name: sessionName,
+      model: VCR_MODEL,
+      startImmediately: false,
+    });
+
+    await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+
+    await configureCompletionTarget(page, 'In Progress', 'Done');
+
+    // Adding the root workspace to In Progress fires the real on-enter prompt
+    // and creates a child implementation session.
+    await addSessionToLaneViaUI(page, 'In Progress', sessionName);
+    const child = await waitForChildSession(session.id, 15000);
+    expect(child).toBeTruthy();
+    expect(child.parentSessionId).toBe(session.id);
+    expect(child.name).toContain('Lane prompt (lane: In Progress)');
+
+    // Keep the lane-created implementation child active while the original/root
+    // session completes. This makes the ordering deterministic even though VCR
+    // replay normally finishes child sessions very quickly.
+    await updateSessionStatus(child.id, 'running');
+    await waitForStatus(child.id, 'running', 10000);
+
+    await runSessionTurnViaUI(page, session.id);
+
+    // Regression assertion: parent/root completion is not the lane work
+    // completion, so the card must stay in In Progress while the child remains
+    // running. The current bug moves it to Done here.
+    await expect
+      .poll(async () => findLaneOfSession(await getBoard(project.id), session.id), { timeout: 8000 })
+      .toBe('In Progress');
+
+    await navigateAndWait(page, `${BASE_URL}/projects/${project.id}/kanban`, {
+      waitFor: '.kanban-board',
+    });
+    await expect(cardByIdInLane(page, 'In Progress', session.id)).toBeVisible();
+    await expect(cardByIdInLane(page, 'Done', session.id)).toHaveCount(0);
   });
 
   // ----------------------------------------------------------------
