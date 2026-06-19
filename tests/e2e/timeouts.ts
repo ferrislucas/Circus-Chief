@@ -82,7 +82,7 @@ export const OVERLAY_TIMEOUT = Math.round(20000 * scale);
 
 /**
  * Upper bound on list views populating a specific row after a backend
- * write (e.g. a newly seeded session appearing in `/sessions/active`).
+ * write (e.g. a newly seeded session appearing in `/sessions`).
  */
 export const LIST_HYDRATION = Math.round(10000 * scale);
 
