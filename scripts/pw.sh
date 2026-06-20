@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# Playwright Browser Container CLI
-# Convenience wrapper for Playwright commands
-# Uses Docker when available, falls back to npx otherwise
+# Playwright CLI
+# Convenience wrapper for running Playwright locally via npx.
+# Handles server startup, worktree port isolation, DB isolation, and VCR
+# replay/record defaults so E2E runs are hermetic.
 #
 # Usage: ./scripts/pw.sh <command> [args]
 #
@@ -11,7 +12,7 @@
 #   screenshot <url> [file]  Capture screenshot
 #   codegen [url]            Interactive test generator (requires X11)
 #   shell                    Interactive shell access
-#   build                    Build the container image
+#   build                    Install Playwright browsers
 #   help                     Show help message
 
 set -e
@@ -19,25 +20,6 @@ set -e
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-# Compose file location
-COMPOSE_FILE="$PROJECT_ROOT/docker-compose.playwright.yml"
-
-# Detect if Docker is available and running
-has_docker() {
-    if command -v docker &> /dev/null && docker info &> /dev/null; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-# Set USE_DOCKER based on availability
-if has_docker; then
-    USE_DOCKER=true
-else
-    USE_DOCKER=false
-fi
 
 # Default: test against dev server, not the built package
 USE_PACKAGE_SERVER=false
@@ -399,17 +381,11 @@ clear_provider_env_vars() {
     unset API_TIMEOUT_MS
 }
 
-# Build the container
+# Install Playwright browsers
 cmd_build() {
-    if [ "$USE_DOCKER" = true ]; then
-        print_info "Building Playwright container..."
-        docker compose -f "$COMPOSE_FILE" build playwright
-        print_success "Container built successfully"
-    else
-        print_warning "Docker is not available. Installing Playwright browsers via npx..."
-        cd "$PROJECT_ROOT" && npx playwright install --with-deps chromium
-        print_success "Playwright browsers installed successfully"
-    fi
+    print_info "Installing Playwright browsers via npx..."
+    cd "$PROJECT_ROOT" && npx playwright install --with-deps chromium
+    print_success "Playwright browsers installed successfully"
 }
 
 # Run tests
@@ -451,17 +427,8 @@ cmd_test() {
 
     local exit_code
     set +e
-    if [ "$USE_DOCKER" = true ]; then
-        # Use -T to disable pseudo-TTY allocation in docker
-        # This prevents conflicts with the PTY wrapper used by command buttons
-        # and ensures output is properly line-buffered for real-time streaming
-        docker compose -f "$COMPOSE_FILE" run --rm -T playwright test "$@"
-        exit_code=$?
-    else
-        print_info "Using npx playwright (Docker not available)"
-        cd "$PROJECT_ROOT" && npx playwright test "$@"
-        exit_code=$?
-    fi
+    cd "$PROJECT_ROOT" && npx playwright test "$@"
+    exit_code=$?
     set -e
 
     cleanup_test_server "$TEST_SERVER_PORT"
@@ -494,12 +461,7 @@ cmd_screenshot() {
     local filename="${2:-screenshot-$(date +%Y%m%d-%H%M%S).png}"
 
     print_info "Capturing screenshot of: $url"
-    if [ "$USE_DOCKER" = true ]; then
-        docker compose -f "$COMPOSE_FILE" run --rm playwright screenshot "$url" "$filename"
-    else
-        print_info "Using npx playwright (Docker not available)"
-        cd "$PROJECT_ROOT" && npx playwright screenshot "$url" "screenshots/$filename"
-    fi
+    cd "$PROJECT_ROOT" && npx playwright screenshot "$url" "screenshots/$filename"
     print_success "Screenshot saved to: screenshots/$filename"
 }
 
@@ -530,20 +492,8 @@ cmd_codegen() {
 
     local url="${1:-http://localhost:$SERVER_PORT}"
 
-    # Check if X11 is available (only needed for Docker on Linux)
-    if [ "$USE_DOCKER" = true ] && [ -z "$DISPLAY" ]; then
-        print_warning "DISPLAY not set. Codegen requires X11 for headed mode."
-        print_info "On Linux, try: export DISPLAY=:0"
-        print_info "On macOS, install XQuartz and run: xhost +localhost"
-    fi
-
     print_info "Starting Playwright codegen for: $url"
-    if [ "$USE_DOCKER" = true ]; then
-        docker compose -f "$COMPOSE_FILE" --profile headed run --rm playwright-headed codegen "$url"
-    else
-        print_info "Using npx playwright (Docker not available)"
-        cd "$PROJECT_ROOT" && npx playwright codegen "$url"
-    fi
+    cd "$PROJECT_ROOT" && npx playwright codegen "$url"
 }
 
 # Interactive shell
@@ -551,13 +501,8 @@ cmd_shell() {
     ensure_dependencies
     ensure_directories
     print_info "Starting interactive shell..."
-    if [ "$USE_DOCKER" = true ]; then
-        docker compose -f "$COMPOSE_FILE" run --rm playwright shell
-    else
-        print_info "Using local shell (Docker not available)"
-        print_info "You can run Playwright commands with: npx playwright <command>"
-        cd "$PROJECT_ROOT" && exec bash
-    fi
+    print_info "You can run Playwright commands with: npx playwright <command>"
+    cd "$PROJECT_ROOT" && exec bash
 }
 
 # Debug mode (headed browser)
@@ -570,11 +515,6 @@ cmd_debug() {
 
     # Enable VCR mode for E2E tests (replay committed cassettes; use VCR_MODE=record to re-record)
     export VCR_MODE=${VCR_MODE:-replay}
-
-    # Check if X11 is available (only needed for Docker on Linux)
-    if [ "$USE_DOCKER" = true ] && [ -z "$DISPLAY" ]; then
-        print_warning "DISPLAY not set. Debug mode requires X11 for headed mode."
-    fi
 
     setup_isolated_test_db
     print_info "DB_PATH set to: $DB_PATH"
@@ -601,15 +541,8 @@ cmd_debug() {
 
     local exit_code
     set +e
-    if [ "$USE_DOCKER" = true ]; then
-        # Use -T for output streaming (headed mode still works with X11 forwarding)
-        docker compose -f "$COMPOSE_FILE" --profile headed run --rm -T playwright-headed test "$@"
-        exit_code=$?
-    else
-        print_info "Using npx playwright (Docker not available)"
-        cd "$PROJECT_ROOT" && npx playwright test --headed "$@"
-        exit_code=$?
-    fi
+    cd "$PROJECT_ROOT" && npx playwright test --headed "$@"
+    exit_code=$?
     set -e
 
     cleanup_test_server "$TEST_SERVER_PORT"
@@ -620,17 +553,8 @@ cmd_debug() {
 
 # Show help
 cmd_help() {
-    local mode_info
-    if [ "$USE_DOCKER" = true ]; then
-        mode_info="Docker (available)"
-    else
-        mode_info="npx (Docker not available)"
-    fi
-
     cat << EOF
-Playwright CLI - Uses Docker when available, falls back to npx
-
-Current mode: $mode_info
+Playwright CLI - Runs Playwright locally via npx
 
 Usage: $(basename "$0") <command> [args]
 
@@ -644,21 +568,17 @@ Commands:
                            Example: $(basename "$0") screenshot \$SERVER_URL
                            Example: $(basename "$0") screenshot \$SERVER_URL home.png
 
-  codegen [url]            Launch Playwright test generator (requires X11 with Docker)
+  codegen [url]            Launch Playwright test generator
                            Example: $(basename "$0") codegen
 
-  debug [args]             Run tests with headed browser (requires X11 with Docker)
+  debug [args]             Run tests with headed browser
                            Example: $(basename "$0") debug tests/login.spec.ts
 
-  shell                    Start interactive shell in container (or local shell if no Docker)
+  shell                    Start an interactive shell in the project root
 
-  build                    Build the container image (or install browsers if no Docker)
+  build                    Install Playwright browsers (chromium)
 
   help                     Show this help message
-
-Mode Detection:
-  • Docker available and running → uses Docker containers
-  • Docker not available → uses npx playwright directly
 
 Auto-Detection & Auto-Start:
   • If .server-port exists and server is running → use that port
