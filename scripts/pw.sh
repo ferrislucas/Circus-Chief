@@ -10,7 +10,7 @@
 # Commands:
 #   test [args]              Run Playwright tests
 #   screenshot <url> [file]  Capture screenshot
-#   codegen [url]            Interactive test generator (requires X11)
+#   codegen [url]            Interactive test generator
 #   shell                    Interactive shell access
 #   build                    Install Playwright browsers
 #   help                     Show help message
