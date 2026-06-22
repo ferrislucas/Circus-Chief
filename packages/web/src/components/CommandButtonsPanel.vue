@@ -30,7 +30,7 @@
 
     <!-- Empty State -->
     <div
-      v-else-if="commandButtonsStore.buttons.length === 0"
+      v-else-if="projectButtons.length === 0"
       class="empty-state"
     >
       <p>No Circus Commands configured yet.</p>
@@ -63,7 +63,7 @@
       </div>
 
       <div
-        v-for="button in commandButtonsStore.buttons"
+        v-for="button in projectButtons"
         :key="button.id"
         class="table-row"
         @click="onRowClick(button)"
@@ -127,7 +127,7 @@
 </template>
 
 <script setup>
-import { defineProps, ref } from 'vue';
+import { defineProps, ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 
@@ -141,6 +141,16 @@ const props = defineProps({
 const router = useRouter();
 const commandButtonsStore = useCommandButtonsStore();
 const selectedButton = ref(null);
+
+const projectButtons = computed(() => commandButtonsStore.getButtonsByProjectId(props.projectId));
+
+onMounted(() => {
+  commandButtonsStore.fetchButtons(props.projectId);
+});
+
+watch(() => props.projectId, (newProjectId) => {
+  commandButtonsStore.fetchButtons(newProjectId);
+});
 
 const truncateCommand = (command) => {
   const maxLength = 50;
