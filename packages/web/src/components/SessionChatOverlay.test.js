@@ -964,13 +964,13 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('Add Workspace button', () => {
-    it('renders add workspace button in overlay', async () => {
+  describe('Add Session button', () => {
+    it('renders add session button in overlay', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
       expect(btn).toBeTruthy();
-      expect(btn.textContent.trim()).toContain('New Workspace');
+      expect(btn.textContent.trim()).toContain('New Session');
       wrapper.unmount();
     });
 

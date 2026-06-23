@@ -146,7 +146,7 @@
               y2="12"
             />
           </svg>
-          {{ isCreatingSession ? 'Creating...' : 'New Workspace' }}
+          {{ isCreatingSession ? 'Creating...' : 'New Session' }}
         </button>
       </div>
     </div>
