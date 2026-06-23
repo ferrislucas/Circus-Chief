@@ -75,7 +75,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton: vi.fn().mockResolvedValue({ id: 'new' }),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -103,7 +103,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -133,7 +133,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -163,7 +163,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -191,7 +191,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -225,7 +225,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton,
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -281,12 +281,12 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue({
+      getButtonsByProjectId: vi.fn().mockReturnValue([{
         id: 'btn-1',
         label: 'Existing Button',
         command: 'npm run',
         sortOrder: 0,
-      }),
+      }]),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -323,12 +323,12 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue({
+      getButtonsByProjectId: vi.fn().mockReturnValue([{
         id: 'btn-1',
         label: 'Existing Button',
         command: 'npm run',
         sortOrder: 0,
-      }),
+      }]),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -375,7 +375,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton,
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -426,7 +426,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -460,13 +460,13 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue({
+      getButtonsByProjectId: vi.fn().mockReturnValue([{
         id: 'btn-1',
         label: 'Existing Button',
         command: 'npm run',
         sortOrder: 0,
         showOnList: true,
-      }),
+      }]),
       createButton: vi.fn(),
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -512,7 +512,7 @@ describe('CommandButtonDetailView', () => {
     const mockCommandStore = {
       loading: false,
       error: null,
-      getButtonById: vi.fn().mockReturnValue(null),
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
       createButton,
       updateButton: vi.fn(),
       deleteButton: vi.fn(),
@@ -552,5 +552,51 @@ describe('CommandButtonDetailView', () => {
     } else {
       expect(true).toBe(true);
     }
+  });
+
+  it('does not load a globally cached button when its projectId does not match the route project', async () => {
+    // The route is for 'test-project', but the store has a button belonging to 'other-project'
+    // getButtonsByProjectId('test-project') returns [], so the component should NOT pre-fill
+    // the form from the wrong-project button — it falls through to the API fetch
+    const getCommandButton = vi.fn().mockRejectedValue(new Error('Not found'));
+    const mockCommandStore = {
+      loading: false,
+      error: null,
+      // Project-scoped lookup returns nothing for 'test-project'
+      getButtonsByProjectId: vi.fn().mockReturnValue([]),
+      createButton: vi.fn(),
+      updateButton: vi.fn(),
+      deleteButton: vi.fn(),
+    };
+    const mockUiStore = {
+      success: vi.fn(),
+      error: vi.fn(),
+    };
+    vi.mocked(useCommandButtonsStore).mockReturnValue(mockCommandStore);
+    vi.mocked(useUiStore).mockReturnValue(mockUiStore);
+
+    // Provide a buttonId in route params so edit mode is active
+    currentMockRouteParams = {
+      [ROUTE_PARAMS.PROJECT_ID]: 'test-project',
+      [ROUTE_PARAMS.BUTTON_ID]: 'btn-other-project',
+    };
+
+    // Mock api.getCommandButton to reject (simulating server 404)
+    const { api: apiMock } = await import('../composables/useApi.js');
+    apiMock.getCommandButton.mockRejectedValue(new Error('Not found'));
+
+    const wrapper = mount(CommandButtonDetailView, {
+      global: {
+        stubs: { RouterLink: true },
+      },
+    });
+
+    await flushAll(wrapper);
+
+    // The project-scoped store lookup must have been tried with the route's project id
+    expect(mockCommandStore.getButtonsByProjectId).toHaveBeenCalledWith('test-project');
+
+    // Form should show an error (not populated with the other-project's button data)
+    expect(wrapper.text()).toContain('Not found');
   });
 });
