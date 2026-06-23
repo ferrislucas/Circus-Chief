@@ -36,7 +36,7 @@
 
     <!-- Empty State (only when no buttons and not loading) -->
     <div
-      v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length === 0"
+      v-if="!commandButtonsStore.loading && projectButtons.length === 0"
       class="empty-state"
       data-testid="commands-tab-empty"
     >
@@ -51,12 +51,12 @@
 
     <!-- Commands List (show when buttons exist, regardless of error state) -->
     <div
-      v-if="!commandButtonsStore.loading && commandButtonsStore.buttons.length > 0"
+      v-if="!commandButtonsStore.loading && projectButtons.length > 0"
       class="commands-list"
       data-testid="commands-tab-list"
     >
       <CommandButtonItem
-        v-for="button in commandButtonsStore.buttons"
+        v-for="button in projectButtons"
         :key="button.id"
         :button="button"
         :run="commandButtonsStore.getLatestRunForButton(button.id, sessionId)"
@@ -71,7 +71,7 @@
 </template>
 
 <script setup>
-import { defineProps, defineExpose, ref, onMounted, onUnmounted, reactive } from 'vue';
+import { defineProps, defineExpose, ref, computed, onMounted, onUnmounted, reactive } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useSessionSubscription } from '../composables/useWebSocket.js';
@@ -96,6 +96,8 @@ const router = useRouter();
 const commandButtonsStore = useCommandButtonsStore();
 const uiStore = useUiStore();
 const { isStale } = useConnectionStatus();
+
+const projectButtons = computed(() => commandButtonsStore.getButtonsByProjectId(props.projectId));
 
 // Map button ID to current run ID
 const currentRunIds = reactive({});
