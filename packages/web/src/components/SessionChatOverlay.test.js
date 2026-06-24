@@ -964,13 +964,13 @@ describe('SessionChatOverlay', () => {
     });
   });
 
-  describe('Add Workspace button', () => {
-    it('renders add workspace button in overlay', async () => {
+  describe('Add Session button', () => {
+    it('renders add session button in overlay', async () => {
       const wrapper = mountOverlay();
       await nextTick();
       const btn = document.querySelector('[data-testid="overlay-add-session-btn"]');
       expect(btn).toBeTruthy();
-      expect(btn.textContent.trim()).toContain('New Workspace');
+      expect(btn.textContent.trim()).toContain('New Session');
       wrapper.unmount();
     });
 
@@ -1035,7 +1035,7 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
         gitMode: 'worktree',
@@ -1063,7 +1063,7 @@ describe('SessionChatOverlay', () => {
       // triggering git checkout in directories that may not be git repos
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1086,7 +1086,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1219,7 +1219,7 @@ describe('SessionChatOverlay', () => {
       expect(generateWorktreeBranch).not.toHaveBeenCalled();
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
@@ -1242,7 +1242,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
         model: 'gpt-5.4',
@@ -1268,7 +1268,7 @@ describe('SessionChatOverlay', () => {
 
       expect(api.createSession).toHaveBeenCalledWith('proj-123', {
         prompt: ' ',
-        name: 'New Workspace',
+        name: 'New Session',
         parentSessionId: 'sess-root',
         startImmediately: false,
       });
