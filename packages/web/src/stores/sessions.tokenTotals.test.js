@@ -4,7 +4,6 @@ import { useSessionsStore } from './sessions.js';
 
 vi.mock('../composables/useApi.js', () => ({
   api: {
-    getActiveSessions: vi.fn(),
     getProjectSessions: vi.fn(),
     getSession: vi.fn(),
     getSessionMessages: vi.fn(),

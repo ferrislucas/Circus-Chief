@@ -19,13 +19,10 @@ vi.mock('../stores/sessionStreaming.js', () => ({
 // Mock sessions store
 const mockSessionsStore = {
   sessions: [],
-  activeSessions: [],
   currentSession: null,
   getSessionById: vi.fn((id) => mockSessionsStore.sessions.find(s => s.id === id)),
   _findSessionById: vi.fn((id) =>
-    mockSessionsStore.sessions.find(s => s.id === id)
-    || mockSessionsStore.activeSessions.find(s => s.id === id)
-    || null,
+    mockSessionsStore.sessions.find(s => s.id === id) || null,
   ),
 };
 
@@ -47,7 +44,6 @@ describe('SessionLogStream', () => {
 
     // Reset sessions store mock
     mockSessionsStore.sessions = [];
-    mockSessionsStore.activeSessions = [];
     mockSessionsStore.currentSession = null;
   });
 
@@ -260,15 +256,6 @@ describe('SessionLogStream', () => {
       expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-sonnet-4-20250514');
     });
 
-    it('renders model badge when workspace is only in state.activeSessions', () => {
-      mockSessionsStore.activeSessions = [{ id: 'session-1', status: 'running', model: 'claude-opus-4-20250514' }];
-      seedWorkLog();
-
-      const wrapper = mountComponent();
-      expect(wrapper.find('[data-testid="live-output-model"]').exists()).toBe(true);
-      expect(wrapper.find('[data-testid="live-output-model"]').text()).toBe('claude-opus-4-20250514');
-    });
-
     it('renders model badge when workspace is state.currentSession', () => {
       mockSessionsStore.currentSession = { id: 'session-1', status: 'running', model: 'claude-haiku-4-5-20251001' };
       seedWorkLog();
@@ -305,8 +292,10 @@ describe('SessionLogStream', () => {
     });
 
     it('picks the first workspace in sessionIds that has a model', () => {
-      mockSessionsStore.sessions = [{ id: 'parent', model: null }];
-      mockSessionsStore.activeSessions = [{ id: 'child', model: 'claude-sonnet-4-20250514' }];
+      mockSessionsStore.sessions = [
+        { id: 'parent', model: null },
+        { id: 'child', model: 'claude-sonnet-4-20250514' },
+      ];
       seedWorkLog();
 
       const wrapper = mountComponent({ sessionIds: ['parent', 'child'] });

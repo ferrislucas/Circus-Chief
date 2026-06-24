@@ -1576,14 +1576,6 @@ export async function restartSession(sessionId: string) {
   return response.json();
 }
 
-/**
- * Get all active sessions (across all projects)
- */
-export async function getActiveSessions() {
-  const response = await fetch(`${API_URL}/api/sessions`);
-  if (!response.ok) return [];
-  return response.json();
-}
 
 /**
  * Get archived sessions for a project

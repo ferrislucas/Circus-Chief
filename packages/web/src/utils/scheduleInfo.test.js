@@ -40,15 +40,4 @@ describe('findNearestScheduledTime', () => {
     expect(findNearestScheduledTime('root')).toBe(new Date('2026-01-10T13:00:00Z').getTime());
   });
 
-  it('finds active-session roots through workflow traversal', () => {
-    vi.setSystemTime(new Date('2026-01-10T12:00:00Z'));
-    const sessionsStore = useSessionsStore();
-    const scheduledAt = '2026-01-10T14:00:00Z';
-
-    sessionsStore.activeSessions = [
-      { id: 'active-root', status: 'scheduled', scheduledAt },
-    ];
-
-    expect(findNearestScheduledTime('active-root')).toBe(scheduledAt);
-  });
 });
