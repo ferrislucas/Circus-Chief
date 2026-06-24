@@ -543,6 +543,173 @@ describe('kanbanService', () => {
     });
   });
 
+  // ── handleCompletionMove: guard against premature advance ────────────
+  //
+  // When the workspace root completes in a lane with on-enter automation, the
+  // card must NOT advance while a lane-triggered descendant is still incomplete.
+  // Only the lane-created child completing (as the actual lane work) should
+  // advance the card.
+
+  describe('handleCompletionMove guard: root completion deferred while lane child is active', () => {
+    it('does not move the card when root completes in an onEnterPrompt lane while a child is still starting', async () => {
+      kanbanLanes.update(lanes[0].id, {
+        onEnterPrompt: 'Do lane work',
+        completionTargetLaneId: lanes[1].id,
+      });
+
+      // Add root to the board — on-enter trigger creates a lane child (starting).
+      const root = createSession('Root');
+      await addSessionToBoard(root.id, lanes[0].id);
+      vi.clearAllMocks();
+
+      // Root completes while the lane child is still in 'starting'.
+      await handleCompletionMove(root.id);
+
+      // Card must remain in the source lane.
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does not move the card when root completes in an onEnterPrompt lane while a child is running', async () => {
+      kanbanLanes.update(lanes[0].id, {
+        onEnterPrompt: 'Do lane work',
+        completionTargetLaneId: lanes[1].id,
+      });
+
+      const root = createSession('Root');
+      await addSessionToBoard(root.id, lanes[0].id);
+
+      // Advance the lane child to 'running'.
+      const allSessions = sessions.getByProjectId(projectId);
+      const child = allSessions.find((s) => s.parentSessionId === root.id);
+      sessions.update(child.id, { status: 'running' });
+      vi.clearAllMocks();
+
+      await handleCompletionMove(root.id);
+
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does not move the card when root completes in an onEnterTemplateId lane while a child is running', async () => {
+      const template = sessionTemplates.create({
+        projectId,
+        name: 'Lane Template',
+        prompt: 'Do template work',
+      });
+      kanbanLanes.update(lanes[0].id, {
+        onEnterTemplateId: template.id,
+        completionTargetLaneId: lanes[1].id,
+      });
+
+      const root = createSession('Root');
+      await addSessionToBoard(root.id, lanes[0].id);
+
+      // Advance the lane child to 'running'.
+      const allSessions = sessions.getByProjectId(projectId);
+      const child = allSessions.find((s) => s.parentSessionId === root.id);
+      sessions.update(child.id, { status: 'running' });
+      vi.clearAllMocks();
+
+      await handleCompletionMove(root.id);
+
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('does not move the card when root completes in an automation lane while a child is scheduled', async () => {
+      kanbanLanes.update(lanes[0].id, {
+        onEnterPrompt: 'Do lane work',
+        completionTargetLaneId: lanes[1].id,
+      });
+
+      const root = createSession('Root');
+      await addSessionToBoard(root.id, lanes[0].id);
+
+      // Set the lane child to 'scheduled'.
+      const allSessions = sessions.getByProjectId(projectId);
+      const child = allSessions.find((s) => s.parentSessionId === root.id);
+      sessions.update(child.id, { status: 'scheduled' });
+      vi.clearAllMocks();
+
+      await handleCompletionMove(root.id);
+
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(card.laneId).toBe(lanes[0].id);
+      expect(broadcastToProject).not.toHaveBeenCalled();
+    });
+
+    it('moves the card when root completes in an automation lane and the child is already stopped', async () => {
+      kanbanLanes.update(lanes[0].id, {
+        onEnterPrompt: 'Do lane work',
+        completionTargetLaneId: lanes[1].id,
+      });
+
+      const root = createSession('Root');
+      await addSessionToBoard(root.id, lanes[0].id);
+
+      // Mark the lane child as stopped (finished).
+      const allSessions = sessions.getByProjectId(projectId);
+      const child = allSessions.find((s) => s.parentSessionId === root.id);
+      sessions.update(child.id, { status: 'stopped' });
+      vi.clearAllMocks();
+
+      await handleCompletionMove(root.id);
+
+      // No incomplete lane children → root completion should advance the card.
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(card.laneId).toBe(lanes[1].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
+        expect.objectContaining({ fromLaneId: lanes[0].id, toLaneId: lanes[1].id })
+      );
+    });
+
+    it('moves the card when root completes in a lane with NO on-enter automation (guard does not apply)', async () => {
+      // Plain lane: no onEnterPrompt, no onEnterTemplateId
+      kanbanLanes.update(lanes[0].id, { completionTargetLaneId: lanes[1].id });
+
+      const root = createSession('Root');
+      kanbanCards.create(lanes[0].id, root.id);
+      vi.clearAllMocks();
+
+      await handleCompletionMove(root.id);
+
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(card.laneId).toBe(lanes[1].id);
+    });
+
+    it('moves the card when the lane-created child (laneTriggerDepth > 0) completes', async () => {
+      kanbanLanes.update(lanes[0].id, {
+        onEnterPrompt: 'Do lane work',
+        completionTargetLaneId: lanes[1].id,
+      });
+
+      const root = createSession('Root');
+      await addSessionToBoard(root.id, lanes[0].id);
+
+      const allSessions = sessions.getByProjectId(projectId);
+      const child = allSessions.find((s) => s.parentSessionId === root.id);
+      expect(child.laneTriggerDepth).toBe(1);
+      vi.clearAllMocks();
+
+      // Child completing → card should advance (child IS the lane work).
+      await handleCompletionMove(child.id);
+
+      const card = kanbanCards.getBySessionId(root.id);
+      expect(card.laneId).toBe(lanes[1].id);
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_MOVED,
+        expect.objectContaining({ fromLaneId: lanes[0].id, toLaneId: lanes[1].id })
+      );
+    });
+  });
+
   // ── on-enter prompt child completing advances the parent's card ───────
   //
   // Regression test for the bug where a card placed in a lane with both an

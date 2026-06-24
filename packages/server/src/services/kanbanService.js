@@ -240,11 +240,41 @@ export async function handleTurnCompletion(sessionId) {
 }
 
 /**
+ * Check whether a workspace root has any incomplete lane-triggered descendants.
+ *
+ * A lane-triggered descendant is a session with laneTriggerDepth > 0 (set by
+ * triggerOnEnterPrompt / triggerOnEnterTemplate when spawning on-enter children).
+ * "Incomplete" means the session is still in a pending/active state: starting,
+ * running, or scheduled.
+ *
+ * @param {string} rootId - Workspace root session ID
+ * @returns {boolean} True if any incomplete lane-triggered descendant exists
+ */
+function hasIncompleteLaneTriggeredDescendant(rootId) {
+  const INCOMPLETE_STATUSES = new Set(['starting', 'running', 'scheduled']);
+  const descendantIds = sessions.getAllDescendantIds(rootId);
+  for (const id of descendantIds) {
+    const s = sessions.getById(id);
+    if (s && s.laneTriggerDepth > 0 && INCOMPLETE_STATUSES.has(s.status)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Move an existing card based on the current lane's completion target.
  *
  * When the completing session has no card (e.g. it was spawned by a lane's
  * on-enter prompt), the full ancestor chain is walked to find the session
  * that owns the card so that the parent's card is still advanced.
+ *
+ * Guard: if the workspace root is completing in a lane with on-enter automation
+ * (onEnterPrompt or onEnterTemplateId) and there is still an incomplete
+ * lane-triggered descendant, the completion move is deferred. The move will
+ * fire later when the lane-created child (representing the lane's actual work)
+ * completes. A non-root (child) completing always proceeds — the child IS the
+ * lane work, so its completion should advance the card.
  *
  * @param {string} sessionId - The session that just completed its turn
  */
@@ -274,6 +304,18 @@ export async function handleCompletionMove(sessionId) {
 
   const targetLane = kanbanLanes.getById(targetLaneId);
   if (!targetLane || targetLane.boardId !== currentLane.boardId) {
+    return;
+  }
+
+  // Guard: if the workspace root is completing in an automation lane and a
+  // lane-triggered descendant is still incomplete, defer the move. The card
+  // will advance once the lane's actual work (the child session) completes.
+  const isRootCompleting = sessionId === workspaceId;
+  if (
+    isRootCompleting &&
+    (currentLane.onEnterPrompt || currentLane.onEnterTemplateId) &&
+    hasIncompleteLaneTriggeredDescendant(workspaceId)
+  ) {
     return;
   }
 
