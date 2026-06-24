@@ -881,7 +881,7 @@ test.describe('Session Chat Overlay', () => {
 
       const addBtn = overlay.locator('[data-testid="overlay-add-session-btn"]');
       await expect(addBtn).toBeVisible({ timeout: 5000 });
-      await expect(addBtn).toContainText('New Workspace');
+      await expect(addBtn).toContainText('New Session');
     });
 
     test('add session button is visible on standalone session (no children)', async ({ page }) => {
@@ -906,12 +906,12 @@ test.describe('Session Chat Overlay', () => {
 
       // The dropdown should switch to show the new child session
       const dropdownName = overlay.locator('.dropdown-name');
-      await expect(dropdownName).toContainText('New Workspace', { timeout: 10000 });
+      await expect(dropdownName).toContainText('New Session', { timeout: 10000 });
 
       // Verify session was created in backend (child of any session in the tree)
       const allSessions = await getProjectSessions(project.id);
       const newChildren = allSessions.filter(
-        (s: any) => s.name === 'New Workspace'
+        (s: any) => s.name === 'New Session'
       );
       expect(newChildren.length).toBeGreaterThanOrEqual(1);
     });
@@ -924,7 +924,7 @@ test.describe('Session Chat Overlay', () => {
 
       // Wait for overlay to switch to the new session (visible in dropdown)
       const dropdownName = overlay.locator('.dropdown-name');
-      await expect(dropdownName).toContainText('New Workspace', { timeout: 10000 });
+      await expect(dropdownName).toContainText('New Session', { timeout: 10000 });
 
       // Verify the conversation input area is visible (the session is a draft and accepts prompt input)
       await expect(overlay.locator('.overlay-content')).toBeVisible();
@@ -938,7 +938,7 @@ test.describe('Session Chat Overlay', () => {
 
       // Wait for overlay to switch to the new session (visible in dropdown)
       const dropdownName = overlay.locator('.dropdown-name');
-      await expect(dropdownName).toContainText('New Workspace', { timeout: 10000 });
+      await expect(dropdownName).toContainText('New Session', { timeout: 10000 });
 
       // Open picker and verify both parent and new session are listed
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -946,7 +946,7 @@ test.describe('Session Chat Overlay', () => {
       const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
       await expect(picker).toContainText('Parent Session');
-      await expect(picker).toContainText('New Workspace');
+      await expect(picker).toContainText('New Session');
     });
 
     test('can create multiple child sessions in sequence', async ({ page }) => {
@@ -957,7 +957,7 @@ test.describe('Session Chat Overlay', () => {
       await addBtn.click();
 
       const dropdownName = overlay.locator('.dropdown-name');
-      await expect(dropdownName).toContainText('New Workspace', { timeout: 10000 });
+      await expect(dropdownName).toContainText('New Session', { timeout: 10000 });
 
       // Navigate back to parent via session picker
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -979,12 +979,12 @@ test.describe('Session Chat Overlay', () => {
 
       // Create second child
       await addBtn.click();
-      await expect(dropdownName).toContainText('New Workspace', { timeout: 10000 });
+      await expect(dropdownName).toContainText('New Session', { timeout: 10000 });
 
       // Verify via API that two new child sessions were created in the tree
       const allSessions = await getProjectSessions(project.id);
       const newChildren = allSessions.filter(
-        (s: any) => s.name === 'New Workspace'
+        (s: any) => s.name === 'New Session'
       );
       expect(newChildren.length).toBeGreaterThanOrEqual(2);
     });
@@ -998,10 +998,10 @@ test.describe('Session Chat Overlay', () => {
       // The button may briefly show "Creating..." - we verify the final state
       // After creation completes, the dropdown should show the new session
       const dropdownName = overlay.locator('.dropdown-name');
-      await expect(dropdownName).toContainText('New Workspace', { timeout: 10000 });
+      await expect(dropdownName).toContainText('New Session', { timeout: 10000 });
 
       // Button text should be back to "New Session" after creation
-      await expect(addBtn).toContainText('New Workspace', { timeout: 5000 });
+      await expect(addBtn).toContainText('New Session', { timeout: 5000 });
     });
   });
 });
