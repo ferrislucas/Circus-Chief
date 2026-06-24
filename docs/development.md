@@ -135,8 +135,6 @@ The system prompt injected into every agent session includes documentation for a
 │   └── shared/          # Shared types and constants
 ├── tests/
 │   └── e2e/             # Playwright E2E tests
-├── docker/
-│   └── playwright/      # Playwright container
 └── scripts/
     └── pw.sh            # Playwright CLI wrapper
 ```

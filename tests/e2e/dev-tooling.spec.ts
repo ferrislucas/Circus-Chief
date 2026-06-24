@@ -15,7 +15,7 @@ import { API_URL, getAPIURL } from './helpers';
  * Categories:
  *   1. start-server.sh Script Behavior (5 tests)
  *   2. Port Isolation & Server Liveness (3 tests)
- *   3. pw.sh Enhancements (7 tests)
+ *   3. pw.sh Enhancements (10 tests)
  */
 
 // ---------------------------------------------------------------------------
@@ -377,5 +377,67 @@ test.describe('Category 4: pw.sh Enhancements', () => {
     // The old VCR_MODE server-side comparison variables should be removed
     expect(funcBody).not.toContain('server_vcr_mode');
     expect(funcBody).not.toContain('vcr_mode_file');
+  });
+
+  // Test 20
+  test('pw.sh help output has no Docker or X11 references', () => {
+    // pw.sh help outputs via heredoc to stdout; other funcs use stderr.
+    // Capture both.
+    const result = runScript('./scripts/pw.sh help');
+    expect(result.exitCode).toBe(0);
+
+    const combined = (result.stdout + result.stderr).toLowerCase();
+
+    // The help text must not advertise Docker-backed execution, Docker mode
+    // detection, Docker Compose, or X11 requirements now that pw.sh always
+    // runs Playwright locally via npx.
+    const forbidden = ['docker', 'compose', 'x11', 'dockerfile', 'host.docker.internal'];
+    for (const token of forbidden) {
+      expect(combined).not.toContain(token);
+    }
+  });
+
+  // Test 21
+  test('pw.sh source has no Docker mode references', () => {
+    const pwshSource = readFileSync(
+      join(process.cwd(), 'scripts', 'pw.sh'),
+      'utf-8'
+    );
+
+    // No Docker runner plumbing should remain in the script source.
+    const forbidden = [
+      'docker compose',
+      'docker info',
+      'USE_DOCKER',
+      'COMPOSE_FILE',
+      'playwright.config.docker',
+      'has_docker',
+      'docker-compose.playwright.yml',
+    ];
+    for (const token of forbidden) {
+      expect(pwshSource).not.toContain(token);
+    }
+  });
+
+  // Test 22
+  test('pw.sh runs Playwright via local npx', () => {
+    const pwshSource = readFileSync(
+      join(process.cwd(), 'scripts', 'pw.sh'),
+      'utf-8'
+    );
+
+    // The core commands must invoke Playwright directly through npx rather
+    // than routing through a container runtime.
+    const cmdTest = extractFunctionBody(pwshSource, 'cmd_test');
+    const cmdBuild = extractFunctionBody(pwshSource, 'cmd_build');
+    const cmdDebug = extractFunctionBody(pwshSource, 'cmd_debug');
+    const cmdCodegen = extractFunctionBody(pwshSource, 'cmd_codegen');
+    const cmdScreenshot = extractFunctionBody(pwshSource, 'cmd_screenshot');
+
+    expect(cmdTest).toContain('npx playwright test');
+    expect(cmdBuild).toContain('npx playwright install --with-deps chromium');
+    expect(cmdDebug).toContain('npx playwright test --headed');
+    expect(cmdCodegen).toContain('npx playwright codegen');
+    expect(cmdScreenshot).toContain('npx playwright screenshot');
   });
 });

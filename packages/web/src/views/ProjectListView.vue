@@ -1,12 +1,12 @@
 <template>
   <div class="container">
     <div class="page-header">
-      <h1>Repositories</h1>
+      <h1>Projects</h1>
       <router-link
         to="/projects/new"
         class="btn btn-primary"
       >
-        <span class="add-repo-label-full">Add Repository</span>
+        <span class="add-repo-label-full">Add Project</span>
         <span class="add-repo-label-short">+ Add</span>
       </router-link>
     </div>
@@ -50,7 +50,7 @@
             1
           </div>
           <h3 class="step-title">
-            Pick a repo folder
+            Pick a project folder
           </h3>
           <p class="step-desc">
             Point to any codebase on your machine
@@ -84,7 +84,7 @@
         to="/projects/new"
         class="btn btn-primary cta-button"
       >
-        Add Your First Repository
+        Add Your First Project
       </router-link>
     </div>
 

@@ -317,7 +317,7 @@ const dateToShow = computed(() => props.session.lastActivityAt ?? null);
 
 /**
  * Get all sessions in the workflow tree (root + all descendants at any depth).
- * Delegates to the store getter which searches both sessions and activeSessions arrays.
+ * Delegates to the store getter which searches the sessions array.
  */
 function getWorkflowSessions() {
   return sessionsStore.getWorkflowSessions(props.session.id);

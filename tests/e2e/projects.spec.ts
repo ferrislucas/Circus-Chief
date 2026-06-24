@@ -20,12 +20,12 @@ test.describe('Project Management', () => {
     mkdirSync('/tmp/test-project', { recursive: true });
 
     await page.goto('/');
-    await page.click('text=Add Repository');
+    await page.click('text=Add Project');
 
     await expect(page).toHaveURL('/projects/new');
 
     await page.fill('.path-chooser input', '/tmp/test-project');
-    await page.click('button:has-text("Add Repository")');
+    await page.click('button:has-text("Add Project")');
 
     // Should redirect to sessions page with project ID in URL
     await expect(page).toHaveURL(/\/projects\/[\w-]+\/sessions/);
@@ -154,7 +154,7 @@ test.describe('Project Management', () => {
     mkdirSync('/tmp/test-project', { recursive: true });
 
     await page.goto('/');
-    await page.click('text=Add Repository');
+    await page.click('text=Add Project');
 
     await expect(page).toHaveURL('/projects/new');
 
@@ -166,7 +166,7 @@ test.describe('Project Management', () => {
     const customPrompt = 'You are a specialized coding assistant.';
     await page.fill('textarea[id="systemPrompt"]', customPrompt);
 
-    await page.click('button:has-text("Add Repository")');
+    await page.click('button:has-text("Add Project")');
 
     // Should redirect to sessions page with project ID in URL
     await expect(page).toHaveURL(/\/projects\/[\w-]+\/sessions/);

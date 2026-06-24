@@ -2086,3 +2086,94 @@ describe('validateWorktreePath', () => {
     expect(result).toBeNull();
   });
 });
+
+describe('Circus command ownership checks (cross-project isolation)', () => {
+  let app;
+  let tempDirA;
+  let tempDirB;
+  let projectAId;
+  let projectBId;
+  let buttonA; // belongs to projectA
+  let buttonB; // belongs to projectB
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/projects', projectsRouter);
+
+    // Create two temp directories (both valid git repos)
+    tempDirA = mkdtempSync(join(tmpdir(), 'cmd-ownership-a-'));
+    tempDirB = mkdtempSync(join(tmpdir(), 'cmd-ownership-b-'));
+
+    for (const dir of [tempDirA, tempDirB]) {
+      execSync('git init', { cwd: dir, stdio: 'ignore' });
+      execSync('git config user.email "test@test.com"', { cwd: dir, stdio: 'ignore' });
+      execSync('git config user.name "Test"', { cwd: dir, stdio: 'ignore' });
+      execSync('touch test.txt && git add . && git commit -m "init"', { cwd: dir, stdio: 'ignore' });
+    }
+
+    const projA = projects.create('Project A', tempDirA);
+    const projB = projects.create('Project B', tempDirB);
+    projectAId = projA.id;
+    projectBId = projB.id;
+
+    buttonA = commandButtons.create({ projectId: projectAId, label: 'Button A', command: 'echo a', sortOrder: 0 });
+    buttonB = commandButtons.create({ projectId: projectBId, label: 'Button B', command: 'echo b', sortOrder: 0 });
+  });
+
+  afterEach(() => {
+    for (const dir of [tempDirA, tempDirB]) {
+      if (dir && existsSync(dir)) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('GET returns 200 when button belongs to the project', async () => {
+    const res = await request(app).get(`/api/projects/${projectAId}/circus-commands/${buttonA.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(buttonA.id);
+  });
+
+  it('GET returns 404 when button belongs to a different project', async () => {
+    const res = await request(app).get(`/api/projects/${projectAId}/circus-commands/${buttonB.id}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('PATCH returns 200 when button belongs to the project', async () => {
+    const res = await request(app)
+      .patch(`/api/projects/${projectAId}/circus-commands/${buttonA.id}`)
+      .send({ label: 'Updated A' });
+    expect(res.status).toBe(200);
+    expect(res.body.label).toBe('Updated A');
+  });
+
+  it('PATCH returns 404 and does not update when button belongs to a different project', async () => {
+    const res = await request(app)
+      .patch(`/api/projects/${projectAId}/circus-commands/${buttonB.id}`)
+      .send({ label: 'Should Not Update' });
+    expect(res.status).toBe(404);
+
+    // Verify button B was NOT modified
+    const unchanged = commandButtons.getById(buttonB.id);
+    expect(unchanged.label).toBe('Button B');
+  });
+
+  it('DELETE returns 204 when button belongs to the project', async () => {
+    const res = await request(app).delete(`/api/projects/${projectAId}/circus-commands/${buttonA.id}`);
+    expect(res.status).toBe(204);
+
+    // Verify it was actually deleted
+    expect(commandButtons.getById(buttonA.id)).toBeNull();
+  });
+
+  it('DELETE returns 404 and does not delete when button belongs to a different project', async () => {
+    const res = await request(app).delete(`/api/projects/${projectAId}/circus-commands/${buttonB.id}`);
+    expect(res.status).toBe(404);
+
+    // Verify button B was NOT deleted
+    expect(commandButtons.getById(buttonB.id)).not.toBeNull();
+  });
+});

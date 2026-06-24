@@ -21,18 +21,6 @@ describe('SessionsApi', () => {
       json: () => Promise.resolve(data),
     });
 
-  describe('getActiveSessions', () => {
-    it('sends GET to /sessions', async () => {
-      const mockData = [{ id: '1', status: 'running' }];
-      mockFetch.mockReturnValue(mockResponse(mockData));
-
-      const result = await client.getActiveSessions();
-
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions', expect.objectContaining({ method: 'GET' }));
-      expect(result).toEqual(mockData);
-    });
-  });
-
   describe('getSessionGitStatus', () => {
     it('fetches git status without fetch by default', async () => {
       mockFetch.mockReturnValue(mockResponse({ syncStatus: 'clean' }));

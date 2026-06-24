@@ -50,7 +50,7 @@ router.get('/:buttonId', (req, res) => {
   }
 
   const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
+  if (!button || button.projectId !== req.params.id) {
     return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
   res.json(button);
@@ -64,7 +64,7 @@ router.patch('/:buttonId', (req, res) => {
   }
 
   const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
+  if (!button || button.projectId !== req.params.id) {
     return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 
@@ -85,7 +85,7 @@ router.delete('/:buttonId', (req, res) => {
   }
 
   const button = commandButtons.getById(req.params.buttonId);
-  if (!button) {
+  if (!button || button.projectId !== req.params.id) {
     return res.status(404).json({ error: ERR_BUTTON_NOT_FOUND });
   }
 

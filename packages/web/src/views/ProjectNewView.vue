@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <h1>Add a Repository</h1>
+    <h1>Add a Project</h1>
 
     <form
       class="form card"
@@ -10,7 +10,7 @@
         <label
           class="form-label"
           for="workingDirectory"
-        >Repository Folder</label>
+        >Project Folder</label>
         <PathChooser v-model="workingDirectory" />
         <p class="form-help">
           The root of your codebase — typically a git repository.
@@ -147,7 +147,7 @@
             v-if="loading"
             class="loading-spinner"
           />
-          Add Repository
+          Add Project
         </button>
       </div>
     </form>
@@ -237,7 +237,7 @@ async function handleSubmit() {
       onSessionDeleted: onSessionDeleted.value || undefined,
       worktreePath: worktreePath.value || null,
     });
-    uiStore.success('Repository added');
+    uiStore.success('Project added');
     router.push(`/projects/${project.id}/sessions`);
   } catch (err) {
     error.value = err.message;

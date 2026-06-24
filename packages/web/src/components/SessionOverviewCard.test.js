@@ -119,18 +119,15 @@ describe('SessionOverviewCard.vue', () => {
       expect(wrapper.find('.overview-header').exists()).toBe(false);
     });
 
-    it('renders the not-started summary state inside the overview card', async () => {
+    it('does not render the not-started message inside the overview card', async () => {
       const wrapper = mountComponent({
         hasMetrics: true,
         formattedDuration: '1m',
-        showNotStartedState: true,
       });
 
       expect(wrapper.find('.session-overview').exists()).toBe(true);
-      expect(wrapper.find('.overview-summary-empty').exists()).toBe(true);
-      expect(wrapper.text()).toContain("This workspace hasn't started yet.");
-      expect(wrapper.find('.overview-summary-empty button').exists()).toBe(false);
-      expect(wrapper.find('.overview-summary-empty').text()).not.toContain('Generate summary');
+      expect(wrapper.find('.overview-summary-empty').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain("This workspace hasn't started yet.");
     });
   });
 
