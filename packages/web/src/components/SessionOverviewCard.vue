@@ -1,10 +1,10 @@
 <template>
   <div
-    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || loading || showNotStartedState"
+    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || loading"
     class="session-overview card"
   >
     <div
-      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading || showNotStartedState"
+      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading"
       class="overview-header"
     >
       <h3>Workspace Overview</h3>
@@ -25,14 +25,6 @@
     >
       <span class="loading-spinner-small" />
       <span>Loading summary...</span>
-    </div>
-    <div
-      v-else-if="showNotStartedState"
-      class="overview-summary overview-summary-empty"
-    >
-      <p class="summary-empty-text">
-        This workspace hasn't started yet.
-      </p>
     </div>
 
     <!-- Overview Metrics -->
@@ -213,10 +205,6 @@ defineProps({
     type: String,
     default: null,
   },
-  showNotStartedState: {
-    type: Boolean,
-    default: false,
-  },
 });
 
 defineEmits(['open-session-overlay']);
@@ -251,22 +239,11 @@ defineEmits(['open-session-overlay']);
   font-size: 0.875rem;
 }
 
-.overview-summary-empty {
-  text-align: center;
-}
-
 .overview-summary .summary-text {
   margin: 0 0 0.5rem;
   font-size: 0.875rem;
   color: var(--color-text);
   line-height: 1.4;
-}
-
-.summary-empty-text {
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--color-text);
-  margin: 0 0 0.5rem;
 }
 
 .overview-metrics {

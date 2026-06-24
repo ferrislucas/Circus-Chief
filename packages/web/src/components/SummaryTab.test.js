@@ -959,17 +959,15 @@ describe('SummaryTab', () => {
   });
 
   describe('Empty State', () => {
-    it('shows empty state when workspace has no summary, no latest response, and is not running', async () => {
+    it('does not show the not-started message when workspace has no summary, no latest response, and is not running', async () => {
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
-      expect(wrapper.find('.summary-empty-state').exists()).toBe(true);
-      expect(wrapper.text()).toContain("This workspace hasn't started yet.");
-      expect(wrapper.find('.summary-empty-state button').exists()).toBe(false);
-      expect(wrapper.find('.summary-empty-state').text()).not.toContain('Generate summary');
+      expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
+      expect(wrapper.text()).not.toContain("This workspace hasn't started yet.");
     });
 
-    it('renders not-started state inside the overview card when overview content is present', async () => {
+    it('does not show the not-started message inside the overview card when overview content is present', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'waiting',
@@ -982,10 +980,8 @@ describe('SummaryTab', () => {
 
       expect(wrapper.find('.session-overview').exists()).toBe(true);
       expect(wrapper.find('.summary-empty-state').exists()).toBe(false);
-      expect(wrapper.find('.session-overview .overview-summary-empty').exists()).toBe(true);
-      expect(wrapper.find('.session-overview').text()).toContain("This workspace hasn't started yet.");
-      expect(wrapper.find('.session-overview .overview-summary-empty button').exists()).toBe(false);
-      expect(wrapper.find('.session-overview .overview-summary-empty').text()).not.toContain('Generate summary');
+      expect(wrapper.find('.session-overview .overview-summary-empty').exists()).toBe(false);
+      expect(wrapper.find('.session-overview').text()).not.toContain("This workspace hasn't started yet.");
     });
 
     it('does not show empty state while loading', async () => {
