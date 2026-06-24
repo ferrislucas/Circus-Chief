@@ -19,12 +19,9 @@ vi.mock('../database.js', () => ({
   kanbanLanes: {
     getByBoardId: vi.fn(),
   },
-  commandButtons: {
-    getByProjectId: vi.fn(),
-  },
 }));
 
-import { sessions, attachments, projects, kanbanBoards, kanbanLanes, commandButtons } from '../database.js';
+import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import {
   getApiBaseUrl,
   buildPromptWithAttachments,
@@ -47,8 +44,6 @@ describe('sessionPrompts', () => {
     projects.getById.mockReturnValue(null);
     kanbanBoards.getByProjectId.mockReturnValue(null);
     kanbanLanes.getByBoardId.mockReturnValue([]);
-    // Default mock: no command buttons
-    commandButtons.getByProjectId.mockReturnValue([]);
   });
 
   afterEach(() => {
@@ -635,9 +630,7 @@ describe('sessionPrompts', () => {
     });
 
     describe('command API instructions', () => {
-      it('includes section when commands exist', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
+      it('always includes Circus Commands section', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain('## Circus Commands');
@@ -647,16 +640,13 @@ describe('sessionPrompts', () => {
         expect(result).toContain('/kill');
       });
 
-      it('excludes section when no commands exist', () => {
-        commandButtons.getByProjectId.mockReturnValue([]);
-
+      it('includes section even when no commands are configured', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).not.toContain('## Circus Commands');
+        expect(result).toContain('## Circus Commands');
       });
 
       it('section appears between Session Management and Kanban', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
         projects.getById.mockReturnValue({});
         kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
         kanbanLanes.getByBoardId.mockReturnValue([]);
@@ -675,16 +665,12 @@ describe('sessionPrompts', () => {
       });
 
       it('kill endpoint is documented', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain(`/api/sessions/${sessionId}/circus-commands/runs/<run_id>/kill`);
       });
 
       it('uses session-scoped command routes without tree traversal terms', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain(`curl http://localhost:5000/api/sessions/${sessionId}/circus-commands`);
@@ -694,8 +680,6 @@ describe('sessionPrompts', () => {
       });
 
       it('run response shape is documented', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain('runId');
@@ -707,9 +691,7 @@ describe('sessionPrompts', () => {
         expect(result).toContain('completedAt');
       });
 
-      it('includes discoverability note when commands exist', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
+      it('includes discoverability note', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain('When the user asks to');

@@ -475,4 +475,56 @@ describe('CommandsTab', () => {
       wrapper.unmount();
     });
   });
+
+  describe('project-scoped command rendering', () => {
+    it('renders only commands whose projectId matches the prop', async () => {
+      commandButtonsStore.buttons = [
+        { id: 'btn-a', label: 'Project A Command', command: 'cmd-a', projectId: 'proj-1' },
+        { id: 'btn-b', label: 'Project B Command', command: 'cmd-b', projectId: 'proj-2' },
+      ];
+
+      const wrapper = mount(CommandsTab, {
+        props: {
+          projectId: 'proj-1',
+          sessionId: 'session-1',
+        },
+        global: {
+          plugins: [pinia],
+          stubs: { LoadingSpinner: true },
+        },
+      });
+
+      await flushPromises();
+
+      // Only proj-1 command should be in the rendered list
+      // CommandButtonItem renders data-testid="command-button-item-{button.id}"
+      expect(wrapper.find('[data-testid="command-button-item-btn-a"]').exists()).toBe(true);
+      expect(wrapper.find('[data-testid="command-button-item-btn-b"]').exists()).toBe(false);
+    });
+
+    it('shows empty state when all store buttons belong to a different project', async () => {
+      commandButtonsStore.buttons = [
+        { id: 'btn-b', label: 'Other Project Command', command: 'cmd-b', projectId: 'proj-2' },
+      ];
+
+      const wrapper = mount(CommandsTab, {
+        props: {
+          projectId: 'proj-1',
+          sessionId: 'session-1',
+        },
+        global: {
+          plugins: [pinia],
+          stubs: { CommandButtonItem: true, LoadingSpinner: true },
+        },
+      });
+
+      await flushPromises();
+
+      // Should show empty state, not the other project's command
+      const emptyState = wrapper.find('[data-testid="commands-tab-empty"]');
+      expect(emptyState.exists()).toBe(true);
+      const commandsList = wrapper.find('[data-testid="commands-tab-list"]');
+      expect(commandsList.exists()).toBe(false);
+    });
+  });
 });
