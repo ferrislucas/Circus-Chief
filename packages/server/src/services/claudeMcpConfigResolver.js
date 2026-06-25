@@ -222,3 +222,9 @@ function isPlainObject(value) {
 function asStringArray(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
 }
+
+/**
+ * Shared alias for resolveClaudeMcpServers — use this when the caller is not
+ * Claude-specific (e.g. the Codex query-param builder).
+ */
+export const resolveMcpServers = resolveClaudeMcpServers;

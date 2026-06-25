@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { existsSync, rmSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import {
   addProviderModel,
   cleanupCreatedResources,
@@ -257,6 +259,27 @@ test.describe('Commit attribution launch behavior', () => {
     await waitForStatus(session.id, 'waiting', 60000);
     expectAttributionEnv(await waitForSpawn('codex'), CODEX_ATTRIBUTION);
   });
+
+  test('Codex launch includes approved project .mcp.json servers', async () => {
+    const workingDirectory = createApprovedMcpProjectDirectory();
+    try {
+      const project = await seedProject('Codex MCP Project', workingDirectory);
+      const session = await seedSession(project.id, {
+        prompt: 'Codex MCP e2e',
+        model: await firstBuiltInOpenAIModel(),
+        startImmediately: true,
+      });
+
+      await waitForStatus(session.id, 'waiting', 60000);
+      const spawn = await waitForSpawn('codex');
+      expect(spawn.cwd).toBe(workingDirectory);
+      expect(spawn.options?.config ?? []).toEqual(expect.arrayContaining([
+        expect.stringMatching(/mcp.*projectServer|projectServer.*mcp/),
+      ]));
+    } finally {
+      rmSync(workingDirectory, { recursive: true, force: true });
+    }
+  });
 });
 
 async function expectBuiltInAttributionModal(page: any, providerName: string, expectedValue: string) {
@@ -359,4 +382,23 @@ function expectAttributionEnv(spawn: any, attribution: string) {
   expect(spawn.env?.CIRCUSCHIEF_COMMIT_ATTRIBUTION).toBe(attribution);
   expect(spawn.args).not.toContain('--settings');
   expect(spawn.args.some((arg: string) => arg.startsWith('commit_attribution='))).toBe(false);
+}
+
+function createApprovedMcpProjectDirectory() {
+  const workingDirectory = mkdtempSync(join(tmpdir(), 'codex-mcp-e2e-'));
+  mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+  writeJson(join(workingDirectory, '.mcp.json'), {
+    mcpServers: {
+      projectServer: { command: 'node', args: ['project-server.js'] },
+    },
+  });
+  writeFileSync(join(workingDirectory, 'project-server.js'), 'process.stdin.resume();\n', 'utf8');
+  writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+    enabledMcpjsonServers: ['projectServer'],
+  });
+  return workingDirectory;
+}
+
+function writeJson(filePath: string, value: unknown) {
+  writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
 }

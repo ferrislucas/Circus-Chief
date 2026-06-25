@@ -111,7 +111,7 @@ export class CodexAdapter extends BaseAgent {
 
   _spawnCodexChild(queryParams, options) {
     const spawnFn = this._spawnCodex ?? createCodexSpawner();
-    const { cwd, env, abortController, model, sandboxMode, effortLevel } = options;
+    const { cwd, env, abortController, model, sandboxMode, effortLevel, mcpServers } = options;
     const effectiveSandbox = sandboxMode || 'workspace-write';
     const codexReasoningEffort = resolveCodexReasoningEffort(effortLevel);
     const args = [
@@ -127,6 +127,11 @@ export class CodexAdapter extends BaseAgent {
         '-c', `model_reasoning_effort=${codexReasoningEffort}`,
         '-c', `plan_mode_reasoning_effort=${codexReasoningEffort}`
       );
+    }
+
+    // Append MCP server config as repeated -c overrides before the auth hint
+    if (mcpServers && typeof mcpServers === 'object') {
+      args.push(...serializeMcpServersToArgs(mcpServers));
     }
 
     // Defense in depth: when no API key is in the env, force ChatGPT auth
@@ -272,4 +277,77 @@ function makeTextDeltaEvent(text) {
       delta: { type: 'text_delta', text },
     },
   };
+}
+
+// --- MCP server CLI serialization ------------------------------------------
+
+/**
+ * Serialize an mcpServers map into repeated `-c` CLI args for the Codex CLI.
+ *
+ * Generates config keys under `mcp_servers.<serverName>` using TOML-compatible
+ * value literals. Only supported field types are emitted; unsupported values are
+ * skipped silently.
+ *
+ * @param {Object} mcpServers
+ * @returns {string[]} Flat list of alternating '-c' and value strings
+ */
+function serializeMcpServersToArgs(mcpServers) {
+  const args = [];
+  for (const [serverName, server] of Object.entries(mcpServers)) {
+    if (!server || typeof server !== 'object' || Array.isArray(server)) continue;
+    const prefix = `mcp_servers.${tomlKey(serverName)}`;
+    const type = server.type;
+
+    if (type === 'sse' || type === 'http') {
+      // Remote server
+      args.push('-c', `${prefix}.type=${tomlStr(type)}`);
+      if (typeof server.url === 'string') {
+        args.push('-c', `${prefix}.url=${tomlStr(server.url)}`);
+      }
+      if (server.headers && typeof server.headers === 'object' && !Array.isArray(server.headers)) {
+        const entries = Object.entries(server.headers).filter(([, v]) => typeof v === 'string');
+        if (entries.length > 0) {
+          args.push('-c', `${prefix}.headers={${entries.map(([k, v]) => `${tomlKey(k)}=${tomlStr(v)}`).join(',')}}`);
+        }
+      }
+    } else {
+      // stdio server (type is undefined or 'stdio')
+      if (type === 'stdio') {
+        args.push('-c', `${prefix}.type=${tomlStr(type)}`);
+      }
+      if (typeof server.command === 'string') {
+        args.push('-c', `${prefix}.command=${tomlStr(server.command)}`);
+      }
+      if (Array.isArray(server.args)) {
+        const strArgs = server.args.filter((a) => typeof a === 'string');
+        args.push('-c', `${prefix}.args=[${strArgs.map(tomlStr).join(',')}]`);
+      }
+      if (server.env && typeof server.env === 'object' && !Array.isArray(server.env)) {
+        const entries = Object.entries(server.env).filter(([, v]) => typeof v === 'string');
+        if (entries.length > 0) {
+          args.push('-c', `${prefix}.env={${entries.map(([k, v]) => `${tomlKey(k)}=${tomlStr(v)}`).join(',')}}`);
+        }
+      }
+    }
+  }
+  return args;
+}
+
+/**
+ * Serialize a string as a TOML basic string (JSON-compatible double-quoting).
+ * @param {string} s
+ * @returns {string}
+ */
+function tomlStr(s) {
+  return JSON.stringify(s);
+}
+
+/**
+ * Return a TOML key segment: bare if safe ([A-Za-z0-9_-]), quoted otherwise.
+ * @param {string} s
+ * @returns {string}
+ */
+function tomlKey(s) {
+  if (/^[A-Za-z0-9_-]+$/.test(s)) return s;
+  return JSON.stringify(s);
 }
