@@ -155,6 +155,7 @@ export function SessionsApi(ApiClient) {
      * @param {Object} options - Additional send options
      * @returns {Promise<Object>}
      */
+    // eslint-disable-next-line max-params -- optional `options` bag threaded alongside the existing positional send signature
     async sendMessage(sessionId, content, files = [], model = null, options = {}) {
       // [MODEL AUDIT] Log model in API request
       console.log(`[MODEL AUDIT - ApiClient] sendMessage called with model: "${model}"`);
@@ -272,6 +273,7 @@ export function SessionsApi(ApiClient) {
      * @param {Object} options - Additional start options
      * @returns {Promise<Object>}
      */
+    // eslint-disable-next-line max-params -- optional `options` bag threaded alongside the existing positional start signature
     async startSession(id, prompt, model, providerId, options = {}) {
       const data = {};
       if (prompt !== undefined) data.prompt = prompt;

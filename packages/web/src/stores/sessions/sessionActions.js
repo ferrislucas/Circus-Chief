@@ -141,6 +141,7 @@ export const sessionActions = {
     finally { this.loading = false; }
   },
 
+  // eslint-disable-next-line max-params -- existing positional send signature plus optional `options` bag
   async sendMessage(sessionId, content, files = [], model = null, options = {}) {
     this.error = null;
     try {
@@ -165,6 +166,7 @@ export const sessionActions = {
     catch (err) { this.error = err.message; throw err; }
   },
 
+  // eslint-disable-next-line max-params -- existing positional start signature plus optional `options` bag
   async startSession(id, prompt = undefined, model = undefined, providerId = undefined, options = {}) {
     this.error = null;
     try {

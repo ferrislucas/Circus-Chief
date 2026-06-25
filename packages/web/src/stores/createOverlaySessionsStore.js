@@ -135,9 +135,11 @@ const sessionSyncActions = {
 const delegatedSessionActions = {
   async stopSession(id) { return useSessionsStore().stopSession(id); },
   async restartSession(id) { return useSessionsStore().restartSession(id); },
+  // eslint-disable-next-line max-params -- delegates the existing positional start signature plus optional `options` bag
   async startSession(id, prompt = undefined, model = undefined, providerId = undefined, options = {}) {
     return useSessionsStore().startSession(id, prompt, model, providerId, options);
   },
+  // eslint-disable-next-line max-params -- delegates the existing positional send signature plus optional `options` bag
   async sendMessage(sessionId, content, files = [], model = null, options = {}) {
     return useSessionsStore().sendMessage(sessionId, content, files, model, options);
   },
