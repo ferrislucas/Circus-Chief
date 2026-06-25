@@ -296,41 +296,69 @@ function serializeMcpServersToArgs(mcpServers) {
   for (const [serverName, server] of Object.entries(mcpServers)) {
     if (!server || typeof server !== 'object' || Array.isArray(server)) continue;
     const prefix = `mcp_servers.${tomlKey(serverName)}`;
-    const type = server.type;
-
-    if (type === 'sse' || type === 'http') {
-      // Remote server
-      args.push('-c', `${prefix}.type=${tomlStr(type)}`);
-      if (typeof server.url === 'string') {
-        args.push('-c', `${prefix}.url=${tomlStr(server.url)}`);
-      }
-      if (server.headers && typeof server.headers === 'object' && !Array.isArray(server.headers)) {
-        const entries = Object.entries(server.headers).filter(([, v]) => typeof v === 'string');
-        if (entries.length > 0) {
-          args.push('-c', `${prefix}.headers={${entries.map(([k, v]) => `${tomlKey(k)}=${tomlStr(v)}`).join(',')}}`);
-        }
-      }
+    if (server.type === 'sse' || server.type === 'http') {
+      args.push(...serializeRemoteMcpServer(prefix, server));
     } else {
-      // stdio server (type is undefined or 'stdio')
-      if (type === 'stdio') {
-        args.push('-c', `${prefix}.type=${tomlStr(type)}`);
-      }
-      if (typeof server.command === 'string') {
-        args.push('-c', `${prefix}.command=${tomlStr(server.command)}`);
-      }
-      if (Array.isArray(server.args)) {
-        const strArgs = server.args.filter((a) => typeof a === 'string');
-        args.push('-c', `${prefix}.args=[${strArgs.map(tomlStr).join(',')}]`);
-      }
-      if (server.env && typeof server.env === 'object' && !Array.isArray(server.env)) {
-        const entries = Object.entries(server.env).filter(([, v]) => typeof v === 'string');
-        if (entries.length > 0) {
-          args.push('-c', `${prefix}.env={${entries.map(([k, v]) => `${tomlKey(k)}=${tomlStr(v)}`).join(',')}}`);
-        }
-      }
+      args.push(...serializeStdioMcpServer(prefix, server));
     }
   }
   return args;
+}
+
+/**
+ * Serialize a remote (sse/http) MCP server into `-c` CLI args.
+ * @param {string} prefix
+ * @param {Object} server
+ * @returns {string[]}
+ */
+function serializeRemoteMcpServer(prefix, server) {
+  const args = ['-c', `${prefix}.type=${tomlStr(server.type)}`];
+  if (typeof server.url === 'string') {
+    args.push('-c', `${prefix}.url=${tomlStr(server.url)}`);
+  }
+  const headers = tomlInlineTable(server.headers);
+  if (headers) {
+    args.push('-c', `${prefix}.headers=${headers}`);
+  }
+  return args;
+}
+
+/**
+ * Serialize a stdio MCP server into `-c` CLI args.
+ * @param {string} prefix
+ * @param {Object} server
+ * @returns {string[]}
+ */
+function serializeStdioMcpServer(prefix, server) {
+  const args = [];
+  if (server.type === 'stdio') {
+    args.push('-c', `${prefix}.type=${tomlStr(server.type)}`);
+  }
+  if (typeof server.command === 'string') {
+    args.push('-c', `${prefix}.command=${tomlStr(server.command)}`);
+  }
+  if (Array.isArray(server.args)) {
+    const strArgs = server.args.filter((a) => typeof a === 'string');
+    args.push('-c', `${prefix}.args=[${strArgs.map(tomlStr).join(',')}]`);
+  }
+  const env = tomlInlineTable(server.env);
+  if (env) {
+    args.push('-c', `${prefix}.env=${env}`);
+  }
+  return args;
+}
+
+/**
+ * Serialize a plain object of string values into a TOML inline table literal,
+ * or return null when there is nothing serializable.
+ * @param {*} obj
+ * @returns {string|null}
+ */
+function tomlInlineTable(obj) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const entries = Object.entries(obj).filter(([, v]) => typeof v === 'string');
+  if (entries.length === 0) return null;
+  return `{${entries.map(([k, v]) => `${tomlKey(k)}=${tomlStr(v)}`).join(',')}}`;
 }
 
 /**
