@@ -71,7 +71,7 @@ const props = defineProps({
   maxSize: { type: Number, default: 10 * 1024 * 1024 }, // 10MB
   acceptTypes: {
     type: String,
-    default: 'image/*,text/*,.json,.md,.csv,.pdf,.js,.ts,.py,.java,.go,.rs,.c,.cpp,.h,.sh,.yaml,.yml,.xml,.html,.css',
+    default: 'image/*,video/*,text/*,.json,.md,.csv,.pdf,.js,.ts,.py,.java,.go,.rs,.c,.cpp,.h,.sh,.yaml,.yml,.xml,.html,.css',
   },
 });
 
@@ -137,6 +137,7 @@ function clear() {
 function getFileIcon(file) {
   const type = file.type || '';
   if (type.startsWith('image/')) return '🖼️';
+  if (type.startsWith('video/')) return '🎬';
   if (type.startsWith('text/') || type === 'application/json') return '📄';
   if (type === 'application/pdf') return '📕';
   if (type.includes('javascript') || type.includes('typescript')) return '📜';

@@ -285,6 +285,18 @@ describe('CanvasTab', () => {
       expect(fileInput.exists()).toBe(true);
       expect(fileInput.element.style.display).toBe('none');
     });
+
+    it('file input accept attribute includes video/*', async () => {
+      api.getAllCanvasItems.mockResolvedValue([]);
+
+      const wrapper = mountComponent();
+      await flushPromises();
+
+      const fileInput = wrapper.find('input[type="file"]');
+      expect(fileInput.exists()).toBe(true);
+      const accept = fileInput.attributes('accept') || '';
+      expect(accept).toContain('video/*');
+    });
   });
 
   describe('drag and drop', () => {

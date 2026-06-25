@@ -6,7 +6,10 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 const MIME_TEXT_PLAIN = 'text/plain';
 const MIME_TEXT_MARKDOWN = 'text/markdown';
 
-// Map file extensions to MIME types for binary files (images/PDF)
+// Video extensions for canvas type detection
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mov', '.webm']);
+
+// Map file extensions to MIME types for binary files (images/PDF/video)
 export const MIME_TYPES = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -17,6 +20,10 @@ export const MIME_TYPES = {
   '.bmp': 'image/bmp',
   '.ico': 'image/x-icon',
   '.pdf': 'application/pdf',
+  // Video
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
 };
 
 // Text-based file extensions mapped to MIME types
@@ -107,7 +114,9 @@ export function isBinaryContent(buffer) {
  */
 export function getTypeFromExtension(ext) {
   if (MIME_TYPES[ext]) {
-    return ext === '.pdf' ? 'pdf' : 'image';
+    if (ext === '.pdf') return 'pdf';
+    if (VIDEO_EXTENSIONS.has(ext)) return 'video';
+    return 'image';
   }
   if (ext === '.json' || ext === '.jsonc' || ext === '.json5') {
     return 'json';
@@ -157,7 +166,7 @@ export function processFileBuffer(fileBuffer, itemFilename) {
   if (!detectedType) {
     if (isBinaryContent(fileBuffer)) {
       return {
-        error: `Unsupported binary file format: ${ext}. Supported binary formats: ${Object.keys(MIME_TYPES).join(', ')}`
+        error: `Unsupported binary file format: ${ext}. Supported binary formats: images (${['.png', '.jpg', '.gif', '.webp', '.svg', '.bmp'].join(', ')}), video (.mp4, .mov, .webm), .pdf`
       };
     }
     // It's a text file with unknown extension, treat as code
@@ -165,8 +174,8 @@ export function processFileBuffer(fileBuffer, itemFilename) {
     detectedMimeType = MIME_TEXT_PLAIN;
   }
 
-  // Handle binary types (image, pdf)
-  if (detectedType === 'image' || detectedType === 'pdf') {
+  // Handle binary types (image, pdf, video)
+  if (detectedType === 'image' || detectedType === 'pdf' || detectedType === 'video') {
     const base64 = fileBuffer.toString('base64');
     return {
       itemData: {
@@ -238,7 +247,7 @@ export function broadcastCanvasUpdate(sessionId, item) {
  */
 export async function writeCanvasItemToFile(item, filePath) {
   const { writeFile } = await import('fs/promises');
-  if (item.type === 'image' || item.type === 'pdf') {
+  if (item.type === 'image' || item.type === 'pdf' || item.type === 'video') {
     const buffer = Buffer.from(item.data, 'base64');
     await writeFile(filePath, buffer);
   } else if (item.type === 'json') {

@@ -23,6 +23,7 @@
         <input
           type="file"
           :disabled="uploading"
+          accept="image/*,video/*,.pdf,.json,.md,.mdx,.csv,.txt,.js,.ts,.py,.java,.go,.rs,.c,.cpp,.h,.sh,.yaml,.yml,.xml,.html,.css"
           style="display: none"
           @change="handleFileSelect"
         >
@@ -103,7 +104,7 @@
       >
         <p>No canvas items yet. Upload a file or drag and drop here.</p>
         <p class="empty-state-hint">
-          The agent can also add images, markdown, and JSON to the canvas.
+          The agent can also add images, videos, markdown, and JSON to the canvas.
         </p>
       </div>
 

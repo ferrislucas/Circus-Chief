@@ -48,6 +48,9 @@ describe('Upload Middleware', () => {
         { type: 'image/gif', ext: 'gif' },
         { type: 'image/webp', ext: 'webp' },
         { type: 'image/svg+xml', ext: 'svg' },
+        { type: 'video/mp4', ext: 'mp4' },
+        { type: 'video/quicktime', ext: 'mov' },
+        { type: 'video/webm', ext: 'webm' },
       ];
 
       allowedTypes.forEach(({ type, ext }) => {
@@ -85,7 +88,6 @@ describe('Upload Middleware', () => {
         { type: 'application/x-msdownload', ext: 'exe', desc: 'executable' },
         { type: 'application/octet-stream', ext: 'bin', desc: 'binary' },
         { type: 'application/zip', ext: 'zip', desc: 'archive' },
-        { type: 'video/mp4', ext: 'mp4', desc: 'video' },
         { type: 'audio/mpeg', ext: 'mp3', desc: 'audio' },
       ];
 
