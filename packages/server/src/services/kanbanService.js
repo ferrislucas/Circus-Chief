@@ -3,7 +3,6 @@ import {
   kanbanLanes,
   kanbanCards,
   sessions,
-  sessionTemplates,
   projects,
 } from '../database.js';
 import { broadcastToProject } from '../websocket.js';
@@ -187,59 +186,6 @@ async function moveExistingSessionCard(session, card, targetLaneId) {
 }
 
 /**
- * Handle turn completion for a session.
- * If the session has a target_lane_id set, move its card to that lane.
- *
- * @param {string} sessionId - The session that just completed its turn
- */
-export async function handleTurnCompletion(sessionId) {
-  // Read targetLaneId and clear it from the session that actually completed
-  // (this may be a child session, not the workspace root).
-  const session = sessions.getById(sessionId);
-  if (!session) {
-    return;
-  }
-
-  // Check if session has a target lane
-  if (!session.targetLaneId) {
-    return;
-  }
-
-  console.log(
-    `Kanban: Handling turn completion for session ${sessionId}, target lane: ${session.targetLaneId}`
-  );
-
-  // Resolve the workspace root — card lookups and moves operate on the root.
-  const workspaceId = resolveWorkspaceId(sessionId);
-  const rootSession = sessions.getById(workspaceId);
-
-  // Find or create the card for the workspace root
-  let card = kanbanCards.getBySessionId(workspaceId);
-
-  if (!card) {
-    // Workspace doesn't have a card yet, create one in the target lane
-    const lane = kanbanLanes.getById(session.targetLaneId);
-    if (!lane) {
-      console.warn(`Kanban: Target lane ${session.targetLaneId} not found for session ${sessionId}`);
-      // Clear the invalid target lane on the session that set it
-      sessions.update(sessionId, { targetLaneId: null });
-      return;
-    }
-
-    card = await addSessionToBoard(workspaceId, session.targetLaneId, {
-      runOnEnterTemplate: true,
-      depth: (rootSession?.laneTriggerDepth) || 0,
-    });
-  } else {
-    // Move the workspace card to target lane
-    await moveExistingSessionCard(rootSession || session, card, session.targetLaneId);
-  }
-
-  // Clear the target lane on the session that set it (may be a child)
-  sessions.update(sessionId, { targetLaneId: null });
-}
-
-/**
  * Check whether a workspace root has any incomplete lane-triggered descendants.
  *
  * A lane-triggered descendant is a session with laneTriggerDepth > 0 (set by
@@ -350,37 +296,3 @@ export function removeSessionFromBoard(sessionId) {
   }
 }
 
-/**
- * Add a session to its template's target lane if configured.
- * Called after session creation from a template.
- *
- * @param {string} sessionId - The newly created session ID
- * @param {string} templateId - The template ID used to create the session
- */
-export async function addSessionToTemplateTargetLane(sessionId, templateId) {
-  const template = sessionTemplates.getById(templateId);
-  if (!template?.targetLaneId) {
-    return;
-  }
-
-  const lane = kanbanLanes.getById(template.targetLaneId);
-  if (!lane) {
-    console.warn(
-      `Kanban: Template target lane ${template.targetLaneId} not found for session ${sessionId}`
-    );
-    return;
-  }
-
-  // Normalize to workspace root — addSessionToBoard will also normalize, but
-  // being explicit here keeps the log message accurate.
-  const workspaceId = resolveWorkspaceId(sessionId);
-
-  try {
-    await addSessionToBoard(workspaceId, template.targetLaneId);
-    console.log(
-      `Kanban: Added workspace ${workspaceId} to lane "${lane.name}" based on template target`
-    );
-  } catch (error) {
-    console.warn(`Kanban: Failed to add workspace ${workspaceId} to board:`, error.message);
-  }
-}

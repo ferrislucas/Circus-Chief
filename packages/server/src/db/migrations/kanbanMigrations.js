@@ -3,7 +3,12 @@
  * kanban_cards, kanban_card_sessions tables, and related columns on
  * projects, sessions, and session_templates.
  */
-import { addColumnIfMissing } from './migrationUtils.js';
+import { addColumnIfMissing, getColumns } from './migrationUtils.js';
+import {
+  SESSIONS_ALL_CURRENT_COLUMNS,
+  SESSIONS_ALL_CURRENT_COLUMN_NAMES,
+  recreateSessionsTable,
+} from './sessionTableRecreate.js';
 
 export const kanbanMigrations = [
   {
@@ -101,6 +106,41 @@ export const kanbanMigrations = [
     name: 'kanban_lanes-add-completion_target_lane_id',
     up(db) {
       addColumnIfMissing(db, 'kanban_lanes', 'completion_target_lane_id', 'TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL');
+    },
+  },
+  {
+    // Drop the dormant per-session target_lane_id routing flag from sessions.
+    // Uses table-recreate so the FK to kanban_lanes is removed cleanly.
+    // Idempotent: recreateSessionsTable intersects requested columns with
+    // existing columns, so already-migrated DBs are a no-op.
+    name: 'sessions-drop-target_lane_id',
+    up(db) {
+      const columns = getColumns(db, 'sessions');
+      if (!columns.includes('target_lane_id')) {
+        return; // Already dropped — idempotent guard
+      }
+      recreateSessionsTable(db, SESSIONS_ALL_CURRENT_COLUMNS, SESSIONS_ALL_CURRENT_COLUMN_NAMES);
+    },
+  },
+  {
+    // Drop the dormant per-template target_lane_id routing flag.
+    // Uses ALTER TABLE DROP COLUMN (SQLite ≥ 3.35).
+    // Idempotent: guarded by column-existence check.
+    name: 'session_templates-drop-target_lane_id',
+    up(db) {
+      const columns = getColumns(db, 'session_templates');
+      if (!columns.includes('target_lane_id')) {
+        return; // Already dropped — idempotent guard
+      }
+      // Disable FK enforcement for the duration so the FK reference on
+      // kanban_lanes doesn't block the drop.
+      const foreignKeysEnabled = db.pragma('foreign_keys', { simple: true });
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec('ALTER TABLE session_templates DROP COLUMN target_lane_id');
+      } finally {
+        db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
+      }
     },
   },
 ];

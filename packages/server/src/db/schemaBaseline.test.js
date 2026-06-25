@@ -71,7 +71,7 @@ describe('schema baseline', () => {
         'reschedule_on_token_limit', 'reschedule_on_service_error',
         'max_reschedule_count', 'max_total_tokens', 'reschedule_count',
         'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
-        'pending_model', 'auto_send_pending_prompt', 'agent_type', 'target_lane_id',
+        'pending_model', 'auto_send_pending_prompt', 'agent_type',
         'lane_trigger_depth', 'created_at', 'updated_at', 'pending_conversation_id',
       ]);
     });
@@ -106,9 +106,6 @@ describe('schema baseline', () => {
         'INSERT INTO sessions (id, project_id, name, provider_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       ).run('session-3', 'project-1', 'Session', 'missing-provider', now, now)).toThrow();
 
-      expect(() => db.prepare(
-        'INSERT INTO sessions (id, project_id, name, target_lane_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run('session-4', 'project-1', 'Session', 'missing-lane', now, now)).toThrow();
     });
   });
 
@@ -122,7 +119,7 @@ describe('schema baseline', () => {
 
       expect(columnNames(db, 'projects')).toEqual(expect.arrayContaining(['worktree_path', 'kanban_enabled']));
       expect(columnNames(db, 'project_session_defaults')).toEqual(expect.arrayContaining(['provider_id', 'effort_level']));
-      expect(columnNames(db, 'session_templates')).toEqual(expect.arrayContaining(['target_lane_id', 'model', 'mode', 'effort_level']));
+      expect(columnNames(db, 'session_templates')).toEqual(expect.arrayContaining(['model', 'mode', 'effort_level']));
       expect(columnNames(db, 'conversation_messages')).toEqual(expect.arrayContaining(['conversation_id', 'model']));
       expect(columnNames(db, 'conversations')).toEqual(expect.arrayContaining(['model', 'parent_conversation_id', 'branch_from_message_id']));
       expect(columnNames(db, 'session_summaries')).toEqual(expect.arrayContaining(['last_summarized_message_id', 'workflow_fingerprint']));

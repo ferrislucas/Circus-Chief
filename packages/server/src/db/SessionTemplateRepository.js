@@ -22,7 +22,6 @@ export class SessionTemplateRepository extends BaseRepository {
       model: row.model || null,
       mode: row.mode || null,
       effortLevel: row.effort_level ?? null,
-      targetLaneId: row.target_lane_id || null,
       showInQuickResponses: Boolean(row.show_in_quick_responses),
       quickResponseAutoSubmit: Boolean(row.quick_response_auto_submit),
       quickResponseSortOrder: row.quick_response_sort_order ?? 0,
@@ -65,11 +64,11 @@ export class SessionTemplateRepository extends BaseRepository {
       .prepare(
         `INSERT INTO session_templates (
           id, project_id, name, prompt, next_template_id, thinking_enabled,
-          git_branch, git_mode, model, mode, effort_level, target_lane_id,
+          git_branch, git_mode, model, mode, effort_level,
           show_in_quick_responses, quick_response_auto_submit,
           quick_response_sort_order,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -83,7 +82,6 @@ export class SessionTemplateRepository extends BaseRepository {
         data.model || null,
         data.mode !== undefined && data.mode !== null ? data.mode : null,
         data.effortLevel ?? null,
-        data.targetLaneId || null,
         SessionTemplateRepository.#normalizeBoolean(data.showInQuickResponses),
         SessionTemplateRepository.#normalizeBoolean(data.quickResponseAutoSubmit),
         data.quickResponseSortOrder ?? 0,
@@ -107,7 +105,6 @@ export class SessionTemplateRepository extends BaseRepository {
     model: { column: 'model', transform: (v) => v },
     mode: { column: 'mode', transform: (v) => v },
     effortLevel: { column: 'effort_level', transform: (v) => v },
-    targetLaneId: { column: 'target_lane_id', transform: (v) => v },
     showInQuickResponses: { column: 'show_in_quick_responses', transform: (v) => v ? 1 : 0 },
     quickResponseAutoSubmit: { column: 'quick_response_auto_submit', transform: (v) => v ? 1 : 0 },
     quickResponseSortOrder: { column: 'quick_response_sort_order', transform: (v) => v },

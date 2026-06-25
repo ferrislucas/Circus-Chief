@@ -57,8 +57,6 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
     await broadcastChangesUpdate(sessionId, currentSession.projectId, workingDirectory);
   }
 
-  // Handle kanban lane movements based on targetLaneId
-  await kanbanService.handleTurnCompletion(sessionId);
   // Advance the card to its current lane's completion target now that the
   // session has finished a turn successfully. This is the only correct
   // trigger: work was actually done while parked in this lane.
