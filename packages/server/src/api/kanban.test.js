@@ -41,7 +41,7 @@ describe('Kanban API', () => {
     app.use(express.json());
     app.use('/api/projects/:projectId/kanban', kanbanRouter);
 
-    const project = projects.create('Test Project', '/tmp/test', null, { kanbanEnabled: true });
+    const project = projects.create('Test Project', '/tmp/test');
     projectId = project.id;
   });
 
@@ -54,6 +54,13 @@ describe('Kanban API', () => {
 
   function createSession(name = 'Test Session') {
     return sessions.create(projectId, name, 'Prompt');
+  }
+
+  function createChildSession(parentId, name = 'Child Session') {
+    return sessions.create(projectId, name, 'Child Prompt', {
+      mode: 'standard',
+      parentSessionId: parentId,
+    });
   }
 
   // ============== Board Endpoints ==============
@@ -79,15 +86,6 @@ describe('Kanban API', () => {
       expect(res.status).toBe(200);
       expect(res.body.lanes).toHaveLength(4);
       expect(res.body.lanes[0].name).toBe('To Do');
-    });
-
-    it('returns null when kanban is disabled', async () => {
-      projects.update(projectId, { kanbanEnabled: false });
-
-      const res = await request(app).get(`/api/projects/${projectId}/kanban`);
-
-      expect(res.status).toBe(200);
-      expect(res.body).toBeNull();
     });
 
     it('returns 404 for non-existent project', async () => {
@@ -234,7 +232,7 @@ describe('Kanban API', () => {
 
     it('rejects completionTargetLaneId from another board', async () => {
       setupBoard();
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       const otherBoard = kanbanBoards.getOrCreateForProject(otherProject.id);
       const otherLanes = kanbanLanes.getByBoardId(otherBoard.id);
 
@@ -248,7 +246,7 @@ describe('Kanban API', () => {
 
     it('rejects updating a lane through a project route whose board does not own it', async () => {
       setupBoard();
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       kanbanBoards.getOrCreateForProject(otherProject.id);
 
       const res = await request(app)
@@ -357,30 +355,27 @@ describe('Kanban API', () => {
   // ============== Card Endpoints ==============
 
   describe('POST /api/projects/:projectId/kanban/cards', () => {
-    it('creates a card for a session', async () => {
+    it('creates a card for a workspace', async () => {
       setupBoard();
       const session = createSession();
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/kanban/cards`)
-        .send({ sessionId: session.id, laneId: lanes[0].id });
+        .send({ workspaceId: session.id, laneId: lanes[0].id });
 
       expect(res.status).toBe(201);
       expect(res.body.laneId).toBe(lanes[0].id);
       expect(res.body.sessions[0].id).toBe(session.id);
     });
 
-    it('creates a card for the workflow root when body session is a child', async () => {
+    it('creates a card for the workflow root when a child workspace ID is provided', async () => {
       setupBoard();
       const root = createSession('Root Session');
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', {
-        mode: 'standard',
-        parentSessionId: root.id,
-      });
+      const child = createChildSession(root.id, 'Child Session');
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/kanban/cards`)
-        .send({ sessionId: child.id, laneId: lanes[0].id });
+        .send({ workspaceId: child.id, laneId: lanes[0].id });
 
       expect(res.status).toBe(201);
       expect(res.body.sessions[0].id).toBe(root.id);
@@ -391,40 +386,33 @@ describe('Kanban API', () => {
     it('detects duplicate cards by workflow root session ID', async () => {
       setupBoard();
       const root = createSession('Root Session');
-      const child = sessions.create(projectId, 'Child Session', 'Child prompt', {
-        mode: 'standard',
-        parentSessionId: root.id,
-      });
+      const child = createChildSession(root.id, 'Child Session');
       kanbanCards.create(lanes[0].id, root.id);
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/kanban/cards`)
-        .send({ sessionId: child.id, laneId: lanes[1].id });
+        .send({ workspaceId: child.id, laneId: lanes[1].id });
 
       expect(res.status).toBe(409);
       expect(res.body.error).toBe('Session already has a card on the board');
     });
 
-    it('rejects child sessions whose workflow root belongs to another project', async () => {
+    it('rejects workspaceId from another project', async () => {
       setupBoard();
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       const root = sessions.create(otherProject.id, 'Other Root', 'Prompt');
-      const child = sessions.create(otherProject.id, 'Other Child', 'Prompt', {
-        mode: 'standard',
-        parentSessionId: root.id,
-      });
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/kanban/cards`)
-        .send({ sessionId: child.id, laneId: lanes[0].id });
+        .send({ workspaceId: root.id, laneId: lanes[0].id });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Session does not belong to this project');
     });
 
-    it('rejects a provided session that belongs to another project even if root is in this project', async () => {
+    it('rejects a child session that belongs to another project even if root is in this project', async () => {
       setupBoard();
-      const otherProject = projects.create('Other Project', '/tmp/other', null, { kanbanEnabled: true });
+      const otherProject = projects.create('Other Project', '/tmp/other', null);
       // root lives in our project, child lives in otherProject
       const root = createSession('Root in This Project');
       const child = sessions.create(otherProject.id, 'Child in Other Project', 'Prompt', {
@@ -434,7 +422,7 @@ describe('Kanban API', () => {
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/kanban/cards`)
-        .send({ sessionId: child.id, laneId: lanes[0].id });
+        .send({ workspaceId: child.id, laneId: lanes[0].id });
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('Session does not belong to this project');
@@ -446,7 +434,7 @@ describe('Kanban API', () => {
 
       await request(app)
         .post(`/api/projects/${projectId}/kanban/cards`)
-        .send({ sessionId: session.id, laneId: lanes[0].id });
+        .send({ workspaceId: session.id, laneId: lanes[0].id });
 
       expect(broadcastToProject).toHaveBeenCalledWith(
         projectId,
@@ -458,26 +446,26 @@ describe('Kanban API', () => {
       );
     });
 
-    it('returns 409 when session already has a card', async () => {
+    it('returns 409 when workspace already has a card', async () => {
       setupBoard();
       const session = createSession();
       kanbanCards.create(lanes[0].id, session.id);
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/kanban/cards`)
-        .send({ sessionId: session.id, laneId: lanes[1].id });
+        .send({ workspaceId: session.id, laneId: lanes[1].id });
 
       expect(res.status).toBe(409);
       expect(res.body.error).toBe('Session already has a card on the board');
     });
 
-    it('returns 404 when lane does not exist', async () => {
+    it('returns 400 when lane UUID is invalid', async () => {
       setupBoard();
       const session = createSession();
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/kanban/cards`)
-        .send({ sessionId: session.id, laneId: 'non-existent' });
+        .send({ workspaceId: session.id, laneId: 'non-existent' });
 
       expect(res.status).toBe(400); // UUID validation fails
     });
@@ -490,6 +478,155 @@ describe('Kanban API', () => {
         .send({});
 
       expect(res.status).toBe(400);
+      expect(res.body.error).toBe('workspaceId is required');
+    });
+
+    it('returns 400 when sessionId is sent instead of workspaceId (no alias)', async () => {
+      setupBoard();
+      const session = createSession();
+
+      const res = await request(app)
+        .post(`/api/projects/${projectId}/kanban/cards`)
+        .send({ sessionId: session.id, laneId: lanes[0].id });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('workspaceId is required');
+    });
+  });
+
+  describe('PATCH /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId/move', () => {
+    it('moves the workspace card to a different lane', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+      const movedCard = { ...card, laneId: lanes[1].id };
+      moveCardService.mockResolvedValueOnce(movedCard);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(res.status).toBe(200);
+      expect(res.body.laneId).toBe(lanes[1].id);
+      expect(moveCardService).toHaveBeenCalledWith(
+        card.id,
+        lanes[1].id,
+        expect.objectContaining({ runOnEnterTemplate: true })
+      );
+    });
+
+    it('normalizes child id to workspace root', async () => {
+      setupBoard();
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+      const card = kanbanCards.create(lanes[0].id, root.id);
+      const movedCard = { ...card, laneId: lanes[1].id };
+      moveCardService.mockResolvedValueOnce(movedCard);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${child.id}/move`)
+        .send({ targetLaneId: lanes[1].id });
+
+      expect(res.status).toBe(200);
+      expect(moveCardService).toHaveBeenCalledWith(card.id, lanes[1].id, expect.anything());
+    });
+
+    it('returns 404 when workspace has no card', async () => {
+      setupBoard();
+      const session = createSession();
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .send({ targetLaneId: lanes[0].id });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('No card found for this workspace');
+    });
+
+    it('returns 404 for non-existent target lane', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .send({ targetLaneId: '00000000-0000-0000-0000-000000000000' });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Target lane not found');
+    });
+
+    it('returns 400 for invalid body', async () => {
+      setupBoard();
+      const session = createSession();
+      kanbanCards.create(lanes[0].id, session.id);
+
+      const res = await request(app)
+        .patch(`/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}/move`)
+        .send({});
+
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe('DELETE /api/projects/:projectId/kanban/cards/by-workspace/:workspaceId', () => {
+    it('removes the workspace card from the board', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      const res = await request(app).delete(
+        `/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}`
+      );
+
+      expect(res.status).toBe(204);
+      expect(kanbanCards.getById(card.id)).toBeNull();
+    });
+
+    it('broadcasts KANBAN_CARD_REMOVED', async () => {
+      setupBoard();
+      const session = createSession();
+      const card = kanbanCards.create(lanes[0].id, session.id);
+
+      await request(app).delete(
+        `/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}`
+      );
+
+      expect(broadcastToProject).toHaveBeenCalledWith(
+        projectId,
+        WS_MESSAGE_TYPES.KANBAN_CARD_REMOVED,
+        expect.objectContaining({
+          projectId,
+          cardId: card.id,
+          laneId: lanes[0].id,
+        })
+      );
+    });
+
+    it('normalizes child id to workspace root', async () => {
+      setupBoard();
+      const root = createSession('Root');
+      const child = createChildSession(root.id);
+      const card = kanbanCards.create(lanes[0].id, root.id);
+
+      const res = await request(app).delete(
+        `/api/projects/${projectId}/kanban/cards/by-workspace/${child.id}`
+      );
+
+      expect(res.status).toBe(204);
+      expect(kanbanCards.getById(card.id)).toBeNull();
+    });
+
+    it('returns 404 when workspace has no card', async () => {
+      setupBoard();
+      const session = createSession();
+
+      const res = await request(app).delete(
+        `/api/projects/${projectId}/kanban/cards/by-workspace/${session.id}`
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('No card found for this workspace');
     });
   });
 

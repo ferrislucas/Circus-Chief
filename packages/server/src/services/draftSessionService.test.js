@@ -22,6 +22,22 @@ vi.mock('../database.js', () => ({
   attachments: {
     getBySessionId: vi.fn(),
   },
+  modelProviders: {
+    getAllModelIds: vi.fn(() => [
+      'claude-3-haiku',
+      'claude-3-opus',
+      'claude-3-sonnet',
+      'claude-opus',
+      'claude-sonnet',
+      'claude-sonnet-test',
+      'gpt-4o',
+      'gpt-4o-test',
+      'gpt-5.4',
+      'haiku',
+      'opus',
+      'sonnet',
+    ]),
+  },
 }));
 
 // Mock websocket
@@ -252,6 +268,30 @@ describe('draftSessionService', () => {
 
       // resolveAgentTypeFromModel should be called with the final resolved model
       expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-3-opus');
+    });
+
+    it('throws DraftSessionError when request model is invalid', async () => {
+      messages.getBySessionId.mockReturnValue([mockMessage]);
+
+      await expect(startDraft(mockSession, { model: 'not-a-real-model' }))
+        .rejects.toThrow(DraftSessionError);
+
+      try {
+        await startDraft(mockSession, { model: 'not-a-real-model' });
+      } catch (error) {
+        expect(error.statusCode).toBe(400);
+        expect(error.message).toContain('Invalid model id "not-a-real-model"');
+      }
+      expect(sessions.update).not.toHaveBeenCalled();
+    });
+
+    it('throws DraftSessionError when fallback pendingModel is invalid', async () => {
+      const sessionWithPending = { ...mockSession, pendingModel: 'not-a-real-model' };
+
+      await expect(startDraft(sessionWithPending))
+        .rejects.toThrow(DraftSessionError);
+
+      expect(sessions.update).not.toHaveBeenCalled();
     });
 
     it('uses gitWorktree as working directory when set', async () => {

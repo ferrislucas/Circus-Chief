@@ -66,7 +66,7 @@ vi.mock('../components/SessionHeaderPanel.vue', () => ({
   default: {
     name: 'SessionHeaderPanel',
     template: '<div class="session-header"><div class="session-header-row"><div class="session-name-wrapper"><h3 class="session-name">{{ session?.name }}</h3></div></div><button class="mock-add-to-board" @click="$emit(\'add-to-board\', session)">Add</button></div>',
-    props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses', 'kanbanEnabled'],
+    props: ['sessionId', 'session', 'summary', 'isDeleting', 'buttonStatuses'],
     emits: ['duplicate', 'copySessionId', 'archive', 'delete', 'star', 'add-to-board'],
   }
 }));
@@ -80,15 +80,17 @@ vi.mock('../components/SessionTabsPanel.vue', () => ({
 vi.mock('../components/ArchiveConfirmModal.vue', () => ({
   default: {
     name: 'ArchiveConfirmModal',
-    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'loading'],
+    props: ['isOpen', 'sessionName', 'hasCleanupScript', 'isOnKanbanBoard', 'loading'],
     emits: ['confirm', 'cancel'],
     template: `
       <div v-if="isOpen" class="archive-confirm-modal" data-testid="archive-confirm-modal">
         <span class="modal-session-name">{{ sessionName }}</span>
         <span class="modal-has-cleanup-script" :data-has-cleanup-script="hasCleanupScript"></span>
+        <span class="modal-is-on-kanban-board" :data-is-on-kanban-board="isOnKanbanBoard"></span>
         <span class="modal-loading" :data-loading="loading"></span>
-        <button class="modal-confirm-btn" @click="$emit('confirm', true)">Archive</button>
-        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', false)">Archive No Cleanup</button>
+        <button class="modal-confirm-btn" @click="$emit('confirm', { runCleanup: true, removeFromBoard: false })">Archive</button>
+        <button class="modal-confirm-no-cleanup-btn" @click="$emit('confirm', { runCleanup: false, removeFromBoard: false })">Archive No Cleanup</button>
+        <button class="modal-confirm-remove-board-btn" @click="$emit('confirm', { runCleanup: false, removeFromBoard: true })">Archive Remove Board</button>
         <button class="modal-cancel-btn" @click="$emit('cancel')">Cancel</button>
       </div>
     `,
@@ -244,7 +246,7 @@ describe('SessionDetailView', () => {
   }
 
   describe('tabs configuration', () => {
-    it('includes Summary, Changes, Canvas, and Commands tabs', async () => {
+    it('passes the expected tab labels to SessionTabsPanel', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -280,6 +282,13 @@ describe('SessionDetailView', () => {
         'changes',
         'canvas',
         'commands',
+      ]);
+      expect(tabsPanel.props('tabs').map(tab => tab.label)).toEqual([
+        'Summary',
+        'Chat',
+        'Changes',
+        'Canvas',
+        'Commands',
       ]);
       expect(tabsPanel.props('tabs').find(tab => tab.id === 'chat')).toEqual({
         id: 'chat',
@@ -823,7 +832,7 @@ describe('SessionDetailView', () => {
       expect(wrapper.text()).toContain(sessionName);
     });
 
-    it('passes Kanban enabled state to SessionHeaderPanel', async () => {
+    it('does not pass a project-level Kanban gate to SessionHeaderPanel', async () => {
       sessionsStore.currentSession = {
         id: 'session-1',
         name: 'Test Session',
@@ -833,7 +842,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
 
       await router.push('/sessions/session-1');
@@ -855,7 +863,7 @@ describe('SessionDetailView', () => {
       await flushPromises();
 
       const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
-      expect(headerPanel.props('kanbanEnabled')).toBe(true);
+      expect(headerPanel.props()).not.toHaveProperty('canAddToBoard');
     });
 
     it('opens the lane selector when SessionHeaderPanel emits add-to-board', async () => {
@@ -868,7 +876,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
       kanbanStore.board = {
         lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
@@ -911,7 +918,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
       kanbanStore.board = {
         lanes: [
@@ -959,7 +965,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
       kanbanStore.board = {
         lanes: [{ id: 'lane-1', name: 'Todo', cards: [] }],
@@ -1006,7 +1011,6 @@ describe('SessionDetailView', () => {
       projectsStore.currentProject = {
         id: 'proj-1',
         name: 'Project 1',
-        kanbanEnabled: true,
       };
       kanbanStore.board = {
         lanes: [
@@ -4948,6 +4952,118 @@ describe('SessionDetailView', () => {
       await flushPromises();
 
       expect(sessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+    });
+
+    it('passes isOnKanbanBoard=false when the workflow has no card', async () => {
+      const wrapper = await mountWithSession();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(false);
+    });
+
+    it('passes isOnKanbanBoard=true when the workflow root has a card', async () => {
+      const wrapper = await mountWithSession();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(true);
+    });
+
+    it('resolves the workflow root card for a child session', async () => {
+      const wrapper = await mountWithSession({ parentSessionId: 'root-1' });
+      sessionsStore.sessions = [
+        sessionsStore.currentSession,
+        { id: 'root-1', name: 'Root', status: 'completed', projectId: 'proj-1' },
+      ];
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-root', sessions: [{ id: 'root-1' }] }] },
+        ],
+      };
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      const modal = wrapper.findComponent({ name: 'ArchiveConfirmModal' });
+      expect(modal.props('isOnKanbanBoard')).toBe(true);
+    });
+
+    it('removes the workflow card after archive when removeFromBoard is checked', async () => {
+      const wrapper = await mountWithSession();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      const removeSpy = vi.spyOn(kanbanStore, 'removeCard').mockResolvedValue(undefined);
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-remove-board-btn').trigger('click');
+      await flushPromises();
+
+      expect(sessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      expect(removeSpy).toHaveBeenCalledWith('proj-1', 'card-1');
+    });
+
+    it('does not remove the card when removeFromBoard is unchecked', async () => {
+      const wrapper = await mountWithSession();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      const removeSpy = vi.spyOn(kanbanStore, 'removeCard').mockResolvedValue(undefined);
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-btn').trigger('click');
+      await flushPromises();
+
+      expect(removeSpy).not.toHaveBeenCalled();
+    });
+
+    it('still archives successfully when card removal fails', async () => {
+      const wrapper = await mountWithSession();
+      kanbanStore.board = {
+        lanes: [
+          { id: 'lane-1', cards: [{ id: 'card-1', sessions: [{ id: 'session-1' }] }] },
+        ],
+      };
+      vi.spyOn(kanbanStore, 'removeCard').mockRejectedValue(new Error('Network error'));
+      await nextTick();
+
+      const headerPanel = wrapper.findComponent({ name: 'SessionHeaderPanel' });
+      await headerPanel.vm.$emit('archive');
+      await nextTick();
+
+      await wrapper.find('.modal-confirm-remove-board-btn').trigger('click');
+      await flushPromises();
+
+      expect(sessionsStore.archiveSession).toHaveBeenCalledWith('session-1', { cleanup: false });
+      // Modal still closes (archive considered successful)
+      expect(wrapper.find('.archive-confirm-modal').exists()).toBe(false);
     });
 
     it('closes modal and does not archive when cancel is clicked', async () => {

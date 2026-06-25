@@ -7,7 +7,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h2 class="modal-title">
-          Schedule Session
+          Schedule Workspace
         </h2>
         <button
           class="close-btn"
@@ -113,10 +113,10 @@ async function handleSchedule() {
     // Update the session store immediately with the API response
     // This ensures the UI shows the correct scheduled time without waiting for WebSocket
     sessionsStore.updateSession(updatedSession);
-    uiStore.showToast('Session scheduled successfully', 'success');
+    uiStore.showToast('Workspace scheduled successfully', 'success');
   } catch (error) {
-    console.error('Failed to schedule session:', error);
-    uiStore.showToast(`Failed to schedule session: ${  error.message}`, 'error');
+    console.error('Failed to schedule workspace:', error);
+    uiStore.showToast(`Failed to schedule workspace: ${  error.message}`, 'error');
   }
 }
 

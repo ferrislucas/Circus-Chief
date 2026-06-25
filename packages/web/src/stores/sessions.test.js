@@ -5,7 +5,6 @@ import { useSessionsStore } from './sessions.js';
 // Mock the API module
 vi.mock('../composables/useApi.js', () => ({
   api: {
-    getActiveSessions: vi.fn(),
     getProjectSessions: vi.fn(),
     getSession: vi.fn(),
     getSessionMessages: vi.fn(),
@@ -2553,18 +2552,6 @@ describe('Sessions Store', () => {
         expect(store.archivedSessions[0].archived).toBe(true);
       });
 
-      it('removes session from activeSessions when archiving', async () => {
-        const store = useSessionsStore();
-
-        store.activeSessions = [{ id: 'session-1', status: 'waiting', archived: false }];
-
-        api.archiveSession.mockResolvedValue({ id: 'session-1', status: 'waiting', archived: true });
-
-        await store.archiveSession('session-1');
-
-        expect(store.activeSessions).toHaveLength(0);
-      });
-
       it('updates currentSession archived flag when archiving current session', async () => {
         const store = useSessionsStore();
 
@@ -2684,18 +2671,6 @@ describe('Sessions Store', () => {
         await store.toggleSessionStar('session-1');
 
         expect(store.archivedSessions[0].starred).toBe(true);
-      });
-
-      it('toggles starred status in activeSessions array', async () => {
-        const store = useSessionsStore();
-
-        store.activeSessions = [{ id: 'session-1', starred: false }];
-
-        api.toggleSessionStar.mockResolvedValue({ id: 'session-1', starred: true });
-
-        await store.toggleSessionStar('session-1');
-
-        expect(store.activeSessions[0].starred).toBe(true);
       });
 
       it('updates currentSession starred flag when toggling current session', async () => {
@@ -2966,18 +2941,6 @@ describe('Sessions Store', () => {
         expect(store.archivedSessions).toHaveLength(0);
         expect(store.sessions).toHaveLength(1);
         expect(store.sessions[0].id).toBe('session-1');
-      });
-
-      it('removes from activeSessions when archived', () => {
-        const store = useSessionsStore();
-
-        store.activeSessions = [{ id: 'session-1', status: 'waiting' }];
-        store.sessions = [{ id: 'session-1', status: 'waiting' }];
-        store.archivedSessions = [];
-
-        store.updateSession({ id: 'session-1', archived: true });
-
-        expect(store.activeSessions).toHaveLength(0);
       });
 
       it('preserves gitBranch when archiving a new session', () => {
@@ -3582,28 +3545,6 @@ describe('Sessions Store', () => {
       store.updateSessionCommandRun('session-1', 'btn-1', runData);
 
       expect(store.archivedSessions[0].latestCommandRuns[0]).toEqual(runData);
-    });
-
-    it('updates run in activeSessions list', () => {
-      const store = useSessionsStore();
-      const session = {
-        id: 'session-1',
-        name: 'Test',
-        status: 'running',
-        latestCommandRuns: [],
-      };
-      store.activeSessions = [session];
-
-      const runData = {
-        buttonId: 'btn-1',
-        status: 'running',
-        runId: 'run-1',
-        startedAt: Date.now(),
-      };
-
-      store.updateSessionCommandRun('session-1', 'btn-1', runData);
-
-      expect(store.activeSessions[0].latestCommandRuns[0]).toEqual(runData);
     });
 
     it('updates run in currentSession', () => {
@@ -5049,71 +4990,13 @@ describe('Sessions Store', () => {
         expect(result.totalCount).toBe(1); // only the child (descendants only)
       });
 
-      it('finds child in activeSessions when parent is in sessions', () => {
-        const store = useSessionsStore();
-        store.sessions = [
-          { id: 'root', status: 'waiting', parentSessionId: null },
-        ];
-        store.activeSessions = [
-          { id: 'child-1', status: 'running', parentSessionId: 'root' },
-        ];
-
-        const result = store.getWorkflowAggregatedStatus('root');
-
-        expect(result.runningCount).toBe(1);
-      });
-
-      it('finds root in activeSessions', () => {
-        const store = useSessionsStore();
-        store.sessions = [];
-        store.activeSessions = [
-          { id: 'root', status: 'waiting', parentSessionId: null },
-          { id: 'child-1', status: 'running', parentSessionId: 'root' },
-        ];
-
-        const result = store.getWorkflowAggregatedStatus('root');
-
-        expect(result.effectiveStatus).toBe('running');
-        expect(result.runningCount).toBe(1);
-      });
-
-      it('deduplicates when session exists in both arrays', () => {
-        const store = useSessionsStore();
-        const child = { id: 'child-1', status: 'running', parentSessionId: 'root' };
-        store.sessions = [
-          { id: 'root', status: 'waiting', parentSessionId: null },
-          child,
-        ];
-        store.activeSessions = [child];
-
-        const result = store.getWorkflowAggregatedStatus('root');
-
-        expect(result.runningCount).toBe(1);
-        expect(result.totalCount).toBe(1);
-      });
     });
 
     describe('getWorkflowEffectiveStatus', () => {
-      it('returns running when child is only in activeSessions', () => {
-        const store = useSessionsStore();
-        store.sessions = [
-          { id: 'root', status: 'waiting', parentSessionId: null },
-        ];
-        store.activeSessions = [
-          { id: 'child-1', status: 'running', parentSessionId: 'root' },
-        ];
-
-        const result = store.getWorkflowEffectiveStatus('root');
-
-        expect(result).toBe('running');
-      });
-
-      it('returns idle when no running sessions exist in either array', () => {
+      it('returns idle when no running sessions exist', () => {
         const store = useSessionsStore();
         store.sessions = [
           { id: 'root', status: 'completed', parentSessionId: null },
-        ];
-        store.activeSessions = [
           { id: 'child-1', status: 'completed', parentSessionId: 'root' },
         ];
 
@@ -5121,6 +5004,55 @@ describe('Sessions Store', () => {
 
         expect(result).toBe('idle');
       });
+    });
+  });
+
+  describe('getRootSession', () => {
+    it('returns the session itself when it has no parent', () => {
+      const store = useSessionsStore();
+      store.sessions = [{ id: 'root', parentSessionId: null, status: 'stopped' }];
+
+      expect(store.getRootSession('root')?.id).toBe('root');
+    });
+
+    it('walks up the ancestor chain to return the root', () => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'root', parentSessionId: null, status: 'stopped' },
+        { id: 'child', parentSessionId: 'root', status: 'stopped' },
+        { id: 'grandchild', parentSessionId: 'child', status: 'stopped' },
+      ];
+
+      expect(store.getRootSession('grandchild')?.id).toBe('root');
+    });
+
+    it('returns null for an unknown sessionId', () => {
+      const store = useSessionsStore();
+      store.sessions = [];
+
+      expect(store.getRootSession('does-not-exist')).toBeNull();
+    });
+
+    it('does not hang on a self-referential cycle', () => {
+      const store = useSessionsStore();
+      // Session points to itself as its own parent — infinite loop without the guard
+      store.sessions = [{ id: 'cycle-a', parentSessionId: 'cycle-a', status: 'stopped' }];
+
+      const result = store.getRootSession('cycle-a');
+      // Must return without hanging; the cycle breaks and we get back the node we started from
+      expect(result).not.toBeNull();
+    });
+
+    it('does not hang on a two-node cycle', () => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'cycle-a', parentSessionId: 'cycle-b', status: 'stopped' },
+        { id: 'cycle-b', parentSessionId: 'cycle-a', status: 'stopped' },
+      ];
+
+      // Must return without hanging
+      const result = store.getRootSession('cycle-a');
+      expect(result).not.toBeNull();
     });
   });
 
@@ -5136,7 +5068,6 @@ describe('Sessions Store', () => {
 
       expect(store.sessions.filter(s => s.id === newSession.id)).toHaveLength(1);
       expect(store.sessions).toHaveLength(2);
-      expect(store.activeSessions.filter(s => s.id === newSession.id)).toHaveLength(1);
     });
   });
 
@@ -5150,10 +5081,6 @@ describe('Sessions Store', () => {
       ];
       store.archivedSessions = [
         { id: 'sess-4', name: 'Archived 1', status: 'archived' },
-      ];
-      store.activeSessions = [
-        { id: 'sess-1', name: 'Session 1', status: 'idle' },
-        { id: 'sess-2', name: 'Session 2', status: 'idle' },
       ];
       store.currentSession = { id: 'sess-1', name: 'Session 1', status: 'idle' };
     });
@@ -5173,13 +5100,6 @@ describe('Sessions Store', () => {
       expect(store.archivedSessions[0].status).toBe('running');
     });
 
-    it('updates session in activeSessions array', () => {
-      const store = useSessionsStore();
-      store._updateSessionInAllLists('sess-2', { status: 'running' });
-
-      expect(store.activeSessions[1].status).toBe('running');
-    });
-
     it('updates currentSession when it matches', () => {
       const store = useSessionsStore();
       store._updateSessionInAllLists('sess-1', { status: 'running', model: 'claude-3-opus' });
@@ -5195,13 +5115,12 @@ describe('Sessions Store', () => {
       expect(store.currentSession.status).toBe('idle');
     });
 
-    it('handles updating session that exists in multiple arrays', () => {
+    it('handles updating session that exists in sessions and currentSession', () => {
       const store = useSessionsStore();
       store._updateSessionInAllLists('sess-1', { status: 'running' });
 
-      // sess-1 is in sessions, activeSessions, and currentSession
+      // sess-1 is in sessions and currentSession
       expect(store.sessions[0].status).toBe('running');
-      expect(store.activeSessions[0].status).toBe('running');
       expect(store.currentSession.status).toBe('running');
     });
 
@@ -5469,6 +5388,64 @@ describe('Sessions Store', () => {
       expect(store.recentSends['sess-1']).toBeDefined();
       expect(store.recentSends['sess-2']).toBeDefined();
       expect(store.recentSends['sess-3']).toBeDefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // getRootSession — cycle guard (#6)
+  // ---------------------------------------------------------------------------
+  describe('getRootSession', () => {
+    it('returns the root session when given the root id', () => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'root-1', parentSessionId: null },
+        { id: 'child-1', parentSessionId: 'root-1' },
+      ];
+
+      expect(store.getRootSession('root-1').id).toBe('root-1');
+    });
+
+    it('walks up to the root from a child session', () => {
+      const store = useSessionsStore();
+      store.sessions = [
+        { id: 'root-1', parentSessionId: null },
+        { id: 'child-1', parentSessionId: 'root-1' },
+        { id: 'grandchild-1', parentSessionId: 'child-1' },
+      ];
+
+      expect(store.getRootSession('grandchild-1').id).toBe('root-1');
+    });
+
+    it('returns null for an unknown session id', () => {
+      const store = useSessionsStore();
+      store.sessions = [{ id: 'root-1', parentSessionId: null }];
+
+      expect(store.getRootSession('does-not-exist')).toBeNull();
+    });
+
+    it('does not loop infinitely on a self-referential parentSessionId (cycle guard)', () => {
+      const store = useSessionsStore();
+      // Session that points to itself as parent
+      store.sessions = [
+        { id: 'cyclic-1', parentSessionId: 'cyclic-1' },
+      ];
+
+      // Must terminate and return the session rather than looping forever
+      const result = store.getRootSession('cyclic-1');
+      expect(result).not.toBeNull();
+    });
+
+    it('does not loop infinitely on a two-node cycle (cycle guard)', () => {
+      const store = useSessionsStore();
+      // A ↔ B
+      store.sessions = [
+        { id: 'node-a', parentSessionId: 'node-b' },
+        { id: 'node-b', parentSessionId: 'node-a' },
+      ];
+
+      // Must terminate — result may be either node, but must not hang
+      const result = store.getRootSession('node-a');
+      expect(result).not.toBeNull();
     });
   });
 });

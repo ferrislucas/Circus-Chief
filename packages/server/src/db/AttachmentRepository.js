@@ -151,6 +151,31 @@ export class AttachmentRepository extends BaseRepository {
   }
 
   /**
+   * Get session attachments without content (for listing)
+   * @param {string} sessionId - Session ID
+   * @returns {Array} Attachments without content field
+   */
+  getBySessionIdWithoutContent(sessionId) {
+    const rows = this.db
+      .prepare(
+        `SELECT id, message_id, session_id, filename, mime_type, size_bytes, storage_type, file_path, created_at
+         FROM message_attachments WHERE session_id = ? ORDER BY created_at ASC`
+      )
+      .all(sessionId);
+    return rows.map((row) => ({
+      id: row.id,
+      messageId: row.message_id,
+      sessionId: row.session_id,
+      filename: row.filename,
+      mimeType: row.mime_type,
+      size: row.size_bytes,
+      storageType: row.storage_type,
+      filePath: row.file_path,
+      createdAt: row.created_at,
+    }));
+  }
+
+  /**
    * Update message ID for attachments (used when associating with a message)
    * @param {string} sessionId - Session ID
    * @param {string} messageId - Message ID to set

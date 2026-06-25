@@ -3,6 +3,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 vi.mock('../database.js', () => ({
   sessions: {
     getById: vi.fn(),
+    // getRootSessionId is used by buildSessionApiInstructions to inject the workspace ID.
+    // Default: returns the sessionId itself (session is its own root).
+    getRootSessionId: vi.fn((id) => id),
   },
   attachments: {
     getBySessionId: vi.fn(),
@@ -16,12 +19,9 @@ vi.mock('../database.js', () => ({
   kanbanLanes: {
     getByBoardId: vi.fn(),
   },
-  commandButtons: {
-    getByProjectId: vi.fn(),
-  },
 }));
 
-import { sessions, attachments, projects, kanbanBoards, kanbanLanes, commandButtons } from '../database.js';
+import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import {
   getApiBaseUrl,
   buildPromptWithAttachments,
@@ -40,12 +40,10 @@ describe('sessionPrompts', () => {
     sessions.getById.mockReturnValue(null);
     // Default mock: no attachments
     attachments.getBySessionId.mockReturnValue([]);
-    // Default mock: project without kanban enabled
+    // Default mock: existing project with no board yet.
     projects.getById.mockReturnValue(null);
     kanbanBoards.getByProjectId.mockReturnValue(null);
     kanbanLanes.getByBoardId.mockReturnValue([]);
-    // Default mock: no command buttons
-    commandButtons.getByProjectId.mockReturnValue([]);
   });
 
   afterEach(() => {
@@ -300,12 +298,11 @@ describe('sessionPrompts', () => {
         gitWorktree: null,
         gitBranch: null,
       });
-      sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
+      sessions.getRootSessionId.mockReturnValue('root-123');
 
       const result = buildSystemPromptConfig('root-123', projectId, null, 'standard');
       expect(result).toContain('/api/sessions/root-123/canvas');
       expect(result).toContain('POST');
-      expect(sessions.getRootSessionId).not.toHaveBeenCalled();
     });
 
     it('includes canvas write instructions for child session using current session ID', () => {
@@ -315,12 +312,11 @@ describe('sessionPrompts', () => {
         gitWorktree: null,
         gitBranch: null,
       });
-      sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
+      sessions.getRootSessionId.mockReturnValue('root-123');
 
       const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
       expect(result).toContain('/api/sessions/child-456/canvas');
       expect(result).not.toContain('/api/sessions/root-123/canvas');
-      expect(sessions.getRootSessionId).not.toHaveBeenCalled();
     });
 
     it('includes canvas read instructions', () => {
@@ -331,11 +327,9 @@ describe('sessionPrompts', () => {
 
     it('handles null session gracefully in canvas prompts', () => {
       sessions.getById.mockReturnValue(null);
-      sessions.getRootSessionId = vi.fn();
 
       const result = buildSystemPromptConfig('unknown-session', projectId, null, 'standard');
       expect(result).toContain('/api/sessions/unknown-session/canvas');
-      expect(sessions.getRootSessionId).not.toHaveBeenCalled();
     });
 
     it('uses current session ID for all canvas endpoints including history', () => {
@@ -345,7 +339,7 @@ describe('sessionPrompts', () => {
         gitWorktree: null,
         gitBranch: null,
       });
-      sessions.getRootSessionId = vi.fn().mockReturnValue('root-123');
+      sessions.getRootSessionId.mockReturnValue('root-123');
 
       const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
       expect(result).toContain('/api/sessions/child-456/canvas/file/');
@@ -353,20 +347,22 @@ describe('sessionPrompts', () => {
       expect(result).not.toMatch(/\/api\/sessions\/root-123\/canvas\/file\/.*\/history\//);
     });
 
-    it('uses session.id without resolving root session IDs', () => {
+    it('uses session.id for canvas endpoints (getRootSessionId only used for workspace ID)', () => {
       sessions.getById.mockReturnValue({
         id: 'orphan-123',
         parentSessionId: 'nonexistent-parent',
         gitWorktree: null,
         gitBranch: null,
       });
-      sessions.getRootSessionId = vi.fn().mockReturnValue(null);
+      // When getRootSessionId returns null, workspace ID falls back to sessionId
+      sessions.getRootSessionId.mockReturnValue(null);
 
       const result = buildSystemPromptConfig('orphan-123', projectId, null, 'standard');
       expect(result).toContain('/api/sessions/orphan-123/canvas');
       expect(result).toBeDefined();
       expect(result).not.toContain('/api/sessions/null/canvas');
-      expect(sessions.getRootSessionId).not.toHaveBeenCalled();
+      // Workspace ID should fall back to the sessionId when root is null
+      expect(result).toContain('**Current Workspace ID:** orphan-123');
     });
 
     it('maintains correct prompt ordering without exposing child session context', () => {
@@ -388,23 +384,47 @@ describe('sessionPrompts', () => {
       expect(canvasReadIdx).toBeGreaterThan(canvasWriteIdx);
     });
 
-    it('includes session API instructions with sessionId and projectId', () => {
+    it('includes session API instructions with sessionId, projectId and workspaceId', () => {
+      sessions.getRootSessionId.mockReturnValue('workspace-root-id');
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
       expect(result).toContain('Session Management API');
       expect(result).toContain(sessionId);
       expect(result).toContain(projectId);
+      expect(result).toContain('**Current Workspace ID:** workspace-root-id');
     });
 
-    it('documents prompt-only session creation and optional overrides', () => {
+    it('documents workspace creation and add-session verbs (not bare parentSessionId)', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
+      // New workspace verb
+      expect(result).toContain('Create a New Workspace');
+      expect(result).toContain('/api/projects/');
+      expect(result).toContain('/workspaces');
+      // Add session verb
+      expect(result).toContain('Add a Session to this Workspace');
+      expect(result).toContain('/api/workspaces/');
+      expect(result).toContain('/sessions');
+      // Prompt is still the only required field
       expect(result).toContain('-d \'{"prompt": "Your task description here"}\'');
       expect(result).toContain('Only `prompt` is required');
-      expect(result).toContain('Optional override fields');
+      // parentSessionId is NOT exposed as an agent-facing field
+      expect(result).not.toContain('`parentSessionId`');
+      // Model and other optional fields still documented
       expect(result).toContain('`model`');
-      expect(result).toContain('`providerId`');
       expect(result).toContain('`startImmediately`');
-      expect(result).not.toContain('"name": "Optional session name"');
+    });
+
+    it('instructs agent to pass afterSessionId to chain sessions', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      expect(result).toContain('afterSessionId');
+      expect(result).toContain(sessionId); // current session ID as the example value
+    });
+
+    it('disambiguates workspace grouping from Codex workspace-write sandbox', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      expect(result).toContain('workspace-write');
+      // The disambiguation note should be present
+      expect(result).toContain('distinct');
     });
 
     it('uses current session ID for workflow summary examples', () => {
@@ -455,15 +475,15 @@ describe('sessionPrompts', () => {
           gitBranch: null,
           parentSessionId: 'parent-123',
         });
-        // Mock getRootSessionId to return a root ID
-        sessions.getRootSessionId = vi.fn().mockReturnValue('root-456');
+        sessions.getRootSessionId.mockReturnValue('root-456');
 
         const result = buildSystemPromptConfig('child-789', 'proj-xyz', null, 'standard');
 
         expect(result).not.toContain('## Child Session');
         expect(result).not.toContain('Parent Session ID');
         expect(result).not.toContain('Root Session ID');
-        expect(sessions.getRootSessionId).not.toHaveBeenCalled();
+        // getRootSessionId IS called now (for workspace ID injection in session API instructions)
+        expect(sessions.getRootSessionId).toHaveBeenCalledWith('child-789');
       });
 
       it('excludes child session context when session has no parentSessionId', () => {
@@ -494,7 +514,7 @@ describe('sessionPrompts', () => {
           gitBranch: 'feature',
           parentSessionId: 'parent-123',
         });
-        sessions.getRootSessionId = vi.fn().mockReturnValue('root-456');
+        sessions.getRootSessionId.mockReturnValue('root-456');
 
         const result = buildSystemPromptConfig('child-789', 'proj-xyz', null, 'standard');
 
@@ -509,8 +529,8 @@ describe('sessionPrompts', () => {
       });
     });
 
-    it('includes kanban API instructions when kanban is enabled', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: true });
+    it('includes kanban API instructions when the project exists', () => {
+      projects.getById.mockReturnValue({});
       kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
       kanbanLanes.getByBoardId.mockReturnValue([
         { id: 'lane-1', name: 'To Do' },
@@ -524,14 +544,6 @@ describe('sessionPrompts', () => {
       expect(result).toContain('/kanban');
     });
 
-    it('excludes kanban API instructions when kanban is disabled', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: false });
-
-      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
-
-      expect(result).not.toContain('Kanban Board API');
-    });
-
     it('excludes kanban API instructions when project is not found', () => {
       projects.getById.mockReturnValue(null);
 
@@ -541,7 +553,7 @@ describe('sessionPrompts', () => {
     });
 
     it('includes lane names in kanban instructions when board exists', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      projects.getById.mockReturnValue({});
       kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
       kanbanLanes.getByBoardId.mockReturnValue([
         { id: 'lane-1', name: 'To Do' },
@@ -558,7 +570,7 @@ describe('sessionPrompts', () => {
     });
 
     it('includes kanban instructions without lane context when no board exists yet', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      projects.getById.mockReturnValue({});
       kanbanBoards.getByProjectId.mockReturnValue(null);
 
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
@@ -568,14 +580,14 @@ describe('sessionPrompts', () => {
     });
 
     it('includes kanban API endpoints in instructions', () => {
-      projects.getById.mockReturnValue({ kanbanEnabled: true });
+      projects.getById.mockReturnValue({});
       kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
       kanbanLanes.getByBoardId.mockReturnValue([]);
 
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
       expect(result).toContain('Get Board with All Lanes and Cards');
-      expect(result).toContain('Add Current Workflow to the Board');
+      expect(result).toContain('Add Current Workspace to the Board');
       expect(result).toContain('Move a Card to a Different Lane');
       expect(result).toContain('Remove a Card from the Board');
       expect(result).toContain('Create a New Lane');
@@ -583,10 +595,42 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Delete a Lane');
     });
 
-    describe('command API instructions', () => {
-      it('includes section when commands exist', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
+    it('uses workspaceId (not sessionId) and by-workspace routes in kanban instructions', () => {
+      projects.getById.mockReturnValue({});
+      kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
+      kanbanLanes.getByBoardId.mockReturnValue([]);
 
+      // getRootSessionId returns the session itself (it is a root)
+      sessions.getRootSessionId.mockReturnValue(sessionId);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      // Kanban add-to-board uses workspaceId
+      expect(result).toContain(`"workspaceId": "${sessionId}"`);
+      // Move and delete use by-workspace routes
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}`);
+      // No sessionId field in kanban examples
+      expect(result).not.toContain(`"sessionId": "${sessionId}"`);
+      // No <card_id> placeholder in kanban examples
+      expect(result).not.toContain('kanban/cards/<card_id>');
+    });
+
+    it('falls back to sessionId as workspaceId when getRootSessionId returns null', () => {
+      projects.getById.mockReturnValue({});
+      kanbanBoards.getByProjectId.mockReturnValue(null);
+      kanbanLanes.getByBoardId.mockReturnValue([]);
+
+      sessions.getRootSessionId.mockReturnValue(null);
+
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+
+      expect(result).toContain(`"workspaceId": "${sessionId}"`);
+      expect(result).toContain(`/kanban/cards/by-workspace/${sessionId}/move`);
+    });
+
+    describe('command API instructions', () => {
+      it('always includes Circus Commands section', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain('## Circus Commands');
@@ -596,17 +640,14 @@ describe('sessionPrompts', () => {
         expect(result).toContain('/kill');
       });
 
-      it('excludes section when no commands exist', () => {
-        commandButtons.getByProjectId.mockReturnValue([]);
-
+      it('includes section even when no commands are configured', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
-        expect(result).not.toContain('## Circus Commands');
+        expect(result).toContain('## Circus Commands');
       });
 
       it('section appears between Session Management and Kanban', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-        projects.getById.mockReturnValue({ kanbanEnabled: true });
+        projects.getById.mockReturnValue({});
         kanbanBoards.getByProjectId.mockReturnValue({ id: 'board-1' });
         kanbanLanes.getByBoardId.mockReturnValue([]);
 
@@ -624,16 +665,12 @@ describe('sessionPrompts', () => {
       });
 
       it('kill endpoint is documented', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain(`/api/sessions/${sessionId}/circus-commands/runs/<run_id>/kill`);
       });
 
       it('uses session-scoped command routes without tree traversal terms', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain(`curl http://localhost:5000/api/sessions/${sessionId}/circus-commands`);
@@ -643,8 +680,6 @@ describe('sessionPrompts', () => {
       });
 
       it('run response shape is documented', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain('runId');
@@ -656,9 +691,7 @@ describe('sessionPrompts', () => {
         expect(result).toContain('completedAt');
       });
 
-      it('includes discoverability note when commands exist', () => {
-        commandButtons.getByProjectId.mockReturnValue([{ id: 'btn-1', name: 'Build' }]);
-
+      it('includes discoverability note', () => {
         const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
 
         expect(result).toContain('When the user asks to');

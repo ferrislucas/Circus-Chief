@@ -11,7 +11,6 @@ export const useSessionsStore = defineStore('sessions', {
   state: () => ({
     sessions: [],
     archivedSessions: [],
-    activeSessions: [],
     currentSession: null,
     // Tracks which session the user is actively viewing in SessionDetailView.
     // Used to guard fetchSession() against stale in-flight requests overwriting
@@ -48,25 +47,17 @@ export const useSessionsStore = defineStore('sessions', {
   getters: {
     // ==================== SESSION GETTERS ====================
 
-    // Helper: find a session by ID across both arrays (sessions first, then activeSessions)
-    _findSessionById: (state) => (id) => state.sessions.find((s) => s.id === id) || state.activeSessions.find((s) => s.id === id),
+    // Helper: find a session by ID
+    _findSessionById: (state) => (id) => state.sessions.find((s) => s.id === id),
 
-    // Helper: find children across both store arrays (deduplicated)
+    // Helper: find children in the sessions array (deduplicated by id)
     _findChildren: (state) => (parentId) => {
-      const fromSessions = state.sessions.filter(s => s.parentSessionId === parentId);
-      const fromActive = state.activeSessions.filter(s => s.parentSessionId === parentId);
       const seen = new Set();
-      const merged = [];
-      for (const s of fromSessions) {
-        if (!seen.has(s.id)) {
-          merged.push(s);
-          seen.add(s.id);
-        }
-      }
-      for (const s of fromActive) {
-        if (!seen.has(s.id)) { merged.push(s); seen.add(s.id); }
-      }
-      return merged;
+      return state.sessions.filter(s => {
+        if (s.parentSessionId !== parentId || seen.has(s.id)) return false;
+        seen.add(s.id);
+        return true;
+      });
     },
 
     getSessionById: (state) => (id) => state.sessions.find((s) => s.id === id),
@@ -121,7 +112,10 @@ export const useSessionsStore = defineStore('sessions', {
     getRootSession() {
       return (sessionId) => {
         let current = this._findSessionById(sessionId);
+        const visited = new Set();
         while (current?.parentSessionId) {
+          if (visited.has(current.id)) break; // cycle guard
+          visited.add(current.id);
           current = this._findSessionById(current.parentSessionId);
         }
         return current || null;
@@ -230,7 +224,6 @@ export const useSessionsStore = defineStore('sessions', {
       };
       updateInArray(this.sessions, this.sessions.findIndex(s => s.id === sessionId));
       updateInArray(this.archivedSessions, this.archivedSessions.findIndex(s => s.id === sessionId));
-      updateInArray(this.activeSessions, this.activeSessions.findIndex(s => s.id === sessionId));
       if (this.currentSession?.id === sessionId) {
         this.currentSession = { ...this.currentSession, ...updates };
       }
@@ -298,7 +291,6 @@ export const useSessionsStore = defineStore('sessions', {
       };
       const source = this.sessions.find(s => s.id === sessionId)
         || this.archivedSessions.find(s => s.id === sessionId)
-        || this.activeSessions.find(s => s.id === sessionId)
         || this.currentSession;
       const updatedRuns = getUpdatedRuns(source);
       if (updatedRuns) this._updateSessionInAllLists(sessionId, { latestCommandRuns: updatedRuns });
@@ -308,7 +300,6 @@ export const useSessionsStore = defineStore('sessions', {
     removeSessionCommandRun(sessionId, buttonId) {
       const source = this.sessions.find(s => s.id === sessionId)
         || this.archivedSessions.find(s => s.id === sessionId)
-        || this.activeSessions.find(s => s.id === sessionId)
         || this.currentSession;
       if (!source) return;
       const runs = (source.latestCommandRuns || []).filter(r => r.buttonId !== buttonId);

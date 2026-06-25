@@ -2,7 +2,7 @@
   <button
     :disabled="isLoading"
     :class="['btn', 'btn-outline-secondary', { 'is-loading': isLoading }]"
-    title="Create a copy of this session with all data"
+    title="Create a copy of this workspace with all data"
     @click="handleDuplicate"
   >
     <span
@@ -66,7 +66,7 @@ const uiStore = useUiStore();
 const handleDuplicate = async () => {
   if (isLoading.value) return;
 
-  if (!confirm('Duplicate this session? A new session will be created with all conversations, canvas items, and notes.')) {
+  if (!confirm('Duplicate this workspace? A new workspace will be created with all conversations, canvas items, and notes.')) {
     return;
   }
 
@@ -76,14 +76,14 @@ const handleDuplicate = async () => {
     const newSession = await sessionsStore.duplicateSession(props.sessionId);
 
     // Show success notification
-    const displayName = newSession.name || `Copy of ${props.sessionName || 'session'}`;
-    uiStore.success(`Session duplicated: "${displayName}"`);
+    const displayName = newSession.name || `Copy of ${props.sessionName || 'workspace'}`;
+    uiStore.success(`Workspace duplicated: "${displayName}"`);
 
     // Emit success event (parent can use this for navigation if needed)
     emit('success', newSession);
   } catch (error) {
     // Show error notification
-    const errorMessage = error.message || 'Failed to duplicate session';
+    const errorMessage = error.message || 'Failed to duplicate workspace';
     uiStore.error(errorMessage);
 
     // Emit error event

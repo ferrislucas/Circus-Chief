@@ -115,7 +115,6 @@ describe('ApiClient Core', () => {
     });
 
     it('has all resource methods from SessionsApi', () => {
-      expect(typeof client.getActiveSessions).toBe('function');
       expect(typeof client.getSession).toBe('function');
       expect(typeof client.createSession).toBe('function');
       expect(typeof client.sendMessage).toBe('function');

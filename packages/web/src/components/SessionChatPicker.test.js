@@ -14,7 +14,7 @@ describe('SessionChatPicker', () => {
       {
         session: {
           id: 'root-1',
-          name: 'Root Session',
+          name: 'Root Workspace',
           status: 'completed',
           createdAt: now - 7200000,
           lastActivityAt: now - 3600000,
@@ -26,7 +26,7 @@ describe('SessionChatPicker', () => {
       {
         session: {
           id: 'child-1',
-          name: 'Child Session 1',
+          name: 'Child Workspace 1',
           status: 'running',
           createdAt: now - 3600000,
           lastActivityAt: now - 1800000,
@@ -38,7 +38,7 @@ describe('SessionChatPicker', () => {
       {
         session: {
           id: 'child-2',
-          name: 'Child Session 2',
+          name: 'Child Workspace 2',
           status: 'waiting',
           createdAt: now - 1800000,
           lastActivityAt: now - 900000,
@@ -67,7 +67,7 @@ describe('SessionChatPicker', () => {
   }
 
   describe('rendering', () => {
-    it('renders an item for each session', () => {
+    it('renders an item for each workspace', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
       expect(items).toHaveLength(3);
@@ -102,11 +102,11 @@ describe('SessionChatPicker', () => {
       });
     });
 
-    it('renders correctly with single session (no children)', () => {
+    it('renders correctly with single workspace (no children)', () => {
       const singleSession = [{
         session: {
           id: 'single-1',
-          name: 'Only Session',
+          name: 'Only Workspace',
           status: 'completed',
           createdAt: Date.now(),
           lastActivityAt: Date.now(),
@@ -130,9 +130,9 @@ describe('SessionChatPicker', () => {
 
     it('status badges display correctly without hierarchy labels', () => {
       const sessionsWithStatuses = [
-        { session: { id: 's1', name: 'Session 1', status: 'running', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
-        { session: { id: 's2', name: 'Session 2', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
-        { session: { id: 's3', name: 'Session 3', status: 'error', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
+        { session: { id: 's1', name: 'Workspace 1', status: 'running', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 0 },
+        { session: { id: 's2', name: 'Workspace 2', status: 'completed', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
+        { session: { id: 's3', name: 'Workspace 3', status: 'error', createdAt: Date.now(), lastActivityAt: Date.now() }, depth: 1 },
       ];
       const wrapper = mount(SessionChatPicker, {
         props: {
@@ -178,15 +178,15 @@ describe('SessionChatPicker', () => {
       });
     });
 
-    it('displays session names', () => {
+    it('displays workspace names', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
-      expect(items[0].find('.picker-item-name').text()).toBe('Root Session');
-      expect(items[1].find('.picker-item-name').text()).toBe('Child Session 1');
-      expect(items[2].find('.picker-item-name').text()).toBe('Child Session 2');
+      expect(items[0].find('.picker-item-name').text()).toBe('Root Workspace');
+      expect(items[1].find('.picker-item-name').text()).toBe('Child Workspace 1');
+      expect(items[2].find('.picker-item-name').text()).toBe('Child Workspace 2');
     });
 
-    it('renders items in the same order as the sessions prop', () => {
+    it('renders items in the same order as the workspaces prop', () => {
       const unorderedSessions = [
         { session: { id: 'older', name: 'Older', status: 'completed' }, pickerTimestamp: 1000, pickerTimestampSource: 'lastMessageAt', depth: 0 },
         { session: { id: 'newer', name: 'Newer', status: 'completed' }, pickerTimestamp: 9000, pickerTimestampSource: 'lastMessageAt', depth: 0 },
@@ -196,7 +196,7 @@ describe('SessionChatPicker', () => {
       expect(names).toEqual(['Older', 'Newer']);
     });
 
-    it('truncates long session names with CSS', () => {
+    it('truncates long workspace names with CSS', () => {
       const longName = 'A'.repeat(100);
       const wrapper = mountComponent({
         sessions: [{ session: { ...sessions[0].session, name: longName }, depth: 0 }],
@@ -229,7 +229,7 @@ describe('SessionChatPicker', () => {
     });
   });
 
-  describe('active session highlighting', () => {
+  describe('active workspace highlighting', () => {
     it('highlights active item with picker-item--active class', () => {
       const wrapper = mountComponent({ activeSessionId: 'root-1' });
       const items = wrapper.findAll('.picker-item');
@@ -245,7 +245,7 @@ describe('SessionChatPicker', () => {
   });
 
   describe('selection', () => {
-    it('emits select with correct session ID on click', async () => {
+    it('emits select with correct workspace ID on click', async () => {
       const onSelect = vi.fn();
       const wrapper = mount(SessionChatPicker, {
         props: { sessions, activeSessionId: 'root-1', summaries },
@@ -333,7 +333,7 @@ describe('SessionChatPicker', () => {
   });
 
   describe('timestamps', () => {
-    it('shows formatted timestamp for each session', () => {
+    it('shows formatted timestamp for each workspace', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
       items.forEach(item => {

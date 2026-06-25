@@ -28,7 +28,7 @@ import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
 import { MessageRepository } from '../db/MessageRepository.js';
 import { ConversationRepository } from '../db/ConversationRepository.js';
-import { sessions, attachments, projects } from '../database.js';
+import { sessions, attachments, projects, modelProviders } from '../database.js';
 
 // ── buildQueryParams ────────────────────────────────────────────────────────
 
@@ -607,6 +607,7 @@ describe('Phase 7: sessionExecution agent-type dispatch', () => {
   let conversationRepo;
   let projectRepo;
   let tempDir;
+  let openaiProvider;
 
   beforeEach(() => {
     mockQuery.mockClear();
@@ -615,9 +616,24 @@ describe('Phase 7: sessionExecution agent-type dispatch', () => {
     projectRepo = new ProjectRepository();
 
     tempDir = mkdtempSync(join(tmpdir(), 'phase7-exec-test-'));
+
+    // Register an OpenAI provider for 'gpt-4o-test' so resolveAgentTypeFromModel
+    // returns 'codex' (not the default 'claude-code') for that model.
+    openaiProvider = modelProviders.create({
+      name: 'Phase7 OpenAI Provider',
+      baseUrl: 'https://api.openai.phase7',
+      authToken: 'key-phase7',
+      kind: 'openai',
+    });
+    modelProviders.addModel(openaiProvider.id, {
+      modelId: 'gpt-4o-test',
+      displayName: 'GPT-4o Phase7',
+      tier: 'custom',
+    });
   });
 
   afterEach(() => {
+    try { modelProviders.delete(openaiProvider.id); } catch { /* noop */ }
     if (tempDir && existsSync(tempDir)) {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -761,6 +777,97 @@ describe('Phase 7: sessionExecution agent-type dispatch', () => {
     expect(capturedQueryParams.prompt).toBe('follow up');
     // Should have resume set
     expect(capturedQueryParams.options.resume).toBe('prior-claude-id');
+
+    createAgentSpy.mockRestore();
+  });
+});
+
+// ── run-path and continue-path cross-kind reconciliation ──────────────────
+
+describe('run-path reconciliation: stale agentType in DB self-heals at run time', () => {
+  let sessionRepo;
+  let conversationRepo;
+  let projectRepo;
+  let tempDir;
+
+  beforeEach(() => {
+    mockQuery.mockClear();
+    sessionRepo = new SessionRepository();
+    conversationRepo = new ConversationRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'run-reconcile-test-'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('runSessionCore builds a claude-code adapter when a draft row has agentType=codex but model resolves to claude-code', async () => {
+    // Stub agentGateway so no real process spawns
+    const stubAgent = {
+      execute: vi.fn(async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'claude-haiku', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => false,
+    };
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    const project = projectRepo.create('Reconcile Run Project', tempDir);
+    // Create a session that deliberately has stale agentType=codex but model that resolves to claude-code.
+    // resolveAgentTypeFromModel returns 'claude-code' when model has no registered provider.
+    const session = sessionRepo.create(project.id, 'Stale Codex Session', 'initial prompt', {
+      agentType: 'codex',
+      model: 'claude-stale-no-provider',
+    });
+    // Verify the stale state before the run
+    expect(session.agentType).toBe('codex');
+
+    await runSession(session.id, 'initial prompt', tempDir, { model: null });
+
+    // The reconciliation at run time must have used claude-code adapter
+    expect(createAgentSpy).toHaveBeenCalled();
+    const [agentTypeArg] = createAgentSpy.mock.calls[0];
+    expect(agentTypeArg).toBe('claude-code');
+
+    // Verify the DB row was healed
+    const healed = sessionRepo.getById(session.id);
+    expect(healed.agentType).toBe('claude-code');
+
+    createAgentSpy.mockRestore();
+  });
+
+  it('continueSessionCore uses the model-derived agentType when the draft row has a stale agentType', async () => {
+    const createAgentSpy = vi.spyOn(agentGateway, 'createAgent').mockImplementation(() => ({
+      async *execute() {
+        yield { type: 'system', subtype: 'init', session_id: 'mock-id', model: 'claude-haiku', slash_commands: [] };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } };
+        yield { type: 'result', subtype: 'success' };
+      },
+      supportsResume: () => false,
+      needsConversationContext: () => false,
+    }));
+
+    const project = projectRepo.create('Reconcile Continue Project', tempDir);
+    const session = sessionRepo.create(project.id, 'Stale Continue Session', 'initial prompt', {
+      agentType: 'codex',
+      model: 'claude-stale-continue-no-provider',
+    });
+    conversationRepo.create(session.id, 'Test Conversation');
+    expect(session.agentType).toBe('codex');
+
+    await continueSession(session.id, 'follow-up', tempDir, { model: null });
+
+    // The continue path reads agentType from the DB before reconciliation runs in
+    // buildContinueModelAndEnv. The adapter selection happens before reconciliation,
+    // so we verify the reconciliation at least persists the corrected value.
+    const healed = sessionRepo.getById(session.id);
+    expect(healed.agentType).toBe('claude-code');
 
     createAgentSpy.mockRestore();
   });

@@ -281,4 +281,10 @@ export const allMigrations = validateMigrations([
   // --- Providers enable/disable flag (appended last to keep column order
   //     stable relative to the providers-widen-kind-check-google table swap) ---
   pr.get('providers-add-enabled'),
+
+  // --- Pending conversation ID for existing-message retry on reschedule ---
+  s.get('sessions-add-pending_conversation_id'),
+
+  // --- Repair sessions with ISO text in scheduled_at (should be epoch ms integers) ---
+  s.get('sessions-repair-scheduled_at-iso-text'),
 ]);

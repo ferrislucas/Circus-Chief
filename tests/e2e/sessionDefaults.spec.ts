@@ -23,7 +23,7 @@ const TEST_MODEL = 'claude-haiku-4-5-20251001';
  * - System defaults fallback
  * - Error handling
  */
-test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
+test.describe('Project Workspace Defaults - Phase 5 E2E Tests', () => {
   test.beforeEach(async () => {
     await cleanupAll();
   });
@@ -47,12 +47,12 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       });
 
       await page.goto(`/projects/${project.id}/edit`);
-      await page.getByText('Session Defaults').click();
+      await page.getByText('Workspace Defaults').click();
 
       await page.locator('#defaultMode').selectOption('plan');
       await page.getByLabel('Enable thinking (extended thinking) by default').check();
       await page.locator('#defaultEffortLevel').selectOption('high');
-      await page.getByLabel('Start sessions immediately').uncheck();
+      await page.getByLabel('Start workspaces immediately').uncheck();
       await page.locator('#defaultGitMode').selectOption('worktree');
       await page.locator('#defaultGitBranch').fill('feature/e2e-defaults');
 
@@ -70,7 +70,7 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       await expect(page.locator('#defaultMode')).toHaveValue('plan');
       await expect(page.getByLabel('Enable thinking (extended thinking) by default')).toBeChecked();
       await expect(page.locator('#defaultEffortLevel')).toHaveValue('high');
-      await expect(page.getByLabel('Start sessions immediately')).not.toBeChecked();
+      await expect(page.getByLabel('Start workspaces immediately')).not.toBeChecked();
       await expect(page.locator('#defaultGitMode')).toHaveValue('worktree');
       await expect(page.locator('#defaultGitBranch')).toHaveValue('feature/e2e-defaults');
 
@@ -99,12 +99,12 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
       expect(defaults.providerId).toBe(providerId);
 
       await page.goto(`/projects/${project.id}/edit`);
-      await page.getByText('Session Defaults').click();
+      await page.getByText('Workspace Defaults').click();
 
       await expect(page.locator('#defaultMode')).toHaveValue('plan');
       await expect(page.getByLabel('Enable thinking (extended thinking) by default')).toBeChecked();
       await expect(page.locator('#defaultEffortLevel')).toHaveValue('high');
-      await expect(page.getByLabel('Start sessions immediately')).not.toBeChecked();
+      await expect(page.getByLabel('Start workspaces immediately')).not.toBeChecked();
       await expect(page.locator('#defaultGitMode')).toHaveValue('worktree');
       await expect(page.locator('#defaultGitBranch')).toHaveValue('feature/e2e-defaults');
       await expect(page.locator('#model-select')).toHaveValue(modelOptionValue!);
@@ -297,13 +297,13 @@ test.describe('Project Session Defaults - Phase 5 E2E Tests', () => {
 
     test('applies model default to session', async () => {
       const project = await seedProject('Model Default Test', '/tmp/model-default');
-      await setProjectSessionDefaults(project.id, { model: 'claude-opus-4-5-20251101' });
+      await setProjectSessionDefaults(project.id, { model: 'claude-opus-4-8' });
 
       const session = await seedSession(project.id, {
         prompt: 'Test prompt for model default',
       });
 
-      expect(session.model).toBe('claude-opus-4-5-20251101');
+      expect(session.model).toBe('claude-opus-4-8');
     });
 
     test('applies thinking default to session', async () => {

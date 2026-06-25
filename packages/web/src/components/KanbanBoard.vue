@@ -1,5 +1,29 @@
 <template>
   <div class="kanban-board">
+    <!-- Board header bar: always rendered (outside the loading/error/empty chain) -->
+    <div class="board-header-bar">
+      <div class="layout-toggle">
+        <!-- Columns (horizontal) toggle -->
+        <button
+          class="layout-toggle-btn"
+          :class="{ active: effectiveLayout === 'horizontal' }"
+          title="Column layout"
+          @click="layoutMode = 'horizontal'"
+        >
+          <KanbanBoardIcon name="columns" />
+        </button>
+        <!-- List (vertical/accordion) toggle -->
+        <button
+          class="layout-toggle-btn"
+          :class="{ active: effectiveLayout === 'vertical' }"
+          title="List layout"
+          @click="layoutMode = 'vertical'"
+        >
+          <KanbanBoardIcon name="list" />
+        </button>
+      </div>
+    </div>
+
     <div
       v-if="loading"
       class="kanban-loading"
@@ -32,16 +56,28 @@
     <div
       v-else
       class="kanban-lanes-container"
+      :class="effectiveLayout === 'vertical' ? 'layout-vertical' : 'layout-horizontal'"
     >
       <div
         v-for="lane in board.lanes"
         :key="lane.id"
         class="kanban-lane"
-        @dragover.prevent="handleCardDragOver($event, lane.id, lane.cards?.length || 0)"
-        @drop="handleDrop($event, lane.id)"
+        @dragover.prevent="effectiveLayout === 'horizontal' ? handleCardDragOver($event, lane.id, lane.cards?.length || 0) : null"
+        @drop="effectiveLayout === 'horizontal' ? handleDrop($event, lane.id) : null"
       >
-        <div class="lane-header">
+        <div
+          class="lane-header"
+          :class="{ 'lane-header-accordion': effectiveLayout === 'vertical' }"
+          @click="handleLaneHeaderClick(lane.id)"
+        >
           <div class="lane-title-row">
+            <!-- Chevron: only shown in vertical/accordion mode -->
+            <KanbanBoardIcon
+              v-if="effectiveLayout === 'vertical'"
+              name="chevron"
+              class="lane-chevron"
+              :class="{ 'lane-chevron-expanded': expandedLanes[lane.id] }"
+            />
             <h3 class="lane-title">
               {{ lane.name }}
             </h3>
@@ -50,15 +86,7 @@
               class="lane-automation-indicator"
               title="Automation enabled"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
+              <KanbanBoardIcon name="automation" />
             </span>
           </div>
           <div class="lane-header-actions">
@@ -66,31 +94,18 @@
             <button
               class="lane-settings-btn"
               title="Lane settings"
-              @click="openLaneSettings(lane)"
+              @click.stop="openLaneSettings(lane)"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="3"
-                />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
+              <KanbanBoardIcon name="settings" />
             </button>
           </div>
         </div>
 
-        <div class="lane-cards">
+        <!-- Cards: always shown in horizontal; shown when expanded in vertical -->
+        <div
+          v-show="effectiveLayout === 'horizontal' || expandedLanes[lane.id]"
+          class="lane-cards"
+        >
           <template
             v-for="(card, cardIndex) in lane.cards"
             :key="card.id"
@@ -104,10 +119,10 @@
             <div
               class="kanban-card"
               :class="{ 'dragging': dragType === 'card' && draggedCard?.id === card.id }"
-              draggable="true"
-              @dragstart.stop="handleCardDragStart($event, card, lane.id, cardIndex)"
-              @dragover.prevent.stop="handleCardDragOver($event, lane.id, cardIndex)"
-              @dragend="handleDragEnd"
+              :draggable="effectiveLayout === 'horizontal'"
+              @dragstart.stop="effectiveLayout === 'horizontal' ? handleCardDragStart($event, card, lane.id, cardIndex) : null"
+              @dragover.prevent.stop="effectiveLayout === 'horizontal' ? handleCardDragOver($event, lane.id, cardIndex) : null"
+              @dragend="effectiveLayout === 'horizontal' ? handleDragEnd() : null"
             >
               <router-link
                 v-if="card.sessions?.[0]"
@@ -136,8 +151,37 @@
                   >
                     {{ card.sessions[0].mode }}
                   </span>
+                  <PrIndicators
+                    v-if="card.sessions[0].prUrl"
+                    :pr-url="card.sessions[0].prUrl"
+                  />
+                </div>
+                <div
+                  v-if="cardsScheduledInfo[card.id]?.showBadge"
+                  class="card-scheduled-info"
+                >
+                  <span class="status-badge status-scheduled">
+                    <KanbanBoardIcon
+                      name="schedule"
+                      class="schedule-icon-inline"
+                    />
+                    scheduled
+                  </span>
+                  <span
+                    v-if="cardsScheduledInfo[card.id].timeDisplay"
+                    class="scheduled-time"
+                    :title="cardsScheduledInfo[card.id].absoluteTime"
+                  >
+                    {{ cardsScheduledInfo[card.id].timeDisplay }}
+                  </span>
                 </div>
               </router-link>
+              <CommandButtonStatusBar
+                v-if="card.sessions?.[0]"
+                class="card-command-status"
+                :button-statuses="cardButtonStatuses[card.sessions[0].id] || []"
+                :session-id="card.sessions[0].id"
+              />
               <!-- Card reorder arrows -->
               <div class="card-reorder-arrows">
                 <button
@@ -146,19 +190,7 @@
                   title="Move card up"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex - 1)"
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <polyline points="18 15 12 9 6 15" />
-                  </svg>
+                  <KanbanBoardIcon name="reorder-up" />
                 </button>
                 <button
                   v-if="cardIndex < lane.cards.length - 1"
@@ -166,19 +198,7 @@
                   title="Move card down"
                   @click.prevent="moveCardInLane(lane.id, cardIndex, cardIndex + 1)"
                 >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
+                  <KanbanBoardIcon name="reorder-down" />
                 </button>
               </div>
               <button
@@ -186,32 +206,7 @@
                 title="Move to lane"
                 @click.prevent="openMoveCardModal(card, lane.id)"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <polyline points="15 4 19 4 19 8" />
-                  <line
-                    x1="14"
-                    y1="10"
-                    x2="19"
-                    y2="4"
-                  />
-                  <polyline points="9 20 5 20 5 16" />
-                  <line
-                    x1="10"
-                    y1="14"
-                    x2="5"
-                    y2="20"
-                  />
-                </svg>
+                <KanbanBoardIcon name="move" />
               </button>
               <button
                 class="card-remove-btn"
@@ -238,8 +233,11 @@
           </div>
         </div>
 
-        <!-- Lane footer with automation info and add session button -->
-        <div class="lane-footer">
+        <!-- Lane footer: always shown in horizontal; shown when expanded in vertical -->
+        <div
+          v-show="effectiveLayout === 'horizontal' || expandedLanes[lane.id]"
+          class="lane-footer"
+        >
           <span
             v-if="lane.onEnterTemplateId"
             class="lane-automation"
@@ -337,13 +335,21 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted, watch, toRef } from 'vue';
+import { formatDistanceToNow, format } from 'date-fns';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useSessionsStore } from '../stores/sessions.js';
+import { useCommandButtonsStore } from '../stores/commandButtons.js';
+import { findNearestScheduledTime } from '../utils/scheduleInfo.js';
+import { useCardDragDrop } from '../composables/useCardDragDrop.js';
 import AddSessionToLaneModal from './AddSessionToLaneModal.vue';
+import CommandButtonStatusBar from './CommandButtonStatusBar.vue';
 import LaneSettingsModal from './LaneSettingsModal.vue';
 import MoveCardModal from './MoveCardModal.vue';
+import PrIndicators from './PrIndicators.vue';
 import SessionRunningSpinner from './SessionRunningSpinner.vue';
+import KanbanBoardIcon from './KanbanBoardIcon.vue';
+import { mapRunsToButtonStatuses } from '../utils/commandButtonStatuses.js';
 import './KanbanBoard.css';
 
 const props = defineProps({
@@ -355,18 +361,176 @@ const props = defineProps({
 
 const kanbanStore = useKanbanStore();
 const sessionsStore = useSessionsStore();
+const commandButtonsStore = useCommandButtonsStore();
 
-// Local state
+// ==================== Layout state ====================
+
+const LAYOUT_MODE_KEY = 'kanbanLayoutMode';
+const VALID_LAYOUT_MODES = ['auto', 'horizontal', 'vertical'];
+
+function readLayoutMode() {
+  try {
+    const stored = localStorage.getItem(LAYOUT_MODE_KEY);
+    return VALID_LAYOUT_MODES.includes(stored) ? stored : 'auto';
+  } catch {
+    return 'auto';
+  }
+}
+
+function writeLayoutMode(value) {
+  try {
+    localStorage.setItem(LAYOUT_MODE_KEY, value);
+  } catch {
+    // ignore (e.g. private browsing with storage blocked)
+  }
+}
+
+// layoutMode: 'auto' | 'horizontal' | 'vertical'
+// Read synchronously from localStorage so first render uses the restored value.
+const layoutMode = ref(readLayoutMode());
+
+watch(layoutMode, (value) => {
+  writeLayoutMode(value);
+});
+
+// isNarrow: true when the viewport is <= 640px.
+// Initialized synchronously to avoid a flash on first render.
+const isNarrow = ref(
+  typeof window !== 'undefined' && window.matchMedia
+    ? window.matchMedia('(max-width: 640px)').matches
+    : false
+);
+
+let _mql = null;
+const onMqlChange = (e) => { isNarrow.value = e.matches; };
+
+onMounted(() => {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    _mql = window.matchMedia('(max-width: 640px)');
+    isNarrow.value = _mql.matches;
+    _mql.addEventListener('change', onMqlChange);
+  }
+});
+
+onUnmounted(() => {
+  if (_mql) {
+    _mql.removeEventListener('change', onMqlChange);
+    _mql = null;
+  }
+});
+
+// effectiveLayout: the layout actually used for rendering.
+const effectiveLayout = computed(() => {
+  if (layoutMode.value === 'auto') {
+    return isNarrow.value ? 'vertical' : 'horizontal';
+  }
+  return layoutMode.value;
+});
+
+// expandedLanes: record of laneId → boolean (true = expanded).
+// All lanes start expanded by default.
+const expandedLanes = reactive({});
+
+// ==================== Lane collapse persistence ====================
+
+const EXPANDED_LANES_KEY = 'kanbanExpandedLanes';
+
+function readExpandedLanes(projectId) {
+  try {
+    const raw = localStorage.getItem(`${EXPANDED_LANES_KEY}:${projectId}`);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const result = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'boolean') {
+        result[k] = v;
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function writeExpandedLanes(projectId, expandedMap) {
+  try {
+    localStorage.setItem(`${EXPANDED_LANES_KEY}:${projectId}`, JSON.stringify(expandedMap));
+  } catch {
+    // ignore (e.g. private browsing with storage blocked)
+  }
+}
+
+watch(
+  [() => props.projectId, () => kanbanStore.board?.lanes],
+  ([projectId, lanes]) => {
+    if (lanes) {
+      // Clear old-project state to avoid leaking across project switches.
+      for (const k in expandedLanes) delete expandedLanes[k];
+      const saved = readExpandedLanes(projectId);
+      for (const lane of lanes) {
+        expandedLanes[lane.id] = typeof saved[lane.id] === 'boolean' ? saved[lane.id] : true;
+      }
+    }
+  },
+  { immediate: true }
+);
+
+const toggleLane = (laneId) => {
+  expandedLanes[laneId] = !expandedLanes[laneId];
+  writeExpandedLanes(props.projectId, { ...expandedLanes });
+};
+
+// Called when the lane header is clicked; only toggles in vertical mode.
+const handleLaneHeaderClick = (laneId) => {
+  if (effectiveLayout.value === 'vertical') {
+    toggleLane(laneId);
+  }
+};
+
+// ==================== Local state ====================
+
 const showAddLane = ref(false);
 const newLaneName = ref('');
 
-// Drag state (cards only)
-const dragType = ref(null); // 'card'
-const draggedCard = ref(null);
-const draggedCardLaneId = ref(null);
-const draggedCardIndex = ref(-1);
-const dropCardLaneId = ref(null);
-const dropCardIndex = ref(-1);
+// Computed
+const board = computed(() => kanbanStore.board);
+const loading = computed(() => kanbanStore.loading);
+const error = computed(() => kanbanStore.error);
+const cardsScheduledInfo = computed(() => {
+  const map = {};
+  if (!board.value?.lanes) return map;
+
+  for (const lane of board.value.lanes) {
+    for (const card of lane.cards || []) {
+      const session = card.sessions?.[0];
+      if (!session?.id) continue;
+
+      const nearest = findNearestScheduledTime(session.id);
+
+      if (nearest === null) {
+        map[card.id] = { showBadge: false, timeDisplay: null, absoluteTime: null };
+        continue;
+      }
+
+      const scheduledTime = new Date(nearest);
+      map[card.id] = {
+        showBadge: true,
+        timeDisplay: formatDistanceToNow(scheduledTime, { addSuffix: true }),
+        absoluteTime: format(scheduledTime, 'MMM d, h:mm a'),
+      };
+    }
+  }
+
+  return map;
+});
+
+// Drag-and-drop
+const {
+  dragType, draggedCard, dropCardLaneId, dropCardIndex,
+  handleCardDragStart, handleCardDragOver, handleDragEnd,
+  handleDrop, moveCardInLane,
+} = useCardDragDrop(board, kanbanStore.reorderCards, kanbanStore.moveCard, toRef(props, 'projectId'));
 
 // Modal state
 const showAddSessionModal = ref(false);
@@ -377,11 +541,6 @@ const showMoveCardModal = ref(false);
 const selectedCardForMove = ref(null);
 const selectedCardCurrentLaneId = ref(null);
 
-// Computed
-const board = computed(() => kanbanStore.board);
-const loading = computed(() => kanbanStore.loading);
-const error = computed(() => kanbanStore.error);
-
 // Methods
 const fetchBoard = async () => {
   try {
@@ -391,25 +550,11 @@ const fetchBoard = async () => {
   }
 };
 
-const getStatusIndicator = (status) => {
-  switch (status) {
-    case 'running':
-    case 'starting':
-      return '●';
-    case 'waiting':
-      return '◐';
-    case 'completed':
-      return '✓';
-    case 'error':
-      return '✕';
-    case 'stopped':
-      return '■';
-    case 'scheduled':
-      return '⏰';
-    default:
-      return '○';
-  }
+const STATUS_INDICATORS = {
+  running: '●', starting: '●', waiting: '◐', completed: '✓',
+  error: '✕', stopped: '■', scheduled: '⏰',
 };
+const getStatusIndicator = (status) => STATUS_INDICATORS[status] || '○';
 
 const isCardEffectivelyRunning = (session) => {
   if (!session?.id) return false;
@@ -419,128 +564,38 @@ const isCardEffectivelyRunning = (session) => {
   return ['running', 'starting'].includes(session.status);
 };
 
-// --- Card drag-and-drop ---
-const handleCardDragStart = (event, card, laneId, cardIndex) => {
-  dragType.value = 'card';
-  draggedCard.value = card;
-  draggedCardLaneId.value = laneId;
-  draggedCardIndex.value = cardIndex;
-  const dt = event.dataTransfer;
-  dt.effectAllowed = 'move';
-  dt.setData('text/plain', card.id);
-};
+// Board-level map of session id → button-status indicators. Built once per
+// recompute (rather than per-card during render) so the buttonMap and the
+// store-session lookup are constructed a single time for the whole board.
+const cardButtonStatuses = computed(() => {
+  const result = {};
+  if (!props.projectId || !board.value) return result;
 
-const handleCardDragOver = (event, laneId, cardIndex) => {
-  if (dragType.value !== 'card') return;
-  // Determine if above or below midpoint
-  const rect = event.currentTarget.getBoundingClientRect();
-  const midY = rect.top + rect.height / 2;
-  const index = event.clientY < midY ? cardIndex : cardIndex + 1;
+  // Establish a reactive dependency on command-run WebSocket updates so the
+  // whole board recomputes when any run's status changes.
+  void sessionsStore.commandRunVersion;
 
-  // Don't show indicator at the card's current position
-  if (laneId === draggedCardLaneId.value &&
-      (index === draggedCardIndex.value || index === draggedCardIndex.value + 1)) {
-    dropCardLaneId.value = null;
-    dropCardIndex.value = -1;
-  } else {
-    dropCardLaneId.value = laneId;
-    dropCardIndex.value = index;
-  }
-};
+  const buttons = commandButtonsStore.getButtonsByProjectId(props.projectId);
+  const buttonMap = Object.fromEntries(buttons.map(b => [b.id, b]));
 
-// --- Drag end ---
-const handleDragEnd = () => {
-  dragType.value = null;
-  draggedCard.value = null;
-  draggedCardLaneId.value = null;
-  draggedCardIndex.value = -1;
-  dropCardLaneId.value = null;
-  dropCardIndex.value = -1;
-};
+  // Build the store-session lookup once to avoid a per-card `.find()` scan.
+  const storeSessionsById = Object.fromEntries(
+    sessionsStore.sessions.map(s => [s.id, s])
+  );
 
-/**
- * Reorder cards within the same lane.
- * @param {string} laneId - The lane ID
- * @param {number} sourceIndex - Original card index
- * @param {number} dropIndex - Where the card was dropped
- */
-const reorderCardsInLane = async (laneId, sourceIndex, dropIndex) => {
-  const lane = board.value?.lanes?.find((l) => l.id === laneId);
-  if (!lane?.cards) return;
-
-  let targetIndex = dropIndex >= 0 ? dropIndex : lane.cards.length;
-  // Adjust for removal of source card
-  if (targetIndex > sourceIndex) targetIndex--;
-  if (targetIndex === sourceIndex) return;
-
-  const newOrder = lane.cards.map((c) => c.id);
-  const [movedId] = newOrder.splice(sourceIndex, 1);
-  newOrder.splice(targetIndex, 0, movedId);
-
-  try {
-    await kanbanStore.reorderCards(props.projectId, laneId, newOrder);
-  } catch (err) {
-    console.error('Failed to reorder cards:', err);
-  }
-};
-
-/**
- * Move a card to a different lane.
- * @param {string} cardId - The card ID
- * @param {string} targetLaneId - The target lane ID
- */
-const moveCardToLane = async (cardId, targetLaneId) => {
-  try {
-    await kanbanStore.moveCard(props.projectId, cardId, targetLaneId, {
-      runOnEnterTemplate: true,
-    });
-  } catch (err) {
-    console.error('Failed to move card:', err);
-  }
-};
-
-// --- Drop handler (card drops only) ---
-const handleDrop = async (event, targetLaneId) => {
-  event.preventDefault();
-
-  if (dragType.value !== 'card' || !draggedCard.value) {
-    handleDragEnd();
-    return;
+  for (const card of board.value.lanes.flatMap(l => l.cards || [])) {
+    const session = card.sessions?.[0];
+    if (!session?.id) continue;
+    const latestRuns =
+      storeSessionsById[session.id]?.latestCommandRuns || session.latestCommandRuns || [];
+    result[session.id] = mapRunsToButtonStatuses(buttonMap, latestRuns);
   }
 
-  const cardId = event.dataTransfer.getData('text/plain');
-  if (!cardId) {
-    handleDragEnd();
-    return;
-  }
-
-  const sourceLaneId = draggedCardLaneId.value;
-
-  if (sourceLaneId === targetLaneId) {
-    await reorderCardsInLane(targetLaneId, draggedCardIndex.value, dropCardIndex.value);
-  } else {
-    await moveCardToLane(cardId, targetLaneId);
-  }
-
-  handleDragEnd();
-};
-
-// --- Card reorder arrow handler ---
-const moveCardInLane = async (laneId, fromIndex, toIndex) => {
-  const lane = board.value?.lanes?.find((l) => l.id === laneId);
-  if (!lane?.cards) return;
-  const newOrder = lane.cards.map((c) => c.id);
-  const [movedId] = newOrder.splice(fromIndex, 1);
-  newOrder.splice(toIndex, 0, movedId);
-  try {
-    await kanbanStore.reorderCards(props.projectId, laneId, newOrder);
-  } catch (err) {
-    console.error('Failed to reorder cards:', err);
-  }
-};
+  return result;
+});
 
 const handleRemoveCard = async (cardId) => {
-  if (!confirm('Remove this session from the board?')) return;
+  if (!confirm('Remove this workspace from the board?')) return;
 
   try {
     await kanbanStore.removeCard(props.projectId, cardId);

@@ -173,7 +173,7 @@ const displayName = computed(() => {
   if (props.sessionName) {
     return props.sessionName;
   }
-  return props.cardId || 'Unnamed session';
+  return props.cardId || 'Unnamed workspace';
 });
 
 const selectedLane = computed(() => {
@@ -225,16 +225,16 @@ async function handleMove() {
 }
 
 async function handleRemove() {
-  if (!confirm('Remove this session from the board?')) return;
+  if (!confirm('Remove this workspace from the board?')) return;
 
   removing.value = true;
   try {
     await kanbanStore.removeCard(props.projectId, props.cardId);
-    uiStore.success('Session removed from board');
+    uiStore.success('Workspace removed from board');
     emit('close');
   } catch (err) {
     console.error('Failed to remove card:', err);
-    uiStore.error(err.message || 'Failed to remove session');
+    uiStore.error(err.message || 'Failed to remove workspace');
   } finally {
     removing.value = false;
   }

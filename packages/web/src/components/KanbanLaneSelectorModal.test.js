@@ -7,7 +7,7 @@ describe('KanbanLaneSelectorModal', () => {
     return mount(KanbanLaneSelectorModal, {
       props: {
         isOpen: true,
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
         lanes: [
           { id: 'lane-1', name: 'Todo', cards: [{ id: 'card-1' }] },
           { id: 'lane-2', name: 'Done', cards: [] },
@@ -22,10 +22,10 @@ describe('KanbanLaneSelectorModal', () => {
     expect(wrapper.find('.modal-backdrop').exists()).toBe(false);
   });
 
-  it('renders the session name and lane options', () => {
+  it('renders the workspace name and lane options', () => {
     const wrapper = mountModal();
 
-    expect(wrapper.text()).toContain('Test Session');
+    expect(wrapper.text()).toContain('Test Workspace');
     expect(wrapper.text()).toContain('Todo');
     expect(wrapper.text()).toContain('1 cards');
     expect(wrapper.text()).toContain('Done');
@@ -37,7 +37,7 @@ describe('KanbanLaneSelectorModal', () => {
     const wrapper = mount(KanbanLaneSelectorModal, {
       props: {
         isOpen: true,
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
         lanes: [
           { id: 'lane-1', name: 'Todo', cards: [{ id: 'card-1' }] },
           { id: 'lane-2', name: 'Done', cards: [] },
@@ -71,7 +71,7 @@ describe('KanbanLaneSelectorModal', () => {
     const wrapper = mount(KanbanLaneSelectorModal, {
       props: {
         isOpen: true,
-        sessionName: 'Test Session',
+        sessionName: 'Test Workspace',
         lanes: [],
       },
       attrs: {

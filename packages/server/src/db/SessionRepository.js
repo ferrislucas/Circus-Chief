@@ -1,33 +1,17 @@
 import { BaseRepository } from './BaseRepository.js';
 import { databaseManager } from './DatabaseManager.js';
-import { messages, conversations, modelProviders } from './index.js';
+import { messages, conversations } from './index.js';
 import {
   ACTIVITY_FIELDS_SQL,
+  SESSION_ORDER_BY,
+  applySessionFilters,
   mapTokenUsage,
   mapScheduling,
   parseCreateConfig,
   buildUpdateClauses,
+  DEFAULT_AGENT_TYPE,
+  resolveAgentTypeFromModel,
 } from './session-helpers.js';
-
-const DEFAULT_AGENT_TYPE = 'claude-code';
-
-/**
- * Resolve the agent type ('claude-code' or 'codex') from a model ID by looking
- * up which provider owns the model. This is the same logic as
- * sessionProvider.resolveAgentTypeFromModel but inlined here to avoid a
- * circular dependency:
- *   database.js (index) → SessionRepository → sessionProvider → database.js
- * @param {string|null} modelId
- * @returns {'claude-code'|'codex'}
- */
-function resolveAgentTypeFromModel(modelId) {
-  if (!modelId) return DEFAULT_AGENT_TYPE;
-  const provider = modelProviders.getProviderByModelId(modelId);
-  if (!provider) return DEFAULT_AGENT_TYPE;
-  // ProviderRepository.getAgentTypeForProvider maps kind → agent adapter
-  const agentType = modelProviders.getAgentTypeForProvider(provider.id);
-  return agentType || DEFAULT_AGENT_TYPE;
-}
 
 /**
  * Session repository class
@@ -100,11 +84,10 @@ export class SessionRepository extends BaseRepository {
   create(projectId, name, prompt, options = {}) {
     const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));
 
-    // Resolve agentType: explicit override → model-based derivation → fallback
-    const agentType =
-      config.agentType
-      ?? (config.model ? resolveAgentTypeFromModel(config.model) : null)
-      ?? DEFAULT_AGENT_TYPE;
+    // Resolve agentType: explicit override → model-based derivation → fallback.
+    // resolveAgentTypeFromModel(null) returns DEFAULT_AGENT_TYPE, so the absent-model
+    // case is covered without a separate branch.
+    const agentType = config.agentType ?? resolveAgentTypeFromModel(config.model);
 
     const id = databaseManager.generateId();
     const now = Date.now();
@@ -145,48 +128,44 @@ export class SessionRepository extends BaseRepository {
   getByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
     let sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE project_id = ?`;
     const params = [projectId];
-
-    if (archived !== null) {
-      sql += ` AND archived = ?`;
-      params.push(archived ? 1 : 0);
-    }
-
-    if (starred !== null) {
-      sql += ` AND starred = ?`;
-      params.push(starred ? 1 : 0);
-    }
-
-    sql += ` ORDER BY
-      COALESCE(last_activity_at, updated_at, created_at) DESC,
-      updated_at DESC,
-      created_at DESC,
-      rowid DESC`;
-
-    // Add LIMIT/OFFSET for pagination
+    sql = applySessionFilters(sql, params, { archived, starred });
+    sql += SESSION_ORDER_BY;
     if (limit !== null) {
       sql += ` LIMIT ? OFFSET ?`;
       params.push(limit, offset);
     }
+    return this.mapAll(this.db.prepare(sql).all(...params));
+  }
 
-    const rows = this.db.prepare(sql).all(...params);
-    return this.mapAll(rows);
+  /**
+   * Get only root sessions (workspaces) for a project — rows where parent_session_id IS NULL.
+   * Uses the same ordering and optional filters as getByProjectId.
+   */
+  getRootsByProjectId(projectId, { archived = null, starred = null, limit = null, offset = 0 } = {}) {
+    let sql = `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s WHERE project_id = ? AND parent_session_id IS NULL`;
+    const params = [projectId];
+    sql = applySessionFilters(sql, params, { archived, starred });
+    sql += SESSION_ORDER_BY;
+    if (limit !== null) {
+      sql += ` LIMIT ? OFFSET ?`;
+      params.push(limit, offset);
+    }
+    return this.mapAll(this.db.prepare(sql).all(...params));
+  }
+
+  /** Count root sessions (workspaces) for a project */
+  getRootsCountByProjectId(projectId, { archived = null, starred = null } = {}) {
+    let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ? AND parent_session_id IS NULL`;
+    const params = [projectId];
+    sql = applySessionFilters(sql, params, { archived, starred });
+    return this.db.prepare(sql).get(...params).count;
   }
 
   /** Get count of sessions for a project with optional archived/starred filters */
   getCountByProjectId(projectId, { archived = null, starred = null } = {}) {
     let sql = `SELECT COUNT(*) as count FROM sessions WHERE project_id = ?`;
     const params = [projectId];
-
-    if (archived !== null) {
-      sql += ` AND archived = ?`;
-      params.push(archived ? 1 : 0);
-    }
-
-    if (starred !== null) {
-      sql += ` AND starred = ?`;
-      params.push(starred ? 1 : 0);
-    }
-
+    sql = applySessionFilters(sql, params, { archived, starred });
     return this.db.prepare(sql).get(...params).count;
   }
 
@@ -358,6 +337,22 @@ export class SessionRepository extends BaseRepository {
          ORDER BY scheduled_at ASC`
       )
       .all(now);
+    return this.mapAll(rows);
+  }
+
+  /**
+   * Get sessions stuck in 'starting' whose updated_at is older than the given cutoff timestamp.
+   * Used by the boot-time stale-startup recovery sweep.
+   * @param {number} cutoff - Absolute timestamp; rows with updated_at < cutoff are stale.
+   * @returns {Array<object>}
+   */
+  getStaleStartingSessions(cutoff) {
+    const rows = this.db
+      .prepare(
+        `SELECT s.*, ${ACTIVITY_FIELDS_SQL} FROM sessions s
+         WHERE status = 'starting' AND updated_at < ? AND archived = 0`
+      )
+      .all(cutoff);
     return this.mapAll(rows);
   }
 

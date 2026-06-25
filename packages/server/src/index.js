@@ -14,6 +14,7 @@ import * as sessionManager from './services/sessionManager.js';
 import { clearScheduledTimers } from './services/summaryService.js';
 import { commandRunner } from './services/commandRunner.js';
 import { getDefaultDbPath } from './config.js';
+import { recoverStaleStartingSessions } from './services/sessionStartupRecovery.js';
 
 /**
  * Validate Node.js environment at startup.
@@ -55,6 +56,9 @@ mkdirSync(dirname(dbPath), { recursive: true });
 initDatabase(dbPath);
 console.log(`Database initialized: ${dbPath}`);
 console.log(`VCR_MODE: ${process.env.VCR_MODE || '(unset)'}`);
+
+// Recover sessions stuck in 'starting' from a previous crashed or killed server run
+recoverStaleStartingSessions();
 
 // Apply --no-analytics flag to persisted settings
 if (disableAnalytics) {

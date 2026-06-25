@@ -13,10 +13,10 @@
 
       <!-- Overflow menu with secondary actions -->
       <OverflowMenu
-        aria-label="Session actions"
+        aria-label="Workspace actions"
         :is-archived="session.archived"
         :is-deleting="isDeleting"
-        copy-session-id-text="Copy ID"
+        copy-session-id-text="Copy Workspace ID"
         @duplicate="emit('duplicate')"
         @copy-session-id="emit('copySessionId')"
         @archive="emit('archive')"
@@ -107,9 +107,9 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
-  kanbanEnabled: {
+  canAddToBoard: {
     type: Boolean,
-    default: false,
+    default: true,
   },
   gitStatusSummary: { type: String, default: 'Git status unknown' },
   gitStatusLoading: { type: Boolean, default: false },
@@ -134,7 +134,7 @@ const sessionLane = computed(() => {
 const sessionCard = computed(() => kanbanStore.getCardBySessionId(props.sessionId));
 
 const showAddToBoardButton = computed(() =>
-  props.kanbanEnabled &&
+  props.canAddToBoard &&
   !props.session.parentSessionId &&
   !props.session.archived &&
   !sessionCard.value

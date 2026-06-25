@@ -31,7 +31,6 @@
         :summary="summary"
         :is-deleting="isDeleting"
         :button-statuses="buttonStatusesToDisplay"
-        :kanban-enabled="kanbanEnabledForCurrentSession"
         :git-status-summary="shortGitStatusSummary"
         :git-status-loading="gitStatusLoading"
         :git-status-error="gitStatusError"
@@ -121,6 +120,7 @@
         :is-open="showArchiveModal"
         :session-name="sessionsStore.currentSession?.name || 'this session'"
         :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionsStore.currentSession?.gitWorktree && !sessionsStore.currentSession?.parentSessionId)"
+        :is-on-kanban-board="isArchiveSessionOnBoard"
         :loading="archiving"
         @confirm="confirmArchive"
         @cancel="cancelArchive"
@@ -296,10 +296,21 @@ const tabs = computed(() => [
   { id: 'commands', label: 'Commands' },
 ]);
 
-const kanbanEnabledForCurrentSession = computed(() =>
-  projectsStore.currentProject?.id === sessionsStore.currentSession?.projectId &&
-  projectsStore.currentProject?.kanbanEnabled === true
-);
+// The Kanban card (if any) for the current session's workflow. A card is keyed to
+// the workflow root, so resolve the root first and fall back to the session id in
+// case the ancestor chain isn't fully loaded in the store.
+const archiveWorkflowCard = computed(() => {
+  const sessionId = sessionsStore.currentSession?.id;
+  if (!sessionId) return null;
+  const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  return (
+    kanbanStore.getCardBySessionId(rootId) ||
+    kanbanStore.getCardBySessionId(sessionId) ||
+    null
+  );
+});
+
+const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
 
 async function ensureProjectKanbanData(session) {
   if (!session?.projectId) return;
@@ -487,12 +498,23 @@ async function handleArchive() {
   }
 }
 
-async function confirmArchive(runCleanup) {
+async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   archiving.value = true;
+  // Capture before archiving: navigation below tears down this view.
+  const projectId = sessionsStore.currentSession?.projectId;
+  const workflowCard = archiveWorkflowCard.value;
   try {
-    const projectId = sessionsStore.currentSession?.projectId;
     await sessionsStore.archiveSession(currentSessionId.value, { cleanup: runCleanup });
     uiStore.success('Session archived');
+
+    if (removeFromBoard && workflowCard && projectId) {
+      try {
+        await kanbanStore.removeCard(projectId, workflowCard.id);
+      } catch (removeErr) {
+        uiStore.error(removeErr.message || 'Failed to remove card from board');
+      }
+    }
+
     if (projectId) {
       router.push(`/projects/${projectId}/sessions`);
     } else {
@@ -538,7 +560,8 @@ async function addSessionToLane(lane) {
       await kanbanStore.moveCard(sessionToAdd.value.projectId, existingCard.id, lane.id);
       uiStore.success(`Session moved to "${lane.name}"`);
     } else {
-      await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, sessionToAdd.value.id, lane.id);
+      const workspaceId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;
+      await kanbanStore.addSessionToBoard(sessionToAdd.value.projectId, workspaceId, lane.id);
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();
@@ -560,24 +583,28 @@ function getLaneIdForSession(sessionId) {
 }
 
 async function handleCopySessionId() {
+  // Copy the workspace ID (= root session ID) so agents and users can reference
+  // the whole workspace. Fall back to currentSessionId when the ancestor chain
+  // is not yet loaded in the store.
   const sessionId = currentSessionId.value;
+  const workspaceId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
   try {
-    await navigator.clipboard.writeText(sessionId);
-    uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+    await navigator.clipboard.writeText(workspaceId);
+    uiStore.success(`Workspace ID copied to clipboard: ${workspaceId}`);
   } catch (err) {
     try {
       const textarea = document.createElement('textarea');
-      textarea.value = sessionId;
+      textarea.value = workspaceId;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      uiStore.success(`Session ID copied to clipboard: ${sessionId}`);
+      uiStore.success(`Workspace ID copied to clipboard: ${workspaceId}`);
     } catch (fallbackErr) {
       console.error('Copy failed:', fallbackErr);
-      uiStore.error('Failed to copy session ID');
+      uiStore.error('Failed to copy workspace ID');
     }
   }
 }

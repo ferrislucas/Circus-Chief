@@ -24,7 +24,6 @@
       :has-warnings="hasWarnings"
       :scheduled-sessions="allScheduledSessions"
       :project-id="projectId"
-      :show-not-started-state="showNotStartedStateInOverview"
       @open-session-overlay="(sessionId) => emit('open-session-overlay', sessionId)"
     />
 
@@ -51,21 +50,6 @@
       :regenerating="generatingManual"
       @regenerate="handleRegenerate"
     />
-
-    <!-- Empty state for sessions with no content -->
-    <div
-      v-else-if="showStandaloneNotStartedState"
-      class="summary-empty-state"
-    >
-      <div class="summary-empty-state-content">
-        <p class="summary-empty-state-text">
-          This session hasn't started yet.
-        </p>
-        <p class="summary-empty-state-hint">
-          Start the session or send a message to see a summary here.
-        </p>
-      </div>
-    </div>
 
     <div
       v-else-if="latestResponse"
@@ -206,14 +190,6 @@ const hasMetrics = computed(() =>
   sessionCount.value > 1 || hasNonZeroTokens.value || formattedDuration.value || filesCount.value > 0
 );
 
-const isNotStartedEmptyState = computed(() => !latestResponse.value && !isRunning.value);
-const showNotStartedStateInOverview = computed(() =>
-  Boolean(isNotStartedEmptyState.value && (hasMetrics.value || allScheduledSessions.value.length > 0))
-);
-const showStandaloneNotStartedState = computed(() =>
-  Boolean(isNotStartedEmptyState.value && !showNotStartedStateInOverview.value)
-);
-
 onMounted(async () => {
   loading.value = true;
   try {
@@ -287,32 +263,6 @@ async function handleRegenerate() {
   gap: 0.5rem;
   justify-content: center;
   padding: 2rem;
-}
-
-.summary-empty-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 300px;
-  text-align: center;
-}
-
-.summary-empty-state-content {
-  max-width: 320px;
-}
-
-.summary-empty-state-text {
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--color-text);
-  margin: 0 0 0.5rem;
-}
-
-.summary-empty-state-hint {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  margin: 0;
-  line-height: 1.4;
 }
 
 .missing-summary-action {

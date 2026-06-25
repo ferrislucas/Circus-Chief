@@ -477,7 +477,7 @@ describe('streamEventHandler', () => {
       expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
     });
 
-    it('does not call kanbanService.handleCompletionMove when session was aborted', async () => {
+    it('does not call kanban completion hooks when session was aborted', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: true } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -489,7 +489,7 @@ describe('streamEventHandler', () => {
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
-    it('does not call kanbanService.handleCompletionMove when rescheduled', async () => {
+    it('does not call kanban completion hooks when rescheduled', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -662,7 +662,11 @@ describe('streamEventHandler', () => {
 
       expect(result).toBe(true);
       expect(mockShouldReschedule).toHaveBeenCalledWith(mockSession, error, 'sess-1');
-      expect(mockScheduler.rescheduleSession).toHaveBeenCalledWith('sess-1', error.message);
+      expect(mockScheduler.rescheduleSession).toHaveBeenCalledWith(
+        'sess-1',
+        error.message,
+        expect.objectContaining({ retryExistingMessage: expect.any(Boolean) })
+      );
     });
 
     it('falls through to error handling when reschedule fails', async () => {

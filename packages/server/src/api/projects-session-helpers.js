@@ -224,6 +224,9 @@ export function applyTemplateOverrides(configInput) {
   if (template.gitMode) {
     config.gitMode = template.gitMode;
   }
+  if (template.model) {
+    config.model = template.model;
+  }
   if (template.effortLevel !== null && template.effortLevel !== undefined) {
     config.effortLevel = template.effortLevel;
     // Normalize 'auto' to null (same as prepareSessionConfig)
@@ -390,6 +393,12 @@ export async function setupAndStartSession({ session, config, project, projectId
   }
 
   const updatedSession = sessions.getById(session.id);
+
+  // Guard: if a startup timeout already marked the session as 'error', skip the
+  // SESSION_CREATED broadcast and hook so the error state is not overwritten.
+  if (updatedSession && updatedSession.status === 'error') {
+    return { updatedSession };
+  }
 
   broadcastToProject(projectId, WS_MESSAGE_TYPES.SESSION_CREATED, {
     projectId,

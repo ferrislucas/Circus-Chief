@@ -11,6 +11,7 @@ vi.mock('../database.js', () => ({
   },
   messages: {
     getBySessionId: vi.fn(),
+    getByConversationId: vi.fn(),
     create: vi.fn(),
   },
   conversations: {
@@ -21,6 +22,7 @@ vi.mock('../database.js', () => ({
   },
   attachments: {
     getBySessionId: vi.fn(),
+    updateMessageIdForSession: vi.fn(),
   },
 }));
 
@@ -40,6 +42,8 @@ describe('SchedulerService', () => {
     scheduler = new SchedulerService();
     mockSessionManager = {
       runSession: vi.fn().mockResolvedValue(undefined),
+      continueSession: vi.fn().mockResolvedValue(undefined),
+      continueSessionWithExistingMessage: vi.fn().mockResolvedValue(undefined),
     };
     vi.clearAllMocks();
 
@@ -314,7 +318,7 @@ describe('SchedulerService', () => {
     it('continues session when there are existing assistant messages', async () => {
       scheduler.initialize(mockSessionManager);
       mockSessionManager.continueSession = vi.fn().mockResolvedValue(undefined);
-      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Follow-up message', pendingModel: 'claude-opus-4-5' };
+      const session = { id: 'session-1', name: 'Test Session', projectId: 'project-1', pendingPrompt: 'Follow-up message', pendingConversationId: null, pendingModel: 'claude-opus-4-5' };
 
       projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
       messages.getBySessionId.mockReturnValue([
@@ -328,10 +332,130 @@ describe('SchedulerService', () => {
       expect(mockSessionManager.continueSession).toHaveBeenCalledWith('session-1', 'Follow-up message', '/tmp', { systemPrompt: undefined, fileAttachments: [], model: 'claude-opus-4-5' });
       expect(mockSessionManager.runSession).not.toHaveBeenCalled();
     });
+
+    it('links file attachments to user message for fresh scheduled session', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1', name: 'Test Session', projectId: 'project-1',
+        pendingPrompt: 'Analyze file', pendingModel: null,
+      };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({
+        id: 'msg-1', sessionId: 'session-1', role: 'user',
+        content: 'Analyze file', conversationId: 'conv-1',
+      });
+      attachments.getBySessionId.mockReturnValue([
+        { id: 'att-1', sessionId: 'session-1', filename: 'test.txt', messageId: null },
+      ]);
+
+      await scheduler.startScheduledSession(session);
+
+      expect(attachments.updateMessageIdForSession).toHaveBeenCalledWith('session-1', 'msg-1');
+    });
+
+    it('does not call updateMessageIdForSession when there are no attachments', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1', name: 'Test Session', projectId: 'project-1',
+        pendingPrompt: 'Hello', pendingModel: null,
+      };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      messages.getBySessionId.mockReturnValue([]);
+      conversations.getActiveBySessionId.mockReturnValue({ id: 'conv-1' });
+      messages.create.mockReturnValue({
+        id: 'msg-1', sessionId: 'session-1', role: 'user',
+        content: 'Hello', conversationId: 'conv-1',
+      });
+      attachments.getBySessionId.mockReturnValue([]);
+
+      await scheduler.startScheduledSession(session);
+
+      expect(attachments.updateMessageIdForSession).not.toHaveBeenCalled();
+    });
+
+    it('uses continueSessionWithExistingMessage when pendingConversationId is set', async () => {
+      scheduler.initialize(mockSessionManager);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      const session = {
+        id: 'session-1',
+        name: 'Test Session',
+        projectId: 'project-1',
+        pendingPrompt: 'Initial prompt',
+        pendingConversationId: 'conv-99',
+        pendingModel: 'claude-sonnet-4-5',
+      };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp', systemPrompt: 'Be helpful' });
+      attachments.getBySessionId.mockReturnValue([]);
+
+      await scheduler.startScheduledSession(session);
+
+      // Should call continueSessionWithExistingMessage, not runSession or continueSession
+      expect(mockSessionManager.continueSessionWithExistingMessage).toHaveBeenCalledWith(
+        'session-1',
+        'conv-99',
+        '/tmp',
+        { systemPrompt: 'Be helpful', model: 'claude-sonnet-4-5' }
+      );
+      expect(mockSessionManager.runSession).not.toHaveBeenCalled();
+      expect(mockSessionManager.continueSession).not.toHaveBeenCalled();
+    });
+
+    it('clears pendingConversationId and pendingPrompt when using existing-message retry', async () => {
+      scheduler.initialize(mockSessionManager);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      const session = {
+        id: 'session-1',
+        name: 'Test Session',
+        projectId: 'project-1',
+        pendingPrompt: 'Initial prompt',
+        pendingConversationId: 'conv-99',
+        pendingModel: null,
+      };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      attachments.getBySessionId.mockReturnValue([]);
+
+      await scheduler.startScheduledSession(session);
+
+      expect(sessions.update).toHaveBeenCalledWith('session-1', {
+        status: 'starting',
+        scheduledAt: null,
+        pendingPrompt: null,
+        pendingConversationId: null,
+      });
+    });
+
+    it('pendingConversationId takes precedence over hasAssistantResponses check', async () => {
+      scheduler.initialize(mockSessionManager);
+      mockSessionManager.continueSessionWithExistingMessage = vi.fn().mockResolvedValue(undefined);
+      const session = {
+        id: 'session-1',
+        name: 'Test Session',
+        projectId: 'project-1',
+        pendingPrompt: 'Initial prompt',
+        pendingConversationId: 'conv-initial',
+        pendingModel: null,
+      };
+
+      projects.getById.mockReturnValue({ id: 'project-1', workingDirectory: '/tmp' });
+      // Even if session-wide messages shows no assistant (fresh session), pendingConversationId wins
+      messages.getBySessionId.mockReturnValue([]);
+      attachments.getBySessionId.mockReturnValue([]);
+
+      await scheduler.startScheduledSession(session);
+
+      expect(mockSessionManager.continueSessionWithExistingMessage).toHaveBeenCalled();
+      expect(mockSessionManager.runSession).not.toHaveBeenCalled();
+    });
   });
 
   describe('rescheduleSession', () => {
-    it('reschedules session with delay', async () => {
+    it('reschedules session with delay using Continue by default', async () => {
       scheduler.initialize(mockSessionManager);
       const now = Date.now();
       vi.setSystemTime(now);
@@ -349,15 +473,13 @@ describe('SchedulerService', () => {
         status: 'scheduled',
         scheduledAt: now + 15 * 60 * 1000,
         rescheduleCount: 1,
-        pendingPrompt: 'First message',
+        pendingPrompt: 'Continue',
+        pendingConversationId: null,
         error: 'Rescheduled (1x): Token limit reached',
       };
 
       sessions.getById.mockReturnValue(session);
       sessions.update.mockReturnValue(updatedSession);
-      messages.getBySessionId.mockReturnValue([
-        { role: 'user', content: 'First message' },
-      ]);
 
       const result = await scheduler.rescheduleSession('session-1', 'Token limit reached');
 
@@ -366,7 +488,8 @@ describe('SchedulerService', () => {
         status: 'scheduled',
         scheduledAt: now + 15 * 60 * 1000,
         rescheduleCount: 1,
-        pendingPrompt: 'First message',
+        pendingPrompt: 'Continue',
+        pendingConversationId: null,
         error: expect.stringContaining('Rescheduled (1x)'),
       });
       expect(broadcastToSession).toHaveBeenCalledWith('session-1', WS_MESSAGE_TYPES.SESSION_STATUS, {
@@ -382,6 +505,94 @@ describe('SchedulerService', () => {
         sessionId: 'session-1',
         session: updatedSession,
       });
+    });
+
+    it('with retryExistingMessage=true sets pendingPrompt to existing message and stores pendingConversationId', async () => {
+      scheduler.initialize(mockSessionManager);
+      const now = Date.now();
+      vi.setSystemTime(now);
+
+      const session = {
+        id: 'session-1',
+        projectId: 'project-1',
+        rescheduleDelayMinutes: 15,
+        rescheduleCount: 0,
+        maxRescheduleCount: null,
+        maxTotalTokens: null,
+      };
+
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockReturnValue({ ...session, status: 'scheduled' });
+      messages.getByConversationId.mockReturnValue([
+        { role: 'user', content: 'Do the thing' },
+      ]);
+
+      const result = await scheduler.rescheduleSession(
+        'session-1',
+        'Token limit reached',
+        { retryExistingMessage: true, conversationId: 'conv-1' }
+      );
+
+      expect(result).toBe(true);
+      expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+        pendingPrompt: 'Do the thing',
+        pendingConversationId: 'conv-1',
+      }));
+    });
+
+    it('with retryExistingMessage=true falls back to Continue when no user message in conversation', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1',
+        projectId: 'project-1',
+        rescheduleDelayMinutes: 15,
+        rescheduleCount: 0,
+        maxRescheduleCount: null,
+        maxTotalTokens: null,
+      };
+
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockReturnValue({ ...session, status: 'scheduled' });
+      messages.getByConversationId.mockReturnValue([]);
+
+      const result = await scheduler.rescheduleSession(
+        'session-1',
+        'Token limit reached',
+        { retryExistingMessage: true, conversationId: 'conv-1' }
+      );
+
+      expect(result).toBe(true);
+      expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+        pendingPrompt: 'Continue',
+        pendingConversationId: null,
+      }));
+    });
+
+    it('explicit retryExistingMessage=false sets Continue and no conversationId', async () => {
+      scheduler.initialize(mockSessionManager);
+      const session = {
+        id: 'session-1',
+        projectId: 'project-1',
+        rescheduleDelayMinutes: 15,
+        rescheduleCount: 0,
+        maxRescheduleCount: null,
+        maxTotalTokens: null,
+      };
+
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockReturnValue({ ...session, status: 'scheduled' });
+
+      const result = await scheduler.rescheduleSession(
+        'session-1',
+        'Token threshold',
+        { retryExistingMessage: false }
+      );
+
+      expect(result).toBe(true);
+      expect(sessions.update).toHaveBeenCalledWith('session-1', expect.objectContaining({
+        pendingPrompt: 'Continue',
+        pendingConversationId: null,
+      }));
     });
 
     it('respects max reschedule count', async () => {
@@ -425,9 +636,6 @@ describe('SchedulerService', () => {
       };
 
       sessions.getById.mockReturnValue(session);
-      messages.getBySessionId.mockReturnValue([
-        { role: 'user', content: 'Test message' },
-      ]);
 
       await scheduler.rescheduleSession('session-1', 'Reason');
 

@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { platform } from 'os';
+import * as osModule from 'os';
 import { commandRuns } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
 import { TerminalOutputProcessor } from './terminalOutput.js';
@@ -11,6 +11,13 @@ export function createCommandRunnerEnv(baseEnv = process.env) {
   const env = createRobustEnv(baseEnv);
   delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
   return env;
+}
+
+export function wrapCommandForPlatform(command, currentPlatform = osModule.platform()) {
+  const cmd = JSON.stringify(command);
+  return currentPlatform === 'linux'
+    ? `script -q -e -c ${cmd} /dev/null`
+    : `script -q /dev/null sh -c ${cmd} < /dev/null`;
 }
 
 /**
@@ -33,16 +40,6 @@ export class CommandRunner {
     } catch (dbErr) {
       console.warn(`[commandRunner.run] Warning: Failed to create database record for runId: ${runId}`, dbErr.message);
     }
-  }
-
-  /**
-   * Wrap command with platform-specific TTY allocation.
-   */
-  #wrapCommandForPlatform(command) {
-    const cmd = JSON.stringify(command);
-    return platform() === 'linux'
-      ? `script -q -e -c ${cmd} /dev/null`
-      : `script -q /dev/null sh -c ${cmd}`;
   }
 
   /**
@@ -141,11 +138,11 @@ export class CommandRunner {
     return new Promise((resolve) => {
       try {
         this.#createDatabaseRecord(runId, sessionId, buttonId);
-        const wrappedCommand = this.#wrapCommandForPlatform(command);
+        const wrappedCommand = wrapCommandForPlatform(command);
 
         const child = spawn('sh', ['-c', wrappedCommand], {
           cwd: workingDirectory,
-          stdio: ['pipe', 'pipe', 'pipe'],
+          stdio: ['ignore', 'pipe', 'pipe'],
           detached: true,
           env: createCommandRunnerEnv(),
         });

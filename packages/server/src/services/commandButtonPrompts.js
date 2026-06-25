@@ -1,21 +1,14 @@
-import { commandButtons } from '../database.js';
-
 /**
- * Build Command API instructions for system prompt if the project has commands.
+ * Build Command API instructions for system prompt.
+ * Always included so agents know commands may be available and can discover them.
  * @param {string} apiUrl - Base API URL
  * @param {string} sessionId - Current session ID
- * @param {string} projectId - Current project ID
- * @returns {string} Command instructions or empty string if no commands configured
+ * @returns {string} Command instructions
  */
-export function buildCommandButtonApiInstructions(apiUrl, sessionId, projectId) {
-  const buttons = commandButtons.getByProjectId(projectId);
-  if (!buttons || buttons.length === 0) {
-    return '';
-  }
-
+export function buildCommandButtonApiInstructions(apiUrl, sessionId) {
   return `## Circus Commands
 
-This project has Circus Commands configured - reusable shell commands you can execute. Use the Bash tool to run these curl commands.
+This project may have Circus Commands configured - reusable shell commands you can execute. Use the Bash tool to run these curl commands.
 
 > When the user asks to "run a command", "what commands are available", "list circus commands", or similar, use the Commands API below to discover and execute them.
 

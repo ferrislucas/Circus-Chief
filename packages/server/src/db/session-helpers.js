@@ -4,6 +4,51 @@
  */
 
 import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+// Imported only to resolve agent type from a model at call time (runtime), so the
+// ES-module cycle (index → SessionRepository → session-helpers → index) is safe.
+import { modelProviders } from './index.js';
+
+/** Fallback agent runtime when none can be derived from the model/provider. */
+export const DEFAULT_AGENT_TYPE = 'claude-code';
+
+/**
+ * Resolve the agent type ('claude-code' or 'codex') from a model ID by looking
+ * up which provider owns the model. Inlined here (rather than in sessionProvider)
+ * to avoid a circular dependency:
+ *   database.js (index) → SessionRepository → sessionProvider → database.js
+ * @param {string|null} modelId
+ * @returns {'claude-code'|'codex'}
+ */
+export function resolveAgentTypeFromModel(modelId) {
+  if (!modelId) return DEFAULT_AGENT_TYPE;
+  const provider = modelProviders.getProviderByModelId(modelId);
+  if (!provider) return DEFAULT_AGENT_TYPE;
+  // ProviderRepository.getAgentTypeForProvider maps kind → agent adapter
+  const agentType = modelProviders.getAgentTypeForProvider(provider.id);
+  return agentType || DEFAULT_AGENT_TYPE;
+}
+
+/** Shared ORDER BY clause for session list queries (most-recent activity first). */
+export const SESSION_ORDER_BY =
+  ' ORDER BY COALESCE(last_activity_at, updated_at, created_at) DESC, ' +
+  'updated_at DESC, created_at DESC, rowid DESC';
+
+/**
+ * Append optional archived/starred WHERE filters to a session query.
+ * Pushes bound params onto `params` and returns the extended SQL string.
+ */
+export function applySessionFilters(sql, params, { archived = null, starred = null } = {}) {
+  let clause = sql;
+  if (archived !== null) {
+    clause += ' AND archived = ?';
+    params.push(archived ? 1 : 0);
+  }
+  if (starred !== null) {
+    clause += ' AND starred = ?';
+    params.push(starred ? 1 : 0);
+  }
+  return clause;
+}
 
 /** Reusable SQL fragment for computed activity fields on sessions */
 export const ACTIVITY_FIELDS_SQL = `
@@ -75,6 +120,7 @@ export function mapScheduling(row) {
     maxTotalTokens: row.max_total_tokens,
     rescheduleCount: row.reschedule_count || 0,
     rescheduleAtTokenCount: row.reschedule_at_token_count,
+    pendingConversationId: row.pending_conversation_id || null,
   };
 }
 
@@ -140,6 +186,7 @@ export const DIRECT_FIELD_MAP = {
   rescheduleAtTokenCount: 'reschedule_at_token_count',
   pendingPrompt: 'pending_prompt',
   pendingModel: 'pending_model',
+  pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
   laneTriggerDepth: 'lane_trigger_depth',
   agentType: 'agent_type',

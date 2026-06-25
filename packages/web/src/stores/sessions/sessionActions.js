@@ -64,14 +64,6 @@ async function fetchAncestorSessions(sessions, startParentId) {
  * These are spread directly into the Pinia store actions, so `this` refers to the store instance.
  */
 export const sessionActions = {
-  async fetchActiveSessions(showLoading = true) {
-    if (showLoading) this.loading = true;
-    this.error = null;
-    try { this.activeSessions = await api.getActiveSessions(); }
-    catch (err) { this.error = err.message; }
-    finally { if (showLoading) this.loading = false; }
-  },
-
   async fetchSessions(projectId, { silent = false } = {}) {
     if (!silent) this.loading = true;
     this.error = null;
@@ -194,7 +186,6 @@ export const sessionActions = {
       const updated = await api.archiveSession(id, { cleanup });
       this.sessions = this.sessions.filter((s) => s.id !== id);
       this.archivedSessions.unshift(updated);
-      this.activeSessions = this.activeSessions.filter((s) => s.id !== id);
       if (this.currentSession?.id === id) this.currentSession = { ...this.currentSession, archived: true };
       return updated;
     } catch (err) { this.error = err.message; throw err; }
@@ -257,7 +248,9 @@ export const sessionActions = {
       }
 
       const updated = await api.updateSession(sessionId, updateData);
-      this._updateSessionInAllLists(sessionId, updateData);
+      // Merge the server response (not just updateData) so server-derived fields
+      // like agentType and providerId stay in sync after a model change.
+      this._updateSessionInAllLists(sessionId, updated);
       return updated;
     } catch (err) { this.error = err.message; throw err; }
   },
@@ -285,7 +278,6 @@ export const sessionActions = {
     // Handle archive state changes
     if (sessionData.archived === true) {
       this.sessions = moveSessionBetweenLists(this.sessions, this.archivedSessions, sessionData);
-      this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionData.id);
     } else if (sessionData.archived === false) {
       this.archivedSessions = moveSessionBetweenLists(this.archivedSessions, this.sessions, sessionData);
     } else {
@@ -294,26 +286,21 @@ export const sessionActions = {
       updateSessionInList(this.archivedSessions, sessionData);
     }
 
-    // Update current session and active sessions
+    // Update current session
     if (this.currentSession?.id === sessionData.id) {
       this.currentSession = { ...this.currentSession, ...sessionData };
     }
-    updateSessionInList(this.activeSessions, sessionData);
   },
 
   addSessionToList(session) {
     if (!session?.id) return;
     if (!this.sessions.some((s) => s.id === session.id)) this.sessions.unshift(session);
-    if (['running', 'waiting', 'starting'].includes(session.status)) {
-      if (!this.activeSessions.some((s) => s.id === session.id)) this.activeSessions.unshift(session);
-    }
   },
 
   removeSessionFromList(sessionId) {
     if (!sessionId) return;
     this.sessions = this.sessions.filter((s) => s.id !== sessionId);
     this.archivedSessions = this.archivedSessions.filter((s) => s.id !== sessionId);
-    this.activeSessions = this.activeSessions.filter((s) => s.id !== sessionId);
     if (this.currentSession?.id === sessionId) this.currentSession = null;
   },
 };

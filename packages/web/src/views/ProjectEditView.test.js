@@ -94,7 +94,7 @@ describe('ProjectEditView with Session Defaults', () => {
       // Check for details element with Session Defaults summary
       const details = wrapper.findAll('details');
       const sessionDefaultsSection = details.find(d =>
-        d.text().includes('Session Defaults')
+        d.text().includes('Workspace Defaults')
       );
 
       expect(sessionDefaultsSection).toBeDefined();
@@ -126,7 +126,7 @@ describe('ProjectEditView with Session Defaults', () => {
       const text = wrapper.text();
       expect(text).toContain('Mode');
       expect(text).toContain('Enable thinking');
-      expect(text).toContain('Start sessions immediately');
+      expect(text).toContain('Start workspaces immediately');
       expect(text).toContain('Git Mode');
       expect(text).toContain('Default Git Branch');
       expect(text).toContain('Model');
@@ -920,63 +920,6 @@ describe('ProjectEditView with Session Defaults', () => {
       const codeEls = wrapper.findAll('code');
       const effectiveCode = codeEls.find(c => c.text().includes('/tmp/myrepo/.worktrees/{sessionId}'));
       expect(effectiveCode).toBeDefined();
-    });
-  });
-
-  describe('Kanban Experimental labeling', () => {
-    it('renders "Experimental" badge in the Kanban Board section summary', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Locate the Kanban details section
-      const kanbanDetails = wrapper.findAll('details').find(d =>
-        d.text().includes('Kanban Board')
-      );
-      expect(kanbanDetails).toBeDefined();
-
-      const summaryText = kanbanDetails.find('summary').text();
-      expect(summaryText).toContain('Experimental');
-    });
-
-    it('shows experimental warning copy inside the Kanban Board section', async () => {
-      projectsStore.currentProject = {
-        id: 'proj-1',
-        name: 'Test',
-        workingDirectory: '/tmp'
-      };
-
-      const wrapper = mount(ProjectEditView, {
-        global: {
-          plugins: [pinia, router],
-          stubs: { PathChooser: true }
-        }
-      });
-
-      await flushAll(wrapper);
-
-      // Expand the Kanban details section
-      const kanbanDetails = wrapper.findAll('details').find(d =>
-        d.text().includes('Kanban Board')
-      );
-      expect(kanbanDetails).toBeDefined();
-      kanbanDetails.element.open = true;
-      await flushAll(wrapper);
-
-      const sectionText = kanbanDetails.text();
-      expect(sectionText).toContain('Experimental');
-      expect(sectionText).toContain('may change or be removed');
     });
   });
 });

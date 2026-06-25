@@ -293,4 +293,3 @@ export async function ensureSubscribed(sessionId) {
 // Re-export subscription functions from separate modules
 export { useSessionSubscription } from './useSessionSubscription.js';
 export { useProjectSubscription } from './useProjectSubscription.js';
-export { useGlobalSessionSubscription } from './useGlobalSessionSubscription.js';

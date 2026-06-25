@@ -14,7 +14,7 @@ describe('SessionCardHeaderActions', () => {
         dateToShow: '2024-01-15T10:30:00Z',
         isChild: false,
         isOnBoard: false,
-        kanbanEnabled: true,
+        canAddToBoard: true,
         showArchive: false,
         showUnarchive: false,
         sessionStatus: 'completed',
@@ -25,32 +25,32 @@ describe('SessionCardHeaderActions', () => {
   }
 
   describe('Add to Board button', () => {
-    it('shows Add to Board button when kanbanEnabled=true and isOnBoard=false', () => {
+    it('shows Add to Board button when canAddToBoard=true and isOnBoard=false', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         isOnBoard: false,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
-    it('hides Add to Board button when kanbanEnabled=false', () => {
+    it('hides Add to Board button when canAddToBoard=false', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: false,
+        canAddToBoard: false,
         isOnBoard: false,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
     });
 
-    it('shows Add to Board button when isOnBoard=true and kanbanEnabled=true', () => {
+    it('shows Add to Board button when isOnBoard=true and canAddToBoard=true', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         isOnBoard: true,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
-    it('defaults kanbanEnabled to true for backward compatibility', () => {
-      // Mount without passing kanbanEnabled prop explicitly
+    it('defaults canAddToBoard to true for backward compatibility', () => {
+      // Mount without passing canAddToBoard prop explicitly
       const wrapper = mount(SessionCardHeaderActions, {
         props: {
           dateToShow: '2024-01-15T10:30:00Z',
@@ -62,13 +62,13 @@ describe('SessionCardHeaderActions', () => {
           starred: false,
         },
       });
-      // Should show button since kanbanEnabled defaults to true
+      // Should show button since canAddToBoard defaults to true
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
     it('Add to Board button is interactive', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         isOnBoard: false,
       });
       const btn = wrapper.find('.add-to-board-btn');
@@ -79,7 +79,7 @@ describe('SessionCardHeaderActions', () => {
 
     it('has correct title attribute', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         isOnBoard: false,
       });
       const btn = wrapper.find('.add-to-board-btn');
@@ -91,7 +91,7 @@ describe('SessionCardHeaderActions', () => {
     it('hides all action buttons (including Add to Board) when isChild=true', () => {
       const wrapper = mountComponent({
         isChild: true,
-        kanbanEnabled: true,
+        canAddToBoard: true,
         isOnBoard: false,
         showArchive: true,
       });
@@ -121,7 +121,7 @@ describe('SessionCardHeaderActions', () => {
       });
       const archiveBtn = wrapper.find('.archive-btn');
       expect(archiveBtn.exists()).toBe(true);
-      expect(archiveBtn.attributes('title')).toBe('Archive session');
+      expect(archiveBtn.attributes('title')).toBe('Archive workspace');
     });
 
     it('hides archive button when sessionStatus is running', () => {
@@ -172,7 +172,7 @@ describe('SessionCardHeaderActions', () => {
       });
       const unarchiveBtn = wrapper.find('.archive-btn');
       expect(unarchiveBtn.exists()).toBe(true);
-      expect(unarchiveBtn.attributes('title')).toBe('Unarchive session');
+      expect(unarchiveBtn.attributes('title')).toBe('Unarchive workspace');
     });
 
     it('shows confirm dialog when unarchive button is clicked', async () => {
@@ -182,7 +182,7 @@ describe('SessionCardHeaderActions', () => {
       });
       const btn = wrapper.find('.archive-btn');
       await btn.trigger('click');
-      expect(confirmSpy).toHaveBeenCalledWith('Restore this session to active?');
+      expect(confirmSpy).toHaveBeenCalledWith('Restore this workspace to active?');
     });
 
     it('does not emit unarchive event when user cancels', async () => {
@@ -239,18 +239,18 @@ describe('SessionCardHeaderActions', () => {
   });
 
   describe('combined visibility scenarios', () => {
-    it('shows Add to Board button only when kanbanEnabled=true AND isChild=false', () => {
+    it('shows Add to Board button only when canAddToBoard=true AND isChild=false', () => {
       // All conditions met
       let wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         isOnBoard: false,
         isChild: false,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
 
-      // kanbanEnabled=false
+      // canAddToBoard=false
       wrapper = mountComponent({
-        kanbanEnabled: false,
+        canAddToBoard: false,
         isOnBoard: false,
         isChild: false,
       });
@@ -258,7 +258,7 @@ describe('SessionCardHeaderActions', () => {
 
       // isOnBoard=true still shows the button so the session can be moved.
       wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         isOnBoard: true,
         isChild: false,
       });
@@ -266,7 +266,7 @@ describe('SessionCardHeaderActions', () => {
 
       // isChild=true
       wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
         isOnBoard: false,
         isChild: true,
       });

@@ -200,16 +200,16 @@ test.describe('Session Chat Overlay', () => {
   });
 
   // ============================================================
-  // Back to Sessions Link
+  // Back to Workspaces Link
   // ============================================================
 
-  test.describe('Back to Sessions Link', () => {
+  test.describe('Back to Workspaces Link', () => {
     test('back to sessions link is visible in overlay header', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
       const backLink = overlay.locator('.back-to-sessions-link');
       await expect(backLink).toBeVisible();
-      await expect(backLink).toHaveAttribute('title', 'Back to Sessions');
+      await expect(backLink).toHaveAttribute('title', 'Back to Workspaces');
       await expect(backLink.locator('svg')).toHaveCount(2);
     });
 

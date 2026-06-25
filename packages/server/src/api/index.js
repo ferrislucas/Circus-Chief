@@ -11,6 +11,7 @@ import commandsRouter from './commands.js';
 import metricsRouter from './metrics.js';
 import kanbanRouter from './kanban.js';
 import agentsRouter from './agents.js';
+import { projectWorkspacesRouter, workspacesRouter } from './workspaces.js';
 import { getDbPath } from '../database.js';
 import { schedulerService } from '../services/schedulerService.js';
 import { isE2ESpawnCaptureEnabled } from '../services/e2eSpawnCapture.js';
@@ -35,6 +36,9 @@ router.get('/server-info', (_req, res) => {
 
 router.use('/projects', projectsRouter);
 router.use('/sessions', sessionsRouter);
+// Workspace facade: project-scoped list/create and workspace-scoped detail/add-session
+router.use('/projects', projectWorkspacesRouter);
+router.use('/workspaces', workspacesRouter);
 router.use('/templates', templatesRouter);
 router.use('/git', gitRouter);
 router.use('/filesystem', filesystemRouter);

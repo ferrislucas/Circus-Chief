@@ -67,7 +67,7 @@ test.describe('Status Filter', () => {
 
     // Should show empty state
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No sessions match the current filter');
+    await expect(page.locator('.empty-state')).toContainText('No workspaces match the current filter');
 
     // No session cards visible
     await expect(page.locator('.session-card')).not.toBeVisible();
@@ -459,7 +459,7 @@ test.describe('Archived Sessions Tab', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    const archivedTab = page.locator('.tabs-desktop .tabs-left button.tab').filter({ hasText: 'Archived' });
+    const archivedTab = page.locator('.tabs-desktop .tabs-left button.tab').filter({ hasText: 'Archive' });
     await expect(archivedTab).toBeVisible();
   });
 
@@ -468,14 +468,14 @@ test.describe('Archived Sessions Tab', () => {
 
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // URL should change to archived route
     await expect(page).toHaveURL(new RegExp(`/projects/${project.id}/archived`));
 
     // Archived tab button should have active class
-    const archivedTab = page.locator('button.tab').filter({ hasText: 'Archived' });
+    const archivedTab = page.locator('button.tab').filter({ hasText: 'Archive' });
     await expect(archivedTab).toHaveClass(/active/);
   });
 
@@ -483,7 +483,7 @@ test.describe('Archived Sessions Tab', () => {
     await navigateAndWait(page, `/projects/${project.id}/archived`);
 
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No archived sessions');
+    await expect(page.locator('.empty-state')).toContainText('No archived workspaces');
   });
 
   test('archived tab shows archived sessions', async ({ page }) => {
@@ -519,7 +519,7 @@ test.describe('Archived Sessions Tab', () => {
 
     // Click unarchive button on first session card
     const firstCard = page.locator('.session-card').first();
-    await firstCard.locator('.archive-btn[title="Unarchive session"]').click();
+    await firstCard.locator('.archive-btn[title="Unarchive workspace"]').click();
 
     // Wait for the session to be removed from the list
     await expect(page.locator('.session-card')).toHaveCount(1, { timeout: 5000 });
@@ -540,7 +540,7 @@ test.describe('Archived Sessions Tab', () => {
     await expect(page.locator('.session-name').filter({ hasText: 'Archived Only' })).not.toBeVisible();
 
     // Switch to Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // Should show 1 archived session
@@ -750,7 +750,7 @@ test.describe('Filter Combinations & Edge Cases', () => {
 
     // Should show empty state
     await expect(page.locator('.empty-state')).toBeVisible();
-    await expect(page.locator('.empty-state')).toContainText('No sessions match the current filter');
+    await expect(page.locator('.empty-state')).toContainText('No workspaces match the current filter');
   });
 
   test('all three filter controls are visible on session list', async ({ page }) => {

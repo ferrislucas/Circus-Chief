@@ -31,7 +31,7 @@
           <!-- Session Settings Section -->
           <div class="form-section">
             <h3 class="section-title">
-              Session Settings
+              Workspace Settings
             </h3>
 
             <div class="form-group">

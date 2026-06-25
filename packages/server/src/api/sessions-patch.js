@@ -8,6 +8,11 @@ import { checkSessionCiStatusNow } from '../services/prStatusService.js';
 import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
 import { validateModelId } from './model-validation.js';
+import {
+  checkCrossKindSwitch,
+  sessionHasNoAssistantMessages,
+  deriveAgentTypeUpdate,
+} from '../services/sessionAgentGuard.js';
 
 const router = Router();
 
@@ -83,6 +88,27 @@ function validateProviderId(value) {
 }
 
 /**
+ * Validate and normalize scheduledAt field.
+ * Accepts null (clear), numeric epoch milliseconds, or an ISO 8601 string.
+ * Rejects anything that cannot be unambiguously converted to a finite integer.
+ * @param {*} value
+ * @returns {{ error?: string, value: * }}
+ */
+function validateScheduledAt(value) {
+  if (value === null) return { value: null };
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return { error: 'Invalid scheduledAt' };
+    return { value: Math.trunc(value) };
+  }
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    if (!Number.isFinite(parsed)) return { error: 'Invalid scheduledAt' };
+    return { value: parsed };
+  }
+  return { error: 'Invalid scheduledAt' };
+}
+
+/**
  * Validate prUrl field
  * @param {*} value
  * @returns {{ error?: string, value: * }}
@@ -114,14 +140,14 @@ const FIELD_DEFINITIONS = [
   { field: 'mode', validate: validateMode },
   { field: 'nextTemplateId', validate: validateNextTemplateId },
   { field: 'model', validate: validateModelId },
-  { field: 'pendingModel', validate: validateModelId },
+  { field: 'pendingModel', validate: (value) => validateModelId(value, { fieldName: 'pendingModel' }) },
   { field: 'autoSendPendingPrompt', transform: Boolean },
   { field: 'providerId', validate: validateProviderId },
   { field: 'prUrl', validate: validatePrUrl },
   // Git fields
   { field: 'gitWorktree' },
   // Scheduling fields
-  { field: 'scheduledAt' },
+  { field: 'scheduledAt', validate: validateScheduledAt },
   { field: 'autoRescheduleEnabled', transform: Boolean },
   { field: 'rescheduleDelayMinutes', transform: (v) => parseInt(v, 10) },
   { field: 'rescheduleOnTokenLimit', transform: Boolean },
@@ -222,6 +248,50 @@ function resetPrStateForSession(sessionId, projectId) {
   broadcastSummaryUpdate(sessionId, projectId, updatedSummary);
 }
 
+/**
+ * Apply the cross-kind agent/model drift guard to a pending update.
+ * Returns the error payload (for started sessions) or the agentType update (for drafts).
+ * Does NOT mutate updateData — caller merges the returned agentTypeUpdate.
+ * @param {Object} session
+ * @param {string} sessionId
+ * @param {Object} updateData
+ * @param {string|null} suppliedProviderId
+ * @returns {{ driftError: Object|null, agentTypeUpdate: Object }}
+ */
+function applyModelDriftGuard(session, sessionId, updateData, suppliedProviderId) {
+  const newModel = updateData.pendingModel ?? updateData.model ?? null;
+  if (!newModel) return { driftError: null, agentTypeUpdate: {} };
+  if (sessionHasNoAssistantMessages(sessionId)) {
+    const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, newModel, { providerId: suppliedProviderId });
+    return { driftError: null, agentTypeUpdate };
+  }
+  return { driftError: checkCrossKindSwitch(session, newModel), agentTypeUpdate: {} };
+}
+
+/**
+ * Handle PR URL side effects: reset stale PR state on URL change, propagate to
+ * parent, fire-and-forget name update, and trigger CI check.
+ * @param {Object} session - Current session object (before update)
+ * @param {string} sessionId
+ * @param {Object} updateData
+ */
+function handlePrUrlSideEffects(session, sessionId, updateData) {
+  const previousPrUrl = session.prUrl;
+  const prUrlProvided = Object.prototype.hasOwnProperty.call(updateData, 'prUrl');
+  const prUrlChanged = prUrlProvided && previousPrUrl && previousPrUrl !== updateData.prUrl;
+  if (prUrlChanged) {
+    resetPrStateForSession(sessionId, session.projectId);
+  }
+  if (!updateData.prUrl) return;
+  summaryService.propagatePrUrlToParent(sessionId, updateData.prUrl);
+  setSessionNameFromPr(sessionId, updateData.prUrl).catch(err => {
+    console.error(`[Sessions API] Failed to set session name from PR:`, err);
+  });
+  checkSessionCiStatusNow(sessionId).catch(err => {
+    console.error(`[Sessions API] Failed to check PR status after URL change:`, err);
+  });
+}
+
 // PATCH /api/sessions/:id - Update session settings
 router.patch('/:id', requireSession, (req, res) => {
   const { updateData, error } = buildUpdateData(req.body);
@@ -242,35 +312,17 @@ router.patch('/:id', requireSession, (req, res) => {
     updateData.status = 'scheduled';
   }
 
+  const { driftError, agentTypeUpdate } = applyModelDriftGuard(
+    req.session_, req.params.id, updateData, req.body.providerId,
+  );
+  if (driftError) {
+    return res.status(400).json(driftError);
+  }
+  Object.assign(updateData, agentTypeUpdate);
+
   const updated = sessions.update(req.params.id, updateData);
-
-  // Reset PR state when URL changes to a different PR or is cleared
-  const previousPrUrl = req.session_.prUrl;
-  const prUrlProvided = Object.prototype.hasOwnProperty.call(updateData, 'prUrl');
-  const prUrlChanged = prUrlProvided && previousPrUrl && previousPrUrl !== updateData.prUrl;
-
-  if (prUrlChanged) {
-    resetPrStateForSession(req.params.id, req.session_.projectId);
-  }
-
-  // Propagate PR URL to parent session if set (not when clearing)
-  if (updateData.prUrl) {
-    summaryService.propagatePrUrlToParent(req.params.id, updateData.prUrl);
-
-    // Set session name from PR title (fire-and-forget async)
-    // The response returns immediately; client gets name update via WebSocket
-    setSessionNameFromPr(req.params.id, updateData.prUrl).catch(err => {
-      console.error(`[Sessions API] Failed to set session name from PR:`, err);
-    });
-
-    // Trigger immediate PR status check for the new/changed URL
-    checkSessionCiStatusNow(req.params.id).catch(err => {
-      console.error(`[Sessions API] Failed to check PR status after URL change:`, err);
-    });
-  }
-
+  handlePrUrlSideEffects(req.session_, req.params.id, updateData);
   broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, updateData);
-
   res.json(updated);
 });
 

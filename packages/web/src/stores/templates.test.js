@@ -187,6 +187,34 @@ describe('Templates Store', () => {
         expect(store.error).toBe('Network error');
         expect(store.loading).toBe(false);
       });
+
+      it('shares a single in-flight request for concurrent callers of the same project', async () => {
+        const store = useTemplatesStore();
+        let resolveFetch;
+        api.getProjectTemplates.mockImplementation(() => new Promise((resolve) => {
+          resolveFetch = resolve;
+        }));
+
+        const first = store.fetchProjectTemplates('proj-123');
+        const second = store.fetchProjectTemplates('proj-123');
+
+        expect(api.getProjectTemplates).toHaveBeenCalledTimes(1);
+
+        resolveFetch({ project: [{ id: '1', name: 'Project Template' }], global: [] });
+        await Promise.all([first, second]);
+
+        expect(store.projectTemplates).toEqual([{ id: '1', name: 'Project Template' }]);
+      });
+
+      it('allows a fresh fetch after the previous one settles', async () => {
+        const store = useTemplatesStore();
+        api.getProjectTemplates.mockResolvedValue({ project: [], global: [] });
+
+        await store.fetchProjectTemplates('proj-123');
+        await store.fetchProjectTemplates('proj-123');
+
+        expect(api.getProjectTemplates).toHaveBeenCalledTimes(2);
+      });
     });
 
     describe('createProjectTemplate', () => {

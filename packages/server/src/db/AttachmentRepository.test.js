@@ -204,6 +204,26 @@ describe('AttachmentRepository', () => {
     });
   });
 
+  describe('getBySessionIdWithoutContent', () => {
+    it('returns session attachments without content field for listing', () => {
+      const mockFile = {
+        buffer: Buffer.from('secret content'),
+        originalname: 'test.txt',
+        mimetype: 'text/plain',
+        size: 14,
+      };
+
+      repo.create(sessionId, null, mockFile);
+
+      const attachments = repo.getBySessionIdWithoutContent(sessionId);
+
+      expect(attachments).toHaveLength(1);
+      expect(attachments[0].filename).toBe('test.txt');
+      expect(attachments[0].messageId).toBeNull();
+      expect(attachments[0].content).toBeUndefined();
+    });
+  });
+
   describe('updateMessageIdForSession', () => {
     it('associates pending attachments with a message', () => {
       const mockFile = {

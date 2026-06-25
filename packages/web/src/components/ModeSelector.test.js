@@ -180,7 +180,7 @@ describe('ModeSelector', () => {
     });
   });
 
-  describe('session context with store updates', () => {
+  describe('workspace context with store updates', () => {
     it('updates store and maintains selection on success', async () => {
       const sessionsStore = useSessionsStore();
       const updateSessionModeSpy = vi.spyOn(sessionsStore, 'updateSessionMode').mockResolvedValue(undefined);
@@ -322,7 +322,7 @@ describe('ModeSelector', () => {
       wrapper3.unmount();
     });
 
-    it('syncs selected value when session store updates', async () => {
+    it('syncs selected value when workspace store updates', async () => {
       const sessionsStore = useSessionsStore();
 
       const wrapper = mountComponent({

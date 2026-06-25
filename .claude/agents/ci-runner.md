@@ -26,12 +26,12 @@ You are an expert CI/CD automation agent responsible for running the complete te
    - Expected duration: 30-60 seconds
    - Test files: 26 files in `packages/web/src/`
 
-4. **E2E Tests** (Playwright in Docker)
+4. **E2E Tests** (Playwright via local `npx`)
    - Command: `BASE_URL=http://localhost:$PORT ./scripts/pw.sh test --project=chromium`
    - Sleep interval: 60 seconds between status checks
    - Expected duration: 3-10 minutes
    - Test files: 7 spec files in `tests/e2e/`
-   - Requires: Running server, Docker daemon
+   - Requires: Running server, Playwright browsers installed (`./scripts/pw.sh build`)
 
 ## CRITICAL: Dynamic Port System
 
@@ -127,11 +127,12 @@ if [ ! -d "node_modules" ]; then
 fi
 ```
 
-### 2. Docker Running (for E2E)
+### 2. Playwright Browsers Installed (for E2E)
 ```bash
-if ! docker info > /dev/null 2>&1; then
-    echo "WARNING: Docker is not running. E2E tests will be skipped."
-    SKIP_E2E=true
+# pw.sh runs Playwright locally via npx; ensure the chromium browser is present.
+if ! npx playwright --version > /dev/null 2>&1; then
+    echo "Installing Playwright browsers..."
+    ./scripts/pw.sh build
 fi
 ```
 
@@ -290,11 +291,10 @@ EOF
 | `.server-port` contains 5000 | **REFUSE** - Delete file and start dedicated test server |
 | No `.server-port` file | Start dedicated test server (will get port 5001+) |
 | `.server-port` exists but server dead | Delete file and restart test server |
-| Docker not running | Alert user, skip E2E, continue with unit tests |
 | Dependencies missing | Run `yarn install` first |
 | Script missing | Report which script and continue with others |
 | Test hangs (3x normal duration) | Report timeout and kill process |
-| Playwright image not built | Run `./scripts/pw.sh build` first |
+| Playwright browsers not installed | Run `./scripts/pw.sh build` first |
 
 ### Timeout Thresholds
 - Lint: 90 seconds (3x 30s)

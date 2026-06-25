@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <div class="project-title">
-          <h1>{{ projectsStore.currentProject?.name || 'Sessions' }}</h1>
+          <h1>{{ projectsStore.currentProject?.name || 'Workspaces' }}</h1>
           <a
             v-if="projectsStore.currentProject?.repoUrl"
             :href="projectsStore.currentProject.repoUrl"
@@ -49,7 +49,7 @@
         :to="`/projects/${route.params.id}/sessions/new`"
         class="btn btn-primary mobile-only"
       >
-        + Session
+        + Workspace
       </router-link>
     </div>
 
@@ -63,21 +63,14 @@
             :class="{ active: activeTab === 'sessions' }"
             @click="router.push(`/projects/${route.params.id}/sessions`)"
           >
-            Sessions
+            Workspaces
           </button>
           <button
             class="tab"
-            :class="{ active: activeTab === 'archived' }"
-            @click="router.push(`/projects/${route.params.id}/archived`)"
+            :class="{ active: activeTab === 'kanban' }"
+            @click="router.push(`/projects/${route.params.id}/kanban`)"
           >
-            Archived
-          </button>
-          <button
-            class="tab"
-            :class="{ active: activeTab === 'templates' }"
-            @click="router.push(`/projects/${route.params.id}/templates`)"
-          >
-            Templates
+            Kanban
           </button>
           <button
             class="tab"
@@ -94,21 +87,27 @@
             Circus Time
           </button>
           <button
-            v-if="projectsStore.currentProject?.kanbanEnabled"
             class="tab"
-            :class="{ active: activeTab === 'kanban' }"
-            @click="router.push(`/projects/${route.params.id}/kanban`)"
+            :class="{ active: activeTab === 'templates' }"
+            @click="router.push(`/projects/${route.params.id}/templates`)"
           >
-            Kanban
+            Templates
+          </button>
+          <button
+            class="tab"
+            :class="{ active: activeTab === 'archived' }"
+            @click="router.push(`/projects/${route.params.id}/archived`)"
+          >
+            Archive
           </button>
         </div>
         <router-link
           v-if="activeTab === 'sessions'"
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary desktop-only"
-          aria-label="New Session"
+          aria-label="New Workspace"
         >
-          <span class="add-session-label-full">+ Session</span><span class="add-session-label-short">+</span>
+          <span class="add-session-label-full">+ Workspace</span><span class="add-session-label-short">+</span>
         </router-link>
       </div>
 
@@ -120,13 +119,10 @@
           @change="handleTabChange($event.target.value)"
         >
           <option value="sessions">
-            Sessions
+            Workspaces
           </option>
-          <option value="archived">
-            Archived
-          </option>
-          <option value="templates">
-            Templates
+          <option value="kanban">
+            Kanban
           </option>
           <option value="commands">
             Commands
@@ -134,11 +130,11 @@
           <option value="circus-time">
             Circus Time
           </option>
-          <option
-            v-if="projectsStore.currentProject?.kanbanEnabled"
-            value="kanban"
-          >
-            Kanban
+          <option value="templates">
+            Templates
+          </option>
+          <option value="archived">
+            Archive
           </option>
         </select>
       </div>
@@ -189,12 +185,12 @@
         v-else-if="sessionsStore.sessions.length === 0"
         class="empty-state"
       >
-        <p>No sessions yet. Start a new session to interact with the agent.</p>
+        <p>No workspaces yet. Start a new workspace to interact with the agent.</p>
         <router-link
           :to="`/projects/${route.params.id}/sessions/new`"
           class="btn btn-primary"
         >
-          New Session
+          New Workspace
         </router-link>
       </div>
 
@@ -202,7 +198,7 @@
         v-else-if="filteredGroupedSessions.length === 0"
         class="empty-state"
       >
-        <p>No sessions match the current filter.</p>
+        <p>No workspaces match the current filter.</p>
       </div>
 
       <div
@@ -220,7 +216,6 @@
             :summary-loading="loadingSummaries[group.parent.id]"
             :summary-error="summaryErrors[group.parent.id]"
             :show-archive="true"
-            :kanban-enabled="projectsStore.currentProject?.kanbanEnabled ?? false"
             :pr-url="group.parent.prUrl"
             :pr-summary="summaries[group.parent.id]"
             @retry-summary="retryFetchSummary"
@@ -242,11 +237,6 @@
       @load-more="loadMoreArchived"
     />
 
-    <!-- Templates Tab -->
-    <div v-if="activeTab === 'templates'">
-      <TemplatesPanel :project-id="route.params.id" />
-    </div>
-
     <!-- Commands Tab -->
     <div v-if="activeTab === 'commands'">
       <CommandButtonsPanel :project-id="route.params.id" />
@@ -254,6 +244,11 @@
 
     <!-- Circus Time Tab -->
     <CircusTimeTab v-if="activeTab === 'circus-time'" />
+
+    <!-- Templates Tab -->
+    <div v-if="activeTab === 'templates'">
+      <TemplatesPanel :project-id="route.params.id" />
+    </div>
 
     <!-- Kanban Tab -->
     <KanbanBoard
@@ -286,6 +281,7 @@
       :is-open="showArchiveModal"
       :session-name="sessionToArchive?.name || 'this session'"
       :has-cleanup-script="!!(projectsStore.currentProject?.onSessionDeleted && sessionToArchive?.gitWorktree && !sessionToArchive?.parentSessionId)"
+      :is-on-kanban-board="isArchiveSessionOnBoard"
       :loading="archiving"
       @confirm="confirmArchive"
       @cancel="cancelArchive"
@@ -307,9 +303,9 @@ import { useSessionStreamingStore } from '../stores/sessionStreaming.js';
 import SessionCard from '../components/SessionCard.vue';
 import SessionFiltersPanel from '../components/SessionFiltersPanel.vue';
 import ArchivedTabContent from '../components/ArchivedTabContent.vue';
-import TemplatesPanel from '../components/TemplatesPanel.vue';
 import CommandButtonsPanel from '../components/CommandButtonsPanel.vue';
 import CircusTimeTab from '../components/CircusTimeTab.vue';
+import TemplatesPanel from '../components/TemplatesPanel.vue';
 import KanbanBoard from '../components/KanbanBoard.vue';
 import AddSessionToLaneModal from '../components/AddSessionToLaneModal.vue';
 import KanbanLaneSelectorModal from '../components/KanbanLaneSelectorModal.vue';
@@ -332,9 +328,9 @@ const activeTab = computed(() => {
   const routeName = route.name;
   switch (routeName) {
     case 'ArchivedSessions': return 'archived';
-    case 'ProjectTemplates': return 'templates';
     case 'ProjectCommands': return 'commands';
     case 'ProjectCircusTime': return 'circus-time';
+    case 'ProjectTemplates': return 'templates';
     case 'ProjectKanban': return 'kanban';
     default: return 'sessions';
   }
@@ -346,9 +342,9 @@ function handleTabChange(tab) {
   const routes = {
     sessions: `/projects/${projectId}/sessions`,
     archived: `/projects/${projectId}/archived`,
-    templates: `/projects/${projectId}/templates`,
     commands: `/projects/${projectId}/commands`,
     'circus-time': `/projects/${projectId}/circus-time`,
+    templates: `/projects/${projectId}/templates`,
     kanban: `/projects/${projectId}/kanban`,
   };
   router.push(routes[tab]);
@@ -402,18 +398,6 @@ watch(
   { immediate: true }
 );
 
-// Redirect away from the Kanban tab when the feature is disabled
-// for the current project. Covers direct navigation to /projects/:id/kanban.
-watch(
-  [activeTab, () => projectsStore.currentProject?.kanbanEnabled],
-  ([tab, kanbanEnabled]) => {
-    if (tab === 'kanban' && kanbanEnabled === false) {
-      router.replace(`/projects/${route.params.id}/sessions`);
-    }
-  },
-  { immediate: true }
-);
-
 // Watch for filter changes when archived tab is active
 watch(
   () => sessionsStore.starredFilter,
@@ -453,12 +437,39 @@ function handleArchive(sessionId) {
   showArchiveModal.value = true;
 }
 
-async function confirmArchive(runCleanup) {
+// The Kanban card (if any) for the session-to-archive's workflow. A card is keyed
+// to the workflow root, so resolve the root first and fall back to the session id
+// in case the ancestor chain isn't fully loaded in the store.
+const archiveWorkflowCard = computed(() => {
+  const sessionId = sessionToArchive.value?.id;
+  if (!sessionId) return null;
+  const rootId = sessionsStore.getRootSession(sessionId)?.id || sessionId;
+  return (
+    kanbanStore.getCardBySessionId(rootId) ||
+    kanbanStore.getCardBySessionId(sessionId) ||
+    null
+  );
+});
+
+const isArchiveSessionOnBoard = computed(() => Boolean(archiveWorkflowCard.value));
+
+async function confirmArchive({ runCleanup, removeFromBoard } = {}) {
   if (!sessionToArchive.value) return;
   archiving.value = true;
+  // Capture before the finally block clears sessionToArchive.
+  const archiveProjectId = projectId.value;
+  const workflowCard = archiveWorkflowCard.value;
   try {
     await sessionsStore.archiveSession(sessionToArchive.value.id, { cleanup: runCleanup });
     uiStore.success('Session archived');
+
+    if (removeFromBoard && workflowCard && archiveProjectId) {
+      try {
+        await kanbanStore.removeCard(archiveProjectId, workflowCard.id);
+      } catch (removeError) {
+        uiStore.error(removeError.message || 'Failed to remove card from board');
+      }
+    }
   } catch (error) {
     uiStore.error(error.message || 'Failed to archive session');
   } finally {
@@ -514,7 +525,8 @@ async function addSessionToLane(lane) {
       await kanbanStore.moveCard(route.params.id, existingCard.id, lane.id);
       uiStore.success(`Session moved to "${lane.name}"`);
     } else {
-      await kanbanStore.addSessionToBoard(route.params.id, sessionToAdd.value.id, lane.id);
+      const workspaceId = sessionsStore.getRootSession(sessionToAdd.value.id)?.id || sessionToAdd.value.id;
+      await kanbanStore.addSessionToBoard(route.params.id, workspaceId, lane.id);
       uiStore.success(`Session added to "${lane.name}"`);
     }
     closeLaneSelectorModal();
