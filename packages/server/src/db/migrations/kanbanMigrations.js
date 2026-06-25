@@ -4,11 +4,6 @@
  * projects, sessions, and session_templates.
  */
 import { addColumnIfMissing, getColumns } from './migrationUtils.js';
-import {
-  SESSIONS_ALL_CURRENT_COLUMNS,
-  SESSIONS_ALL_CURRENT_COLUMN_NAMES,
-  recreateSessionsTable,
-} from './sessionTableRecreate.js';
 
 export const kanbanMigrations = [
   {
@@ -110,16 +105,24 @@ export const kanbanMigrations = [
   },
   {
     // Drop the dormant per-session target_lane_id routing flag from sessions.
-    // Uses table-recreate so the FK to kanban_lanes is removed cleanly.
-    // Idempotent: recreateSessionsTable intersects requested columns with
-    // existing columns, so already-migrated DBs are a no-op.
+    // Uses ALTER TABLE DROP COLUMN (SQLite ≥ 3.35), dropping the column in
+    // place so other columns and their ordering are preserved.
+    // Idempotent: guarded by column-existence check.
     name: 'sessions-drop-target_lane_id',
     up(db) {
       const columns = getColumns(db, 'sessions');
       if (!columns.includes('target_lane_id')) {
         return; // Already dropped — idempotent guard
       }
-      recreateSessionsTable(db, SESSIONS_ALL_CURRENT_COLUMNS, SESSIONS_ALL_CURRENT_COLUMN_NAMES);
+      // Disable FK enforcement for the duration so the FK reference on
+      // kanban_lanes doesn't block the drop.
+      const foreignKeysEnabled = db.pragma('foreign_keys', { simple: true });
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.exec('ALTER TABLE sessions DROP COLUMN target_lane_id');
+      } finally {
+        db.pragma(`foreign_keys = ${foreignKeysEnabled ? 'ON' : 'OFF'}`);
+      }
     },
   },
   {
