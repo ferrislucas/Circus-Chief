@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker system:*)",
+      "Bash(brew cleanup:*)"
+    ]
+  },
+  "enabledPlugins": {
+    "commit-commands@claude-plugins-official": true
+  }
+}
