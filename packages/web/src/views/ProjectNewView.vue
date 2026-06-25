@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <h1>Add a Repository</h1>
+    <h1>Add a Project</h1>
 
     <form
       class="form card"
@@ -10,7 +10,7 @@
         <label
           class="form-label"
           for="workingDirectory"
-        >Repository Folder</label>
+        >Project Folder</label>
         <PathChooser v-model="workingDirectory" />
         <p class="form-help">
           The root of your codebase — typically a git repository.
@@ -93,16 +93,16 @@
           <label
             class="form-label"
             for="onSessionCreated"
-          >On Session Created</label>
+          >On Workspace Created</label>
           <textarea
             id="onSessionCreated"
             v-model="onSessionCreated"
             class="form-input form-textarea-small"
             rows="3"
-            placeholder="Shell command to run when a session is created..."
+            placeholder="Shell command to run when a workspace is created..."
           />
           <p class="form-help">
-            Runs in the background after session creation. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
+            Runs in the background after workspace creation. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
           </p>
         </div>
 
@@ -110,16 +110,16 @@
           <label
             class="form-label"
             for="onSessionDeleted"
-          >On Session Deleted</label>
+          >On Workspace Deleted</label>
           <textarea
             id="onSessionDeleted"
             v-model="onSessionDeleted"
             class="form-input form-textarea-small"
             rows="3"
-            placeholder="Shell command to run when a session is deleted..."
+            placeholder="Shell command to run when a workspace is deleted..."
           />
           <p class="form-help">
-            Runs in the background after session deletion. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
+            Runs in the background after workspace deletion. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
           </p>
         </div>
       </details>
@@ -147,7 +147,7 @@
             v-if="loading"
             class="loading-spinner"
           />
-          Add Repository
+          Add Project
         </button>
       </div>
     </form>
@@ -237,7 +237,7 @@ async function handleSubmit() {
       onSessionDeleted: onSessionDeleted.value || undefined,
       worktreePath: worktreePath.value || null,
     });
-    uiStore.success('Repository added');
+    uiStore.success('Project added');
     router.push(`/projects/${project.id}/sessions`);
   } catch (err) {
     error.value = err.message;

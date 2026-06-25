@@ -34,13 +34,12 @@ vi.mock('../stores/commandButtons.js', () => ({
 // Mock sessions store
 const mockSessionsStoreData = {
   sessions: [],
-  activeSessions: [],
   commandRunVersion: 0,
   toggleSessionStar: vi.fn(),
+  getSessionById: vi.fn((id) => mockSessionsStoreData.sessions.find((s) => s.id === id) || null),
   getWorkflowSessions: vi.fn((sessionId) => {
-    // Default implementation: search both sessions and activeSessions
+    // Default implementation: search sessions array
     const root = mockSessionsStoreData.sessions.find(s => s.id === sessionId)
-      || mockSessionsStoreData.activeSessions.find(s => s.id === sessionId)
       || mockSessionsStoreData._currentSession;
     if (!root) return [{ id: sessionId }];
     const all = [root];
@@ -52,7 +51,6 @@ const mockSessionsStoreData = {
       visited.add(currentId);
       const children = [
         ...mockSessionsStoreData.sessions.filter(s => s.parentSessionId === currentId),
-        ...mockSessionsStoreData.activeSessions.filter(s => s.parentSessionId === currentId),
       ];
       const seen = new Set(all.map(s => s.id));
       for (const child of children) {
@@ -69,10 +67,13 @@ vi.mock('../stores/sessions.js', () => ({
 }));
 
 // Mock kanban store
+const mockKanbanStoreData = {
+  isSessionOnBoard: vi.fn(() => false),
+  getCardBySessionId: vi.fn(() => null),
+  getLaneById: vi.fn(() => null),
+};
 vi.mock('../stores/kanban.js', () => ({
-  useKanbanStore: vi.fn(() => ({
-    isSessionOnBoard: vi.fn(() => false),
-  })),
+  useKanbanStore: vi.fn(() => mockKanbanStoreData),
 }));
 
 
@@ -83,6 +84,17 @@ vi.mock('./ButtonStatusModal.vue', () => ({
     props: ['button', 'latestRun', 'isOpen'],
     setup() {
       return () => h('div', { class: 'button-status-modal-mock' });
+    },
+  }),
+}));
+
+// Mock MoveCardModal component
+vi.mock('./MoveCardModal.vue', () => ({
+  default: defineComponent({
+    name: 'MoveCardModal',
+    props: ['isOpen', 'projectId', 'cardId', 'currentLaneId', 'sessionName'],
+    setup() {
+      return () => h('div', { class: 'move-card-modal-mock' });
     },
   }),
 }));
@@ -136,18 +148,25 @@ describe('SessionCard', () => {
 
     // Reset sessions store mock data
     mockSessionsStoreData.sessions = [];
-    mockSessionsStoreData.activeSessions = [];
     mockSessionsStoreData.commandRunVersion = 0;
     mockSessionsStoreData._currentSession = null;
+    mockSessionsStoreData.getSessionById.mockImplementation(
+      (id) => mockSessionsStoreData.sessions.find((s) => s.id === id) || null,
+    );
 
     // Reset commandButtons store mock data
     mockCommandButtonsData.buttons = [];
     mockCommandButtonsData.getButtonsByProjectId.mockImplementation(() => mockCommandButtonsData.buttons);
     mockCommandButtonsData.getLatestRunForButton.mockReturnValue(null);
+
+    // Reset kanban store mock data
+    mockKanbanStoreData.isSessionOnBoard.mockReturnValue(false);
+    mockKanbanStoreData.getCardBySessionId.mockReturnValue(null);
+    mockKanbanStoreData.getLaneById.mockReturnValue(null);
   });
   const baseSession = {
     id: 'session-123',
-    name: 'Test Session',
+    name: 'Test Workspace',
     status: 'running',
     mode: 'code',
     createdAt: '2024-01-15T10:30:00Z',
@@ -159,7 +178,7 @@ describe('SessionCard', () => {
     setActivePinia(pinia);
     const sessionToMount = { ...baseSession, ...props.session };
     // Set _currentSession so the mock getWorkflowSessions can find the root
-    // when the session is only passed as a prop (not in sessions/activeSessions arrays)
+    // when the session is only passed as a prop (not in the sessions array)
     mockSessionsStoreData._currentSession = sessionToMount;
     return mount(SessionCard, {
       props: {
@@ -176,12 +195,12 @@ describe('SessionCard', () => {
   }
 
   describe('basic rendering', () => {
-    it('renders session name', () => {
+    it('renders workspace name', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.session-name').text()).toBe('Test Session');
+      expect(wrapper.find('.session-name').text()).toBe('Test Workspace');
     });
 
-    it('renders session status badge with individual session status', () => {
+    it('renders workspace status badge with individual workspace status', () => {
       const wrapper = mountComponent();
       const badge = wrapper.find('.status-badge');
       // Status shows individual session status
@@ -190,7 +209,7 @@ describe('SessionCard', () => {
     });
 
 
-    it('links to session detail page', () => {
+    it('links to workspace detail page', () => {
       const wrapper = mountComponent();
       // Check that the component renders with correct link attributes
       const html = wrapper.html();
@@ -268,6 +287,58 @@ describe('SessionCard', () => {
       const html = wrapper.html();
       // Should still render PrIndicators even if summary is null
       expect(html).toContain('pr-indicators');
+    });
+  });
+
+  describe('kanban lane chip', () => {
+    it('does not render a lane chip when workspace is not on the board', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('.lane-chip').exists()).toBe(false);
+    });
+
+    it('renders lane chip for root workspaces on the board', () => {
+      mockKanbanStoreData.getCardBySessionId.mockReturnValue({ id: 'card-1', laneId: 'lane-1' });
+      mockKanbanStoreData.getLaneById.mockReturnValue({ id: 'lane-1', name: 'Implementation' });
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      const chip = wrapper.find('.lane-chip');
+      expect(chip.exists()).toBe(true);
+      expect(chip.text()).toContain('Implementation');
+      expect(chip.attributes('title')).toBe('Move from Implementation to another lane');
+    });
+
+    it('does not render lane chip for child workspaces', () => {
+      mockKanbanStoreData.getCardBySessionId.mockReturnValue({ id: 'card-1', laneId: 'lane-1' });
+      mockKanbanStoreData.getLaneById.mockReturnValue({ id: 'lane-1', name: 'Implementation' });
+
+      const wrapper = mountComponent({
+        isChild: true,
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      expect(wrapper.find('.lane-chip').exists()).toBe(false);
+    });
+
+    it('opens move modal when lane chip is clicked', async () => {
+      mockKanbanStoreData.getCardBySessionId.mockReturnValue({ id: 'card-1', laneId: 'lane-1' });
+      mockKanbanStoreData.getLaneById.mockReturnValue({ id: 'lane-1', name: 'Implementation' });
+
+      const wrapper = mountComponent({
+        session: { ...baseSession, projectId: 'proj-1' },
+      });
+
+      await wrapper.find('.lane-chip').trigger('click');
+
+      const modal = wrapper.findComponent({ name: 'MoveCardModal' });
+      expect(modal.exists()).toBe(true);
+      expect(modal.props('isOpen')).toBe(true);
+      expect(modal.props('projectId')).toBe('proj-1');
+      expect(modal.props('cardId')).toBe('card-1');
+      expect(modal.props('currentLaneId')).toBe('lane-1');
+      expect(modal.props('sessionName')).toBe('Test Workspace');
     });
   });
 
@@ -461,14 +532,14 @@ describe('SessionCard', () => {
 
   describe('status badge classes', () => {
     // Note: SessionCard displays individual session status badges
-    it('applies correct class for running individual session status', () => {
+    it('applies correct class for running individual workspace status', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'running' },
       });
       expect(wrapper.find('.status-badge').classes()).toContain('status-running');
     });
 
-    it('shows session status info in session meta', () => {
+    it('shows workspace status info in workspace meta', () => {
       // Session meta section contains the session status badges
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'running' },
@@ -480,7 +551,7 @@ describe('SessionCard', () => {
       expect(sessionMeta.text()).toContain('running');
     });
 
-    it('does not render error count badge even when session has error status', () => {
+    it('does not render error count badge even when workspace has error status', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'error' },
       });
@@ -491,7 +562,7 @@ describe('SessionCard', () => {
       expect(wrapper.find('.status-error').exists()).toBe(false);
     });
 
-    it('shows running badge when child session is running but parent is not', () => {
+    it('shows running badge when child workspace is running but parent is not', () => {
       mockSessionsStoreData.sessions = [
         { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
       ];
@@ -513,42 +584,6 @@ describe('SessionCard', () => {
       expect(wrapper.find('.status-running').exists()).toBe(false);
     });
 
-    it('shows running badge when child is in activeSessions but not sessions', () => {
-      mockSessionsStoreData.sessions = [];
-      mockSessionsStoreData.activeSessions = [
-        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
-      ];
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'waiting' },
-      });
-      expect(wrapper.find('.status-running').exists()).toBe(true);
-    });
-
-    it('shows running badge when both parent and child are in activeSessions', () => {
-      mockSessionsStoreData.sessions = [];
-      mockSessionsStoreData.activeSessions = [
-        { id: baseSession.id, status: 'waiting', parentSessionId: null },
-        { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
-      ];
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'waiting' },
-      });
-      expect(wrapper.find('.status-running').exists()).toBe(true);
-    });
-
-    it('does not double-count when child is in both sessions and activeSessions', () => {
-      const childSession = { id: 'child-1', parentSessionId: baseSession.id, status: 'running' };
-      mockSessionsStoreData.sessions = [childSession];
-      mockSessionsStoreData.activeSessions = [childSession];
-
-      const wrapper = mountComponent({
-        session: { ...baseSession, status: 'waiting' },
-      });
-      // Badge should still show (running), but should not double-count the child
-      expect(wrapper.find('.status-running').exists()).toBe(true);
-    });
   });
 
 
@@ -737,17 +772,17 @@ describe('SessionCard', () => {
 
   describe('archive/unarchive buttons', () => {
     describe('archive button', () => {
-      it('shows archive button when showArchive is true and session can be archived', () => {
+      it('shows archive button when showArchive is true and workspace can be archived', () => {
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'completed' },
           showArchive: true,
         });
         const archiveBtn = wrapper.find('.archive-btn');
         expect(archiveBtn.exists()).toBe(true);
-        expect(archiveBtn.attributes('title')).toBe('Archive session');
+        expect(archiveBtn.attributes('title')).toBe('Archive workspace');
       });
 
-      it('shows archive button for stopped sessions', () => {
+      it('shows archive button for stopped workspaces', () => {
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'stopped' },
           showArchive: true,
@@ -755,7 +790,7 @@ describe('SessionCard', () => {
         expect(wrapper.find('.archive-btn').exists()).toBe(true);
       });
 
-      it('shows archive button for error sessions', () => {
+      it('shows archive button for error workspaces', () => {
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'error' },
           showArchive: true,
@@ -763,7 +798,7 @@ describe('SessionCard', () => {
         expect(wrapper.find('.archive-btn').exists()).toBe(true);
       });
 
-      it('hides archive button for running sessions', () => {
+      it('hides archive button for running workspaces', () => {
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'running' },
           showArchive: true,
@@ -771,7 +806,7 @@ describe('SessionCard', () => {
         expect(wrapper.find('.archive-btn').exists()).toBe(false);
       });
 
-      it('hides archive button for starting sessions', () => {
+      it('hides archive button for starting workspaces', () => {
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'starting' },
           showArchive: true,
@@ -779,7 +814,7 @@ describe('SessionCard', () => {
         expect(wrapper.find('.archive-btn').exists()).toBe(false);
       });
 
-      it('shows archive button for waiting sessions', () => {
+      it('shows archive button for waiting workspaces', () => {
         const wrapper = mountComponent({
           session: { ...baseSession, status: 'waiting' },
           showArchive: true,
@@ -815,7 +850,7 @@ describe('SessionCard', () => {
         });
         const unarchiveBtn = wrapper.find('.archive-btn');
         expect(unarchiveBtn.exists()).toBe(true);
-        expect(unarchiveBtn.attributes('title')).toBe('Unarchive session');
+        expect(unarchiveBtn.attributes('title')).toBe('Unarchive workspace');
       });
 
       it('hides unarchive button when showUnarchive is false', () => {
@@ -919,7 +954,7 @@ describe('SessionCard', () => {
         });
         const btn = wrapper.find('.archive-btn');
         await btn.trigger('click');
-        expect(confirmSpy).toHaveBeenCalledWith('Restore this session to active?');
+        expect(confirmSpy).toHaveBeenCalledWith('Restore this workspace to active?');
       });
 
       it('does not emit unarchive event when user cancels confirmation', async () => {
@@ -944,7 +979,7 @@ describe('SessionCard', () => {
         expect(confirmSpy.getMockImplementation()).toBeDefined();
         await btn.trigger('click');
         // If confirm returned true, confirm should have been called with the restore message
-        expect(confirmSpy).toHaveBeenCalledWith('Restore this session to active?');
+        expect(confirmSpy).toHaveBeenCalledWith('Restore this workspace to active?');
       });
     });
   });
@@ -1075,42 +1110,42 @@ describe('SessionCard', () => {
   });
 
   describe('SessionLogStream integration', () => {
-    it('renders SessionLogStream when session status is "running"', () => {
+    it('renders SessionLogStream when workspace status is "running"', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'running' },
       });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
     });
 
-    it('renders SessionLogStream when session status is "starting"', () => {
+    it('renders SessionLogStream when workspace status is "starting"', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'starting' },
       });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(true);
     });
 
-    it('does NOT render SessionLogStream when session status is "completed"', () => {
+    it('does NOT render SessionLogStream when workspace status is "completed"', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'completed' },
       });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
     });
 
-    it('does NOT render SessionLogStream when session status is "waiting"', () => {
+    it('does NOT render SessionLogStream when workspace status is "waiting"', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'waiting' },
       });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
     });
 
-    it('does NOT render SessionLogStream when session status is "error"', () => {
+    it('does NOT render SessionLogStream when workspace status is "error"', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, status: 'error' },
       });
       expect(wrapper.find('.session-log-stream-mock').exists()).toBe(false);
     });
 
-    it('passes correct session.id as sessionIds prop', () => {
+    it('passes correct workspace.id as sessionIds prop', () => {
       const wrapper = mountComponent({
         session: { ...baseSession, id: 'session-xyz', status: 'running' },
       });
@@ -1118,7 +1153,7 @@ describe('SessionCard', () => {
       expect(JSON.parse(logStream.attributes('data-session-ids'))).toEqual(['session-xyz']);
     });
 
-    it('renders SessionLogStream when child session is running but parent is not', () => {
+    it('renders SessionLogStream when child workspace is running but parent is not', () => {
       mockSessionsStoreData.sessions = [
         { id: 'child-1', parentSessionId: baseSession.id, status: 'running' },
       ];
@@ -1146,7 +1181,7 @@ describe('SessionCard', () => {
   });
 
   describe('grandchild tree traversal for runningSessionIds and workflowStatus', () => {
-    it('grandchild running session shows SessionLogStream on root card', () => {
+    it('grandchild running workspace shows SessionLogStream on root card', () => {
       mockSessionsStoreData.sessions = [
         { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
         { id: 'grandchild-1', parentSessionId: 'child-1', status: 'running', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
@@ -1159,7 +1194,7 @@ describe('SessionCard', () => {
       expect(JSON.parse(wrapper.find('.session-log-stream-mock').attributes('data-session-ids'))).toEqual(['grandchild-1']);
     });
 
-    it('great-grandchild running session shows SessionLogStream', () => {
+    it('great-grandchild running workspace shows SessionLogStream', () => {
       mockSessionsStoreData.sessions = [
         { id: 'child-1', parentSessionId: baseSession.id, status: 'waiting', name: 'Child 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
         { id: 'grandchild-1', parentSessionId: 'child-1', status: 'waiting', name: 'GC 1', createdAt: '2024-01-15T10:30:00Z', updatedAt: '2024-01-15T10:30:00Z' },
@@ -1214,7 +1249,7 @@ describe('SessionCard', () => {
   });
 
   describe('scheduled time display', () => {
-    it('shows scheduled time when session status is "scheduled" and scheduledAt is set', () => {
+    it('shows scheduled time when workspace status is "scheduled" and scheduledAt is set', () => {
       // Schedule for 2 hours in the future
       const scheduledAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
 
@@ -1242,7 +1277,7 @@ describe('SessionCard', () => {
       expect(scheduledTime.attributes('title')).toMatch(/\d{1,2}:\d{2}/);
     });
 
-    it('hides scheduled time when session status is not "scheduled"', () => {
+    it('hides scheduled time when workspace status is not "scheduled"', () => {
       const scheduledAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
 
       const wrapper = mountComponent({
@@ -1271,7 +1306,7 @@ describe('SessionCard', () => {
       expect(scheduledTime.exists()).toBe(false);
     });
 
-    it('shows nearest future scheduled time from child sessions', () => {
+    it('shows nearest future scheduled time from child workspaces', () => {
       const futureTime = Date.now() + 30 * 60 * 1000; // 30 min from now
       mockSessionsStoreData.sessions = [
         {
@@ -1395,38 +1430,40 @@ describe('SessionCard', () => {
     });
   });
 
-  describe('kanbanEnabled prop', () => {
-    it('passes kanbanEnabled=true to SessionCardHeaderActions by default', () => {
+  describe('canAddToBoard prop', () => {
+    it('passes canAddToBoard=true to SessionCardHeaderActions by default', () => {
       const wrapper = mountComponent();
-      // The Add to Board button should be visible by default (kanbanEnabled defaults to true)
+      // The Add to Board button should be visible by default (canAddToBoard defaults to true)
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
-    it('hides Add to Board button when kanbanEnabled=false', () => {
+    it('hides Add to Board button when canAddToBoard=false', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: false,
+        canAddToBoard: false,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
     });
 
-    it('shows Add to Board button when kanbanEnabled=true and session is not on board', () => {
+    it('shows Add to Board button when canAddToBoard=true and workspace is not on board', () => {
       const wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
       });
       expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
 
-    it('hides Add to Board button when session is already on board (regardless of kanbanEnabled)', async () => {
+    it('shows Add to Board button when workspace is already on board so it can be moved', async () => {
       // Update mock to return isOnBoard=true
       const { useKanbanStore } = await import('../stores/kanban.js');
       vi.mocked(useKanbanStore).mockReturnValue({
         isSessionOnBoard: vi.fn(() => true),
+        getCardBySessionId: vi.fn(() => null),
+        getLaneById: vi.fn(() => null),
       });
 
       const wrapper = mountComponent({
-        kanbanEnabled: true,
+        canAddToBoard: true,
       });
-      expect(wrapper.find('.add-to-board-btn').exists()).toBe(false);
+      expect(wrapper.find('.add-to-board-btn').exists()).toBe(true);
     });
   });
 });

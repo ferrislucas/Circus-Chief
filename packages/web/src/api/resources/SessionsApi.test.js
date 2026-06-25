@@ -21,15 +21,21 @@ describe('SessionsApi', () => {
       json: () => Promise.resolve(data),
     });
 
-  describe('getActiveSessions', () => {
-    it('sends GET to /sessions', async () => {
-      const mockData = [{ id: '1', status: 'running' }];
-      mockFetch.mockReturnValue(mockResponse(mockData));
+  describe('getSessionGitStatus', () => {
+    it('fetches git status without fetch by default', async () => {
+      mockFetch.mockReturnValue(mockResponse({ syncStatus: 'clean' }));
 
-      const result = await client.getActiveSessions();
+      await client.getSessionGitStatus('sess-123');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/sessions', expect.objectContaining({ method: 'GET' }));
-      expect(result).toEqual(mockData);
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/git-status', expect.any(Object));
+    });
+
+    it('adds fetch=true only when requested', async () => {
+      mockFetch.mockReturnValue(mockResponse({ syncStatus: 'behind', fetched: true }));
+
+      await client.getSessionGitStatus('sess-123', { fetch: true });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/git-status?fetch=true', expect.any(Object));
     });
   });
 

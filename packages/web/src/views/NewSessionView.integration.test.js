@@ -35,12 +35,6 @@ vi.mock('../stores/projectDefaults.js', () => ({
   }),
 }));
 
-vi.mock('../stores/quickResponses.js', () => ({
-  useQuickResponsesStore: () => ({
-    fetchForProject: vi.fn(),
-  }),
-}));
-
 vi.mock('../composables/useApi.js', () => ({
   api: {
     getGitStatus: vi.fn().mockResolvedValue({ isGitRepo: false }),

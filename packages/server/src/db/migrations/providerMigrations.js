@@ -1,5 +1,5 @@
 import { OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
-import { addColumnIfMissing, tableExists } from './migrationUtils.js';
+import { addColumnIfMissing, tableExists, getTableSql } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
 function seedBuiltInAnthropicProvider(db) {
@@ -199,6 +199,20 @@ export const providerMigrations = [
   {
     name: 'providers-widen-kind-check-google',
     up(db) {
+      // Idempotency guard: this migration recreates the `providers` table via
+      // `INSERT OR IGNORE INTO providers_new SELECT * FROM providers`, which is
+      // sensitive to column count. Once any later migration adds a column (e.g.
+      // `enabled`), re-running this `SELECT *` copy into the fixed 11-column
+      // `providers_new` definition would fail with a column-count mismatch.
+      // Since migrations run on every startup, skip the recreation when the
+      // table's CHECK already permits 'google' (the only thing this migration
+      // changes). Fresh DBs are created with the wide CHECK already, so this is
+      // effectively a no-op there too.
+      const existingSql = getTableSql(db, 'providers') || '';
+      if (existingSql.includes("'google'")) {
+        return;
+      }
+
       // SQLite CHECK constraints are baked into the table definition and can't
       // be altered in-place. Recreate the table with the wider CHECK.
       //
@@ -279,6 +293,12 @@ export const providerMigrations = [
         `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).run('anthropic-opus-4-8', providerId, 'claude-opus-4-8', 'Opus 4.8', 'Most capable (default)', 'opus', Date.now());
+    },
+  },
+  {
+    name: 'providers-add-enabled',
+    up(db) {
+      addColumnIfMissing(db, 'providers', 'enabled', 'INTEGER NOT NULL DEFAULT 1');
     },
   },
 ];

@@ -111,7 +111,7 @@ const columns = [
   { key: 'agent_type', label: 'Agent Type', sortable: true },
   { key: 'call_type', label: 'Call Type', sortable: true },
   { key: 'model', label: 'Model', sortable: true },
-  { key: 'session', label: 'Session', sortable: false },
+  { key: 'session', label: 'Workspace', sortable: false },
   { key: 'effort', label: 'Effort', sortable: false },
   { key: 'total_tokens', label: 'Tokens', sortable: true },
   { key: 'duration_ms', label: 'Duration', sortable: true },

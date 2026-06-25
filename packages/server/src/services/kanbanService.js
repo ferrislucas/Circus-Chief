@@ -47,7 +47,7 @@ function buildFullBoardResponse(board) {
  * Lazy-creates the board with default lanes if it doesn't exist.
  *
  * @param {string} projectId - The project ID
- * @returns {Object|null} Full board with lanes and cards, or null if kanban is disabled
+ * @returns {Object|null} Full board with lanes and cards, or null if the project does not exist
  */
 export function getFullBoard(projectId) {
   const project = projects.getById(projectId);
@@ -55,13 +55,34 @@ export function getFullBoard(projectId) {
     return null;
   }
 
-  // If kanban is disabled, return null
-  if (!project.kanbanEnabled) {
-    return null;
-  }
-
   const board = kanbanBoards.getOrCreateForProject(projectId);
   return buildFullBoardResponse(board);
+}
+
+/**
+ * Resolve any session id to its workspace root id.
+ * If the session has no parent chain, the id itself is returned.
+ *
+ * @param {string} sessionId - Any session id (root or child)
+ * @returns {string} Workspace root id
+ */
+function resolveWorkspaceId(sessionId) {
+  return sessions.getRootSessionId(sessionId) || sessionId;
+}
+
+async function triggerLaneEntryAutomation(sessionId, laneId, options = {}) {
+  const { runOnEnterTemplate = true, depth = 0 } = options;
+
+  if (!runOnEnterTemplate) {
+    return;
+  }
+
+  const lane = kanbanLanes.getByIdWithTemplate(laneId);
+  if (lane?.onEnterTemplateId) {
+    await triggerOnEnterTemplate(sessionId, lane, { depth });
+  } else if (lane?.onEnterPrompt) {
+    await triggerOnEnterPrompt(sessionId, lane, { depth });
+  }
 }
 
 /**
@@ -71,25 +92,40 @@ export function getFullBoard(projectId) {
  * @param {string} laneId - The lane to add the session to
  * @param {Object} [options] - Options
  * @param {number} [options.sortOrder] - Optional sort order
+ * @param {boolean} [options.runOnEnterTemplate=true] - Whether to run lane on-enter automation
+ * @param {number} [options.depth=0] - Current recursion depth for template triggers
  * @returns {Object} The created card
  * @throws {Error} If session already has a card on the board
  */
-export function addSessionToBoard(sessionId, laneId, options = {}) {
+export async function addSessionToBoard(sessionId, laneId, options = {}) {
+  const { sortOrder, runOnEnterTemplate = true, depth = 0 } = options;
+
+  // Normalize to workspace root — all cards are keyed to the root session.
+  const workspaceId = resolveWorkspaceId(sessionId);
+
   // Check if session already has a card
-  const existingCard = kanbanCards.getBySessionId(sessionId);
+  const existingCard = kanbanCards.getBySessionId(workspaceId);
   if (existingCard) {
     throw new Error('Session already has a card on the board');
   }
 
-  const card = kanbanCards.create(laneId, sessionId, options);
+  const card = kanbanCards.create(laneId, workspaceId, { sortOrder });
 
-  // Get session to find project ID for broadcast
-  const session = sessions.getById(sessionId);
-  if (session) {
-    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
-      projectId: session.projectId,
+  // Get root session to find project ID for broadcast and lane entry automation.
+  const rootSession = sessions.getById(workspaceId);
+  if (rootSession) {
+    broadcastToProject(rootSession.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
+      projectId: rootSession.projectId,
       card,
       laneId,
+    });
+
+    // Lane entry automation fires on the workspace root (consistent with
+    // "all sessions in a workspace move together").
+    const rootDepth = rootSession.laneTriggerDepth || 0;
+    await triggerLaneEntryAutomation(workspaceId, laneId, {
+      runOnEnterTemplate,
+      depth: depth || rootDepth,
     });
   }
 
@@ -133,18 +169,21 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
       card: movedCard,
     });
 
-    // Trigger on-enter automation if configured (template or custom prompt)
-    if (runOnEnterTemplate) {
-      const targetLane = kanbanLanes.getByIdWithTemplate(targetLaneId);
-      if (targetLane?.onEnterTemplateId) {
-        await triggerOnEnterTemplate(sessionId, targetLane, { depth });
-      } else if (targetLane?.onEnterPrompt) {
-        await triggerOnEnterPrompt(sessionId, targetLane, { depth });
-      }
-    }
+    await triggerLaneEntryAutomation(sessionId, targetLaneId, { runOnEnterTemplate, depth });
   }
 
   return movedCard;
+}
+
+async function moveExistingSessionCard(session, card, targetLaneId) {
+  if (card.laneId === targetLaneId) {
+    return card;
+  }
+
+  return moveCard(card.id, targetLaneId, {
+    runOnEnterTemplate: true,
+    depth: session.laneTriggerDepth || 0,
+  });
 }
 
 /**
@@ -154,6 +193,8 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
  * @param {string} sessionId - The session that just completed its turn
  */
 export async function handleTurnCompletion(sessionId) {
+  // Read targetLaneId and clear it from the session that actually completed
+  // (this may be a child session, not the workspace root).
   const session = sessions.getById(sessionId);
   if (!session) {
     return;
@@ -168,40 +209,117 @@ export async function handleTurnCompletion(sessionId) {
     `Kanban: Handling turn completion for session ${sessionId}, target lane: ${session.targetLaneId}`
   );
 
-  // Find or create the card for this session
-  let card = kanbanCards.getBySessionId(sessionId);
+  // Resolve the workspace root — card lookups and moves operate on the root.
+  const workspaceId = resolveWorkspaceId(sessionId);
+  const rootSession = sessions.getById(workspaceId);
+
+  // Find or create the card for the workspace root
+  let card = kanbanCards.getBySessionId(workspaceId);
 
   if (!card) {
-    // Session doesn't have a card yet, create one in the target lane
+    // Workspace doesn't have a card yet, create one in the target lane
     const lane = kanbanLanes.getById(session.targetLaneId);
     if (!lane) {
       console.warn(`Kanban: Target lane ${session.targetLaneId} not found for session ${sessionId}`);
-      // Clear the invalid target lane
+      // Clear the invalid target lane on the session that set it
       sessions.update(sessionId, { targetLaneId: null });
       return;
     }
 
-    card = kanbanCards.create(session.targetLaneId, sessionId);
-
-    broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
-      projectId: session.projectId,
-      card,
-      laneId: session.targetLaneId,
+    card = await addSessionToBoard(workspaceId, session.targetLaneId, {
+      runOnEnterTemplate: true,
+      depth: (rootSession?.laneTriggerDepth) || 0,
     });
   } else {
-    // Move existing card to target lane
-    const fromLaneId = card.laneId;
-
-    if (fromLaneId !== session.targetLaneId) {
-      await moveCard(card.id, session.targetLaneId, {
-        runOnEnterTemplate: true,
-        depth: session.laneTriggerDepth || 0,
-      });
-    }
+    // Move the workspace card to target lane
+    await moveExistingSessionCard(rootSession || session, card, session.targetLaneId);
   }
 
-  // Clear the target lane now that we've processed it
+  // Clear the target lane on the session that set it (may be a child)
   sessions.update(sessionId, { targetLaneId: null });
+}
+
+/**
+ * Check whether a workspace root has any incomplete lane-triggered descendants.
+ *
+ * A lane-triggered descendant is a session with laneTriggerDepth > 0 (set by
+ * triggerOnEnterPrompt / triggerOnEnterTemplate when spawning on-enter children).
+ * "Incomplete" means the session is still in a pending/active state: starting,
+ * running, or scheduled.
+ *
+ * @param {string} rootId - Workspace root session ID
+ * @returns {boolean} True if any incomplete lane-triggered descendant exists
+ */
+function hasIncompleteLaneTriggeredDescendant(rootId) {
+  const INCOMPLETE_STATUSES = new Set(['starting', 'running', 'scheduled']);
+  const descendantIds = sessions.getAllDescendantIds(rootId);
+  for (const id of descendantIds) {
+    const s = sessions.getById(id);
+    if (s && s.laneTriggerDepth > 0 && INCOMPLETE_STATUSES.has(s.status)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Move an existing card based on the current lane's completion target.
+ *
+ * When the completing session has no card (e.g. it was spawned by a lane's
+ * on-enter prompt), the full ancestor chain is walked to find the session
+ * that owns the card so that the parent's card is still advanced.
+ *
+ * Guard: if the workspace root is completing in a lane with on-enter automation
+ * (onEnterPrompt or onEnterTemplateId) and there is still an incomplete
+ * lane-triggered descendant, the completion move is deferred. The move will
+ * fire later when the lane-created child (representing the lane's actual work)
+ * completes. A non-root (child) completing always proceeds — the child IS the
+ * lane work, so its completion should advance the card.
+ *
+ * @param {string} sessionId - The session that just completed its turn
+ */
+export async function handleCompletionMove(sessionId) {
+  // Resolve to workspace root — the card is keyed to the root.
+  const workspaceId = resolveWorkspaceId(sessionId);
+  const rootSession = sessions.getById(workspaceId);
+  if (!rootSession) {
+    return;
+  }
+
+  const card = kanbanCards.getBySessionId(workspaceId);
+
+  if (!card) {
+    return;
+  }
+
+  const currentLane = kanbanLanes.getById(card.laneId);
+  if (!currentLane?.completionTargetLaneId) {
+    return;
+  }
+
+  const targetLaneId = currentLane.completionTargetLaneId;
+  if (targetLaneId === currentLane.id) {
+    return;
+  }
+
+  const targetLane = kanbanLanes.getById(targetLaneId);
+  if (!targetLane || targetLane.boardId !== currentLane.boardId) {
+    return;
+  }
+
+  // Guard: if the workspace root is completing in an automation lane and a
+  // lane-triggered descendant is still incomplete, defer the move. The card
+  // will advance once the lane's actual work (the child session) completes.
+  const isRootCompleting = sessionId === workspaceId;
+  if (
+    isRootCompleting &&
+    (currentLane.onEnterPrompt || currentLane.onEnterTemplateId) &&
+    hasIncompleteLaneTriggeredDescendant(workspaceId)
+  ) {
+    return;
+  }
+
+  await moveExistingSessionCard(rootSession, card, targetLaneId);
 }
 
 /**
@@ -210,14 +328,16 @@ export async function handleTurnCompletion(sessionId) {
  * @param {string} sessionId - The session ID
  */
 export function removeSessionFromBoard(sessionId) {
-  const card = kanbanCards.getBySessionId(sessionId);
+  // Normalize to workspace root — cards are keyed to the root.
+  const workspaceId = resolveWorkspaceId(sessionId);
+  const card = kanbanCards.getBySessionId(workspaceId);
   if (!card) {
-    return; // Session wasn't on the board
+    return; // Workspace wasn't on the board
   }
 
   const laneId = card.laneId;
-  const session = sessions.getById(sessionId);
-  const projectId = session?.projectId;
+  const rootSession = sessions.getById(workspaceId);
+  const projectId = rootSession?.projectId;
 
   kanbanCards.delete(card.id);
 
@@ -237,7 +357,7 @@ export function removeSessionFromBoard(sessionId) {
  * @param {string} sessionId - The newly created session ID
  * @param {string} templateId - The template ID used to create the session
  */
-export function addSessionToTemplateTargetLane(sessionId, templateId) {
+export async function addSessionToTemplateTargetLane(sessionId, templateId) {
   const template = sessionTemplates.getById(templateId);
   if (!template?.targetLaneId) {
     return;
@@ -251,12 +371,16 @@ export function addSessionToTemplateTargetLane(sessionId, templateId) {
     return;
   }
 
+  // Normalize to workspace root — addSessionToBoard will also normalize, but
+  // being explicit here keeps the log message accurate.
+  const workspaceId = resolveWorkspaceId(sessionId);
+
   try {
-    addSessionToBoard(sessionId, template.targetLaneId);
+    await addSessionToBoard(workspaceId, template.targetLaneId);
     console.log(
-      `Kanban: Added session ${sessionId} to lane "${lane.name}" based on template target`
+      `Kanban: Added workspace ${workspaceId} to lane "${lane.name}" based on template target`
     );
   } catch (error) {
-    console.warn(`Kanban: Failed to add session ${sessionId} to board:`, error.message);
+    console.warn(`Kanban: Failed to add workspace ${workspaceId} to board:`, error.message);
   }
 }

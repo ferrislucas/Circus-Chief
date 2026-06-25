@@ -1,13 +1,13 @@
 <template>
   <div
-    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || loading || showNotStartedState"
+    v-if="hasPrInfo || summary?.shortSummary || hasMetrics || scheduledSessions?.length > 0 || loading"
     class="session-overview card"
   >
     <div
-      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading || showNotStartedState"
+      v-if="hasPrInfo || summary?.shortSummary || hasMetrics || loading"
       class="overview-header"
     >
-      <h3>Session Overview</h3>
+      <h3>Workspace Overview</h3>
     </div>
 
     <!-- Summary in Overview -->
@@ -26,17 +26,6 @@
       <span class="loading-spinner-small" />
       <span>Loading summary...</span>
     </div>
-    <div
-      v-else-if="showNotStartedState"
-      class="overview-summary overview-summary-empty"
-    >
-      <p class="summary-empty-text">
-        This session hasn't started yet.
-      </p>
-      <p class="summary-empty-hint">
-        Start the session or send a message to see a summary here.
-      </p>
-    </div>
 
     <!-- Overview Metrics -->
     <div
@@ -48,7 +37,7 @@
         class="metric"
       >
         <span class="metric-value">{{ sessionCount }}</span>
-        <span class="metric-label">Sessions</span>
+        <span class="metric-label">Workspaces</span>
       </div>
       <div
         v-if="hasNonZeroTokens"
@@ -143,7 +132,7 @@
       class="overview-scheduled-sessions"
     >
       <h4 class="scheduled-sessions-heading">
-        Scheduled Sessions ({{ scheduledSessions.length }})
+        Scheduled Workspaces ({{ scheduledSessions.length }})
       </h4>
       <div class="scheduled-sessions-list">
         <ScheduledChildCard
@@ -216,10 +205,6 @@ defineProps({
     type: String,
     default: null,
   },
-  showNotStartedState: {
-    type: Boolean,
-    default: false,
-  },
 });
 
 defineEmits(['open-session-overlay']);
@@ -254,28 +239,10 @@ defineEmits(['open-session-overlay']);
   font-size: 0.875rem;
 }
 
-.overview-summary-empty {
-  text-align: center;
-}
-
 .overview-summary .summary-text {
   margin: 0 0 0.5rem;
   font-size: 0.875rem;
   color: var(--color-text);
-  line-height: 1.4;
-}
-
-.summary-empty-text {
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--color-text);
-  margin: 0 0 0.5rem;
-}
-
-.summary-empty-hint {
-  font-size: 0.875rem;
-  color: var(--color-text-soft);
-  margin: 0;
   line-height: 1.4;
 }
 

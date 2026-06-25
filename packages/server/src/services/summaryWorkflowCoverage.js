@@ -12,21 +12,6 @@ import { sessionSummaries } from '../database.js';
 /** Maximum key actions to carry up from ALL descendants combined */
 const MAX_DESCENDANT_KEY_ACTIONS = 12;
 
-/** Aggregate outcome priority: higher index = "more final" status */
-const OUTCOME_PRIORITY = ['ongoing', 'partial', 'failed', 'completed'];
-
-/**
- * Get the "higher priority" of two outcome strings.
- * @param {string|null|undefined} a
- * @param {string|null|undefined} b
- * @returns {string}
- */
-function higherOutcome(a, b) {
-  const ai = OUTCOME_PRIORITY.indexOf(a || 'ongoing');
-  const bi = OUTCOME_PRIORITY.indexOf(b || 'ongoing');
-  return ai >= bi ? (a || 'ongoing') : (b || 'ongoing');
-}
-
 /**
  * Collect the summaries of all descendants that have one.
  * @param {Array} descendants - Session objects (each has at least `id` and `name`)
@@ -102,11 +87,14 @@ function mergeDescendantActions(rootActions, pairs) {
  * @returns {string} The highest-priority outcome
  */
 function computeAggregateOutcome(rootOutcome, pairs) {
-  let aggregate = rootOutcome || 'ongoing';
-  for (const { summary } of pairs) {
-    aggregate = higherOutcome(aggregate, summary.outcome);
+  const outcomes = [
+    rootOutcome,
+    ...pairs.map(({ summary }) => summary.outcome),
+  ].filter(Boolean);
+  for (const candidate of ['failed', 'ongoing', 'partial', 'completed']) {
+    if (outcomes.includes(candidate)) return candidate;
   }
-  return aggregate;
+  return 'ongoing';
 }
 
 /**
@@ -120,17 +108,19 @@ function computeAggregateOutcome(rootOutcome, pairs) {
  *
  * @param {Object} summaryData - The root summary data object.
  * @param {Array} descendants - All descendant session objects.
+ * @param {Array|null} [pairs] - Pre-fetched {session, summary} pairs. When provided,
+ *   the internal collectDescendantSummaries() DB fetch is skipped.
  * @returns {Object} A new object with repaired data (original not mutated).
  */
-export function validateAndRepairWorkflowCoverage(summaryData, descendants) {
-  const pairs = collectDescendantSummaries(descendants);
-  if (pairs.length === 0) return summaryData;
+export function validateAndRepairWorkflowCoverage(summaryData, descendants, pairs = null) {
+  const resolvedPairs = pairs ?? collectDescendantSummaries(descendants);
+  if (resolvedPairs.length === 0) return summaryData;
 
   return {
     ...summaryData,
-    filesModified: mergeDescendantFiles(summaryData.filesModified, pairs),
-    keyActions: mergeDescendantActions(summaryData.keyActions, pairs),
-    outcome: computeAggregateOutcome(summaryData.outcome, pairs),
+    filesModified: mergeDescendantFiles(summaryData.filesModified, resolvedPairs),
+    keyActions: mergeDescendantActions(summaryData.keyActions, resolvedPairs),
+    outcome: computeAggregateOutcome(summaryData.outcome, resolvedPairs),
   };
 }
 
@@ -191,18 +181,20 @@ export function checkFullSummaryOmissions(summaryData, descendants) {
  * LLM-generated text still omits material descendant work after a retry.
  *
  * @param {Array} descendants - All descendant session objects.
+ * @param {Array|null} [pairs] - Pre-fetched {session, summary} pairs. When provided,
+ *   the internal collectDescendantSummaries() DB fetch is skipped.
  * @returns {string} Text to append to fullSummary (empty string if no summaries exist).
  */
-export function buildFallbackSummaryAddition(descendants) {
-  const pairs = collectDescendantSummaries(descendants);
-  if (pairs.length === 0) return '';
+export function buildFallbackSummaryAddition(descendants, pairs = null) {
+  const resolvedPairs = pairs ?? collectDescendantSummaries(descendants);
+  if (resolvedPairs.length === 0) return '';
 
   const lines = [
     '',
     '[Workflow Note: This session is part of a multi-session workflow. The following child sessions contributed to the outcome:]',
   ];
 
-  for (const { session, summary } of pairs) {
+  for (const { session, summary } of resolvedPairs) {
     const name = session.name || `Session ${session.id}`;
     const outcome = summary.outcome || 'ongoing';
     const brief = summary.shortSummary || '(no short summary)';

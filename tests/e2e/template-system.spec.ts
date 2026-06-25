@@ -81,11 +81,11 @@ test.describe('Template Configuration Fields', () => {
       name: '[TEST] Model Template',
       prompt: 'Test prompt',
     });
-    const updated = await updateTemplate(template.id, { model: 'claude-sonnet-4-20250514' });
-    expect(updated.model).toBe('claude-sonnet-4-20250514');
+    const updated = await updateTemplate(template.id, { model: 'claude-sonnet-4-6' });
+    expect(updated.model).toBe('claude-sonnet-4-6');
 
     const fetched = await getTemplate(template.id);
-    expect(fetched.model).toBe('claude-sonnet-4-20250514');
+    expect(fetched.model).toBe('claude-sonnet-4-6');
   });
 
   test('saves and returns thinkingEnabled field correctly', async () => {
@@ -132,14 +132,14 @@ test.describe('Template Configuration Fields', () => {
 
     const updated = await updateTemplate(template.id, {
       mode: 'standard',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       thinkingEnabled: true,
       gitBranch: 'develop',
       gitMode: 'branch',
     });
 
     expect(updated.mode).toBe('standard');
-    expect(updated.model).toBe('claude-sonnet-4-20250514');
+    expect(updated.model).toBe('claude-sonnet-4-6');
     expect(updated.thinkingEnabled).toBe(true);
     expect(updated.gitBranch).toBe('develop');
     expect(updated.gitMode).toBe('branch');
@@ -147,7 +147,7 @@ test.describe('Template Configuration Fields', () => {
     // GET to verify all fields persisted
     const fetched = await getTemplate(template.id);
     expect(fetched.mode).toBe('standard');
-    expect(fetched.model).toBe('claude-sonnet-4-20250514');
+    expect(fetched.model).toBe('claude-sonnet-4-6');
     expect(fetched.thinkingEnabled).toBe(true);
     expect(fetched.gitBranch).toBe('develop');
     expect(fetched.gitMode).toBe('branch');
@@ -163,7 +163,7 @@ test.describe('Template Configuration Fields', () => {
     });
     await updateTemplate(template.id, {
       mode: 'plan',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       gitMode: 'worktree',
     });
 
@@ -203,10 +203,10 @@ test.describe('Template Variables', () => {
   });
 
   test('parentSession.name is substituted in prompt', async () => {
-    // Create a template that uses parentSession.name
+    // Create a template that uses workspace.name (formerly parentSession.name)
     const template = await seedProjectTemplate(project.id, {
       name: '[TEST] Name Variable Template',
-      prompt: 'The parent session was: {{parentSession.name}}',
+      prompt: 'The parent session was: {{workspace.name}}',
     });
 
     // Create parent session with known name, do NOT start it yet
@@ -238,7 +238,7 @@ test.describe('Template Variables', () => {
   test('parentSession.status is substituted in prompt', async () => {
     const template = await seedProjectTemplate(project.id, {
       name: '[TEST] Status Variable Template',
-      prompt: 'Parent status was: {{parentSession.status}}',
+      prompt: 'Parent status was: {{workspace.status}}',
     });
 
     const parent = await seedSession(project.id, {
@@ -260,7 +260,7 @@ test.describe('Template Variables', () => {
   test('parentSession.summary is substituted in prompt', async () => {
     const template = await seedProjectTemplate(project.id, {
       name: '[TEST] Summary Variable Template',
-      prompt: 'Summary: {{parentSession.summary}}',
+      prompt: 'Summary: {{workspace.summary}}',
     });
 
     const parent = await seedSession(project.id, {
@@ -287,7 +287,7 @@ test.describe('Template Variables', () => {
     // Create templates for the chain: B triggers C
     const templateC = await seedProjectTemplate(project.id, {
       name: '[TEST] Chain End C',
-      prompt: 'Root was: {{rootSession.name}}',
+      prompt: 'Root was: {{workspace.name}}',
     });
 
     const templateB = await seedProjectTemplate(project.id, {
@@ -407,7 +407,7 @@ test.describe('Auto-Trigger Mechanism', () => {
     });
     await updateTemplate(template.id, {
       mode: 'plan',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
     });
 
     const parent = await seedSession(project.id, {
@@ -424,7 +424,7 @@ test.describe('Auto-Trigger Mechanism', () => {
 
     expect(childSession.mode).toBe('plan');
     expect(childSession.thinkingEnabled).toBe(true);
-    expect(childSession.model).toBe('claude-sonnet-4-20250514');
+    expect(childSession.model).toBe('claude-sonnet-4-6');
   });
 
   test('child session inherits parent settings when template fields are null', async () => {

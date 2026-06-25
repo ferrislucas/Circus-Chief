@@ -185,7 +185,7 @@ The selected port is written to `.server-port` so other tools can discover it.
 1. Checks if `.server-port` file exists and if that server is running
 2. If no server is running, starts one via `./scripts/start-server.sh`
 3. Sets `BASE_URL` and `API_URL` environment variables to the correct port
-4. Runs Playwright tests (via Docker if available, otherwise npx)
+4. Runs Playwright tests locally via `npx playwright`
 
 ### Common pw.sh Commands
 

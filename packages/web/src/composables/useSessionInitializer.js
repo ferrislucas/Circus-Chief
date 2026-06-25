@@ -89,6 +89,7 @@ function registerCommandHandlers(subscription, sessionId, stores) {
  * @param {Function} options.startPolling - Function to start status polling
  * @param {Function} options.stopPolling - Function to stop status polling
  * @param {Function} options.resetPolling - Function to reset polling state
+ * @param {Function} [options.refreshGitStatus] - Optional git status refresh hook
  * @param {Function} [options.onReconnectCallback] - Optional callback invoked after WebSocket reconnection (e.g., to rebuild session chain)
  * @returns {Object} Session initializer utilities
  */
@@ -100,6 +101,7 @@ export function useSessionInitializer({
   startPolling,
   stopPolling,
   resetPolling,
+  refreshGitStatus,
   onReconnectCallback,
 }) {
   const summary = summaryRef;
@@ -203,7 +205,9 @@ export function useSessionInitializer({
         } else {
           stopPolling();
           if (status === 'waiting' || status === 'completed') {
-            checkForChanges();
+            Promise.resolve(checkForChanges()).then(() => {
+              if (refreshGitStatus) refreshGitStatus({ fetch: false });
+            });
           }
         }
       })
@@ -265,6 +269,7 @@ export function useSessionInitializer({
         } else {
           hasChanges.value = changeCount > 0;
         }
+        if (refreshGitStatus) refreshGitStatus({ fetch: false });
       })
     );
 
@@ -294,7 +299,9 @@ export function useSessionInitializer({
       // Ignore errors - summary may not exist yet
     });
 
-    checkForChanges();
+    Promise.resolve(checkForChanges()).then(() => {
+      if (refreshGitStatus) refreshGitStatus({ fetch: false });
+    });
 
     const { onReconnect } = useWebSocket();
     reconnectCleanups.push(
@@ -304,7 +311,10 @@ export function useSessionInitializer({
         await sessionsStore.fetchMessages(sessionId, false, sessionsStore.activeConversationId);
         await sessionsStore.fetchWorkLogs(sessionId);
         await canvasStore.fetchItems(sessionId);
-        checkForChanges();
+        await checkForChanges();
+        if (refreshGitStatus) {
+          refreshGitStatus({ fetch: false });
+        }
         // Rebuild session chain so descendant statuses are fresh (fixes stale spinner bug)
         if (onReconnectCallback) {
           await onReconnectCallback();

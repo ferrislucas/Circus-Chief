@@ -82,13 +82,13 @@ describe('ScheduledChildCard.vue', () => {
     });
   }
 
-  it('renders session name and scheduled status badge', () => {
+  it('renders workspace name and scheduled status badge', () => {
     const wrapper = mountComponent();
     expect(wrapper.find('.session-name').text()).toBe('Test Child');
     expect(wrapper.find('.status-scheduled').text()).toBe('scheduled');
   });
 
-  it('renders session name as a button that emits open-session-overlay on click', async () => {
+  it('renders workspace name as a button that emits open-workspace-overlay on click', async () => {
     // Note: Custom emit capture via wrapper.emitted() is unreliable with
     // Vue 3 script setup SFCs (known Vue Test Utils limitation).
     // Use attrs listener to capture the emitted event.
@@ -171,7 +171,7 @@ describe('ScheduledChildCard.vue', () => {
     expect(modal.props('isOpen')).toBe(false);
   });
 
-  it('Cancel button calls confirm and cancels session', async () => {
+  it('Cancel button calls confirm and cancels workspace', async () => {
     window.confirm = vi.fn().mockReturnValue(true);
 
     const wrapper = mountComponent();
@@ -181,9 +181,9 @@ describe('ScheduledChildCard.vue', () => {
     await cancelBtn.trigger('click');
     await wrapper.vm.$nextTick();
 
-    expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled session?');
+    expect(window.confirm).toHaveBeenCalledWith('Cancel this scheduled workspace?');
     expect(mockSessionsStore.updateSessionFields).toHaveBeenCalledWith('sess-1', { status: 'stopped' });
-    expect(mockUiStore.success).toHaveBeenCalledWith('Session cancelled');
+    expect(mockUiStore.success).toHaveBeenCalledWith('Workspace cancelled');
   });
 
   it('Cancel button does nothing if confirm is dismissed', async () => {

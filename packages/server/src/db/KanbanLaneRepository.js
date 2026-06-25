@@ -92,6 +92,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxRescheduleCount: row.on_enter_max_reschedule_count,
       onEnterMaxTotalTokens: row.on_enter_max_total_tokens,
       onEnterRescheduleAtTokenCount: row.on_enter_reschedule_at_token_count,
+      completionTargetLaneId: row.completion_target_lane_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -186,6 +187,7 @@ export class KanbanLaneRepository extends BaseRepository {
       onEnterMaxRescheduleCount: 'on_enter_max_reschedule_count',
       onEnterMaxTotalTokens: 'on_enter_max_total_tokens',
       onEnterRescheduleAtTokenCount: 'on_enter_reschedule_at_token_count',
+      completionTargetLaneId: 'completion_target_lane_id',
     };
 
     const updates = [];

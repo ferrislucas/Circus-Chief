@@ -1476,6 +1476,34 @@ describe('SessionRepository', () => {
     });
   });
 
+  describe('getScheduledSessionsDue', () => {
+    it('returns due sessions after ISO text scheduled_at is repaired by migration', () => {
+      // 1. Create a scheduled session with a valid integer timestamp in the past
+      const session = repo.create(projectId, 'Stuck Session', 'Prompt', 'standard', false, null, null, 'scheduled');
+      repo.update(session.id, { scheduledAt: Date.now() - 1000 });
+
+      // 2. Overwrite stored value with an ISO text string (the bug)
+      repo.db.prepare('UPDATE sessions SET scheduled_at = ? WHERE id = ?').run('2020-01-01T00:00:00Z', session.id);
+
+      // 3. Confirm getScheduledSessionsDue does NOT return the session (reproduces the bug)
+      const beforeRepair = repo.getScheduledSessionsDue(Date.now());
+      expect(beforeRepair.find(s => s.id === session.id)).toBeUndefined();
+
+      // 4. Run the repair SQL (same as the migration)
+      repo.db.prepare(`
+        UPDATE sessions
+        SET scheduled_at = CAST(strftime('%s', scheduled_at) AS INTEGER) * 1000
+        WHERE scheduled_at IS NOT NULL
+          AND typeof(scheduled_at) = 'text'
+          AND scheduled_at GLOB '????-??-??T??:??:??*'
+      `).run();
+
+      // 5. Confirm the session is now returned
+      const afterRepair = repo.getScheduledSessionsDue(Date.now());
+      expect(afterRepair.find(s => s.id === session.id)).toBeDefined();
+    });
+  });
+
   describe('lastActivityAt', () => {
     it('populates lastActivityAt on session objects returned by getById', () => {
       const session = repo.create(projectId, 'Test', 'Prompt');
@@ -2152,6 +2180,36 @@ describe('SessionRepository', () => {
 
       expect(touched.updatedAt).toBeGreaterThanOrEqual(beforeTouch);
       expect(touched.updatedAt).toBeLessThanOrEqual(afterTouch);
+    });
+  });
+
+  describe('getByIds', () => {
+    it('returns an empty array when called with an empty list', () => {
+      const result = repo.getByIds([]);
+      expect(result).toEqual([]);
+    });
+
+    it('returns both sessions when called with two valid IDs', () => {
+      const s1 = repo.create(projectId, 'Session One', 'Prompt one');
+      const s2 = repo.create(projectId, 'Session Two', 'Prompt two');
+
+      const result = repo.getByIds([s1.id, s2.id]);
+
+      expect(result).toHaveLength(2);
+      const ids = result.map(s => s.id);
+      expect(ids).toContain(s1.id);
+      expect(ids).toContain(s2.id);
+    });
+
+    it('omits unknown IDs and returns no nulls', () => {
+      const s1 = repo.create(projectId, 'Real Session', 'Prompt');
+      const fakeId = 'nonexistent-id-xyz';
+
+      const result = repo.getByIds([s1.id, fakeId]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(s1.id);
+      expect(result.every(s => s !== null)).toBe(true);
     });
   });
 });

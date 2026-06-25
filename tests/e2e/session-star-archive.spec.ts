@@ -243,7 +243,7 @@ test.describe('Archive / Unarchive Sessions', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Click archive button (use first() to avoid multiple matches)
-    await page.locator('button.archive-btn[title="Archive session"]').first().click();
+    await page.locator('button.archive-btn[title="Archive workspace"]').first().click();
 
     // Confirm via the ArchiveConfirmModal
     const modal = page.locator('.modal-backdrop');
@@ -257,7 +257,7 @@ test.describe('Archive / Unarchive Sessions', () => {
     await expect(page.locator('.session-name').filter({ hasText: session.name })).not.toBeVisible();
 
     // Navigate to Archived tab (tabs are buttons)
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
 
     // Wait for tab content to load
     await page.waitForLoadState('networkidle');
@@ -282,20 +282,20 @@ test.describe('Archive / Unarchive Sessions', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Navigate to Archived tab (tabs are buttons)
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // Verify session is in archived tab
     await expect(page.locator('.session-name').filter({ hasText: session.name })).toBeVisible();
 
     // Click unarchive button
-    await page.locator('button.archive-btn[title="Unarchive session"]').first().click();
+    await page.locator('button.archive-btn[title="Unarchive workspace"]').first().click();
 
     // Wait for unarchive action to complete
     await page.waitForTimeout(1500);
 
-    // Navigate to Sessions tab (it's called "Sessions" not "Active")
-    await page.locator('button.tab').filter({ hasText: 'Sessions' }).click();
+    // Navigate to Workspaces tab (it's called "Workspaces" not "Active")
+    await page.locator('button.tab').filter({ hasText: 'Workspaces' }).click();
     await page.waitForLoadState('networkidle');
 
     // Session should reappear in active list
@@ -330,13 +330,13 @@ test.describe('Archive / Unarchive Sessions', () => {
 
     // Verify parent has archive button in the header actions area
     // The button should be visible since parent session is 'waiting' status (not running/starting)
-    const archiveBtn = parentCard.locator('button.archive-btn[title="Archive session"]');
+    const archiveBtn = parentCard.locator('button.archive-btn[title="Archive workspace"]');
     await expect(archiveBtn).toBeVisible();
 
     // Child sessions don't have separate cards or archive buttons
     // They're part of the parent's workflow view
     // We verify this by checking there's only one archive button in the parent card
-    const archiveButtons = parentCard.locator('button.archive-btn[title="Archive session"]');
+    const archiveButtons = parentCard.locator('button.archive-btn[title="Archive workspace"]');
     const count = await archiveButtons.count();
     expect(count).toBe(1);
   });
@@ -350,8 +350,8 @@ test.describe('Archive / Unarchive Sessions', () => {
 
     await navigateAndWait(page, `/sessions/${session.id}`);
 
-    // Open overflow menu (aria-label is "Session actions" on session detail page)
-    await page.click('button[aria-label="Session actions"]');
+    // Open overflow menu (aria-label is "Workspace actions" on session detail page)
+    await page.click('button[aria-label="Workspace actions"]');
 
     // Wait for menu items to be visible (the menu uses Vue <Transition>)
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });
@@ -388,7 +388,7 @@ test.describe('Archive / Unarchive Sessions', () => {
     await navigateAndWait(page, `/projects/${project.id}/sessions`);
 
     // Navigate to Archived tab
-    await page.locator('button.tab').filter({ hasText: 'Archived' }).click();
+    await page.locator('button.tab').filter({ hasText: 'Archive' }).click();
     await page.waitForLoadState('networkidle');
 
     // Navigate to session detail (click on the session card)
@@ -398,7 +398,7 @@ test.describe('Archive / Unarchive Sessions', () => {
     await page.waitForLoadState('networkidle');
 
     // Open overflow menu
-    await page.click('button[aria-label="Session actions"]');
+    await page.click('button[aria-label="Workspace actions"]');
 
     // Wait for menu items to be visible (the menu uses Vue <Transition>)
     await expect(page.locator('.menu-items')).toBeVisible({ timeout: 5000 });

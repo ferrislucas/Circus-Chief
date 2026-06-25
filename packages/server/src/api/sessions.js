@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { readFileSync, existsSync } from 'fs';
 import { extname, resolve, normalize } from 'path';
-import { sessions, messages, projects, commandRuns, sessionSummaries } from '../database.js';
+import { sessions, messages, projects, commandRuns, sessionSummaries, attachments } from '../database.js';
 import { getChanges, getChangesBranch } from '../services/diffService.js';
 import * as gitService from '../services/gitService.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
@@ -172,6 +172,13 @@ router.get('/:id/changes', requireSessionAndProject, async (req, res) => {
   }
 });
 
+// GET /api/sessions/:id/attachments - Get all attachments for a session
+// Returns attachments regardless of whether they are linked to a message yet
+// (useful for scheduled sessions where files are uploaded before any message exists)
+router.get('/:id/attachments', requireSession, (req, res) => {
+  res.json(attachments.getBySessionIdWithoutContent(req.params.id));
+});
+
 // Image MIME types for the file endpoint
 const IMAGE_MIME_TYPES = {
   '.png': 'image/png',
@@ -229,6 +236,23 @@ router.get('/:id/default-branch', requireSessionAndProject, async (req, res) => 
   try {
     const branch = await gitService.getOriginDefaultBranch(req.workingDirectory);
     res.json({ branch });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/sessions/:id/git-status - Get compact upstream/local git status
+// Query params:
+//   fetch: 'true' to fetch origin before computing status
+router.get('/:id/git-status', requireSessionAndProject, async (req, res) => {
+  try {
+    const status = await gitService.getSessionGitStatus(req.workingDirectory, {
+      fetch: req.query.fetch === 'true',
+    });
+    res.json({
+      workingDirectory: req.workingDirectory,
+      ...status,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

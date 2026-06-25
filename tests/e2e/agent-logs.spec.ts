@@ -421,11 +421,11 @@ test.describe('Agent Logs - Settings Tab', () => {
     await page.goto('/settings/logs');
     await page.waitForLoadState('networkidle');
 
-    // The "Session" column is not sortable
-    const sessionHeader = page.locator('th.th').filter({ hasText: 'Session' });
+    // The "Workspace" column is not sortable
+    const sessionHeader = page.locator('th.th').filter({ hasText: 'Workspace' });
     await sessionHeader.click();
 
-    // No sort indicator in "Session" header
+    // No sort indicator in "Workspace" header
     await expect(sessionHeader.locator('.sort-indicator')).not.toBeVisible();
 
     // Default sort on "Started" should remain unchanged

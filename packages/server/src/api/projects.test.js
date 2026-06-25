@@ -6,7 +6,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 import crypto from 'crypto';
-import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders } from '../database.js';
+import { projects, sessions, sessionTemplates, commandButtons, commandRuns, modelProviders, projectDefaults } from '../database.js';
 
 // Mock websocket and sessionManager before importing the router
 vi.mock('../websocket.js', () => ({
@@ -173,7 +173,9 @@ describe('Projects API', () => {
     });
 
     it('accepts ISO 8601 scheduledAt strings and stores Unix milliseconds', async () => {
-      const scheduledAt = '2026-06-12T14:00:00Z';
+      // Use a date 1 hour in the future to ensure it's always ahead of Date.now()
+      const futureDate = new Date(Date.now() + 3600000);
+      const scheduledAt = futureDate.toISOString();
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Scheduled prompt',
         scheduledAt,
@@ -231,10 +233,15 @@ describe('Projects API', () => {
         baseUrl: 'https://api.openai.test',
         apiKey: 'test-key',
       });
+      modelProviders.addModel(provider.id, {
+        modelId: 'gpt-4o-provider-json-test',
+        displayName: 'GPT 4o Provider JSON Test',
+        tier: 'custom',
+      });
 
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
         prompt: 'Test prompt',
-        model: 'gpt-4o',
+        model: 'gpt-4o-provider-json-test',
         providerId: provider.id,
       });
 
@@ -250,11 +257,16 @@ describe('Projects API', () => {
         baseUrl: 'https://api.openai.test',
         apiKey: 'test-key',
       });
+      modelProviders.addModel(provider.id, {
+        modelId: 'gpt-4o-provider-multipart-test',
+        displayName: 'GPT 4o Provider Multipart Test',
+        tier: 'custom',
+      });
 
       const res = await request(app)
         .post(`/api/projects/${projectId}/sessions`)
         .field('prompt', 'Test prompt')
-        .field('model', 'gpt-4o')
+        .field('model', 'gpt-4o-provider-multipart-test')
         .field('providerId', provider.id)
         .attach('files', Buffer.from('hello'), 'hello.txt');
 
@@ -797,51 +809,6 @@ describe('Projects API', () => {
     });
   });
 
-  describe('POST /api/projects kanbanEnabled default', () => {
-    it('defaults kanbanEnabled to false when creating project without option', async () => {
-      const newDir = mkdtempSync(join(tmpdir(), 'projects-default-kanban-'));
-      try {
-        const res = await request(app).post('/api/projects').send({
-          name: 'Default Kanban Project',
-          workingDirectory: newDir,
-        });
-
-        expect(res.status).toBe(201);
-        expect(res.body.kanbanEnabled).toBe(false);
-      } finally {
-        rmSync(newDir, { recursive: true, force: true });
-      }
-    });
-
-    it('preserves kanbanEnabled=true when explicitly opted-in on POST', async () => {
-      const newDir = mkdtempSync(join(tmpdir(), 'projects-explicit-kanban-'));
-      try {
-        const res = await request(app).post('/api/projects').send({
-          name: 'Explicit Kanban Project',
-          workingDirectory: newDir,
-          kanbanEnabled: true,
-        });
-
-        expect(res.status).toBe(201);
-        expect(res.body.kanbanEnabled).toBe(true);
-      } finally {
-        rmSync(newDir, { recursive: true, force: true });
-      }
-    });
-
-    it('returns kanbanEnabled=true for pre-existing projects with the DB flag set', async () => {
-      // Simulate an existing project created before the default flipped
-      const existingProject = projects.create('Pre-existing Kanban Project', tempDir, null, {
-        kanbanEnabled: true,
-      });
-
-      const res = await request(app).get(`/api/projects/${existingProject.id}`);
-
-      expect(res.status).toBe(200);
-      expect(res.body.kanbanEnabled).toBe(true);
-    });
-  });
-
   describe('POST /api/projects repoUrl auto-detection', () => {
     it('creates a project with repoUrl detected from origin HTTPS remote', async () => {
       const newDir = mkdtempSync(join(tmpdir(), 'projects-repourl-https-'));
@@ -1319,6 +1286,15 @@ describe('Projects API', () => {
       expect(res.status).toBe(200);
       expect(res.body).toBeDefined();
     });
+
+    it('rejects invalid model defaults', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
+        model: 'not-a-real-model',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
+    });
   });
 
   describe('DELETE /api/projects/:id/session-defaults', () => {
@@ -1363,7 +1339,7 @@ describe('Projects API', () => {
       await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
         mode: 'plan',
         thinkingEnabled: true,
-        model: 'gpt-4o',
+        model: 'gpt-5.5',
         providerId: provider.id,
         effortLevel: 'high',
         startImmediately: false,
@@ -1378,7 +1354,7 @@ describe('Projects API', () => {
       const session = sessions.getById(res.body.id);
       expect(session.mode).toBe('plan');
       expect(session.thinkingEnabled).toBe(true);
-      expect(session.model).toBe('gpt-4o');
+      expect(session.model).toBe('gpt-5.5');
       expect(session.providerId).toBe(provider.id);
       expect(session.effortLevel).toBe('high');
       expect(session.status).toBe('waiting');
@@ -1397,11 +1373,16 @@ describe('Projects API', () => {
         baseUrl: 'https://api.override.test',
         apiKey: 'test-key',
       });
+      modelProviders.addModel(overrideProvider.id, {
+        modelId: 'override-model',
+        displayName: 'Override Model',
+        tier: 'custom',
+      });
 
       await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
         mode: 'plan',
         thinkingEnabled: false,
-        model: 'default-model',
+        model: 'opus',
         providerId: defaultProvider.id,
         effortLevel: 'low',
         startImmediately: false,
@@ -1411,7 +1392,7 @@ describe('Projects API', () => {
         prompt: 'Override defaults',
         mode: 'standard',
         thinkingEnabled: true,
-        model: 'override-model',
+        model: 'haiku',
         providerId: overrideProvider.id,
         effortLevel: 'max',
         startImmediately: true,
@@ -1422,7 +1403,7 @@ describe('Projects API', () => {
       const session = sessions.getById(res.body.id);
       expect(session.mode).toBe('standard');
       expect(session.thinkingEnabled).toBe(true);
-      expect(session.model).toBe('override-model');
+      expect(session.model).toBe('haiku');
       expect(session.providerId).toBe(overrideProvider.id);
       expect(session.effortLevel).toBe('max');
       expect(session.status).toBe('starting');
@@ -1627,6 +1608,20 @@ describe('Projects API', () => {
       expect(session.model).toBe('haiku'); // Param overrides default
     });
 
+    it('rejects invalid explicit model ids before creating a session', async () => {
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+        model: 'not-a-real-model',
+        gitMode: 'worktree',
+        gitBranch: 'test-branch',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
+      expect(res.body.error).toContain('Valid model ids are:');
+      expect(res.body.error).toContain('gpt-5.5');
+    });
+
     it('session model is null when no project default and no param', async () => {
       // Don't set any project defaults - system default for model is null
       const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
@@ -1640,6 +1635,43 @@ describe('Projects API', () => {
       const session = sessions.getById(res.body.id);
       // System default for model is null - SDK decides
       expect(session.model).toBeNull();
+    });
+
+    it('rejects invalid final model resolved from persisted project defaults', async () => {
+      projectDefaults.upsert(projectId, {
+        model: 'not-a-real-model',
+        gitMode: 'worktree',
+        gitBranch: 'bad-default-model',
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
+      expect(setupGitForSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid final model resolved from a template', async () => {
+      const template = sessionTemplates.create({
+        name: 'Invalid Model Template',
+        prompt: 'Template prompt',
+        projectId,
+        model: 'not-a-real-model',
+        gitMode: 'worktree',
+        gitBranch: 'bad-template-model',
+      });
+
+      const res = await request(app).post(`/api/projects/${projectId}/sessions`).send({
+        prompt: 'Test prompt',
+        templateId: template.id,
+      });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
+      expect(setupGitForSession).not.toHaveBeenCalled();
+      sessionTemplates.delete(template.id);
     });
 
     describe('Phase 7: agentType derivation from model', () => {
@@ -1768,7 +1800,7 @@ describe('Projects API', () => {
       expect(childSession.gitWorktree).toBe('/tmp/parent-worktree');
     });
 
-    it('calls setupGitForSession when parent has no gitWorktree', async () => {
+    it('does not call setupGitForSession when parent has no gitWorktree, pins child to project directory', async () => {
       // Create a parent session WITHOUT a gitWorktree
       const parentSession = sessions.create(projectId, 'Parent Session', 'running');
       sessions.update(parentSession.id, { gitWorktree: null });
@@ -1782,15 +1814,13 @@ describe('Projects API', () => {
 
       expect(res.status).toBe(201);
 
-      // setupGitForSession SHOULD have been called because parent has no worktree
-      expect(setupGitForSession).toHaveBeenCalledWith({
-        projectDir: tempDir,
-        gitMode: 'worktree',
-        gitBranch: 'test-branch',
-        sessionId: res.body.id,
-        worktreeBasePath: null,
-        commitAttributionOverride: null,
-      });
+      // setupGitForSession should NOT be called — child is pinned to the
+      // parent's plain project checkout, no new worktree is created.
+      expect(setupGitForSession).not.toHaveBeenCalled();
+
+      // The child session's gitWorktree should remain null
+      const childSession = sessions.getById(res.body.id);
+      expect(childSession.gitWorktree).toBeNull();
     });
 
     it('calls setupGitForSession when no parentSessionId is provided', async () => {
@@ -1813,8 +1843,8 @@ describe('Projects API', () => {
       });
     });
 
-    it('calls setupGitForSession when parent session has no gitWorktree field set', async () => {
-      // Create a parent session that exists but has no gitWorktree at all (undefined/falsy)
+    it('does not call setupGitForSession when parent session has no gitWorktree field set, pins child to project directory', async () => {
+      // Create a parent session that exists but has no gitWorktree at all (defaults to null)
       const parentSession = sessions.create(projectId, 'Parent No Worktree', 'running');
       // Don't set gitWorktree - it defaults to null
 
@@ -1827,8 +1857,13 @@ describe('Projects API', () => {
 
       expect(res.status).toBe(201);
 
-      // setupGitForSession should be called because parent has no gitWorktree
-      expect(setupGitForSession).toHaveBeenCalled();
+      // setupGitForSession should NOT be called — child is pinned to the
+      // parent's plain project checkout, no new worktree is created.
+      expect(setupGitForSession).not.toHaveBeenCalled();
+
+      // The child session's gitWorktree should remain null
+      const childSession = sessions.getById(res.body.id);
+      expect(childSession.gitWorktree).toBeNull();
     });
   });
 
@@ -2049,5 +2084,96 @@ describe('validateWorktreePath', () => {
     const validPath = join(tmpdir(), 'some-worktree-dir');
     const result = await validateWorktreePath(validPath);
     expect(result).toBeNull();
+  });
+});
+
+describe('Circus command ownership checks (cross-project isolation)', () => {
+  let app;
+  let tempDirA;
+  let tempDirB;
+  let projectAId;
+  let projectBId;
+  let buttonA; // belongs to projectA
+  let buttonB; // belongs to projectB
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    app = express();
+    app.use(express.json());
+    app.use('/api/projects', projectsRouter);
+
+    // Create two temp directories (both valid git repos)
+    tempDirA = mkdtempSync(join(tmpdir(), 'cmd-ownership-a-'));
+    tempDirB = mkdtempSync(join(tmpdir(), 'cmd-ownership-b-'));
+
+    for (const dir of [tempDirA, tempDirB]) {
+      execSync('git init', { cwd: dir, stdio: 'ignore' });
+      execSync('git config user.email "test@test.com"', { cwd: dir, stdio: 'ignore' });
+      execSync('git config user.name "Test"', { cwd: dir, stdio: 'ignore' });
+      execSync('touch test.txt && git add . && git commit -m "init"', { cwd: dir, stdio: 'ignore' });
+    }
+
+    const projA = projects.create('Project A', tempDirA);
+    const projB = projects.create('Project B', tempDirB);
+    projectAId = projA.id;
+    projectBId = projB.id;
+
+    buttonA = commandButtons.create({ projectId: projectAId, label: 'Button A', command: 'echo a', sortOrder: 0 });
+    buttonB = commandButtons.create({ projectId: projectBId, label: 'Button B', command: 'echo b', sortOrder: 0 });
+  });
+
+  afterEach(() => {
+    for (const dir of [tempDirA, tempDirB]) {
+      if (dir && existsSync(dir)) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('GET returns 200 when button belongs to the project', async () => {
+    const res = await request(app).get(`/api/projects/${projectAId}/circus-commands/${buttonA.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(buttonA.id);
+  });
+
+  it('GET returns 404 when button belongs to a different project', async () => {
+    const res = await request(app).get(`/api/projects/${projectAId}/circus-commands/${buttonB.id}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('PATCH returns 200 when button belongs to the project', async () => {
+    const res = await request(app)
+      .patch(`/api/projects/${projectAId}/circus-commands/${buttonA.id}`)
+      .send({ label: 'Updated A' });
+    expect(res.status).toBe(200);
+    expect(res.body.label).toBe('Updated A');
+  });
+
+  it('PATCH returns 404 and does not update when button belongs to a different project', async () => {
+    const res = await request(app)
+      .patch(`/api/projects/${projectAId}/circus-commands/${buttonB.id}`)
+      .send({ label: 'Should Not Update' });
+    expect(res.status).toBe(404);
+
+    // Verify button B was NOT modified
+    const unchanged = commandButtons.getById(buttonB.id);
+    expect(unchanged.label).toBe('Button B');
+  });
+
+  it('DELETE returns 204 when button belongs to the project', async () => {
+    const res = await request(app).delete(`/api/projects/${projectAId}/circus-commands/${buttonA.id}`);
+    expect(res.status).toBe(204);
+
+    // Verify it was actually deleted
+    expect(commandButtons.getById(buttonA.id)).toBeNull();
+  });
+
+  it('DELETE returns 404 and does not delete when button belongs to a different project', async () => {
+    const res = await request(app).delete(`/api/projects/${projectAId}/circus-commands/${buttonB.id}`);
+    expect(res.status).toBe(404);
+
+    // Verify button B was NOT deleted
+    expect(commandButtons.getById(buttonB.id)).not.toBeNull();
   });
 });

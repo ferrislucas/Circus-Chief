@@ -204,10 +204,10 @@ const loadButton = async (buttonId) => {
   try {
     const projectId = route.params[ROUTE_PARAMS.PROJECT_ID];
 
-    // First try to get from store
-    let button = commandButtonsStore.getButtonById(buttonId);
+    // First try project-scoped store lookup to avoid cross-project matches
+    let button = commandButtonsStore.getButtonsByProjectId(projectId).find((b) => b.id === buttonId);
 
-    // If not in store, fetch from API
+    // If not in store, fetch from project-scoped API
     if (!button) {
       button = await api.getCommandButton(projectId, buttonId);
     }

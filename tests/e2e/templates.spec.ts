@@ -21,18 +21,18 @@ test.describe('Session Templates - Tab Navigation', () => {
     await cleanupTemplates();
   });
 
-  test('displays Sessions and Templates tabs', async ({ page }) => {
+  test('displays Workspaces and Templates tabs', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
 
     await expect(page.locator('.tabs')).toBeVisible();
-    await expect(page.locator('.tab:has-text("Sessions")')).toBeVisible();
+    await expect(page.locator('.tab:has-text("Workspaces")')).toBeVisible();
     await expect(page.locator('.tab:has-text("Templates")')).toBeVisible();
   });
 
-  test('Sessions tab is active by default', async ({ page }) => {
+  test('Workspaces tab is active by default', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
 
-    await expect(page.locator('.tab.active')).toHaveText('Sessions');
+    await expect(page.locator('.tab.active')).toHaveText('Workspaces');
   });
 
   test('can switch to Templates tab', async ({ page }) => {
@@ -44,14 +44,14 @@ test.describe('Session Templates - Tab Navigation', () => {
     await expect(page.locator('.templates-panel')).toBeVisible();
   });
 
-  test('can switch back to Sessions tab', async ({ page }) => {
+  test('can switch back to Workspaces tab', async ({ page }) => {
     await page.goto(`/projects/${project.id}/sessions`);
 
     await page.click('.tab:has-text("Templates")');
     await expect(page.locator('.tab.active')).toHaveText('Templates');
 
-    await page.click('.tab:has-text("Sessions")');
-    await expect(page.locator('.tab.active')).toHaveText('Sessions');
+    await page.click('.tab:has-text("Workspaces")');
+    await expect(page.locator('.tab.active')).toHaveText('Workspaces');
   });
 });
 

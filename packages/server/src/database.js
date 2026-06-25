@@ -16,7 +16,6 @@ export {
   AttachmentRepository,
   CommandButtonRepository,
   CommandRunRepository,
-  QuickResponseRepository,
   ProviderRepository,
   // Kept for any code that still imports ModelProviderRepository by name
   ModelProviderRepository,
@@ -40,7 +39,6 @@ export {
   attachments,
   commandButtons,
   commandRuns,
-  quickResponses,
   modelProviders,
   settings,
   agentCallLogs,

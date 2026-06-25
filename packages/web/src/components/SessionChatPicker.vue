@@ -2,7 +2,7 @@
   <div
     class="session-chat-picker"
     role="listbox"
-    aria-label="Session hierarchy"
+    aria-label="Workspace hierarchy"
     data-testid="session-chat-picker"
     @keydown="handleKeydown"
   >
@@ -18,6 +18,7 @@
       :aria-selected="entry.session.id === activeSessionId ? 'true' : 'false'"
       :tabindex="index === focusedIndex ? 0 : -1"
       :data-index="index"
+      :data-session-id="entry.session.id"
       @click="emit('select', entry.session.id)"
       @keydown.enter.prevent="emit('select', entry.session.id)"
     >

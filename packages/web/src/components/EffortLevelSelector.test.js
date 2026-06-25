@@ -126,8 +126,8 @@ describe('EffortLevelSelector', () => {
     });
   });
 
-  describe('session mode (with sessionId prop)', () => {
-    it('uses session effortLevel from store', async () => {
+  describe('workspace mode (with sessionId prop)', () => {
+    it('uses workspace effortLevel from store', async () => {
       mockSessionsStore.currentSession = {
         id: 'session-123',
         effortLevel: 'max',
@@ -145,7 +145,7 @@ describe('EffortLevelSelector', () => {
       expect(select.element.value).toBe('max');
     });
 
-    it('defaults to auto when session has no effortLevel', async () => {
+    it('defaults to auto when workspace has no effortLevel', async () => {
       mockSessionsStore.currentSession = {
         id: 'session-123',
         effortLevel: null,

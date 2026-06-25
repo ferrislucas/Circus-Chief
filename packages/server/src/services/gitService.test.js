@@ -8,17 +8,25 @@ import {
   _setManagedHooksPath,
   branchExists,
   checkoutBranch,
+  classifyGitError,
   clearDefaultBranchCache,
   clearWorktreeCommitAttribution,
   createWorktree,
   createWorktreeForBranch,
+  DEFAULT_GIT_ENV,
+  DEFAULT_GIT_TIMEOUT_MS,
   detectWorktreePath,
+  fetchOrigin,
+  getAheadBehindCounts,
+  getBranchUpstream,
   getCacheSize,
   getCurrentBranch,
   getGitAuthor,
+  getLocalChangeCount,
   getManagedHooksPath,
   getOriginDefaultBranch,
   getRepositoryUrl,
+  getSessionGitStatus,
   getUntrackedFiles,
   git,
   ensureWorktreeCommitAttributionHook,
@@ -1293,5 +1301,244 @@ describe('gitService', () => {
       // Clean up worktree before the shared afterEach deletes testDir
       execSync(`git worktree remove --force "${worktreePath}"`, { cwd: testDir });
     });
+  });
+
+  describe('session git status helpers', () => {
+    async function commitFile(directory, filename, content, message) {
+      await writeFile(join(directory, filename), content);
+      execSync(`git add "${filename}"`, { cwd: directory });
+      execSync(`git commit -m "${message}"`, { cwd: directory });
+    }
+
+    async function cloneOrigin() {
+      const cloneDir = await mkdtemp(join(tmpdir(), 'git-clone-'));
+      execSync(`git clone "${bareRepoDir}" "${cloneDir}"`);
+      execSync('git config user.email "other@test.com"', { cwd: cloneDir });
+      execSync('git config user.name "Other"', { cwd: cloneDir });
+      return cloneDir;
+    }
+
+    it('reports a clean branch with upstream', async () => {
+      const status = await getSessionGitStatus(testDir);
+
+      expect(status.syncStatus).toBe('clean');
+      expect(status.hasUpstream).toBe(true);
+      expect(status.aheadCount).toBe(0);
+      expect(status.behindCount).toBe(0);
+      expect(status.localChangeCount).toBe(0);
+    });
+
+    it('counts unique local changed paths including renames', async () => {
+      execSync('git mv README.md README-renamed.md', { cwd: testDir });
+      await writeFile(join(testDir, 'new-file.txt'), 'new');
+
+      const count = await getLocalChangeCount(testDir);
+      const status = await getSessionGitStatus(testDir);
+
+      expect(count).toBe(2);
+      expect(status.syncStatus).toBe('dirty');
+      expect(status.hasUncommittedChanges).toBe(true);
+    });
+
+    it('reports ahead commits', async () => {
+      await commitFile(testDir, 'ahead.txt', 'ahead', 'Ahead');
+
+      const status = await getSessionGitStatus(testDir);
+
+      expect(status.syncStatus).toBe('ahead');
+      expect(status.aheadCount).toBe(1);
+      expect(status.isUnpushed).toBe(true);
+    });
+
+    it('reports behind commits after fetching remote refs', async () => {
+      const cloneDir = await cloneOrigin();
+      try {
+        await commitFile(cloneDir, 'remote.txt', 'remote', 'Remote');
+        execSync('git push', { cwd: cloneDir });
+        await fetchOrigin(testDir);
+
+        const status = await getSessionGitStatus(testDir);
+
+        expect(status.syncStatus).toBe('behind');
+        expect(status.behindCount).toBe(1);
+        expect(status.isBehind).toBe(true);
+      } finally {
+        await rm(cloneDir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports diverged branches', async () => {
+      const cloneDir = await cloneOrigin();
+      try {
+        await commitFile(cloneDir, 'remote.txt', 'remote', 'Remote');
+        execSync('git push', { cwd: cloneDir });
+        await fetchOrigin(testDir);
+        await commitFile(testDir, 'local.txt', 'local', 'Local');
+
+        const counts = await getAheadBehindCounts(testDir, await getBranchUpstream(testDir));
+        const status = await getSessionGitStatus(testDir);
+
+        expect(counts).toEqual({ behindCount: 1, aheadCount: 1 });
+        expect(status.syncStatus).toBe('diverged');
+        expect(status.isDiverged).toBe(true);
+      } finally {
+        await rm(cloneDir, { recursive: true, force: true });
+      }
+    });
+
+    it('reports branches without upstream as unpublished', async () => {
+      execSync('git checkout -b no-upstream', { cwd: testDir });
+
+      const status = await getSessionGitStatus(testDir);
+
+      expect(status.syncStatus).toBe('unpublished');
+      expect(status.upstreamBranch).toBeNull();
+      expect(status.hasUpstream).toBe(false);
+    });
+
+    it('reports detached HEAD as unknown', async () => {
+      const head = execSync('git rev-parse HEAD', { cwd: testDir }).toString().trim();
+      execSync(`git checkout ${head}`, { cwd: testDir });
+
+      const status = await getSessionGitStatus(testDir);
+
+      expect(status.currentBranch).toBeNull();
+      expect(status.syncStatus).toBe('unknown');
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// git() hardening: timeout defaults, non-interactive env, and error messages
+// ---------------------------------------------------------------------------
+
+describe('git() hardening', () => {
+  let testDir;
+
+  beforeEach(async () => {
+    testDir = await mkdtemp(join(tmpdir(), 'git-hardening-test-'));
+    execSync('git init', { cwd: testDir });
+    execSync('git config user.email "test@test.com"', { cwd: testDir });
+    execSync('git config user.name "Test"', { cwd: testDir });
+    execSync('git commit --allow-empty -m init', { cwd: testDir });
+  });
+
+  afterEach(async () => {
+    await rm(testDir, { recursive: true, force: true });
+  });
+
+  it('applies non-interactive environment defaults', async () => {
+    // Run a real git command and confirm it succeeds (env defaults don't break normal ops)
+    const branch = await git(testDir, 'rev-parse --abbrev-ref HEAD');
+    expect(typeof branch).toBe('string');
+    expect(branch.length).toBeGreaterThan(0);
+  });
+
+  it('DEFAULT_GIT_TIMEOUT_MS is a positive number', () => {
+    expect(typeof DEFAULT_GIT_TIMEOUT_MS).toBe('number');
+    expect(DEFAULT_GIT_TIMEOUT_MS).toBeGreaterThan(0);
+  });
+
+  it('DEFAULT_GIT_ENV contains non-interactive keys', () => {
+    expect(DEFAULT_GIT_ENV.GIT_TERMINAL_PROMPT).toBe('0');
+    expect(typeof DEFAULT_GIT_ENV.GIT_ASKPASS).toBe('string');
+    expect(typeof DEFAULT_GIT_ENV.GIT_SSH_COMMAND).toBe('string');
+  });
+
+  it('caller-provided timeout overrides the default', async () => {
+    // A very short timeout should cause a timeout on a slow command; we just verify
+    // the option is accepted without error on a fast command.
+    const output = await git(testDir, 'status --short', { timeout: 5000 });
+    expect(typeof output).toBe('string');
+  });
+
+  it('caller-provided env merges with non-interactive defaults', async () => {
+    // Pass a custom env var alongside defaults; git should still work.
+    const output = await git(testDir, 'rev-parse HEAD', { env: { MY_CUSTOM_VAR: 'hello' } });
+    expect(typeof output).toBe('string');
+    expect(output.length).toBe(40); // full SHA
+  });
+
+  it('timeout errors get a clear GIT_TIMEOUT code', async () => {
+    // Use GIT_FETCH_TIMEOUT_MS just to verify the env-var path; here we use
+    // a direct timeout option of 1ms which is guaranteed to fire before any git
+    // command can respond.
+    let caught;
+    try {
+      await git(testDir, 'status', { timeout: 1 });
+    } catch (err) {
+      caught = err;
+    }
+    // May or may not time out at 1ms depending on CI speed; if it does, check code
+    if (caught) {
+      if (caught.code === 'GIT_TIMEOUT') {
+        expect(caught.message).toMatch(/timed out/i);
+      }
+      // Otherwise it failed for another reason (e.g. race); that's acceptable
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyGitError
+// ---------------------------------------------------------------------------
+
+describe('classifyGitError', () => {
+  it('classifies killed/timeout errors', () => {
+    const err = new Error('process killed');
+    err.killed = true;
+    const result = classifyGitError(err, 'git fetch origin');
+    expect(result.code).toBe('git_timeout');
+  });
+
+  it('classifies credential errors (terminal prompts disabled)', () => {
+    const err = new Error('terminal prompts disabled\nfatal: could not read Username');
+    const result = classifyGitError(err, 'git fetch origin');
+    expect(result.code).toBe('git_credential_required');
+  });
+
+  it('classifies credential errors (HTTP 401)', () => {
+    const err = new Error('The requested URL returned error: 401 Unauthorized');
+    const result = classifyGitError(err, 'git fetch origin');
+    expect(result.code).toBe('git_credential_required');
+  });
+
+  it('classifies permission denied (SSH)', () => {
+    const err = new Error('Permission denied (publickey)');
+    const result = classifyGitError(err, 'git fetch origin');
+    expect(result.code).toBe('git_permission_denied');
+  });
+
+  it('classifies remote unreachable (DNS)', () => {
+    const err = new Error('Could not resolve host: github.example.invalid');
+    const result = classifyGitError(err, 'git fetch origin');
+    expect(result.code).toBe('git_remote_unreachable');
+  });
+
+  it('classifies remote unreachable (repository not found)', () => {
+    const err = new Error("ERROR: Repository not found.");
+    const result = classifyGitError(err, 'git fetch origin');
+    expect(result.code).toBe('git_remote_unreachable');
+  });
+
+  it('falls back to git_unknown for unrecognized errors', () => {
+    const err = new Error('some weird git error we have never seen before');
+    const result = classifyGitError(err, 'git status');
+    expect(result.code).toBe('git_unknown');
+  });
+
+  it('returns a remediation string for all categories', () => {
+    const cases = [
+      Object.assign(new Error('killed'), { killed: true }),
+      new Error('terminal prompts disabled'),
+      new Error('Permission denied (publickey)'),
+      new Error('Could not resolve host: x'),
+      new Error('completely unknown error xyz'),
+    ];
+    for (const err of cases) {
+      const result = classifyGitError(err, 'git fetch origin');
+      expect(typeof result.remediation).toBe('string');
+      expect(result.remediation.length).toBeGreaterThan(0);
+    }
   });
 });

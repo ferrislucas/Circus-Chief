@@ -77,7 +77,7 @@ describe('ProjectNewView', () => {
   });
 
   describe('Page Title and Labels', () => {
-    it('displays "Add a Repository" as page title', async () => {
+    it('displays "Add a Project" as page title', async () => {
       await router.push('/projects/new');
       await router.isReady();
 
@@ -87,10 +87,10 @@ describe('ProjectNewView', () => {
 
       await flushAll(wrapper);
 
-      expect(wrapper.find('h1').text()).toBe('Add a Repository');
+      expect(wrapper.find('h1').text()).toBe('Add a Project');
     });
 
-    it('shows "Repository Folder" label', async () => {
+    it('shows "Project Folder" label', async () => {
       await router.push('/projects/new');
       await router.isReady();
 
@@ -101,7 +101,7 @@ describe('ProjectNewView', () => {
       await flushAll(wrapper);
 
       const text = wrapper.text();
-      expect(text).toContain('Repository Folder');
+      expect(text).toContain('Project Folder');
     });
 
     it('shows "Display Name" label', async () => {
@@ -118,7 +118,7 @@ describe('ProjectNewView', () => {
       expect(text).toContain('Display Name');
     });
 
-    it('submit button says "Add Repository"', async () => {
+    it('submit button says "Add Project"', async () => {
       await router.push('/projects/new');
       await router.isReady();
 
@@ -129,7 +129,7 @@ describe('ProjectNewView', () => {
       await flushAll(wrapper);
 
       const submitBtn = wrapper.find('button[type="submit"]');
-      expect(submitBtn.text()).toContain('Add Repository');
+      expect(submitBtn.text()).toContain('Add Project');
     });
   });
 
@@ -175,7 +175,7 @@ describe('ProjectNewView', () => {
   });
 
   describe('Form Submission', () => {
-    it('shows success toast "Repository added" on submit', async () => {
+    it('shows success toast "Project added" on submit', async () => {
       await router.push('/projects/new');
       await router.isReady();
 
@@ -195,7 +195,7 @@ describe('ProjectNewView', () => {
       await form.trigger('submit');
       await flushAll(wrapper);
 
-      expect(uiStore.success).toHaveBeenCalledWith('Repository added');
+      expect(uiStore.success).toHaveBeenCalledWith('Project added');
     });
   });
 

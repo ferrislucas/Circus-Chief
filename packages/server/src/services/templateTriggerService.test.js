@@ -22,317 +22,225 @@ import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief
 
 describe('templateTriggerService', () => {
   describe('renderTemplatePrompt', () => {
-    it('renders template with parentSession.summary', async () => {
-      const templatePrompt = 'Review the work: {{parentSession.summary}}';
-      const parentSession = {
+    it('renders template with workspace.summary', async () => {
+      const templatePrompt = 'Review the work: {{workspace.summary}}';
+      const rootSession = {
         id: 'session-123',
         name: 'Test Session',
         status: 'stopped',
       };
-      const parentSummary = {
+      const rootSummary = {
         fullSummary: 'Built a new feature for user authentication.',
         shortSummary: 'Built auth feature',
       };
-      const rootSession = parentSession; // Same as parent for single-level
-      const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary });
 
       expect(rendered).toBe('Review the work: Built a new feature for user authentication.');
     });
 
-    it('renders template with parentSession.id', async () => {
-      const templatePrompt = 'Parent session ID: {{parentSession.id}}';
-      const parentSession = {
+    it('renders template with workspace.id', async () => {
+      const templatePrompt = 'Workspace ID: {{workspace.id}}';
+      const rootSession = {
         id: 'abc-123-def',
         name: 'Test',
         status: 'stopped',
       };
-      const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary: null });
 
-      expect(rendered).toBe('Parent session ID: abc-123-def');
+      expect(rendered).toBe('Workspace ID: abc-123-def');
     });
 
-    it('renders template with parentSession.name', async () => {
-      const templatePrompt = 'Following up on: {{parentSession.name}}';
-      const parentSession = {
+    it('renders template with workspace.name', async () => {
+      const templatePrompt = 'Following up on: {{workspace.name}}';
+      const rootSession = {
         id: 'session-123',
         name: 'Build login page',
         status: 'stopped',
       };
-      const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary: null });
 
       expect(rendered).toBe('Following up on: Build login page');
     });
 
-    it('renders template with parentSession.status', async () => {
-      const templatePrompt = 'Session ended with status: {{parentSession.status}}';
-      const parentSession = {
+    it('renders template with workspace.status', async () => {
+      const templatePrompt = 'Workspace ended with status: {{workspace.status}}';
+      const rootSession = {
         id: 'session-123',
         name: 'Test',
         status: 'error',
       };
-      const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary: null });
 
-      expect(rendered).toBe('Session ended with status: error');
+      expect(rendered).toBe('Workspace ended with status: error');
     });
 
     it('uses shortSummary when fullSummary is not available', async () => {
-      const templatePrompt = 'Summary: {{parentSession.summary}}';
-      const parentSession = {
+      const templatePrompt = 'Summary: {{workspace.summary}}';
+      const rootSession = {
         id: 'session-123',
         name: 'Test',
         status: 'stopped',
       };
-      const parentSummary = {
+      const rootSummary = {
         shortSummary: 'Short summary only',
         fullSummary: null,
       };
-      const rootSession = parentSession;
-      const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary });
 
       expect(rendered).toBe('Summary: Short summary only');
     });
 
     it('uses fallback when no summary is available', async () => {
-      const templatePrompt = 'Summary: {{parentSession.summary}}';
-      const parentSession = {
+      const templatePrompt = 'Summary: {{workspace.summary}}';
+      const rootSession = {
         id: 'session-123',
         name: 'Test',
         status: 'stopped',
       };
-      const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary: null });
 
       expect(rendered).toBe('Summary: No summary available');
     });
 
-    it('renders template with keyActions array', async () => {
-      const templatePrompt = '{% for action in parentSession.keyActions %}{{action}}, {% endfor %}';
-      const parentSession = {
+    it('renders template with workspace.keyActions array', async () => {
+      const templatePrompt = '{% for action in workspace.keyActions %}{{action}}, {% endfor %}';
+      const rootSession = {
         id: 'session-123',
         name: 'Test',
         status: 'stopped',
       };
-      const parentSummary = {
+      const rootSummary = {
         keyActions: ['Added login form', 'Updated API', 'Fixed bug'],
       };
-      const rootSession = parentSession;
-      const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary });
 
       expect(rendered).toBe('Added login form, Updated API, Fixed bug, ');
     });
 
-    it('renders template with filesModified array', async () => {
-      const templatePrompt = 'Modified: {% for file in parentSession.filesModified %}{{file}}{% unless forloop.last %}, {% endunless %}{% endfor %}';
-      const parentSession = {
+    it('renders template with workspace.filesModified array', async () => {
+      const templatePrompt = 'Modified: {% for file in workspace.filesModified %}{{file}}{% unless forloop.last %}, {% endunless %}{% endfor %}';
+      const rootSession = {
         id: 'session-123',
         name: 'Test',
         status: 'stopped',
       };
-      const parentSummary = {
+      const rootSummary = {
         filesModified: ['src/login.js', 'src/api.js'],
       };
-      const rootSession = parentSession;
-      const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary });
 
       expect(rendered).toBe('Modified: src/login.js, src/api.js');
     });
 
-    it('renders template with outcome', async () => {
-      const templatePrompt = 'Outcome: {{parentSession.outcome}}';
-      const parentSession = {
+    it('renders template with workspace.outcome', async () => {
+      const templatePrompt = 'Outcome: {{workspace.outcome}}';
+      const rootSession = {
         id: 'session-123',
         name: 'Test',
         status: 'stopped',
       };
-      const parentSummary = {
+      const rootSummary = {
         outcome: 'partial',
       };
-      const rootSession = parentSession;
-      const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary });
 
       expect(rendered).toBe('Outcome: partial');
     });
 
-    it('uses session status as fallback outcome', async () => {
-      const templatePrompt = 'Outcome: {{parentSession.outcome}}';
-      const parentSession = {
+    it('uses session status as fallback for workspace.outcome', async () => {
+      const templatePrompt = 'Outcome: {{workspace.outcome}}';
+      const rootSession = {
         id: 'session-123',
         name: 'Test',
         status: 'error',
       };
-      const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary: null });
 
       expect(rendered).toBe('Outcome: error');
     });
 
-    it('renders complex template with multiple variables', async () => {
+    it('renders complex template with multiple workspace variables', async () => {
       const templatePrompt = `
-## Review Session: {{parentSession.name}}
+## Review Workspace: {{workspace.name}}
 
-Status: {{parentSession.status}}
-Summary: {{parentSession.summary}}
+Status: {{workspace.status}}
+Summary: {{workspace.summary}}
 
 Please review the above work.
       `.trim();
 
-      const parentSession = {
+      const rootSession = {
         id: 'session-123',
         name: 'Build feature X',
         status: 'stopped',
       };
-      const parentSummary = {
+      const rootSummary = {
         fullSummary: 'Implemented feature X with tests.',
       };
-      const rootSession = parentSession;
-      const rootSummary = parentSummary;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary, rootSession, rootSummary });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary });
 
-      expect(rendered).toContain('Review Session: Build feature X');
+      expect(rendered).toContain('Review Workspace: Build feature X');
       expect(rendered).toContain('Status: stopped');
       expect(rendered).toContain('Summary: Implemented feature X with tests.');
     });
 
     it('handles template with no variables', async () => {
       const templatePrompt = 'This is a static prompt with no variables.';
-      const parentSession = {
+      const rootSession = {
         id: 'session-123',
         name: 'Test',
         status: 'stopped',
       };
-      const rootSession = parentSession;
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary: null });
 
       expect(rendered).toBe('This is a static prompt with no variables.');
     });
 
-    it('renders template with rootSession.id', async () => {
-      const templatePrompt = 'Root session ID: {{rootSession.id}}';
-      const parentSession = {
-        id: 'parent-456',
-        name: 'Parent',
-        status: 'stopped',
-      };
+    it('workspace token refers to the root session in a chain', async () => {
+      const templatePrompt = 'Workspace: {{workspace.name}}';
       const rootSession = {
         id: 'root-123',
-        name: 'Root',
-        status: 'stopped',
-      };
-
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
-
-      expect(rendered).toBe('Root session ID: root-123');
-    });
-
-    it('renders template with rootSession.name', async () => {
-      const templatePrompt = 'Root session name: {{rootSession.name}}';
-      const parentSession = {
-        id: 'parent-456',
-        name: 'Parent Session',
-        status: 'stopped',
-      };
-      const rootSession = {
-        id: 'root-123',
-        name: 'Original Session',
-        status: 'stopped',
-      };
-
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
-
-      expect(rendered).toBe('Root session name: Original Session');
-    });
-
-    it('renders template with rootSession.summary', async () => {
-      const templatePrompt = 'Root summary: {{rootSession.summary}}';
-      const parentSession = {
-        id: 'parent-456',
-        name: 'Parent',
-        status: 'stopped',
-      };
-      const rootSession = {
-        id: 'root-123',
-        name: 'Root',
+        name: 'Root Workspace',
         status: 'stopped',
       };
       const rootSummary = {
-        fullSummary: 'This is the root session summary.',
-        shortSummary: 'Root summary',
+        fullSummary: 'Root workspace summary.',
       };
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary });
 
-      expect(rendered).toBe('Root summary: This is the root session summary.');
+      expect(rendered).toBe('Workspace: Root Workspace');
     });
 
-    it('renders template with rootSession.status', async () => {
-      const templatePrompt = 'Root status: {{rootSession.status}}';
-      const parentSession = {
-        id: 'parent-456',
-        name: 'Parent',
-        status: 'stopped',
-      };
-      const rootSession = {
-        id: 'root-123',
-        name: 'Root',
-        status: 'completed',
-      };
+    it('old parentSession token resolves to empty (backward-compat guard)', async () => {
+      const templatePrompt = 'Old: {{parentSession.summary}}';
+      const rootSession = { id: 'root-1', name: 'Root', status: 'stopped' };
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary: null });
 
-      expect(rendered).toBe('Root status: completed');
+      // Liquid renders undefined variables as empty string
+      expect(rendered).toBe('Old: ');
     });
 
-    it('rootSession equals parentSession when there is no chain', async () => {
-      const templatePrompt = 'Parent: {{parentSession.id}}, Root: {{rootSession.id}}';
-      const parentSession = {
-        id: 'session-123',
-        name: 'Single Session',
-        status: 'stopped',
-      };
-      const rootSession = parentSession; // Same as parent for single-level
+    it('old rootSession token resolves to empty (backward-compat guard)', async () => {
+      const templatePrompt = 'Old: {{rootSession.summary}}';
+      const rootSession = { id: 'root-1', name: 'Root', status: 'stopped' };
 
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
+      const rendered = await renderTemplatePrompt(templatePrompt, { rootSession, rootSummary: null });
 
-      expect(rendered).toBe('Parent: session-123, Root: session-123');
-    });
-
-    it('rootSession differs from parentSession in multi-level chain', async () => {
-      const templatePrompt = 'Chain: {{rootSession.name}} -> {{parentSession.name}}';
-      const rootSession = {
-        id: 'root-123',
-        name: 'Root Session',
-        status: 'stopped',
-      };
-      const parentSession = {
-        id: 'parent-456',
-        name: 'Parent Session',
-        status: 'stopped',
-        parentSessionId: 'root-123',
-      };
-
-      const rendered = await renderTemplatePrompt(templatePrompt, { parentSession, parentSummary: null, rootSession, rootSummary: null });
-
-      expect(rendered).toBe('Chain: Root Session -> Parent Session');
+      expect(rendered).toBe('Old: ');
     });
   });
 
@@ -362,7 +270,7 @@ Please review the above work.
       const template = sessionTemplates.create({
         projectId,
         name: 'Follow-up Template',
-        prompt: 'Follow up: {{parentSession.summary}}',
+        prompt: 'Follow up: {{workspace.summary}}',
       });
       templateId = template.id;
 

@@ -74,25 +74,25 @@ test.describe('Orchestration Panel - Panel Visibility & Expand/Collapse', () => 
     await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
   });
 
-  test('panel starts expanded when auto-reschedule is enabled', async ({ page }) => {
+  test('panel starts collapsed when only auto-reschedule is enabled (no template)', async ({ page }) => {
     const session = await seedSession(project.id, {
       prompt: 'Test',
       name: 'AutoExpand Reschedule Test',
       startImmediately: false,
     });
 
-    // Enable auto-reschedule via API
+    // Enable auto-reschedule via API (but no next template)
     await updateSessionScheduling(session.id, { autoRescheduleEnabled: true });
 
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
 
-    // Content should be visible without clicking (auto-expanded)
+    // Panel content should NOT be visible (retry settings alone do not auto-expand)
     const content = page.locator('.orchestration-content');
-    await expect(content).toBeVisible();
+    await expect(content).not.toBeVisible();
 
     const toggleButton = page.locator('.orchestration-panel .toggle-button');
-    await expect(toggleButton).toHaveAttribute('aria-expanded', 'true');
+    await expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
   });
 
   test('panel starts expanded when next template is set', async ({ page }) => {
@@ -395,8 +395,11 @@ test.describe('Orchestration Panel - Auto-Reschedule Modal', () => {
     await navigateAndWait(page, `/sessions/${session.id}/summary`);
     await openSessionOverlay(page);
 
-    // Panel should be expanded (auto-expanded because autoRescheduleEnabled)
+    // Panel is collapsed by default — manually expand it to access the status button
     const content = page.locator('.orchestration-content');
+    await expect(content).not.toBeVisible();
+    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    await panelHeader.click();
     await expect(content).toBeVisible();
 
     // Click status button to open modal

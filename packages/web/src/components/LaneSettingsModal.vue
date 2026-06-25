@@ -85,6 +85,30 @@
           </div>
         </div>
 
+        <!-- On Completion -->
+        <div class="form-group">
+          <label
+            for="completion-target-lane-select"
+            class="form-label"
+          >On Completion</label>
+          <select
+            id="completion-target-lane-select"
+            v-model="form.completionTargetLaneId"
+            class="form-input"
+          >
+            <option :value="null">
+              Do not move automatically
+            </option>
+            <option
+              v-for="targetLane in completionTargetLanes"
+              :key="targetLane.id"
+              :value="targetLane.id"
+            >
+              {{ targetLane.name }}
+            </option>
+          </select>
+        </div>
+
         <!-- Automation Type -->
         <div class="form-group">
           <label class="form-label">On-Enter Automation</label>
@@ -162,7 +186,7 @@
             </optgroup>
           </select>
           <p class="form-help">
-            When a session enters this lane, the selected template will automatically run.
+            When a workspace enters this lane, the selected template will automatically run.
           </p>
         </div>
 
@@ -180,7 +204,7 @@
             ref="promptTextareaRef"
             v-model="form.onEnterPrompt"
             class="form-input form-textarea"
-            placeholder="Enter the prompt to run when a session enters this lane..."
+            placeholder="Enter the prompt to run when a workspace enters this lane..."
             rows="4"
             :min-height="80"
           />
@@ -217,7 +241,7 @@
               class="toggle-chevron"
               :class="{ open: showAgentSettings }"
             >&#9654;</span>
-            Session Settings
+            Workspace Settings
           </button>
 
           <div
@@ -346,7 +370,7 @@
             Danger Zone
           </h4>
           <p class="danger-description">
-            Deleting this lane will remove all cards from it. Sessions will remain in the project.
+            Deleting this lane will remove all cards from it. Workspaces will remain in the project.
           </p>
           <button
             class="btn btn-danger"
@@ -432,6 +456,7 @@ const form = reactive({
   onEnterMaxRescheduleCount: null,
   onEnterMaxTotalTokens: null,
   onEnterRescheduleAtTokenCount: null,
+  completionTargetLaneId: null,
 });
 
 const projectTemplates = computed(() => templatesStore.projectTemplates);
@@ -445,6 +470,10 @@ const workingDirectory = computed(() => {
 const laneIndex = computed(() => currentLaneIndex.value);
 
 const totalLanes = computed(() => kanbanStore.board?.lanes?.length || 0);
+
+const completionTargetLanes = computed(() =>
+  (kanbanStore.board?.lanes || []).filter((lane) => lane.id !== props.lane?.id)
+);
 
 const isValid = computed(() => {
   if (!form.name.trim()) return false;
@@ -484,6 +513,7 @@ function buildFormFromLane(lane) {
     onEnterModel: lane.onEnterModel || null,
     onEnterEffortLevel: lane.onEnterEffortLevel || null,
     onEnterThinkingEnabled: lane.onEnterThinkingEnabled ?? null,
+    completionTargetLaneId: lane.completionTargetLaneId || null,
     ...buildRescheduleFields(lane),
   };
 }
@@ -654,6 +684,7 @@ async function handleSave() {
     } else {
       Object.assign(data, buildSaveDataForNone());
     }
+    data.completionTargetLaneId = form.completionTargetLaneId || null;
 
     await handleLanePositionChange(props.lane, initialLaneIndex.value, currentLaneIndex.value, props.projectId);
     await kanbanStore.updateLane(props.projectId, props.lane.id, data);
@@ -724,6 +755,11 @@ watch(
       if (currentIndex >= 0) {
         initialLaneIndex.value = currentIndex;
         currentLaneIndex.value = currentIndex;
+      }
+
+      const targetStillValid = newLanes.some((l) => l.id === form.completionTargetLaneId && l.id !== props.lane.id);
+      if (form.completionTargetLaneId && !targetStillValid) {
+        form.completionTargetLaneId = null;
       }
     }
   },

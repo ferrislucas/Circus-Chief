@@ -75,14 +75,6 @@ function normalizeCreateSessionData(data) {
 export function SessionsApi(ApiClient) {
   Object.assign(ApiClient.prototype, {
     /**
-     * Get all active/waiting sessions across all projects
-     * @returns {Promise<Array>}
-     */
-    async getActiveSessions() {
-      return this._get('/sessions');
-    },
-
-    /**
      * Get all sessions for a project
      * @param {string} projectId - Project ID
      * @param {boolean|null} archived - Filter by archived status (null = all, true = archived only, false = non-archived only)
@@ -218,6 +210,21 @@ export function SessionsApi(ApiClient) {
      */
     async getSessionDefaultBranch(sessionId) {
       return this._get(`/sessions/${sessionId}/default-branch`);
+    },
+
+    /**
+     * Get compact git status for a session.
+     * @param {string} sessionId
+     * @param {Object} [options]
+     * @param {boolean} [options.fetch=false] - Fetch origin before computing status
+     * @returns {Promise<Object>}
+     */
+    async getSessionGitStatus(sessionId, options = {}) {
+      const params = {};
+      if (options.fetch === true) {
+        params.fetch = true;
+      }
+      return this._get(this._buildQueryPath(`/sessions/${sessionId}/git-status`, params));
     },
 
     /**

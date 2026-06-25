@@ -30,6 +30,11 @@
 # from, regardless of the caller's cwd.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# All relative paths below (.git detection, yarn build, node entrypoint) must
+# resolve against the same worktree as this script, even when a command runner
+# launches the script from a different cwd.
+cd "$PROJECT_ROOT" || exit 1
+
 PORT_FILE="$PROJECT_ROOT/.server-port"
 MAIN_PORT=5000
 WORKTREE_PORT_START=5001
@@ -133,10 +138,19 @@ if lsof -i:${SELECTED_PORT} >/dev/null 2>&1; then
         echo "Port ${SELECTED_PORT} is in use, finding another..."
         SELECTED_PORT=$(find_available_port $((SELECTED_PORT + 1)))
     else
-        # Main repo - port 5000 is in use
-        echo "Error: Port $MAIN_PORT is already in use"
-        echo "Use --force to restart the main server"
-        exit 1
+        # Main repo - port 5000 is in use.
+        if [ -n "${VCR_MODE:-}" ]; then
+            # Test mode (launched by pw.sh): the protected main dev server may
+            # legitimately be holding port 5000. Instead of failing, start the
+            # hermetic test server on an alternate port (5001+). Port 5000 is
+            # never killed, preserving the main-server protection guarantee.
+            echo "Port $MAIN_PORT is in use; starting test server on an alternate port..."
+            SELECTED_PORT=$(find_available_port $WORKTREE_PORT_START)
+        else
+            echo "Error: Port $MAIN_PORT is already in use"
+            echo "Use --force to restart the main server"
+            exit 1
+        fi
     fi
 fi
 

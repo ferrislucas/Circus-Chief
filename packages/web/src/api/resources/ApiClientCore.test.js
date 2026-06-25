@@ -115,7 +115,6 @@ describe('ApiClient Core', () => {
     });
 
     it('has all resource methods from SessionsApi', () => {
-      expect(typeof client.getActiveSessions).toBe('function');
       expect(typeof client.getSession).toBe('function');
       expect(typeof client.createSession).toBe('function');
       expect(typeof client.sendMessage).toBe('function');
@@ -161,11 +160,6 @@ describe('ApiClient Core', () => {
     it('has all resource methods from TemplatesApi', () => {
       expect(typeof client.getGlobalTemplates).toBe('function');
       expect(typeof client.getProjectTemplates).toBe('function');
-    });
-
-    it('has all resource methods from QuickResponsesApi', () => {
-      expect(typeof client.getQuickResponses).toBe('function');
-      expect(typeof client.reorderQuickResponses).toBe('function');
     });
 
     it('has all resource methods from MiscApi', () => {

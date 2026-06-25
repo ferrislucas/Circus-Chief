@@ -99,6 +99,8 @@ import { agentCallLogger } from './agentCallLogger.js';
 import * as ghService from './ghService.js';
 import * as summaryBroadcast from './summaryBroadcast.js';
 import * as summaryPropagation from './summaryPropagation.js';
+import { buildMergedParentSummary } from './summaryMerge.js';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
   MAX_MESSAGES,
   MIN_MESSAGES_FOR_SUMMARY,
@@ -2012,6 +2014,37 @@ describe('summaryService', () => {
       expect(stored).not.toBeNull();
     });
 
+    it('regenerateSummary for a parent with descendants works when disableSessionSummaries is true', async () => {
+      const child = sessions.create(projectId, 'Disabled merge child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child completed',
+        fullSummary: 'Child completed full',
+        keyActions: ['child action while disabled'],
+        filesModified: ['child-disabled.js'],
+        outcome: 'completed',
+      });
+
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      try {
+        const result = await summaryService.regenerateSummary(sessionId);
+
+        expect(result).not.toBeNull();
+        expect(result.sessionId).toBe(sessionId);
+        expect(result.keyActions).toContain('child action while disabled');
+        expect(result.filesModified).toContain('child-disabled.js');
+        expect(result.fullSummary).toContain('Child completed');
+
+        const stored = sessionSummaries.getBySessionId(sessionId);
+        expect(stored).not.toBeNull();
+        expect(stored.ownFullSummary).toBeDefined();
+      } finally {
+        settings.setSummarySettings({ disableSessionSummaries: false });
+        summaryService.cleanupSession(child.id);
+      }
+    });
+
     it('generateSummary with force=true but NOT userInitiated respects disableSessionSummaries', async () => {
       // Disable session summaries globally
       settings.setSummarySettings({ disableSessionSummaries: true });
@@ -2089,6 +2122,54 @@ describe('summaryService', () => {
 
       expect(result).not.toBeNull();
       expect(result.sessionId).toBe(sessionId);
+    });
+
+    it('getSummary with generateIfMissing=false returns existing summary without repairing stale descendant projection', async () => {
+      // Issue #3 fix: getSummary(sessionId, false) must NOT perform write-on-read repairs
+      // even when the descendant state is stale.
+      const child = sessions.create(projectId, 'Disabled read child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Parent own',
+        fullSummary: 'Parent own full',
+        ownShortSummary: 'Parent own',
+        ownFullSummary: 'Parent own full',
+        ownKeyActions: ['parent action'],
+        ownFilesModified: ['parent.js'],
+        ownOutcome: 'completed',
+        keyActions: ['parent action'],
+        filesModified: ['parent.js'],
+        outcome: 'completed',
+        workflowFingerprint: 'stale-fingerprint',
+      });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child read summary',
+        fullSummary: 'Child read full',
+        keyActions: ['child read action'],
+        filesModified: ['child-read.js'],
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
+
+      settings.setSummarySettings({ disableSessionSummaries: true });
+
+      try {
+        const result = await summaryService.getSummary(sessionId, false);
+
+        // The summary is returned as-is (no repair side-effect)
+        expect(result).not.toBeNull();
+        // The stale fingerprint must NOT be refreshed — no write happened
+        expect(result.workflowFingerprint).toBe('stale-fingerprint');
+        // Child data is NOT merged in (the read-only path does not repair)
+        expect(result.keyActions).toEqual(['parent action']);
+        expect(result.filesModified).toEqual(['parent.js']);
+      } finally {
+        settings.setSummarySettings({ disableSessionSummaries: false });
+        summaryService.cleanupSession(child.id);
+      }
     });
 
     it('onSessionComplete respects disableSessionSummaries (no longer bypasses)', async () => {
@@ -3123,6 +3204,15 @@ describe('summaryService', () => {
       const child = sessions.create(projectId, 'Child Session', 'Child prompt', 'standard');
       sessions.update(child.id, { parentSessionId: sessionId });
       messages.create(child.id, 'assistant', 'Child response');
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child summary',
+        fullSummary: 'Child full summary',
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
 
       const result = await summaryService.generateSummary(sessionId);
 
@@ -3156,6 +3246,15 @@ describe('summaryService', () => {
 
       const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard');
       sessions.update(child.id, { parentSessionId: lowMsgSessionId });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Minimal child summary',
+        fullSummary: 'Minimal child full summary',
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
 
       // Only 1 message — below MIN_MESSAGES_FOR_SUMMARY (3)
       databaseManager
@@ -3282,6 +3381,15 @@ describe('summaryService', () => {
 
       const child = sessions.create(projectId, 'Child', 'Child prompt', 'standard');
       sessions.update(child.id, { parentSessionId: root.id });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Manual child summary',
+        fullSummary: 'Manual child full summary',
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
 
       const data = {
         shortSummary: 'Manual with descendants',
@@ -3488,6 +3596,284 @@ describe('summaryService', () => {
   });
 
   describe('parent propagation gating', () => {
+    it('rebuilds parent visible fields from owned state and replaces stale child fields', () => {
+      const child = sessions.create(projectId, 'Child replacement', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Parent visible',
+        fullSummary: 'Parent visible full',
+        ownShortSummary: 'Parent own',
+        ownFullSummary: 'Parent own full',
+        ownKeyActions: ['parent action'],
+        ownFilesModified: ['parent.js'],
+        ownOutcome: 'completed',
+        keyActions: ['stale visible action'],
+        filesModified: ['stale-visible.js'],
+        outcome: 'completed',
+      });
+      const childSummary = sessionSummaries.create(child.id, {
+        shortSummary: 'Child v1',
+        fullSummary: 'Child v1 full',
+        keyActions: ['child action'],
+        filesModified: ['child-v1.js'],
+        outcome: 'completed',
+      });
+
+      let merged = buildMergedParentSummary(sessionId);
+      expect(merged.keyActions).toEqual(expect.arrayContaining(['parent action', 'child action']));
+      expect(merged.filesModified).toEqual(expect.arrayContaining(['parent.js', 'child-v1.js']));
+
+      sessionSummaries.update(childSummary.id, {
+        shortSummary: 'Child v2',
+        fullSummary: 'Child v2 full',
+        keyActions: ['child replacement'],
+        filesModified: ['child-v2.js'],
+        outcome: 'failed',
+      });
+
+      merged = buildMergedParentSummary(sessionId);
+      expect(merged.keyActions).toEqual(expect.arrayContaining(['parent action', 'child replacement']));
+      expect(merged.keyActions).not.toContain('child action');
+      expect(merged.keyActions).not.toContain('stale visible action');
+      expect(merged.filesModified).toEqual(expect.arrayContaining(['parent.js', 'child-v2.js']));
+      expect(merged.filesModified).not.toContain('child-v1.js');
+      expect(merged.filesModified).not.toContain('stale-visible.js');
+      expect(merged.outcome).toBe('failed');
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('uses owned context for own-message generation without descendant prompt context', async () => {
+      const child = sessions.create(projectId, 'Child prompt isolation', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child-only summary',
+        fullSummary: 'Child-only full summary',
+        keyActions: ['child-only action'],
+        filesModified: ['child-only.js'],
+        outcome: 'completed',
+      });
+
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Visible summary with child-only summary',
+        fullSummary: 'Visible full with child-only full summary',
+        ownShortSummary: 'Parent-only short',
+        ownFullSummary: 'Parent-only full',
+        ownKeyActions: ['parent-only action'],
+        ownFilesModified: ['parent-only.js'],
+        ownOutcome: 'ongoing',
+        keyActions: ['parent-only action', 'child-only action'],
+        filesModified: ['parent-only.js', 'child-only.js'],
+        outcome: 'ongoing',
+        messageCount: 1,
+        lastSummarizedMessageId: 'older-message',
+      });
+
+      vi.mocked(query).mockClear();
+      await summaryService.generateSummary(sessionId);
+
+      const prompt = vi.mocked(query).mock.calls.at(-1)[0].prompt;
+      expect(prompt).toContain('Parent-only full');
+      expect(prompt).toContain('parent-only action');
+      expect(prompt).not.toContain('WORKFLOW DESCENDANT SUMMARIES');
+      expect(prompt).not.toContain('child-only action');
+      expect(prompt).not.toContain('Child-only full summary');
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('does not feed legacy merged parent summaries back into own-message generation', async () => {
+      const child = sessions.create(projectId, 'Legacy prompt child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child-only legacy summary',
+        fullSummary: 'Child-only legacy full summary',
+        keyActions: ['child-only legacy action'],
+        filesModified: ['child-only-legacy.js'],
+        outcome: 'completed',
+      });
+
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Legacy visible summary with child-only legacy summary',
+        fullSummary: 'Legacy visible full with child-only legacy full summary',
+        keyActions: ['child-only legacy action'],
+        filesModified: ['child-only-legacy.js'],
+        outcome: 'completed',
+        messageCount: 1,
+        lastSummarizedMessageId: 'older-message',
+      });
+
+      vi.mocked(query).mockClear();
+      await summaryService.generateSummary(sessionId);
+
+      const prompt = vi.mocked(query).mock.calls.at(-1)[0].prompt;
+      expect(prompt).not.toContain('Legacy visible full');
+      expect(prompt).not.toContain('child-only legacy action');
+      expect(prompt).not.toContain('Child-only legacy full summary');
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('persists owned LLM output and keeps visible parent summary merged with descendants', async () => {
+      const child = sessions.create(projectId, 'Child visible merge', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child done',
+        fullSummary: 'Child full',
+        keyActions: ['child action'],
+        filesModified: ['child.js'],
+        outcome: 'completed',
+      });
+
+      const result = await summaryService.generateSummary(sessionId);
+
+      expect(result.ownShortSummary).toBe(result.shortSummary);
+      expect(result.ownFullSummary).not.toContain('Workflow Note');
+      expect(result.ownKeyActions).toEqual(['Executed test', 'Verified output']);
+      expect(result.ownFilesModified).toEqual(['test.js']);
+      expect(result.ownOutcome).toBe('ongoing');
+      expect(result.keyActions).toEqual(expect.arrayContaining(['Executed test', 'child action']));
+      expect(result.filesModified).toEqual(expect.arrayContaining(['test.js', 'child.js']));
+      expect(result.fullSummary).toContain('Child done');
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('propagates child updates to ancestors without calling the summary model', async () => {
+      const child = sessions.create(projectId, 'Child zero llm', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Parent own',
+        fullSummary: 'Parent own full',
+        ownShortSummary: 'Parent own',
+        ownFullSummary: 'Parent own full',
+        ownKeyActions: [],
+        ownFilesModified: [],
+        ownOutcome: 'completed',
+        outcome: 'completed',
+      });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child updated',
+        fullSummary: 'Child updated full',
+        keyActions: ['child propagated'],
+        filesModified: ['child.js'],
+        outcome: 'completed',
+      });
+
+      vi.mocked(query).mockClear();
+      await summaryService.propagateToParent(child.id);
+
+      const parentSummary = sessionSummaries.getBySessionId(sessionId);
+      expect(parentSummary.keyActions).toContain('child propagated');
+      expect(vi.mocked(query)).not.toHaveBeenCalled();
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('does not mark parent projection fresh when a child has unsummarized messages', async () => {
+      const child = sessions.create(projectId, 'Child unsummarized', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child before new message',
+        fullSummary: 'Child full before new message',
+        keyActions: ['child old action'],
+        filesModified: ['child-old.js'],
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
+
+      const freshParent = buildMergedParentSummary(sessionId);
+      messages.create(child.id, 'assistant', 'Unsummarized child work');
+
+      const repairedParent = await summaryService.getSummary(sessionId, false);
+
+      expect(repairedParent.workflowFingerprint).toBe(freshParent.workflowFingerprint);
+      expect(repairedParent.fullSummary).toContain('Child before new message');
+      expect(repairedParent.fullSummary).not.toContain('Unsummarized child work');
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('describes errored child orchestrator work as failed', () => {
+      const child = sessions.create(projectId, 'Errored child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId, status: 'error' });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child failed',
+        fullSummary: 'Child failed full',
+        keyActions: ['hit error'],
+        filesModified: [],
+        outcome: 'failed',
+      });
+
+      const merged = buildMergedParentSummary(sessionId);
+
+      expect(merged.shortSummary).toContain('1 failed');
+      expect(merged.shortSummary).not.toContain('1 completed');
+      expect(merged.outcome).toBe('failed');
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('does not treat legacy visible structured fields as parent-owned during deterministic merge', () => {
+      const child = sessions.create(projectId, 'Legacy child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(sessionId, {
+        shortSummary: 'Legacy parent',
+        fullSummary: 'Legacy parent full',
+        keyActions: ['legacy action'],
+        filesModified: ['legacy.js'],
+        outcome: 'completed',
+      });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Current child',
+        fullSummary: 'Current child full',
+        keyActions: ['current child action'],
+        filesModified: ['current-child.js'],
+        outcome: 'completed',
+      });
+
+      const merged = buildMergedParentSummary(sessionId);
+
+      expect(merged.ownKeyActions).toBeNull();
+      expect(merged.ownFilesModified).toBeNull();
+      expect(merged.keyActions).toEqual(['current child action']);
+      expect(merged.filesModified).toEqual(['current-child.js']);
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('getSummary with generateIfMissing generates real own content over a stale synthetic parent summary', async () => {
+      const child = sessions.create(projectId, 'Synthetic child', 'Child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Child-only contribution',
+        fullSummary: 'Child-only full',
+        keyActions: ['child-only action'],
+        filesModified: ['child-only.js'],
+        outcome: 'completed',
+      });
+
+      const synthetic = buildMergedParentSummary(sessionId);
+      expect(synthetic.ownFullSummary).toBeNull();
+      expect(synthetic.messageCount).toBe(0);
+
+      vi.mocked(query).mockClear();
+      const result = await summaryService.getSummary(sessionId, true);
+
+      expect(vi.mocked(query)).toHaveBeenCalled();
+      expect(result).not.toBeNull();
+      expect(result.ownFullSummary).toContain('This session involved');
+      expect(result.ownKeyActions).toEqual(['Executed test', 'Verified output']);
+      expect(result.fullSummary).toContain('Child-only contribution');
+      expect(result.filesModified).toEqual(expect.arrayContaining(['test.js', 'child-only.js']));
+
+      summaryService.cleanupSession(child.id);
+    });
+
     it('calls propagateToParent on first child summary creation', async () => {
       // Set up a child session under the main sessionId
       const child = sessions.create(projectId, 'Child for propagation', 'Child prompt', 'standard');
@@ -3503,7 +3889,7 @@ describe('summaryService', () => {
         // No existing summary for child → first creation → propagation must be triggered
         await summaryService.generateSummary(child.id);
 
-        expect(propagateSpy).toHaveBeenCalledWith(child.id, expect.any(Function));
+        expect(propagateSpy).toHaveBeenCalledWith(child.id);
       } finally {
         propagateSpy.mockRestore();
         summaryService.cleanupSession(child.id);
@@ -3532,7 +3918,7 @@ describe('summaryService', () => {
         // Regenerate — new messages + different LLM output → semantic change
         await summaryService.generateSummary(child.id);
 
-        expect(propagateSpy).toHaveBeenCalledWith(child.id, expect.any(Function));
+        expect(propagateSpy).toHaveBeenCalledWith(child.id);
       } finally {
         propagateSpy.mockRestore();
         summaryService.cleanupSession(child.id);
@@ -3616,6 +4002,15 @@ describe('summaryService', () => {
 
       const child = sessions.create(projectId, 'Child under low root', 'prompt', 'standard');
       sessions.update(child.id, { parentSessionId: lowMsgRootId });
+      const childMessages = messages.getBySessionId(child.id);
+      const lastChildMessage = childMessages.at(-1);
+      sessionSummaries.create(child.id, {
+        shortSummary: 'Low root child summary',
+        fullSummary: 'Low root child full summary',
+        outcome: 'completed',
+        messageCount: childMessages.length,
+        lastSummarizedMessageId: lastChildMessage?.id,
+      });
 
       // Only 1 message — below MIN_MESSAGES_FOR_SUMMARY
       databaseManager
@@ -3633,6 +4028,123 @@ describe('summaryService', () => {
       expect(typeof result.workflowFingerprint).toBe('string');
 
       summaryService.cleanupSession(lowMsgRootId);
+      summaryService.cleanupSession(child.id);
+    });
+  });
+
+  describe('getSummary — write-on-read guard (Issue #3)', () => {
+    it('does not update the DB when generateIfMissing=false and descendant state is stale', async () => {
+      // Set up parent + child with a stale fingerprint
+      const child = sessions.create(projectId, 'Stale child', 'child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+
+      // Build parent summary (captures current fingerprint)
+      const initial = buildMergedParentSummary(sessionId);
+      const initialFingerprint = initial.workflowFingerprint;
+      const initialUpdatedAt = initial.updatedAt;
+
+      // Update child summary after parent was built — this changes the fingerprint
+      const childMsgs = messages.getBySessionId(child.id);
+      sessionSummaries.upsert(child.id, {
+        shortSummary: 'Updated child',
+        fullSummary: 'Updated child full',
+        outcome: 'completed',
+        messageCount: childMsgs.length,
+        lastSummarizedMessageId: childMsgs.at(-1)?.id,
+      });
+
+      // Call getSummary with generateIfMissing=false — must NOT trigger buildMergedParentSummary
+      const result = await summaryService.getSummary(sessionId, false);
+
+      // Summary is returned (not null) but the DB record is NOT updated
+      expect(result).not.toBeNull();
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored.workflowFingerprint).toBe(initialFingerprint);
+      expect(stored.updatedAt).toBe(initialUpdatedAt);
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('updates the DB when generateIfMissing=true and descendant state is stale', async () => {
+      const child = sessions.create(projectId, 'Stale child for repair', 'child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+
+      // Build initial parent summary
+      const initial = buildMergedParentSummary(sessionId);
+      const initialFingerprint = initial.workflowFingerprint;
+
+      // Update child summary to make parent stale
+      const childMsgs = messages.getBySessionId(child.id);
+      sessionSummaries.upsert(child.id, {
+        shortSummary: 'Updated child for repair',
+        fullSummary: 'Updated child full for repair',
+        outcome: 'completed',
+        messageCount: childMsgs.length,
+        lastSummarizedMessageId: childMsgs.at(-1)?.id,
+      });
+
+      // Call getSummary with generateIfMissing=true — MUST trigger buildMergedParentSummary
+      const result = await summaryService.getSummary(sessionId, true);
+
+      expect(result).not.toBeNull();
+      // The fingerprint should now be updated to reflect the new child state
+      const stored = sessionSummaries.getBySessionId(sessionId);
+      expect(stored.workflowFingerprint).not.toBe(initialFingerprint);
+      expect(stored.fullSummary).toContain('Updated child for repair');
+
+      summaryService.cleanupSession(child.id);
+    });
+  });
+
+  describe('getOwnSummaryParts ?? fix (Issue #4)', () => {
+    it('preserves ownShortSummary empty string rather than converting it to null', () => {
+      const child = sessions.create(projectId, 'Child for ?? fix', 'child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.upsert(child.id, {
+        shortSummary: 'Child done',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+      });
+
+      // Create parent summary with ownShortSummary explicitly set to empty string
+      sessionSummaries.upsert(sessionId, {
+        ownShortSummary: '',
+        ownFullSummary: 'Some own full content',
+        ownOutcome: 'ongoing',
+        ownKeyActions: [],
+        ownFilesModified: [],
+      });
+
+      const result = buildMergedParentSummary(sessionId);
+
+      // With ?? fix: "" is preserved (not coerced to null)
+      expect(result.ownShortSummary).toBe('');
+
+      summaryService.cleanupSession(child.id);
+    });
+
+    it('preserves ownOutcome empty string rather than converting it to null', () => {
+      const child = sessions.create(projectId, 'Child for ownOutcome ?? fix', 'child prompt', 'standard');
+      sessions.update(child.id, { parentSessionId: sessionId });
+      sessionSummaries.upsert(child.id, {
+        shortSummary: 'Child done',
+        fullSummary: 'Child full',
+        outcome: 'completed',
+      });
+
+      sessionSummaries.upsert(sessionId, {
+        ownShortSummary: 'Short',
+        ownFullSummary: 'Full',
+        ownOutcome: '',    // explicitly empty string
+        ownKeyActions: [],
+        ownFilesModified: [],
+      });
+
+      const result = buildMergedParentSummary(sessionId);
+
+      // With ?? fix: "" is preserved (not coerced to null)
+      expect(result.ownOutcome).toBe('');
+
       summaryService.cleanupSession(child.id);
     });
   });

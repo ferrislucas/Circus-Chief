@@ -483,7 +483,6 @@ export async function seedProject(
   options?: {
     onSessionCreated?: string;
     onSessionDeleted?: string;
-    kanbanEnabled?: boolean;
   }
 ) {
   // Ensure the working directory exists on disk so that anything which uses it
@@ -506,10 +505,6 @@ export async function seedProject(
   if (options?.onSessionDeleted) {
     body.onSessionDeleted = options.onSessionDeleted;
   }
-  if (options?.kanbanEnabled !== undefined) {
-    body.kanbanEnabled = options.kanbanEnabled;
-  }
-
   const response = await fetch(`${API_URL}/api/projects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -524,7 +519,7 @@ export async function seedProject(
 
 export async function seedSession(
   projectId: string,
-  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date }
+  data: { prompt: string; name?: string; mode?: string; model?: string; startImmediately?: boolean; gitMode?: string; gitBranch?: string; parentSessionId?: string; effortLevel?: string; scheduledAt?: string | number | Date; autoRescheduleEnabled?: boolean }
 ) {
   const scheduledAt =
     data.scheduledAt instanceof Date
@@ -534,9 +529,12 @@ export async function seedSession(
         : data.scheduledAt;
 
   // Default gitMode/gitBranch so tests pass for git-repo-backed projects
+  // Default autoRescheduleEnabled to false so tests get deterministic panel behavior
+  // (the REST API now defaults it to true for agent convenience)
   const payload = {
     gitMode: 'none',
     gitBranch: 'main',
+    autoRescheduleEnabled: false,
     ...data,
     ...(scheduledAt !== undefined ? { scheduledAt } : {}),
   };
@@ -976,20 +974,16 @@ export async function sendMessageWithFiles(
 }
 
 /**
- * Get attachments for a session
+ * Get attachments for a session.
+ * Uses the direct /api/sessions/:id/attachments endpoint which returns all
+ * attachments for the session regardless of whether they are linked to a
+ * message yet (important for scheduled sessions where files are uploaded
+ * before any message exists).
  */
 export async function getSessionAttachments(sessionId: string) {
-  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/messages`);
+  const response = await fetch(`${API_URL}/api/sessions/${sessionId}/attachments`);
   if (!response.ok) return [];
-  const messages = await response.json();
-  // Collect all attachments from all messages
-  const allAttachments: any[] = [];
-  for (const msg of messages) {
-    if (msg.attachments && msg.attachments.length > 0) {
-      allAttachments.push(...msg.attachments);
-    }
-  }
-  return allAttachments;
+  return response.json();
 }
 
 // ============================================================
@@ -1582,14 +1576,6 @@ export async function restartSession(sessionId: string) {
   return response.json();
 }
 
-/**
- * Get all active sessions (across all projects)
- */
-export async function getActiveSessions() {
-  const response = await fetch(`${API_URL}/api/sessions`);
-  if (!response.ok) return [];
-  return response.json();
-}
 
 /**
  * Get archived sessions for a project
@@ -1721,6 +1707,12 @@ export async function getConversationMessages(sessionId: string, conversationId:
 
 function getDBPath(): string {
   if (process.env.DB_PATH) return process.env.DB_PATH;
+  // Fallback: read the .db-path sidecar file written by start-server.sh
+  const dbPathFile = join(process.cwd(), '.db-path');
+  if (existsSync(dbPathFile)) {
+    const path = readFileSync(dbPathFile, 'utf-8').trim();
+    if (path) return path;
+  }
   // Match the server's default location
   return join(os.homedir(), '.circuschief', 'circuschief.db');
 }
@@ -2121,92 +2113,6 @@ export async function updatePendingPrompt(
   });
   if (!response.ok) throw new Error('Failed to update pending prompt');
   return response.json();
-}
-
-// ============================================================
-// Quick Response Helpers
-// ============================================================
-
-/**
- * Create a quick response via POST /api/projects/:projectId/quick-responses.
- * Returns the full response object.
- */
-export async function seedQuickResponse(
-  projectId: string,
-  data: {
-    label: string;
-    content: string;
-    autoSubmit?: boolean;
-    category?: string;
-    sortOrder?: number;
-    isGlobal?: boolean;
-  }
-): Promise<any> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/quick-responses`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`seedQuickResponse failed: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Get all quick responses for a project (both project-scoped and global).
- * Returns { project: [...], global: [...] }.
- */
-export async function getQuickResponses(projectId: string): Promise<any> {
-  const res = await fetch(`${API_URL}/api/projects/${projectId}/quick-responses`);
-  if (!res.ok) throw new Error(`getQuickResponses failed: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Update a quick response via PATCH /api/quick-responses/:id.
- * Returns the updated response object.
- */
-export async function updateQuickResponse(
-  id: string,
-  data: { label?: string; content?: string; autoSubmit?: boolean; category?: string; sortOrder?: number }
-): Promise<any> {
-  const res = await fetch(`${API_URL}/api/quick-responses/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`updateQuickResponse failed: ${res.status}`);
-  return res.json();
-}
-
-/**
- * Delete a quick response via DELETE /api/quick-responses/:id.
- */
-export async function deleteQuickResponse(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/quick-responses/${id}`, {
-    method: 'DELETE',
-  });
-  if (!res.ok) throw new Error(`deleteQuickResponse failed: ${res.status}`);
-}
-
-/**
- * Reorder quick responses via POST /api/projects/:projectId/quick-responses/reorder
- * or POST /api/quick-responses/global/reorder.
- * Returns updated list.
- */
-export async function reorderQuickResponses(
-  projectId: string | null,
-  orders: Array<{ id: string; sortOrder: number }>
-): Promise<any> {
-  const url = projectId
-    ? `${API_URL}/api/projects/${projectId}/quick-responses/reorder`
-    : `${API_URL}/api/quick-responses/global/reorder`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(orders),
-  });
-  if (!res.ok) throw new Error(`reorderQuickResponses failed: ${res.status}`);
-  return res.json();
 }
 
 // ============================================================
@@ -2753,8 +2659,9 @@ export async function getAgentCallFilterOptions() {
 // ============================================================
 
 /**
- * Seed a kanban lane for testing
- * Lanes are cleaned up automatically when the project is deleted (CASCADE)
+ * Seed a kanban lane for testing.
+ * Ensures the board exists first (GET /kanban auto-creates it).
+ * Lanes are cleaned up automatically when the project is deleted (CASCADE).
  */
 export async function seedKanbanLane(
   projectId: string,
@@ -2763,6 +2670,9 @@ export async function seedKanbanLane(
     sortOrder?: number;
   }
 ) {
+  // Ensure the board exists before creating a lane
+  await fetch(`${API_URL}/api/projects/${projectId}/kanban`);
+
   const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/lanes`, {
     method: 'POST',
     headers: {
@@ -2774,6 +2684,34 @@ export async function seedKanbanLane(
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Failed to create lane: ${response.status} ${errorText}`);
+  }
+
+  return await response.json();
+}
+
+/**
+ * Seed a kanban card for testing, placing a session in a given lane.
+ * Cards are cleaned up automatically when the project is deleted (CASCADE).
+ */
+export async function seedKanbanCard(
+  projectId: string,
+  data: {
+    sessionId: string;
+    laneId: string;
+  }
+) {
+  const { sessionId, laneId, ...rest } = data;
+  const response = await fetch(`${API_URL}/api/projects/${projectId}/kanban/cards`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ workspaceId: sessionId, laneId, ...rest }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to create kanban card: ${response.status} ${errorText}`);
   }
 
   return await response.json();

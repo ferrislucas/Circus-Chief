@@ -78,7 +78,7 @@
           placeholder="https://github.com/username/repo"
         >
         <p class="form-help">
-          Link to the project's repository (e.g., GitHub, GitLab). This can be automatically populated from session summaries.
+          Link to the project's repository (e.g., GitHub, GitLab). This can be automatically populated from workspace summaries.
         </p>
       </div>
 
@@ -109,21 +109,21 @@
       </div>
 
       <details class="advanced-settings">
-        <summary>Session Lifecycle Hooks</summary>
+        <summary>Workspace Lifecycle Hooks</summary>
         <div class="form-group">
           <label
             class="form-label"
             for="onSessionCreated"
-          >On Session Created</label>
+          >On Workspace Created</label>
           <textarea
             id="onSessionCreated"
             v-model="onSessionCreated"
             class="form-input form-textarea-small"
             rows="3"
-            placeholder="Shell command to run when a session is created..."
+            placeholder="Shell command to run when a workspace is created..."
           />
           <p class="form-help">
-            Runs in the background after session creation. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
+            Runs in the background after workspace creation. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
           </p>
         </div>
 
@@ -131,16 +131,16 @@
           <label
             class="form-label"
             for="onSessionDeleted"
-          >On Session Deleted</label>
+          >On Workspace Deleted</label>
           <textarea
             id="onSessionDeleted"
             v-model="onSessionDeleted"
             class="form-input form-textarea-small"
             rows="3"
-            placeholder="Shell command to run when a session is deleted..."
+            placeholder="Shell command to run when a workspace is deleted..."
           />
           <p class="form-help">
-            Runs in the background after session deletion. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
+            Runs in the background after workspace deletion. Environment variables: CIRCUSCHIEF_SESSION_ID, CIRCUSCHIEF_PROJECT_ID, CIRCUSCHIEF_SESSION_NAME
           </p>
         </div>
       </details>
@@ -149,36 +149,6 @@
         ref="sessionDefaultsRef"
         :project-id="route.params.id"
       />
-
-      <details class="advanced-settings">
-        <summary>Quick Responses</summary>
-        <p class="form-help">
-          Quick responses are shortcuts that can be inserted into the chat input. You can create project-specific or global responses.
-        </p>
-        <button
-          type="button"
-          class="btn btn-secondary"
-          @click="quickResponseSettingsOpen = true"
-        >
-          Manage Quick Responses
-        </button>
-      </details>
-
-      <details class="advanced-settings">
-        <summary>Kanban Board <span class="inline-block rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-300 ml-2">Experimental</span></summary>
-        <div class="form-group">
-          <label class="checkbox-label">
-            <input
-              v-model="kanbanEnabled"
-              type="checkbox"
-            >
-            Enable Kanban board
-          </label>
-          <p class="form-help">
-            <strong>Experimental.</strong> This feature is in active development and may change or be removed. Enable a Kanban board to visually organize sessions into lanes. Sessions can be dragged between lanes, and lanes can trigger automated workflows.
-          </p>
-        </div>
-      </details>
 
       <div
         v-if="error"
@@ -216,13 +186,6 @@
         </div>
       </div>
     </form>
-
-    <!-- Quick Response Settings Modal -->
-    <QuickResponseSettings
-      :is-open="quickResponseSettingsOpen"
-      :project-id="route.params.id"
-      @close="quickResponseSettingsOpen = false"
-    />
   </div>
 </template>
 
@@ -231,11 +194,9 @@ import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useProjectsStore } from '../stores/projects.js';
 import { useProjectDefaultsStore } from '../stores/projectDefaults.js';
-import { useQuickResponsesStore } from '../stores/quickResponses.js';
 import { useUiStore } from '../stores/ui.js';
 import PathChooser from '../components/PathChooser.vue';
 import ProjectSessionDefaults from '../components/ProjectSessionDefaults.vue';
-import QuickResponseSettings from '../components/QuickResponseSettings.vue';
 import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared/constants';
 import { api } from '../api/index.js';
 import '../components/InputWithButton.css';
@@ -246,7 +207,6 @@ const route = useRoute();
 const router = useRouter();
 const projectsStore = useProjectsStore();
 const defaultsStore = useProjectDefaultsStore();
-const quickResponsesStore = useQuickResponsesStore();
 const uiStore = useUiStore();
 
 const name = ref('');
@@ -256,17 +216,14 @@ const repoUrl = ref('');
 const systemPrompt = ref('');
 const onSessionCreated = ref('');
 const onSessionDeleted = ref('');
-const kanbanEnabled = ref(false);
 const detectingWorktreePath = ref(false);
 const sessionDefaultsRef = ref(null);
 
 const saving = ref(false);
 const error = ref(null);
-const quickResponseSettingsOpen = ref(false);
 
 onMounted(() => {
   projectsStore.fetchProject(route.params.id);
-  quickResponsesStore.fetchForProject(route.params.id);
 });
 
 watch(() => projectsStore.currentProject, (project) => {
@@ -278,7 +235,6 @@ watch(() => projectsStore.currentProject, (project) => {
     systemPrompt.value = project.systemPrompt || defaultSystemPrompt;
     onSessionCreated.value = project.onSessionCreated || '';
     onSessionDeleted.value = project.onSessionDeleted || '';
-    kanbanEnabled.value = project.kanbanEnabled || false;
   }
 }, { immediate: true });
 
@@ -314,7 +270,6 @@ async function handleSubmit() {
       systemPrompt: systemPrompt.value === defaultSystemPrompt ? null : systemPrompt.value,
       onSessionCreated: onSessionCreated.value || null,
       onSessionDeleted: onSessionDeleted.value || null,
-      kanbanEnabled: kanbanEnabled.value,
     });
 
     // Update defaults collected from child component
@@ -322,7 +277,7 @@ async function handleSubmit() {
       await defaultsStore.updateDefaults(route.params.id, defaultsData);
     }
 
-    uiStore.success('Repository updated');
+    uiStore.success('Project updated');
     router.push(`/projects/${route.params.id}/sessions`);
   } catch (err) {
     error.value = err.message;
@@ -336,7 +291,7 @@ async function handleDelete() {
 
   try {
     await projectsStore.deleteProject(route.params.id);
-    uiStore.success('Repository removed');
+    uiStore.success('Project removed');
     router.push('/');
   } catch (err) {
     error.value = err.message;

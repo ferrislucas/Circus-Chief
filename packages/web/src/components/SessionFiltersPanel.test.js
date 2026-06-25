@@ -298,7 +298,7 @@ describe('SessionFiltersPanel', () => {
       expect(useSessionFiltering).toHaveBeenCalled();
     });
 
-    it('uses sessions store', () => {
+    it('uses workspaces store', () => {
       mountComponent();
 
       expect(useSessionsStore).toHaveBeenCalled();

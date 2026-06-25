@@ -14,9 +14,7 @@ test.describe('Kanban Move Card Modal', () => {
 
   test.beforeEach(async () => {
     await cleanupCreatedResources();
-    project = await seedProject('Kanban Move Test Project', '/tmp/test-kanban-move', {
-      kanbanEnabled: true,
-    });
+    project = await seedProject('Kanban Move Test Project', '/tmp/test-kanban-move');
     session = await seedSession(project.id, {
       prompt: 'Test move card',
       name: 'Move Test Session',
@@ -375,6 +373,20 @@ test.describe('Kanban Move Card Modal', () => {
     // Verify lane chip is not visible
     const laneChip = page.locator('.lane-chip');
     await expect(laneChip).not.toBeVisible();
+  });
+
+  test('add session to board from session detail view', async ({ page }) => {
+    await navigateAndWait(page, `/sessions/${session.id}`, {
+      waitFor: '.session-header',
+    });
+
+    await page.getByTitle('Add to kanban board').click();
+
+    await expect(page.locator('.modal-title')).toHaveText('Add to Kanban Board');
+    await page.locator('.lane-option-btn').filter({ hasText: 'To Do' }).click();
+
+    await expect(page.locator('.modal-backdrop')).toBeHidden({ timeout: 5000 });
+    await expect(page.locator('.lane-chip')).toContainText('To Do');
   });
 
   test('remove from board button is visible in move modal', async ({ page }) => {

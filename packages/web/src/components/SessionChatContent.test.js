@@ -6,7 +6,7 @@ import SessionChatContent from './SessionChatContent.vue';
 import sessionChatContentSource from './SessionChatContent.vue?raw';
 
 const mockSessionsStore = {
-  currentSession: { id: 'sess-root', name: 'Root Session', status: 'waiting', projectId: 'proj-1' },
+  currentSession: { id: 'sess-root', name: 'Root Workspace', status: 'waiting', projectId: 'proj-1' },
   sessions: [],
   messages: [],
   workLogs: {},
@@ -126,7 +126,7 @@ describe('SessionChatContent', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    mockSessionsStore.currentSession = { id: 'sess-root', name: 'Root Session', status: 'waiting', projectId: 'proj-1' };
+    mockSessionsStore.currentSession = { id: 'sess-root', name: 'Root Workspace', status: 'waiting', projectId: 'proj-1' };
     mockSessionsStore.sessions = [mockSessionsStore.currentSession];
     mockSessionsStore.activeConversationId = 'conv-1';
     mockSessionsStore.getSessionById.mockImplementation(id => mockSessionsStore.sessions.find(session => session.id === id));
@@ -166,7 +166,7 @@ describe('SessionChatContent', () => {
     });
   }
 
-  it('loads the initial session and emits active-session-change', async () => {
+  it('loads the initial workspace and emits active-workspace-change', async () => {
     const activeSessionChange = vi.fn();
     const wrapper = mountContent({}, { onActiveSessionChange: activeSessionChange });
     await flushPromises();
@@ -256,7 +256,7 @@ describe('SessionChatContent', () => {
     expect(pickerOpenChange).toHaveBeenLastCalledWith(false);
   });
 
-  it('keeps the embedded chat header sticky below the session detail chrome', () => {
+  it('keeps the embedded chat header sticky below the workspace detail chrome', () => {
     expect(sessionChatContentSource).toMatch(/--session-detail-chat-header-top:\s*calc\(var\(--header-height-computed,\s*51px\) \+ var\(--viewport-offset-top,\s*0px\) \+ 3\.125rem\)/);
 
     const selector = '.session-chat-content--embedded .overlay-header';
