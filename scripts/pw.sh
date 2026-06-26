@@ -176,6 +176,137 @@ cleanup_test_server() {
     clear_worktree_server_markers
 }
 
+resolve_physical_path() {
+    local path="${1:-}"
+
+    if [ -z "$path" ]; then
+        return 1
+    fi
+
+    if [ -d "$path" ]; then
+        (cd "$path" && pwd -P)
+        return 0
+    fi
+
+    local parent
+    parent="$(dirname "$path")"
+    local name
+    name="$(basename "$path")"
+    if [ -d "$parent" ]; then
+        printf '%s/%s\n' "$(cd "$parent" && pwd -P)" "$name"
+        return 0
+    fi
+
+    return 1
+}
+
+is_safe_test_worktree_root() {
+    local root="${1:-}"
+
+    if [ -z "$root" ] || [ "$root" = "/" ] || [ "$root" = "$PROJECT_ROOT" ]; then
+        return 1
+    fi
+
+    local expected_parent="$PROJECT_ROOT/.worktrees"
+    local expected_parent_real
+    expected_parent_real="$(resolve_physical_path "$expected_parent")" || return 1
+
+    local root_real
+    root_real="$(resolve_physical_path "$root")" || return 1
+
+    local root_parent_real
+    root_parent_real="$(resolve_physical_path "$(dirname "$root")")" || return 1
+    local root_name
+    root_name="$(basename "$root")"
+
+    if [ "$root_real" = "$PROJECT_ROOT" ] || [ "$root_real" = "$expected_parent_real" ]; then
+        return 1
+    fi
+
+    if [ "$root_parent_real" != "$expected_parent_real" ]; then
+        return 1
+    fi
+
+    case "$root_name" in
+        pw-test-*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+cleanup_test_worktree_root() {
+    local root="${CIRCUS_TEST_WORKTREE_ROOT:-}"
+
+    if [ -z "$root" ]; then
+        return 0
+    fi
+
+    if ! is_safe_test_worktree_root "$root"; then
+        print_warning "Refusing to remove unexpected test worktree root: $root"
+        return 0
+    fi
+
+    if [ -d "$root" ]; then
+        print_info "Removing Playwright test worktree root: $root"
+        rm -rf -- "$root"
+    fi
+
+    git -C "$PROJECT_ROOT" worktree prune >/dev/null 2>&1 || true
+    unset CIRCUS_TEST_WORKTREE_ROOT
+}
+
+cleanup_test_run() {
+    local port="${1:-}"
+    cleanup_test_worktree_root
+    cleanup_test_server "$port"
+}
+
+worktree_mtime() {
+    local path="$1"
+    stat -f %m "$path" 2>/dev/null || stat -c %Y "$path" 2>/dev/null || echo 0
+}
+
+sweep_stale_test_worktree_roots() {
+    local parent="$PROJECT_ROOT/.worktrees"
+    local max_age_seconds=$((24 * 60 * 60))
+    local now
+    now="$(date +%s)"
+    local removed=0
+
+    if [ ! -d "$parent" ]; then
+        return 0
+    fi
+
+    local root
+    for root in "$parent"/pw-test-*; do
+        [ -d "$root" ] || continue
+        is_safe_test_worktree_root "$root" || continue
+
+        local mtime
+        mtime="$(worktree_mtime "$root")"
+        if [ "$mtime" -gt 0 ] && [ $((now - mtime)) -gt "$max_age_seconds" ]; then
+            print_info "Removing stale Playwright test worktree root: $root"
+            rm -rf -- "$root"
+            ((removed+=1))
+        fi
+    done
+
+    if [ "$removed" -gt 0 ]; then
+        git -C "$PROJECT_ROOT" worktree prune >/dev/null 2>&1 || true
+    fi
+}
+
+setup_test_worktree_root() {
+    sweep_stale_test_worktree_roots
+
+    local parent="$PROJECT_ROOT/.worktrees"
+    mkdir -p "$parent"
+
+    PW_TEST_WORKTREE_ROOT="$parent/pw-test-$(date +%Y%m%d-%H%M%S)-$$"
+    mkdir -p "$PW_TEST_WORKTREE_ROOT"
+    export CIRCUS_TEST_WORKTREE_ROOT="$PW_TEST_WORKTREE_ROOT"
+    print_info "CIRCUS_TEST_WORKTREE_ROOT set to: $CIRCUS_TEST_WORKTREE_ROOT"
+}
+
 clear_worktree_server_markers() {
     rm -f "$PROJECT_ROOT/.server-port" "$PROJECT_ROOT/.vcr-mode" "$PROJECT_ROOT/.db-path"
 }
@@ -404,12 +535,14 @@ cmd_test() {
     # server will use. This also wipes any leftover test DB from prior runs.
     setup_isolated_test_db
     print_info "DB_PATH set to: $DB_PATH"
+    setup_test_worktree_root
 
     # Ensure server is running
     local TEST_SERVER_PORT
     TEST_SERVER_PORT=$(detect_or_start_server)
     if [ -z "$TEST_SERVER_PORT" ]; then
         print_error "Failed to start or detect server. Cannot run tests."
+        cleanup_test_run ""
         exit 1
     fi
 
@@ -417,11 +550,11 @@ cmd_test() {
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
 
     if ! verify_server_isolation "$TEST_SERVER_PORT"; then
-        cleanup_test_server "$TEST_SERVER_PORT"
+        cleanup_test_run "$TEST_SERVER_PORT"
         exit 1
     fi
 
-    trap 'cleanup_test_server "$TEST_SERVER_PORT"' EXIT INT TERM
+    trap 'cleanup_test_run "$TEST_SERVER_PORT"' EXIT INT TERM
 
     print_info "Running Playwright tests on port: $TEST_SERVER_PORT"
 
@@ -431,7 +564,7 @@ cmd_test() {
     exit_code=$?
     set -e
 
-    cleanup_test_server "$TEST_SERVER_PORT"
+    cleanup_test_run "$TEST_SERVER_PORT"
     trap - EXIT INT TERM
 
     # Explicitly return the exit code
@@ -518,12 +651,14 @@ cmd_debug() {
 
     setup_isolated_test_db
     print_info "DB_PATH set to: $DB_PATH"
+    setup_test_worktree_root
 
     # Ensure server is running
     local TEST_SERVER_PORT
     TEST_SERVER_PORT=$(detect_or_start_server)
     if [ -z "$TEST_SERVER_PORT" ]; then
         print_error "Failed to start or detect server. Cannot run debug tests."
+        cleanup_test_run ""
         exit 1
     fi
 
@@ -531,11 +666,11 @@ cmd_debug() {
     export BASE_URL="http://localhost:$TEST_SERVER_PORT"
 
     if ! verify_server_isolation "$TEST_SERVER_PORT"; then
-        cleanup_test_server "$TEST_SERVER_PORT"
+        cleanup_test_run "$TEST_SERVER_PORT"
         exit 1
     fi
 
-    trap 'cleanup_test_server "$TEST_SERVER_PORT"' EXIT INT TERM
+    trap 'cleanup_test_run "$TEST_SERVER_PORT"' EXIT INT TERM
 
     print_info "Running tests in debug mode (headed browser) on port: $TEST_SERVER_PORT"
 
@@ -545,7 +680,7 @@ cmd_debug() {
     exit_code=$?
     set -e
 
-    cleanup_test_server "$TEST_SERVER_PORT"
+    cleanup_test_run "$TEST_SERVER_PORT"
     trap - EXIT INT TERM
 
     return $exit_code
