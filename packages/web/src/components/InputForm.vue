@@ -130,7 +130,7 @@
 
     <!-- Orchestration Panel - shows after input controls -->
     <OrchestrationPanel
-      v-if="(canSendMessage || isDraft || isRunning) && !isScheduledForFuture"
+      v-if="canSendMessage || isDraft || isRunning"
       :session-id="sessionId"
       :project-id="projectId"
       :current-template-id="currentTemplateId"
