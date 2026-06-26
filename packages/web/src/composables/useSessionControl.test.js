@@ -183,6 +183,17 @@ describe('useSessionControl', () => {
       expect(mockSessionsStore.startSession).toHaveBeenCalledWith('session-123', 'Hello Claude', 'sonnet', 'anthropic-default');
     });
 
+    it('should pass start options when provided', async () => {
+      mockSessionsStore.startSession.mockResolvedValue();
+      const { handleStart } = createControl();
+
+      await handleStart('Hello Claude', 'sonnet', undefined, { renderLiquid: true });
+
+      expect(mockSessionsStore.startSession).toHaveBeenCalledWith(
+        'session-123', 'Hello Claude', 'sonnet', undefined, { renderLiquid: true }
+      );
+    });
+
     it('should not start with empty prompt', async () => {
       const { handleStart } = createControl();
 
@@ -288,6 +299,17 @@ describe('useSessionControl', () => {
 
       expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
         'session-123', 'Hello', [{ name: 'file.txt' }], 'sonnet'
+      );
+    });
+
+    it('should pass send options when provided', async () => {
+      mockSessionsStore.sendMessage.mockResolvedValue();
+      const { handleSend } = createControl();
+
+      await handleSend('Hello', [], 'sonnet', { renderLiquid: true });
+
+      expect(mockSessionsStore.sendMessage).toHaveBeenCalledWith(
+        'session-123', 'Hello', [], 'sonnet', { renderLiquid: true }
       );
     });
 

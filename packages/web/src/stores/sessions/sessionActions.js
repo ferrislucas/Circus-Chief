@@ -141,10 +141,15 @@ export const sessionActions = {
     finally { this.loading = false; }
   },
 
-  async sendMessage(sessionId, content, files = [], model = null) {
+  // eslint-disable-next-line max-params -- existing positional send signature plus optional `options` bag
+  async sendMessage(sessionId, content, files = [], model = null, options = {}) {
     this.error = null;
     try {
-      await api.sendMessage(sessionId, content, files, model);
+      const sendArgs = [sessionId, content, files, model];
+      if (Object.keys(options).length > 0) {
+        sendArgs.push(options);
+      }
+      await api.sendMessage(...sendArgs);
       this._updateSessionInAllLists(sessionId, { status: 'running' });
     } catch (err) { this.error = err.message; throw err; }
   },
@@ -161,10 +166,15 @@ export const sessionActions = {
     catch (err) { this.error = err.message; throw err; }
   },
 
-  async startSession(id, prompt = undefined, model = undefined, providerId = undefined) {
+  // eslint-disable-next-line max-params -- existing positional start signature plus optional `options` bag
+  async startSession(id, prompt = undefined, model = undefined, providerId = undefined, options = {}) {
     this.error = null;
     try {
-      const result = await api.startSession(id, prompt, model, providerId);
+      const startArgs = [id, prompt, model, providerId];
+      if (Object.keys(options).length > 0) {
+        startArgs.push(options);
+      }
+      const result = await api.startSession(...startArgs);
       this._updateSessionInAllLists(id, { status: 'starting' });
       return result;
     } catch (err) { this.error = err.message; throw err; }

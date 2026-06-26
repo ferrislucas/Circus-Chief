@@ -354,6 +354,26 @@ describe('SessionsApi', () => {
         body: JSON.stringify({ content: 'Hello', model: 'claude-opus-4-6' }),
       }));
     });
+
+    it('includes renderLiquid in JSON body when requested', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: '1' }));
+
+      await client.sendMessage('sess-123', 'Hello', [], null, { renderLiquid: true });
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/sessions/sess-123/message', expect.objectContaining({
+        body: JSON.stringify({ content: 'Hello', model: null, renderLiquid: true }),
+      }));
+    });
+
+    it('includes renderLiquid in FormData when requested', async () => {
+      mockFetch.mockReturnValue(mockResponse({ success: true }));
+      const file = new File(['test'], 'test.txt', { type: 'text/plain' });
+
+      await client.sendMessage('sess-123', 'Hello', [file], null, { renderLiquid: true });
+
+      const formData = mockFetch.mock.calls[0][1].body;
+      expect(formData.get('renderLiquid')).toBe('true');
+    });
   });
 
   describe('stopSession', () => {
@@ -481,6 +501,16 @@ describe('SessionsApi', () => {
       expect(body.prompt).toBe('Go!');
       expect(body.model).toBe('gpt-4o');
       expect(body.providerId).toBe('openai-prov');
+    });
+
+    it('sends POST with renderLiquid when requested', async () => {
+      mockFetch.mockReturnValue(mockResponse({ id: 'sess-123', status: 'starting' }));
+
+      await client.startSession('sess-123', 'Go!', undefined, undefined, { renderLiquid: true });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.prompt).toBe('Go!');
+      expect(body.renderLiquid).toBe(true);
     });
   });
 
