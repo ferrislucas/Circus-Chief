@@ -1,13 +1,52 @@
 import { Router } from 'express';
-import { sessions, messages, todos, conversations, attachments } from '../database.js';
+import { sessions, messages, todos, conversations, attachments, sessionSummaries } from '../database.js';
 import { continueSession } from '../services/sessionManager.js';
 import { upload as _upload, handleUploadError } from '../middleware/upload.js';
 import { requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import * as slashCommandService from '../services/slashCommandService.js';
 import { checkCrossKindSwitch } from '../services/sessionAgentGuard.js';
+import { getRootSession, renderTemplatePrompt } from '../services/templateTriggerService.js';
 import { validateModelId } from './model-validation.js';
 
 const router = Router();
+
+function shouldRenderLiquid(value) {
+  return value === true || value === 'true';
+}
+
+async function renderLiquidForSession(content, session) {
+  const rootSession = getRootSession(session);
+  const rootSummary = sessionSummaries.getBySessionId(rootSession.id);
+
+  return renderTemplatePrompt(content, {
+    rootSession,
+    rootSummary,
+  });
+}
+
+// Validate a follow-up message request. Returns an error descriptor
+// { status, body } when the request is invalid, otherwise null.
+function validateMessageRequest(session, content, model) {
+  if (!content) {
+    return { status: 400, body: { error: 'Content is required' } };
+  }
+
+  if (session.status !== 'waiting' && session.status !== 'stopped' && session.status !== 'error') {
+    return { status: 400, body: { error: 'Session is not waiting for input' } };
+  }
+
+  const modelResult = validateModelId(model);
+  if (modelResult.error) {
+    return { status: 400, body: { error: modelResult.error } };
+  }
+
+  const crossKindError = checkCrossKindSwitch(session, model);
+  if (crossKindError) {
+    return { status: 400, body: crossKindError };
+  }
+
+  return null;
+}
 
 // GET /api/sessions/:id/messages - Get session messages
 // Supports ?conversation_id=xxx to filter by conversation
@@ -53,33 +92,25 @@ router.get('/:id/messages', requireSession, (req, res) => {
 router.post('/:id/message', _upload.array('files', 10), handleUploadError, requireSessionAndProject, async (req, res) => {
   const content = req.body.content;
   const model = req.body.model || null; // Model to use for this message
+  const renderLiquid = shouldRenderLiquid(req.body.renderLiquid);
   const files = req.files || [];
 
-  if (!content) {
-    return res.status(400).json({ error: 'Content is required' });
-  }
-
-  if (req.session_.status !== 'waiting' && req.session_.status !== 'stopped' && req.session_.status !== 'error') {
-    return res.status(400).json({ error: 'Session is not waiting for input' });
-  }
-
-  const modelResult = validateModelId(model);
-  if (modelResult.error) {
-    return res.status(400).json({ error: modelResult.error });
-  }
-
-  const crossKindError = checkCrossKindSwitch(req.session_, model);
-  if (crossKindError) {
-    return res.status(400).json(crossKindError);
+  const validationError = validateMessageRequest(req.session_, content, model);
+  if (validationError) {
+    return res.status(validationError.status).json(validationError.body);
   }
 
   try {
     // Store file attachments if any - saves to disk in workingDirectory/.attachments
     const messageAttachments = attachments.createBatch(req.session_.id, null, files, req.workingDirectory);
 
+    const renderedContent = renderLiquid
+      ? await renderLiquidForSession(content, req.session_)
+      : content;
+
     // Check if the message is a slash command/skill invocation (starts with "/")
     const resolved = await slashCommandService.resolvePromptSkillOrCommand(
-      req.workingDirectory, content, req.project.systemPrompt || null
+      req.workingDirectory, renderedContent, req.project.systemPrompt || null
     );
 
     if (resolved) {
@@ -90,7 +121,7 @@ router.post('/:id/message', _upload.array('files', 10), handleUploadError, requi
     }
 
     // Standard plain text message
-    continueSession(req.session_.id, content, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model }).catch((error) => {
+    continueSession(req.session_.id, renderedContent, req.workingDirectory, { systemPrompt: req.project.systemPrompt, fileAttachments: messageAttachments, model }).catch((error) => {
       console.error('Continue session error:', error);
     });
     res.json({ success: true });

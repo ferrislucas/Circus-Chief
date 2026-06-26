@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   seedProject,
   seedSession,
+  getSessionMessages,
   seedProjectTemplate,
   seedGlobalTemplate,
   deleteTemplate,
@@ -177,6 +178,46 @@ test.describe('Category 2: Quick Response Panel in Conversation View', () => {
     await checkbox.uncheck();
     await expect(page.locator('.responses-content')).toBeVisible();
     await expect(checkbox).not.toBeChecked();
+  });
+
+  test('renders Liquid for auto-submitted quick responses', async ({ page }) => {
+    const project = await seedProject('QR Panel Liquid AutoSubmit', '/tmp/qr-liquid-auto');
+    await seedQuickResponseTemplate(project.id, {
+      label: 'Liquid Auto',
+      content: 'Review {{ workspace.name }} from {{ workspace.name }}',
+    });
+
+    const session = await seedSession(project.id, {
+      name: 'Liquid Parent Session',
+      prompt: 'Initial waiting prompt',
+      startImmediately: false,
+    });
+    await navigateToSessionAndExpandPanel(page, session.id);
+
+    const checkbox = page.locator('.auto-submit-toggle input[type="checkbox"]');
+    await expect(checkbox).toBeChecked();
+
+    const startRequestPromise = page.waitForRequest((request) =>
+      request.method() === 'POST' && request.url().includes(`/api/sessions/${session.id}/start`)
+    );
+    await page.locator('.response-button', { hasText: 'Liquid Auto' }).click();
+    const startRequest = await startRequestPromise;
+    expect(startRequest.postDataJSON()).toEqual(expect.objectContaining({ renderLiquid: true }));
+
+    await expect.poll(async () => {
+      const messages = await getSessionMessages(session.id);
+      return messages
+        .filter((message: any) => message.role === 'user')
+        .map((message: any) => message.content)
+        .join('\n');
+    }, { timeout: 10000 }).toContain('Review Liquid Parent Session from Liquid Parent Session');
+
+    const messages = await getSessionMessages(session.id);
+    const userContent = messages
+      .filter((message: any) => message.role === 'user')
+      .map((message: any) => message.content)
+      .join('\n');
+    expect(userContent).not.toContain('{{');
   });
 
   test('panel collapse and expand toggle works', async ({ page }) => {
