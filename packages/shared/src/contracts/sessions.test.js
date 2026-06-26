@@ -253,7 +253,6 @@ describe('UpdateSessionRequest', () => {
     });
   });
 
-
   describe('name validation', () => {
     it('accepts valid name', () => {
       const result = UpdateSessionRequest.safeParse({

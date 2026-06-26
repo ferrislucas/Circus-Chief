@@ -152,9 +152,11 @@ export function SessionsApi(ApiClient) {
      * @param {string} content - Message content
      * @param {Array} files - Optional array of files to attach
      * @param {string|null} model - Model to use for this message
+     * @param {Object} options - Additional send options
      * @returns {Promise<Object>}
      */
-    async sendMessage(sessionId, content, files = [], model = null) {
+    // eslint-disable-next-line max-params -- optional `options` bag threaded alongside the existing positional send signature
+    async sendMessage(sessionId, content, files = [], model = null, options = {}) {
       // [MODEL AUDIT] Log model in API request
       console.log(`[MODEL AUDIT - ApiClient] sendMessage called with model: "${model}"`);
 
@@ -165,6 +167,9 @@ export function SessionsApi(ApiClient) {
         if (model) {
           formData.append('model', model);
         }
+        if (options.renderLiquid) {
+          formData.append('renderLiquid', 'true');
+        }
 
         for (const file of files) {
           formData.append('files', file);
@@ -173,7 +178,11 @@ export function SessionsApi(ApiClient) {
         return this._uploadFormData(`/sessions/${sessionId}/message`, formData);
       }
 
-      return this._post(`/sessions/${sessionId}/message`, { content, model });
+      return this._post(`/sessions/${sessionId}/message`, {
+        content,
+        model,
+        ...(options.renderLiquid ? { renderLiquid: true } : {}),
+      });
     },
 
     /**
@@ -261,13 +270,16 @@ export function SessionsApi(ApiClient) {
      * @param {string|undefined} prompt - Optional updated prompt to use when starting
      * @param {string|undefined} model - Optional model override
      * @param {string|null|undefined} providerId - Optional provider override
+     * @param {Object} options - Additional start options
      * @returns {Promise<Object>}
      */
-    async startSession(id, prompt, model, providerId) {
+    // eslint-disable-next-line max-params -- optional `options` bag threaded alongside the existing positional start signature
+    async startSession(id, prompt, model, providerId, options = {}) {
       const data = {};
       if (prompt !== undefined) data.prompt = prompt;
       if (model !== undefined) data.model = model;
       if (providerId !== undefined) data.providerId = providerId;
+      if (options.renderLiquid) data.renderLiquid = true;
       return this._post(`/sessions/${id}/start`,
         Object.keys(data).length > 0 ? data : undefined);
     },

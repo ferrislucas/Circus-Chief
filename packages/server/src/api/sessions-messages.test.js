@@ -12,6 +12,7 @@ vi.mock('../websocket.js', () => ({
 
 vi.mock('../services/sessionManager.js', () => ({
   continueSession: vi.fn().mockResolvedValue(undefined),
+  runSession: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../services/slashCommandService.js', () => ({
@@ -20,6 +21,7 @@ vi.mock('../services/slashCommandService.js', () => ({
 
 import messagesRouter from './sessions-messages.js';
 import { continueSession } from '../services/sessionManager.js';
+import * as slashCommandService from '../services/slashCommandService.js';
 
 describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)', () => {
   let app;
@@ -200,5 +202,43 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
 
     expect(res.status).toBe(200);
     expect(continueSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders Liquid before continuing when renderLiquid is true', async () => {
+    const res = await request(app)
+      .post(`/api/sessions/${claudeSession.id}/message`)
+      .send({
+        content: 'Review {{ workspace.name }} from {{ workspace.name }}',
+        renderLiquid: true,
+      });
+
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledWith(
+      claudeSession.id,
+      'Review Claude Session from Claude Session',
+      '/tmp/phase7-messages',
+      expect.objectContaining({ model: null })
+    );
+    expect(slashCommandService.resolvePromptSkillOrCommand).toHaveBeenCalledWith(
+      '/tmp/phase7-messages',
+      'Review Claude Session from Claude Session',
+      null
+    );
+  });
+
+  it('leaves Liquid literal for unmarked normal messages', async () => {
+    const content = 'Keep {{ workspace.name }} literal';
+
+    const res = await request(app)
+      .post(`/api/sessions/${claudeSession.id}/message`)
+      .send({ content });
+
+    expect(res.status).toBe(200);
+    expect(continueSession).toHaveBeenCalledWith(
+      claudeSession.id,
+      content,
+      '/tmp/phase7-messages',
+      expect.objectContaining({ model: null })
+    );
   });
 });
