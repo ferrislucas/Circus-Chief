@@ -53,7 +53,6 @@ export class SessionRepository extends BaseRepository {
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields
-      targetLaneId: row.target_lane_id || null,
       laneTriggerDepth: row.lane_trigger_depth || 0,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

@@ -58,7 +58,6 @@ vi.mock('./usageTracker.js', () => ({
 }));
 
 vi.mock('./kanbanService.js', () => ({
-  handleTurnCompletion: vi.fn().mockResolvedValue(undefined),
   handleCompletionMove: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -475,7 +474,6 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleTurnCompletion).toHaveBeenCalledWith('sess-1');
       expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
     });
 
@@ -488,7 +486,6 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleTurnCompletion).not.toHaveBeenCalled();
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
@@ -501,7 +498,6 @@ describe('streamEventHandler', () => {
 
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
-      expect(kanbanService.handleTurnCompletion).not.toHaveBeenCalled();
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
     });
 
@@ -642,7 +638,6 @@ describe('streamEventHandler', () => {
       expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
       expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
       expect(diffService.getChanges).not.toHaveBeenCalled();
-      expect(kanbanService.handleTurnCompletion).not.toHaveBeenCalled();
       expect(mockCheckReschedule).not.toHaveBeenCalled();
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
