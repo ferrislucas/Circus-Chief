@@ -273,9 +273,7 @@ test.describe('Commit attribution launch behavior', () => {
       await waitForStatus(session.id, 'waiting', 60000);
       const spawn = await waitForSpawn('codex');
       expect(spawn.cwd).toBe(workingDirectory);
-      expect(spawn.options?.config ?? []).toEqual(expect.arrayContaining([
-        expect.stringMatching(/mcp.*projectServer|projectServer.*mcp/),
-      ]));
+      expect(spawn.options?.config ?? []).toContain('mcp_servers.projectServer.command="node"');
     } finally {
       rmSync(workingDirectory, { recursive: true, force: true });
     }
@@ -392,7 +390,6 @@ function createApprovedMcpProjectDirectory() {
       projectServer: { command: 'node', args: ['project-server.js'] },
     },
   });
-  writeFileSync(join(workingDirectory, 'project-server.js'), 'process.stdin.resume();\n', 'utf8');
   writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
     enabledMcpjsonServers: ['projectServer'],
   });

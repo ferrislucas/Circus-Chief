@@ -766,7 +766,7 @@ describe('CodexAdapter', () => {
     expect(joined).toContain('do stuff');
   });
 
-  it('CLI path: stdio MCP server becomes repeated -c mcp_servers.* args', async () => {
+  it('CLI path: stdio MCP server becomes repeated -c mcp_servers.* args without type', async () => {
     const fakeSpawn = vi.fn(() => createFakeChild({
       stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-stdio"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
       exitCode: 0,
@@ -794,9 +794,44 @@ describe('CodexAdapter', () => {
     expect(args[cmdIdx - 1]).toBe('-c');
     const argsIdx = args.indexOf('mcp_servers.projectServer.args=["project-server.js"]');
     expect(args[argsIdx - 1]).toBe('-c');
+    // type is NOT emitted for stdio servers
+    expect(args.some((a) => a.startsWith('mcp_servers.projectServer.type='))).toBe(false);
   });
 
-  it('CLI path: remote MCP server emits type, url, and headers -c args', async () => {
+  it('CLI path: stdio MCP server env values move into spawn env and are referenced via env_vars', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-env"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test' },
+        abortController: new AbortController(),
+        mcpServers: {
+          myServer: { command: 'node', env: { API_KEY: 'secretvalue' } },
+        },
+      },
+    }));
+
+    const { args, env } = fakeSpawn.mock.calls[0][0];
+    // command is present
+    expect(args).toContain('mcp_servers.myServer.command="node"');
+    // env_vars references generated env var name (not the literal value)
+    expect(args).toContain('mcp_servers.myServer.env_vars=["CIRCUSCHIEF_MCP_MYSERVER_ENV_API_KEY"]');
+    // literal secret is NOT in argv
+    expect(args.some((a) => a.includes('secretvalue'))).toBe(false);
+    // secret is in spawn env under generated name
+    expect(env.CIRCUSCHIEF_MCP_MYSERVER_ENV_API_KEY).toBe('secretvalue');
+    // original env still present too
+    expect(env.OPENAI_API_KEY).toBe('sk-test');
+  });
+
+  it('CLI path: remote MCP server emits url, bearer_token_env_var, env_http_headers; omits type and literal credentials', async () => {
     const fakeSpawn = vi.fn(() => createFakeChild({
       stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-remote"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
       exitCode: 0,
@@ -811,15 +846,80 @@ describe('CodexAdapter', () => {
         env: { OPENAI_API_KEY: 'sk-test' },
         abortController: new AbortController(),
         mcpServers: {
-          remoteServer: { type: 'sse', url: 'https://example.com/mcp', headers: { Authorization: 'Bearer tok' } },
+          remoteServer: {
+            type: 'sse',
+            url: 'https://example.com/mcp',
+            headers: { Authorization: 'Bearer tok', 'X-Custom': 'hdr-value' },
+          },
+        },
+      },
+    }));
+
+    const { args, env } = fakeSpawn.mock.calls[0][0];
+    // url present
+    expect(args).toContain('mcp_servers.remoteServer.url="https://example.com/mcp"');
+    // bearer_token_env_var references generated env var (not literal token)
+    expect(args).toContain('mcp_servers.remoteServer.bearer_token_env_var="CIRCUSCHIEF_MCP_REMOTESERVER_BEARER_TOKEN"');
+    expect(env.CIRCUSCHIEF_MCP_REMOTESERVER_BEARER_TOKEN).toBe('tok');
+    // env_http_headers for non-auth header
+    expect(args).toContain('mcp_servers.remoteServer.env_http_headers={X-Custom="CIRCUSCHIEF_MCP_REMOTESERVER_HDR_X_CUSTOM"}');
+    expect(env.CIRCUSCHIEF_MCP_REMOTESERVER_HDR_X_CUSTOM).toBe('hdr-value');
+    // type NOT emitted
+    expect(args.some((a) => a.startsWith('mcp_servers.remoteServer.type='))).toBe(false);
+    // literal credential values NOT in argv (check for TOML-quoted literals)
+    expect(args.some((a) => a.includes('"tok"'))).toBe(false);
+    expect(args.some((a) => a.includes('Bearer tok'))).toBe(false);
+    expect(args.some((a) => a.includes('"hdr-value"'))).toBe(false);
+    // original API key still present in spawn env
+    expect(env.OPENAI_API_KEY).toBe('sk-test');
+  });
+
+  it('CLI path: malformed stdio MCP server (missing command) produces no MCP args', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-bad-stdio"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test' },
+        abortController: new AbortController(),
+        mcpServers: {
+          badServer: { args: ['server.js'] }, // missing command
         },
       },
     }));
 
     const { args } = fakeSpawn.mock.calls[0][0];
-    expect(args).toContain('mcp_servers.remoteServer.type="sse"');
-    expect(args).toContain('mcp_servers.remoteServer.url="https://example.com/mcp"');
-    expect(args).toContain('mcp_servers.remoteServer.headers={Authorization="Bearer tok"}');
+    expect(args.some((a) => a.startsWith('mcp_servers.badServer.'))).toBe(false);
+  });
+
+  it('CLI path: malformed remote MCP server (missing url) produces no MCP args', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-bad-remote"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test' },
+        abortController: new AbortController(),
+        mcpServers: {
+          badRemote: { type: 'sse', headers: { Authorization: 'Bearer tok' } }, // missing url
+        },
+      },
+    }));
+
+    const { args } = fakeSpawn.mock.calls[0][0];
+    expect(args.some((a) => a.startsWith('mcp_servers.badRemote.'))).toBe(false);
   });
 
   it('CLI path: MCP config composes with reasoning and auth -c args', async () => {

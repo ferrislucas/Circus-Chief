@@ -243,6 +243,66 @@ describe('buildQueryParams', () => {
     }
   });
 
+  it('Codex: omits user-level Claude MCP servers (only approved project .mcp.json servers forwarded)', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codex-user-mcp-test-'));
+    try {
+      const homeDirectory = join(tempDir, 'home');
+      const workingDirectory = join(tempDir, 'workspace');
+      mkdirSync(homeDirectory, { recursive: true });
+      mkdirSync(workingDirectory, { recursive: true });
+      writeFileSync(join(homeDirectory, '.claude.json'), JSON.stringify({
+        mcpServers: {
+          userLevelServer: { command: 'node', args: ['user-server.js'] },
+        },
+      }), 'utf8');
+
+      const result = buildQueryParams({
+        ...baseArgs(),
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        workingDirectory,
+        claudeMcpConfigHomeDirectory: homeDirectory,
+        session: { mode: 'standard', projectId: 'proj-1', effortLevel: null },
+      });
+
+      expect(result.options.mcpServers).toBeUndefined();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Codex: omits local Claude project-entry MCP servers (only approved project .mcp.json servers forwarded)', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codex-local-mcp-test-'));
+    try {
+      const homeDirectory = join(tempDir, 'home');
+      const workingDirectory = join(tempDir, 'workspace');
+      mkdirSync(homeDirectory, { recursive: true });
+      mkdirSync(workingDirectory, { recursive: true });
+      writeFileSync(join(homeDirectory, '.claude.json'), JSON.stringify({
+        projects: {
+          [workingDirectory]: {
+            mcpServers: {
+              localServer: { command: 'node', args: ['local-server.js'] },
+            },
+          },
+        },
+      }), 'utf8');
+
+      const result = buildQueryParams({
+        ...baseArgs(),
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        workingDirectory,
+        claudeMcpConfigHomeDirectory: homeDirectory,
+        session: { mode: 'standard', projectId: 'proj-1', effortLevel: null },
+      });
+
+      expect(result.options.mcpServers).toBeUndefined();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it('buildAgentEnv sets or deletes CIRCUSCHIEF_COMMIT_ATTRIBUTION', () => {
     expect(buildAgentEnv({}, 'Co-authored-by: Codex <noreply@openai.com>'))
       .toMatchObject({ CIRCUSCHIEF_COMMIT_ATTRIBUTION: 'Co-authored-by: Codex <noreply@openai.com>' });

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
-import { resolveClaudeMcpServers } from './claudeMcpConfigResolver.js';
+import { resolveClaudeMcpServers, resolveCodexMcpServers } from './claudeMcpConfigResolver.js';
 
 describe('resolveClaudeMcpServers', () => {
   let tempDir;
@@ -249,6 +249,144 @@ describe('resolveClaudeMcpServers', () => {
       source: 'project',
       reason: 'not-approved',
     });
+  });
+});
+
+describe('resolveClaudeMcpServers field preservation', () => {
+  let tempDir;
+  let homeDirectory;
+  let workingDirectory;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'claude-mcp-fields-test-'));
+    homeDirectory = join(tempDir, 'home');
+    workingDirectory = join(tempDir, 'workspace');
+    mkdirSync(homeDirectory, { recursive: true });
+    mkdirSync(workingDirectory, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves stdio cwd when it is a non-empty string', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: {
+        cwdServer: { command: 'node', cwd: '/some/path' },
+      },
+    });
+
+    const result = resolveClaudeMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers.cwdServer.cwd).toBe('/some/path');
+  });
+
+  it('preserves startup_timeout_sec when it is a number', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: {
+        timeoutServer: { command: 'node', startup_timeout_sec: 30 },
+      },
+    });
+
+    const result = resolveClaudeMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers.timeoutServer.startup_timeout_sec).toBe(30);
+  });
+
+  it('omits cwd when it is an empty string', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: {
+        noCwdServer: { command: 'node', cwd: '' },
+      },
+    });
+
+    const result = resolveClaudeMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers.noCwdServer).not.toHaveProperty('cwd');
+  });
+});
+
+describe('resolveCodexMcpServers', () => {
+  let tempDir;
+  let homeDirectory;
+  let workingDirectory;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'codex-mcp-resolver-test-'));
+    homeDirectory = join(tempDir, 'home');
+    workingDirectory = join(tempDir, 'workspace');
+    mkdirSync(homeDirectory, { recursive: true });
+    mkdirSync(workingDirectory, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('includes approved project .mcp.json servers', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: { projectServer: { command: 'node', args: ['server.js'] } },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['projectServer'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers).toEqual({ projectServer: { command: 'node', args: ['server.js'] } });
+  });
+
+  it('omits unapproved project .mcp.json servers', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: { unapprovedServer: { command: 'node' } },
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers).toEqual({});
+  });
+
+  it('omits user-level Claude MCP servers', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: { userServer: { command: 'user-cmd' } },
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers).toEqual({});
+  });
+
+  it('omits local Claude project-entry MCP servers', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      projects: {
+        [workingDirectory]: {
+          mcpServers: { localServer: { command: 'local-cmd' } },
+        },
+      },
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers).toEqual({});
+  });
+
+  it('same-name user/local/project entries resolve to the approved project .mcp.json entry', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: { shared: { command: 'user-cmd' } },
+      projects: {
+        [workingDirectory]: {
+          mcpServers: { shared: { command: 'local-cmd' } },
+        },
+      },
+    });
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: { shared: { command: 'project-cmd', args: ['server.js'] } },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['shared'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers).toEqual({ shared: { command: 'project-cmd', args: ['server.js'] } });
   });
 });
 

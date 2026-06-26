@@ -129,10 +129,11 @@ export class CodexAdapter extends BaseAgent {
       );
     }
 
-    // Append MCP server config as repeated -c overrides before the auth hint
-    if (mcpServers && typeof mcpServers === 'object') {
-      args.push(...serializeMcpServersToArgs(mcpServers));
-    }
+    // Serialize MCP config and collect credential env vars to inject
+    const mcpConfig = (mcpServers && typeof mcpServers === 'object')
+      ? serializeMcpServersToArgs(mcpServers)
+      : { args: [], env: {} };
+    args.push(...mcpConfig.args);
 
     // Defense in depth: when no API key is in the env, force ChatGPT auth
     // so the CLI uses its own OAuth flow even if some env var leaks through.
@@ -147,7 +148,7 @@ export class CodexAdapter extends BaseAgent {
         command: 'codex',
         args,
         cwd,
-        env,
+        env: { ...env, ...mcpConfig.env },
         signal: abortController?.signal,
       });
     } catch (err) {
@@ -282,83 +283,153 @@ function makeTextDeltaEvent(text) {
 // --- MCP server CLI serialization ------------------------------------------
 
 /**
- * Serialize an mcpServers map into repeated `-c` CLI args for the Codex CLI.
+ * Serialize an mcpServers map into repeated `-c` CLI args for the Codex CLI,
+ * with credential values moved out of argv into the spawned process environment.
  *
- * Generates config keys under `mcp_servers.<serverName>` using TOML-compatible
- * value literals. Only supported field types are emitted; unsupported values are
- * skipped silently.
+ * Generates config keys under `mcp_servers.<serverName>` using the Codex
+ * `mcp_servers` schema. Credential values (bearer tokens, header values, stdio
+ * env entries) are placed into a returned `env` map under stable generated
+ * variable names (`CIRCUSCHIEF_MCP_<SERVER>_<FIELD>`), and config args
+ * reference those variable names instead of literal credential values.
  *
  * @param {Object} mcpServers
- * @returns {string[]} Flat list of alternating '-c' and value strings
+ * @returns {{ args: string[], env: Object }} args are flat '-c'/value pairs;
+ *   env holds credential values to merge into the Codex spawn environment.
  */
 function serializeMcpServersToArgs(mcpServers) {
   const args = [];
+  const env = {};
   for (const [serverName, server] of Object.entries(mcpServers)) {
     if (!server || typeof server !== 'object' || Array.isArray(server)) continue;
     const prefix = `mcp_servers.${tomlKey(serverName)}`;
+    let result;
     if (server.type === 'sse' || server.type === 'http') {
-      args.push(...serializeRemoteMcpServer(prefix, server));
+      result = serializeRemoteMcpServer(prefix, serverName, server);
     } else {
-      args.push(...serializeStdioMcpServer(prefix, server));
+      result = serializeStdioMcpServer(prefix, serverName, server);
+    }
+    args.push(...result.args);
+    Object.assign(env, result.env);
+  }
+  return { args, env };
+}
+
+/**
+ * Serialize a remote (sse/http) MCP server using the Codex HTTP schema.
+ *
+ * Emits `url`, `bearer_token_env_var`, and `env_http_headers`. Does NOT emit
+ * `type` or literal credential values in argv. Bearer Authorization values and
+ * all other string headers are moved into the spawn environment under generated
+ * variable names.
+ *
+ * @param {string} prefix
+ * @param {string} serverName
+ * @param {Object} server
+ * @returns {{ args: string[], env: Object }}
+ */
+function serializeRemoteMcpServer(prefix, serverName, server) {
+  if (typeof server.url !== 'string' || server.url.length === 0) return { args: [], env: {} };
+
+  const args = ['-c', `${prefix}.url=${tomlStr(server.url)}`];
+  const env = {};
+
+  const headers = (server.headers && typeof server.headers === 'object' && !Array.isArray(server.headers))
+    ? server.headers
+    : {};
+
+  // Convert Authorization: Bearer <token> to bearer_token_env_var
+  const authEntry = Object.entries(headers).find(([k]) => k.toLowerCase() === 'authorization');
+  if (authEntry) {
+    const [, authValue] = authEntry;
+    if (typeof authValue === 'string') {
+      const bearerMatch = authValue.match(/^Bearer\s+(.+)/i);
+      if (bearerMatch) {
+        const varName = makeMcpEnvVarName(serverName, 'BEARER_TOKEN');
+        env[varName] = bearerMatch[1];
+        args.push('-c', `${prefix}.bearer_token_env_var=${tomlStr(varName)}`);
+      }
     }
   }
-  return args;
+
+  // Convert remaining string headers to env_http_headers
+  const otherStringHeaders = Object.entries(headers)
+    .filter(([k, v]) => k.toLowerCase() !== 'authorization' && typeof v === 'string');
+
+  if (otherStringHeaders.length > 0) {
+    const headerEnvMap = {};
+    for (const [headerName, headerValue] of otherStringHeaders) {
+      const varName = makeMcpEnvVarName(serverName, 'HDR', headerName);
+      env[varName] = headerValue;
+      headerEnvMap[headerName] = varName;
+    }
+    const tableStr = `{${Object.entries(headerEnvMap).map(([k, v]) => `${tomlKey(k)}=${tomlStr(v)}`).join(',')}}`;
+    args.push('-c', `${prefix}.env_http_headers=${tableStr}`);
+  }
+
+  return { args, env };
 }
 
 /**
- * Serialize a remote (sse/http) MCP server into `-c` CLI args.
+ * Serialize a stdio MCP server using the Codex stdio schema.
+ *
+ * Emits `command`, `args`, `env_vars`, `cwd`, and `startup_timeout_sec`.
+ * Does NOT emit `type` or literal env values in argv. Stdio `env` string
+ * values are moved into the spawn environment under generated variable names
+ * and referenced via `env_vars`.
+ *
  * @param {string} prefix
+ * @param {string} serverName
  * @param {Object} server
- * @returns {string[]}
+ * @returns {{ args: string[], env: Object }}
  */
-function serializeRemoteMcpServer(prefix, server) {
-  const args = ['-c', `${prefix}.type=${tomlStr(server.type)}`];
-  if (typeof server.url === 'string') {
-    args.push('-c', `${prefix}.url=${tomlStr(server.url)}`);
-  }
-  const headers = tomlInlineTable(server.headers);
-  if (headers) {
-    args.push('-c', `${prefix}.headers=${headers}`);
-  }
-  return args;
-}
+function serializeStdioMcpServer(prefix, serverName, server) {
+  if (typeof server.command !== 'string' || server.command.length === 0) return { args: [], env: {} };
 
-/**
- * Serialize a stdio MCP server into `-c` CLI args.
- * @param {string} prefix
- * @param {Object} server
- * @returns {string[]}
- */
-function serializeStdioMcpServer(prefix, server) {
-  const args = [];
-  if (server.type === 'stdio') {
-    args.push('-c', `${prefix}.type=${tomlStr(server.type)}`);
-  }
-  if (typeof server.command === 'string') {
-    args.push('-c', `${prefix}.command=${tomlStr(server.command)}`);
-  }
+  const args = ['-c', `${prefix}.command=${tomlStr(server.command)}`];
+  const env = {};
+
   if (Array.isArray(server.args)) {
     const strArgs = server.args.filter((a) => typeof a === 'string');
     args.push('-c', `${prefix}.args=[${strArgs.map(tomlStr).join(',')}]`);
   }
-  const env = tomlInlineTable(server.env);
-  if (env) {
-    args.push('-c', `${prefix}.env=${env}`);
+
+  // Move env string values into spawn env under generated names; emit env_vars
+  if (server.env && typeof server.env === 'object' && !Array.isArray(server.env)) {
+    const stringEntries = Object.entries(server.env).filter(([, v]) => typeof v === 'string');
+    if (stringEntries.length > 0) {
+      const envVarNames = [];
+      for (const [key, value] of stringEntries) {
+        const varName = makeMcpEnvVarName(serverName, 'ENV', key);
+        env[varName] = value;
+        envVarNames.push(varName);
+      }
+      args.push('-c', `${prefix}.env_vars=[${envVarNames.map(tomlStr).join(',')}]`);
+    }
   }
-  return args;
+
+  if (typeof server.cwd === 'string' && server.cwd.length > 0) {
+    args.push('-c', `${prefix}.cwd=${tomlStr(server.cwd)}`);
+  }
+
+  if (typeof server.startup_timeout_sec === 'number') {
+    args.push('-c', `${prefix}.startup_timeout_sec=${server.startup_timeout_sec}`);
+  }
+
+  return { args, env };
 }
 
 /**
- * Serialize a plain object of string values into a TOML inline table literal,
- * or return null when there is nothing serializable.
- * @param {*} obj
- * @returns {string|null}
+ * Generate a stable environment variable name for an MCP credential field.
+ * Pattern: CIRCUSCHIEF_MCP_<SERVER>_<FIELD...>
+ * Each segment is uppercased and non-alphanumeric characters are replaced with '_'.
+ *
+ * @param {string} serverName
+ * @param {...string} parts - Additional segments (e.g. 'BEARER_TOKEN', 'ENV', 'API_KEY')
+ * @returns {string}
  */
-function tomlInlineTable(obj) {
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
-  const entries = Object.entries(obj).filter(([, v]) => typeof v === 'string');
-  if (entries.length === 0) return null;
-  return `{${entries.map(([k, v]) => `${tomlKey(k)}=${tomlStr(v)}`).join(',')}}`;
+function makeMcpEnvVarName(serverName, ...parts) {
+  const segments = [serverName, ...parts].map((s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, '_'));
+  return `CIRCUSCHIEF_MCP_${segments.join('_')}`;
 }
 
 /**

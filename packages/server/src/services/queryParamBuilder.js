@@ -1,5 +1,5 @@
 import { createClaudeCodeSpawner } from './nodeSpawnHelper.js';
-import { resolveClaudeMcpServers, resolveMcpServers } from './claudeMcpConfigResolver.js';
+import { resolveClaudeMcpServers, resolveCodexMcpServers } from './claudeMcpConfigResolver.js';
 import {
   buildSystemPromptConfig,
   getGeminiApprovalModeForSession,
@@ -57,7 +57,7 @@ function buildCodexQueryParams({
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'gpt-4o-mini' : model;
-  const { mcpServers } = resolveMcpServers({
+  const { mcpServers } = resolveCodexMcpServers({
     workingDirectory,
     ...(claudeMcpConfigHomeDirectory ? { homeDirectory: claudeMcpConfigHomeDirectory } : {}),
   });

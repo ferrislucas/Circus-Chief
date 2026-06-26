@@ -128,14 +128,17 @@ function normalizeStdioServerConfig(config) {
   if (config.args !== undefined && !Array.isArray(config.args)) return null;
   if (config.env !== undefined && !isPlainObject(config.env)) return null;
 
+  return { transport: 'stdio', server: buildStdioServerObject(config) };
+}
+
+function buildStdioServerObject(config) {
   return {
-    transport: 'stdio',
-    server: {
-      ...(config.type === 'stdio' ? { type: 'stdio' } : {}),
-      command: config.command,
-      ...(config.args !== undefined ? { args: config.args } : {}),
-      ...(config.env !== undefined ? { env: config.env } : {}),
-    },
+    ...(config.type === 'stdio' ? { type: 'stdio' } : {}),
+    command: config.command,
+    ...(config.args !== undefined ? { args: config.args } : {}),
+    ...(config.env !== undefined ? { env: config.env } : {}),
+    ...(typeof config.cwd === 'string' && config.cwd.length > 0 ? { cwd: config.cwd } : {}),
+    ...(typeof config.startup_timeout_sec === 'number' ? { startup_timeout_sec: config.startup_timeout_sec } : {}),
   };
 }
 
@@ -224,7 +227,39 @@ function asStringArray(value) {
 }
 
 /**
- * Shared alias for resolveClaudeMcpServers — use this when the caller is not
- * Claude-specific (e.g. the Codex query-param builder).
+ * Resolve MCP servers for the Codex adapter.
+ *
+ * Calls resolveClaudeMcpServers internally, then filters the result to only
+ * include servers whose diagnostic source is 'project' (i.e. entries from the
+ * project's .mcp.json that have been explicitly approved). User-level and
+ * local Claude project-entry MCP servers are excluded because they are
+ * Claude-specific and should not be forwarded to Codex.
+ *
+ * @param {Object} opts - Same options as resolveClaudeMcpServers
+ * @returns {{ mcpServers: Object, diagnostics: Object }}
  */
-export const resolveMcpServers = resolveClaudeMcpServers;
+export function resolveCodexMcpServers(opts) {
+  const { mcpServers, diagnostics } = resolveClaudeMcpServers(opts);
+
+  // Only include servers that were resolved from the project '.mcp.json' source
+  const projectIncluded = new Set(
+    diagnostics.included
+      .filter((entry) => entry.source === 'project')
+      .map((entry) => entry.name)
+  );
+
+  const filteredServers = {};
+  for (const [name, server] of Object.entries(mcpServers)) {
+    if (projectIncluded.has(name)) {
+      filteredServers[name] = server;
+    }
+  }
+
+  return {
+    mcpServers: filteredServers,
+    diagnostics: {
+      included: diagnostics.included.filter((entry) => entry.source === 'project'),
+      skipped: diagnostics.skipped,
+    },
+  };
+}
