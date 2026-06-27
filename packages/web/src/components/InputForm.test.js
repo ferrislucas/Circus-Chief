@@ -375,9 +375,9 @@ describe('InputForm', () => {
       expect(wrapper.findComponent({ name: 'OrchestrationPanel' }).exists()).toBe(true);
     });
 
-    it('should hide OrchestrationPanel when scheduled for future', () => {
-      const wrapper = mountComponent({ isScheduledForFuture: true });
-      expect(wrapper.findComponent({ name: 'OrchestrationPanel' }).exists()).toBe(false);
+    it('should show OrchestrationPanel when scheduled for future', () => {
+      const wrapper = mountComponent({ sessionStatus: 'scheduled', canSendMessage: true, isScheduledForFuture: true });
+      expect(wrapper.findComponent({ name: 'OrchestrationPanel' }).exists()).toBe(true);
     });
 
     it('should show OrchestrationPanel when running', () => {
