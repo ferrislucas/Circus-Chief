@@ -638,6 +638,7 @@ describe('streamEventHandler', () => {
       expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
       expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
       expect(diffService.getChanges).not.toHaveBeenCalled();
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
       expect(mockCheckReschedule).not.toHaveBeenCalled();
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
