@@ -16,6 +16,10 @@ WORKTREES_DIR="$REPO_ROOT/.worktrees"
 LIST_FILE="$REPO_ROOT/.worktrees-to-delete.txt"
 AUDIT_FILE="/tmp/cc_nested_on_disk.txt"
 
+# Load shared E2E branch-cleanup helpers.
+# shellcheck source=scripts/lib/test-worktree-cleanup.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/test-worktree-cleanup.sh"
+
 TEST_CRUFT=false
 DRY_RUN=true
 
@@ -206,7 +210,7 @@ run_test_cruft_cleanup() {
   before_count="$(count_nested_test_dirs)"
 
   if $DRY_RUN; then
-    echo "=== DRY RUN -- pass --apply to delete selected E2E worktree cruft ==="
+    echo "=== DRY RUN -- no directories or branches will be deleted ==="
   else
     echo "=== Removing selected E2E worktree cruft ==="
   fi
@@ -239,14 +243,29 @@ run_test_cruft_cleanup() {
   local total_gb
   total_gb=$(awk "BEGIN {printf \"%.2f\", $total_kb / 1024 / 1024}")
 
+  # Run E2E branch cleanup in the same dry-run/apply mode.
+  # cleanup_e2e_branches prints per-branch lines and its own summary to stderr
+  # (which appears on the terminal naturally), and echoes "<selected> <deleted>"
+  # to stdout so we can include the counts in our final summary.
+  local branch_dry_run="true"
+  $DRY_RUN || branch_dry_run="false"
+  local branch_selected=0
+  local branch_deleted=0
+  echo ""
+  local branch_counts_line
+  branch_counts_line="$(cleanup_e2e_branches "$branch_dry_run" "$REPO_ROOT" || true)"
+  read -r branch_selected branch_deleted <<< "$branch_counts_line" || true
+
   echo ""
   echo "================================"
   if $DRY_RUN; then
     echo "DRY RUN complete"
     echo "  Would delete : $selected_count directories (~${total_gb} GB)"
+    echo "  Would delete : ${branch_selected:-0} branches"
   else
     echo "Cleanup complete"
     echo "  Deleted      : $selected_count directories (~${total_gb} GB freed)"
+    echo "  Deleted      : ${branch_deleted:-0} branches (${branch_selected:-0} selected)"
   fi
   echo "  Nested before: $before_count"
   echo "  Nested after : $after_count"
