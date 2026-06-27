@@ -292,10 +292,18 @@ function makeTextDeltaEvent(text) {
  *   Remote: url, bearer_token_env_var, env_http_headers
  *   Stdio:  command, args, env_vars, cwd, startup_timeout_sec
  *
- * Credential values (bearer tokens, header values, stdio env entries) are
+ * Credential values (bearer tokens, header values) for remote servers are
  * placed into a returned `env` map under collision-resistant generated variable
  * names (`CIRCUSCHIEF_MCP_<SANITIZED_PARTS>_<HASH>`), and config args reference
  * those variable names instead of literal credential values.
+ *
+ * Stdio `env` string values are forwarded under their original `.mcp.json` key
+ * names. Codex's `env_vars` whitelist forwards variables by name from Codex's
+ * own environment to the stdio MCP child; it cannot rename them. Using original
+ * key names means the MCP child sees the expected variable names (e.g. `API_KEY`
+ * rather than a generated `CIRCUSCHIEF_MCP_*` name). Limitation: original key
+ * names can collide with existing Codex env vars or same-name keys from multiple
+ * MCP servers; that is accepted for this design.
  *
  * @param {Object} mcpServers
  * @returns {{ args: string[], env: Object }} args are flat '-c'/value pairs;
@@ -345,18 +353,13 @@ function serializeRemoteMcpServer(prefix, serverName, server) {
   // Convert Authorization: Bearer <token> to bearer_token_env_var.
   // Non-Bearer Authorization strings fall through to env_http_headers below.
   const authEntry = Object.entries(headers).find(([k]) => k.toLowerCase() === 'authorization');
+  const bearerToken = extractBearerToken(authEntry);
   let authConsumedAsBearer = false;
-  if (authEntry) {
-    const [, authValue] = authEntry;
-    if (typeof authValue === 'string') {
-      const bearerMatch = authValue.match(/^Bearer\s+(.+)/i);
-      if (bearerMatch) {
-        const varName = makeMcpEnvVarName(serverName, 'BEARER_TOKEN');
-        env[varName] = bearerMatch[1];
-        args.push('-c', `${prefix}.bearer_token_env_var=${tomlStr(varName)}`);
-        authConsumedAsBearer = true;
-      }
-    }
+  if (bearerToken !== null) {
+    const varName = makeMcpEnvVarName(serverName, 'BEARER_TOKEN');
+    env[varName] = bearerToken;
+    args.push('-c', `${prefix}.bearer_token_env_var=${tomlStr(varName)}`);
+    authConsumedAsBearer = true;
   }
 
   // Convert remaining string headers to env_http_headers.
@@ -386,8 +389,18 @@ function serializeRemoteMcpServer(prefix, serverName, server) {
  *
  * Emits `command`, `args`, `env_vars`, `cwd`, and `startup_timeout_sec`.
  * Does NOT emit `type` or literal env values in argv. Stdio `env` string
- * values are moved into the spawn environment under generated variable names
- * and referenced via `env_vars`.
+ * values are injected into the spawn environment under their original
+ * `.mcp.json` key names, and those key names are listed in `env_vars`.
+ *
+ * Why original key names (not generated names):
+ *   - `env_vars` is a whitelist that forwards variables by name from Codex's
+ *     own process environment to the stdio MCP child. It cannot rename them.
+ *     Using the original name ensures the child sees `API_KEY`, not a generated
+ *     `CIRCUSCHIEF_MCP_*` name.
+ *   - Literal `mcp_servers.<id>.env` would model the Codex schema directly, but
+ *     passing it via repeated `-c` CLI args would put secrets in argv.
+ *   - Original key names can collide with existing Codex env vars or same-name
+ *     keys from multiple MCP servers; that limitation is accepted for this fix.
  *
  * @param {string} prefix
  * @param {string} serverName
@@ -405,15 +418,16 @@ function serializeStdioMcpServer(prefix, serverName, server) {
     args.push('-c', `${prefix}.args=[${strArgs.map(tomlStr).join(',')}]`);
   }
 
-  // Move env string values into spawn env under generated names; emit env_vars
+  // Inject env string values under their original key names; list them in env_vars.
+  // env_vars forwards variable names from Codex's environment to the MCP child —
+  // it cannot rename them, so using original names is required.
   if (server.env && typeof server.env === 'object' && !Array.isArray(server.env)) {
     const stringEntries = Object.entries(server.env).filter(([, v]) => typeof v === 'string');
     if (stringEntries.length > 0) {
       const envVarNames = [];
       for (const [key, value] of stringEntries) {
-        const varName = makeMcpEnvVarName(serverName, 'ENV', key);
-        env[varName] = value;
-        envVarNames.push(varName);
+        env[key] = value;
+        envVarNames.push(key);
       }
       args.push('-c', `${prefix}.env_vars=[${envVarNames.map(tomlStr).join(',')}]`);
     }
@@ -423,11 +437,28 @@ function serializeStdioMcpServer(prefix, serverName, server) {
     args.push('-c', `${prefix}.cwd=${tomlStr(server.cwd)}`);
   }
 
-  if (typeof server.startup_timeout_sec === 'number') {
+  if (Number.isFinite(server.startup_timeout_sec)) {
     args.push('-c', `${prefix}.startup_timeout_sec=${server.startup_timeout_sec}`);
   }
 
   return { args, env };
+}
+
+/**
+ * Extract a trimmed Bearer token from an Authorization header entry.
+ * Returns the token string, or null if the entry is not a valid non-empty Bearer value.
+ *
+ * @param {[string, unknown]|undefined} authEntry - [headerName, headerValue] pair or undefined
+ * @returns {string|null}
+ */
+function extractBearerToken(authEntry) {
+  if (!authEntry) return null;
+  const [, authValue] = authEntry;
+  if (typeof authValue !== 'string') return null;
+  const match = authValue.match(/^Bearer\s+(.+)/i);
+  if (!match) return null;
+  const token = match[1].trim();
+  return token.length > 0 ? token : null;
 }
 
 /**

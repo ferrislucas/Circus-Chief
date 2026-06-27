@@ -798,7 +798,7 @@ describe('CodexAdapter', () => {
     expect(args.some((a) => a.startsWith('mcp_servers.projectServer.type='))).toBe(false);
   });
 
-  it('CLI path: stdio MCP server env values move into spawn env and are referenced via env_vars', async () => {
+  it('CLI path: stdio MCP server env values move into spawn env under original key names and are referenced via env_vars', async () => {
     const fakeSpawn = vi.fn(() => createFakeChild({
       stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-env"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
       exitCode: 0,
@@ -821,19 +821,13 @@ describe('CodexAdapter', () => {
     const { args, env } = fakeSpawn.mock.calls[0][0];
     // command is present
     expect(args).toContain('mcp_servers.myServer.command="node"');
-    // Derive the generated env var name from the env_vars arg
-    const envVarsArg = args.find((a) => a.startsWith('mcp_servers.myServer.env_vars='));
-    expect(envVarsArg).toBeDefined();
-    const envVarNameMatch = envVarsArg.match(/\["([^"]+)"\]/);
-    expect(envVarNameMatch).not.toBeNull();
-    const envVarName = envVarNameMatch[1];
-    // Name carries the readable prefix plus a collision-resistant hash suffix
-    expect(envVarName).toMatch(/^CIRCUSCHIEF_MCP_MYSERVER_ENV_API_KEY_/);
+    // env_vars lists the original key name "API_KEY"
+    expect(args).toContain('mcp_servers.myServer.env_vars=["API_KEY"]');
     // literal secret is NOT in argv
     expect(args.some((a) => a.includes('secretvalue'))).toBe(false);
-    // secret is in spawn env under the derived name
-    expect(env[envVarName]).toBe('secretvalue');
-    // original env still present too
+    // secret is in spawn env under the original key name
+    expect(env.API_KEY).toBe('secretvalue');
+    // original session env is preserved
     expect(env.OPENAI_API_KEY).toBe('sk-test');
   });
 
@@ -1072,14 +1066,13 @@ describe('CodexAdapter', () => {
     expect(args.some((a) => a.includes('val-dot'))).toBe(false);
   });
 
-  it('CLI path: colliding sanitized stdio env keys get distinct env var names', async () => {
+  it('CLI path: distinct stdio env keys each appear in env and env_vars under their original names', async () => {
     const fakeSpawn = vi.fn(() => createFakeChild({
-      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-env-collide"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-env-keys"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
       exitCode: 0,
     }));
     const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
 
-    // 'api-key' and 'API_KEY' both sanitize to 'API_KEY' — hash must distinguish them
     await collect(adapter.execute({
       prompt: 'hi',
       options: {
@@ -1097,16 +1090,109 @@ describe('CodexAdapter', () => {
     }));
 
     const { args, env } = fakeSpawn.mock.calls[0][0];
-    // Both env values should be in spawn env under distinct variable names
-    const mcpEnvVars = Object.keys(env).filter((k) => k.startsWith('CIRCUSCHIEF_MCP_'));
-    expect(mcpEnvVars).toHaveLength(2);
-    expect(mcpEnvVars[0]).not.toBe(mcpEnvVars[1]);
-    // Both values are present
-    expect(Object.values(env).filter((v) => v === 'val-dash')).toHaveLength(1);
-    expect(Object.values(env).filter((v) => v === 'val-upper')).toHaveLength(1);
+    // Both original key names are present in spawn env with their respective values
+    expect(env['api-key']).toBe('val-dash');
+    expect(env.API_KEY).toBe('val-upper');
+    // Both key names appear in env_vars
+    const envVarsArg = args.find((a) => a.startsWith('mcp_servers.envSrv.env_vars='));
+    expect(envVarsArg).toBeDefined();
+    expect(envVarsArg).toContain('"api-key"');
+    expect(envVarsArg).toContain('"API_KEY"');
     // Neither literal value in argv
     expect(args.some((a) => a.includes('val-dash'))).toBe(false);
     expect(args.some((a) => a.includes('val-upper'))).toBe(false);
+  });
+
+  it('CLI path: bearer token with trailing whitespace is trimmed before storing in env', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-bearer-trim"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test' },
+        abortController: new AbortController(),
+        mcpServers: {
+          trimServer: {
+            type: 'sse',
+            url: 'https://example.com/mcp',
+            headers: { Authorization: 'Bearer tok123   ' },
+          },
+        },
+      },
+    }));
+
+    const { args, env } = fakeSpawn.mock.calls[0][0];
+    const bearerArg = args.find((a) => a.startsWith('mcp_servers.trimServer.bearer_token_env_var='));
+    expect(bearerArg).toBeDefined();
+    const bearerVarMatch = bearerArg.match(/"([^"]+)"$/);
+    expect(bearerVarMatch).not.toBeNull();
+    const bearerVarName = bearerVarMatch[1];
+    // Token stored in env must be trimmed
+    expect(env[bearerVarName]).toBe('tok123');
+  });
+
+  it('CLI path: Bearer header with only whitespace after Bearer is not treated as bearer token', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-bearer-empty"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test' },
+        abortController: new AbortController(),
+        mcpServers: {
+          emptyBearer: {
+            type: 'sse',
+            url: 'https://example.com/mcp',
+            headers: { Authorization: 'Bearer   ' },
+          },
+        },
+      },
+    }));
+
+    const { args } = fakeSpawn.mock.calls[0][0];
+    // bearer_token_env_var should NOT be emitted for an empty token
+    expect(args.some((a) => a.startsWith('mcp_servers.emptyBearer.bearer_token_env_var='))).toBe(false);
+    // The Authorization header should fall through to env_http_headers
+    expect(args.some((a) => a.startsWith('mcp_servers.emptyBearer.env_http_headers='))).toBe(true);
+  });
+
+  it('CLI path: non-finite startup_timeout_sec is omitted from argv', async () => {
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-timeout-nan"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    for (const badTimeout of [NaN, Infinity, -Infinity]) {
+      fakeSpawn.mockClear();
+      await collect(adapter.execute({
+        prompt: 'hi',
+        options: {
+          model: 'gpt-4o',
+          cwd: process.cwd(),
+          env: { OPENAI_API_KEY: 'sk-test' },
+          abortController: new AbortController(),
+          mcpServers: {
+            timeoutSrv: { command: 'node', startup_timeout_sec: badTimeout },
+          },
+        },
+      }));
+
+      const { args } = fakeSpawn.mock.calls[0][0];
+      expect(args.some((a) => a.startsWith('mcp_servers.timeoutSrv.startup_timeout_sec='))).toBe(false);
+    }
   });
 
   it('CLI path: type:"http" and type:"sse" remote servers serialize to the same url-based Codex config shape', async () => {

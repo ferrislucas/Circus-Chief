@@ -8,7 +8,15 @@ const defaultFs = {
   statSync: fsModule.statSync,
 };
 
-export function resolveClaudeMcpServers({
+/**
+ * Internal resolver that reads all MCP config sources once and returns the
+ * resolved server map, diagnostics, and the raw project .mcp.json server map
+ * (for callers that need it without a second filesystem read).
+ *
+ * @param {Object} opts
+ * @returns {{ mcpServers: Object, diagnostics: Object, rawProjectMcpServers: Object|null }}
+ */
+function resolveClaudeMcpServersInternal({
   workingDirectory,
   homeDirectory = os.homedir(),
   fs = defaultFs,
@@ -18,7 +26,7 @@ export function resolveClaudeMcpServers({
 
   if (!workingDirectory || typeof workingDirectory !== 'string') {
     diagnostics.skipped.push({ name: null, source: 'input', reason: 'missing-working-directory' });
-    return { mcpServers, diagnostics };
+    return { mcpServers, diagnostics, rawProjectMcpServers: null };
   }
 
   const resolvedWorkingDirectory = path.resolve(workingDirectory);
@@ -60,6 +68,17 @@ export function resolveClaudeMcpServers({
     diagnostics,
   });
 
+  const rawProjectMcpServers = (
+    projectMcpConfig?.mcpServers
+    && typeof projectMcpConfig.mcpServers === 'object'
+    && !Array.isArray(projectMcpConfig.mcpServers)
+  ) ? projectMcpConfig.mcpServers : null;
+
+  return { mcpServers, diagnostics, rawProjectMcpServers };
+}
+
+export function resolveClaudeMcpServers(opts) {
+  const { mcpServers, diagnostics } = resolveClaudeMcpServersInternal(opts);
   return { mcpServers, diagnostics };
 }
 
@@ -246,7 +265,8 @@ function asStringArray(value) {
  * @returns {{ mcpServers: Object, diagnostics: Object }}
  */
 export function resolveCodexMcpServers(opts) {
-  const { mcpServers, diagnostics } = resolveClaudeMcpServers(opts);
+  // Use the internal helper so the project .mcp.json is read only once.
+  const { mcpServers, diagnostics, rawProjectMcpServers } = resolveClaudeMcpServersInternal(opts);
 
   // Only include servers that were resolved from the project '.mcp.json' source
   const projectIncluded = new Set(
@@ -263,8 +283,8 @@ export function resolveCodexMcpServers(opts) {
   }
 
   // Augment approved project stdio servers with Codex-specific fields
-  // (cwd, startup_timeout_sec) from the raw project .mcp.json.
-  augmentCodexStdioServerFields(filteredServers, opts);
+  // (cwd, startup_timeout_sec) from the already-read raw project .mcp.json.
+  augmentCodexStdioServerFields(filteredServers, rawProjectMcpServers);
 
   return {
     mcpServers: filteredServers,
@@ -278,17 +298,17 @@ export function resolveCodexMcpServers(opts) {
 
 /**
  * Augment approved project stdio servers with Codex-specific fields
- * (cwd and startup_timeout_sec) copied from the raw project .mcp.json.
+ * (cwd and startup_timeout_sec) copied from the raw project .mcp.json server map.
  *
  * Claude's normalizer omits these fields to keep the Claude-facing shape
- * stable. This step re-reads the raw config and copies valid values only
- * for servers already approved and included in the filtered set.
+ * stable. This step copies valid values only for servers already approved and
+ * included in the filtered set.
  *
  * @param {Object} servers - The filtered server map to augment (mutated in place)
- * @param {Object} opts - Same opts passed to resolveCodexMcpServers
+ * @param {Object|null} rawServers - The raw mcpServers map from the project .mcp.json,
+ *   as returned by resolveClaudeMcpServersInternal. Pass null to skip augmentation.
  */
-function augmentCodexStdioServerFields(servers, opts) {
-  const rawServers = loadProjectMcpRawServers(opts);
+function augmentCodexStdioServerFields(servers, rawServers) {
   if (!rawServers) return;
 
   for (const [name, server] of Object.entries(servers)) {
@@ -296,18 +316,6 @@ function augmentCodexStdioServerFields(servers, opts) {
     if (server.type === 'sse' || server.type === 'http') continue;
     applyCodexStdioAugmentation(server, rawServers[name]);
   }
-}
-
-/** Load the raw mcpServers map from the project .mcp.json, or return null. */
-function loadProjectMcpRawServers(opts) {
-  const { workingDirectory, fs: fsOpt = defaultFs } = opts || {};
-  if (!workingDirectory || typeof workingDirectory !== 'string') return null;
-
-  const projectMcpPath = path.join(path.resolve(workingDirectory), '.mcp.json');
-  const projectMcpConfig = readJsonFile(projectMcpPath, fsOpt);
-  const rawServers = projectMcpConfig?.mcpServers;
-  if (!rawServers || typeof rawServers !== 'object' || Array.isArray(rawServers)) return null;
-  return rawServers;
 }
 
 /** Copy valid Codex stdio augmentation fields (cwd, startup_timeout_sec) onto server. */

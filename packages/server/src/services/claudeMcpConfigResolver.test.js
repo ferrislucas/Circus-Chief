@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { tmpdir } from 'os';
 import { resolveClaudeMcpServers, resolveCodexMcpServers } from './claudeMcpConfigResolver.js';
@@ -468,6 +468,31 @@ describe('resolveCodexMcpServers', () => {
     const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
     expect(result.mcpServers.remoteServer).not.toHaveProperty('cwd');
     expect(result.mcpServers.remoteServer).not.toHaveProperty('startup_timeout_sec');
+  });
+
+  it('reads the project .mcp.json file exactly once during resolveCodexMcpServers', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: {
+        myServer: { command: 'node', args: ['server.js'], cwd: '/custom/cwd', startup_timeout_sec: 30 },
+      },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['myServer'],
+    });
+
+    // Spy on readFileSync via a custom fs to count reads of .mcp.json
+    const mcpJsonPath = join(workingDirectory, '.mcp.json');
+    const readFileSpy = vi.fn(readFileSync);
+    const customFs = {
+      existsSync,
+      readFileSync: readFileSpy,
+    };
+
+    resolveCodexMcpServers({ workingDirectory, homeDirectory, fs: customFs });
+
+    const mcpJsonReads = readFileSpy.mock.calls.filter(([p]) => String(p) === mcpJsonPath);
+    expect(mcpJsonReads).toHaveLength(1);
   });
 
   it('diagnostics.skipped contains only project-source entries', () => {
