@@ -188,7 +188,6 @@ export const DIRECT_FIELD_MAP = {
   pendingModel: 'pending_model',
   pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
-  targetLaneId: 'target_lane_id',
   laneTriggerDepth: 'lane_trigger_depth',
   agentType: 'agent_type',
 };

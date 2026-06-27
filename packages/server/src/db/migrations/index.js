@@ -287,4 +287,8 @@ export const allMigrations = validateMigrations([
 
   // --- Repair sessions with ISO text in scheduled_at (should be epoch ms integers) ---
   s.get('sessions-repair-scheduled_at-iso-text'),
+
+  // --- Drop dormant per-session/per-template targetLaneId routing flag ---
+  k.get('sessions-drop-target_lane_id'),
+  k.get('session_templates-drop-target_lane_id'),
 ]);
