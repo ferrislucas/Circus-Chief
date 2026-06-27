@@ -128,14 +128,17 @@ function normalizeStdioServerConfig(config) {
   if (config.args !== undefined && !Array.isArray(config.args)) return null;
   if (config.env !== undefined && !isPlainObject(config.env)) return null;
 
+  return { transport: 'stdio', server: buildStdioServerObject(config) };
+}
+
+function buildStdioServerObject(config) {
+  // Returns only Claude-facing stdio fields. Codex-only fields (cwd,
+  // startup_timeout_sec) are applied later via augmentCodexStdioServerFields.
   return {
-    transport: 'stdio',
-    server: {
-      ...(config.type === 'stdio' ? { type: 'stdio' } : {}),
-      command: config.command,
-      ...(config.args !== undefined ? { args: config.args } : {}),
-      ...(config.env !== undefined ? { env: config.env } : {}),
-    },
+    ...(config.type === 'stdio' ? { type: 'stdio' } : {}),
+    command: config.command,
+    ...(config.args !== undefined ? { args: config.args } : {}),
+    ...(config.env !== undefined ? { env: config.env } : {}),
   };
 }
 
@@ -221,4 +224,102 @@ function isPlainObject(value) {
 
 function asStringArray(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
+}
+
+/**
+ * Resolve MCP servers for the Codex adapter.
+ *
+ * Calls resolveClaudeMcpServers internally, then filters the result to only
+ * include servers whose diagnostic source is 'project' (i.e. entries from the
+ * project's .mcp.json that have been explicitly approved). User-level and
+ * local Claude project-entry MCP servers are excluded because they are
+ * Claude-specific and should not be forwarded to Codex.
+ *
+ * After filtering, stdio servers are augmented with Codex-specific fields
+ * (cwd and startup_timeout_sec) read from the raw project .mcp.json.
+ *
+ * Note: Codex MCP enablement currently reuses Claude approval metadata from
+ * .claude/settings.local.json and matching entries in ~/.claude.json.
+ * A Codex-native approval flow is left as a future follow-up.
+ *
+ * @param {Object} opts - Same options as resolveClaudeMcpServers
+ * @returns {{ mcpServers: Object, diagnostics: Object }}
+ */
+export function resolveCodexMcpServers(opts) {
+  const { mcpServers, diagnostics } = resolveClaudeMcpServers(opts);
+
+  // Only include servers that were resolved from the project '.mcp.json' source
+  const projectIncluded = new Set(
+    diagnostics.included
+      .filter((entry) => entry.source === 'project')
+      .map((entry) => entry.name)
+  );
+
+  const filteredServers = {};
+  for (const [name, server] of Object.entries(mcpServers)) {
+    if (projectIncluded.has(name)) {
+      filteredServers[name] = server;
+    }
+  }
+
+  // Augment approved project stdio servers with Codex-specific fields
+  // (cwd, startup_timeout_sec) from the raw project .mcp.json.
+  augmentCodexStdioServerFields(filteredServers, opts);
+
+  return {
+    mcpServers: filteredServers,
+    diagnostics: {
+      included: diagnostics.included.filter((entry) => entry.source === 'project'),
+      // Filter skipped to project-source entries to match included filtering
+      skipped: diagnostics.skipped.filter((entry) => entry.source === 'project'),
+    },
+  };
+}
+
+/**
+ * Augment approved project stdio servers with Codex-specific fields
+ * (cwd and startup_timeout_sec) copied from the raw project .mcp.json.
+ *
+ * Claude's normalizer omits these fields to keep the Claude-facing shape
+ * stable. This step re-reads the raw config and copies valid values only
+ * for servers already approved and included in the filtered set.
+ *
+ * @param {Object} servers - The filtered server map to augment (mutated in place)
+ * @param {Object} opts - Same opts passed to resolveCodexMcpServers
+ */
+function augmentCodexStdioServerFields(servers, opts) {
+  const rawServers = loadProjectMcpRawServers(opts);
+  if (!rawServers) return;
+
+  for (const [name, server] of Object.entries(servers)) {
+    // Remote servers (sse/http) do not use cwd or startup_timeout_sec
+    if (server.type === 'sse' || server.type === 'http') continue;
+    applyCodexStdioAugmentation(server, rawServers[name]);
+  }
+}
+
+/** Load the raw mcpServers map from the project .mcp.json, or return null. */
+function loadProjectMcpRawServers(opts) {
+  const { workingDirectory, fs: fsOpt = defaultFs } = opts || {};
+  if (!workingDirectory || typeof workingDirectory !== 'string') return null;
+
+  const projectMcpPath = path.join(path.resolve(workingDirectory), '.mcp.json');
+  const projectMcpConfig = readJsonFile(projectMcpPath, fsOpt);
+  const rawServers = projectMcpConfig?.mcpServers;
+  if (!rawServers || typeof rawServers !== 'object' || Array.isArray(rawServers)) return null;
+  return rawServers;
+}
+
+/** Copy valid Codex stdio augmentation fields (cwd, startup_timeout_sec) onto server. */
+function applyCodexStdioAugmentation(server, rawConfig) {
+  if (!rawConfig || typeof rawConfig !== 'object' || Array.isArray(rawConfig)) return;
+
+  const extra = {};
+  if (typeof rawConfig.cwd === 'string' && rawConfig.cwd.length > 0) {
+    extra.cwd = rawConfig.cwd;
+  }
+  if (typeof rawConfig.startup_timeout_sec === 'number' && isFinite(rawConfig.startup_timeout_sec)) {
+    extra.startup_timeout_sec = rawConfig.startup_timeout_sec;
+  }
+  Object.assign(server, extra);
 }
