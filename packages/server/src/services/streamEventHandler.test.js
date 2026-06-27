@@ -643,6 +643,115 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).not.toHaveBeenCalled();
       expect(finalErrorSessionIds.has('sess-1')).toBe(false);
     });
+
+    // ── handleScheduledContinuationIfNeeded (mid-turn schedule hook) ──────
+
+    it('re-applies scheduled status when session has future scheduledAt and pendingPrompt', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const futureScheduledAt = Date.now() + 3600000;
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Continue the analysis',
+      });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      // Should return true (short-circuit) and re-apply scheduled status
+      expect(result).toBe(true);
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+
+      // Auto-send and template trigger must NOT fire for this turn
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('does not re-apply scheduled status when scheduledAt is in the past', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: Date.now() - 1000, // past
+        pendingPrompt: 'Continue',
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      // Normal waiting write should have happened
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('does not re-apply scheduled status when pendingPrompt is missing', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: Date.now() + 3600000,
+        pendingPrompt: null, // no prompt
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      // Normal waiting write should have happened
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('mid-turn schedule wins over autoSendPendingPrompt', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const futureScheduledAt = Date.now() + 3600000;
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Scheduled continuation',
+        autoSendPendingPrompt: true, // would normally trigger auto-send
+      });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(true);
+      // Auto-send must NOT fire — schedule wins
+      expect(mockAutoSend).not.toHaveBeenCalled();
+    });
   });
 
   // ── handleSessionError ────────────────────────────────────────────────

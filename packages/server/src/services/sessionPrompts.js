@@ -290,7 +290,19 @@ curl -X DELETE ${apiUrl}/api/sessions/<session_id>
 curl -X PATCH ${apiUrl}/api/sessions/<session_id> \\
   -H "Content-Type: application/json" \\
   -d '{"thinkingEnabled": true, "effortLevel": "high"}'
-\`\`\``;
+\`\`\`
+
+### Schedule Current Session to Continue Later
+Use this single call to schedule **this session** to resume with a given prompt.
+This is the preferred, race-free alternative to the multi-step PATCH dance.
+Works whether the session is idle or still running (the schedule survives the turn-completion).
+\`\`\`bash
+curl -X POST ${apiUrl}/api/sessions/${sessionId}/schedule \\
+  -H "Content-Type: application/json" \\
+  -d '{"prompt": "Continue: <work to resume>", "scheduledAt": "2026-06-27T14:30:00Z"}'
+\`\`\`
+Required fields: \`prompt\` (string), \`scheduledAt\` (ISO 8601 string or epoch ms, must be in the future).
+Optional field: \`model\` (string) — sets pendingModel; validated and guarded against cross-kind switches.`;
 }
 
 /** Build project and summary operations section */

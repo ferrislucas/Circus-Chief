@@ -8,7 +8,14 @@ import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { requireRootSessionAndProject, requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { duplicateSession } from '../services/sessionDuplicator.js';
-import { configureSchedule, ScheduleError } from '../services/scheduleService.js';
+import { validateScheduledAt } from './scheduledAtValidation.js';
+import { validateModelId } from './model-validation.js';
+import { broadcastSessionUpdate } from './sessions-patch.js';
+import {
+  checkCrossKindSwitch,
+  sessionHasNoAssistantMessages,
+  deriveAgentTypeUpdate,
+} from '../services/sessionAgentGuard.js';
 
 const router = Router();
 
@@ -63,18 +70,71 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   }
 });
 
-// POST /api/sessions/:id/schedule - Schedule a follow-up message for an existing session
-router.post('/:id/schedule', requireSessionAndProject, async (req, res) => {
-  try {
-    const updated = configureSchedule(req.session_, req.body);
-    res.json(updated);
-  } catch (error) {
-    if (error instanceof ScheduleError) {
-      return res.status(error.statusCode).json({ error: error.message });
-    }
-    console.error('Schedule session error:', error);
-    res.status(500).json({ error: error.message });
+// POST /api/sessions/:id/schedule - Schedule the current session to continue later.
+//
+// Takes prompt + scheduledAt directly so agents can schedule a continuation in
+// one race-free call, without a multi-step PATCH dance. Works for both idle and
+// running sessions: when a running session's turn completes, the turn-completion
+// hook re-applies the scheduled status over the normal waiting write.
+//
+// Request body:
+//   prompt      {string}               required — becomes pendingPrompt
+//   scheduledAt {ISO 8601 | epoch ms}  required — must be in the future
+//   model       {string}               optional — becomes pendingModel; cross-kind guarded
+router.post('/:id/schedule', requireSession, (req, res) => {
+  const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
+
+  // Validate prompt
+  if (typeof prompt !== 'string' || prompt.trim() === '') {
+    return res.status(400).json({ error: 'prompt must be a non-empty string' });
   }
+
+  // Validate scheduledAt: required, must parse, must be in the future
+  if (scheduledAtRaw === undefined || scheduledAtRaw === null) {
+    return res.status(400).json({ error: 'scheduledAt is required' });
+  }
+  const scheduledAtResult = validateScheduledAt(scheduledAtRaw);
+  if (scheduledAtResult.error) {
+    return res.status(400).json({ error: scheduledAtResult.error });
+  }
+  const scheduledAt = scheduledAtResult.value;
+  if (scheduledAt <= Date.now()) {
+    return res.status(400).json({ error: 'scheduledAt must be in the future' });
+  }
+
+  // Validate model if provided, applying the cross-kind drift guard
+  let pendingModel = null;
+  let agentTypeUpdate = {};
+  if (model !== undefined && model !== null && model !== '') {
+    const modelResult = validateModelId(model, { fieldName: 'model' });
+    if (modelResult.error) {
+      return res.status(400).json({ error: modelResult.error });
+    }
+    pendingModel = modelResult.value;
+
+    if (sessionHasNoAssistantMessages(req.params.id)) {
+      // Draft session: re-derive agentType from model (safe to mutate kind)
+      agentTypeUpdate = deriveAgentTypeUpdate(req.session_, req.params.id, pendingModel, { providerId: null });
+    } else {
+      // Started session: reject cross-kind switches
+      const driftError = checkCrossKindSwitch(req.session_, pendingModel);
+      if (driftError) {
+        return res.status(400).json(driftError);
+      }
+    }
+  }
+
+  const updateData = {
+    status: 'scheduled',
+    scheduledAt,
+    pendingPrompt: prompt,
+    pendingModel,
+    ...agentTypeUpdate,
+  };
+
+  const updated = sessions.update(req.params.id, updateData);
+  broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, updateData);
+  res.json(updated);
 });
 
 // POST /api/sessions/:id/duplicate - Duplicate a session
