@@ -39,7 +39,8 @@ export async function setupGitForSession({
 
   if (gitMode === 'worktree') {
     // Create a worktree in the configured base path or .worktrees/{sessionId}
-    const worktreePath = join(worktreeBasePath || join(projectDir, '.worktrees'), sessionId);
+    const basePath = process.env.CIRCUS_TEST_WORKTREE_ROOT || worktreeBasePath || join(projectDir, '.worktrees');
+    const worktreePath = join(basePath, sessionId);
     await gitService.createWorktreeForBranch(projectDir, gitBranch, worktreePath);
     // Pin the human developer's git identity so they are the commit Author
     await gitService.pinAuthorInWorktree(worktreePath, projectDir);
