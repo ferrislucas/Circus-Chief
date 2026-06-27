@@ -21,10 +21,6 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Load shared E2E branch-cleanup helpers.
-# shellcheck source=scripts/lib/test-worktree-cleanup.sh
-source "$SCRIPT_DIR/lib/test-worktree-cleanup.sh"
-
 # Default: test against dev server, not the built package
 USE_PACKAGE_SERVER=false
 
@@ -256,11 +252,6 @@ cleanup_test_worktree_root() {
 
     git -C "$PROJECT_ROOT" worktree prune >/dev/null 2>&1 || true
     unset CIRCUS_TEST_WORKTREE_ROOT
-
-    # Best-effort: delete merged E2E-generated local branches.
-    # Run after prune so detached worktree branches are no longer "active".
-    # Discard stdout (counts); per-branch messages go to stderr.
-    cleanup_e2e_branches false "$PROJECT_ROOT" > /dev/null || true
 }
 
 cleanup_test_run() {
