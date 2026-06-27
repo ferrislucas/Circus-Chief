@@ -85,6 +85,10 @@ function navigateToTab(tabId) {
 </script>
 
 <style scoped>
+.container {
+  overflow-x: hidden;
+}
+
 h1 {
   margin-bottom: 1.5rem;
 }

@@ -3,6 +3,7 @@ import {
   seedProject,
   seedSession,
   seedProjectTemplate,
+  seedScheduledSession,
   setNextTemplate,
   updateSessionScheduling,
   getSession,
@@ -808,5 +809,102 @@ test.describe('Orchestration Panel - Integration', () => {
 
     const statusBadge = page.locator('.status-badge');
     await expect(statusBadge).toContainText('Enabled');
+  });
+});
+
+// ============================================================
+// Category 6: Future Scheduled Session — Panel Always Visible (3 tests)
+// ============================================================
+
+test.describe('Orchestration Panel - Future Scheduled Session', () => {
+  test.describe.configure({ timeout: 15000 });
+
+  let project: any;
+
+  test.beforeEach(async () => {
+    await cleanupAll();
+    await cleanupTemplates();
+    project = await seedProject('OrchPanel ScheduledFuture', '/tmp/test');
+  });
+
+  test.afterEach(async () => {
+    await cleanupTemplates();
+    await cleanupAll();
+  });
+
+  test('orchestration panel is visible for a future scheduled session', async ({ page }) => {
+    const session = await seedScheduledSession(project.id, {
+      prompt: 'Scheduled future prompt',
+      name: 'Future Scheduled Session',
+    });
+
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
+
+    const panel = page.locator('.orchestration-panel');
+    await expect(panel).toBeVisible();
+
+    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    await expect(panelHeader).toBeVisible();
+    await expect(panelHeader).toContainText('Orchestration');
+  });
+
+  test('template selection and auto-reschedule controls are reachable for future scheduled session', async ({ page }) => {
+    const template = await seedProjectTemplate(project.id, {
+      name: 'Future Scheduled Template',
+      prompt: 'Do scheduled task',
+    });
+
+    const session = await seedScheduledSession(project.id, {
+      prompt: 'Scheduled future prompt',
+      name: 'Future Scheduled Controls Test',
+    });
+
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
+
+    // Expand the panel
+    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    await panelHeader.click();
+
+    const content = page.locator('.orchestration-content');
+    await expect(content).toBeVisible();
+
+    // Template selector should be visible and usable
+    const templateSelector = page.locator('.template-selector');
+    await expect(templateSelector).toBeVisible();
+
+    const dropdown = page.locator('.template-selector select.form-input');
+    await expect(dropdown).toBeVisible();
+    await dropdown.selectOption(template.id);
+
+    const preview = page.locator('.template-preview');
+    await expect(preview).toBeVisible({ timeout: 5000 });
+
+    // Auto-reschedule configure button should be visible
+    const configureBtn = page.locator('.btn-configure');
+    await expect(configureBtn).toBeVisible();
+  });
+
+  test('schedule button is disabled for already scheduled session', async ({ page }) => {
+    const session = await seedScheduledSession(project.id, {
+      prompt: 'Scheduled future prompt',
+      name: 'Future Scheduled Disabled Button Test',
+    });
+
+    await navigateAndWait(page, `/sessions/${session.id}/summary`);
+    await openSessionOverlay(page);
+
+    // Expand the panel
+    const panelHeader = page.locator('.orchestration-panel .panel-header');
+    await panelHeader.click();
+
+    const content = page.locator('.orchestration-content');
+    await expect(content).toBeVisible();
+
+    // Schedule button should be disabled because session is already scheduled
+    const scheduleBtn = page.locator('.btn-schedule');
+    await expect(scheduleBtn).toBeVisible();
+    await expect(scheduleBtn).toBeDisabled();
   });
 });
