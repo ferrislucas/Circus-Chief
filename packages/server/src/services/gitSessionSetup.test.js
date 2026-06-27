@@ -13,6 +13,7 @@ import { setupGitForSession } from './gitSessionSetup.js';
 describe('setupGitForSession', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.CIRCUS_TEST_WORKTREE_ROOT;
     gitService.createWorktreeForBranch.mockResolvedValue({
       path: '/project/.worktrees/session-1',
       branch: 'test-branch',
@@ -224,6 +225,28 @@ describe('setupGitForSession', () => {
       expect(result).toEqual({
         workingDirectory: '/project/.worktrees/session-1',
         gitWorktree: '/project/.worktrees/session-1',
+      });
+    });
+
+    it('uses CIRCUS_TEST_WORKTREE_ROOT before configured worktreeBasePath when set', async () => {
+      process.env.CIRCUS_TEST_WORKTREE_ROOT = '/project/.worktrees/pw-test-run';
+
+      const result = await setupGitForSession({
+        projectDir: '/project',
+        gitMode: 'worktree',
+        gitBranch: 'feature-x',
+        sessionId: 'session-1',
+        worktreeBasePath: '/custom/worktrees',
+      });
+
+      expect(gitService.createWorktreeForBranch).toHaveBeenCalledWith(
+        '/project',
+        'feature-x',
+        '/project/.worktrees/pw-test-run/session-1'
+      );
+      expect(result).toEqual({
+        workingDirectory: '/project/.worktrees/pw-test-run/session-1',
+        gitWorktree: '/project/.worktrees/pw-test-run/session-1',
       });
     });
   });
