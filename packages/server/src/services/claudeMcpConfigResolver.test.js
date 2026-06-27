@@ -252,7 +252,7 @@ describe('resolveClaudeMcpServers', () => {
   });
 });
 
-describe('resolveClaudeMcpServers field preservation', () => {
+describe('resolveClaudeMcpServers Codex-only stdio field exclusion', () => {
   let tempDir;
   let homeDirectory;
   let workingDirectory;
@@ -271,7 +271,7 @@ describe('resolveClaudeMcpServers field preservation', () => {
     }
   });
 
-  it('preserves stdio cwd when it is a non-empty string', () => {
+  it('omits stdio cwd even when it is a non-empty string (Codex-only field)', () => {
     writeJson(join(homeDirectory, '.claude.json'), {
       mcpServers: {
         cwdServer: { command: 'node', cwd: '/some/path' },
@@ -279,10 +279,10 @@ describe('resolveClaudeMcpServers field preservation', () => {
     });
 
     const result = resolveClaudeMcpServers({ workingDirectory, homeDirectory });
-    expect(result.mcpServers.cwdServer.cwd).toBe('/some/path');
+    expect(result.mcpServers.cwdServer).not.toHaveProperty('cwd');
   });
 
-  it('preserves startup_timeout_sec when it is a number', () => {
+  it('omits startup_timeout_sec even when it is a valid number (Codex-only field)', () => {
     writeJson(join(homeDirectory, '.claude.json'), {
       mcpServers: {
         timeoutServer: { command: 'node', startup_timeout_sec: 30 },
@@ -290,7 +290,7 @@ describe('resolveClaudeMcpServers field preservation', () => {
     });
 
     const result = resolveClaudeMcpServers({ workingDirectory, homeDirectory });
-    expect(result.mcpServers.timeoutServer.startup_timeout_sec).toBe(30);
+    expect(result.mcpServers.timeoutServer).not.toHaveProperty('startup_timeout_sec');
   });
 
   it('omits cwd when it is an empty string', () => {
@@ -387,6 +387,124 @@ describe('resolveCodexMcpServers', () => {
 
     const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
     expect(result.mcpServers).toEqual({ shared: { command: 'project-cmd', args: ['server.js'] } });
+  });
+
+  it('augments approved project stdio servers with cwd from raw .mcp.json', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: {
+        myServer: { command: 'node', args: ['server.js'], cwd: '/custom/cwd' },
+      },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['myServer'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers.myServer).toMatchObject({ command: 'node', args: ['server.js'] });
+    expect(result.mcpServers.myServer.cwd).toBe('/custom/cwd');
+  });
+
+  it('augments approved project stdio servers with startup_timeout_sec from raw .mcp.json', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: {
+        myServer: { command: 'node', startup_timeout_sec: 45 },
+      },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['myServer'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers.myServer.startup_timeout_sec).toBe(45);
+  });
+
+  it('omits cwd from augmentation when raw .mcp.json cwd is an empty string', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: {
+        myServer: { command: 'node', cwd: '' },
+      },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['myServer'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers.myServer).not.toHaveProperty('cwd');
+  });
+
+  it('omits startup_timeout_sec from augmentation when raw value is not a finite number', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: {
+        infiniteServer: { command: 'node', startup_timeout_sec: Infinity },
+        stringServer: { command: 'node', startup_timeout_sec: '30' },
+      },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['infiniteServer', 'stringServer'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    // Infinity is not a valid JSON number; JSON.parse will give null for its key or omit it.
+    // Either way, the field should not appear in the resolved server.
+    expect(result.mcpServers.infiniteServer).not.toHaveProperty('startup_timeout_sec');
+    expect(result.mcpServers.stringServer).not.toHaveProperty('startup_timeout_sec');
+  });
+
+  it('does not augment remote servers with cwd or startup_timeout_sec', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: {
+        remoteServer: { type: 'sse', url: 'https://example.test/mcp', cwd: '/some/path', startup_timeout_sec: 10 },
+      },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['remoteServer'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers.remoteServer).not.toHaveProperty('cwd');
+    expect(result.mcpServers.remoteServer).not.toHaveProperty('startup_timeout_sec');
+  });
+
+  it('diagnostics.skipped contains only project-source entries', () => {
+    // user-level server (will be skipped at the Codex filter level — source: 'user')
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: {
+        userServer: { command: 'user-cmd' },
+      },
+      projects: {
+        [workingDirectory]: {
+          mcpServers: {
+            localServer: { command: 'local-cmd' },
+          },
+          enableAllProjectMcpServers: true,
+          disabledMcpjsonServers: ['disabledProject'],
+        },
+      },
+    });
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: {
+        unapprovedProject: { command: 'unapproved-cmd' },
+        disabledProject: { command: 'disabled-cmd' },
+        approvedServer: { command: 'approved-cmd' },
+      },
+    });
+    // unapprovedProject has no approval entry; disabledProject is explicitly disabled
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+
+    // Only project-source skipped entries should appear
+    expect(result.diagnostics.skipped.every((e) => e.source === 'project')).toBe(true);
+    expect(result.diagnostics.skipped).toContainEqual(
+      expect.objectContaining({ name: 'disabledProject', source: 'project', reason: 'disabled' }),
+    );
+    // user and local skipped entries should NOT appear
+    expect(result.diagnostics.skipped.some((e) => e.source === 'user')).toBe(false);
+    expect(result.diagnostics.skipped.some((e) => e.source === 'local')).toBe(false);
   });
 });
 

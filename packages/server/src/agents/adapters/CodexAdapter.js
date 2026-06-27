@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { BaseAgent } from '../BaseAgent.js';
 import { executeCodexCli } from './codexCliRunner.js';
 import { createCodexSpawner } from '../../services/codexSpawnHelper.js';
@@ -287,10 +288,14 @@ function makeTextDeltaEvent(text) {
  * with credential values moved out of argv into the spawned process environment.
  *
  * Generates config keys under `mcp_servers.<serverName>` using the Codex
- * `mcp_servers` schema. Credential values (bearer tokens, header values, stdio
- * env entries) are placed into a returned `env` map under stable generated
- * variable names (`CIRCUSCHIEF_MCP_<SERVER>_<FIELD>`), and config args
- * reference those variable names instead of literal credential values.
+ * `mcp_servers` schema. Supported keys per server type:
+ *   Remote: url, bearer_token_env_var, env_http_headers
+ *   Stdio:  command, args, env_vars, cwd, startup_timeout_sec
+ *
+ * Credential values (bearer tokens, header values, stdio env entries) are
+ * placed into a returned `env` map under collision-resistant generated variable
+ * names (`CIRCUSCHIEF_MCP_<SANITIZED_PARTS>_<HASH>`), and config args reference
+ * those variable names instead of literal credential values.
  *
  * @param {Object} mcpServers
  * @returns {{ args: string[], env: Object }} args are flat '-c'/value pairs;
@@ -337,8 +342,10 @@ function serializeRemoteMcpServer(prefix, serverName, server) {
     ? server.headers
     : {};
 
-  // Convert Authorization: Bearer <token> to bearer_token_env_var
+  // Convert Authorization: Bearer <token> to bearer_token_env_var.
+  // Non-Bearer Authorization strings fall through to env_http_headers below.
   const authEntry = Object.entries(headers).find(([k]) => k.toLowerCase() === 'authorization');
+  let authConsumedAsBearer = false;
   if (authEntry) {
     const [, authValue] = authEntry;
     if (typeof authValue === 'string') {
@@ -347,13 +354,18 @@ function serializeRemoteMcpServer(prefix, serverName, server) {
         const varName = makeMcpEnvVarName(serverName, 'BEARER_TOKEN');
         env[varName] = bearerMatch[1];
         args.push('-c', `${prefix}.bearer_token_env_var=${tomlStr(varName)}`);
+        authConsumedAsBearer = true;
       }
     }
   }
 
-  // Convert remaining string headers to env_http_headers
+  // Convert remaining string headers to env_http_headers.
+  // Non-Bearer Authorization headers are included here alongside other headers.
   const otherStringHeaders = Object.entries(headers)
-    .filter(([k, v]) => k.toLowerCase() !== 'authorization' && typeof v === 'string');
+    .filter(([k, v]) => {
+      if (k.toLowerCase() === 'authorization') return !authConsumedAsBearer && typeof v === 'string';
+      return typeof v === 'string';
+    });
 
   if (otherStringHeaders.length > 0) {
     const headerEnvMap = {};
@@ -419,17 +431,27 @@ function serializeStdioMcpServer(prefix, serverName, server) {
 }
 
 /**
- * Generate a stable environment variable name for an MCP credential field.
- * Pattern: CIRCUSCHIEF_MCP_<SERVER>_<FIELD...>
- * Each segment is uppercased and non-alphanumeric characters are replaced with '_'.
+ * Generate a collision-resistant environment variable name for an MCP credential field.
+ * Pattern: CIRCUSCHIEF_MCP_<SANITIZED_PARTS>_<HASH>
+ *
+ * Each segment is uppercased and non-alphanumeric characters are replaced with '_'
+ * to form a readable prefix. A short deterministic suffix (first 8 hex chars of a
+ * SHA-256 digest over the raw segment values) prevents collisions between inputs
+ * whose sanitized forms are identical (e.g. 'X-Custom' and 'X.Custom' both map to
+ * 'X_CUSTOM' but receive different hashes).
  *
  * @param {string} serverName
  * @param {...string} parts - Additional segments (e.g. 'BEARER_TOKEN', 'ENV', 'API_KEY')
  * @returns {string}
  */
 function makeMcpEnvVarName(serverName, ...parts) {
-  const segments = [serverName, ...parts].map((s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, '_'));
-  return `CIRCUSCHIEF_MCP_${segments.join('_')}`;
+  const allParts = [serverName, ...parts];
+  const segments = allParts.map((s) => String(s).toUpperCase().replace(/[^A-Z0-9]/g, '_'));
+  const hash = crypto.createHash('sha256')
+    .update(JSON.stringify(allParts))
+    .digest('hex')
+    .slice(0, 8);
+  return `CIRCUSCHIEF_MCP_${segments.join('_')}_${hash}`;
 }
 
 /**
