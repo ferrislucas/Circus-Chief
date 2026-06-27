@@ -549,7 +549,7 @@ function clearSubmittedInput(textareaRef) {
   }
 }
 
-async function handleFormSubmit() {
+async function handleFormSubmit(options = {}) {
   if (isRunning.value) return;
 
   // Cancel any pending debounced draft save BEFORE Send/Start. Otherwise a
@@ -567,14 +567,14 @@ async function handleFormSubmit() {
     const sessionProviderId = selectedProviderId.value
       || sessionsStore.currentSession?.providerId
       || null;
-    const success = await handleStart(currentValue, sessionModel, sessionProviderId);
+    const success = await handleStart(currentValue, sessionModel, sessionProviderId, options);
     if (success) {
       clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
       inputFormRef.value?.clearFiles();
     }
   } else {
-    const success = await handleSend(currentValue, attachedFiles.value, selectedModel.value);
+    const success = await handleSend(currentValue, attachedFiles.value, selectedModel.value, options);
     if (success) {
       clearSubmittedInput(textareaRef);
       attachedFiles.value = [];
@@ -593,7 +593,7 @@ function handleQuickResponseInsert({ content, autoSubmit }) {
     // This mirrors the regular Send invariant (see handleFormSubmit).
     cancelDraft();
     nextTick(() => {
-      handleFormSubmit();
+      handleFormSubmit({ renderLiquid: true });
     });
   } else {
     // Non-submit path: blur the textarea and persist the inserted text.

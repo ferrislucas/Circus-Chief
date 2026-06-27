@@ -169,42 +169,6 @@ describe('CreateSessionTemplateRequest', () => {
     expect(result.success).toBe(false);
   });
 
-  it('accepts valid UUID for targetLaneId', () => {
-    const result = CreateSessionTemplateRequest.safeParse({
-      name: 'Template',
-      prompt: 'Prompt',
-      targetLaneId: '550e8400-e29b-41d4-a716-446655440000',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts null targetLaneId', () => {
-    const result = CreateSessionTemplateRequest.safeParse({
-      name: 'Template',
-      prompt: 'Prompt',
-      targetLaneId: null,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects invalid UUID for targetLaneId', () => {
-    const result = CreateSessionTemplateRequest.safeParse({
-      name: 'Template',
-      prompt: 'Prompt',
-      targetLaneId: 'not-a-uuid',
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('allows omitting targetLaneId', () => {
-    const result = CreateSessionTemplateRequest.safeParse({
-      name: 'Template',
-      prompt: 'Prompt',
-    });
-    expect(result.success).toBe(true);
-    expect(result.data.targetLaneId).toBeUndefined();
-  });
-
   it('validates quick response options', () => {
     const result = CreateSessionTemplateRequest.safeParse({
       name: 'Quick Template',
@@ -343,27 +307,6 @@ describe('UpdateSessionTemplateRequest', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts valid UUID for targetLaneId', () => {
-    const result = UpdateSessionTemplateRequest.safeParse({
-      targetLaneId: '550e8400-e29b-41d4-a716-446655440000',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('accepts null targetLaneId', () => {
-    const result = UpdateSessionTemplateRequest.safeParse({
-      targetLaneId: null,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects invalid UUID for targetLaneId', () => {
-    const result = UpdateSessionTemplateRequest.safeParse({
-      targetLaneId: 'not-a-uuid',
-    });
-    expect(result.success).toBe(false);
-  });
-
   it('validates quick response option updates', () => {
     const result = UpdateSessionTemplateRequest.safeParse({
       showInQuickResponses: true,
@@ -387,7 +330,6 @@ describe('SessionTemplateResponse', () => {
     model: null,
     mode: null,
     effortLevel: null,
-    targetLaneId: null,
     showInQuickResponses: false,
     quickResponseAutoSubmit: false,
     quickResponseSortOrder: 0,
@@ -462,35 +404,6 @@ describe('SessionTemplateResponse', () => {
     expect(result.success).toBe(true);
   });
 
-  it('validates template with targetLaneId set', () => {
-    const result = SessionTemplateResponse.safeParse({
-      ...validTemplate,
-      targetLaneId: '550e8400-e29b-41d4-a716-446655440005',
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('validates template with targetLaneId null', () => {
-    const result = SessionTemplateResponse.safeParse({
-      ...validTemplate,
-      targetLaneId: null,
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects template with invalid targetLaneId', () => {
-    const result = SessionTemplateResponse.safeParse({
-      ...validTemplate,
-      targetLaneId: 'not-a-uuid',
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects template missing targetLaneId field', () => {
-    const { targetLaneId: _targetLaneId, ...withoutTargetLaneId } = validTemplate;
-    const result = SessionTemplateResponse.safeParse(withoutTargetLaneId);
-    expect(result.success).toBe(false);
-  });
 });
 
 describe('SessionTemplateListResponse', () => {
@@ -513,7 +426,6 @@ describe('SessionTemplateListResponse', () => {
         model: null,
         mode: null,
         effortLevel: null,
-        targetLaneId: null,
         showInQuickResponses: false,
         quickResponseAutoSubmit: false,
         quickResponseSortOrder: 0,
@@ -532,7 +444,6 @@ describe('SessionTemplateListResponse', () => {
         model: 'claude-sonnet-4-20250514',
         mode: 'plan',
         effortLevel: 'high',
-        targetLaneId: null,
         showInQuickResponses: false,
         quickResponseAutoSubmit: false,
         quickResponseSortOrder: 0,
@@ -568,7 +479,6 @@ describe('AvailableTemplatesResponse', () => {
           model: null,
           mode: null,
           effortLevel: null,
-          targetLaneId: null,
           showInQuickResponses: false,
           quickResponseAutoSubmit: false,
           quickResponseSortOrder: 0,
@@ -597,7 +507,6 @@ describe('AvailableTemplatesResponse', () => {
           model: null,
           mode: null,
           effortLevel: null,
-          targetLaneId: null,
           showInQuickResponses: false,
           quickResponseAutoSubmit: false,
           quickResponseSortOrder: 0,
@@ -622,7 +531,6 @@ describe('AvailableTemplatesResponse', () => {
       model: null,
       mode: null,
       effortLevel: null,
-      targetLaneId: null,
       showInQuickResponses: false,
       quickResponseAutoSubmit: false,
       quickResponseSortOrder: 0,
