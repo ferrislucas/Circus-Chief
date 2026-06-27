@@ -2016,9 +2016,11 @@ export async function seedScheduledSession(
     prompt: data.prompt,
     startImmediately: false,
     scheduledAt: new Date(data.scheduledAt ?? Date.now() + 3600000).toISOString(), // default 1 hour from now
+    // Default autoRescheduleEnabled to false so tests get deterministic panel behavior
+    // (the REST API now defaults it to true for agent convenience). Mirrors seedSession.
+    autoRescheduleEnabled: data.autoRescheduleEnabled ?? false,
   };
   if (data.name) body.name = data.name;
-  if (data.autoRescheduleEnabled !== undefined) body.autoRescheduleEnabled = data.autoRescheduleEnabled;
   if (data.rescheduleDelayMinutes !== undefined) body.rescheduleDelayMinutes = data.rescheduleDelayMinutes;
   if (data.rescheduleOnTokenLimit !== undefined) body.rescheduleOnTokenLimit = data.rescheduleOnTokenLimit;
   if (data.rescheduleOnServiceError !== undefined) body.rescheduleOnServiceError = data.rescheduleOnServiceError;
