@@ -495,8 +495,8 @@ describe('resolveCodexMcpServers', () => {
     expect(mcpJsonReads).toHaveLength(1);
   });
 
-  it('diagnostics.skipped contains only project-source entries', () => {
-    // user-level server (will be skipped at the Codex filter level — source: 'user')
+  it('diagnostics.skipped contains project-source skipped entries and non-project exclusion entries', () => {
+    // user-level server (included in Claude resolver, excluded by Codex with reason)
     writeJson(join(homeDirectory, '.claude.json'), {
       mcpServers: {
         userServer: { command: 'user-cmd' },
@@ -522,14 +522,124 @@ describe('resolveCodexMcpServers', () => {
 
     const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
 
-    // Only project-source skipped entries should appear
-    expect(result.diagnostics.skipped.every((e) => e.source === 'project')).toBe(true);
+    // Project-source skipped entries must still appear
     expect(result.diagnostics.skipped).toContainEqual(
       expect.objectContaining({ name: 'disabledProject', source: 'project', reason: 'disabled' }),
     );
-    // user and local skipped entries should NOT appear
-    expect(result.diagnostics.skipped.some((e) => e.source === 'user')).toBe(false);
-    expect(result.diagnostics.skipped.some((e) => e.source === 'local')).toBe(false);
+    // Non-project included entries (user/local) must appear with the exclusion reason
+    expect(result.diagnostics.skipped).toContainEqual(
+      expect.objectContaining({ name: 'userServer', source: 'user', reason: 'not-forwarded-to-codex-non-project-source' }),
+    );
+    expect(result.diagnostics.skipped).toContainEqual(
+      expect.objectContaining({ name: 'localServer', source: 'local', reason: 'not-forwarded-to-codex-non-project-source' }),
+    );
+    // User/local servers must not appear as raw 'user'/'local' source without the exclusion reason
+    expect(result.diagnostics.skipped.some((e) => e.source === 'user' && e.reason !== 'not-forwarded-to-codex-non-project-source')).toBe(false);
+    expect(result.diagnostics.skipped.some((e) => e.source === 'local' && e.reason !== 'not-forwarded-to-codex-non-project-source')).toBe(false);
+  });
+
+  it('user-level server plus approved project server: user server appears in diagnostics.skipped with non-project exclusion reason', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: { userServer: { command: 'user-cmd' } },
+    });
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: { projectServer: { command: 'node', args: ['server.js'] } },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['projectServer'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+
+    // Only project server in mcpServers
+    expect(result.mcpServers).toEqual({ projectServer: { command: 'node', args: ['server.js'] } });
+    // User server must be in skipped with the non-project exclusion reason
+    expect(result.diagnostics.skipped).toContainEqual({
+      name: 'userServer',
+      source: 'user',
+      reason: 'not-forwarded-to-codex-non-project-source',
+    });
+  });
+
+  it('local Claude project-entry server plus approved project server: local server appears in diagnostics.skipped with non-project exclusion reason', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      projects: {
+        [workingDirectory]: {
+          mcpServers: { localServer: { command: 'local-cmd' } },
+          enabledMcpjsonServers: ['projectServer'],
+        },
+      },
+    });
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: { projectServer: { command: 'node', args: ['server.js'] } },
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+
+    // Only project server in mcpServers
+    expect(result.mcpServers).toEqual({ projectServer: { command: 'node', args: ['server.js'] } });
+    // Local server must be in skipped with the non-project exclusion reason
+    expect(result.diagnostics.skipped).toContainEqual({
+      name: 'localServer',
+      source: 'local',
+      reason: 'not-forwarded-to-codex-non-project-source',
+    });
+  });
+
+  it('same-name collision: resolveCodexMcpServers returns the approved project definition', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: { shared: { command: 'user-cmd' } },
+      projects: {
+        [workingDirectory]: {
+          mcpServers: { shared: { command: 'local-cmd' } },
+        },
+      },
+    });
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: { shared: { command: 'project-cmd', args: ['server.js'] } },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['shared'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers).toEqual({ shared: { command: 'project-cmd', args: ['server.js'] } });
+  });
+
+  it('same-name collision with Codex-only fields: cwd and startup_timeout_sec apply to Codex result from project server', () => {
+    writeJson(join(homeDirectory, '.claude.json'), {
+      mcpServers: { shared: { command: 'user-cmd' } },
+    });
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: { shared: { command: 'project-cmd', cwd: '/project/cwd', startup_timeout_sec: 30 } },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['shared'],
+    });
+
+    const result = resolveCodexMcpServers({ workingDirectory, homeDirectory });
+    expect(result.mcpServers.shared).toMatchObject({ command: 'project-cmd' });
+    expect(result.mcpServers.shared.cwd).toBe('/project/cwd');
+    expect(result.mcpServers.shared.startup_timeout_sec).toBe(30);
+  });
+
+  it('Claude-facing result for a project server does not include Codex-only augmentation fields', () => {
+    writeJson(join(workingDirectory, '.mcp.json'), {
+      mcpServers: {
+        myServer: { command: 'node', args: ['server.js'], cwd: '/custom/cwd', startup_timeout_sec: 30 },
+      },
+    });
+    mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+    writeJson(join(workingDirectory, '.claude', 'settings.local.json'), {
+      enabledMcpjsonServers: ['myServer'],
+    });
+
+    const claudeResult = resolveClaudeMcpServers({ workingDirectory, homeDirectory });
+    expect(claudeResult.mcpServers.myServer).not.toHaveProperty('cwd');
+    expect(claudeResult.mcpServers.myServer).not.toHaveProperty('startup_timeout_sec');
   });
 });
 

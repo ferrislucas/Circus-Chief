@@ -1168,6 +1168,157 @@ describe('CodexAdapter', () => {
     expect(args.some((a) => a.startsWith('mcp_servers.emptyBearer.env_http_headers='))).toBe(true);
   });
 
+  it('CLI path: stdio MCP env key colliding with base env PATH is blocked — base value preserved, key absent from env_vars and argv', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-env-block-path"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test', PATH: 'base-path' },
+        abortController: new AbortController(),
+        mcpServers: {
+          pathServer: { command: 'node', env: { PATH: 'mcp-path' } },
+        },
+      },
+    }));
+
+    const { args, env } = fakeSpawn.mock.calls[0][0];
+    // Base PATH must be preserved
+    expect(env.PATH).toBe('base-path');
+    // MCP PATH value must not be injected
+    expect(env.PATH).not.toBe('mcp-path');
+    // env_vars must not include PATH
+    const envVarsArg = args.find((a) => a.startsWith('mcp_servers.pathServer.env_vars='));
+    expect(envVarsArg).toBeUndefined();
+    // MCP literal value must not appear in argv
+    expect(args.some((a) => a.includes('mcp-path'))).toBe(false);
+    // A warning should have been logged
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[CodexAdapter] dropped MCP stdio env keys that would override Codex env:',
+      expect.objectContaining({ serverName: 'pathServer', keys: expect.arrayContaining(['PATH']) }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('CLI path: stdio MCP env key OPENAI_API_KEY is blocked even when absent from base env — reserved name protection', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-env-block-key"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        // No OPENAI_API_KEY in base env → ChatGPT auth mode
+        env: { HOME: '/tmp' },
+        abortController: new AbortController(),
+        mcpServers: {
+          sneakyServer: { command: 'node', env: { OPENAI_API_KEY: 'mcp-key' } },
+        },
+      },
+    }));
+
+    const { args, env } = fakeSpawn.mock.calls[0][0];
+    // OPENAI_API_KEY must not be injected from MCP server
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    // env_vars must not include OPENAI_API_KEY
+    const envVarsArg = args.find((a) => a.startsWith('mcp_servers.sneakyServer.env_vars='));
+    expect(envVarsArg).toBeUndefined();
+    // ChatGPT auth must still be emitted (no API key present)
+    expect(args).toContain('preferred_auth_method=chatgpt');
+    // Warning should have been logged
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[CodexAdapter] dropped MCP stdio env keys that would override Codex env:',
+      expect.objectContaining({ serverName: 'sneakyServer', keys: expect.arrayContaining(['OPENAI_API_KEY']) }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('CLI path: new stdio MCP env key API_KEY is injected and listed in env_vars', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-env-new-key"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_outputs":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test' },
+        abortController: new AbortController(),
+        mcpServers: {
+          apiServer: { command: 'node', env: { API_KEY: 'my-secret' } },
+        },
+      },
+    }));
+
+    const { args, env } = fakeSpawn.mock.calls[0][0];
+    // API_KEY is new — it must be injected into spawn env
+    expect(env.API_KEY).toBe('my-secret');
+    // env_vars must list API_KEY
+    const envVarsArg = args.find((a) => a.startsWith('mcp_servers.apiServer.env_vars='));
+    expect(envVarsArg).toBeDefined();
+    expect(envVarsArg).toContain('"API_KEY"');
+    // Literal value must NOT appear in argv
+    expect(args.some((a) => a.includes('my-secret'))).toBe(false);
+    // No warning for accepted keys
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('CLI path: mixed stdio MCP env keys — blocked PATH dropped, new API_KEY accepted', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fakeSpawn = vi.fn(() => createFakeChild({
+      stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-env-mixed"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],
+      exitCode: 0,
+    }));
+    const adapter = new CodexAdapter({ spawnCodexProcess: fakeSpawn });
+
+    await collect(adapter.execute({
+      prompt: 'hi',
+      options: {
+        model: 'gpt-4o',
+        cwd: process.cwd(),
+        env: { OPENAI_API_KEY: 'sk-test', PATH: '/usr/bin' },
+        abortController: new AbortController(),
+        mcpServers: {
+          mixedServer: { command: 'node', env: { PATH: 'bad', API_KEY: 'ok' } },
+        },
+      },
+    }));
+
+    const { args, env } = fakeSpawn.mock.calls[0][0];
+    // PATH blocked — base value preserved
+    expect(env.PATH).toBe('/usr/bin');
+    // API_KEY accepted
+    expect(env.API_KEY).toBe('ok');
+    // env_vars must contain only API_KEY
+    const envVarsArg = args.find((a) => a.startsWith('mcp_servers.mixedServer.env_vars='));
+    expect(envVarsArg).toBeDefined();
+    expect(envVarsArg).toContain('"API_KEY"');
+    expect(envVarsArg).not.toContain('"PATH"');
+    // Warning for dropped PATH
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[CodexAdapter] dropped MCP stdio env keys that would override Codex env:',
+      expect.objectContaining({ serverName: 'mixedServer', keys: expect.arrayContaining(['PATH']) }),
+    );
+    warnSpy.mockRestore();
+  });
+
   it('CLI path: non-finite startup_timeout_sec is omitted from argv', async () => {
     const fakeSpawn = vi.fn(() => createFakeChild({
       stdoutLines: ['{"type":"thread.started","thread_id":"codex-mcp-timeout-nan"}', '{"type":"turn.completed","usage":{"input_tokens":1,"cached_input_tokens":0,"output_tokens":1}}'],

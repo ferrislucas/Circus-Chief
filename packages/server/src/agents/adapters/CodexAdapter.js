@@ -130,9 +130,9 @@ export class CodexAdapter extends BaseAgent {
       );
     }
 
-    // Serialize MCP config and collect credential env vars to inject
+    // Serialize MCP config and collect credential env vars to inject.
     const mcpConfig = (mcpServers && typeof mcpServers === 'object')
-      ? serializeMcpServersToArgs(mcpServers)
+      ? serializeMcpServersToArgs(mcpServers, { baseEnv: env })
       : { args: [], env: {} };
     args.push(...mcpConfig.args);
 
@@ -284,6 +284,19 @@ function makeTextDeltaEvent(text) {
 // --- MCP server CLI serialization ------------------------------------------
 
 /**
+ * Environment variable names that Codex itself uses or that are reserved for
+ * Circus Chief control flow. Stdio MCP `env` entries whose key matches any of
+ * these names are silently dropped — they must not be forwarded to the MCP
+ * child via env_vars, and their values must not be injected into the Codex
+ * spawn environment.
+ *
+ * Codex's own env (process.env keys and the session-supplied env object) is
+ * also blocked; this set covers names that should be blocked even when absent
+ * from the base env at spawn time.
+ */
+const CODEX_RESERVED_MCP_ENV_NAMES = new Set(['OPENAI_API_KEY', 'CODEX_HOME']);
+
+/**
  * Serialize an mcpServers map into repeated `-c` CLI args for the Codex CLI,
  * with credential values moved out of argv into the spawned process environment.
  *
@@ -301,15 +314,22 @@ function makeTextDeltaEvent(text) {
  * names. Codex's `env_vars` whitelist forwards variables by name from Codex's
  * own environment to the stdio MCP child; it cannot rename them. Using original
  * key names means the MCP child sees the expected variable names (e.g. `API_KEY`
- * rather than a generated `CIRCUSCHIEF_MCP_*` name). Limitation: original key
- * names can collide with existing Codex env vars or same-name keys from multiple
- * MCP servers; that is accepted for this design.
+ * rather than a generated `CIRCUSCHIEF_MCP_*` name).
+ *
+ * Existing Codex env names (derived from the base env at spawn time plus
+ * {@link CODEX_RESERVED_MCP_ENV_NAMES}) are blocked: stdio env entries whose
+ * key is blocked are dropped and logged. Same-name keys across multiple accepted
+ * MCP servers remain last-write-wins. `env_vars` is emitted only when at least
+ * one accepted key remains.
  *
  * @param {Object} mcpServers
+ * @param {Object} [opts]
+ * @param {Set<string>} [opts.blockedEnvNames] - Set of env key names that must
+ *   not be injected from stdio MCP server env entries.
  * @returns {{ args: string[], env: Object }} args are flat '-c'/value pairs;
  *   env holds credential values to merge into the Codex spawn environment.
  */
-function serializeMcpServersToArgs(mcpServers) {
+function serializeMcpServersToArgs(mcpServers, { blockedEnvNames = new Set() } = {}) {
   const args = [];
   const env = {};
   for (const [serverName, server] of Object.entries(mcpServers)) {
@@ -319,7 +339,7 @@ function serializeMcpServersToArgs(mcpServers) {
     if (server.type === 'sse' || server.type === 'http') {
       result = serializeRemoteMcpServer(prefix, serverName, server);
     } else {
-      result = serializeStdioMcpServer(prefix, serverName, server);
+      result = serializeStdioMcpServer(prefix, serverName, server, { blockedEnvNames });
     }
     args.push(...result.args);
     Object.assign(env, result.env);
@@ -399,15 +419,21 @@ function serializeRemoteMcpServer(prefix, serverName, server) {
  *     `CIRCUSCHIEF_MCP_*` name.
  *   - Literal `mcp_servers.<id>.env` would model the Codex schema directly, but
  *     passing it via repeated `-c` CLI args would put secrets in argv.
- *   - Original key names can collide with existing Codex env vars or same-name
- *     keys from multiple MCP servers; that limitation is accepted for this fix.
+ *   - Existing Codex env names and reserved names are blocked via `blockedEnvNames`.
+ *     Blocked entries are dropped and logged; they are not added to `env` or `env_vars`.
+ *   - Accepted entries use original `.mcp.json` key names.
+ *   - Same-name keys across multiple accepted MCP servers remain last-write-wins.
+ *   - `env_vars` is emitted only when at least one accepted key remains.
  *
  * @param {string} prefix
  * @param {string} serverName
  * @param {Object} server
+ * @param {Object} [opts]
+ * @param {Set<string>} [opts.blockedEnvNames] - Set of env key names that must
+ *   not be injected. Entries whose key is in this set are dropped and logged.
  * @returns {{ args: string[], env: Object }}
  */
-function serializeStdioMcpServer(prefix, serverName, server) {
+function serializeStdioMcpServer(prefix, serverName, server, { blockedEnvNames = new Set() } = {}) {
   if (typeof server.command !== 'string' || server.command.length === 0) return { args: [], env: {} };
 
   const args = ['-c', `${prefix}.command=${tomlStr(server.command)}`];
@@ -421,11 +447,28 @@ function serializeStdioMcpServer(prefix, serverName, server) {
   // Inject env string values under their original key names; list them in env_vars.
   // env_vars forwards variable names from Codex's environment to the MCP child —
   // it cannot rename them, so using original names is required.
+  // Blocked keys (those already in the Codex base env or reserved names) are
+  // dropped to prevent MCP servers from overriding critical Codex variables.
   if (server.env && typeof server.env === 'object' && !Array.isArray(server.env)) {
     const stringEntries = Object.entries(server.env).filter(([, v]) => typeof v === 'string');
-    if (stringEntries.length > 0) {
+    const acceptedEntries = [];
+    const skippedKeys = [];
+    for (const [key, value] of stringEntries) {
+      if (blockedEnvNames.has(key)) {
+        skippedKeys.push(key);
+      } else {
+        acceptedEntries.push([key, value]);
+      }
+    }
+    if (skippedKeys.length > 0) {
+      console.warn('[CodexAdapter] dropped MCP stdio env keys that would override Codex env:', {
+        serverName,
+        keys: skippedKeys,
+      });
+    }
+    if (acceptedEntries.length > 0) {
       const envVarNames = [];
-      for (const [key, value] of stringEntries) {
+      for (const [key, value] of acceptedEntries) {
         env[key] = value;
         envVarNames.push(key);
       }

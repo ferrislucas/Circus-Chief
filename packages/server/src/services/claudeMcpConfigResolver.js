@@ -10,11 +10,11 @@ const defaultFs = {
 
 /**
  * Internal resolver that reads all MCP config sources once and returns the
- * resolved server map, diagnostics, and the raw project .mcp.json server map
- * (for callers that need it without a second filesystem read).
+ * resolved server map, diagnostics, the raw project .mcp.json server map,
+ * and a separate map of only approved project-source servers (for Codex).
  *
  * @param {Object} opts
- * @returns {{ mcpServers: Object, diagnostics: Object, rawProjectMcpServers: Object|null }}
+ * @returns {{ mcpServers: Object, diagnostics: Object, rawProjectMcpServers: Object|null, projectServers: Object }}
  */
 function resolveClaudeMcpServersInternal({
   workingDirectory,
@@ -23,10 +23,11 @@ function resolveClaudeMcpServersInternal({
 } = {}) {
   const diagnostics = { included: [], skipped: [] };
   const mcpServers = {};
+  const projectServers = {};
 
   if (!workingDirectory || typeof workingDirectory !== 'string') {
     diagnostics.skipped.push({ name: null, source: 'input', reason: 'missing-working-directory' });
-    return { mcpServers, diagnostics, rawProjectMcpServers: null };
+    return { mcpServers, diagnostics, rawProjectMcpServers: null, projectServers };
   }
 
   const resolvedWorkingDirectory = path.resolve(workingDirectory);
@@ -63,6 +64,7 @@ function resolveClaudeMcpServersInternal({
 
   mergeProjectMcpServers({
     target: mcpServers,
+    projectTarget: projectServers,
     servers: projectMcpConfig?.mcpServers,
     approval: projectApproval,
     diagnostics,
@@ -74,7 +76,7 @@ function resolveClaudeMcpServersInternal({
     && !Array.isArray(projectMcpConfig.mcpServers)
   ) ? projectMcpConfig.mcpServers : null;
 
-  return { mcpServers, diagnostics, rawProjectMcpServers };
+  return { mcpServers, diagnostics, rawProjectMcpServers, projectServers };
 }
 
 export function resolveClaudeMcpServers(opts) {
@@ -96,7 +98,7 @@ function mergeServers({ target, servers, source, diagnostics }) {
   }
 }
 
-function mergeProjectMcpServers({ target, servers, approval, diagnostics }) {
+function mergeProjectMcpServers({ target, projectTarget, servers, approval, diagnostics }) {
   if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return;
 
   for (const [name, config] of Object.entries(servers)) {
@@ -115,6 +117,7 @@ function mergeProjectMcpServers({ target, servers, approval, diagnostics }) {
       continue;
     }
     Object.assign(target, { [name]: normalized.server });
+    if (projectTarget) Object.assign(projectTarget, { [name]: { ...normalized.server } });
     diagnostics.included.push({ name, source: 'project', transport: normalized.transport });
   }
 }
@@ -248,14 +251,19 @@ function asStringArray(value) {
 /**
  * Resolve MCP servers for the Codex adapter.
  *
- * Calls resolveClaudeMcpServers internally, then filters the result to only
- * include servers whose diagnostic source is 'project' (i.e. entries from the
- * project's .mcp.json that have been explicitly approved). User-level and
- * local Claude project-entry MCP servers are excluded because they are
- * Claude-specific and should not be forwarded to Codex.
+ * Builds the Codex MCP server map directly from approved project `.mcp.json`
+ * entries (via `projectServers` from the internal resolver), rather than
+ * filtering the merged Claude-facing server map by name. User-level and local
+ * Claude project-entry MCP servers are excluded because they are Claude-specific
+ * and should not be forwarded to Codex.
  *
- * After filtering, stdio servers are augmented with Codex-specific fields
+ * After building the map, stdio servers are augmented with Codex-specific fields
  * (cwd and startup_timeout_sec) read from the raw project .mcp.json.
+ *
+ * Diagnostics include:
+ *   - `included`: only project-source included entries.
+ *   - `skipped`: project-source skipped entries plus every non-project included
+ *     entry mapped to `{ name, source, reason: 'not-forwarded-to-codex-non-project-source' }`.
  *
  * Note: Codex MCP enablement currently reuses Claude approval metadata from
  * .claude/settings.local.json and matching entries in ~/.claude.json.
@@ -266,32 +274,31 @@ function asStringArray(value) {
  */
 export function resolveCodexMcpServers(opts) {
   // Use the internal helper so the project .mcp.json is read only once.
-  const { mcpServers, diagnostics, rawProjectMcpServers } = resolveClaudeMcpServersInternal(opts);
+  const { diagnostics, rawProjectMcpServers, projectServers } = resolveClaudeMcpServersInternal(opts);
 
-  // Only include servers that were resolved from the project '.mcp.json' source
-  const projectIncluded = new Set(
-    diagnostics.included
-      .filter((entry) => entry.source === 'project')
-      .map((entry) => entry.name)
-  );
-
-  const filteredServers = {};
-  for (const [name, server] of Object.entries(mcpServers)) {
-    if (projectIncluded.has(name)) {
-      filteredServers[name] = server;
-    }
-  }
-
+  // Build the Codex server map directly from approved project entries.
   // Augment approved project stdio servers with Codex-specific fields
   // (cwd, startup_timeout_sec) from the already-read raw project .mcp.json.
-  augmentCodexStdioServerFields(filteredServers, rawProjectMcpServers);
+  augmentCodexStdioServerFields(projectServers, rawProjectMcpServers);
+
+  // Surface non-project included entries (user/local) as skipped in Codex diagnostics.
+  const nonProjectIncluded = diagnostics.included.filter((entry) => entry.source !== 'project');
+  if (nonProjectIncluded.length > 0) {
+    console.log('[Codex MCP] excluded non-project Claude MCP servers:', nonProjectIncluded.map((entry) => entry.name));
+  }
 
   return {
-    mcpServers: filteredServers,
+    mcpServers: projectServers,
     diagnostics: {
       included: diagnostics.included.filter((entry) => entry.source === 'project'),
-      // Filter skipped to project-source entries to match included filtering
-      skipped: diagnostics.skipped.filter((entry) => entry.source === 'project'),
+      skipped: [
+        ...diagnostics.skipped.filter((entry) => entry.source === 'project'),
+        ...nonProjectIncluded.map((entry) => ({
+          name: entry.name,
+          source: entry.source,
+          reason: 'not-forwarded-to-codex-non-project-source',
+        })),
+      ],
     },
   };
 }
