@@ -67,6 +67,9 @@ import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
   sessionId: { type: String, default: '' },
+  // The message to schedule. Falls back to the session's saved pendingPrompt
+  // when not provided (e.g. when the live textarea value isn't passed in).
+  prompt: { type: String, default: '' },
 });
 
 const emit = defineEmits(['close', 'update:isOpen']);
@@ -102,7 +105,13 @@ async function handleSchedule() {
 
   const scheduledAt = new Date(form.scheduledAtLocal).getTime();
 
-  const payload = { scheduledAt };
+  // The dedicated POST /:id/schedule endpoint requires the prompt in the body.
+  // Prefer the live prompt passed from the input form; otherwise fall back to
+  // the session's saved pendingPrompt.
+  const livePrompt = props.prompt && props.prompt.trim() ? props.prompt : '';
+  const prompt = livePrompt || sessionsStore.getSessionById(props.sessionId)?.pendingPrompt || '';
+
+  const payload = { prompt, scheduledAt };
 
   // Close modal immediately for better UX
   close();

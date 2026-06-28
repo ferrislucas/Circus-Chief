@@ -70,6 +70,73 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   }
 });
 
+// Validate a /schedule request body and build the session update payload.
+// Returns either { status, error } for a 4xx response, or { updateData } on success.
+function buildScheduleUpdate(req) {
+  const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
+
+  // Validate prompt
+  if (typeof prompt !== 'string' || prompt.trim() === '') {
+    return { status: 400, error: { error: 'prompt must be a non-empty string' } };
+  }
+
+  // Validate scheduledAt: required, must parse, must be in the future
+  if (scheduledAtRaw === undefined || scheduledAtRaw === null) {
+    return { status: 400, error: { error: 'scheduledAt is required' } };
+  }
+  const scheduledAtResult = validateScheduledAt(scheduledAtRaw);
+  if (scheduledAtResult.error) {
+    return { status: 400, error: { error: scheduledAtResult.error } };
+  }
+  const scheduledAt = scheduledAtResult.value;
+  if (scheduledAt <= Date.now()) {
+    return { status: 400, error: { error: 'scheduledAt must be in the future' } };
+  }
+
+  // Validate model if provided, applying the cross-kind drift guard
+  const modelResult = resolveScheduleModel(req, model);
+  if (modelResult.error) {
+    return modelResult;
+  }
+
+  return {
+    updateData: {
+      status: 'scheduled',
+      scheduledAt,
+      pendingPrompt: prompt,
+      pendingModel: modelResult.pendingModel,
+      ...modelResult.agentTypeUpdate,
+    },
+  };
+}
+
+// Validate the optional model field for /schedule and resolve the agentType update.
+// Returns { pendingModel, agentTypeUpdate } on success, or { status, error } on failure.
+function resolveScheduleModel(req, model) {
+  if (model === undefined || model === null || model === '') {
+    return { pendingModel: null, agentTypeUpdate: {} };
+  }
+
+  const modelResult = validateModelId(model, { fieldName: 'model' });
+  if (modelResult.error) {
+    return { status: 400, error: { error: modelResult.error } };
+  }
+  const pendingModel = modelResult.value;
+
+  if (sessionHasNoAssistantMessages(req.params.id)) {
+    // Draft session: re-derive agentType from model (safe to mutate kind)
+    const agentTypeUpdate = deriveAgentTypeUpdate(req.session_, req.params.id, pendingModel, { providerId: null });
+    return { pendingModel, agentTypeUpdate };
+  }
+
+  // Started session: reject cross-kind switches
+  const driftError = checkCrossKindSwitch(req.session_, pendingModel);
+  if (driftError) {
+    return { status: 400, error: driftError };
+  }
+  return { pendingModel, agentTypeUpdate: {} };
+}
+
 // POST /api/sessions/:id/schedule - Schedule the current session to continue later.
 //
 // Takes prompt + scheduledAt directly so agents can schedule a continuation in
@@ -82,58 +149,13 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
 //   scheduledAt {ISO 8601 | epoch ms}  required — must be in the future
 //   model       {string}               optional — becomes pendingModel; cross-kind guarded
 router.post('/:id/schedule', requireSession, (req, res) => {
-  const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
-
-  // Validate prompt
-  if (typeof prompt !== 'string' || prompt.trim() === '') {
-    return res.status(400).json({ error: 'prompt must be a non-empty string' });
+  const result = buildScheduleUpdate(req);
+  if (result.error) {
+    return res.status(result.status).json(result.error);
   }
 
-  // Validate scheduledAt: required, must parse, must be in the future
-  if (scheduledAtRaw === undefined || scheduledAtRaw === null) {
-    return res.status(400).json({ error: 'scheduledAt is required' });
-  }
-  const scheduledAtResult = validateScheduledAt(scheduledAtRaw);
-  if (scheduledAtResult.error) {
-    return res.status(400).json({ error: scheduledAtResult.error });
-  }
-  const scheduledAt = scheduledAtResult.value;
-  if (scheduledAt <= Date.now()) {
-    return res.status(400).json({ error: 'scheduledAt must be in the future' });
-  }
-
-  // Validate model if provided, applying the cross-kind drift guard
-  let pendingModel = null;
-  let agentTypeUpdate = {};
-  if (model !== undefined && model !== null && model !== '') {
-    const modelResult = validateModelId(model, { fieldName: 'model' });
-    if (modelResult.error) {
-      return res.status(400).json({ error: modelResult.error });
-    }
-    pendingModel = modelResult.value;
-
-    if (sessionHasNoAssistantMessages(req.params.id)) {
-      // Draft session: re-derive agentType from model (safe to mutate kind)
-      agentTypeUpdate = deriveAgentTypeUpdate(req.session_, req.params.id, pendingModel, { providerId: null });
-    } else {
-      // Started session: reject cross-kind switches
-      const driftError = checkCrossKindSwitch(req.session_, pendingModel);
-      if (driftError) {
-        return res.status(400).json(driftError);
-      }
-    }
-  }
-
-  const updateData = {
-    status: 'scheduled',
-    scheduledAt,
-    pendingPrompt: prompt,
-    pendingModel,
-    ...agentTypeUpdate,
-  };
-
-  const updated = sessions.update(req.params.id, updateData);
-  broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, updateData);
+  const updated = sessions.update(req.params.id, result.updateData);
+  broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
   res.json(updated);
 });
 
