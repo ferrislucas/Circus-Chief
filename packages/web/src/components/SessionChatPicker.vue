@@ -23,8 +23,14 @@
       @keydown.enter.prevent="emit('select', entry.session.id)"
     >
       <div class="picker-item-main">
-        <div class="picker-item-label picker-item-topline">
-          <span class="picker-item-role">
+        <div
+          v-if="getRoleLabel(index, entry) || statusLabel(entry.session)"
+          class="picker-item-label picker-item-topline"
+        >
+          <span
+            v-if="getRoleLabel(index, entry)"
+            class="picker-item-role"
+          >
             {{ getRoleLabel(index, entry) }}
           </span>
           <span
@@ -53,7 +59,10 @@
             :title="getTimestampTitle(entry)"
           >{{ entry.pickerTimestamp ? formatDate(entry.pickerTimestamp) : '—' }}</span>
         </div>
-        <div class="picker-item-meta">
+        <div
+          v-if="getSummaryText(entry.session.id)"
+          class="picker-item-meta"
+        >
           <span class="picker-item-summary">{{ getSummaryText(entry.session.id) }}</span>
         </div>
       </div>
@@ -240,12 +249,10 @@ function handleKeydown(event) {
 
 <style scoped>
 .session-chat-picker {
-  position: absolute;
-  top: 100%;
-  left: 0;
+  position: static;
   width: 100%;
-  z-index: 50;
-  margin-top: 0.25rem;
+  z-index: 120;
+  margin-top: 0;
   background: var(--session-picker-background, #111827);
   border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
   border-radius: 6px;
@@ -258,11 +265,12 @@ function handleKeydown(event) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 2rem;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem;
+  gap: 0.375rem;
+  padding: 0.375rem 0.5rem;
   border-radius: var(--border-radius, 6px);
   cursor: pointer;
   transition: background-color 0.15s;
+  line-height: 1.15;
 }
 
 .picker-item:hover {
@@ -287,7 +295,7 @@ function handleKeydown(event) {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.125rem;
 }
 
 .picker-item-role {
@@ -317,7 +325,7 @@ function handleKeydown(event) {
   min-width: 0;
   font-size: 0.875rem;
   font-weight: 500;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.125rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -329,7 +337,7 @@ function handleKeydown(event) {
   align-items: center;
   gap: 0.25rem;
   min-width: 0;
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.125rem;
   font-size: 0.72rem;
   color: var(--color-text-soft, #9ca3af);
 }
@@ -397,4 +405,5 @@ function handleKeydown(event) {
   color: rgba(156, 163, 175, 0.55);
   cursor: default;
 }
+
 </style>

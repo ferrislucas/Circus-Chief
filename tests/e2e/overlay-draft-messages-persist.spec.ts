@@ -30,7 +30,7 @@ import {
  * session is a draft (hasResponses not updated or currentSession stale).
  */
 test.describe('Overlay: draft session messages persist after completion', () => {
-  test.describe.configure({ timeout: 60000 });
+  test.describe.configure({ mode: 'serial', timeout: 60000 });
 
   let project: any;
   let parentSession: any;

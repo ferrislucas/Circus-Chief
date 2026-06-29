@@ -250,9 +250,11 @@ describe('SessionChatContent', () => {
 
     await wrapper.find('[data-testid="overlay-picker-trigger"]').trigger('click');
     expect(pickerOpenChange).toHaveBeenLastCalledWith(true);
+    expect(wrapper.classes()).toContain('session-chat-content--picker-open');
     wrapper.vm.closePicker();
     await flushPromises();
     expect(pickerOpenChange).toHaveBeenLastCalledWith(false);
+    expect(wrapper.classes()).not.toContain('session-chat-content--picker-open');
   });
 
   it('keeps the embedded chat header sticky below the workspace detail chrome', () => {
@@ -268,6 +270,52 @@ describe('SessionChatContent', () => {
     expect(block).toMatch(/position:\s*sticky/);
     expect(block).toMatch(/top:\s*var\(--session-detail-chat-header-top\)/);
     expect(block).toMatch(/z-index:\s*98/);
+  });
+
+  it('keeps the overlay header above sticky composer controls', () => {
+    const headerSelector = '.overlay-header';
+    const headerStart = sessionChatContentSource.indexOf(`${headerSelector} {`);
+    expect(headerStart).toBeGreaterThanOrEqual(0);
+    const headerEnd = sessionChatContentSource.indexOf('\n}', headerStart);
+    const headerBlock = sessionChatContentSource.slice(headerStart, headerEnd + 2);
+
+    const controlsSelector = '.session-chat-content :deep(.conversation-controls-row)';
+    const controlsStart = sessionChatContentSource.indexOf(`${controlsSelector} {`);
+    expect(controlsStart).toBeGreaterThanOrEqual(0);
+    const controlsEnd = sessionChatContentSource.indexOf('\n}', controlsStart);
+    const controlsBlock = sessionChatContentSource.slice(controlsStart, controlsEnd + 2);
+
+    expect(headerBlock).toMatch(/z-index:\s*110/);
+    expect(controlsBlock).toMatch(/z-index:\s*10/);
+
+    const bodySelector = '.overlay-body';
+    const bodyStart = sessionChatContentSource.indexOf(`${bodySelector} {`);
+    expect(bodyStart).toBeGreaterThanOrEqual(0);
+    const bodyEnd = sessionChatContentSource.indexOf('\n}', bodyStart);
+    const bodyBlock = sessionChatContentSource.slice(bodyStart, bodyEnd + 2);
+    expect(bodyBlock).toMatch(/position:\s*relative/);
+    expect(bodyBlock).toMatch(/z-index:\s*0/);
+
+    const pickerOpenSelector = '.session-chat-content--picker-open .overlay-body';
+    const pickerOpenStart = sessionChatContentSource.indexOf(`${pickerOpenSelector} {`);
+    expect(pickerOpenStart).toBeGreaterThanOrEqual(0);
+    const pickerOpenEnd = sessionChatContentSource.indexOf('\n}', pickerOpenStart);
+    const pickerOpenBlock = sessionChatContentSource.slice(pickerOpenStart, pickerOpenEnd + 2);
+    expect(pickerOpenBlock).toMatch(/pointer-events:\s*none/);
+
+    const pickerOpenDescendantSelector = '.session-chat-content--picker-open .overlay-body :deep(*)';
+    const pickerOpenDescendantStart = sessionChatContentSource.indexOf(`${pickerOpenDescendantSelector} {`);
+    expect(pickerOpenDescendantStart).toBeGreaterThanOrEqual(0);
+    const pickerOpenDescendantEnd = sessionChatContentSource.indexOf('\n}', pickerOpenDescendantStart);
+    const pickerOpenDescendantBlock = sessionChatContentSource.slice(pickerOpenDescendantStart, pickerOpenDescendantEnd + 2);
+    expect(pickerOpenDescendantBlock).toMatch(/pointer-events:\s*none/);
+
+    const pickerOpenRootSelector = '.session-chat-content--picker-open';
+    const pickerOpenRootStart = sessionChatContentSource.indexOf(`${pickerOpenRootSelector} {`);
+    expect(pickerOpenRootStart).toBeGreaterThanOrEqual(0);
+    const pickerOpenRootEnd = sessionChatContentSource.indexOf('\n}', pickerOpenRootStart);
+    const pickerOpenRootBlock = sessionChatContentSource.slice(pickerOpenRootStart, pickerOpenRootEnd + 2);
+    expect(pickerOpenRootBlock).toMatch(/overflow:\s*visible/);
   });
 
   it('lets embedded chat content grow the page instead of creating an internal scroll container', () => {

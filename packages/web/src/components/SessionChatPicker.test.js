@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import SessionChatPicker from './SessionChatPicker.vue';
+import sessionChatPickerSource from './SessionChatPicker.vue?raw';
 
 describe('SessionChatPicker', () => {
   let sessions;
@@ -92,8 +93,8 @@ describe('SessionChatPicker', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
       expect(items[0].find('.picker-item-role').text()).toBe('Root');
-      expect(items[1].find('.picker-item-role').text()).toBe('');
-      expect(items[2].find('.picker-item-role').text()).toBe('');
+      expect(items[1].find('.picker-item-role').exists()).toBe(false);
+      expect(items[2].find('.picker-item-role').exists()).toBe(false);
     });
 
     it('no items have picker-item--root class', () => {
@@ -261,6 +262,17 @@ describe('SessionChatPicker', () => {
       items.forEach(item => {
         expect(item.attributes('style')).toBeUndefined();
       });
+    });
+
+    it('keeps the picker in normal flow so neighboring overlay controls cannot cover it', () => {
+      const selector = '.session-chat-picker';
+      const start = sessionChatPickerSource.indexOf(`${selector} {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const end = sessionChatPickerSource.indexOf('\n}', start);
+      const block = sessionChatPickerSource.slice(start, end + 2);
+
+      expect(block).toMatch(/position:\s*static/);
+      expect(block).toMatch(/z-index:\s*120/);
     });
   });
 

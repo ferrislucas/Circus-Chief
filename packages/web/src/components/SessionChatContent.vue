@@ -5,7 +5,10 @@
     :class="[
       'overlay-content',
       mode === 'embedded' ? 'session-chat-content--embedded' : 'session-chat-content--overlay session-chat-overlay',
-      { 'session-chat-overlay--composer-focused': composerFocused }
+      {
+        'session-chat-overlay--composer-focused': composerFocused,
+        'session-chat-content--picker-open': pickerOpen,
+      }
     ]"
   >
     <div
@@ -589,6 +592,10 @@ defineExpose({
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
 }
 
+.session-chat-content--picker-open {
+  overflow: visible;
+}
+
 .session-chat-content--embedded {
   /* Remove the fixed-height box — content grows the page naturally */
   --session-detail-chat-header-top: calc(var(--header-height-computed, 51px) + var(--viewport-offset-top, 0px) + 3.125rem);
@@ -602,6 +609,8 @@ defineExpose({
 }
 
 .overlay-body {
+  position: relative;
+  z-index: 0;
   width: 100%;
   max-width: 100%;
   padding: 0 1rem;
@@ -624,11 +633,19 @@ defineExpose({
   overscroll-behavior: auto;
 }
 
+.session-chat-content--picker-open .overlay-body {
+  pointer-events: none;
+}
+
+.session-chat-content--picker-open .overlay-body :deep(*) {
+  pointer-events: none;
+}
+
 .overlay-header {
   --overlay-header-base-padding-top: 0.75rem;
   position: relative;
   top: auto;
-  z-index: 20;
+  z-index: 110;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -660,6 +677,9 @@ defineExpose({
 
 .overlay-header-selector {
   position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
   min-width: 0;
 }
 

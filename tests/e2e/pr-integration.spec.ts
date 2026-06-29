@@ -27,7 +27,7 @@ const API_URL = getAPIURL();
  */
 
 test.describe('PR Integration', () => {
-  test.describe.configure({ timeout: 60000 });
+  test.describe.configure({ mode: 'serial', timeout: 60000 });
 
   let project: any;
 
