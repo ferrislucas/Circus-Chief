@@ -33,7 +33,12 @@
           :sessions="sessionChain"
           :active-session-id="activeSessionId"
           :summaries="summariesMap"
+          :root-session-id="rootSessionId"
+          :deleting-session-id="deletingSessionId"
+          :get-token-label="getPickerTokenLabel"
+          :get-model-label="getPickerModelLabel"
           @select="handlePickerSelect"
+          @delete-session="handlePickerDelete"
         />
       </div>
 
@@ -180,6 +185,7 @@
 <script setup>
 /* eslint-disable max-lines */
 import { ref, computed, provide, onMounted, onUnmounted, watch } from 'vue';
+import { calculateTokenTotal, formatTokenCount } from '@circuschief/shared';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
@@ -218,6 +224,7 @@ const emit = defineEmits([
   'prompt-blur',
   'picker-open-change',
   'active-session-change',
+  'session-deleted',
 ]);
 
 const mainSessionsStore = useSessionsStore();
@@ -249,6 +256,7 @@ const effectiveScrollContainer = computed(() =>
 const conversationTabRef = ref(null);
 const pickerOpen = ref(false);
 const pickerAreaRef = ref(null);
+const deletingSessionId = ref(null);
 
 let currentSubscription = null;
 let wsCleanups = [];
@@ -272,6 +280,10 @@ const activeSessionDisplayName = computed(() => {
 });
 
 const hasDescendants = computed(() => props.sessionChain.length > 1);
+
+const rootSessionId = computed(() =>
+  props.sessionChain.find(entry => !entry.session.parentSessionId)?.session.id || props.sessionId
+);
 
 const activeSessionStatus = computed(() => {
   const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
@@ -314,6 +326,47 @@ function openPicker() {
 function handlePickerSelect(sessionId) {
   closePicker();
   selectSession(sessionId);
+}
+
+function getPickerModelLabel(session) {
+  return session?.model || session?.pendingModel || 'Default model';
+}
+
+function getPickerTokenLabel(session) {
+  const total = calculateTokenTotal(session);
+  if (!total) return '-';
+  return formatTokenCount(total);
+}
+
+async function handlePickerDelete(sessionId) {
+  if (deletingSessionId.value) return;
+
+  const entry = props.sessionChain.find(item => item.session.id === sessionId);
+  if (!entry || entry.session.id === rootSessionId.value) return;
+
+  const sessionName = entry.session.name || 'this workspace';
+  if (!window.confirm(`Delete '${sessionName}'? This action cannot be undone.`)) return;
+
+  deletingSessionId.value = sessionId;
+  try {
+    await mainSessionsStore.deleteSession(sessionId);
+    uiStore.success('Session deleted');
+
+    if (activeSessionId.value === sessionId) {
+      const remainingEntries = props.sessionChain.filter(item => item.session.id !== sessionId);
+      const targetSessionId = remainingEntries.find(item => item.session.id === rootSessionId.value)?.session.id ||
+        remainingEntries[0]?.session.id;
+      if (targetSessionId) {
+        await switchToSession(targetSessionId);
+      }
+    }
+
+    emit('session-deleted', sessionId);
+  } catch (err) {
+    uiStore.error(err.message || 'Failed to delete session');
+  } finally {
+    deletingSessionId.value = null;
+  }
 }
 
 function handleClickOutsidePicker(event) {
@@ -499,7 +552,12 @@ defineExpose({
   isCreatingSession,
   switchingSession,
   pickerOpen,
+  rootSessionId,
+  deletingSessionId,
   handlePickerSelect,
+  handlePickerDelete,
+  getPickerModelLabel,
+  getPickerTokenLabel,
   openPicker,
   closePicker,
   contentRef,

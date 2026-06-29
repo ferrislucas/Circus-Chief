@@ -15,6 +15,7 @@ const mockSessionsStore = {
   getSessionById: vi.fn(),
   getRootSession: vi.fn(),
   addSessionToList: vi.fn(),
+  deleteSession: vi.fn(),
   fetchSession: vi.fn(),
   fetchConversations: vi.fn(),
   fetchMessages: vi.fn(),
@@ -36,12 +37,17 @@ const mockTodosStore = {
   $cleanup: vi.fn(),
 };
 
+const mockUiStore = {
+  success: vi.fn(),
+  error: vi.fn(),
+};
+
 vi.mock('../stores/sessions.js', () => ({
   useSessionsStore: () => mockSessionsStore,
 }));
 
 vi.mock('../stores/ui.js', () => ({
-  useUiStore: () => ({ error: vi.fn() }),
+  useUiStore: () => mockUiStore,
 }));
 
 vi.mock('../stores/createOverlaySessionsStore.js', () => ({
@@ -110,13 +116,30 @@ vi.mock('./ConversationTab.vue', () => ({
 vi.mock('./SessionChatPicker.vue', () => ({
   default: defineComponent({
     name: 'SessionChatPicker',
-    props: ['sessions', 'activeSessionId', 'summaries'],
-    emits: ['select'],
+    props: [
+      'sessions',
+      'activeSessionId',
+      'summaries',
+      'rootSessionId',
+      'deletingSessionId',
+      'getTokenLabel',
+      'getModelLabel',
+    ],
+    emits: ['select', 'delete-session'],
     setup(props, { emit }) {
-      return () => h('button', {
-        'data-testid': 'session-chat-picker',
-        onClick: () => emit('select', props.sessions[1]?.session.id),
-      }, 'Picker');
+      return () => h('div', { 'data-testid': 'session-chat-picker' }, [
+        h('button', {
+          'data-testid': 'picker-select',
+          onClick: () => emit('select', props.sessions[1]?.session.id),
+        }, 'Select'),
+        h('button', {
+          'data-testid': 'picker-delete',
+          onClick: () => emit('delete-session', props.sessions[1]?.session.id),
+        }, 'Delete'),
+        h('span', { 'data-testid': 'picker-root-id' }, props.rootSessionId),
+        h('span', { 'data-testid': 'picker-token-label' }, props.getTokenLabel?.(props.sessions[1]?.session)),
+        h('span', { 'data-testid': 'picker-model-label' }, props.getModelLabel?.(props.sessions[1]?.session)),
+      ]);
     },
   }),
 }));
@@ -135,6 +158,8 @@ describe('SessionChatContent', () => {
     mockSessionsStore.fetchConversations.mockResolvedValue(undefined);
     mockSessionsStore.fetchMessages.mockResolvedValue(undefined);
     mockSessionsStore.fetchWorkLogs.mockResolvedValue(undefined);
+    mockSessionsStore.deleteSession.mockResolvedValue(undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     router = createRouter({
       history: createMemoryHistory(),
@@ -149,6 +174,7 @@ describe('SessionChatContent', () => {
 
   afterEach(() => {
     document.body.innerHTML = '';
+    vi.restoreAllMocks();
   });
 
   function mountContent(props = {}, attrs = {}) {
@@ -277,5 +303,143 @@ describe('SessionChatContent', () => {
     expect(block).toMatch(/right:\s*max\(1rem,\s*calc\(\(100vw - 1200px\) \/ 2 \+ 1rem\)\)/);
     expect(block).toMatch(/bottom:\s*calc\(1rem \+ env\(safe-area-inset-bottom\)\)/);
     expect(block).toMatch(/z-index:\s*100/);
+  });
+
+  it('derives rootSessionId from parentSessionId instead of row order', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = { id: 'child-1', name: 'Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    mockSessionsStore.sessions = [root, child];
+    mockSessionsStore.currentSession = root;
+
+    const wrapper = mountContent({
+      sessionId: 'root-1',
+      sessionChain: [
+        { session: child, depth: 1 },
+        { session: root, depth: 0 },
+      ],
+    });
+    await flushPromises();
+
+    await wrapper.find('[data-testid="overlay-picker-trigger"]').trigger('click');
+    const picker = wrapper.findComponent({ name: 'SessionChatPicker' });
+    expect(picker.props('rootSessionId')).toBe('root-1');
+  });
+
+  it('passes direct token and model labels to the picker', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = {
+      id: 'child-1',
+      name: 'Child',
+      status: 'waiting',
+      projectId: 'proj-1',
+      parentSessionId: 'root-1',
+      pendingModel: 'gpt-pending',
+      inputTokens: 1200,
+      outputTokens: 34,
+    };
+    const grandchild = {
+      id: 'grandchild-1',
+      name: 'Grandchild',
+      status: 'waiting',
+      projectId: 'proj-1',
+      parentSessionId: 'child-1',
+      inputTokens: 900000,
+    };
+    mockSessionsStore.sessions = [root, child, grandchild];
+    mockSessionsStore.currentSession = root;
+
+    const wrapper = mountContent({
+      sessionId: 'root-1',
+      sessionChain: [
+        { session: root, depth: 0 },
+        { session: child, depth: 1 },
+        { session: grandchild, depth: 2 },
+      ],
+    });
+    await flushPromises();
+
+    await wrapper.find('[data-testid="overlay-picker-trigger"]').trigger('click');
+    expect(wrapper.find('[data-testid="picker-token-label"]').text()).toBe('1.2K');
+    expect(wrapper.find('[data-testid="picker-model-label"]').text()).toBe('gpt-pending');
+  });
+
+  it('does not delete the root workspace from the picker', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    mockSessionsStore.sessions = [root];
+    mockSessionsStore.currentSession = root;
+
+    const wrapper = mountContent({
+      sessionId: 'root-1',
+      sessionChain: [{ session: root, depth: 0 }],
+    });
+    await flushPromises();
+
+    await wrapper.vm.handlePickerDelete('root-1');
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(mockSessionsStore.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it('does not delete when picker confirmation is cancelled', async () => {
+    window.confirm.mockReturnValue(false);
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = { id: 'child-1', name: 'Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    mockSessionsStore.sessions = [root, child];
+    mockSessionsStore.currentSession = root;
+
+    const wrapper = mountContent({
+      sessionId: 'root-1',
+      sessionChain: [
+        { session: root, depth: 0 },
+        { session: child, depth: 1 },
+      ],
+    });
+    await flushPromises();
+
+    await wrapper.vm.handlePickerDelete('child-1');
+    expect(mockSessionsStore.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it('deletes a confirmed child workspace and emits session-deleted', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = { id: 'child-1', name: 'Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    mockSessionsStore.sessions = [root, child];
+    mockSessionsStore.currentSession = root;
+    const sessionDeleted = vi.fn();
+
+    const wrapper = mountContent({
+      sessionId: 'root-1',
+      sessionChain: [
+        { session: root, depth: 0 },
+        { session: child, depth: 1 },
+      ],
+    }, { onSessionDeleted: sessionDeleted });
+    await flushPromises();
+
+    await wrapper.vm.handlePickerDelete('child-1');
+    expect(mockSessionsStore.deleteSession).toHaveBeenCalledWith('child-1');
+    expect(mockUiStore.success).toHaveBeenCalledWith('Session deleted');
+    expect(sessionDeleted).toHaveBeenCalledWith('child-1');
+  });
+
+  it('switches to the root workspace when the active child is deleted', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = { id: 'child-1', name: 'Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    mockSessionsStore.sessions = [root, child];
+    mockSessionsStore.currentSession = child;
+
+    const wrapper = mountContent({
+      sessionId: 'child-1',
+      sessionChain: [
+        { session: child, depth: 1 },
+        { session: root, depth: 0 },
+      ],
+    });
+    await flushPromises();
+
+    await wrapper.vm.handlePickerDelete('child-1');
+    await flushPromises();
+
+    expect(wrapper.vm.activeSessionId).toBe('root-1');
+    expect(mockSessionsStore.fetchSession).toHaveBeenCalledWith('root-1', false);
   });
 });
