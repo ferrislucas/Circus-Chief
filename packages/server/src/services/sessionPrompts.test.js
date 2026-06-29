@@ -23,7 +23,6 @@ vi.mock('../database.js', () => ({
 
 import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import {
-  getApiBaseUrl,
   buildPromptWithAttachments,
   getSessionAttachmentsContext,
   getGeminiApprovalModeForSession,
@@ -31,6 +30,7 @@ import {
   PLAN_MODE_PROMPT,
   buildSystemPromptConfig,
 } from './sessionPrompts.js';
+import { getApiBaseUrl } from './apiBaseUrl.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 
 describe('sessionPrompts', () => {

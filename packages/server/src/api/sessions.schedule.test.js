@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import sessionsRouter from './sessions.js';
-import { projects, sessions } from '../database.js';
+import { projects, sessions, modelProviders, messages } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 
@@ -32,6 +32,7 @@ describe('Sessions API - POST /:id/schedule', () => {
   let app;
   let project;
   let session;
+  let openaiProvider;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,6 +44,17 @@ describe('Sessions API - POST /:id/schedule', () => {
     project = projects.create('Test Project', '/tmp/test');
     session = sessions.create(project.id, 'Test Session', 'Initial prompt', 'standard');
     sessions.update(session.id, { status: 'waiting' });
+    openaiProvider = null;
+  });
+
+  afterEach(() => {
+    if (openaiProvider) {
+      try {
+        modelProviders.delete(openaiProvider.id);
+      } catch {
+        // Test cleanup only.
+      }
+    }
   });
 
   // ── Happy path ──────────────────────────────────────────────────────────────
@@ -82,19 +94,45 @@ describe('Sessions API - POST /:id/schedule', () => {
   });
 
   it('sets pendingModel when a valid model is provided', async () => {
-    // First we need a registered model; the test DB starts empty so we use
-    // a valid tier alias that the validator accepts without a DB lookup.
     const response = await request(app)
       .post(`/api/sessions/${session.id}/schedule`)
       .send({
         prompt: 'Continue',
         scheduledAt: Date.now() + 3600000,
-        model: 'claude-opus-4-5',
-      });
+        model: 'opus',
+      })
+      .expect(200);
 
-    // Model validation may pass or fail depending on registered models in the
-    // test DB. The important thing is we get 200 or 400 (not 500).
-    expect([200, 400]).toContain(response.status);
+    expect(response.body.pendingModel).toBe('opus');
+    expect(sessions.getById(session.id).pendingModel).toBe('opus');
+  });
+
+  it('returns 400 for a cross-kind model switch on a started session', async () => {
+    openaiProvider = modelProviders.create({
+      name: 'OpenAI Schedule Test',
+      baseUrl: 'https://api.openai.schedule',
+      authToken: 'key-o',
+      kind: 'openai',
+    });
+    modelProviders.addModel(openaiProvider.id, {
+      modelId: 'gpt-schedule-cross-kind',
+      displayName: 'GPT Schedule Cross Kind',
+      tier: 'custom',
+    });
+
+    messages.create(session.id, 'assistant', 'Started response');
+
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({
+        prompt: 'Continue',
+        scheduledAt: Date.now() + 3600000,
+        model: 'gpt-schedule-cross-kind',
+      })
+      .expect(400);
+
+    expect(response.body.error).toBe('CROSS_KIND_MODEL_SWITCH');
+    expect(sessions.getById(session.id).pendingModel).toBeNull();
   });
 
   it('broadcasts SESSION_STATUS and SESSION_UPDATED on success', async () => {

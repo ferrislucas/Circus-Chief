@@ -1,17 +1,10 @@
 import { sessions, attachments } from '../database.js';
-import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
+import { DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 import { buildCommandButtonApiInstructions } from './commandButtonPrompts.js';
 import { buildSessionApiInstructions, buildKanbanApiInstructions } from './sessionApiPrompts.js';
+import { getApiBaseUrl } from './apiBaseUrl.js';
 
-/**
- * Get the base API URL for canvas and session operations.
- * Uses CIRCUSCHIEF_API_URL environment variable if set, otherwise constructs
- * from the runtime port to ensure dynamic port handling.
- * @returns {string} The base API URL (e.g., http://localhost:5000)
- */
-export function getApiBaseUrl() {
-  return process.env.CIRCUSCHIEF_API_URL || `http://localhost:${process.env.PORT || DEFAULT_SERVER_PORT}`;
-}
+export { getApiBaseUrl };
 
 /**
  * Build prompt with file attachment context for the current turn

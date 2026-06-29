@@ -1,5 +1,5 @@
 import { sessions, projects, kanbanBoards, kanbanLanes } from '../database.js';
-import { getApiBaseUrl } from './sessionPrompts.js';
+import { getApiBaseUrl } from './apiBaseUrl.js';
 
 /** Build workspace and session CRUD operations section */
 function buildSessionCrudOps(apiUrl, projectId, sessionId, workspaceId) {
@@ -68,7 +68,8 @@ curl -X POST ${apiUrl}/api/sessions/${sessionId}/schedule \\
   -d '{"prompt": "Continue: <work to resume>", "scheduledAt": "2026-06-27T14:30:00Z"}'
 \`\`\`
 Required fields: \`prompt\` (string), \`scheduledAt\` (ISO 8601 string or epoch ms, must be in the future).
-Optional field: \`model\` (string) — sets pendingModel; validated and guarded against cross-kind switches.`;
+Optional field: \`model\` (string) — sets pendingModel; validated and guarded against cross-kind switches.
+Only \`prompt\`, \`scheduledAt\`, and \`model\` are honored by this endpoint. Set reschedule policy fields via session creation or \`PATCH /api/sessions/:id\`.`;
 }
 
 /** Build project and summary operations section */

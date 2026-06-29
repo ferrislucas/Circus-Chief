@@ -191,7 +191,7 @@ describe('Sessions API - pendingModel Field', () => {
       expect(updated.pendingModel).toBe(model);
     });
 
-    it('schedules without pendingModel when model not provided', async () => {
+    it('schedules without pendingModel when model not provided and no pendingModel exists', async () => {
       const scheduledAt = Date.now() + 3600000;
 
       const response = await request(app)
@@ -202,6 +202,22 @@ describe('Sessions API - pendingModel Field', () => {
       expect(response.body.status).toBe('scheduled');
       // pendingModel should be null if not set
       expect(response.body.pendingModel).toBeNull();
+    });
+
+    it('preserves existing pendingModel when scheduling without model', async () => {
+      sessions.update(session.id, { pendingModel: 'opus' });
+      const scheduledAt = Date.now() + 3600000;
+
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({ prompt: 'Continue', scheduledAt })
+        .expect(200);
+
+      expect(response.body.status).toBe('scheduled');
+      expect(response.body.pendingModel).toBe('opus');
+
+      const updated = sessions.getById(session.id);
+      expect(updated.pendingModel).toBe('opus');
     });
 
     it('overwrites existing pendingModel when scheduling with model', async () => {

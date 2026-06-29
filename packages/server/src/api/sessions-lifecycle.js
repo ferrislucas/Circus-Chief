@@ -99,22 +99,25 @@ function buildScheduleUpdate(req) {
     return modelResult;
   }
 
-  return {
-    updateData: {
-      status: 'scheduled',
-      scheduledAt,
-      pendingPrompt: prompt,
-      pendingModel: modelResult.pendingModel,
-      ...modelResult.agentTypeUpdate,
-    },
+  const updateData = {
+    status: 'scheduled',
+    scheduledAt,
+    pendingPrompt: prompt,
+    ...modelResult.agentTypeUpdate,
   };
+  if (Object.prototype.hasOwnProperty.call(modelResult, 'pendingModel')) {
+    updateData.pendingModel = modelResult.pendingModel;
+  }
+
+  return { updateData };
 }
 
 // Validate the optional model field for /schedule and resolve the agentType update.
-// Returns { pendingModel, agentTypeUpdate } on success, or { status, error } on failure.
+// Returns { pendingModel, agentTypeUpdate } when model is supplied,
+// { agentTypeUpdate } when omitted, or { status, error } on failure.
 function resolveScheduleModel(req, model) {
   if (model === undefined || model === null || model === '') {
-    return { pendingModel: null, agentTypeUpdate: {} };
+    return { agentTypeUpdate: {} };
   }
 
   const modelResult = validateModelId(model, { fieldName: 'model' });
@@ -148,6 +151,9 @@ function resolveScheduleModel(req, model) {
 //   prompt      {string}               required — becomes pendingPrompt
 //   scheduledAt {ISO 8601 | epoch ms}  required — must be in the future
 //   model       {string}               optional — becomes pendingModel; cross-kind guarded
+//
+// Only prompt, scheduledAt, and model are honored here. Reschedule-policy fields
+// must be set at session creation time or via PATCH /api/sessions/:id.
 router.post('/:id/schedule', requireSession, (req, res) => {
   const result = buildScheduleUpdate(req);
   if (result.error) {
