@@ -1234,14 +1234,14 @@ describe('SummaryTab', () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
         status: 'scheduled',
-        scheduledAt: Date.now() + 3600000,
+        scheduledAt: '2026-07-01T12:00:00.000Z',
         name: 'Parent Workspace',
         projectId: 'proj-1',
       };
       sessionsStore.sessions = [
         sessionsStore.currentSession,
-        { id: 'child-1', status: 'scheduled', scheduledAt: Date.now() + 7200000, parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
-        { id: 'child-2', status: 'scheduled', scheduledAt: Date.now() + 10800000, parentSessionId: 'sess-123', name: 'Child 2', projectId: 'proj-1' },
+        { id: 'child-1', status: 'scheduled', scheduledAt: '2026-07-01T10:00:00.000Z', parentSessionId: 'sess-123', name: 'Child 1', projectId: 'proj-1' },
+        { id: 'child-2', status: 'scheduled', scheduledAt: '2026-07-01T11:00:00.000Z', parentSessionId: 'sess-123', name: 'Child 2', projectId: 'proj-1' },
       ];
 
       const wrapper = mountComponent();
@@ -1251,10 +1251,7 @@ describe('SummaryTab', () => {
       expect(overviewCard.exists()).toBe(true);
       const scheduledSessions = overviewCard.props('scheduledSessions');
       expect(scheduledSessions.length).toBe(3);
-      // Parent comes first
-      expect(scheduledSessions[0].id).toBe('sess-123');
-      expect(scheduledSessions[1].id).toBe('child-1');
-      expect(scheduledSessions[2].id).toBe('child-2');
+      expect(scheduledSessions.map((s) => s.id)).toEqual(['child-1', 'child-2', 'sess-123']);
     });
 
     it('passes only scheduled children when parent is not scheduled', async () => {
