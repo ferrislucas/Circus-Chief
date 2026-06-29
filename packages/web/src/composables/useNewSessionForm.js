@@ -23,7 +23,7 @@ export function useNewSessionForm(storageKey) {
   const parentSessionId = ref(null);
   const schedulingData = ref({
     scheduledAt: null,
-    autoRescheduleEnabled: false,
+    autoRescheduleEnabled: true,
     rescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
     rescheduleOnTokenLimit: true,
     rescheduleOnServiceError: true,
@@ -101,7 +101,7 @@ export function useNewSessionForm(storageKey) {
   function resetSchedulingData() {
     schedulingData.value = {
       scheduledAt: null,
-      autoRescheduleEnabled: false,
+      autoRescheduleEnabled: true,
       rescheduleDelayMinutes: DEFAULT_RESCHEDULE_DELAY_MINUTES,
       rescheduleOnTokenLimit: true,
       rescheduleOnServiceError: true,
