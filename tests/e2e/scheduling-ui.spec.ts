@@ -208,7 +208,7 @@ test.describe('Scheduling UI', () => {
       // Verify scheduling info is visible in the overview card
       const schedulingSection = page.locator('.overview-scheduled-sessions');
       await expect(schedulingSection).toBeVisible({ timeout: 5000 });
-      await expect(schedulingSection).toContainText('Scheduled Workspaces');
+      await expect(schedulingSection).toContainText('Scheduled Sessions');
       await expect(schedulingSection).toContainText('Edit');
     });
 

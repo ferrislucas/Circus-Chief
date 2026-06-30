@@ -1229,7 +1229,7 @@ describe('SummaryTab', () => {
     });
   });
 
-  describe('Scheduled Workspaces', () => {
+  describe('Scheduled Sessions', () => {
     it('passes parent + scheduled children to SessionOverviewCard when parent is scheduled', async () => {
       sessionsStore.currentSession = {
         id: 'sess-123',
