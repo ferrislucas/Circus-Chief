@@ -1,7 +1,7 @@
 <template>
   <div
     class="session-chat-picker"
-    role="listbox"
+    role="list"
     aria-label="Workspace hierarchy"
     data-testid="session-chat-picker"
     @keydown="handleKeydown"
@@ -9,20 +9,25 @@
     <div
       v-for="(entry, index) in sessions"
       :key="entry.session.id"
-      :ref="el => { if (el) itemRefs[index] = el }"
       class="picker-item"
       :class="{
         'picker-item--active': entry.session.id === activeSessionId,
       }"
-      role="option"
-      :aria-selected="entry.session.id === activeSessionId ? 'true' : 'false'"
-      :tabindex="index === focusedIndex ? 0 : -1"
+      role="listitem"
       :data-index="index"
       :data-session-id="entry.session.id"
       @click="emit('select', entry.session.id)"
-      @keydown.enter.prevent="emit('select', entry.session.id)"
     >
-      <div class="picker-item-main">
+      <button
+        :ref="el => { if (el) itemRefs[index] = el }"
+        class="picker-item-main"
+        type="button"
+        :aria-current="entry.session.id === activeSessionId ? 'true' : undefined"
+        :tabindex="index === focusedIndex ? 0 : -1"
+        @click.stop="emit('select', entry.session.id)"
+        @keydown.enter.prevent="emit('select', entry.session.id)"
+        @keydown.space.prevent="emit('select', entry.session.id)"
+      >
         <div
           v-if="getRoleLabel(index, entry) || statusLabel(entry.session)"
           class="picker-item-label picker-item-topline"
@@ -65,7 +70,7 @@
         >
           <span class="picker-item-summary">{{ getSummaryText(entry.session.id) }}</span>
         </div>
-      </div>
+      </button>
       <button
         v-if="!isRootEntry(entry)"
         class="picker-item-delete"
@@ -268,7 +273,6 @@ function handleKeydown(event) {
   gap: 0.375rem;
   padding: 0.375rem 0.5rem;
   border-radius: var(--border-radius, 6px);
-  cursor: pointer;
   transition: background-color 0.15s;
   line-height: 1.15;
 }
@@ -281,13 +285,22 @@ function handleKeydown(event) {
   background-color: rgba(55, 65, 81, 1);
 }
 
-.picker-item:focus-visible {
-  outline: 2px solid var(--color-primary, #06b6d4);
-  outline-offset: -2px;
+.picker-item-main {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-.picker-item-main {
-  min-width: 0;
+.picker-item-main:focus-visible,
+.picker-item-delete:focus-visible {
+  outline: 2px solid var(--color-primary, #06b6d4);
+  outline-offset: 2px;
 }
 
 .picker-item-label {
@@ -389,8 +402,7 @@ function handleKeydown(event) {
   transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.picker-item-delete:hover:not(:disabled),
-.picker-item-delete:focus-visible {
+.picker-item-delete:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.12);
   border-color: rgba(239, 68, 68, 0.35);
   color: #fca5a5;

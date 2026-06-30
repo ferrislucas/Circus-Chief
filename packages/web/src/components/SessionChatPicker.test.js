@@ -310,7 +310,7 @@ describe('SessionChatPicker', () => {
         attrs: { onSelect },
       });
       const items = wrapper.findAll('.picker-item');
-      await items[2].trigger('keydown.enter');
+      await items[2].find('.picker-item-main').trigger('keydown.enter');
       expect(onSelect).toHaveBeenCalledWith('child-2');
     });
 
@@ -490,7 +490,7 @@ describe('SessionChatPicker', () => {
       const container = wrapper.find('.session-chat-picker');
       await container.trigger('keydown', { key: 'ArrowDown' });
       // focusedIndex should have incremented
-      const items = wrapper.findAll('.picker-item');
+      const items = wrapper.findAll('.picker-item-main');
       expect(items[1].attributes('tabindex')).toBe('0');
     });
 
@@ -500,7 +500,7 @@ describe('SessionChatPicker', () => {
       const container = wrapper.find('.session-chat-picker');
       await container.trigger('keydown', { key: 'ArrowDown' });
       await container.trigger('keydown', { key: 'ArrowUp' });
-      const items = wrapper.findAll('.picker-item');
+      const items = wrapper.findAll('.picker-item-main');
       // Should be back to the initial focused index
       expect(items[0].attributes('tabindex')).not.toBe(undefined);
     });
@@ -510,7 +510,7 @@ describe('SessionChatPicker', () => {
       const container = wrapper.find('.session-chat-picker');
       // Focus is at index 0 (root), pressing up should stay at 0
       await container.trigger('keydown', { key: 'ArrowUp' });
-      const items = wrapper.findAll('.picker-item');
+      const items = wrapper.findAll('.picker-item-main');
       expect(items[0].attributes('tabindex')).toBe('0');
     });
 
@@ -522,36 +522,45 @@ describe('SessionChatPicker', () => {
       await container.trigger('keydown', { key: 'ArrowDown' });
       await container.trigger('keydown', { key: 'ArrowDown' });
       // Should not go beyond
-      const items = wrapper.findAll('.picker-item');
+      const items = wrapper.findAll('.picker-item-main');
       expect(items[2].attributes('tabindex')).toBe('0');
     });
   });
 
   describe('accessibility', () => {
-    it('has role="listbox" on container', () => {
+    it('has role="list" on container', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.session-chat-picker').attributes('role')).toBe('listbox');
+      expect(wrapper.find('.session-chat-picker').attributes('role')).toBe('list');
     });
 
-    it('has role="option" on each item', () => {
+    it('has role="listitem" on each item', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
       items.forEach(item => {
-        expect(item.attributes('role')).toBe('option');
+        expect(item.attributes('role')).toBe('listitem');
       });
     });
 
-    it('has aria-selected="true" on active item', () => {
+    it('has aria-current="true" on the active row action', () => {
       const wrapper = mountComponent({ activeSessionId: 'root-1' });
-      const items = wrapper.findAll('.picker-item');
-      expect(items[0].attributes('aria-selected')).toBe('true');
+      const items = wrapper.findAll('.picker-item-main');
+      expect(items[0].attributes('aria-current')).toBe('true');
     });
 
-    it('has aria-selected="false" on inactive items', () => {
+    it('does not put aria-current on inactive row actions', () => {
       const wrapper = mountComponent({ activeSessionId: 'root-1' });
-      const items = wrapper.findAll('.picker-item');
-      expect(items[1].attributes('aria-selected')).toBe('false');
-      expect(items[2].attributes('aria-selected')).toBe('false');
+      const items = wrapper.findAll('.picker-item-main');
+      expect(items[1].attributes('aria-current')).toBeUndefined();
+      expect(items[2].attributes('aria-current')).toBeUndefined();
+    });
+
+    it('does not nest delete buttons inside listbox options', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
+      expect(wrapper.find('[role="option"]').exists()).toBe(false);
+      wrapper.findAll('.picker-item-delete').forEach(deleteButton => {
+        expect(deleteButton.element.closest('[role="option"]')).toBeNull();
+      });
     });
   });
 });

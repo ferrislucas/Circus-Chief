@@ -341,6 +341,27 @@ function getPickerTokenLabel(session) {
   return formatTokenCount(total);
 }
 
+function isSessionInSubtree(sessionId, subtreeRootId, entries = props.sessionChain) {
+  if (!sessionId || !subtreeRootId) return false;
+  if (sessionId === subtreeRootId) return true;
+
+  const parentById = new Map(entries.map(entry => [
+    entry.session.id,
+    entry.session.parentSessionId || null,
+  ]));
+
+  let currentId = sessionId;
+  const seen = new Set();
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId);
+    const parentId = parentById.get(currentId);
+    if (parentId === subtreeRootId) return true;
+    currentId = parentId;
+  }
+
+  return false;
+}
+
 async function handlePickerDelete(sessionId) {
   if (deletingSessionId.value) return;
 
@@ -352,11 +373,14 @@ async function handlePickerDelete(sessionId) {
 
   deletingSessionId.value = sessionId;
   try {
+    const activeWasDeleted = isSessionInSubtree(activeSessionId.value, sessionId);
     await mainSessionsStore.deleteSession(sessionId);
     uiStore.success('Session deleted');
 
-    if (activeSessionId.value === sessionId) {
-      const remainingEntries = props.sessionChain.filter(item => item.session.id !== sessionId);
+    if (activeWasDeleted) {
+      const remainingEntries = props.sessionChain.filter(item =>
+        !isSessionInSubtree(item.session.id, sessionId)
+      );
       const targetSessionId = remainingEntries.find(item => item.session.id === rootSessionId.value)?.session.id ||
         remainingEntries[0]?.session.id;
       if (targetSessionId) {
@@ -561,6 +585,7 @@ defineExpose({
   handlePickerDelete,
   getPickerModelLabel,
   getPickerTokenLabel,
+  isSessionInSubtree,
   openPicker,
   closePicker,
   contentRef,

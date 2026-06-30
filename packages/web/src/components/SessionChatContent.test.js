@@ -490,4 +490,82 @@ describe('SessionChatContent', () => {
     expect(wrapper.vm.activeSessionId).toBe('root-1');
     expect(mockSessionsStore.fetchSession).toHaveBeenCalledWith('root-1', false);
   });
+
+  it('switches to the root workspace when deleting the parent of the active workspace', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = { id: 'child-1', name: 'Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    const grandchild = { id: 'grandchild-1', name: 'Grandchild', status: 'waiting', projectId: 'proj-1', parentSessionId: 'child-1' };
+    mockSessionsStore.sessions = [root, child, grandchild];
+    mockSessionsStore.currentSession = grandchild;
+
+    const wrapper = mountContent({
+      sessionId: 'grandchild-1',
+      sessionChain: [
+        { session: root, depth: 0 },
+        { session: child, depth: 1 },
+        { session: grandchild, depth: 2 },
+      ],
+    });
+    await flushPromises();
+
+    await wrapper.vm.handlePickerDelete('child-1');
+    await flushPromises();
+
+    expect(mockSessionsStore.deleteSession).toHaveBeenCalledWith('child-1');
+    expect(wrapper.vm.activeSessionId).toBe('root-1');
+    expect(mockSessionsStore.fetchSession).toHaveBeenCalledWith('root-1', false);
+  });
+
+  it('keeps the active workspace when deleting an unrelated subtree', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = { id: 'child-1', name: 'Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    const grandchild = { id: 'grandchild-1', name: 'Grandchild', status: 'waiting', projectId: 'proj-1', parentSessionId: 'child-1' };
+    const sibling = { id: 'sibling-1', name: 'Sibling', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    mockSessionsStore.sessions = [root, child, grandchild, sibling];
+    mockSessionsStore.currentSession = sibling;
+
+    const wrapper = mountContent({
+      sessionId: 'sibling-1',
+      sessionChain: [
+        { session: root, depth: 0 },
+        { session: child, depth: 1 },
+        { session: grandchild, depth: 2 },
+        { session: sibling, depth: 1 },
+      ],
+    });
+    await flushPromises();
+
+    await wrapper.vm.handlePickerDelete('child-1');
+    await flushPromises();
+
+    expect(mockSessionsStore.deleteSession).toHaveBeenCalledWith('child-1');
+    expect(wrapper.vm.activeSessionId).toBe('sibling-1');
+    expect(mockSessionsStore.fetchSession).not.toHaveBeenCalledWith('root-1', false);
+  });
+
+  it('emits active-session-change in embedded mode when deleting the active subtree', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = { id: 'child-1', name: 'Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    const grandchild = { id: 'grandchild-1', name: 'Grandchild', status: 'waiting', projectId: 'proj-1', parentSessionId: 'child-1' };
+    mockSessionsStore.sessions = [root, child, grandchild];
+    mockSessionsStore.currentSession = grandchild;
+    const activeSessionChange = vi.fn();
+
+    const wrapper = mountContent({
+      mode: 'embedded',
+      sessionId: 'grandchild-1',
+      sessionChain: [
+        { session: root, depth: 0 },
+        { session: child, depth: 1 },
+        { session: grandchild, depth: 2 },
+      ],
+    }, { onActiveSessionChange: activeSessionChange });
+    await flushPromises();
+
+    await wrapper.vm.handlePickerDelete('child-1');
+    await flushPromises();
+
+    expect(wrapper.vm.activeSessionId).toBe('root-1');
+    expect(activeSessionChange).toHaveBeenLastCalledWith({ id: 'root-1', status: 'waiting' });
+  });
 });
