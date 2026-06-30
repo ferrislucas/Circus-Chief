@@ -6,13 +6,13 @@ import { resolveAgentTypeFromModel } from './sessionProvider.js';
 import { validateModelId } from '../api/model-validation.js';
 
 /**
- * Validates that a session is a draft (waiting status with no assistant messages).
+ * Validates that a session is a draft (waiting/scheduled status with no assistant messages).
  * @param {object} session - The session object
  * @returns {{ valid: boolean, error?: string }}
  */
 export function validateDraftSession(session) {
-  if (session.status !== 'waiting') {
-    return { valid: false, error: 'Session must be in waiting status to start' };
+  if (session.status !== 'waiting' && session.status !== 'scheduled') {
+    return { valid: false, error: 'Session must be in waiting or scheduled status to start' };
   }
 
   const allMessages = messages.getBySessionId(session.id);
@@ -148,6 +148,7 @@ export async function startDraft(session, options = {}) {
   // resolved model + agentType BEFORE runSession() reads them from storage.
   sessions.update(session.id, {
     status: 'starting',
+    scheduledAt: null,
     pendingModel: null,
     ...(model ? { model, agentType } : {}),
     ...(options.providerId !== undefined ? { providerId: options.providerId } : {}),

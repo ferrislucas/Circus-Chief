@@ -182,6 +182,7 @@ const conversationMessagesRef = ref(null);
 const attachedFiles = ref([]);
 const selectedModel = ref(null);
 const selectedProviderId = ref(null);
+const lastRestoredDraftValue = ref('');
 let suppressNextModelPersist = false;
 
 // Draft saving composable
@@ -310,16 +311,21 @@ function restoreInitialInput() {
 
   const pending = session?.pendingPrompt;
   const statusAllowsRestore = Boolean(session) && (isDraft.value || RESTORE_ALLOWED_STATUSES.has(session?.status));
+  const canReplaceInput = !input.value || input.value === lastRestoredDraftValue.value;
 
-  if (pending && statusAllowsRestore) {
+  if (pending && statusAllowsRestore && canReplaceInput) {
     // No imperative DOM write — ResizableTextarea's watch(modelValue)
     // syncs the DOM when `input.value` changes.
     input.value = pending;
+    lastRestoredDraftValue.value = pending;
     return;
   }
   if (isDraft.value && sessionsStore.messages.length > 0) {
     const userMessage = sessionsStore.messages.find(msg => msg.role === 'user');
-    if (userMessage) input.value = userMessage.content;
+    if (userMessage && canReplaceInput) {
+      input.value = userMessage.content;
+      lastRestoredDraftValue.value = userMessage.content;
+    }
   }
 }
 
@@ -434,6 +440,25 @@ watch(
   }
 );
 
+// Restore a pending draft into an already-open overlay when schedule state
+// changes in place, such as canceling a future schedule.
+watch(
+  () => {
+    const session = sessionsStore.currentSession;
+    return {
+      id: session?.id,
+      status: session?.status,
+      scheduledAt: session?.scheduledAt,
+      pendingPrompt: session?.pendingPrompt,
+    };
+  },
+  (newSessionState) => {
+    if (newSessionState.id !== props.sessionId) return;
+    if (!newSessionState.pendingPrompt) return;
+    restoreInitialInput();
+  }
+);
+
 // Watch for messages loading on draft sessions and populate textarea.
 // Uses `input.value` (the reactive source of truth) rather than peeking at
 // the DOM via the textareaRef — the `input` ref is the canonical value.
@@ -448,6 +473,7 @@ watch(
     const userMessage = newMessages.find(msg => msg.role === 'user');
     if (userMessage && userMessage.content) {
       input.value = userMessage.content;
+      lastRestoredDraftValue.value = userMessage.content;
     }
   },
   { deep: true, immediate: true }

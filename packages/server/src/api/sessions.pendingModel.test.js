@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { projects, sessions, modelProviders } from '../database.js';
+import { projects, sessions, messages, modelProviders } from '../database.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -372,6 +372,41 @@ describe('Sessions API - pendingModel Field', () => {
 
       const updated = sessions.getById(session.id);
       expect(updated.pendingModel).toBeNull();
+    });
+
+    it('starts a scheduled draft directly and clears one-time schedule state', async () => {
+      const scheduledAt = Date.now() + 3600000;
+      const scheduledDraft = sessions.create(project.id, 'Scheduled Draft', null, 'standard', true, null, null, 'scheduled');
+      sessions.update(scheduledDraft.id, {
+        scheduledAt,
+        pendingPrompt: 'Run the scheduled draft now',
+        pendingModel: 'opus',
+      });
+
+      const response = await request(app)
+        .post(`/api/sessions/${scheduledDraft.id}/start`)
+        .send({})
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.session.status).toBe('starting');
+      expect(response.body.session.scheduledAt).toBeNull();
+      expect(response.body.session.pendingPrompt).toBeNull();
+      expect(response.body.session.pendingModel).toBeNull();
+
+      const stored = sessions.getById(scheduledDraft.id);
+      expect(stored.scheduledAt).toBeNull();
+      expect(stored.pendingPrompt).toBeNull();
+      expect(stored.pendingModel).toBeNull();
+
+      const createdUserMessage = messages
+        .getBySessionId(scheduledDraft.id)
+        .find(msg => msg.role === 'user');
+      expect(createdUserMessage?.content).toBe('Run the scheduled draft now');
+
+      expect(vi.mocked(runSession)).toHaveBeenCalledOnce();
+      const optionsArg = vi.mocked(runSession).mock.calls[0][3];
+      expect(optionsArg.model).toBe('opus');
     });
 
     it('renders Liquid in the draft start prompt when renderLiquid is true', async () => {
