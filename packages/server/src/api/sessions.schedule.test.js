@@ -5,6 +5,12 @@ import sessionsRouter from './sessions.js';
 import { projects, sessions, modelProviders, messages } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import * as diffService from '../services/diffService.js';
+import * as kanbanService from '../services/kanbanService.js';
+import {
+  activeSessions,
+  handleTurnCompletion,
+} from '../services/streamEventHandler.js';
 
 // Mock websocket
 vi.mock('../websocket.js', () => ({
@@ -15,7 +21,17 @@ vi.mock('../websocket.js', () => ({
 // Mock summary service (needed by sessions-patch.js)
 vi.mock('../services/summaryService.js', () => ({
   onSessionActivity: vi.fn(),
+  extractPrUrlIfNeeded: vi.fn(),
   propagatePrUrlToParent: vi.fn(),
+}));
+
+vi.mock('../services/diffService.js', () => ({
+  getChanges: vi.fn().mockResolvedValue({ staged: null, unstaged: null, untracked: null }),
+  getChangesBranch: vi.fn(),
+}));
+
+vi.mock('../services/kanbanService.js', () => ({
+  handleCompletionMove: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Mock prStatusService (needed by sessions-patch.js)
@@ -36,6 +52,8 @@ describe('Sessions API - POST /:id/schedule', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    activeSessions.clear();
+    diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
 
     app = express();
     app.use(express.json());
@@ -48,6 +66,7 @@ describe('Sessions API - POST /:id/schedule', () => {
   });
 
   afterEach(() => {
+    activeSessions.clear();
     if (openaiProvider) {
       try {
         modelProviders.delete(openaiProvider.id);
@@ -163,6 +182,61 @@ describe('Sessions API - POST /:id/schedule', () => {
       WS_MESSAGE_TYPES.SESSION_UPDATED,
       expect.objectContaining({ sessionId: session.id }),
     );
+  });
+
+  it('keeps a running session scheduled after completion and broadcasts completion side effects', async () => {
+    sessions.update(session.id, { status: 'running' });
+
+    const scheduledAt = Date.now() + 3600000;
+    await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({ prompt: 'Continue after the current turn', scheduledAt })
+      .expect(200);
+
+    activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+    vi.clearAllMocks();
+    diffService.getChanges.mockResolvedValue({
+      staged: 'diff --git a/server.js b/server.js\n+change',
+      unstaged: null,
+      untracked: null,
+    });
+
+    const mockAutoSend = vi.fn().mockResolvedValue(false);
+    const mockTemplateTrigger = vi.fn().mockResolvedValue(undefined);
+
+    const result = await handleTurnCompletion(session.id, '/tmp/test', {
+      checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+      handleAutoSendIfNeeded: mockAutoSend,
+      handleTemplateTriggerIfNeeded: mockTemplateTrigger,
+    });
+
+    expect(result).toBe(false);
+    expect(sessions.getById(session.id)).toEqual(expect.objectContaining({
+      status: 'scheduled',
+      scheduledAt,
+      pendingPrompt: 'Continue after the current turn',
+    }));
+    expect(broadcastToSession).toHaveBeenCalledWith(
+      session.id,
+      WS_MESSAGE_TYPES.SESSION_STATUS,
+      expect.objectContaining({ status: 'scheduled' }),
+    );
+    expect(broadcastToSession).toHaveBeenCalledWith(
+      session.id,
+      WS_MESSAGE_TYPES.CHANGES_UPDATE,
+      expect.objectContaining({ sessionId: session.id, hasChanges: true, changeCount: 1 }),
+    );
+    expect(broadcastToProject).toHaveBeenCalledWith(
+      project.id,
+      WS_MESSAGE_TYPES.SESSION_UPDATED,
+      expect.objectContaining({
+        sessionId: session.id,
+        session: expect.objectContaining({ status: 'scheduled' }),
+      }),
+    );
+    expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith(session.id);
+    expect(mockAutoSend).not.toHaveBeenCalled();
+    expect(mockTemplateTrigger).not.toHaveBeenCalled();
   });
 
   // ── Validation failures ─────────────────────────────────────────────────────

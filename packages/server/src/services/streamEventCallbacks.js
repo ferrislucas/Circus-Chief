@@ -20,9 +20,8 @@ import {
  *
  * The turn-completion sequence first writes status='waiting'; this hook reads
  * the session back and overrides it to 'scheduled' when a future scheduledAt
- * and a pendingPrompt are present. Mirrors checkProactiveReschedule: returns
- * true (short-circuit) when it fires so auto-send and template triggers are
- * skipped for this turn.
+ * and a pendingPrompt are present. Returns true when it fires so auto-send and
+ * template triggers are skipped for this turn.
  *
  * @param {string} sessionId
  * @returns {Promise<boolean>}
@@ -73,9 +72,6 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // Re-apply scheduled status if the agent called POST /:id/schedule mid-turn.
   // The waiting write above would otherwise overwrite the scheduled state.
   const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
-  if (wasScheduledMidTurn) {
-    return true; // Session stays scheduled, skip auto-send and template triggers
-  }
 
   // Extract PR URL immediately (lightweight, no API call)
   summaryService.extractPrUrlIfNeeded(sessionId);
@@ -96,13 +92,13 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
   let autoSendFired = false;
-  if (handleAutoSendIfNeeded) {
+  if (!wasScheduledMidTurn && handleAutoSendIfNeeded) {
     autoSendFired = await handleAutoSendIfNeeded(sessionId);
   }
 
   // Only trigger next template if auto-send did NOT fire
   // (if auto-send fired, template will trigger after that turn completes)
-  if (!autoSendFired && handleTemplateTriggerIfNeeded) {
+  if (!wasScheduledMidTurn && !autoSendFired && handleTemplateTriggerIfNeeded) {
     await handleTemplateTriggerIfNeeded(sessionId);
   }
 

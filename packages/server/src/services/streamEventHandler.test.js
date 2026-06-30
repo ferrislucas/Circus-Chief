@@ -647,7 +647,7 @@ describe('streamEventHandler', () => {
 
     // ── handleScheduledContinuationIfNeeded (mid-turn schedule hook) ──────
 
-    it('re-applies scheduled status when session has future scheduledAt and pendingPrompt', async () => {
+    it('re-applies scheduled status while preserving successful completion side effects', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
@@ -657,6 +657,7 @@ describe('streamEventHandler', () => {
         scheduledAt: futureScheduledAt,
         pendingPrompt: 'Continue the analysis',
       });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
 
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
       const mockHandleTemplate = vi.fn();
@@ -668,9 +669,12 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      // Should return true (short-circuit) and re-apply scheduled status
-      expect(result).toBe(true);
+      expect(result).toBe(false);
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
+      expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
+      expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
 
       // Auto-send and template trigger must NOT fire for this turn
       expect(mockAutoSend).not.toHaveBeenCalled();
@@ -749,7 +753,7 @@ describe('streamEventHandler', () => {
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      expect(result).toBe(true);
+      expect(result).toBe(false);
       // Auto-send must NOT fire — schedule wins
       expect(mockAutoSend).not.toHaveBeenCalled();
     });
