@@ -3873,6 +3873,55 @@ describe('ConversationTab - Watcher workspace-scoping guards', () => {
     expect(mockSessionsStore.fetchWorkLogs).toHaveBeenCalledWith('parent-1');
   });
 
+  it('restores pendingPrompt when a scheduled session is canceled while the tab stays mounted', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1',
+      status: 'scheduled',
+      thinkingEnabled: false,
+      mode: 'standard',
+      scheduledAt: Date.now() + 3600000,
+      pendingPrompt: 'Draft from schedule',
+    };
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    const textarea = wrapper.find('textarea');
+    await textarea.setValue('');
+    await flushAll(wrapper);
+    expect(textarea.element.value).toBe('');
+
+    mockSessionsStore.currentSession.status = 'stopped';
+    mockSessionsStore.currentSession.scheduledAt = null;
+    await flushAll(wrapper);
+
+    expect(textarea.element.value).toBe('Draft from schedule');
+  });
+
+  it('does not overwrite user-entered text when scheduled cancellation arrives', async () => {
+    mockSessionsStore.currentSession = {
+      id: 'parent-1',
+      status: 'scheduled',
+      thinkingEnabled: false,
+      mode: 'standard',
+      scheduledAt: Date.now() + 3600000,
+      pendingPrompt: 'Draft from schedule',
+    };
+
+    const wrapper = mountComponent({ sessionId: 'parent-1' });
+    await flushAll(wrapper);
+
+    const textarea = wrapper.find('textarea');
+    await textarea.setValue('User typed a different prompt');
+    await flushAll(wrapper);
+
+    mockSessionsStore.currentSession.status = 'stopped';
+    mockSessionsStore.currentSession.scheduledAt = null;
+    await flushAll(wrapper);
+
+    expect(textarea.element.value).toBe('User typed a different prompt');
+  });
+
   it('status watcher DOES refetch on running -> completed when workspace matches', async () => {
     mockSessionsStore.currentSession = {
       id: 'parent-1', status: 'running', thinkingEnabled: false, mode: 'standard',

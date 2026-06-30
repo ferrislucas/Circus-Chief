@@ -83,13 +83,25 @@ describe('draftSessionService', () => {
       expect(result.error).toBeUndefined();
     });
 
-    it('returns invalid when session is not in waiting status', () => {
+    it('returns invalid when session is not in waiting or scheduled status', () => {
       const session = { id: 's1', status: 'running' };
 
       const result = validateDraftSession(session);
 
       expect(result.valid).toBe(false);
-      expect(result.error).toBe('Session must be in waiting status to start');
+      expect(result.error).toBe('Session must be in waiting or scheduled status to start');
+    });
+
+    it('returns valid for a scheduled session with no assistant messages', () => {
+      const session = { id: 's1', status: 'scheduled' };
+      messages.getBySessionId.mockReturnValue([
+        { id: 'm1', role: 'user', content: 'Hello' },
+      ]);
+
+      const result = validateDraftSession(session);
+
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
     });
 
     it('returns invalid when session has assistant messages', () => {
@@ -221,6 +233,7 @@ describe('draftSessionService', () => {
       expect(messages.create).not.toHaveBeenCalled();
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
+        scheduledAt: null,
         pendingModel: null,
       });
     });
@@ -326,6 +339,7 @@ describe('draftSessionService', () => {
 
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
+        scheduledAt: null,
         pendingModel: null,
         model: 'gpt-5.4',
         agentType: 'codex',
@@ -344,6 +358,7 @@ describe('draftSessionService', () => {
 
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
+        scheduledAt: null,
         pendingModel: null,
         model: 'claude-sonnet-test',
         agentType: 'claude-code',
@@ -362,6 +377,7 @@ describe('draftSessionService', () => {
 
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
+        scheduledAt: null,
         pendingModel: null,
         model: 'gpt-4o-test',
         agentType: 'codex',
@@ -388,6 +404,7 @@ describe('draftSessionService', () => {
       expect(resolveAgentTypeFromModel).toHaveBeenCalledWith('claude-sonnet');
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
+        scheduledAt: null,
         pendingModel: null,
         model: 'claude-sonnet',
         agentType: 'claude-code',
@@ -401,6 +418,7 @@ describe('draftSessionService', () => {
 
       expect(sessions.update).toHaveBeenCalledWith('s1', {
         status: 'starting',
+        scheduledAt: null,
         pendingModel: null,
       });
     });
