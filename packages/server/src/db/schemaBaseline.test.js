@@ -167,6 +167,9 @@ describe('schema baseline', () => {
       ).run('canvas-code', 'code', now, now)).not.toThrow();
       expect(() => db.prepare(
         'INSERT INTO canvas_items (id, type, created_at, updated_at) VALUES (?, ?, ?, ?)'
+      ).run('canvas-video', 'video', now, now)).not.toThrow();
+      expect(() => db.prepare(
+        'INSERT INTO canvas_items (id, type, created_at, updated_at) VALUES (?, ?, ?, ?)'
       ).run('canvas-bad', 'bad', now, now)).toThrow();
 
       expect(() => db.prepare(

@@ -220,6 +220,24 @@ describe('CanvasFileViewer', () => {
       expect(wrapper.find('.viewer-image').exists()).toBe(true);
     });
 
+    it('renders video player for video type', () => {
+      const wrapper = mountComponent({
+        item: {
+          id: '1',
+          filename: 'clip.mp4',
+          type: 'video',
+          data: 'base64videodata',
+          mimeType: 'video/mp4',
+          createdAt: Date.now(),
+        },
+      });
+
+      const video = wrapper.find('.viewer-video');
+      expect(video.exists()).toBe(true);
+      expect(video.attributes('controls')).toBeDefined();
+      expect(video.attributes('src')).toBe('data:video/mp4;base64,base64videodata');
+    });
+
     it('renders text content for text type', () => {
       const wrapper = mountComponent({
         item: { id: '1', filename: 'test.txt', type: 'text', content: 'Hello World', createdAt: Date.now() },

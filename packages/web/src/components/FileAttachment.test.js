@@ -148,6 +148,17 @@ describe.skip('FileAttachment', () => {
       expect(wrapper.find('.file-icon').text()).toContain('📜');
       wrapper.unmount();
     });
+
+    it('shows correct icon for video files', async () => {
+      const wrapper = mountComponent();
+      const file = new File([''], 'clip.mp4', { type: 'video/mp4' });
+      wrapper.vm.files.value.push(file);
+      await flushPromises();
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.find('.file-icon').text()).toContain('🎬');
+      wrapper.unmount();
+    });
   });
 
   describe('file size formatting', () => {

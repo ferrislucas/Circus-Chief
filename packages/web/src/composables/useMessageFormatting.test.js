@@ -238,9 +238,14 @@ describe('useMessageFormatting', () => {
       expect(getAttachmentIcon('application/typescript')).toBe('📜');
     });
 
+    it('should return video icon for video types', () => {
+      expect(getAttachmentIcon('video/mp4')).toBe('🎬');
+      expect(getAttachmentIcon('video/quicktime')).toBe('🎬');
+      expect(getAttachmentIcon('video/webm')).toBe('🎬');
+    });
+
     it('should return paperclip for unknown types', () => {
       expect(getAttachmentIcon('application/octet-stream')).toBe('📎');
-      expect(getAttachmentIcon('video/mp4')).toBe('📎');
     });
   });
 });

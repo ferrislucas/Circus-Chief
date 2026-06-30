@@ -146,6 +146,7 @@ export const allMigrations = validateMigrations([
   ci.get('canvas_items-add-deleted_at'),
   ci.get('canvas_items-drop-label'),
   ci.get('canvas_items-add-updated_at'),
+  ci.get('canvas_items-add-video'),
 
   // --- Conversations: claude_session_id + token usage ---
   c.get('conversations-add-claude_session_id'),
