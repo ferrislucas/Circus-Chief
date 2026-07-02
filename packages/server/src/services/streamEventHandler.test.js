@@ -700,29 +700,38 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).not.toHaveBeenCalled();
     });
 
-    it('does not re-apply scheduled status when scheduledAt is in the past', async () => {
+    it('re-applies scheduled status when scheduledAt became due before turn completion', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
 
+      const pastScheduledAt = Date.now() - 1000;
       sessions.getById.mockReturnValue({
         projectId: 'proj-1',
-        scheduledAt: Date.now() - 1000, // past
+        scheduledAt: pastScheduledAt,
         pendingPrompt: 'Continue',
       });
       diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
 
       const mockCheckReschedule = vi.fn().mockResolvedValue(false);
-      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
-      const mockAutoSend = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
 
-      await handleTurnCompletion('sess-1', '/workspace', {
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
         handleTemplateTriggerIfNeeded: mockHandleTemplate,
         checkProactiveReschedule: mockCheckReschedule,
         handleAutoSendIfNeeded: mockAutoSend,
       });
 
-      // Normal waiting write should have happened
+      expect(result).toBe(false);
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
     });
 
     it('does not re-apply scheduled status when pendingPrompt is missing', async () => {

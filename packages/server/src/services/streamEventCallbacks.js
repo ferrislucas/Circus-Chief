@@ -19,8 +19,9 @@ import {
  * mid-turn (e.g., by the agent calling POST /api/sessions/:id/schedule).
  *
  * The turn-completion sequence first writes status='waiting'; this hook reads
- * the session back and overrides it to 'scheduled' when a future scheduledAt
- * and a pendingPrompt are present. Returns true when it fires so auto-send and
+ * the session back and overrides it to 'scheduled' when a valid scheduledAt
+ * and a non-empty pendingPrompt are present, including if the scheduled time became due
+ * while the turn was still active. Returns true when it fires so auto-send and
  * template triggers are skipped for this turn.
  *
  * @param {string} sessionId
@@ -29,7 +30,8 @@ import {
 async function handleScheduledContinuationIfNeeded(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session) return false;
-  if (session.scheduledAt && session.scheduledAt > Date.now() && session.pendingPrompt) {
+  const hasPendingPrompt = typeof session.pendingPrompt === 'string' && session.pendingPrompt.trim() !== '';
+  if (Number.isFinite(session.scheduledAt) && hasPendingPrompt) {
     sessions.update(sessionId, { status: 'scheduled' });
     broadcastSessionStatus(sessionId, 'scheduled');
     return true;
