@@ -65,7 +65,7 @@ Works whether the session is idle or still running (the schedule survives the tu
 \`\`\`bash
 curl -X POST ${apiUrl}/api/sessions/${sessionId}/schedule \\
   -H "Content-Type: application/json" \\
-  -d '{"prompt": "Continue: <work to resume>", "scheduledAt": "2026-06-27T14:30:00Z"}'
+  -d '{"prompt": "Continue: <work to resume>", "scheduledAt": "<future ISO 8601 timestamp>"}'
 \`\`\`
 Required fields: \`prompt\` (string), \`scheduledAt\` (ISO 8601 string or epoch ms, must be in the future).
 Optional field: \`model\` (string) — sets pendingModel; validated and guarded against cross-kind switches.

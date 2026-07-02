@@ -11,6 +11,7 @@ import { duplicateSession } from '../services/sessionDuplicator.js';
 import { validateScheduledAt } from './scheduledAtValidation.js';
 import { validateModelId } from './model-validation.js';
 import { broadcastSessionUpdate } from './sessions-patch.js';
+import { activeSessions } from '../services/streamEventHandler.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -100,9 +101,10 @@ function buildScheduleUpdate(req) {
   }
 
   const updateData = {
-    status: 'scheduled',
+    status: activeSessions.has(req.params.id) ? req.session_.status : 'scheduled',
     scheduledAt,
     pendingPrompt: prompt,
+    pendingConversationId: null,
     ...modelResult.agentTypeUpdate,
   };
   if (Object.prototype.hasOwnProperty.call(modelResult, 'pendingModel')) {

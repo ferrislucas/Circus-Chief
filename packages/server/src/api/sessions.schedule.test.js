@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import sessionsRouter from './sessions.js';
-import { projects, sessions, modelProviders, messages } from '../database.js';
+import { projects, sessions, modelProviders, messages, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as diffService from '../services/diffService.js';
@@ -126,6 +126,64 @@ describe('Sessions API - POST /:id/schedule', () => {
     expect(sessions.getById(session.id).pendingModel).toBe('opus');
   });
 
+  it('keeps an active running session invisible to the polling scheduler until turn completion', async () => {
+    sessions.update(session.id, { status: 'running' });
+    activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+
+    const scheduledAt = Date.now() + 100;
+    const prompt = 'Continue after the current turn finishes';
+
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({ prompt, scheduledAt })
+      .expect(200);
+
+    expect(response.body.status).toBe('running');
+    expect(response.body.scheduledAt).toBe(scheduledAt);
+    expect(response.body.pendingPrompt).toBe(prompt);
+
+    const storedBeforeCompletion = sessions.getById(session.id);
+    expect(storedBeforeCompletion.status).toBe('running');
+    expect(storedBeforeCompletion.scheduledAt).toBe(scheduledAt);
+    expect(storedBeforeCompletion.pendingPrompt).toBe(prompt);
+    expect(sessions.getScheduledSessionsDue(Date.now() + 1000).map((s) => s.id)).not.toContain(session.id);
+
+    await handleTurnCompletion(session.id, '/tmp/test', {
+      checkProactiveReschedule: vi.fn().mockResolvedValue(false),
+      handleAutoSendIfNeeded: vi.fn().mockResolvedValue(false),
+      handleTemplateTriggerIfNeeded: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const storedAfterCompletion = sessions.getById(session.id);
+    expect(storedAfterCompletion.status).toBe('scheduled');
+    expect(storedAfterCompletion.scheduledAt).toBe(scheduledAt);
+    expect(storedAfterCompletion.pendingPrompt).toBe(prompt);
+  });
+
+  it('clears stale pendingConversationId when scheduling an explicit prompt', async () => {
+    const staleConversation = conversations.create(session.id, 'Stale retry conversation');
+    sessions.update(session.id, {
+      status: 'waiting',
+      pendingPrompt: 'Old retry prompt',
+      pendingConversationId: staleConversation.id,
+    });
+
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({
+        prompt: 'New explicit continuation prompt',
+        scheduledAt: Date.now() + 3600000,
+      })
+      .expect(200);
+
+    expect(response.body.pendingPrompt).toBe('New explicit continuation prompt');
+    expect(response.body.pendingConversationId).toBeNull();
+
+    const stored = sessions.getById(session.id);
+    expect(stored.pendingPrompt).toBe('New explicit continuation prompt');
+    expect(stored.pendingConversationId).toBeNull();
+  });
+
   it('returns 400 for a cross-kind model switch on a started session', async () => {
     openaiProvider = modelProviders.create({
       name: 'OpenAI Schedule Test',
@@ -186,14 +244,15 @@ describe('Sessions API - POST /:id/schedule', () => {
 
   it('keeps a running session scheduled after completion and broadcasts completion side effects', async () => {
     sessions.update(session.id, { status: 'running' });
+    activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
 
     const scheduledAt = Date.now() + 3600000;
-    await request(app)
+    const response = await request(app)
       .post(`/api/sessions/${session.id}/schedule`)
       .send({ prompt: 'Continue after the current turn', scheduledAt })
       .expect(200);
 
-    activeSessions.set(session.id, { controller: { signal: { aborted: false } } });
+    expect(response.body.status).toBe('running');
     vi.clearAllMocks();
     diffService.getChanges.mockResolvedValue({
       staged: 'diff --git a/server.js b/server.js\n+change',
