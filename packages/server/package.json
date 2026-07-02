@@ -15,7 +15,7 @@
     "db:inspect-schema": "node src/scripts/inspectDatabaseSchema.js",
     "db:validate-baseline": "node src/scripts/validateDatabaseBaseline.js",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "node ../../scripts/with-coverage-lock.mjs vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {

@@ -6,6 +6,7 @@ import { projects, sessions, modelProviders, messages, conversations } from '../
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as diffService from '../services/diffService.js';
+import * as gitService from '../services/gitService.js';
 import * as kanbanService from '../services/kanbanService.js';
 import {
   activeSessions,
@@ -28,6 +29,10 @@ vi.mock('../services/summaryService.js', () => ({
 vi.mock('../services/diffService.js', () => ({
   getChanges: vi.fn().mockResolvedValue({ staged: null, unstaged: null, untracked: null }),
   getChangesBranch: vi.fn(),
+}));
+
+vi.mock('../services/gitService.js', () => ({
+  isGitRepo: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../services/kanbanService.js', () => ({
@@ -53,6 +58,7 @@ describe('Sessions API - POST /:id/schedule', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     activeSessions.clear();
+    gitService.isGitRepo.mockResolvedValue(true);
     diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
 
     app = express();

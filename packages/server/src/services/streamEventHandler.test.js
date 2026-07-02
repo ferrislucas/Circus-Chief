@@ -50,6 +50,10 @@ vi.mock('./diffService.js', () => ({
   getChanges: vi.fn(),
 }));
 
+vi.mock('./gitService.js', () => ({
+  isGitRepo: vi.fn().mockResolvedValue(true),
+}));
+
 vi.mock('./usageTracker.js', () => ({
   updateTurnUsage: vi.fn(),
   currentTurnUsage: new Map(),
@@ -65,6 +69,7 @@ import { sessions, messages, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
+import * as gitService from './gitService.js';
 import * as kanbanService from './kanbanService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
@@ -89,6 +94,7 @@ import {
 describe('streamEventHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    gitService.isGitRepo.mockResolvedValue(true);
     // Clear all module-level Maps
     lastMessageIds.clear();
     thinkingAccumulators.clear();
@@ -215,6 +221,7 @@ describe('streamEventHandler', () => {
 
   describe('broadcastChangesUpdate', () => {
     it('computes and broadcasts changes', async () => {
+      gitService.isGitRepo.mockResolvedValue(true);
       diffService.getChanges.mockResolvedValue({
         staged: 'diff --git a/file1.js b/file1.js\n+added',
         unstaged: null,
@@ -236,6 +243,7 @@ describe('streamEventHandler', () => {
     });
 
     it('broadcasts hasChanges false when no changes', async () => {
+      gitService.isGitRepo.mockResolvedValue(true);
       diffService.getChanges.mockResolvedValue({
         staged: null,
         unstaged: null,
@@ -256,6 +264,7 @@ describe('streamEventHandler', () => {
     });
 
     it('counts files from multiple diff sections', async () => {
+      gitService.isGitRepo.mockResolvedValue(true);
       diffService.getChanges.mockResolvedValue({
         staged: 'diff --git a/a.js b/a.js\ndiff --git a/b.js b/b.js\n',
         unstaged: 'diff --git a/c.js b/c.js\n',
@@ -276,10 +285,20 @@ describe('streamEventHandler', () => {
     });
 
     it('handles errors silently', async () => {
+      gitService.isGitRepo.mockResolvedValue(true);
       diffService.getChanges.mockRejectedValue(new Error('not a git repo'));
 
       // Should not throw
       await expect(broadcastChangesUpdate('sess-1', 'proj-1', '/workspace')).resolves.toBeUndefined();
+      expect(broadcastToSession).not.toHaveBeenCalled();
+    });
+
+    it('skips changes update for non-git directories', async () => {
+      gitService.isGitRepo.mockResolvedValue(false);
+
+      await broadcastChangesUpdate('sess-1', 'proj-1', '/workspace');
+
+      expect(diffService.getChanges).not.toHaveBeenCalled();
       expect(broadcastToSession).not.toHaveBeenCalled();
     });
   });
