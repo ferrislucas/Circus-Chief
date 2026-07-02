@@ -62,18 +62,19 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   sessions.update(sessionId, { status: 'waiting', error: null });
   broadcastSessionStatus(sessionId, 'waiting');
 
-  // Check if session should be proactively rescheduled based on token threshold
+  // Re-apply scheduled status if the agent called POST /:id/schedule mid-turn.
+  // The waiting write above would otherwise overwrite the scheduled state.
+  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
+
+  // Check if session should be proactively rescheduled based on token threshold.
+  // Explicit mid-turn continuations win over automatic token-management reschedules.
   const { checkProactiveReschedule } = callbacks;
-  if (checkProactiveReschedule) {
+  if (!wasScheduledMidTurn && checkProactiveReschedule) {
     const wasRescheduled = await checkProactiveReschedule(sessionId);
     if (wasRescheduled) {
       return true; // Session was rescheduled, don't continue with normal completion
     }
   }
-
-  // Re-apply scheduled status if the agent called POST /:id/schedule mid-turn.
-  // The waiting write above would otherwise overwrite the scheduled state.
-  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
 
   // Extract PR URL immediately (lightweight, no API call)
   summaryService.extractPrUrlIfNeeded(sessionId);

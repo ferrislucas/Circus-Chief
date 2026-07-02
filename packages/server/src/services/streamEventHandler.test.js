@@ -700,6 +700,57 @@ describe('streamEventHandler', () => {
       expect(mockHandleTemplate).not.toHaveBeenCalled();
     });
 
+    it('preserves explicit scheduled continuation instead of proactive rescheduling', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const futureScheduledAt = Date.now() + 3600000;
+      const session = {
+        id: 'sess-1',
+        projectId: 'proj-1',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Explicit continuation',
+        pendingConversationId: 'conv-explicit',
+        pendingModel: 'gpt-5.4',
+      };
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockImplementation((sessionId, updates) => {
+        if (sessionId === 'sess-1') {
+          Object.assign(session, updates);
+        }
+        return session;
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(false);
+      expect(mockCheckReschedule).not.toHaveBeenCalled();
+      expect(session).toMatchObject({
+        status: 'scheduled',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Explicit continuation',
+        pendingConversationId: 'conv-explicit',
+        pendingModel: 'gpt-5.4',
+      });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
+      expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
+      expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
     it('re-applies scheduled status when scheduledAt became due before turn completion', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
