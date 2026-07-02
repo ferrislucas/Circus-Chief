@@ -16,7 +16,7 @@ export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai', 'google']);
  * case-insensitively and are always considered valid model ids in addition to
  * whatever lives in the `provider_models` table.
  */
-export const MODEL_TIER_ALIASES = Object.freeze(['opus', 'sonnet', 'haiku']);
+export const MODEL_TIER_ALIASES = Object.freeze(['fable', 'opus', 'sonnet', 'haiku']);
 
 /**
  * Mapping from provider kind to the agent adapter that should drive sessions

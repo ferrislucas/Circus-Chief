@@ -111,7 +111,7 @@ export const ProviderResponse = z.object({
       modelId: z.string(),
       displayName: z.string(),
       description: z.string().nullable(),
-      tier: z.enum(['opus', 'sonnet', 'haiku', 'custom']),
+      tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']),
       createdAt: z.number(),
     })
   ),
@@ -123,7 +123,7 @@ export const CreateProviderModelRequest = z.object({
   modelId: z.string().min(1),
   displayName: z.string().min(1).max(100),
   description: z.string().nullable().optional(),
-  tier: z.enum(['opus', 'sonnet', 'haiku', 'custom']).nullable().optional(),
+  tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']).nullable().optional(),
 });
 
 export const ProviderModelResponse = z.object({

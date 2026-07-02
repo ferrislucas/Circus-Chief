@@ -316,12 +316,12 @@ describe('sessionManager broadcasts', () => {
 
     it('uses modelUsage when available in result', async () => {
       query.mockImplementation(async function* () {
-        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-sonnet-4-6' };
+        yield { type: 'system', subtype: 'init', session_id: 'claude-session-123', model: 'claude-sonnet-5' };
         yield {
           type: 'result',
           subtype: 'success',
           modelUsage: {
-            'claude-sonnet-4-6': {
+            'claude-sonnet-5': {
               inputTokens: 500,
               outputTokens: 250,
               cacheReadInputTokens: 100,
@@ -826,11 +826,11 @@ describe('sessionManager broadcasts', () => {
       });
 
       // Pass user-requested model (short format) to runSession
-      await runSession(sessionId, 'Test prompt', tempDir, { model: 'claude-sonnet-4-6' });
+      await runSession(sessionId, 'Test prompt', tempDir, { model: 'claude-sonnet-5' });
 
       // session.model should be the user-requested short format
       const session = sessions.getById(sessionId);
-      expect(session.model).toBe('claude-sonnet-4-6');
+      expect(session.model).toBe('claude-sonnet-5');
 
       // conversation.model should NOT be set (model tracking moved to session level)
       const activeConversation = conversations.getActiveBySessionId(sessionId);

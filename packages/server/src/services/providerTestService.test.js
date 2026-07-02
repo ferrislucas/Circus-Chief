@@ -68,6 +68,9 @@ describe('providerTestService', () => {
       expect(result.message).toBe('Connection successful');
       expect(result.details.model).toBe('claude-sonnet-4-20250514');
       expect(result.details.usage).toEqual({ input_tokens: 1, output_tokens: 1 });
+      expect(anthropicCreateSpy).toHaveBeenCalledWith(expect.objectContaining({
+        model: 'claude-sonnet-5',
+      }));
     });
 
     it('401 → auth failure shape', async () => {

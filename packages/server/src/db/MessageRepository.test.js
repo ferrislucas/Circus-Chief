@@ -178,9 +178,9 @@ describe('MessageRepository', () => {
 
     it('creates a message with all parameters including model', () => {
       const toolUse = [{ name: 'bash', input: { command: 'ls' } }];
-      const message = repo.create(sessionId, 'assistant', 'Running command', { toolUse, conversationId, model: 'claude-sonnet-4-6' });
+      const message = repo.create(sessionId, 'assistant', 'Running command', { toolUse, conversationId, model: 'claude-sonnet-5' });
 
-      expect(message.model).toBe('claude-sonnet-4-6');
+      expect(message.model).toBe('claude-sonnet-5');
       expect(message.toolUse).toEqual(toolUse);
       expect(message.conversationId).toBe(conversationId);
       expect(message.role).toBe('assistant');
@@ -490,12 +490,12 @@ describe('MessageRepository', () => {
       const message = repo.create(sessionId, 'assistant', 'Processing...', {
         toolUse,
         conversationId,
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
       });
 
       expect(message.toolUse).toEqual(toolUse);
       expect(message.conversationId).toBe(conversationId);
-      expect(message.model).toBe('claude-sonnet-4-6');
+      expect(message.model).toBe('claude-sonnet-5');
     });
 
     it('creates a message with empty options object (all defaults)', () => {

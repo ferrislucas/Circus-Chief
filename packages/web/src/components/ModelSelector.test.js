@@ -7,7 +7,7 @@ import { useProvidersStore } from '../stores/providers.js';
 import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 
 // Use actual model data from the shared package
-const [haiku, sonnet, opusLegacy, opus47, opus] = CLAUDE_MODELS;
+const [fable, haiku, sonnet, opusLegacy, opus47, opus] = CLAUDE_MODELS;
 const optionValue = (providerId, modelId) => `${providerId}::${modelId}`;
 
 // Global helper to flush all async updates and force DOM re-render
@@ -59,30 +59,32 @@ describe('ModelSelector', () => {
       expect(wrapper.find('select').exists()).toBe(true);
     });
 
-    it('renders all five model options', () => {
+    it('renders all six model options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options).toHaveLength(5);
+      expect(options).toHaveLength(6);
     });
 
     it('displays model names in options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options[0].text()).toBe(haiku.name);
-      expect(options[1].text()).toBe(sonnet.name);
-      expect(options[2].text()).toBe(opusLegacy.name);
-      expect(options[3].text()).toBe(opus47.name);
-      expect(options[4].text()).toBe(opus.name);
+      expect(options[0].text()).toBe(fable.name);
+      expect(options[1].text()).toBe(haiku.name);
+      expect(options[2].text()).toBe(sonnet.name);
+      expect(options[3].text()).toBe(opusLegacy.name);
+      expect(options[4].text()).toBe(opus47.name);
+      expect(options[5].text()).toBe(opus.name);
     });
 
     it('sets correct values for options', () => {
       const wrapper = mountComponent();
       const options = wrapper.findAll('option');
-      expect(options[0].element.value).toBe(optionValue('anthropic', haiku.id));
-      expect(options[1].element.value).toBe(optionValue('anthropic', sonnet.id));
-      expect(options[2].element.value).toBe(optionValue('anthropic', opusLegacy.id));
-      expect(options[3].element.value).toBe(optionValue('anthropic', opus47.id));
-      expect(options[4].element.value).toBe(optionValue('anthropic', opus.id));
+      expect(options[0].element.value).toBe(optionValue('anthropic', fable.id));
+      expect(options[1].element.value).toBe(optionValue('anthropic', haiku.id));
+      expect(options[2].element.value).toBe(optionValue('anthropic', sonnet.id));
+      expect(options[3].element.value).toBe(optionValue('anthropic', opusLegacy.id));
+      expect(options[4].element.value).toBe(optionValue('anthropic', opus47.id));
+      expect(options[5].element.value).toBe(optionValue('anthropic', opus.id));
     });
   });
 
@@ -322,8 +324,8 @@ describe('ModelSelector', () => {
     it('renders an empty option when allowEmpty is true', () => {
       const wrapper = mountComponent({ allowEmpty: true, modelValue: '' });
       const options = wrapper.findAll('option');
-      // 1 empty option + 5 model options
-      expect(options).toHaveLength(6);
+      // 1 empty option + 6 model options
+      expect(options).toHaveLength(7);
       expect(options[0].text()).toBe('Use system default');
       expect(options[0].element.value).toBe('');
     });
@@ -331,7 +333,7 @@ describe('ModelSelector', () => {
     it('does not render an empty option when allowEmpty is false (default)', () => {
       const wrapper = mountComponent({ modelValue: sonnet.id });
       const options = wrapper.findAll('option');
-      expect(options).toHaveLength(5);
+      expect(options).toHaveLength(6);
     });
 
     it('uses custom emptyLabel text', () => {
@@ -413,7 +415,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           models: [
             { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
-            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
             { id: 'anthropic-opus-legacy', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', tier: 'opus' },
             { id: 'anthropic-opus', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', tier: 'opus' },
             { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', tier: 'opus' },
@@ -421,7 +423,7 @@ describe('ModelSelector', () => {
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5' });
       await flushAll(wrapper);
 
       const options = wrapper.findAll('option');
@@ -429,7 +431,7 @@ describe('ModelSelector', () => {
       // Built-in provider should show displayName
       expect(options).toHaveLength(5);
       expect(options[0].text()).toBe('Haiku 4.5');
-      expect(options[1].text()).toBe('Sonnet 4.6');
+      expect(options[1].text()).toBe('Sonnet 5');
       expect(options[2].text()).toBe('Opus 4.6');
       expect(options[3].text()).toBe('Opus 4.7');
       expect(options[4].text()).toBe('Opus 4.8');
@@ -473,7 +475,7 @@ describe('ModelSelector', () => {
           name: 'Anthropic (Official)',
           isBuiltIn: true,
           models: [
-            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
           ],
         },
         {
@@ -486,13 +488,13 @@ describe('ModelSelector', () => {
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5' });
       await flushAll(wrapper);
 
       const options = wrapper.findAll('option');
 
       // Built-in provider shows displayName
-      expect(options[0].text()).toBe('Sonnet 4.6');
+      expect(options[0].text()).toBe('Sonnet 5');
 
       // Custom provider shows modelId
       expect(options[1].text()).toBe('anthropic.claude-3-sonnet-20240229-v1:0');
@@ -510,7 +512,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           enabled: true,
           models: [
-            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
           ],
         },
         {
@@ -525,7 +527,7 @@ describe('ModelSelector', () => {
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5' });
       await flushAll(wrapper);
 
       const optgroups = wrapper.findAll('optgroup');
@@ -533,7 +535,7 @@ describe('ModelSelector', () => {
 
       const options = wrapper.findAll('option');
       expect(options).toHaveLength(1);
-      expect(options[0].element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-4-6'));
+      expect(options[0].element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-5'));
     });
 
     it('shows providers again once re-enabled', async () => {
@@ -546,12 +548,12 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           enabled: false,
           models: [
-            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
           ],
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6', allowEmpty: true });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5', allowEmpty: true });
       await flushAll(wrapper);
 
       // Disabled: only the empty option remains
@@ -579,12 +581,12 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'anthropic',
           models: [
-            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
           ],
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5' });
       await flushAll(wrapper);
 
       const optgroups = wrapper.findAll('optgroup');
@@ -608,11 +610,11 @@ describe('ModelSelector', () => {
           name: 'Anthropic',
           isBuiltIn: true,
           kind: 'anthropic',
-          models: [{ id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' }],
+          models: [{ id: 'a-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' }],
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5' });
       await flushAll(wrapper);
 
       const labels = wrapper.findAll('optgroup').map((g) => g.attributes('label'));
@@ -666,11 +668,11 @@ describe('ModelSelector', () => {
           name: 'Anthropic (Official)',
           isBuiltIn: true,
           kind: 'anthropic',
-          models: [{ id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' }],
+          models: [{ id: 'a-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' }],
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5' });
       await flushAll(wrapper);
 
       const labels = wrapper.findAll('optgroup').map((g) => g.attributes('label'));
@@ -688,7 +690,7 @@ describe('ModelSelector', () => {
           kind: 'anthropic',
           models: [
             { id: 'a-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
-            { id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'a-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
           ],
         },
         {
@@ -708,7 +710,7 @@ describe('ModelSelector', () => {
       await flushAll(wrapper);
 
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-4-6'));
+      expect(select.element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-5'));
     });
 
     it('keeps Anthropic as the default when both official providers exist', async () => {
@@ -720,7 +722,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'anthropic',
           models: [
-            { id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'a-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
           ],
         },
         {
@@ -740,7 +742,7 @@ describe('ModelSelector', () => {
       const wrapper = mountComponent({ modelValue: null });
       await flushAll(wrapper);
 
-      expect(wrapper.find('select').element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-4-6'));
+      expect(wrapper.find('select').element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-5'));
     });
 
     it('leaves defaultModel empty when only Codex providers exist', async () => {
@@ -775,7 +777,7 @@ describe('ModelSelector', () => {
           name: 'Anthropic',
           isBuiltIn: true,
           kind: 'anthropic',
-          models: [{ id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' }],
+          models: [{ id: 'a-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' }],
         },
         {
           id: 'openai-prov',
@@ -786,7 +788,7 @@ describe('ModelSelector', () => {
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'claude-sonnet-4-6' });
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5' });
       await flushAll(wrapper);
 
       const claudeOptGroup = wrapper.findAll('optgroup').find(
@@ -799,10 +801,10 @@ describe('ModelSelector', () => {
       const claudeValues = claudeOptGroup.findAll('option').map((o) => o.element.value);
       const codexValues = codexOptGroup.findAll('option').map((o) => o.element.value);
 
-      expect(claudeValues).toEqual([optionValue('anthropic-default', 'claude-sonnet-4-6')]);
+      expect(claudeValues).toEqual([optionValue('anthropic-default', 'claude-sonnet-5')]);
       expect(codexValues).toEqual([optionValue('openai-prov', 'gpt-4o')]);
       expect(claudeValues).not.toContain(optionValue('openai-prov', 'gpt-4o'));
-      expect(codexValues).not.toContain(optionValue('anthropic-default', 'claude-sonnet-4-6'));
+      expect(codexValues).not.toContain(optionValue('anthropic-default', 'claude-sonnet-5'));
     });
 
     it('hides duplicate built-in OpenAI options when a custom provider owns the same model ID', async () => {
