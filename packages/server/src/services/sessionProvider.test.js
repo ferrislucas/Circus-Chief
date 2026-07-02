@@ -97,12 +97,14 @@ describe('sessionProvider', () => {
       const provider = {
         name: 'P',
         models: [
+          { modelId: 'my-fable', tier: 'fable' },
           { modelId: 'my-opus', tier: 'opus' },
           { modelId: 'my-sonnet', tier: 'sonnet' },
           { modelId: 'my-haiku', tier: 'haiku' },
         ],
       };
       const env = buildProviderEnv(provider);
+      expect(env.ANTHROPIC_DEFAULT_FABLE_MODEL).toBe('my-fable');
       expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('my-opus');
       expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('my-sonnet');
       expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('my-haiku');
@@ -115,6 +117,7 @@ describe('sessionProvider', () => {
       };
       const env = buildProviderEnv(provider);
       expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('only-sonnet');
+      expect(env.ANTHROPIC_DEFAULT_FABLE_MODEL).toBeUndefined();
       expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined();
       expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBeUndefined();
     });

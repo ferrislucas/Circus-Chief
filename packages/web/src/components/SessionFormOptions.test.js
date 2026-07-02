@@ -27,7 +27,7 @@ describe('SessionFormOptions', () => {
         isBuiltIn: true,
         kind: 'anthropic',
         models: [
-          { id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+          { id: 'a-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
         ],
       },
       {
@@ -52,7 +52,7 @@ describe('SessionFormOptions', () => {
     return mount(SessionFormOptions, {
       props: {
         mode: 'yolo',
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         effortLevel: 'medium',
         thinkingEnabled: true,
         startImmediately: true,
@@ -69,7 +69,7 @@ describe('SessionFormOptions', () => {
   });
 
   it('enables thinking and effort controls for Anthropic (Claude Code) models after capabilities load', async () => {
-    const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
+    const wrapper = mountForm({ model: 'claude-sonnet-5' });
     await flushAll(wrapper);
 
     const thinkingInput = wrapper.find('input[type="checkbox"]');
@@ -137,7 +137,7 @@ describe('SessionFormOptions', () => {
     let thinkingInput = wrapper.find('input[type="checkbox"]');
     expect(thinkingInput.element.disabled).toBe(true);
 
-    await wrapper.setProps({ model: 'claude-sonnet-4-6' });
+    await wrapper.setProps({ model: 'claude-sonnet-5' });
     await flushAll(wrapper);
 
     thinkingInput = wrapper.find('input[type="checkbox"]');
@@ -145,7 +145,7 @@ describe('SessionFormOptions', () => {
   });
 
   it('keeps effort enabled and disables only thinking when switching from Claude to Codex', async () => {
-    const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
+    const wrapper = mountForm({ model: 'claude-sonnet-5' });
     await flushAll(wrapper);
 
     await wrapper.setProps({ model: 'gpt-4o' });
@@ -164,7 +164,7 @@ describe('SessionFormOptions', () => {
       { agentType: 'codex', capabilities: { streaming: true, thinking: false, reasoningEffort: true, toolUse: true, resume: false } },
     ]);
 
-    const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
+    const wrapper = mountForm({ model: 'claude-sonnet-5' });
     await flushAll(wrapper);
 
     const thinkingInput = wrapper.find('input[type="checkbox"]');
@@ -174,7 +174,7 @@ describe('SessionFormOptions', () => {
   });
 
   it('does not render the Codex agent badge when a Codex model is selected', async () => {
-    const wrapper = mountForm({ model: 'claude-sonnet-4-6' });
+    const wrapper = mountForm({ model: 'claude-sonnet-5' });
     await flushAll(wrapper);
     expect(wrapper.find('[data-agent-badge="codex"]').exists()).toBe(false);
 

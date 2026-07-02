@@ -74,7 +74,7 @@ vi.mock('@circuschief/shared', async (importOriginal) => {
   return {
     ...actual,
     generateWorktreeBranch: vi.fn(() => 'generated-branch'),
-    DEFAULT_MODEL: 'claude-sonnet-4-6',
+    DEFAULT_MODEL: 'claude-sonnet-5',
   };
 });
 

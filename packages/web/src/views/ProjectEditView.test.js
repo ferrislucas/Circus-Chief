@@ -16,7 +16,7 @@ vi.mock('../components/PathChooser.vue', () => ({
 vi.mock('../components/ModelSelector.vue', () => ({
   default: {
     name: 'ModelSelector',
-    template: '<select :class="selectClass" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value); $emit(\'update:providerId\', $event.target.value ? \'anthropic-provider\' : null)"><option value="">{{ emptyLabel || "System default" }}</option><option value="claude-sonnet-4-6">Sonnet 4.6</option><option value="claude-opus-4-6">Opus 4.6</option></select>',
+    template: '<select :class="selectClass" :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value); $emit(\'update:providerId\', $event.target.value ? \'anthropic-provider\' : null)"><option value="">{{ emptyLabel || "System default" }}</option><option value="claude-sonnet-5">Sonnet 5</option><option value="claude-opus-4-6">Opus 4.6</option></select>',
     props: ['modelValue', 'providerId', 'allowEmpty', 'emptyLabel', 'selectClass', 'disabled'],
     emits: ['update:modelValue', 'update:providerId'],
   }
@@ -558,7 +558,7 @@ describe('ProjectEditView with Session Defaults', () => {
         thinkingEnabled: false,
         gitMode: '',
         gitBranch: '',
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         providerId: 'anthropic-provider',
       };
 
@@ -592,7 +592,7 @@ describe('ProjectEditView with Session Defaults', () => {
           startImmediately: true,
           gitMode: null,
           gitBranch: null,
-          model: 'claude-sonnet-4-6',
+          model: 'claude-sonnet-5',
           providerId: 'anthropic-provider',
         });
       } else {

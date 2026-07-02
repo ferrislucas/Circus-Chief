@@ -7,6 +7,11 @@ import { api } from './useApi.js';
 
 describe('useModelInfo', () => {
   describe('getModelDisplayName', () => {
+    it('returns "Fable 5" for claude-fable-5', () => {
+      const { getModelDisplayName } = useModelInfo();
+      expect(getModelDisplayName('claude-fable-5')).toBe('Fable 5');
+    });
+
     it('returns "Opus 4.6" for claude-opus-4-6', () => {
       const { getModelDisplayName } = useModelInfo();
       expect(getModelDisplayName('claude-opus-4-6')).toBe('Opus 4.6');
@@ -22,9 +27,9 @@ describe('useModelInfo', () => {
       expect(getModelDisplayName('claude-opus-4-8')).toBe('Opus 4.8');
     });
 
-    it('returns "Sonnet 4.6" for claude-sonnet-4-6', () => {
+    it('returns "Sonnet 5" for claude-sonnet-5', () => {
       const { getModelDisplayName } = useModelInfo();
-      expect(getModelDisplayName('claude-sonnet-4-6')).toBe('Sonnet 4.6');
+      expect(getModelDisplayName('claude-sonnet-5')).toBe('Sonnet 5');
     });
 
     it('returns "Haiku 4.5" for claude-haiku-4-5-20251001', () => {
@@ -54,6 +59,11 @@ describe('useModelInfo', () => {
   });
 
   describe('getModelDescription', () => {
+    it('returns "Next-generation intelligence" for Fable model', () => {
+      const { getModelDescription } = useModelInfo();
+      expect(getModelDescription('claude-fable-5')).toBe('Next-generation intelligence');
+    });
+
     it('returns "Previous generation" for Opus 4.6 model', () => {
       const { getModelDescription } = useModelInfo();
       expect(getModelDescription('claude-opus-4-6')).toBe('Previous generation');
@@ -71,7 +81,7 @@ describe('useModelInfo', () => {
 
     it('returns "Balanced" for Sonnet model', () => {
       const { getModelDescription } = useModelInfo();
-      expect(getModelDescription('claude-sonnet-4-6')).toBe('Balanced');
+      expect(getModelDescription('claude-sonnet-5')).toBe('Balanced');
     });
 
     it('returns "Fast & lightweight" for Haiku model', () => {
@@ -92,6 +102,17 @@ describe('useModelInfo', () => {
   });
 
   describe('getModelInfo', () => {
+    it('returns object with name and description for Fable', () => {
+      const { getModelInfo } = useModelInfo();
+      const info = getModelInfo('claude-fable-5');
+
+      expect(info).toMatchObject({
+        name: 'Fable 5',
+        description: 'Next-generation intelligence',
+        agentType: 'claude-code',
+      });
+    });
+
     it('returns object with name and description for Opus 4.6', () => {
       const { getModelInfo } = useModelInfo();
       const info = getModelInfo('claude-opus-4-6');
@@ -127,10 +148,10 @@ describe('useModelInfo', () => {
 
     it('returns object with name and description for Sonnet', () => {
       const { getModelInfo } = useModelInfo();
-      const info = getModelInfo('claude-sonnet-4-6');
+      const info = getModelInfo('claude-sonnet-5');
 
       expect(info).toMatchObject({
-        name: 'Sonnet 4.6',
+        name: 'Sonnet 5',
         description: 'Balanced',
         agentType: 'claude-code',
       });
@@ -246,7 +267,7 @@ describe('useModelInfo', () => {
           isBuiltIn: true,
           kind: 'anthropic',
           models: [
-            { id: 'a-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { id: 'a-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
           ],
         },
         {
@@ -336,7 +357,7 @@ describe('useModelInfo', () => {
       const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
       await fetchAgentCapabilities();
 
-      const info = getModelInfo('claude-sonnet-4-6');
+      const info = getModelInfo('claude-sonnet-5');
       expect(info.agentType).toBe('claude-code');
       expect(info.capabilities.thinking).toBe(true);
       expect(info.capabilities.reasoningEffort).toBe(true);
@@ -366,7 +387,7 @@ describe('useModelInfo', () => {
       // Multiple subsequent getModelInfo calls must NOT trigger additional
       // /api/agents fetches.
       getModelInfo('gpt-4o');
-      getModelInfo('claude-sonnet-4-6');
+      getModelInfo('claude-sonnet-5');
       await fetchAgentCapabilities();
 
       expect(getAgentsSpy).toHaveBeenCalledTimes(1);

@@ -7,7 +7,7 @@
  */
 
 /**
- * @typedef {'claude-sonnet-4-6' | 'claude-opus-4-6' | 'claude-opus-4-7' | 'claude-opus-4-8' | 'claude-haiku-4-5-20251001'} ClaudeModel
+ * @typedef {'claude-fable-5' | 'claude-sonnet-5' | 'claude-opus-4-6' | 'claude-opus-4-7' | 'claude-opus-4-8' | 'claude-haiku-4-5-20251001'} ClaudeModel
  */
 
 /**
@@ -107,8 +107,9 @@ export const CANVAS_ITEM_TYPES = ['image', 'markdown', 'text', 'json'];
 export const TOOL_TEMPLATE_PAYLOAD_TYPES = ['command', 'prompt'];
 
 export const CLAUDE_MODELS = [
+  { id: 'claude-fable-5', name: 'Fable 5', description: 'Next-generation intelligence' },
   { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fast & lightweight' },
-  { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', description: 'Balanced' },
+  { id: 'claude-sonnet-5', name: 'Sonnet 5', description: 'Balanced' },
   { id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Previous generation' },
   { id: 'claude-opus-4-7', name: 'Opus 4.7', description: 'Previous generation' },
   { id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Most capable (default)' },

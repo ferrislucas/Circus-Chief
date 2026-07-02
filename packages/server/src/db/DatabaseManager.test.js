@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
 import { DatabaseManager } from './DatabaseManager.js';
 import { repairMissingSessionParentsFromWorktree } from './migrations/index.js';
+import { providerMigrations } from './migrations/providerMigrations.js';
 import { bootstrapDefaultSessionTemplates } from './bootstrapDefaultSessionTemplates.js';
 import { DEFAULT_SESSION_TEMPLATES } from './defaultSessionTemplates.js';
 
@@ -743,7 +745,7 @@ describe('DatabaseManager', () => {
       db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
         .run('msg-a2', 'sess-msg-diff-models', 'assistant', 'Answer 2', 'claude-haiku-4-5-20251001', now);
       db.prepare('INSERT INTO conversation_messages (id, session_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?)')
-        .run('msg-a3', 'sess-msg-diff-models', 'assistant', 'Answer 3', 'claude-sonnet-4-6', now);
+        .run('msg-a3', 'sess-msg-diff-models', 'assistant', 'Answer 3', 'claude-sonnet-5', now);
 
       // Verify each message has correct model
       const msg1 = db.prepare('SELECT model FROM conversation_messages WHERE id = ?').get('msg-a1');
@@ -752,7 +754,7 @@ describe('DatabaseManager', () => {
 
       expect(msg1.model).toBe('claude-opus-4-6');
       expect(msg2.model).toBe('claude-haiku-4-5-20251001');
-      expect(msg3.model).toBe('claude-sonnet-4-6');
+      expect(msg3.model).toBe('claude-sonnet-5');
     });
 
     it('preserves model when selecting messages', () => {
@@ -794,6 +796,118 @@ describe('DatabaseManager', () => {
 
       expect(providerModelsSchema.sql).toContain('REFERENCES providers(id)');
       expect(providerModelsSchema.sql).not.toContain('REFERENCES model_providers');
+    });
+
+    it('includes the built-in Fable catalog entry', () => {
+      const db = manager.get();
+
+      expect(db.prepare("SELECT model_id, display_name, description, tier FROM provider_models WHERE id = 'anthropic-fable'").get()).toEqual({
+        model_id: 'claude-fable-5',
+        display_name: 'Fable 5',
+        description: 'Next-generation intelligence',
+        tier: 'fable',
+      });
+    });
+
+    it('widens older provider_models tier constraints before seeding Fable', () => {
+      const db = new Database(':memory:');
+      const widenMigration = providerMigrations.find((entry) => entry.name === 'provider-models-widen-tier-check-fable');
+      const seedMigration = providerMigrations.find((entry) => entry.name === 'providers-seed-built-in-fable-5');
+
+      try {
+        db.exec(`
+          CREATE TABLE providers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL
+          );
+          CREATE TABLE provider_models (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+            model_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT,
+            tier TEXT CHECK(tier IN ('opus', 'sonnet', 'haiku', 'custom')),
+            created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+          );
+          CREATE INDEX idx_provider_models_provider ON provider_models(provider_id);
+        `);
+        db.prepare('INSERT INTO providers (id, name) VALUES (?, ?)').run('anthropic-default', 'Anthropic (Official)');
+        db.prepare(
+          `INSERT INTO provider_models (
+            id, provider_id, model_id, display_name, description, tier, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run('anthropic-sonnet', 'anthropic-default', 'claude-sonnet-5', 'Sonnet 5', 'Balanced', 'sonnet', 123);
+
+        expect(() => db.prepare(
+          `INSERT INTO provider_models (
+            id, provider_id, model_id, display_name, description, tier
+          ) VALUES ('anthropic-fable', 'anthropic-default', 'claude-fable-5', 'Fable 5', NULL, 'fable')`
+        ).run()).toThrow();
+
+        widenMigration.up(db);
+        seedMigration.up(db);
+
+        expect(db.prepare("SELECT tier FROM provider_models WHERE id = 'anthropic-sonnet'").get().tier).toBe('sonnet');
+        expect(db.prepare("SELECT model_id, display_name, description, tier FROM provider_models WHERE id = 'anthropic-fable'").get()).toEqual({
+          model_id: 'claude-fable-5',
+          display_name: 'Fable 5',
+          description: 'Next-generation intelligence',
+          tier: 'fable',
+        });
+      } finally {
+        db.close();
+      }
+    });
+
+    it('updates the built-in Sonnet catalog entry without rewriting persisted model choices', () => {
+      const db = manager.get();
+      const now = Date.now();
+      const migration = providerMigrations.find((entry) => entry.name === 'providers-update-built-in-sonnet-5');
+
+      db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run('proj-sonnet-5-migration', 'Project', '/tmp', now, now);
+      db.prepare(
+        `INSERT INTO sessions (
+          id, project_id, name, status, model, pending_model, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run('sess-sonnet-5-migration', 'proj-sonnet-5-migration', 'Session', 'waiting', 'claude-sonnet-4-6', 'claude-sonnet-4-20250514', now, now);
+      db.prepare(
+        'INSERT INTO conversations (id, session_id, name, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run('conv-sonnet-5-migration', 'sess-sonnet-5-migration', 'Conversation', 'claude-sonnet-4-20250514', now, now);
+      db.prepare(
+        'INSERT INTO conversation_messages (id, session_id, conversation_id, role, content, model, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run('msg-sonnet-5-migration', 'sess-sonnet-5-migration', 'conv-sonnet-5-migration', 'assistant', 'Answer', 'claude-sonnet-4-6', now);
+      db.prepare(
+        'INSERT INTO project_session_defaults (id, project_id, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+      ).run('defaults-sonnet-5-migration', 'proj-sonnet-5-migration', 'claude-sonnet-4-6', now, now);
+      db.prepare(
+        'INSERT INTO session_templates (id, project_id, name, prompt, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run('template-sonnet-5-migration', 'proj-sonnet-5-migration', 'Template', 'Prompt', 'claude-sonnet-4-20250514', now, now);
+      db.prepare('INSERT INTO kanban_boards (id, project_id, created_at, updated_at) VALUES (?, ?, ?, ?)')
+        .run('board-sonnet-5-migration', 'proj-sonnet-5-migration', now, now);
+      db.prepare(
+        'INSERT INTO kanban_lanes (id, board_id, name, sort_order, on_enter_model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run('lane-sonnet-5-migration', 'board-sonnet-5-migration', 'Lane', 0, 'claude-sonnet-4-6', now, now);
+      db.prepare(
+        'INSERT INTO agent_call_logs (id, session_id, agent_type, model, call_type, prompt_length, started_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run('log-sonnet-5-migration', 'sess-sonnet-5-migration', 'claude-code', 'claude-sonnet-4-20250514', 'runSession', 5, now, 'completed');
+
+      migration.up(db);
+
+      expect(db.prepare("SELECT model_id, display_name FROM provider_models WHERE id = 'anthropic-sonnet'").get()).toMatchObject({
+        model_id: 'claude-sonnet-5',
+        display_name: 'Sonnet 5',
+      });
+      expect(db.prepare("SELECT model, pending_model FROM sessions WHERE id = 'sess-sonnet-5-migration'").get()).toEqual({
+        model: 'claude-sonnet-4-6',
+        pending_model: 'claude-sonnet-4-20250514',
+      });
+      expect(db.prepare("SELECT model FROM conversations WHERE id = 'conv-sonnet-5-migration'").get().model).toBe('claude-sonnet-4-20250514');
+      expect(db.prepare("SELECT model FROM conversation_messages WHERE id = 'msg-sonnet-5-migration'").get().model).toBe('claude-sonnet-4-6');
+      expect(db.prepare("SELECT model FROM project_session_defaults WHERE id = 'defaults-sonnet-5-migration'").get().model).toBe('claude-sonnet-4-6');
+      expect(db.prepare("SELECT model FROM session_templates WHERE id = 'template-sonnet-5-migration'").get().model).toBe('claude-sonnet-4-20250514');
+      expect(db.prepare("SELECT on_enter_model FROM kanban_lanes WHERE id = 'lane-sonnet-5-migration'").get().on_enter_model).toBe('claude-sonnet-4-6');
+      expect(db.prepare("SELECT model FROM agent_call_logs WHERE id = 'log-sonnet-5-migration'").get().model).toBe('claude-sonnet-4-20250514');
     });
   });
 

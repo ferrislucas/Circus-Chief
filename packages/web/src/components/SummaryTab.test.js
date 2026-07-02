@@ -1173,14 +1173,14 @@ describe('SummaryTab', () => {
         role: 'assistant',
         content: 'Real-time response with model',
         timestamp: Date.now(),
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
       });
       await flushAll(wrapper);
 
       expect(wrapper.find('.latest-response').exists()).toBe(true);
       const modelBadge = wrapper.find('.response-model');
       expect(modelBadge.exists()).toBe(true);
-      expect(modelBadge.text()).toBe('Sonnet 4.6');
+      expect(modelBadge.text()).toBe('Sonnet 5');
     });
 
     it('does not show model badge when real-time message has no model', async () => {

@@ -14,7 +14,7 @@ describe('CreateWorkspaceRequest', () => {
       mode: 'plan',
       thinkingEnabled: true,
       effortLevel: 'high',
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       providerId: null,
       gitBranch: 'feature/new',
       gitMode: 'worktree',
