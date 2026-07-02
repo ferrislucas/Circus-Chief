@@ -3121,6 +3121,29 @@ describe('Sessions Store', () => {
 
         expect(store.archivedSessions).toHaveLength(0);
       });
+
+      it('removes descendant sessions and clears currentSession when deleting an ancestor', async () => {
+        const store = useSessionsStore();
+        const root = { id: 'root-1' };
+        const child = { id: 'child-1', parentSessionId: 'root-1' };
+        const grandchild = { id: 'grandchild-1', parentSessionId: 'child-1' };
+        const sibling = { id: 'sibling-1', parentSessionId: 'root-1' };
+
+        store.sessions = [root, child, grandchild, sibling];
+        store.archivedSessions = [
+          { id: 'child-1', parentSessionId: 'root-1', archived: true },
+          { id: 'archived-other', archived: true },
+        ];
+        store.currentSession = grandchild;
+
+        api.deleteSession.mockResolvedValue();
+
+        await store.deleteSession('child-1');
+
+        expect(store.sessions.map(session => session.id)).toEqual(['root-1', 'sibling-1']);
+        expect(store.archivedSessions.map(session => session.id)).toEqual(['archived-other']);
+        expect(store.currentSession).toBeNull();
+      });
     });
   });
 

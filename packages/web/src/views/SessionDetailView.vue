@@ -253,8 +253,48 @@ const {
   resetPreferred,
 } = useSessionTree(currentSessionId, sessionChainReady);
 
-async function handleOverlaySessionDeleted() {
+function normalizeSessionDeletedPayload(payload) {
+  if (payload && typeof payload === 'object') {
+    const deletedSessionId = payload.deletedSessionId || payload.sessionId || payload.id;
+    const deletedIds = Array.isArray(payload.deletedIds)
+      ? payload.deletedIds
+      : [deletedSessionId].filter(Boolean);
+    return {
+      deletedSessionId,
+      deletedIds,
+      fallbackSessionId: payload.fallbackSessionId || null,
+    };
+  }
+
+  return {
+    deletedSessionId: payload,
+    deletedIds: payload ? [payload] : [],
+    fallbackSessionId: null,
+  };
+}
+
+function getSessionDetailPath(sessionId) {
+  const tab = route.params.tab;
+  return tab ? `/sessions/${sessionId}/${tab}` : `/sessions/${sessionId}`;
+}
+
+async function handleOverlaySessionDeleted(payload) {
+  const { deletedIds, fallbackSessionId } = normalizeSessionDeletedPayload(payload);
+  const deletedIdSet = new Set(deletedIds);
+  const routeSessionWasDeleted = deletedIdSet.has(currentSessionId.value);
+  const fallbackFromChain = sessionChain.value.find(entry =>
+    !entry.session.parentSessionId && !deletedIdSet.has(entry.session.id)
+  )?.session.id || sessionChain.value.find(entry => !deletedIdSet.has(entry.session.id))?.session.id;
+  const targetSessionId = fallbackSessionId || fallbackFromChain || null;
+
   resetPreferred();
+
+  if (routeSessionWasDeleted && targetSessionId) {
+    currentSessionId.value = targetSessionId;
+    sessionsStore.viewedSessionId = targetSessionId;
+    await router.replace(getSessionDetailPath(targetSessionId));
+  }
+
   await buildSessionChain();
   resolveOverlayTarget();
 }

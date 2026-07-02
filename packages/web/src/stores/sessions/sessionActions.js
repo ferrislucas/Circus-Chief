@@ -182,11 +182,15 @@ export const sessionActions = {
 
   async deleteSession(id) {
     this.error = null;
+    const deletedIds = new Set([
+      id,
+      ...this.getAllDescendants(id).map((session) => session.id),
+    ]);
     try {
       await api.deleteSession(id);
-      this.sessions = this.sessions.filter((s) => s.id !== id);
-      this.archivedSessions = this.archivedSessions.filter((s) => s.id !== id);
-      if (this.currentSession?.id === id) this.currentSession = null;
+      this.sessions = this.sessions.filter((s) => !deletedIds.has(s.id));
+      this.archivedSessions = this.archivedSessions.filter((s) => !deletedIds.has(s.id));
+      if (this.currentSession?.id && deletedIds.has(this.currentSession.id)) this.currentSession = null;
     } catch (err) { this.error = err.message; throw err; }
   },
 

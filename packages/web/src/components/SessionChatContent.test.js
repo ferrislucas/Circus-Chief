@@ -466,7 +466,40 @@ describe('SessionChatContent', () => {
     await wrapper.vm.handlePickerDelete('child-1');
     expect(mockSessionsStore.deleteSession).toHaveBeenCalledWith('child-1');
     expect(mockUiStore.success).toHaveBeenCalledWith('Session deleted');
-    expect(sessionDeleted).toHaveBeenCalledWith('child-1');
+    expect(sessionDeleted).toHaveBeenCalledWith({
+      deletedSessionId: 'child-1',
+      deletedIds: ['child-1'],
+      fallbackSessionId: 'root-1',
+    });
+  });
+
+  it('emits deleted descendant ids and root fallback when deleting a subtree', async () => {
+    const root = { id: 'root-1', name: 'Root', status: 'waiting', projectId: 'proj-1' };
+    const child = { id: 'child-1', name: 'Child', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    const grandchild = { id: 'grandchild-1', name: 'Grandchild', status: 'waiting', projectId: 'proj-1', parentSessionId: 'child-1' };
+    const sibling = { id: 'sibling-1', name: 'Sibling', status: 'waiting', projectId: 'proj-1', parentSessionId: 'root-1' };
+    mockSessionsStore.sessions = [root, child, grandchild, sibling];
+    mockSessionsStore.currentSession = sibling;
+    const sessionDeleted = vi.fn();
+
+    const wrapper = mountContent({
+      sessionId: 'sibling-1',
+      sessionChain: [
+        { session: root, depth: 0 },
+        { session: child, depth: 1 },
+        { session: grandchild, depth: 2 },
+        { session: sibling, depth: 1 },
+      ],
+    }, { onSessionDeleted: sessionDeleted });
+    await flushPromises();
+
+    await wrapper.vm.handlePickerDelete('child-1');
+
+    expect(sessionDeleted).toHaveBeenCalledWith({
+      deletedSessionId: 'child-1',
+      deletedIds: ['child-1', 'grandchild-1'],
+      fallbackSessionId: 'root-1',
+    });
   });
 
   it('switches to the root workspace when the active child is deleted', async () => {

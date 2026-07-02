@@ -373,22 +373,30 @@ async function handlePickerDelete(sessionId) {
 
   deletingSessionId.value = sessionId;
   try {
-    const activeWasDeleted = isSessionInSubtree(activeSessionId.value, sessionId);
+    const deletedEntries = props.sessionChain.filter(item =>
+      isSessionInSubtree(item.session.id, sessionId)
+    );
+    const deletedIds = deletedEntries.map(item => item.session.id);
+    const activeWasDeleted = deletedIds.includes(activeSessionId.value);
+    const remainingEntries = props.sessionChain.filter(item =>
+      !deletedIds.includes(item.session.id)
+    );
+    const fallbackSessionId = remainingEntries.find(item => item.session.id === rootSessionId.value)?.session.id ||
+      remainingEntries[0]?.session.id ||
+      null;
+
     await mainSessionsStore.deleteSession(sessionId);
     uiStore.success('Session deleted');
 
-    if (activeWasDeleted) {
-      const remainingEntries = props.sessionChain.filter(item =>
-        !isSessionInSubtree(item.session.id, sessionId)
-      );
-      const targetSessionId = remainingEntries.find(item => item.session.id === rootSessionId.value)?.session.id ||
-        remainingEntries[0]?.session.id;
-      if (targetSessionId) {
-        await switchToSession(targetSessionId);
-      }
+    if (activeWasDeleted && fallbackSessionId) {
+      await switchToSession(fallbackSessionId);
     }
 
-    emit('session-deleted', sessionId);
+    emit('session-deleted', {
+      deletedSessionId: sessionId,
+      deletedIds,
+      fallbackSessionId,
+    });
   } catch (err) {
     uiStore.error(err.message || 'Failed to delete session');
   } finally {
