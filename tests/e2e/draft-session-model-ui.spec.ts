@@ -28,7 +28,7 @@ test.describe('Draft session model dropdown sync', () => {
 
   /**
    * Helper to construct the prefixed option value expected by ModelSelector.
-   * Format: providerId::modelId (e.g. "anthropic-default::claude-sonnet-4-6")
+   * Format: providerId::modelId (e.g. "anthropic-default::claude-sonnet-5")
    */
   function optionKey(providerId: string, modelId: string): string {
     return `${providerId}::${modelId}`;
@@ -45,7 +45,7 @@ test.describe('Draft session model dropdown sync', () => {
 
   test('changing model dropdown on draft session syncs both model and pendingModel', async ({ page }) => {
     // Use built-in model IDs that match the provider's actual models
-    const initialModel = 'claude-sonnet-4-6';
+    const initialModel = 'claude-sonnet-5';
     const targetModel = 'claude-opus-4-6';
 
     // Create a draft session with a known model
@@ -121,7 +121,7 @@ test.describe('Draft session model dropdown sync', () => {
   });
 
   test('model dropdown value persists after page reload on draft session', async ({ page }) => {
-    const initialModel = 'claude-sonnet-4-6';
+    const initialModel = 'claude-sonnet-5';
     const targetModel = 'claude-opus-4-6';
 
     // Create a draft session with a known model

@@ -142,7 +142,7 @@ vi.mock('@circuschief/shared', async (importOriginal) => {
   const actual = await importOriginal();
   return {
     ...actual,
-    DEFAULT_MODEL: 'claude-sonnet-4-6',
+    DEFAULT_MODEL: 'claude-sonnet-5',
   };
 });
 
@@ -1290,7 +1290,7 @@ describe.skip('ConversationTab - Model Selector Initialization', () => {
           name: 'Anthropic',
           isBuiltIn: true,
           models: [
-            { id: 'claude-sonnet-4-6', modelId: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', tier: 'sonnet' },
+            { id: 'claude-sonnet-5', modelId: 'claude-sonnet-5', displayName: 'Claude Sonnet 5', tier: 'sonnet' },
             { id: 'claude-opus-4-20250514', modelId: 'claude-opus-4-20250514', displayName: 'Claude Opus 4', tier: 'opus' },
             { id: 'claude-haiku-3-20250514', modelId: 'claude-haiku-3-20250514', displayName: 'Claude Haiku 3', tier: 'haiku' },
           ],
@@ -3600,14 +3600,14 @@ describe('ConversationTab - Model selector persistence on stop', () => {
 
     it('shows correct name for sonnet model', async () => {
       mockSessionsStore.currentSession.status = 'running';
-      mockSessionsStore.currentSession.model = 'claude-sonnet-4-6';
+      mockSessionsStore.currentSession.model = 'claude-sonnet-5';
 
       const wrapper = mountComponent();
       await flushAll(wrapper);
 
       const modelLabel = wrapper.find('.running-model-label');
       expect(modelLabel.exists()).toBe(true);
-      expect(modelLabel.text()).toBe('Sonnet 4.6');
+      expect(modelLabel.text()).toBe('Sonnet 5');
     });
 
     it('shows correct name for haiku model', async () => {

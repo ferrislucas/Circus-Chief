@@ -205,7 +205,7 @@ test.describe('Draft session model preservation on start', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         prompt: 'Test model override',
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
       }),
     });
 
@@ -217,8 +217,8 @@ test.describe('Draft session model preservation on start', () => {
     // The explicitly provided model should win
     // Note: sessionManager line 861 does:
     //   sessions.update(sessionId, { status: 'running', ...(model && { model }) })
-    // So when model='claude-sonnet-4-6' (truthy), it DOES update session.model.
-    expect(startedSession.model).toBe('claude-sonnet-4-6');
+    // So when model='claude-sonnet-5' (truthy), it DOES update session.model.
+    expect(startedSession.model).toBe('claude-sonnet-5');
   });
 
   test('POST /start falls back to session.model when pendingModel is null', async () => {

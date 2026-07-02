@@ -52,7 +52,7 @@ async function testAnthropicConnection(config) {
 
     // Use a minimal message to test connectivity.
     // This verifies: network, auth, and model availability.
-    const testModel = defaultSonnetModel || 'claude-sonnet-4-20250514';
+    const testModel = defaultSonnetModel || 'claude-sonnet-5';
 
     const response = await client.messages.create({
       model: testModel,

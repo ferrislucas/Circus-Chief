@@ -282,6 +282,13 @@ export const allMigrations = validateMigrations([
   //     stable relative to the providers-widen-kind-check-google table swap) ---
   pr.get('providers-add-enabled'),
 
+  // --- Update built-in Sonnet model to Sonnet 5 ---
+  pr.get('providers-update-built-in-sonnet-5'),
+
+  // --- Add built-in Fable 5 model ---
+  pr.get('provider-models-widen-tier-check-fable'),
+  pr.get('providers-seed-built-in-fable-5'),
+
   // --- Pending conversation ID for existing-message retry on reschedule ---
   s.get('sessions-add-pending_conversation_id'),
 

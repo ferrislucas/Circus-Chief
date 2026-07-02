@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS provider_models (
   model_id TEXT NOT NULL,
   display_name TEXT NOT NULL,
   description TEXT,
-  tier TEXT CHECK(tier IN ('opus', 'sonnet', 'haiku', 'custom')),
+  tier TEXT CHECK(tier IN ('fable', 'opus', 'sonnet', 'haiku', 'custom')),
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 

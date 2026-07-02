@@ -134,7 +134,7 @@ describe('Sessions API - Model Parameter', () => {
       const response = await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .field('content', 'Test message')
-        .field('model', 'claude-sonnet-4-6')
+        .field('model', 'claude-sonnet-5')
         .attach('files', Buffer.from('test content'), {
           filename: 'test.txt',
           contentType: 'text/plain',
@@ -148,7 +148,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-sonnet-4-6' }
+        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-sonnet-5' }
       );
     });
 
@@ -214,14 +214,14 @@ describe('Sessions API - Model Parameter', () => {
       // Second message with sonnet
       await request(server)
         .post(`/api/sessions/${session.id}/message`)
-        .send({ content: 'Second message', model: 'claude-sonnet-4-6' })
+        .send({ content: 'Second message', model: 'claude-sonnet-5' })
         .expect(200);
 
       expect(continueSession).toHaveBeenLastCalledWith(
         session.id,
         'Second message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'claude-sonnet-4-6' }
+        { systemPrompt: null, fileAttachments: [], model: 'claude-sonnet-5' }
       );
     });
   });

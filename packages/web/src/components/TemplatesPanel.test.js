@@ -88,7 +88,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           isBuiltIn: true,
           models: [
             { modelId: 'claude-opus-4-20250514', displayName: 'Opus 4', tier: 'opus' },
-            { modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', tier: 'sonnet' },
+            { modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
             { modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
           ],
         },
@@ -328,7 +328,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       // Set form data
       wrapper.vm.formData.name = 'Global Template';
       wrapper.vm.formData.prompt = 'Global prompt';
-      wrapper.vm.formData.model = 'claude-sonnet-4-6';
+      wrapper.vm.formData.model = 'claude-sonnet-5';
       wrapper.vm.formData.mode = 'standard';
       wrapper.vm.formData.isGlobal = true;
 
@@ -340,7 +340,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
         expect.objectContaining({
           name: 'Global Template',
           prompt: 'Global prompt',
-          model: 'claude-sonnet-4-6',
+          model: 'claude-sonnet-5',
           mode: 'standard',
         })
       );
@@ -457,7 +457,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           id: 'tpl-1',
           name: 'Test Template',
           prompt: 'Test prompt',
-          model: 'claude-sonnet-4-6',
+          model: 'claude-sonnet-5',
           mode: 'plan',
           thinkingEnabled: false,
           gitBranch: null,
@@ -518,7 +518,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
           id: 'tpl-2',
           name: 'Global Template',
           prompt: 'Global prompt',
-          model: 'claude-sonnet-4-6',
+          model: 'claude-sonnet-5',
           mode: 'yolo',
           thinkingEnabled: false,
           gitBranch: null,
@@ -531,7 +531,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
 
       const text = wrapper.text();
       expect(text).toContain('Global');
-      expect(text).toContain('Sonnet 4.6');
+      expect(text).toContain('Sonnet 5');
       expect(text).toContain('yolo');
     });
   });
@@ -588,7 +588,7 @@ describe('TemplatesPanel - Model and Mode Selectors', () => {
       });
 
       // Change model
-      wrapper.vm.formData.model = 'claude-sonnet-4-6';
+      wrapper.vm.formData.model = 'claude-sonnet-5';
 
       // Reset form
       wrapper.vm.resetForm();
