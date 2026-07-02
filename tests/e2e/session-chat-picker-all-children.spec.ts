@@ -57,18 +57,18 @@ test.describe('Session Tree Picker Shows All Children', () => {
     return { overlay, picker };
   }
 
-  async function expectOptionsToBeHitTestVisible(page: Page, picker: Locator) {
-    const visibility = await picker.locator('[role="option"]').evaluateAll((options) => {
-      return options.map((option, index) => {
-        const rect = option.getBoundingClientRect();
+  async function expectItemsToBeHitTestVisible(page: Page, picker: Locator) {
+    const visibility = await picker.locator('.picker-item').evaluateAll((items) => {
+      return items.map((item, index) => {
+        const rect = item.getBoundingClientRect();
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         const topElement = document.elementFromPoint(x, y);
-        const isHitTestVisible = Boolean(topElement && option.contains(topElement));
+        const isHitTestVisible = Boolean(topElement && item.contains(topElement));
 
         return {
           index,
-          name: option.querySelector('.picker-item-name')?.textContent?.trim() || '',
+          name: item.querySelector('.picker-item-name')?.textContent?.trim() || '',
           isHitTestVisible,
           topClass: topElement instanceof HTMLElement ? topElement.className : '',
           center: { x, y },
@@ -93,7 +93,7 @@ test.describe('Session Tree Picker Shows All Children', () => {
   test('picker shows all 4 child sessions plus parent (5 total)', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
-    const items = picker.locator('[role="option"]');
+    const items = picker.locator('.picker-item');
     // Should show parent + 4 children = 5 items
     await expect(items).toHaveCount(5, { timeout: 10000 });
   });
@@ -108,19 +108,19 @@ test.describe('Session Tree Picker Shows All Children', () => {
     await expect(picker).toContainText('Child Session 4');
   });
 
-  test('picker options are visually available and not clipped by overlay header', async ({ page }) => {
+  test('picker items are visually available and not clipped by overlay header', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
-    const items = picker.locator('[role="option"]');
+    const items = picker.locator('.picker-item');
     await expect(items).toHaveCount(5, { timeout: 10000 });
 
-    await expectOptionsToBeHitTestVisible(page, picker);
+    await expectItemsToBeHitTestVisible(page, picker);
   });
 
   test('picker items have uniform padding (flat layout)', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
-    const items = picker.locator('[role="option"]');
+    const items = picker.locator('.picker-item');
     const count = await items.count();
     expect(count).toBe(5);
 
@@ -140,7 +140,7 @@ test.describe('Session Tree Picker Shows All Children', () => {
   test('sessions are listed in reverse chronological order (most recent first)', async ({ page }) => {
     const { picker } = await openOverlayAndPicker(page, parentSession.id);
 
-    const items = picker.locator('[role="option"]');
+    const items = picker.locator('.picker-item');
     const count = await items.count();
     expect(count).toBe(5);
 
@@ -154,7 +154,7 @@ test.describe('Session Tree Picker Shows All Children', () => {
   test('selecting a sibling session switches the overlay conversation', async ({ page }) => {
     const { overlay, picker } = await openOverlayAndPicker(page, parentSession.id);
 
-    const items = picker.locator('[role="option"]');
+    const items = picker.locator('.picker-item');
     const count = await items.count();
     expect(count).toBe(5);
 
@@ -185,7 +185,7 @@ test.describe('Session Tree Picker Shows All Children', () => {
     const { picker } = await openOverlayAndPicker(page, children[1].id);
 
     // Should still show all sessions in the tree (parent + 4 children)
-    const items = picker.locator('[role="option"]');
+    const items = picker.locator('.picker-item');
     await expect(items).toHaveCount(5, { timeout: 10000 });
 
     await expect(picker).toContainText('Parent Session');

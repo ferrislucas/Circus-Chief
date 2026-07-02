@@ -82,7 +82,7 @@ export function useSessionGitStatus({ getSessionId }) {
         return gitStatus.value;
       }
       gitStatus.value = status;
-      error.value = null;
+      error.value = status?.error ? new Error(status.error) : null;
       return status;
     } catch (err) {
       if (token === requestToken && getSessionId() === sessionId) {

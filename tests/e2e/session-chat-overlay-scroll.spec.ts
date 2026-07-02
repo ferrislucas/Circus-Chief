@@ -174,8 +174,7 @@ test.describe('Session Chat Overlay Scroll Behavior', () => {
     await dropdown.locator('.dropdown-trigger').click();
     const picker = page.locator('[data-testid="session-chat-picker"]');
     await expect(picker).toBeVisible({ timeout: 5000 });
-    const items = picker.locator('[role="option"]');
-    await items.nth(1).click();
+    await picker.locator('.picker-item').filter({ hasText: 'Scroll Child' }).click();
     await expect(picker).not.toBeVisible({ timeout: 5000 });
 
     // Wait for child session messages to render and scroll

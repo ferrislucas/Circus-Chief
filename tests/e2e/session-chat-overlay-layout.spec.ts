@@ -639,7 +639,7 @@ test.describe('SessionChatOverlay layout', () => {
     await dropdown.locator('.dropdown-trigger').click();
     const picker = page.locator('[data-testid="session-chat-picker"]');
     await expect(picker).toBeVisible({ timeout: 5000 });
-    await picker.locator('[role="option"]').filter({ hasText: 'Layout Child' }).click();
+    await picker.locator('.picker-item').filter({ hasText: 'Layout Child' }).click();
     await expect(picker).not.toBeVisible({ timeout: 5000 });
     await expect(page.locator('[data-testid="session-chat-overlay"] .conversation-tab')).toBeVisible({ timeout: 10000 });
     await page.waitForTimeout(400);

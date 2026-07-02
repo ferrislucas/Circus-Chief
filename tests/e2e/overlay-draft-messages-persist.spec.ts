@@ -78,7 +78,7 @@ test.describe('Overlay: draft session messages persist after completion', () => 
     await expect(picker).toBeVisible({ timeout: 5000 });
 
     // Click the child session (second item in the picker)
-    const items = picker.locator('[role="option"]');
+    const items = picker.locator('.picker-item');
     const count = await items.count();
     expect(count).toBeGreaterThanOrEqual(2);
     // Find the item containing the child session name
