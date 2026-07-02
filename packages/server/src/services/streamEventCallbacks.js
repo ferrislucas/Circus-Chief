@@ -15,6 +15,29 @@ import {
 } from './streamEventHandler.js';
 
 /**
+ * Re-apply scheduled status after turn completion if the session was scheduled
+ * mid-turn (e.g., by the agent calling POST /api/sessions/:id/schedule).
+ *
+ * The turn-completion sequence first writes status='waiting'; this hook reads
+ * the session back and overrides it to 'scheduled' when a future scheduledAt
+ * and a pendingPrompt are present. Returns true when it fires so auto-send and
+ * template triggers are skipped for this turn.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<boolean>}
+ */
+async function handleScheduledContinuationIfNeeded(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session) return false;
+  if (session.scheduledAt && session.scheduledAt > Date.now() && session.pendingPrompt) {
+    sessions.update(sessionId, { status: 'scheduled' });
+    broadcastSessionStatus(sessionId, 'scheduled');
+    return true;
+  }
+  return false;
+}
+
+/**
  * Associate work logs with the last message and clean up tracking state.
  * @param {string} sessionId
  */
@@ -46,6 +69,10 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
     }
   }
 
+  // Re-apply scheduled status if the agent called POST /:id/schedule mid-turn.
+  // The waiting write above would otherwise overwrite the scheduled state.
+  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
+
   // Extract PR URL immediately (lightweight, no API call)
   summaryService.extractPrUrlIfNeeded(sessionId);
   // Trigger debounced summary generation on turn completion (not complete yet)
@@ -65,13 +92,13 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
   let autoSendFired = false;
-  if (handleAutoSendIfNeeded) {
+  if (!wasScheduledMidTurn && handleAutoSendIfNeeded) {
     autoSendFired = await handleAutoSendIfNeeded(sessionId);
   }
 
   // Only trigger next template if auto-send did NOT fire
   // (if auto-send fired, template will trigger after that turn completes)
-  if (!autoSendFired && handleTemplateTriggerIfNeeded) {
+  if (!wasScheduledMidTurn && !autoSendFired && handleTemplateTriggerIfNeeded) {
     await handleTemplateTriggerIfNeeded(sessionId);
   }
 

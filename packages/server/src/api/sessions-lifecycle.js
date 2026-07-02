@@ -8,7 +8,14 @@ import * as summaryService from '../services/summaryService.js';
 import { executeHookAsync } from '../services/hookService.js';
 import { requireRootSessionAndProject, requireSession, requireSessionAndProject } from '../middleware/sessionLookup.js';
 import { duplicateSession } from '../services/sessionDuplicator.js';
-import { configureSchedule, ScheduleError } from '../services/scheduleService.js';
+import { validateScheduledAt } from './scheduledAtValidation.js';
+import { validateModelId } from './model-validation.js';
+import { broadcastSessionUpdate } from './sessions-patch.js';
+import {
+  checkCrossKindSwitch,
+  sessionHasNoAssistantMessages,
+  deriveAgentTypeUpdate,
+} from '../services/sessionAgentGuard.js';
 
 const router = Router();
 
@@ -63,18 +70,99 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
   }
 });
 
-// POST /api/sessions/:id/schedule - Schedule a follow-up message for an existing session
-router.post('/:id/schedule', requireSessionAndProject, async (req, res) => {
-  try {
-    const updated = configureSchedule(req.session_, req.body);
-    res.json(updated);
-  } catch (error) {
-    if (error instanceof ScheduleError) {
-      return res.status(error.statusCode).json({ error: error.message });
-    }
-    console.error('Schedule session error:', error);
-    res.status(500).json({ error: error.message });
+// Validate a /schedule request body and build the session update payload.
+// Returns either { status, error } for a 4xx response, or { updateData } on success.
+function buildScheduleUpdate(req) {
+  const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
+
+  // Validate prompt
+  if (typeof prompt !== 'string' || prompt.trim() === '') {
+    return { status: 400, error: { error: 'prompt must be a non-empty string' } };
   }
+
+  // Validate scheduledAt: required, must parse, must be in the future
+  if (scheduledAtRaw === undefined || scheduledAtRaw === null) {
+    return { status: 400, error: { error: 'scheduledAt is required' } };
+  }
+  const scheduledAtResult = validateScheduledAt(scheduledAtRaw);
+  if (scheduledAtResult.error) {
+    return { status: 400, error: { error: scheduledAtResult.error } };
+  }
+  const scheduledAt = scheduledAtResult.value;
+  if (scheduledAt <= Date.now()) {
+    return { status: 400, error: { error: 'scheduledAt must be in the future' } };
+  }
+
+  // Validate model if provided, applying the cross-kind drift guard
+  const modelResult = resolveScheduleModel(req, model);
+  if (modelResult.error) {
+    return modelResult;
+  }
+
+  const updateData = {
+    status: 'scheduled',
+    scheduledAt,
+    pendingPrompt: prompt,
+    ...modelResult.agentTypeUpdate,
+  };
+  if (Object.prototype.hasOwnProperty.call(modelResult, 'pendingModel')) {
+    updateData.pendingModel = modelResult.pendingModel;
+  }
+
+  return { updateData };
+}
+
+// Validate the optional model field for /schedule and resolve the agentType update.
+// Returns { pendingModel, agentTypeUpdate } when model is supplied,
+// { agentTypeUpdate } when omitted, or { status, error } on failure.
+function resolveScheduleModel(req, model) {
+  if (model === undefined || model === null || model === '') {
+    return { agentTypeUpdate: {} };
+  }
+
+  const modelResult = validateModelId(model, { fieldName: 'model' });
+  if (modelResult.error) {
+    return { status: 400, error: { error: modelResult.error } };
+  }
+  const pendingModel = modelResult.value;
+
+  if (sessionHasNoAssistantMessages(req.params.id)) {
+    // Draft session: re-derive agentType from model (safe to mutate kind)
+    const agentTypeUpdate = deriveAgentTypeUpdate(req.session_, req.params.id, pendingModel, { providerId: null });
+    return { pendingModel, agentTypeUpdate };
+  }
+
+  // Started session: reject cross-kind switches
+  const driftError = checkCrossKindSwitch(req.session_, pendingModel);
+  if (driftError) {
+    return { status: 400, error: driftError };
+  }
+  return { pendingModel, agentTypeUpdate: {} };
+}
+
+// POST /api/sessions/:id/schedule - Schedule the current session to continue later.
+//
+// Takes prompt + scheduledAt directly so agents can schedule a continuation in
+// one race-free call, without a multi-step PATCH dance. Works for both idle and
+// running sessions: when a running session's turn completes, the turn-completion
+// hook re-applies the scheduled status over the normal waiting write.
+//
+// Request body:
+//   prompt      {string}               required — becomes pendingPrompt
+//   scheduledAt {ISO 8601 | epoch ms}  required — must be in the future
+//   model       {string}               optional — becomes pendingModel; cross-kind guarded
+//
+// Only prompt, scheduledAt, and model are honored here. Reschedule-policy fields
+// must be set at session creation time or via PATCH /api/sessions/:id.
+router.post('/:id/schedule', requireSession, (req, res) => {
+  const result = buildScheduleUpdate(req);
+  if (result.error) {
+    return res.status(result.status).json(result.error);
+  }
+
+  const updated = sessions.update(req.params.id, result.updateData);
+  broadcastSessionUpdate(req.params.id, req.session_.projectId, updated, result.updateData);
+  res.json(updated);
 });
 
 // POST /api/sessions/:id/duplicate - Duplicate a session
