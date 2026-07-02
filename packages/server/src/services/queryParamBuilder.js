@@ -1,5 +1,5 @@
 import { createClaudeCodeSpawner } from './nodeSpawnHelper.js';
-import { resolveClaudeMcpServers } from './claudeMcpConfigResolver.js';
+import { resolveClaudeMcpServers, resolveCodexMcpServers } from './claudeMcpConfigResolver.js';
 import {
   buildSystemPromptConfig,
   getGeminiApprovalModeForSession,
@@ -53,9 +53,14 @@ function buildClaudeCodeQueryParams({
  */
 function buildCodexQueryParams({
   prompt, workingDirectory, controller, session, sessionId, systemPrompt, model, sessionEnv,
+  claudeMcpConfigHomeDirectory,
 }) {
   const isVCR = Boolean(process.env.VCR_MODE);
   const effectiveModel = isVCR ? 'gpt-4o-mini' : model;
+  const { mcpServers } = resolveCodexMcpServers({
+    workingDirectory,
+    ...(claudeMcpConfigHomeDirectory ? { homeDirectory: claudeMcpConfigHomeDirectory } : {}),
+  });
 
   return {
     prompt,
@@ -67,6 +72,7 @@ function buildCodexQueryParams({
       effortLevel: session?.effortLevel ?? null,
       systemPrompt: buildSystemPromptConfig(sessionId, session.projectId, systemPrompt, session.mode),
       sandboxMode: getSandboxModeForSession(session?.mode),
+      ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     },
   };
 }

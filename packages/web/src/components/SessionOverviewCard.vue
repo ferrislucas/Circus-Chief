@@ -132,7 +132,7 @@
       class="overview-scheduled-sessions"
     >
       <h4 class="scheduled-sessions-heading">
-        Scheduled Workspaces ({{ scheduledSessions.length }})
+        Scheduled Sessions ({{ scheduledSessions.length }})
       </h4>
       <div class="scheduled-sessions-list">
         <ScheduledChildCard

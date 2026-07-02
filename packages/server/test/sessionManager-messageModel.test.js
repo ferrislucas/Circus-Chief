@@ -103,7 +103,7 @@ describe('sessionManager message model tracking', () => {
 
     it('creates assistant messages with model when system.init provides model', async () => {
       session = sessions.create(project.id, 'Test Session', 'prompt', 'standard');
-      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-sonnet-4-6'));
+      mockQuery.mockImplementation(() => createMockQueryResponseWithModel('claude-sonnet-5'));
 
       await runSession(session.id, 'test prompt', '/tmp/test');
 
@@ -113,7 +113,7 @@ describe('sessionManager message model tracking', () => {
 
       expect(assistantMessages.length).toBeGreaterThan(0);
       assistantMessages.forEach((msg) => {
-        expect(msg.model).toBe('claude-sonnet-4-6');
+        expect(msg.model).toBe('claude-sonnet-5');
       });
     });
 

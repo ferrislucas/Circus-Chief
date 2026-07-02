@@ -8,17 +8,26 @@ const defaultFs = {
   statSync: fsModule.statSync,
 };
 
-export function resolveClaudeMcpServers({
+/**
+ * Internal resolver that reads all MCP config sources once and returns the
+ * resolved server map, diagnostics, the raw project .mcp.json server map,
+ * and a separate map of only approved project-source servers (for Codex).
+ *
+ * @param {Object} opts
+ * @returns {{ mcpServers: Object, diagnostics: Object, rawProjectMcpServers: Object|null, projectServers: Object }}
+ */
+function resolveClaudeMcpServersInternal({
   workingDirectory,
   homeDirectory = os.homedir(),
   fs = defaultFs,
 } = {}) {
   const diagnostics = { included: [], skipped: [] };
   const mcpServers = {};
+  const projectServers = {};
 
   if (!workingDirectory || typeof workingDirectory !== 'string') {
     diagnostics.skipped.push({ name: null, source: 'input', reason: 'missing-working-directory' });
-    return { mcpServers, diagnostics };
+    return { mcpServers, diagnostics, rawProjectMcpServers: null, projectServers };
   }
 
   const resolvedWorkingDirectory = path.resolve(workingDirectory);
@@ -55,11 +64,23 @@ export function resolveClaudeMcpServers({
 
   mergeProjectMcpServers({
     target: mcpServers,
+    projectTarget: projectServers,
     servers: projectMcpConfig?.mcpServers,
     approval: projectApproval,
     diagnostics,
   });
 
+  const rawProjectMcpServers = (
+    projectMcpConfig?.mcpServers
+    && typeof projectMcpConfig.mcpServers === 'object'
+    && !Array.isArray(projectMcpConfig.mcpServers)
+  ) ? projectMcpConfig.mcpServers : null;
+
+  return { mcpServers, diagnostics, rawProjectMcpServers, projectServers };
+}
+
+export function resolveClaudeMcpServers(opts) {
+  const { mcpServers, diagnostics } = resolveClaudeMcpServersInternal(opts);
   return { mcpServers, diagnostics };
 }
 
@@ -77,7 +98,7 @@ function mergeServers({ target, servers, source, diagnostics }) {
   }
 }
 
-function mergeProjectMcpServers({ target, servers, approval, diagnostics }) {
+function mergeProjectMcpServers({ target, projectTarget, servers, approval, diagnostics }) {
   if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return;
 
   for (const [name, config] of Object.entries(servers)) {
@@ -96,6 +117,7 @@ function mergeProjectMcpServers({ target, servers, approval, diagnostics }) {
       continue;
     }
     Object.assign(target, { [name]: normalized.server });
+    if (projectTarget) Object.assign(projectTarget, { [name]: { ...normalized.server } });
     diagnostics.included.push({ name, source: 'project', transport: normalized.transport });
   }
 }
@@ -128,14 +150,17 @@ function normalizeStdioServerConfig(config) {
   if (config.args !== undefined && !Array.isArray(config.args)) return null;
   if (config.env !== undefined && !isPlainObject(config.env)) return null;
 
+  return { transport: 'stdio', server: buildStdioServerObject(config) };
+}
+
+function buildStdioServerObject(config) {
+  // Returns only Claude-facing stdio fields. Codex-only fields (cwd,
+  // startup_timeout_sec) are applied later via augmentCodexStdioServerFields.
   return {
-    transport: 'stdio',
-    server: {
-      ...(config.type === 'stdio' ? { type: 'stdio' } : {}),
-      command: config.command,
-      ...(config.args !== undefined ? { args: config.args } : {}),
-      ...(config.env !== undefined ? { env: config.env } : {}),
-    },
+    ...(config.type === 'stdio' ? { type: 'stdio' } : {}),
+    command: config.command,
+    ...(config.args !== undefined ? { args: config.args } : {}),
+    ...(config.env !== undefined ? { env: config.env } : {}),
   };
 }
 
@@ -221,4 +246,95 @@ function isPlainObject(value) {
 
 function asStringArray(value) {
   return Array.isArray(value) ? value.filter((item) => typeof item === 'string') : [];
+}
+
+/**
+ * Resolve MCP servers for the Codex adapter.
+ *
+ * Builds the Codex MCP server map directly from approved project `.mcp.json`
+ * entries (via `projectServers` from the internal resolver), rather than
+ * filtering the merged Claude-facing server map by name. User-level and local
+ * Claude project-entry MCP servers are excluded because they are Claude-specific
+ * and should not be forwarded to Codex.
+ *
+ * After building the map, stdio servers are augmented with Codex-specific fields
+ * (cwd and startup_timeout_sec) read from the raw project .mcp.json.
+ *
+ * Diagnostics include:
+ *   - `included`: only project-source included entries.
+ *   - `skipped`: project-source skipped entries plus every non-project included
+ *     entry mapped to `{ name, source, reason: 'not-forwarded-to-codex-non-project-source' }`.
+ *
+ * Note: Codex MCP enablement currently reuses Claude approval metadata from
+ * .claude/settings.local.json and matching entries in ~/.claude.json.
+ * A Codex-native approval flow is left as a future follow-up.
+ *
+ * @param {Object} opts - Same options as resolveClaudeMcpServers
+ * @returns {{ mcpServers: Object, diagnostics: Object }}
+ */
+export function resolveCodexMcpServers(opts) {
+  // Use the internal helper so the project .mcp.json is read only once.
+  const { diagnostics, rawProjectMcpServers, projectServers } = resolveClaudeMcpServersInternal(opts);
+
+  // Build the Codex server map directly from approved project entries.
+  // Augment approved project stdio servers with Codex-specific fields
+  // (cwd, startup_timeout_sec) from the already-read raw project .mcp.json.
+  augmentCodexStdioServerFields(projectServers, rawProjectMcpServers);
+
+  // Surface non-project included entries (user/local) as skipped in Codex diagnostics.
+  const nonProjectIncluded = diagnostics.included.filter((entry) => entry.source !== 'project');
+  if (nonProjectIncluded.length > 0) {
+    console.log('[Codex MCP] excluded non-project Claude MCP servers:', nonProjectIncluded.map((entry) => entry.name));
+  }
+
+  return {
+    mcpServers: projectServers,
+    diagnostics: {
+      included: diagnostics.included.filter((entry) => entry.source === 'project'),
+      skipped: [
+        ...diagnostics.skipped.filter((entry) => entry.source === 'project'),
+        ...nonProjectIncluded.map((entry) => ({
+          name: entry.name,
+          source: entry.source,
+          reason: 'not-forwarded-to-codex-non-project-source',
+        })),
+      ],
+    },
+  };
+}
+
+/**
+ * Augment approved project stdio servers with Codex-specific fields
+ * (cwd and startup_timeout_sec) copied from the raw project .mcp.json server map.
+ *
+ * Claude's normalizer omits these fields to keep the Claude-facing shape
+ * stable. This step copies valid values only for servers already approved and
+ * included in the filtered set.
+ *
+ * @param {Object} servers - The filtered server map to augment (mutated in place)
+ * @param {Object|null} rawServers - The raw mcpServers map from the project .mcp.json,
+ *   as returned by resolveClaudeMcpServersInternal. Pass null to skip augmentation.
+ */
+function augmentCodexStdioServerFields(servers, rawServers) {
+  if (!rawServers) return;
+
+  for (const [name, server] of Object.entries(servers)) {
+    // Remote servers (sse/http) do not use cwd or startup_timeout_sec
+    if (server.type === 'sse' || server.type === 'http') continue;
+    applyCodexStdioAugmentation(server, rawServers[name]);
+  }
+}
+
+/** Copy valid Codex stdio augmentation fields (cwd, startup_timeout_sec) onto server. */
+function applyCodexStdioAugmentation(server, rawConfig) {
+  if (!rawConfig || typeof rawConfig !== 'object' || Array.isArray(rawConfig)) return;
+
+  const extra = {};
+  if (typeof rawConfig.cwd === 'string' && rawConfig.cwd.length > 0) {
+    extra.cwd = rawConfig.cwd;
+  }
+  if (typeof rawConfig.startup_timeout_sec === 'number' && isFinite(rawConfig.startup_timeout_sec)) {
+    extra.startup_timeout_sec = rawConfig.startup_timeout_sec;
+  }
+  Object.assign(server, extra);
 }

@@ -1270,7 +1270,7 @@ export async function createProvider(data: {
 export async function addProviderModel(providerId: string, data: {
   modelId: string;
   displayName: string;
-  tier?: 'opus' | 'sonnet' | 'haiku' | 'custom';
+  tier?: 'fable' | 'opus' | 'sonnet' | 'haiku' | 'custom';
   description?: string;
 }) {
   const response = await fetch(`${API_URL}/api/providers/${providerId}/models`, {

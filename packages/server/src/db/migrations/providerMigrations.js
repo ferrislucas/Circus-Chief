@@ -1,113 +1,14 @@
-import { OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
 import { addColumnIfMissing, tableExists, getTableSql } from './migrationUtils.js';
-import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
-
-function seedBuiltInAnthropicProvider(db) {
-  const providerId = 'anthropic-default';
-  const existing = db
-    .prepare('SELECT id FROM providers WHERE id = ?')
-    .get(providerId);
-
-  if (!existing) {
-    const now = Date.now();
-    db.prepare(
-      `INSERT INTO providers (id, name, is_built_in, created_at, updated_at)
-       VALUES (?, ?, 1, ?, ?)`
-    ).run(providerId, 'Anthropic (Official)', now, now);
-  }
-
-  const defaultModels = [
-    { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fast & lightweight', tier: 'haiku' },
-    { id: 'anthropic-sonnet', modelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: 'Balanced', tier: 'sonnet' },
-    { id: 'anthropic-opus', modelId: 'claude-opus-4-6', displayName: 'Opus 4.6', description: 'Previous generation', tier: 'opus' },
-    { id: 'anthropic-opus-4-7', modelId: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Previous generation', tier: 'opus' },
-    { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', description: 'Most capable (default)', tier: 'opus' },
-  ];
-
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  );
-
-  const now = Date.now();
-  for (const model of defaultModels) {
-    insertModel.run(model.id, providerId, model.modelId, model.displayName, model.description, model.tier, now);
-  }
-}
-
-function seedBuiltInOpenAIProvider(db) {
-  const providerId = 'openai-default';
-  const now = Date.now();
-
-  db.prepare(
-    `INSERT OR IGNORE INTO providers (
-       id, name, base_url, auth_token, kind, commit_attribution_override, is_built_in, created_at, updated_at
-     )
-     VALUES (?, ?, NULL, NULL, 'openai', ?, 1, ?, ?)`
-  ).run(providerId, 'OpenAI (Official)', BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, now, now);
-
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, 'custom', ?)`
-  );
-
-  for (const model of OPENAI_MODELS) {
-    insertModel.run(model.seedId, providerId, model.id, model.name, model.description, now);
-  }
-}
-
-function seedBuiltInGoogleProvider(db) {
-  const providerId = 'google-default';
-  const now = Date.now();
-
-  db.prepare(
-    `INSERT OR IGNORE INTO providers (
-       id, name, base_url, auth_token, kind, is_built_in, created_at, updated_at
-     )
-     VALUES (?, ?, NULL, NULL, 'google', 1, ?, ?)`
-  ).run(providerId, 'Google (Official)', now, now);
-
-  const insertModel = db.prepare(
-    `INSERT OR IGNORE INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-     VALUES (?, ?, ?, ?, ?, 'custom', ?)`
-  );
-
-  for (const model of GEMINI_MODELS) {
-    insertModel.run(model.seedId, providerId, model.id, model.name, model.description, now);
-  }
-}
-
-function seedBuiltInProviders(db) {
-  seedBuiltInAnthropicProvider(db);
-  seedBuiltInOpenAIProvider(db);
-}
-
-function backfillBuiltInOpenAIAttribution(db) {
-  db.prepare(
-    `UPDATE providers
-     SET commit_attribution_override = ?, updated_at = ?
-     WHERE id = 'openai-default'
-       AND is_built_in = 1
-       AND kind = 'openai'
-       AND commit_attribution_override IS NULL`
-  ).run(BUILT_IN_OPENAI_COMMIT_ATTRIBUTION, Date.now());
-}
-
-function updateBuiltInModels(db) {
-  const providerId = 'anthropic-default';
-
-  db.prepare(
-    `UPDATE provider_models
-     SET model_id = ?, display_name = ?
-     WHERE provider_id = ? AND id = ?`
-  ).run('claude-sonnet-4-6', 'Sonnet 4.6', providerId, 'anthropic-sonnet');
-
-  db.prepare(
-    `UPDATE provider_models
-     SET model_id = ?, display_name = ?
-     WHERE provider_id = ? AND id = ?`
-  ).run('claude-opus-4-6', 'Opus 4.6', providerId, 'anthropic-opus');
-}
+import {
+  backfillBuiltInOpenAIAttribution,
+  seedBuiltInFable5,
+  seedBuiltInGoogleProvider,
+  seedBuiltInOpenAIProvider,
+  seedBuiltInProviders,
+  updateBuiltInModels,
+  updateBuiltInSonnet5,
+  widenProviderModelsTierCheckForFable,
+} from './providerMigrationHelpers.js';
 
 export const providerMigrations = [
   {
@@ -143,7 +44,7 @@ export const providerMigrations = [
           model_id TEXT NOT NULL,
           display_name TEXT NOT NULL,
           description TEXT,
-          tier TEXT CHECK(tier IN ('opus', 'sonnet', 'haiku', 'custom')),
+          tier TEXT CHECK(tier IN ('fable', 'opus', 'sonnet', 'haiku', 'custom')),
           created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
         );
         CREATE INDEX IF NOT EXISTS idx_provider_models_provider ON provider_models(provider_id);
@@ -300,5 +201,17 @@ export const providerMigrations = [
     up(db) {
       addColumnIfMissing(db, 'providers', 'enabled', 'INTEGER NOT NULL DEFAULT 1');
     },
+  },
+  {
+    name: 'providers-update-built-in-sonnet-5',
+    up(db) { updateBuiltInSonnet5(db); },
+  },
+  {
+    name: 'provider-models-widen-tier-check-fable',
+    up(db) { widenProviderModelsTierCheckForFable(db); },
+  },
+  {
+    name: 'providers-seed-built-in-fable-5',
+    up(db) { seedBuiltInFable5(db); },
   },
 ];

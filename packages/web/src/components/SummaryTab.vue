@@ -139,7 +139,9 @@ const allScheduledSessions = computed(() => {
       result.push(d);
     }
   }
-  return result;
+  return result.sort(
+    (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
+  );
 });
 
 const projectId = computed(() => session.value?.projectId || null);

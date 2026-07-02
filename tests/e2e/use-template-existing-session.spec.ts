@@ -127,7 +127,7 @@ test.describe('Use Template in existing session', () => {
       name: 'Settings Apply Session',
       startImmediately: false,
       mode: 'standard',
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       effortLevel: 'auto',
     });
     await setNextTemplate(session.id, nextTemplate.id);
