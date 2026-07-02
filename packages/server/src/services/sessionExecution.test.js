@@ -119,23 +119,29 @@ describe('buildQueryParams', () => {
   });
 
   it('propagates effortLevel into Codex query options', () => {
-    const args = {
-      ...baseArgs(),
-      agentType: 'codex',
-      model: 'gpt-5.5',
-      session: { mode: 'standard', projectId: 'proj-1', effortLevel: 'high', thinkingEnabled: false },
-    };
+    const tempHome = mkdtempSync(join(tmpdir(), 'codex-effortlevel-home-'));
+    try {
+      const args = {
+        ...baseArgs(),
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        session: { mode: 'standard', projectId: 'proj-1', effortLevel: 'high', thinkingEnabled: false },
+        claudeMcpConfigHomeDirectory: tempHome,
+      };
 
-    const result = buildQueryParams(args);
+      const result = buildQueryParams(args);
 
-    expect(result.options.effortLevel).toBe('high');
-    expect(result.options.model).toBe('gpt-5.5');
-    expect(result.options.permissionMode).toBeUndefined();
-    expect(result.options.settingSources).toBeUndefined();
-    expect(result.options.mcpServers).toBeUndefined();
-    expect(result.options.includePartialMessages).toBeUndefined();
-    expect(result.options.resume).toBeUndefined();
-    expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
+      expect(result.options.effortLevel).toBe('high');
+      expect(result.options.model).toBe('gpt-5.5');
+      expect(result.options.permissionMode).toBeUndefined();
+      expect(result.options.settingSources).toBeUndefined();
+      expect(result.options.mcpServers).toBeUndefined();
+      expect(result.options.includePartialMessages).toBeUndefined();
+      expect(result.options.resume).toBeUndefined();
+      expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 
   it('passes null effortLevel into Codex query options when no override is set', () => {
@@ -174,6 +180,127 @@ describe('buildQueryParams', () => {
     });
 
     expect(result.options.commitAttributionOverride).toBeUndefined();
+  });
+
+  it('Codex: includes mcpServers in options when project .mcp.json server is approved', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codex-mcp-approved-test-'));
+    try {
+      const homeDirectory = join(tempDir, 'home');
+      const workingDirectory = join(tempDir, 'workspace');
+      mkdirSync(homeDirectory, { recursive: true });
+      mkdirSync(join(workingDirectory, '.claude'), { recursive: true });
+      writeFileSync(join(workingDirectory, '.mcp.json'), JSON.stringify({
+        mcpServers: {
+          projectServer: { command: 'node', args: ['server.js'] },
+        },
+      }), 'utf8');
+      writeFileSync(join(workingDirectory, '.claude', 'settings.local.json'), JSON.stringify({
+        enabledMcpjsonServers: ['projectServer'],
+      }), 'utf8');
+
+      const result = buildQueryParams({
+        ...baseArgs(),
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        workingDirectory,
+        claudeMcpConfigHomeDirectory: homeDirectory,
+        session: { mode: 'standard', projectId: 'proj-1', effortLevel: null },
+      });
+
+      expect(result.options.mcpServers).toEqual({
+        projectServer: { command: 'node', args: ['server.js'] },
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Codex: omits mcpServers from options when project .mcp.json server is not approved', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codex-mcp-unapproved-test-'));
+    try {
+      const homeDirectory = join(tempDir, 'home');
+      const workingDirectory = join(tempDir, 'workspace');
+      mkdirSync(homeDirectory, { recursive: true });
+      mkdirSync(workingDirectory, { recursive: true });
+      writeFileSync(join(workingDirectory, '.mcp.json'), JSON.stringify({
+        mcpServers: {
+          unapprovedServer: { command: 'node', args: ['server.js'] },
+        },
+      }), 'utf8');
+
+      const result = buildQueryParams({
+        ...baseArgs(),
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        workingDirectory,
+        claudeMcpConfigHomeDirectory: homeDirectory,
+        session: { mode: 'standard', projectId: 'proj-1', effortLevel: null },
+      });
+
+      expect(result.options.mcpServers).toBeUndefined();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Codex: omits user-level Claude MCP servers (only approved project .mcp.json servers forwarded)', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codex-user-mcp-test-'));
+    try {
+      const homeDirectory = join(tempDir, 'home');
+      const workingDirectory = join(tempDir, 'workspace');
+      mkdirSync(homeDirectory, { recursive: true });
+      mkdirSync(workingDirectory, { recursive: true });
+      writeFileSync(join(homeDirectory, '.claude.json'), JSON.stringify({
+        mcpServers: {
+          userLevelServer: { command: 'node', args: ['user-server.js'] },
+        },
+      }), 'utf8');
+
+      const result = buildQueryParams({
+        ...baseArgs(),
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        workingDirectory,
+        claudeMcpConfigHomeDirectory: homeDirectory,
+        session: { mode: 'standard', projectId: 'proj-1', effortLevel: null },
+      });
+
+      expect(result.options.mcpServers).toBeUndefined();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('Codex: omits local Claude project-entry MCP servers (only approved project .mcp.json servers forwarded)', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codex-local-mcp-test-'));
+    try {
+      const homeDirectory = join(tempDir, 'home');
+      const workingDirectory = join(tempDir, 'workspace');
+      mkdirSync(homeDirectory, { recursive: true });
+      mkdirSync(workingDirectory, { recursive: true });
+      writeFileSync(join(homeDirectory, '.claude.json'), JSON.stringify({
+        projects: {
+          [workingDirectory]: {
+            mcpServers: {
+              localServer: { command: 'node', args: ['local-server.js'] },
+            },
+          },
+        },
+      }), 'utf8');
+
+      const result = buildQueryParams({
+        ...baseArgs(),
+        agentType: 'codex',
+        model: 'gpt-5.5',
+        workingDirectory,
+        claudeMcpConfigHomeDirectory: homeDirectory,
+        session: { mode: 'standard', projectId: 'proj-1', effortLevel: null },
+      });
+
+      expect(result.options.mcpServers).toBeUndefined();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('buildAgentEnv sets or deletes CIRCUSCHIEF_COMMIT_ATTRIBUTION', () => {
@@ -445,24 +572,29 @@ describe('buildQueryParams agent-aware', () => {
   });
 
   it('codex: options has cwd, abortController, env, model, systemPrompt, sandboxMode and omits Claude-specific fields', () => {
-    const args = { ...baseArgs(), agentType: 'codex' };
-    const result = buildQueryParams(args);
-    expect(result.options.cwd).toBe('/tmp/test');
-    expect(result.options.abortController).toBeInstanceOf(AbortController);
-    expect(result.options.env).toEqual({ OPENAI_API_KEY: 'sk-test' });
-    expect(result.options.model).toBe('gpt-4o');
-    expect(typeof result.options.systemPrompt).toBe('string');
-    expect(result.options.systemPrompt.length).toBeGreaterThan(0);
-    expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
-    // standard session.mode → workspace-write sandbox
-    expect(result.options.sandboxMode).toBe('workspace-write');
+    const tempHome = mkdtempSync(join(tmpdir(), 'codex-shape-home-'));
+    try {
+      const args = { ...baseArgs(), agentType: 'codex', claudeMcpConfigHomeDirectory: tempHome };
+      const result = buildQueryParams(args);
+      expect(result.options.cwd).toBe('/tmp/test');
+      expect(result.options.abortController).toBeInstanceOf(AbortController);
+      expect(result.options.env).toEqual({ OPENAI_API_KEY: 'sk-test' });
+      expect(result.options.model).toBe('gpt-4o');
+      expect(typeof result.options.systemPrompt).toBe('string');
+      expect(result.options.systemPrompt.length).toBeGreaterThan(0);
+      expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
+      // standard session.mode → workspace-write sandbox
+      expect(result.options.sandboxMode).toBe('workspace-write');
 
-    expect(result.options.settingSources).toBeUndefined();
-    expect(result.options.mcpServers).toBeUndefined();
-    expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
-    expect(result.options.includePartialMessages).toBeUndefined();
-    expect(result.options.permissionMode).toBeUndefined();
-    expect(result.options.resume).toBeUndefined();
+      expect(result.options.settingSources).toBeUndefined();
+      expect(result.options.mcpServers).toBeUndefined();
+      expect(result.options.spawnClaudeCodeProcess).toBeUndefined();
+      expect(result.options.includePartialMessages).toBeUndefined();
+      expect(result.options.permissionMode).toBeUndefined();
+      expect(result.options.resume).toBeUndefined();
+    } finally {
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 
   it('codex: maps session.mode "plan" to sandbox "read-only"', () => {

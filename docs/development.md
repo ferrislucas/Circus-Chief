@@ -160,6 +160,8 @@ The Codex adapter (`packages/server/src/agents/adapters/CodexAdapter.js`) suppor
 
 The CLI path also passes configured reasoning effort and commit attribution to Codex. When no `OPENAI_API_KEY` is present in the session environment, it forces `preferred_auth_method=chatgpt` so the CLI uses its own ChatGPT login instead of an accidental API-key path. The direct API fallback does not run the Codex CLI, so CLI-specific behavior such as sandbox enforcement and commit attribution config is not applied there.
 
+**MCP server forwarding:** Codex forwards only approved project `.mcp.json` MCP servers. User-level `~/.claude.json` MCP servers and local Claude project-entry MCP servers (from the project key in `~/.claude.json`) are not forwarded to Codex.
+
 | Capability | Supported |
 |------------|-----------|
 | Streaming | ✅ |
