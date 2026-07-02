@@ -5,7 +5,10 @@
     :class="[
       'overlay-content',
       mode === 'embedded' ? 'session-chat-content--embedded' : 'session-chat-content--overlay session-chat-overlay',
-      { 'session-chat-overlay--composer-focused': composerFocused }
+      {
+        'session-chat-overlay--composer-focused': composerFocused,
+        'session-chat-content--picker-open': pickerOpen,
+      }
     ]"
   >
     <div
@@ -33,7 +36,12 @@
           :sessions="sessionChain"
           :active-session-id="activeSessionId"
           :summaries="summariesMap"
+          :root-session-id="rootSessionId"
+          :deleting-session-id="deletingSessionId"
+          :get-token-label="getPickerTokenLabel"
+          :get-model-label="getPickerModelLabel"
           @select="handlePickerSelect"
+          @delete-session="handlePickerDelete"
         />
       </div>
 
@@ -180,6 +188,7 @@
 <script setup>
 /* eslint-disable max-lines */
 import { ref, computed, provide, onMounted, onUnmounted, watch } from 'vue';
+import { calculateTokenTotal, formatTokenCount } from '@circuschief/shared';
 import { useSessionsStore } from '../stores/sessions.js';
 import { useUiStore } from '../stores/ui.js';
 import { useSessionSubscription } from '../composables/useSessionSubscription.js';
@@ -218,6 +227,7 @@ const emit = defineEmits([
   'prompt-blur',
   'picker-open-change',
   'active-session-change',
+  'session-deleted',
 ]);
 
 const mainSessionsStore = useSessionsStore();
@@ -249,6 +259,7 @@ const effectiveScrollContainer = computed(() =>
 const conversationTabRef = ref(null);
 const pickerOpen = ref(false);
 const pickerAreaRef = ref(null);
+const deletingSessionId = ref(null);
 
 let currentSubscription = null;
 let wsCleanups = [];
@@ -272,6 +283,10 @@ const activeSessionDisplayName = computed(() => {
 });
 
 const hasDescendants = computed(() => props.sessionChain.length > 1);
+
+const rootSessionId = computed(() =>
+  props.sessionChain.find(entry => !entry.session.parentSessionId)?.session.id || props.sessionId
+);
 
 const activeSessionStatus = computed(() => {
   const session = mainSessionsStore.getSessionById(activeSessionId.value) || sessionsStore.currentSession;
@@ -314,6 +329,71 @@ function openPicker() {
 function handlePickerSelect(sessionId) {
   closePicker();
   selectSession(sessionId);
+}
+
+function getPickerModelLabel(session) {
+  return session?.model || session?.pendingModel || 'Default model';
+}
+
+function getPickerTokenLabel(session) {
+  const total = calculateTokenTotal(session);
+  if (!total) return '-';
+  return formatTokenCount(total);
+}
+
+function isSessionInSubtree(sessionId, subtreeRootId, entries = props.sessionChain) {
+  if (!sessionId || !subtreeRootId) return false;
+  if (sessionId === subtreeRootId) return true;
+
+  const parentById = new Map(entries.map(entry => [
+    entry.session.id,
+    entry.session.parentSessionId || null,
+  ]));
+
+  let currentId = sessionId;
+  const seen = new Set();
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId);
+    const parentId = parentById.get(currentId);
+    if (parentId === subtreeRootId) return true;
+    currentId = parentId;
+  }
+
+  return false;
+}
+
+async function handlePickerDelete(sessionId) {
+  if (deletingSessionId.value) return;
+
+  const entry = props.sessionChain.find(item => item.session.id === sessionId);
+  if (!entry || entry.session.id === rootSessionId.value) return;
+
+  const sessionName = entry.session.name || 'this workspace';
+  if (!window.confirm(`Delete '${sessionName}'? This action cannot be undone.`)) return;
+
+  deletingSessionId.value = sessionId;
+  try {
+    const activeWasDeleted = isSessionInSubtree(activeSessionId.value, sessionId);
+    await mainSessionsStore.deleteSession(sessionId);
+    uiStore.success('Session deleted');
+
+    if (activeWasDeleted) {
+      const remainingEntries = props.sessionChain.filter(item =>
+        !isSessionInSubtree(item.session.id, sessionId)
+      );
+      const targetSessionId = remainingEntries.find(item => item.session.id === rootSessionId.value)?.session.id ||
+        remainingEntries[0]?.session.id;
+      if (targetSessionId) {
+        await switchToSession(targetSessionId);
+      }
+    }
+
+    emit('session-deleted', sessionId);
+  } catch (err) {
+    uiStore.error(err.message || 'Failed to delete session');
+  } finally {
+    deletingSessionId.value = null;
+  }
 }
 
 function handleClickOutsidePicker(event) {
@@ -499,7 +579,13 @@ defineExpose({
   isCreatingSession,
   switchingSession,
   pickerOpen,
+  rootSessionId,
+  deletingSessionId,
   handlePickerSelect,
+  handlePickerDelete,
+  getPickerModelLabel,
+  getPickerTokenLabel,
+  isSessionInSubtree,
   openPicker,
   closePicker,
   contentRef,
@@ -531,6 +617,10 @@ defineExpose({
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
 }
 
+.session-chat-content--picker-open {
+  overflow: visible;
+}
+
 .session-chat-content--embedded {
   /* Remove the fixed-height box — content grows the page naturally */
   --session-detail-chat-header-top: calc(var(--header-height-computed, 51px) + var(--viewport-offset-top, 0px) + 3.125rem);
@@ -544,6 +634,8 @@ defineExpose({
 }
 
 .overlay-body {
+  position: relative;
+  z-index: 0;
   width: 100%;
   max-width: 100%;
   padding: 0 1rem;
@@ -566,11 +658,19 @@ defineExpose({
   overscroll-behavior: auto;
 }
 
+.session-chat-content--picker-open .overlay-body {
+  pointer-events: none;
+}
+
+.session-chat-content--picker-open .overlay-body :deep(*) {
+  pointer-events: none;
+}
+
 .overlay-header {
   --overlay-header-base-padding-top: 0.75rem;
   position: relative;
   top: auto;
-  z-index: 20;
+  z-index: 110;
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
@@ -602,6 +702,9 @@ defineExpose({
 
 .overlay-header-selector {
   position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
   min-width: 0;
 }
 

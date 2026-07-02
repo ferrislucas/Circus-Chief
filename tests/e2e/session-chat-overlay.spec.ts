@@ -298,7 +298,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Should show at least parent + one child
-      const items = picker.locator('[role="option"]');
+      const items = picker.locator('.picker-item');
       const count = await items.count();
       expect(count).toBeGreaterThanOrEqual(2);
 
@@ -306,7 +306,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(picker).toContainText('Parent Session');
     });
 
-    test('picker shows no hierarchy labels', async ({ page }) => {
+    test('picker labels only the root workspace', async ({ page }) => {
       const overlay = await openOverlay(page, parentSession.id);
 
       const dropdown = overlay.locator('[data-testid="session-tree-dropdown"]');
@@ -316,17 +316,22 @@ test.describe('Session Chat Overlay', () => {
       const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
-      // No items should contain ROOT or CHILD text anywhere in picker
-      await expect(picker).not.toContainText('ROOT');
-      await expect(picker).not.toContainText('CHILD');
+      const items = picker.locator('.picker-item');
+      const count = await items.count();
+      expect(count).toBeGreaterThanOrEqual(2);
+
+      const rootItem = items.filter({ hasText: 'Parent Session' });
+      await expect(rootItem.locator('.picker-item-role')).toHaveText('Root');
+
+      for (let i = 0; i < count; i++) {
+        const itemName = (await items.nth(i).locator('.picker-item-name').textContent())?.trim();
+        if (itemName !== 'Parent Session') {
+          await expect(items.nth(i).locator('.picker-item-role')).toHaveCount(0);
+        }
+      }
 
       // Session names should still be displayed
       await expect(picker).toContainText('Parent Session');
-
-      // Verify all items are visible
-      const items = picker.locator('[role="option"]');
-      const count = await items.count();
-      expect(count).toBeGreaterThanOrEqual(2);
     });
 
     test('picker items have uniform padding (flat layout)', async ({ page }) => {
@@ -340,7 +345,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Get all picker items
-      const items = picker.locator('[role="option"]');
+      const items = picker.locator('.picker-item');
       const count = await items.count();
       expect(count).toBeGreaterThanOrEqual(2);
 
@@ -368,7 +373,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Get all picker items
-      const items = picker.locator('[role="option"]');
+      const items = picker.locator('.picker-item');
       const count = await items.count();
       expect(count).toBeGreaterThanOrEqual(2);
 
@@ -416,12 +421,10 @@ test.describe('Session Chat Overlay', () => {
       const picker = page.locator('[data-testid="session-chat-picker"]');
       await expect(picker).toBeVisible({ timeout: 5000 });
 
-      // Click the second item (first child)
-      const items = picker.locator('[role="option"]');
+      const items = picker.locator('.picker-item');
       const count = await items.count();
-      if (count >= 2) {
-        await items.nth(1).click();
-      }
+      expect(count).toBeGreaterThanOrEqual(2);
+      await items.filter({ hasText: 'Child Session' }).first().click();
 
       // Picker should close after selection
       await expect(picker).not.toBeVisible({ timeout: 5000 });
@@ -465,7 +468,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Click first item
-      const items = picker.locator('[role="option"]');
+      const items = picker.locator('.picker-item');
       const count = await items.count();
       if (count >= 1) {
         await items.first().click();
@@ -584,7 +587,7 @@ test.describe('Session Chat Overlay', () => {
     await expect(picker).toBeVisible({ timeout: 5000 });
 
     // Just verify the picker has items - status badges are rendered conditionally
-    const items = picker.locator('[role="option"]');
+    const items = picker.locator('.picker-item');
     const count = await items.count();
     expect(count).toBeGreaterThanOrEqual(2);
   });
@@ -966,7 +969,7 @@ test.describe('Session Chat Overlay', () => {
       await expect(picker).toBeVisible({ timeout: 5000 });
 
       // Click the parent session item (first item in picker)
-      const items = picker.locator('[role="option"]');
+      const items = picker.locator('.picker-item');
       const count = await items.count();
       for (let i = 0; i < count; i++) {
         const text = await items.nth(i).textContent();

@@ -90,20 +90,28 @@ describe('diffService', () => {
       expect(result).toEqual({ staged: 'staged', unstaged: 'unstaged', untracked: '' });
     });
 
-    it('propagates errors from getStagedDiff', async () => {
+    it('returns empty staged diff when getStagedDiff fails', async () => {
       gitService.getStagedDiff.mockRejectedValue(new Error('Git error'));
-      gitService.getDiff.mockResolvedValue('');
+      gitService.getDiff.mockResolvedValue('unstaged');
       gitService.getUntrackedFiles.mockResolvedValue([]);
 
-      await expect(getChanges('/test/dir')).rejects.toThrow('Git error');
+      await expect(getChanges('/test/dir')).resolves.toEqual({
+        staged: '',
+        unstaged: 'unstaged',
+        untracked: '',
+      });
     });
 
-    it('propagates errors from getDiff', async () => {
-      gitService.getStagedDiff.mockResolvedValue('');
+    it('returns empty unstaged diff when getDiff fails', async () => {
+      gitService.getStagedDiff.mockResolvedValue('staged');
       gitService.getDiff.mockRejectedValue(new Error('Diff error'));
       gitService.getUntrackedFiles.mockResolvedValue([]);
 
-      await expect(getChanges('/test/dir')).rejects.toThrow('Diff error');
+      await expect(getChanges('/test/dir')).resolves.toEqual({
+        staged: 'staged',
+        unstaged: '',
+        untracked: '',
+      });
     });
 
     it('handles multi-line diff output', async () => {
@@ -299,6 +307,20 @@ index 1234567..abcdefg 100644
         branchDiff: 'branch',
         staged: 'staged',
         unstaged: 'unstaged',
+        untracked: '',
+      });
+    });
+
+    it('returns empty branch and local diffs when git commands fail', async () => {
+      gitService.getDiffBetweenRefs.mockRejectedValue(new Error('branch failed'));
+      gitService.getStagedDiff.mockRejectedValue(new Error('staged failed'));
+      gitService.getDiff.mockRejectedValue(new Error('diff failed'));
+      gitService.getUntrackedFiles.mockResolvedValue([]);
+
+      await expect(getChangesBranch('/test/dir', 'origin/main')).resolves.toEqual({
+        branchDiff: '',
+        staged: '',
+        unstaged: '',
         untracked: '',
       });
     });

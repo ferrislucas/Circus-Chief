@@ -94,6 +94,7 @@
           :summaries-map="summariesMap"
           mode="embedded"
           @session-created="handleOverlaySessionCreated"
+          @session-deleted="handleOverlaySessionDeleted"
         />
       </div>
 
@@ -113,6 +114,7 @@
         :summaries-map="summariesMap"
         @close="handleOverlayClose"
         @session-created="handleOverlaySessionCreated"
+        @session-deleted="handleOverlaySessionDeleted"
       />
 
       <!-- Archive Confirm Modal -->
@@ -250,6 +252,12 @@ const {
   handleOverlayClose,
   resetPreferred,
 } = useSessionTree(currentSessionId, sessionChainReady);
+
+async function handleOverlaySessionDeleted() {
+  resetPreferred();
+  await buildSessionChain();
+  resolveOverlayTarget();
+}
 
 const { cleanup, initializeSession } = useSessionInitializer({
   summary,

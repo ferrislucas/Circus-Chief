@@ -68,13 +68,18 @@ describe('Sessions API - Git Status Endpoint', () => {
     expect(res.body.workingDirectory).toBe('/tmp/session-worktree');
   });
 
-  it('returns a controlled error when git status fails', async () => {
+  it('returns unknown status when git status fails', async () => {
     gitService.getSessionGitStatus.mockRejectedValue(new Error('Not a git repository'));
 
     const res = await request(app)
       .get(`/api/sessions/${session.id}/git-status`)
-      .expect(500);
+      .expect(200);
 
     expect(res.body.error).toBe('Not a git repository');
+    expect(res.body.workingDirectory).toBe('/tmp/test-repo');
+    expect(res.body.syncStatus).toBe('unknown');
+    expect(res.body.currentBranch).toBeNull();
+    expect(res.body.hasUpstream).toBe(false);
+    expect(res.body.localChangeCount).toBe(0);
   });
 });

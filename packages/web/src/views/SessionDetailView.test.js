@@ -51,7 +51,7 @@ vi.mock('../components/SessionChatOverlay.vue', () => ({
     name: 'SessionChatOverlay',
     template: '<div class="session-chat-overlay">Chat Overlay</div>',
     props: ['sessionId', 'sessionChain', 'summariesMap'],
-    emits: ['close', 'session-created']
+    emits: ['close', 'session-created', 'session-deleted']
   }
 }));
 vi.mock('../components/SessionChatContent.vue', () => ({
@@ -59,7 +59,7 @@ vi.mock('../components/SessionChatContent.vue', () => ({
     name: 'SessionChatContent',
     template: '<div class="session-chat-content" data-testid="session-chat-content">Chat Content</div>',
     props: ['sessionId', 'sessionChain', 'summariesMap', 'mode'],
-    emits: ['session-created', 'prompt-focus', 'prompt-blur', 'picker-open-change', 'active-session-change'],
+    emits: ['session-created', 'session-deleted', 'prompt-focus', 'prompt-blur', 'picker-open-change', 'active-session-change'],
   }
 }));
 vi.mock('../components/SessionHeaderPanel.vue', () => ({

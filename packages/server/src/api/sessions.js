@@ -33,6 +33,25 @@ router.use('/', draftRouter);
 const filesCountCache = new Map();
 const FILES_COUNT_CACHE_TTL = 60_000; // 60 seconds
 
+function buildUnknownGitStatus(error, fetched = false) {
+  return {
+    currentBranch: null,
+    upstreamBranch: null,
+    hasUpstream: false,
+    hasUncommittedChanges: false,
+    localChangeCount: 0,
+    aheadCount: 0,
+    behindCount: 0,
+    isDiverged: false,
+    isUnpushed: false,
+    isBehind: false,
+    syncStatus: 'unknown',
+    lastCheckedAt: new Date().toISOString(),
+    fetched,
+    error: error?.message || 'Git status unavailable',
+  };
+}
+
 /**
  * Get cached files count or null if expired/missing
  * @param {string} sessionId
@@ -245,16 +264,20 @@ router.get('/:id/default-branch', requireSessionAndProject, async (req, res) => 
 // Query params:
 //   fetch: 'true' to fetch origin before computing status
 router.get('/:id/git-status', requireSessionAndProject, async (req, res) => {
+  const shouldFetch = req.query.fetch === 'true';
   try {
     const status = await gitService.getSessionGitStatus(req.workingDirectory, {
-      fetch: req.query.fetch === 'true',
+      fetch: shouldFetch,
     });
     res.json({
       workingDirectory: req.workingDirectory,
       ...status,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.json({
+      workingDirectory: req.workingDirectory,
+      ...buildUnknownGitStatus(error, shouldFetch),
+    });
   }
 });
 

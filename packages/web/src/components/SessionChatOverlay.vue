@@ -60,6 +60,7 @@
             :summaries-map="summariesMap"
             mode="overlay"
             @session-created="$emit('session-created', $event)"
+            @session-deleted="$emit('session-deleted', $event)"
             @prompt-focus="handleOverlayPromptFocus"
             @prompt-blur="handleOverlayPromptBlur"
             @picker-open-change="pickerOpen = $event"
@@ -96,7 +97,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['close', 'session-created']);
+const emit = defineEmits(['close', 'session-created', 'session-deleted']);
 const mainSessionsStore = useSessionsStore();
 
 const visible = ref(true);
