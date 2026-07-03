@@ -105,7 +105,7 @@ test.describe('Session selector switches conversation content', () => {
     const picker = page.locator('[data-testid="session-chat-picker"]');
     await expect(picker).toBeVisible({ timeout: 5000 });
 
-    const targetItem = picker.locator('[role="option"]').filter({ hasText: sessionName });
+    const targetItem = picker.locator('.picker-item').filter({ hasText: sessionName });
     await targetItem.click();
 
     // Picker should close after selection
