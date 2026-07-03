@@ -810,7 +810,6 @@ describe('useProjectSessionSubscription', () => {
       // B's chain should have subscribed; A should not have triggered a second subscribe
       // (A's chain was cancelled after its deferred fetchSessions resolved)
       // useProjectSubscription should have been called for project-B
-      const { useProjectSubscription } = await import('./useWebSocket.js');
       const subscribedProjects = useProjectSubscription.mock.calls.map(c => c[0]);
       expect(subscribedProjects).toContain('project-B');
       // A's stale chain must not call fetchSummariesBatch a second time after B won
@@ -842,7 +841,6 @@ describe('useProjectSessionSubscription', () => {
       // Reset call counts after A's initial setup
       summaryCallbacks.fetchSummariesBatch.mockClear();
       mockSubscribe.mockClear();
-      const { useProjectSubscription } = await import('./useWebSocket.js');
       useProjectSubscription.mockClear();
 
       // Update sessions to B's data
