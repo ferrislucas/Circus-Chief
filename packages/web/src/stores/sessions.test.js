@@ -3172,6 +3172,62 @@ describe('Sessions Store', () => {
         expect(store.archivedSessions.map(session => session.id)).toEqual(['archived-other']);
         expect(store.currentSession).toBeNull();
       });
+
+      it('decrements archivedPagination when loaded archived descendants are removed', async () => {
+        const store = useSessionsStore();
+        const root = { id: 'root-1' };
+        const archivedChild = { id: 'archived-child', parentSessionId: 'root-1', archived: true };
+        const archivedGrandchild = { id: 'archived-grandchild', parentSessionId: 'archived-child', archived: true };
+        const unrelatedArchived = { id: 'archived-other', archived: true };
+
+        store.sessions = [root];
+        store.archivedSessions = [archivedChild, archivedGrandchild, unrelatedArchived];
+        store.archivedPagination = { total: 10, offset: 3, hasMore: true, loading: false };
+
+        api.deleteSession.mockResolvedValue();
+
+        await store.deleteSession('root-1');
+
+        expect(store.archivedSessions.map(s => s.id)).toEqual(['archived-other']);
+        expect(store.archivedPagination.total).toBe(8);
+        expect(store.archivedPagination.offset).toBe(1);
+        expect(store.archivedPagination.hasMore).toBe(true);
+        expect(store.archivedPagination.loading).toBe(false);
+      });
+
+      it('clamps archivedPagination total and offset to zero when counts go negative', async () => {
+        const store = useSessionsStore();
+        const root = { id: 'root-1' };
+        const archivedChild = { id: 'archived-child', parentSessionId: 'root-1', archived: true };
+        const archivedGrandchild = { id: 'archived-grandchild', parentSessionId: 'archived-child', archived: true };
+
+        store.sessions = [root];
+        store.archivedSessions = [archivedChild, archivedGrandchild];
+        store.archivedPagination = { total: 1, offset: 2, hasMore: true, loading: false };
+
+        api.deleteSession.mockResolvedValue();
+
+        await store.deleteSession('root-1');
+
+        expect(store.archivedPagination.total).toBe(0);
+        expect(store.archivedPagination.offset).toBe(0);
+        expect(store.archivedPagination.hasMore).toBe(false);
+      });
+
+      it('leaves archivedPagination unchanged when no loaded archived rows are removed', async () => {
+        const store = useSessionsStore();
+        const target = { id: 'active-target' };
+
+        store.sessions = [target];
+        store.archivedSessions = [{ id: 'archived-other', archived: true }];
+        store.archivedPagination = { total: 7, offset: 2, hasMore: true, loading: false };
+
+        api.deleteSession.mockResolvedValue();
+
+        await store.deleteSession('active-target');
+
+        expect(store.archivedPagination).toEqual({ total: 7, offset: 2, hasMore: true, loading: false });
+      });
     });
   });
 

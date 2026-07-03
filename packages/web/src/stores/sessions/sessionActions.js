@@ -209,7 +209,19 @@ export const sessionActions = {
     try {
       await api.deleteSession(id);
       this.sessions = this.sessions.filter((s) => !deletedIds.has(s.id));
+      const prevArchivedCount = this.archivedSessions.length;
       this.archivedSessions = this.archivedSessions.filter((s) => !deletedIds.has(s.id));
+      const removedArchivedCount = prevArchivedCount - this.archivedSessions.length;
+      if (removedArchivedCount > 0) {
+        const nextTotal = Math.max(0, this.archivedPagination.total - removedArchivedCount);
+        const nextOffset = Math.max(0, this.archivedPagination.offset - removedArchivedCount);
+        this.archivedPagination = {
+          ...this.archivedPagination,
+          total: nextTotal,
+          offset: nextOffset,
+          hasMore: nextOffset < nextTotal,
+        };
+      }
       if (this.currentSession?.id && deletedIds.has(this.currentSession.id)) this.currentSession = null;
     } catch (err) { this.error = err.message; throw err; }
   },
