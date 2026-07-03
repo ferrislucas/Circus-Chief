@@ -161,6 +161,8 @@ export function widenProviderModelsTierCheckForFable(db) {
 }
 
 export function seedBuiltInFable5(db) {
+  widenProviderModelsTierCheckForFable(db);
+
   db.prepare(
     `INSERT OR IGNORE INTO provider_models (
        id, provider_id, model_id, display_name, description, tier, created_at

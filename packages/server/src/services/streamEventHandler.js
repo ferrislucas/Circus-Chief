@@ -4,6 +4,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { updateTodos } from './todoStore.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
+import * as gitService from './gitService.js';
 import {
   handleMessageStart,
   handleMessageDelta,
@@ -107,6 +108,11 @@ export function broadcastSessionStatus(sessionId, status) {
  */
 export async function broadcastChangesUpdate(sessionId, projectId, workingDirectory) {
   try {
+    const isGitRepo = await gitService.isGitRepo(workingDirectory);
+    if (!isGitRepo) {
+      return;
+    }
+
     const changes = await diffService.getChanges(workingDirectory);
     const hasChanges = Boolean(changes.staged || changes.unstaged || changes.untracked);
 

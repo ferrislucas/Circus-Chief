@@ -90,6 +90,7 @@
     <ScheduleSessionModal
       v-model:is-open="showScheduleModal"
       :session-id="sessionId"
+      :prompt="input"
       @close="closeScheduleModal"
     />
 

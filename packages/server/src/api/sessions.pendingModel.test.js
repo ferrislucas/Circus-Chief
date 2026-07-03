@@ -165,83 +165,78 @@ describe('Sessions API - pendingModel Field', () => {
     });
   });
 
-  describe('POST /sessions/:id/schedule - pendingModel field', () => {
-    beforeEach(() => {
-      // Set a pending prompt so scheduling is allowed
-      sessions.update(session.id, {
-        pendingPrompt: 'Follow-up prompt',
-        status: 'waiting'
-      });
-    });
+  describe('POST /sessions/:id/schedule - model field', () => {
+    // The schedule endpoint takes prompt + scheduledAt + optional model directly
+    // in the request body. model becomes pendingModel on the session.
 
-    it('sets pendingModel when scheduling a session', async () => {
+    it('sets pendingModel when scheduling a session with model field', async () => {
       const scheduledAt = Date.now() + 3600000; // 1 hour from now
-      const pendingModel = 'opus';
+      const model = 'opus';
 
       const response = await request(app)
         .post(`/api/sessions/${session.id}/schedule`)
         .send({
+          prompt: 'Continue the work',
           scheduledAt,
-          pendingModel
+          model,
         })
         .expect(200);
 
       expect(response.body.status).toBe('scheduled');
-      expect(response.body.pendingModel).toBe(pendingModel);
+      expect(response.body.pendingModel).toBe(model);
+      expect(response.body.pendingPrompt).toBe('Continue the work');
 
       // Verify it was persisted
       const updated = sessions.getById(session.id);
-      expect(updated.pendingModel).toBe(pendingModel);
+      expect(updated.pendingModel).toBe(model);
     });
 
-    it('schedules without pendingModel when not provided', async () => {
+    it('schedules without pendingModel when model not provided and no pendingModel exists', async () => {
       const scheduledAt = Date.now() + 3600000;
 
       const response = await request(app)
         .post(`/api/sessions/${session.id}/schedule`)
-        .send({ scheduledAt })
+        .send({ prompt: 'Continue', scheduledAt })
         .expect(200);
 
       expect(response.body.status).toBe('scheduled');
-      // pendingModel should remain null if not set
+      // pendingModel should be null if not set
       expect(response.body.pendingModel).toBeNull();
     });
 
-    it('updates existing pendingModel when scheduling', async () => {
+    it('preserves existing pendingModel when scheduling without model', async () => {
+      sessions.update(session.id, { pendingModel: 'opus' });
+      const scheduledAt = Date.now() + 3600000;
+
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({ prompt: 'Continue', scheduledAt })
+        .expect(200);
+
+      expect(response.body.status).toBe('scheduled');
+      expect(response.body.pendingModel).toBe('opus');
+
+      const updated = sessions.getById(session.id);
+      expect(updated.pendingModel).toBe('opus');
+    });
+
+    it('overwrites existing pendingModel when scheduling with model', async () => {
       // First set a pendingModel
       sessions.update(session.id, { pendingModel: 'haiku' });
 
       const scheduledAt = Date.now() + 3600000;
-      const newPendingModel = 'sonnet';
+      const newModel = 'sonnet';
 
       const response = await request(app)
         .post(`/api/sessions/${session.id}/schedule`)
         .send({
+          prompt: 'Continue',
           scheduledAt,
-          pendingModel: newPendingModel
+          model: newModel,
         })
         .expect(200);
 
-      expect(response.body.pendingModel).toBe(newPendingModel);
-    });
-
-    it('can combine pendingModel with other scheduling options', async () => {
-      const scheduledAt = Date.now() + 3600000;
-      const pendingModel = 'opus';
-
-      const response = await request(app)
-        .post(`/api/sessions/${session.id}/schedule`)
-        .send({
-          scheduledAt,
-          pendingModel,
-          autoRescheduleEnabled: true,
-          rescheduleDelayMinutes: 30
-        })
-        .expect(200);
-
-      expect(response.body.pendingModel).toBe(pendingModel);
-      expect(response.body.autoRescheduleEnabled).toBe(true);
-      expect(response.body.rescheduleDelayMinutes).toBe(30);
+      expect(response.body.pendingModel).toBe(newModel);
     });
 
     it('returns 404 for non-existent session when scheduling', async () => {
@@ -249,58 +244,35 @@ describe('Sessions API - pendingModel Field', () => {
       await request(app)
         .post(`/api/sessions/${fakeId}/schedule`)
         .send({
+          prompt: 'Continue',
           scheduledAt: Date.now() + 3600000,
-          pendingModel: 'sonnet'
+          model: 'sonnet',
         })
         .expect(404);
     });
 
-    it('returns 400 when trying to schedule without pendingPrompt', async () => {
-      // Clear the pending prompt
-      sessions.update(session.id, { pendingPrompt: null });
+    it('returns 400 when prompt is missing', async () => {
+      const response = await request(app)
+        .post(`/api/sessions/${session.id}/schedule`)
+        .send({ scheduledAt: Date.now() + 3600000 })
+        .expect(400);
 
+      expect(response.body.error).toMatch(/prompt/i);
+    });
+
+    it('rejects invalid model when scheduling', async () => {
       const scheduledAt = Date.now() + 3600000;
 
       const response = await request(app)
         .post(`/api/sessions/${session.id}/schedule`)
         .send({
+          prompt: 'Continue',
           scheduledAt,
-          pendingModel: 'sonnet'
+          model: 'not-a-real-model',
         })
         .expect(400);
 
-      expect(response.body.error).toContain('pendingPrompt must be set');
-    });
-
-    it('clears pendingModel when set to null during scheduling', async () => {
-      // First set a pendingModel
-      sessions.update(session.id, { pendingModel: 'sonnet' });
-
-      const scheduledAt = Date.now() + 3600000;
-
-      const response = await request(app)
-        .post(`/api/sessions/${session.id}/schedule`)
-        .send({
-          scheduledAt,
-          pendingModel: null
-        })
-        .expect(200);
-
-      expect(response.body.pendingModel).toBeNull();
-    });
-
-    it('rejects invalid pendingModel when scheduling', async () => {
-      const scheduledAt = Date.now() + 3600000;
-
-      const response = await request(app)
-        .post(`/api/sessions/${session.id}/schedule`)
-        .send({
-          scheduledAt,
-          pendingModel: 'not-a-real-model',
-        })
-        .expect(400);
-
-      expect(response.body.error).toContain('Invalid pendingModel id "not-a-real-model"');
+      expect(response.body.error).toContain('Invalid model id "not-a-real-model"');
     });
   });
 

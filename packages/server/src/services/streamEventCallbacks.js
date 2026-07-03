@@ -15,6 +15,41 @@ import {
 } from './streamEventHandler.js';
 
 /**
+ * Re-apply scheduled status after a turn ends if the session was scheduled
+ * mid-turn (e.g., by the agent calling POST /api/sessions/:id/schedule).
+ *
+ * Invariant this predicate relies on: the scheduler clears scheduledAt and
+ * pendingPrompt when it starts a scheduled run (`schedulerService.startScheduledSession`
+ * / `startFreshScheduledSession`). That clearing — not a status guard — is what
+ * guarantees a normally-running turn never carries a stray scheduledAt into
+ * completion.
+ *
+ * This predicate is intentionally status-agnostic. It is invoked from the
+ * completion path (after the `waiting` write) and from the error path (while
+ * status is still `running`). Do NOT add a status guard here — it would silently
+ * break the error path.
+ *
+ * Returns true when it fires (status flipped to 'scheduled') so callers can skip
+ * automatic side effects (auto-send, error reschedule, template triggers) for this turn.
+ *
+ * @param {string} sessionId
+ * @returns {Promise<boolean>}
+ */
+async function handleScheduledContinuationIfNeeded(sessionId) {
+  const session = sessions.getById(sessionId);
+  if (!session) return false;
+  const hasPendingPrompt = typeof session.pendingPrompt === 'string' && session.pendingPrompt.trim() !== '';
+  // Require a strictly positive finite timestamp so a zero/negative persisted value
+  // can never accidentally flip the session to 'scheduled'.
+  if (Number.isFinite(session.scheduledAt) && session.scheduledAt > 0 && hasPendingPrompt) {
+    sessions.update(sessionId, { status: 'scheduled' });
+    broadcastSessionStatus(sessionId, 'scheduled');
+    return true;
+  }
+  return false;
+}
+
+/**
  * Associate work logs with the last message and clean up tracking state.
  * @param {string} sessionId
  */
@@ -37,9 +72,14 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   sessions.update(sessionId, { status: 'waiting', error: null });
   broadcastSessionStatus(sessionId, 'waiting');
 
-  // Check if session should be proactively rescheduled based on token threshold
+  // Re-apply scheduled status if the agent called POST /:id/schedule mid-turn.
+  // The waiting write above would otherwise overwrite the scheduled state.
+  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
+
+  // Check if session should be proactively rescheduled based on token threshold.
+  // Explicit mid-turn continuations win over automatic token-management reschedules.
   const { checkProactiveReschedule } = callbacks;
-  if (checkProactiveReschedule) {
+  if (!wasScheduledMidTurn && checkProactiveReschedule) {
     const wasRescheduled = await checkProactiveReschedule(sessionId);
     if (wasRescheduled) {
       return true; // Session was rescheduled, don't continue with normal completion
@@ -65,13 +105,13 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
   let autoSendFired = false;
-  if (handleAutoSendIfNeeded) {
+  if (!wasScheduledMidTurn && handleAutoSendIfNeeded) {
     autoSendFired = await handleAutoSendIfNeeded(sessionId);
   }
 
   // Only trigger next template if auto-send did NOT fire
   // (if auto-send fired, template will trigger after that turn completes)
-  if (!autoSendFired && handleTemplateTriggerIfNeeded) {
+  if (!wasScheduledMidTurn && !autoSendFired && handleTemplateTriggerIfNeeded) {
     await handleTemplateTriggerIfNeeded(sessionId);
   }
 
@@ -224,7 +264,20 @@ export async function handleSessionError(sessionId, error, options = {}) {
   console.error('Error stack:', error.stack);
 
   if (controller.signal.aborted) {
+    // A user-initiated stop is intentional. A mid-turn-scheduled session that the
+    // user stops will have its schedule cleared by the stop handler; we honour that
+    // by not preserving the schedule here.
     return false;
+  }
+
+  // Explicit mid-turn schedule wins over automatic error reschedule, just as it
+  // wins over proactive reschedule on the normal completion path.
+  // Log the underlying error for diagnostics even when we preserve the schedule.
+  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
+  if (wasScheduledMidTurn) {
+    // Error is noted in the log but the session remains 'scheduled' — no visible
+    // error message, no error-reschedule, no template trigger.
+    return true;
   }
 
   // Check if we should reschedule instead of marking as error

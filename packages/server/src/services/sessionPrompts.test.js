@@ -23,7 +23,6 @@ vi.mock('../database.js', () => ({
 
 import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import {
-  getApiBaseUrl,
   buildPromptWithAttachments,
   getSessionAttachmentsContext,
   getGeminiApprovalModeForSession,
@@ -31,6 +30,7 @@ import {
   PLAN_MODE_PROMPT,
   buildSystemPromptConfig,
 } from './sessionPrompts.js';
+import { getApiBaseUrl } from './apiBaseUrl.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 
 describe('sessionPrompts', () => {
@@ -418,6 +418,15 @@ describe('sessionPrompts', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
       expect(result).toContain('afterSessionId');
       expect(result).toContain(sessionId); // current session ID as the example value
+    });
+
+    it('uses a future-safe placeholder in the session schedule example', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      const scheduleSection = result.slice(result.indexOf('### Schedule Current Session to Continue Later'));
+
+      expect(scheduleSection).toContain('/schedule');
+      expect(scheduleSection).toContain('<future ISO 8601 timestamp>');
+      expect(scheduleSection).not.toContain('2026-06-27T14:30:00Z');
     });
 
     it('disambiguates workspace grouping from Codex workspace-write sandbox', () => {

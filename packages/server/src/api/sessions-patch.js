@@ -8,6 +8,7 @@ import { checkSessionCiStatusNow } from '../services/prStatusService.js';
 import { broadcastSummaryUpdate } from '../services/summaryBroadcast.js';
 import { requireSession } from '../middleware/sessionLookup.js';
 import { validateModelId } from './model-validation.js';
+import { validateScheduledAt } from './scheduledAtValidation.js';
 import {
   checkCrossKindSwitch,
   sessionHasNoAssistantMessages,
@@ -85,27 +86,6 @@ function validateProviderId(value) {
     }
   }
   return { value };
-}
-
-/**
- * Validate and normalize scheduledAt field.
- * Accepts null (clear), numeric epoch milliseconds, or an ISO 8601 string.
- * Rejects anything that cannot be unambiguously converted to a finite integer.
- * @param {*} value
- * @returns {{ error?: string, value: * }}
- */
-function validateScheduledAt(value) {
-  if (value === null) return { value: null };
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) return { error: 'Invalid scheduledAt' };
-    return { value: Math.trunc(value) };
-  }
-  if (typeof value === 'string') {
-    const parsed = Date.parse(value);
-    if (!Number.isFinite(parsed)) return { error: 'Invalid scheduledAt' };
-    return { value: parsed };
-  }
-  return { error: 'Invalid scheduledAt' };
 }
 
 /**

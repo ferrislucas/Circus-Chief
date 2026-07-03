@@ -15,7 +15,7 @@
   },
   "scripts": {
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "node ../../scripts/with-coverage-lock.mjs vitest run --coverage",
     "test:watch": "vitest"
   },
   "dependencies": {
