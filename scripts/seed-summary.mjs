@@ -38,28 +38,14 @@ db.pragma('journal_mode = WAL');
 db.pragma('busy_timeout = 5000');
 db.pragma('foreign_keys = OFF');
 
-// Ensure session exists before creating summary (fixes foreign key constraint error)
+// Ensure session exists before creating summary. Tests should seed sessions via
+// the API first; silently inserting placeholders hides isolation bugs and makes
+// the UI assert against the wrong workspace.
 const existingSession = db.prepare('SELECT id FROM sessions WHERE id = ?').get(sessionId);
 if (!existingSession) {
-  // First ensure project exists (sessions have a foreign key to projects)
-  const dummyProjectId = '00000000-0000-0000-0000-000000000000';
-  const existingProject = db.prepare('SELECT id FROM projects WHERE id = ?').get(dummyProjectId);
-  if (!existingProject) {
-    const now = Date.now();
-    db.prepare(
-      `INSERT INTO projects (id, name, working_directory, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(dummyProjectId, 'Test Project', '/tmp/test', now, now);
-    console.error(`⚠️ Created placeholder project ${dummyProjectId} - this should have been created via API first`);
-  }
-
-  // Create a minimal session row for testing
-  const now = Date.now();
-  db.prepare(
-    `INSERT INTO sessions (id, project_id, name, status, mode, thinking_enabled, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(sessionId, dummyProjectId, 'Test Session', 'waiting', 'standard', 0, now, now);
-  console.error(`⚠️ Created placeholder session ${sessionId} - this should have been created via API first`);
+  db.close();
+  console.error(`Session ${sessionId} not found in ${dbPath}; seed the session via API before seeding its summary.`);
+  process.exit(1);
 }
 
 // Check if a summary already exists for this session

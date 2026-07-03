@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import SessionChatPicker from './SessionChatPicker.vue';
+import sessionChatPickerSource from './SessionChatPicker.vue?raw';
 
 describe('SessionChatPicker', () => {
   let sessions;
@@ -16,6 +17,9 @@ describe('SessionChatPicker', () => {
           id: 'root-1',
           name: 'Root Workspace',
           status: 'completed',
+          model: 'gpt-root',
+          inputTokens: 1000,
+          outputTokens: 250,
           createdAt: now - 7200000,
           lastActivityAt: now - 3600000,
         },
@@ -28,6 +32,10 @@ describe('SessionChatPicker', () => {
           id: 'child-1',
           name: 'Child Workspace 1',
           status: 'running',
+          parentSessionId: 'root-1',
+          model: 'gpt-child-running',
+          inputTokens: 42000,
+          outputTokens: 800,
           createdAt: now - 3600000,
           lastActivityAt: now - 1800000,
         },
@@ -40,6 +48,8 @@ describe('SessionChatPicker', () => {
           id: 'child-2',
           name: 'Child Workspace 2',
           status: 'waiting',
+          parentSessionId: 'root-1',
+          pendingModel: 'gpt-child-pending',
           createdAt: now - 1800000,
           lastActivityAt: now - 900000,
         },
@@ -61,6 +71,12 @@ describe('SessionChatPicker', () => {
         sessions,
         activeSessionId: 'root-1',
         summaries,
+        rootSessionId: 'root-1',
+        getModelLabel: session => session.model || session.pendingModel || 'Default model',
+        getTokenLabel: session => {
+          const total = (session.inputTokens || 0) + (session.outputTokens || 0);
+          return total ? `${total}` : '-';
+        },
         ...propsOverrides,
       },
     });
@@ -73,15 +89,12 @@ describe('SessionChatPicker', () => {
       expect(items).toHaveLength(3);
     });
 
-    it('all items show empty role label but element exists', () => {
+    it('shows the root role label only for the root workspace', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
-      // All items should have empty role labels
-      items.forEach(item => {
-        const roleEl = item.find('.picker-item-role');
-        expect(roleEl.exists()).toBe(true); // Element still exists in DOM
-        expect(roleEl.text()).toBe(''); // But contains no text
-      });
+      expect(items[0].find('.picker-item-role').text()).toBe('Root');
+      expect(items[1].find('.picker-item-role').exists()).toBe(false);
+      expect(items[2].find('.picker-item-role').exists()).toBe(false);
     });
 
     it('no items have picker-item--root class', () => {
@@ -108,6 +121,7 @@ describe('SessionChatPicker', () => {
           id: 'single-1',
           name: 'Only Workspace',
           status: 'completed',
+          parentSessionId: null,
           createdAt: Date.now(),
           lastActivityAt: Date.now(),
         },
@@ -118,13 +132,14 @@ describe('SessionChatPicker', () => {
           sessions: singleSession,
           activeSessionId: 'single-1',
           summaries: {},
+          rootSessionId: 'single-1',
         },
       });
 
       const items = wrapper.findAll('.picker-item');
       expect(items).toHaveLength(1);
       expect(items[0].find('.picker-item-role').exists()).toBe(true);
-      expect(items[0].find('.picker-item-role').text()).toBe('');
+      expect(items[0].find('.picker-item-role').text()).toBe('Root');
       expect(items[0].attributes('style')).toBeUndefined();
     });
 
@@ -186,6 +201,27 @@ describe('SessionChatPicker', () => {
       expect(items[2].find('.picker-item-name').text()).toBe('Child Workspace 2');
     });
 
+    it('displays model labels for each workspace', () => {
+      const wrapper = mountComponent();
+      const models = wrapper.findAll('.picker-item-model').map(model => model.text());
+      expect(models).toEqual(['gpt-root', 'gpt-child-running', 'gpt-child-pending']);
+    });
+
+    it('displays direct token labels for each workspace', () => {
+      const wrapper = mountComponent();
+      const tokens = wrapper.findAll('.picker-item-tokens').map(token => token.text());
+      expect(tokens).toEqual(['1250', '42800', '-']);
+    });
+
+    it('renders delete buttons for child rows only', () => {
+      const wrapper = mountComponent();
+      const items = wrapper.findAll('.picker-item');
+      expect(items[0].find('.picker-item-delete').exists()).toBe(false);
+      expect(items[0].find('.picker-item-root-lock').exists()).toBe(true);
+      expect(items[1].find('.picker-item-delete').exists()).toBe(true);
+      expect(items[2].find('.picker-item-delete').exists()).toBe(true);
+    });
+
     it('renders items in the same order as the workspaces prop', () => {
       const unorderedSessions = [
         { session: { id: 'older', name: 'Older', status: 'completed' }, pickerTimestamp: 1000, pickerTimestampSource: 'lastMessageAt', depth: 0 },
@@ -227,6 +263,17 @@ describe('SessionChatPicker', () => {
         expect(item.attributes('style')).toBeUndefined();
       });
     });
+
+    it('keeps the picker in normal flow so neighboring overlay controls cannot cover it', () => {
+      const selector = '.session-chat-picker';
+      const start = sessionChatPickerSource.indexOf(`${selector} {`);
+      expect(start).toBeGreaterThanOrEqual(0);
+      const end = sessionChatPickerSource.indexOf('\n}', start);
+      const block = sessionChatPickerSource.slice(start, end + 2);
+
+      expect(block).toMatch(/position:\s*static/);
+      expect(block).toMatch(/z-index:\s*120/);
+    });
   });
 
   describe('active workspace highlighting', () => {
@@ -263,8 +310,36 @@ describe('SessionChatPicker', () => {
         attrs: { onSelect },
       });
       const items = wrapper.findAll('.picker-item');
-      await items[2].trigger('keydown.enter');
+      await items[2].find('.picker-item-main').trigger('keydown.enter');
       expect(onSelect).toHaveBeenCalledWith('child-2');
+    });
+
+    it('emits delete-session and does not emit select when delete is clicked', async () => {
+      const onSelect = vi.fn();
+      const onDeleteSession = vi.fn();
+      const wrapper = mount(SessionChatPicker, {
+        props: { sessions, activeSessionId: 'root-1', summaries, rootSessionId: 'root-1' },
+        attrs: { onSelect, onDeleteSession },
+      });
+      const deleteButton = wrapper.findAll('.picker-item')[1].find('.picker-item-delete');
+      await deleteButton.trigger('click');
+      expect(onDeleteSession).toHaveBeenCalledWith('child-1');
+      expect(onSelect).not.toHaveBeenCalled();
+    });
+
+    it('emits delete-session and does not select on delete keyboard activation', async () => {
+      const onSelect = vi.fn();
+      const onDeleteSession = vi.fn();
+      const wrapper = mount(SessionChatPicker, {
+        props: { sessions, activeSessionId: 'root-1', summaries, rootSessionId: 'root-1' },
+        attrs: { onSelect, onDeleteSession },
+      });
+      const deleteButton = wrapper.findAll('.picker-item')[1].find('.picker-item-delete');
+      await deleteButton.trigger('keydown.enter');
+      await deleteButton.trigger('keydown.space');
+      expect(onDeleteSession).toHaveBeenCalledTimes(2);
+      expect(onDeleteSession).toHaveBeenCalledWith('child-1');
+      expect(onSelect).not.toHaveBeenCalled();
     });
   });
 
@@ -415,7 +490,7 @@ describe('SessionChatPicker', () => {
       const container = wrapper.find('.session-chat-picker');
       await container.trigger('keydown', { key: 'ArrowDown' });
       // focusedIndex should have incremented
-      const items = wrapper.findAll('.picker-item');
+      const items = wrapper.findAll('.picker-item-main');
       expect(items[1].attributes('tabindex')).toBe('0');
     });
 
@@ -425,7 +500,7 @@ describe('SessionChatPicker', () => {
       const container = wrapper.find('.session-chat-picker');
       await container.trigger('keydown', { key: 'ArrowDown' });
       await container.trigger('keydown', { key: 'ArrowUp' });
-      const items = wrapper.findAll('.picker-item');
+      const items = wrapper.findAll('.picker-item-main');
       // Should be back to the initial focused index
       expect(items[0].attributes('tabindex')).not.toBe(undefined);
     });
@@ -435,7 +510,7 @@ describe('SessionChatPicker', () => {
       const container = wrapper.find('.session-chat-picker');
       // Focus is at index 0 (root), pressing up should stay at 0
       await container.trigger('keydown', { key: 'ArrowUp' });
-      const items = wrapper.findAll('.picker-item');
+      const items = wrapper.findAll('.picker-item-main');
       expect(items[0].attributes('tabindex')).toBe('0');
     });
 
@@ -447,36 +522,45 @@ describe('SessionChatPicker', () => {
       await container.trigger('keydown', { key: 'ArrowDown' });
       await container.trigger('keydown', { key: 'ArrowDown' });
       // Should not go beyond
-      const items = wrapper.findAll('.picker-item');
+      const items = wrapper.findAll('.picker-item-main');
       expect(items[2].attributes('tabindex')).toBe('0');
     });
   });
 
   describe('accessibility', () => {
-    it('has role="listbox" on container', () => {
+    it('has role="list" on container', () => {
       const wrapper = mountComponent();
-      expect(wrapper.find('.session-chat-picker').attributes('role')).toBe('listbox');
+      expect(wrapper.find('.session-chat-picker').attributes('role')).toBe('list');
     });
 
-    it('has role="option" on each item', () => {
+    it('has role="listitem" on each item', () => {
       const wrapper = mountComponent();
       const items = wrapper.findAll('.picker-item');
       items.forEach(item => {
-        expect(item.attributes('role')).toBe('option');
+        expect(item.attributes('role')).toBe('listitem');
       });
     });
 
-    it('has aria-selected="true" on active item', () => {
+    it('has aria-current="true" on the active row action', () => {
       const wrapper = mountComponent({ activeSessionId: 'root-1' });
-      const items = wrapper.findAll('.picker-item');
-      expect(items[0].attributes('aria-selected')).toBe('true');
+      const items = wrapper.findAll('.picker-item-main');
+      expect(items[0].attributes('aria-current')).toBe('true');
     });
 
-    it('has aria-selected="false" on inactive items', () => {
+    it('does not put aria-current on inactive row actions', () => {
       const wrapper = mountComponent({ activeSessionId: 'root-1' });
-      const items = wrapper.findAll('.picker-item');
-      expect(items[1].attributes('aria-selected')).toBe('false');
-      expect(items[2].attributes('aria-selected')).toBe('false');
+      const items = wrapper.findAll('.picker-item-main');
+      expect(items[1].attributes('aria-current')).toBeUndefined();
+      expect(items[2].attributes('aria-current')).toBeUndefined();
+    });
+
+    it('does not nest delete buttons inside listbox options', () => {
+      const wrapper = mountComponent();
+      expect(wrapper.find('[role="listbox"]').exists()).toBe(false);
+      expect(wrapper.find('[role="option"]').exists()).toBe(false);
+      wrapper.findAll('.picker-item-delete').forEach(deleteButton => {
+        expect(deleteButton.element.closest('[role="option"]')).toBeNull();
+      });
     });
   });
 });

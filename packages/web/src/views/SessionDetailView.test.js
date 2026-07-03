@@ -51,7 +51,7 @@ vi.mock('../components/SessionChatOverlay.vue', () => ({
     name: 'SessionChatOverlay',
     template: '<div class="session-chat-overlay">Chat Overlay</div>',
     props: ['sessionId', 'sessionChain', 'summariesMap'],
-    emits: ['close', 'session-created']
+    emits: ['close', 'session-created', 'session-deleted']
   }
 }));
 vi.mock('../components/SessionChatContent.vue', () => ({
@@ -59,7 +59,7 @@ vi.mock('../components/SessionChatContent.vue', () => ({
     name: 'SessionChatContent',
     template: '<div class="session-chat-content" data-testid="session-chat-content">Chat Content</div>',
     props: ['sessionId', 'sessionChain', 'summariesMap', 'mode'],
-    emits: ['session-created', 'prompt-focus', 'prompt-blur', 'picker-open-change', 'active-session-change'],
+    emits: ['session-created', 'session-deleted', 'prompt-focus', 'prompt-blur', 'picker-open-change', 'active-session-change'],
   }
 }));
 vi.mock('../components/SessionHeaderPanel.vue', () => ({
@@ -4796,6 +4796,65 @@ describe('SessionDetailView', () => {
       expect(chatContent.props('sessionChain')).toEqual(wrapper.vm.sessionChain);
       expect(chatContent.props('summariesMap')).toEqual(wrapper.vm.summariesMap);
       expect(wrapper.findComponent({ name: 'SessionChatOverlay' }).exists()).toBe(false);
+    });
+
+    it('navigates from a deleted embedded chat route to the fallback session and preserves chat tab', async () => {
+      const root = {
+        id: 'root-1',
+        name: 'Root Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: null,
+      };
+      const child = {
+        id: 'child-1',
+        name: 'Child Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'root-1',
+      };
+      const grandchild = {
+        id: 'grandchild-1',
+        name: 'Grandchild Session',
+        status: 'waiting',
+        projectId: 'proj-1',
+        parentSessionId: 'child-1',
+      };
+
+      sessionsStore.currentSession = child;
+      sessionsStore.sessions = [root, child, grandchild];
+
+      await router.push('/sessions/child-1/chat');
+      await router.isReady();
+
+      const wrapper = trackedMount(SessionDetailView, {
+        global: {
+          plugins: [pinia, router],
+          stubs: {
+            ConversationTab: true,
+            SummaryTab: true,
+            ChangesTab: true,
+            CanvasTab: true,
+            CommandsTab: true,
+            PrIndicators: true,
+          },
+        },
+      });
+
+      await flushPromises();
+      await nextTick();
+
+      const chatContent = wrapper.findComponent({ name: 'SessionChatContent' });
+      await chatContent.vm.$emit('session-deleted', {
+        deletedSessionId: 'child-1',
+        deletedIds: ['child-1', 'grandchild-1'],
+        fallbackSessionId: 'root-1',
+      });
+      await flushPromises();
+      await nextTick();
+
+      expect(router.currentRoute.value.path).toBe('/sessions/root-1/chat');
+      expect(sessionsStore.viewedSessionId).toBe('root-1');
     });
 
     it('does not auto-open tree overlay without query param', async () => {
