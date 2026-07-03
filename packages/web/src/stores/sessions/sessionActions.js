@@ -65,11 +65,31 @@ async function fetchAncestorSessions(sessions, startParentId) {
  */
 export const sessionActions = {
   async fetchSessions(projectId, { silent = false } = {}) {
-    if (!silent) this.loading = true;
+    // Record which project owns this fetch. A late-resolving response for a
+    // different project will be discarded when it sees sessionsProjectId has moved on.
+    this.sessionsProjectId = projectId;
+    if (!silent) {
+      this.loading = true;
+      // Clear stale rows immediately so the previous project's list never
+      // renders under the new project's heading.
+      this.sessions = [];
+    }
     this.error = null;
-    try { this.sessions = await api.getProjectSessions(projectId, false, null); }
-    catch (err) { this.error = err.message; }
-    finally { if (!silent) this.loading = false; }
+    try {
+      const result = await api.getProjectSessions(projectId, false, null);
+      // Guard: discard this response if the user has navigated to another project.
+      if (this.sessionsProjectId !== projectId) return;
+      // Defensive filter: drop rows that explicitly belong to a different project.
+      // Only applies when the row carries a projectId field (backward compat with
+      // older API responses or test fixtures that omit the field).
+      this.sessions = result.filter(s => !projectId || !s.projectId || s.projectId === projectId);
+    } catch (err) {
+      if (this.sessionsProjectId !== projectId) return;
+      this.error = err.message;
+    } finally {
+      // Only clear the loading flag if this fetch still owns the current project slot.
+      if (!silent && this.sessionsProjectId === projectId) this.loading = false;
+    }
   },
 
   async fetchArchivedSessions(projectId, { reset = true } = {}) {
