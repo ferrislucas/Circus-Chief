@@ -16,6 +16,26 @@ function updateSessionInList(listInput, sessionData, addIfMissing = false) {
   }
 }
 
+function getDescendantSessionIds(sessions, sessionId) {
+  const descendantIds = [];
+  const visited = new Set([sessionId]);
+  const stack = [sessionId];
+
+  while (stack.length > 0) {
+    const currentId = stack.pop();
+    const children = sessions.filter((session) => session.parentSessionId === currentId);
+
+    for (const child of children) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      descendantIds.push(child.id);
+      stack.push(child.id);
+    }
+  }
+
+  return descendantIds;
+}
+
 /**
  * Move a session between lists (e.g., archive/unarchive).
  * @param {Array} sourceList - The list to remove from
@@ -184,7 +204,7 @@ export const sessionActions = {
     this.error = null;
     const deletedIds = new Set([
       id,
-      ...this.getAllDescendants(id).map((session) => session.id),
+      ...getDescendantSessionIds([...this.sessions, ...this.archivedSessions], id),
     ]);
     try {
       await api.deleteSession(id);

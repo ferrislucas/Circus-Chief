@@ -114,6 +114,18 @@ describe('diffService', () => {
       });
     });
 
+    it('returns empty untracked diff when getUntrackedFiles fails', async () => {
+      gitService.getStagedDiff.mockResolvedValue('staged');
+      gitService.getDiff.mockResolvedValue('unstaged');
+      gitService.getUntrackedFiles.mockRejectedValue(new Error('Untracked error'));
+
+      await expect(getChanges('/test/dir')).resolves.toEqual({
+        staged: 'staged',
+        unstaged: 'unstaged',
+        untracked: '',
+      });
+    });
+
     it('handles multi-line diff output', async () => {
       const stagedDiff = `diff --git a/file.js b/file.js
 index 1234567..abcdefg 100644
@@ -321,6 +333,20 @@ index 1234567..abcdefg 100644
         branchDiff: '',
         staged: '',
         unstaged: '',
+        untracked: '',
+      });
+    });
+
+    it('returns empty untracked diff when getUntrackedFiles fails', async () => {
+      gitService.getDiffBetweenRefs.mockResolvedValue('branch');
+      gitService.getStagedDiff.mockResolvedValue('staged');
+      gitService.getDiff.mockResolvedValue('unstaged');
+      gitService.getUntrackedFiles.mockRejectedValue(new Error('untracked failed'));
+
+      await expect(getChangesBranch('/test/dir', 'origin/main')).resolves.toEqual({
+        branchDiff: 'branch',
+        staged: 'staged',
+        unstaged: 'unstaged',
         untracked: '',
       });
     });

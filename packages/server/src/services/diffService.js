@@ -8,6 +8,10 @@ function emptyOnGitFailure(promise) {
   return promise.catch(() => '');
 }
 
+function emptyArrayOnGitFailure(promise) {
+  return promise.catch(() => []);
+}
+
 /**
  * Check if content is binary (contains null bytes)
  * @param {Buffer} buffer
@@ -144,7 +148,7 @@ export async function getChanges(directory) {
   const [staged, unstaged, untrackedPaths] = await Promise.all([
     emptyOnGitFailure(gitService.getStagedDiff(directory)),
     emptyOnGitFailure(gitService.getDiff(directory)),
-    gitService.getUntrackedFiles(directory),
+    emptyArrayOnGitFailure(gitService.getUntrackedFiles(directory)),
   ]);
 
   // Generate synthetic diffs for untracked files
@@ -165,7 +169,7 @@ export async function getChangesBranch(directory, branch) {
     emptyOnGitFailure(gitService.getDiffBetweenRefs(directory, branch, 'HEAD')), // Committed changes vs branch
     emptyOnGitFailure(gitService.getStagedDiff(directory)), // Actual staged changes (local)
     emptyOnGitFailure(gitService.getDiff(directory)), // Actual unstaged changes (local)
-    gitService.getUntrackedFiles(directory),
+    emptyArrayOnGitFailure(gitService.getUntrackedFiles(directory)),
   ]);
 
   // Generate synthetic diffs for untracked files
