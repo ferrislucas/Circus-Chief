@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 const [, , ...command] = process.argv;
 
 if (command.length === 0) {
-  console.error('Usage: node scripts/with-coverage-lock.js <command> [args...]');
+  console.error('Usage: node scripts/with-coverage-lock.mjs <command> [args...]');
   process.exit(2);
 }
 

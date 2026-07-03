@@ -15,14 +15,22 @@ import {
 } from './streamEventHandler.js';
 
 /**
- * Re-apply scheduled status after turn completion if the session was scheduled
+ * Re-apply scheduled status after a turn ends if the session was scheduled
  * mid-turn (e.g., by the agent calling POST /api/sessions/:id/schedule).
  *
- * The turn-completion sequence first writes status='waiting'; this hook reads
- * the session back and overrides it to 'scheduled' when a valid scheduledAt
- * and a non-empty pendingPrompt are present, including if the scheduled time became due
- * while the turn was still active. Returns true when it fires so auto-send and
- * template triggers are skipped for this turn.
+ * Invariant this predicate relies on: the scheduler clears scheduledAt and
+ * pendingPrompt when it starts a scheduled run (`schedulerService.startScheduledSession`
+ * / `startFreshScheduledSession`). That clearing — not a status guard — is what
+ * guarantees a normally-running turn never carries a stray scheduledAt into
+ * completion.
+ *
+ * This predicate is intentionally status-agnostic. It is invoked from the
+ * completion path (after the `waiting` write) and from the error path (while
+ * status is still `running`). Do NOT add a status guard here — it would silently
+ * break the error path.
+ *
+ * Returns true when it fires (status flipped to 'scheduled') so callers can skip
+ * automatic side effects (auto-send, error reschedule, template triggers) for this turn.
  *
  * @param {string} sessionId
  * @returns {Promise<boolean>}
@@ -31,7 +39,9 @@ async function handleScheduledContinuationIfNeeded(sessionId) {
   const session = sessions.getById(sessionId);
   if (!session) return false;
   const hasPendingPrompt = typeof session.pendingPrompt === 'string' && session.pendingPrompt.trim() !== '';
-  if (Number.isFinite(session.scheduledAt) && hasPendingPrompt) {
+  // Require a strictly positive finite timestamp so a zero/negative persisted value
+  // can never accidentally flip the session to 'scheduled'.
+  if (Number.isFinite(session.scheduledAt) && session.scheduledAt > 0 && hasPendingPrompt) {
     sessions.update(sessionId, { status: 'scheduled' });
     broadcastSessionStatus(sessionId, 'scheduled');
     return true;
@@ -254,7 +264,20 @@ export async function handleSessionError(sessionId, error, options = {}) {
   console.error('Error stack:', error.stack);
 
   if (controller.signal.aborted) {
+    // A user-initiated stop is intentional. A mid-turn-scheduled session that the
+    // user stops will have its schedule cleared by the stop handler; we honour that
+    // by not preserving the schedule here.
     return false;
+  }
+
+  // Explicit mid-turn schedule wins over automatic error reschedule, just as it
+  // wins over proactive reschedule on the normal completion path.
+  // Log the underlying error for diagnostics even when we preserve the schedule.
+  const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
+  if (wasScheduledMidTurn) {
+    // Error is noted in the log but the session remains 'scheduled' — no visible
+    // error message, no error-reschedule, no template trigger.
+    return true;
   }
 
   // Check if we should reschedule instead of marking as error

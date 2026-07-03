@@ -388,4 +388,46 @@ describe('Sessions API - POST /:id/schedule', () => {
 
     expect(response.body.error).toBeDefined();
   });
+
+  it('returns 400 when a reschedule-policy field is included', async () => {
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({
+        prompt: 'Continue',
+        scheduledAt: Date.now() + 3600000,
+        autoRescheduleEnabled: true,
+      })
+      .expect(400);
+
+    expect(response.body.error).toMatch(/Unexpected field/i);
+    expect(response.body.error).toContain('autoRescheduleEnabled');
+  });
+
+  it('returns 400 when rescheduleDelayMinutes is included', async () => {
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({
+        prompt: 'Continue',
+        scheduledAt: Date.now() + 3600000,
+        rescheduleDelayMinutes: 30,
+      })
+      .expect(400);
+
+    expect(response.body.error).toMatch(/Unexpected field/i);
+    expect(response.body.error).toContain('rescheduleDelayMinutes');
+  });
+
+  it('returns 400 for arbitrary unknown keys', async () => {
+    const response = await request(app)
+      .post(`/api/sessions/${session.id}/schedule`)
+      .send({
+        prompt: 'Continue',
+        scheduledAt: Date.now() + 3600000,
+        junkKey: 'garbage',
+      })
+      .expect(400);
+
+    expect(response.body.error).toMatch(/Unexpected field/i);
+    expect(response.body.error).toContain('junkKey');
+  });
 });

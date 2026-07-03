@@ -74,6 +74,19 @@ router.put('/:id/summary', requireRootSessionAndProject, async (req, res) => {
 // Validate a /schedule request body and build the session update payload.
 // Returns either { status, error } for a 4xx response, or { updateData } on success.
 function buildScheduleUpdate(req) {
+  // Reject any field not in the explicit allow-list so callers migrating from the old
+  // configureSchedule contract get a clear signal rather than silent data loss.
+  const ALLOWED_FIELDS = new Set(['prompt', 'scheduledAt', 'model']);
+  const unexpectedFields = Object.keys(req.body || {}).filter((k) => !ALLOWED_FIELDS.has(k));
+  if (unexpectedFields.length > 0) {
+    return {
+      status: 400,
+      error: {
+        error: `Unexpected field(s): ${unexpectedFields.join(', ')}. Only prompt, scheduledAt, and model are accepted; set reschedule policy via PATCH /api/sessions/:id.`,
+      },
+    };
+  }
+
   const { prompt, scheduledAt: scheduledAtRaw, model } = req.body;
 
   // Validate prompt
