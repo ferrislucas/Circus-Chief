@@ -172,16 +172,27 @@ CRITICAL: Do NOT start coding until you have presented a plan and received appro
 `;
 
 /**
+ * Build the workspace-scoped canvas base URL used in canvas prompts.
+ * The workspace ID is the root session ID; falls back to 'unknown-workspace'
+ * when the session is null/undefined.
+ * @param {object|null} session - Session object
+ * @returns {string} e.g. http://localhost:5000/api/workspaces/<workspaceId>
+ */
+function buildCanvasBaseUrl(session) {
+  // workspaceId is the root session ID; falls back when the session is missing.
+  return `${getApiBaseUrl()}/api/workspaces/${(session?.id && sessions.getRootSessionId(session.id)) || session?.id || 'unknown-workspace'}`;
+}
+
+/**
  * Build system prompt with canvas write instructions
  * @param {object|null} session - Session object
  * @returns {string}
  */
 function buildCanvasWriteSystemPrompt(session) {
-  const apiUrl = getApiBaseUrl();
-  const sessionId = session?.id || 'unknown-session';
+  const canvasUrl = buildCanvasBaseUrl(session);
   return `When you generate artifacts that should be displayed on the canvas (images, markdown documents, code snippets, data visualizations, PDFs), POST them to:
 
-POST ${apiUrl}/api/sessions/${sessionId}/canvas
+POST ${canvasUrl}/canvas
 Body: {"filePath": "/path/to/file"}
 
 The file type is automatically detected from the file extension. Supported formats:
@@ -190,7 +201,9 @@ The file type is automatically detected from the file extension. Supported forma
 - Markdown: .md, .mdx
 - Code: .js, .ts, .py, .go, .rs, .java, etc.
 - JSON: .json
-- Text: .txt, .log, .csv`;
+- Text: .txt, .log, .csv
+
+The canvas is shared across all sessions in this workspace — items you post here are visible to sibling sessions in the same workspace.`;
 }
 
 /**
@@ -199,18 +212,17 @@ The file type is automatically detected from the file extension. Supported forma
  * @returns {string}
  */
 function buildCanvasReadSystemPrompt(session) {
-  const apiUrl = getApiBaseUrl();
-  const sessionId = session?.id || 'unknown-session';
+  const canvasUrl = buildCanvasBaseUrl(session);
   return `## Reading from Canvas
 
 To list all files on the canvas:
 \`\`\`bash
-curl ${apiUrl}/api/sessions/${sessionId}/canvas
+curl ${canvasUrl}/canvas
 \`\`\`
 
 To read a specific file from the canvas (returns file path for Read tool):
 \`\`\`bash
-curl ${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}
+curl ${canvasUrl}/canvas/file/{filename}
 \`\`\`
 
 Response: { filePath, type, mimeType, createdAt, version, totalVersions }
@@ -223,7 +235,7 @@ Supported types: images, PDFs, markdown, text, JSON
 
 If you need to access an earlier version of a file:
 \`\`\`bash
-curl ${apiUrl}/api/sessions/${sessionId}/canvas/file/{filename}/history/{version}
+curl ${canvasUrl}/canvas/file/{filename}/history/{version}
 \`\`\`
 
 Where version 1 = oldest, and higher numbers are newer versions.`;
