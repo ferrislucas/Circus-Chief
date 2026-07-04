@@ -35,6 +35,11 @@
         </option>
       </optgroup>
     </select>
+    <span
+      v-if="isUnknownModel"
+      class="unknown-model-badge"
+      :title="`Stored model '${model}' is no longer available. Choose a replacement to update it.`"
+    >unknown model</span>
   </div>
 </template>
 
@@ -236,6 +241,16 @@ function resolveModelId(modelValue) {
 const selectedModel = ref(resolveModelId(props.modelValue));
 const selectedProviderId = ref(props.providerId);
 
+// True when the parent supplied a non-empty model id that no longer matches any
+// option in the catalog (e.g. a model retired since the value was stored). We
+// surface this as a visible badge instead of silently substituting the default,
+// so stale config is obvious. Null/empty (unset) is NOT "unknown".
+const isUnknownModel = computed(() => {
+  if (!providersHaveModels.value) return false;
+  if (!props.modelValue) return false;
+  return !isValidModelId(resolveModelId(props.modelValue));
+});
+
 // Computed that ALWAYS returns a valid model ID for the select element
 // This ensures the select never shows empty, even before providers load
 const effectiveSelectedModel = computed(() => {
@@ -299,6 +314,16 @@ function syncSelectionFromProviders() {
   // Check if resolved model is valid (exists as an option)
   if (resolvedModel && isValidModelId(resolvedModel)) {
     applyResolvedModel(resolvedModel);
+    return;
+  }
+
+  // Non-empty value that doesn't resolve to any current option — e.g. a model
+  // id retired from the catalog. Don't silently overwrite the parent's stored
+  // value with the default; surface the orphan via the isUnknownModel badge so
+  // the staleness is visible. Display still falls back to the default through
+  // the effectiveSelectedModel/effectiveSelectedKey computeds.
+  if (props.modelValue) {
+    selectedModel.value = resolveModelId(props.modelValue);
     return;
   }
 
@@ -407,6 +432,21 @@ function optionLabel(provider, model) {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.unknown-model-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-warning, #fbbf24);
+  background-color: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.375rem;
+  cursor: help;
+  white-space: nowrap;
+  line-height: 1.4;
 }
 
 .model-select {
