@@ -3,7 +3,15 @@ import { modelTiers, modelProviders } from '../database.js';
 
 /**
  * In-memory cooldown store. Maps "providerId::modelId" → expiry timestamp (ms).
- * Not persisted: a failed member becomes retryable after a server restart.
+ *
+ * Scope note (Fix 6 / E7): this map is per-process. Cooldown entries are cleared
+ * on server restart, meaning a member that failed before a restart is immediately
+ * retryable again. For a local-first, single-process deployment this is acceptable:
+ * the thundering-herd protection (F21) is effective within a session's lifecycle.
+ * If multi-process or multi-replica deployments are ever added, cooldown state
+ * should be persisted (e.g., a `healthy_until` column in the provider_models table
+ * or a shared store) so the protection spans process boundaries.
+ *
  * @type {Map<string, number>}
  */
 const cooldownMap = new Map();

@@ -240,3 +240,181 @@ describe('runSessionCore tier failover (integration)', () => {
     expect(mockQuery.mock.calls.length).toBeLessThanOrEqual(2);
   });
 });
+
+// ── Fix 2: successor-aware cooldown ──────────────────────────────────────────
+
+describe('handleTierMemberFailure successor-aware cooldown (Fix 2)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let providerB;
+  let tier;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'fix2-cooldown-test-'));
+    const project = projectRepo.create('Fix2 Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'Fix2 Provider A', kind: 'anthropic' });
+    providerB = modelProviders.create({ name: 'Fix2 Provider B', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'fix2-model-a', displayName: 'Fix2 Model A' });
+    modelProviders.addModel(providerB.id, { modelId: 'fix2-model-b', displayName: 'Fix2 Model B' });
+
+    tier = modelTiers.create({
+      name: 'Fix2 Tier',
+      members: [
+        { providerId: providerA.id, modelId: 'fix2-model-a', position: 0 },
+        { providerId: providerB.id, modelId: 'fix2-model-b', position: 1 },
+      ],
+    });
+    session = sessionRepo.create(project.id, 'Fix2 Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('cools down the first failing member when a successor exists (F21 still steers)', async () => {
+    // A fails → B is healthy → A should be cooled, B should succeed
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'fix2-model-b', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'B response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    await runSession(session.id, 'prompt', tempDir, { model: null });
+
+    // A must be cooled (had a healthy successor B)
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
+    // B ran successfully and must NOT be cooled
+    expect(isUnhealthy(providerB.id, 'fix2-model-b')).toBe(false);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('fix2-model-b');
+  });
+
+  it('does NOT cool down the last failing member when no successor exists (Fix 2 dead-end prevention)', async () => {
+    // A fails → B fails (no next after B) → B should NOT be cooled
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementation(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    await expect(
+      runSession(session.id, 'prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    // A was cooled (B was available when A failed)
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(true);
+    // B was NOT cooled (no successor existed when B failed)
+    expect(isUnhealthy(providerB.id, 'fix2-model-b')).toBe(false);
+
+    // A fresh new session can still resolve to a concrete member (B is not in cooldown)
+    const session2 = sessionRepo.create(session.projectId, 'Fix2 Session 2', 'prompt', 'standard');
+    sessionRepo.update(session2.id, { model: buildTierRef(tier.id) });
+    const { resolveActiveModel } = await import('./tierResolutionService.js');
+    const resolved = resolveActiveModel(buildTierRef(tier.id), {});
+    expect(resolved).not.toBeNull();
+    expect(resolved.model).toBe('fix2-model-b');
+  });
+
+  it('reschedule-retry is not blocked by cooldown on single-member tier (Fix 2 + Fix 1)', async () => {
+    // Single-member tier: A fails with service error + auto-reschedule enabled.
+    // A must NOT be cooled so the rescheduled retry can re-resolve A.
+    const singleTier = modelTiers.create({
+      name: 'Fix2 Single',
+      members: [{ providerId: providerA.id, modelId: 'fix2-model-a', position: 0 }],
+    });
+    const singleSession = sessionRepo.create(session.projectId, 'Fix2 Single Session', 'prompt', 'standard');
+    sessionRepo.update(singleSession.id, {
+      model: buildTierRef(singleTier.id),
+      autoRescheduleEnabled: true,
+      rescheduleOnServiceError: true,
+    });
+
+    // eslint-disable-next-line require-yield
+    mockQuery.mockImplementationOnce(async function* () {
+      throw new Error('Error: 529 Service overloaded');
+    });
+
+    // Session is expected to be rescheduled (not throw)
+    try {
+      await runSession(singleSession.id, 'prompt', tempDir, { model: null });
+    } catch (_err) {
+      // Acceptable if reschedule is not enabled in test env; main assertion below.
+    }
+
+    // The sole member must NOT be in cooldown — it's the only hope for the retry
+    expect(isUnhealthy(providerA.id, 'fix2-model-a')).toBe(false);
+  });
+});
+
+// ── Fix 3: preserve resolvedModel on proactive reschedule ───────────────────
+
+describe('runSessionWithTierFailover preserves resolvedModel on proactive reschedule (Fix 3)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerA;
+  let tier;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'fix3-snapshot-test-'));
+    const project = projectRepo.create('Fix3 Project', tempDir);
+
+    providerA = modelProviders.create({ name: 'Fix3 Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'fix3-model-a', displayName: 'Fix3 Model A' });
+
+    tier = modelTiers.create({
+      name: 'Fix3 Tier',
+      members: [{ providerId: providerA.id, modelId: 'fix3-model-a', position: 0 }],
+    });
+    session = sessionRepo.create(project.id, 'Fix3 Session', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      model: buildTierRef(tier.id),
+      // Low proactive reschedule threshold so the post-turn check fires
+      autoRescheduleEnabled: true,
+      rescheduleAtTokenCount: 1,
+    });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('snapshots resolvedModel even when the session is proactively rescheduled after a successful run', async () => {
+    // Agent responds successfully but reports enough tokens to trigger the
+    // proactive reschedule threshold (rescheduleAtTokenCount=1).
+    mockQuery.mockImplementationOnce(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'fix3-model-a', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'response' }] } };
+      // Include usage so the token-count DB update fires and exceeds the threshold
+      yield { type: 'result', subtype: 'success', usage: { input_tokens: 50, output_tokens: 50 } };
+    });
+
+    await runSession(session.id, 'prompt', tempDir, { model: null });
+
+    const updated = sessionRepo.getById(session.id);
+    // The session ran (produced assistant output) — resolvedModel MUST be recorded
+    // regardless of whether the session was proactively rescheduled afterwards.
+    expect(updated.resolvedModel).toBe('fix3-model-a');
+    expect(updated.resolvedProviderId).toBe(providerA.id);
+  });
+});

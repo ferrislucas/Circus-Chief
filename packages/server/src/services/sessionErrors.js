@@ -5,8 +5,19 @@ import { hasNextHealthyMember } from './tierResolutionService.js';
 import { sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
 
 /**
- * Check if error message matches token limit patterns
- * @param {string} message - Error message to check
+ * Check if error message matches token limit patterns.
+ *
+ * Intentionally broad: the patterns below also catch generic non-quota phrases
+ * such as "limit", "cap", and "exceeded". This breadth is a deliberate choice
+ * for auto-reschedule decisions — we prefer false-positive reschedules (retrying
+ * a session that could have continued) over false-negative ones (not retrying
+ * when we should).
+ *
+ * Note: do NOT use this function for start-time tier failover eligibility — it
+ * is too broad and can match non-quota errors like "Unexpected token in JSON".
+ * Use matchesStartFailoverEligibleError instead (Fix 4 / F16).
+ *
+ * @param {string} message - Error message to check (should be lowercased by caller)
  * @returns {boolean} True if matches token limit error
  */
 export function matchesTokenLimitError(message) {
@@ -23,6 +34,38 @@ export function matchesTokenLimitError(message) {
   ];
 
   return patterns.some(pattern => message.includes(pattern));
+}
+
+/**
+ * Check if an error qualifies for start-time tier failover (Fix 4 / F16).
+ *
+ * Uses a tighter pattern set than matchesTokenLimitError to avoid spurious
+ * cross-provider failover on non-quota errors (e.g. "Unexpected token in JSON"
+ * contains "token" but is a JSON parse error, not a capacity error).
+ *
+ * Covers the PRD-specified triggers: overload / 503 / 529 / rate limit / quota /
+ * out of tokens / insufficient credit / billing — plus the matchesServiceError
+ * patterns (service unavailability) which are already tight.
+ *
+ * @param {string} message - Error message to check (should be lowercased by caller)
+ * @returns {boolean} True if the error should trigger start-time tier failover
+ */
+export function matchesStartFailoverEligibleError(message) {
+  // Delegate to matchesServiceError for service-level outage patterns
+  if (matchesServiceError(message)) return true;
+
+  // Quota / billing patterns (tighter than matchesTokenLimitError)
+  const quotaPatterns = [
+    'quota',
+    'rate limit',
+    'out of tokens',
+    'insufficient credit',
+    'billing',
+    'context length',
+    'context window',
+    'max_tokens',
+  ];
+  return quotaPatterns.some(pattern => message.includes(pattern));
 }
 
 /**
@@ -117,7 +160,10 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
   }
 
   const errorMessage = error.message.toLowerCase();
-  const isEligible = matchesServiceError(errorMessage) || matchesTokenLimitError(errorMessage);
+  // Use the tighter failover-specific matcher (Fix 4) rather than the broad
+  // matchesTokenLimitError to avoid spurious cross-provider failover on
+  // non-quota errors such as JSON parse errors containing "token".
+  const isEligible = matchesStartFailoverEligibleError(errorMessage);
   if (!isEligible || !sessionId || !sessionHasNoAssistantMessages(sessionId)) {
     return false;
   }

@@ -7,7 +7,7 @@ import {
   hasNextHealthyMember,
   isUnhealthy,
 } from './tierResolutionService.js';
-import { matchesServiceError, matchesTokenLimitError } from './sessionErrors.js';
+import { matchesStartFailoverEligibleError } from './sessionErrors.js';
 import { broadcastToSession } from '../websocket.js';
 import { buildQueryParams } from './queryParamBuilder.js';
 import { activeSessions } from './streamEventHandler.js';
@@ -100,7 +100,9 @@ async function attemptRunWithModel(
  */
 function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, members }) {
   const errMsg = error.message?.toLowerCase() || '';
-  const isEligible = matchesServiceError(errMsg) || matchesTokenLimitError(errMsg);
+  // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
+  // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
+  const isEligible = matchesStartFailoverEligibleError(errMsg);
   const isPreConversation = sessionHasNoAssistantMessages(sessionId);
 
   // Non-eligible error (auth, bad request, abort) or mid-conversation — don't advance
@@ -108,23 +110,26 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, 
     throw error;
   }
 
-  // The member genuinely failed with an eligible error — cool it down regardless
-  // of whether we can advance, so future session starts skip it too.
-  markUnhealthy(member.providerId, member.modelId);
-
-  // If there is no next healthy member, all members are exhausted — rethrow
-  // without emitting a failover event (nothing to fail over to). The existing
-  // error/auto-reschedule path already ran inside _executeSession for this case.
+  // Check whether there is another healthy member to steer toward (Fix 2).
+  // Cooldown is only useful when it can redirect new sessions to a healthy
+  // alternative.  Cooling a terminal member (no successor) creates a dead-end:
+  // resolveActiveModel returns null, blocking both new starts and the
+  // reschedule-retry path until the cooldown expires.
   const hasNext = hasNextHealthyMember(tierRef, {
     excludeModelId: member.modelId,
     excludeProviderId: member.providerId,
   });
+
   if (!hasNext) {
+    // All members exhausted — rethrow WITHOUT cooling down so the terminal
+    // member stays resolvable for the reschedule-retry path (Fix 1 + Fix 2).
+    // The existing error/auto-reschedule path already ran inside _executeSession.
     throw error;
   }
 
-  // Eligible failure with a healthy successor — emit the failover event and
-  // return so the caller advances to the next member.
+  // There IS a next healthy member — cool down the failed one so new session
+  // starts are steered past it (F21), then emit the failover event.
+  markUnhealthy(member.providerId, member.modelId);
   emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, members });
 }
 
@@ -174,6 +179,37 @@ function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, me
     });
   } catch (_logErr) {
     // Non-fatal — failover proceeds even if logging fails
+  }
+}
+
+/**
+ * Snapshot the member that successfully ran (Fix 5 / Fix 3).
+ *
+ * Snapshot when EITHER:
+ *   a) The session completed normally (status is not 'scheduled'), OR
+ *   b) The session ran (produced ≥1 assistant message) and was then
+ *      proactively rescheduled — in that case status is 'scheduled' but a
+ *      turn genuinely completed, so the snapshot should be recorded for the
+ *      badge/continue path (Fix 3).
+ *
+ * Do NOT snapshot when the session was rescheduled without ever producing
+ * output (i.e. failed at start and rescheduled by _executeSession) — that
+ * would record the failing member as the "active" model.
+ *
+ * @param {string} sessionId
+ * @param {string} tierRef
+ * @param {{ modelId: string, providerId: string }} member
+ */
+function snapshotSuccessfulMember(sessionId, tierRef, member) {
+  const currentSession = sessions.getById(sessionId);
+  const wasRescheduled = currentSession?.status === 'scheduled';
+  const didRun = !sessionHasNoAssistantMessages(sessionId);
+  if (!wasRescheduled || didRun) {
+    sessions.update(sessionId, {
+      model: tierRef,
+      resolvedModel: member.modelId,
+      resolvedProviderId: member.providerId,
+    });
   }
 }
 
@@ -235,19 +271,7 @@ export async function runSessionWithTierFailover(
         tierContext,
       });
 
-      // Success — but only snapshot if the session actually ran (not rescheduled).
-      // A rescheduled session has status 'scheduled', not 'waiting'. Snapshotting
-      // a member that was rescheduled (rather than completing successfully) would
-      // incorrectly record the failing member as the "active" model. (Fix 5)
-      const currentSession = sessions.getById(sessionId);
-      const wasRescheduled = currentSession?.status === 'scheduled';
-      if (!wasRescheduled) {
-        sessions.update(sessionId, {
-          model: tierRef,
-          resolvedModel: member.modelId,
-          resolvedProviderId: member.providerId,
-        });
-      }
+      snapshotSuccessfulMember(sessionId, tierRef, member);
       return; // done
     } catch (error) {
       // Advances to the next member (loop continue) or rethrows on terminal errors.

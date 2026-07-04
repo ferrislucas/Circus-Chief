@@ -1465,3 +1465,117 @@ describe('continueSessionWithExistingMessage Codex conversation context', () => 
     createAgentSpy.mockRestore();
   });
 });
+
+// ── Fix 1: buildModelAndProvider tier-ref resolution ──────────────────────────
+// Tests asserting that continueSessionWithExistingMessage never forwards a raw
+// `tier::` sentinel to the agent and always resolves to a concrete model.
+
+describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
+  let sessionRepo;
+  let messageRepo;
+  let conversationRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let tier;
+  let providerA;
+
+  // Capture the model forwarded to the agent via a spy
+  let capturedModel;
+  let stubAgent;
+
+  beforeEach(async () => {
+    capturedModel = undefined;
+    stubAgent = {
+      execute: vi.fn(async function* (queryParams) {
+        capturedModel = queryParams.options?.model;
+        yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'model-a' };
+        yield { type: 'assistant', message: { content: [{ type: 'text', text: 'response' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }),
+      supportsResume: () => false,
+      needsConversationContext: () => false,
+    };
+    vi.spyOn(agentGateway, 'createAgent').mockReturnValue(stubAgent);
+
+    sessionRepo = new SessionRepository();
+    messageRepo = new MessageRepository();
+    conversationRepo = new ConversationRepository();
+    projectRepo = new ProjectRepository();
+
+    tempDir = mkdtempSync(join(tmpdir(), 'fix1-tier-test-'));
+    const project = projectRepo.create('Test Project', tempDir);
+
+    // Create a provider + tier
+    const { modelProviders, modelTiers } = await import('../database.js');
+    providerA = modelProviders.create({ name: 'Provider A Fix1', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'concrete-model-a', displayName: 'Model A' });
+
+    const { buildTierRef } = await import('@circuschief/shared');
+    tier = modelTiers.create({
+      name: 'Fix1 Tier',
+      members: [{ providerId: providerA.id, modelId: 'concrete-model-a', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    // Session is bound to the tier, with a stored resolvedModel snapshot
+    session = sessionRepo.create(project.id, 'Tier Session', 'initial', 'standard');
+    sessionRepo.update(session.id, {
+      model: tierRef,
+      resolvedModel: 'concrete-model-a',
+      resolvedProviderId: providerA.id,
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses the stored resolvedModel snapshot — never the tier sentinel — when continueSessionWithExistingMessage is called', async () => {
+    // Simulate a reschedule-retry scenario: existing user message, no reply yet
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'What is 2+2?', { conversationId: conversation.id });
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
+
+    // Agent must receive the concrete model, never the tier:: sentinel
+    expect(capturedModel).toBe('concrete-model-a');
+    expect(capturedModel).not.toMatch(/^tier::/);
+  });
+
+  it('re-resolves from live tier lookup when resolvedModel snapshot is missing (fallback)', async () => {
+    // Clear the snapshot to simulate a legacy row
+    sessionRepo.update(session.id, { resolvedModel: null, resolvedProviderId: null });
+
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
+
+    // Live resolution falls back to the first healthy member
+    expect(capturedModel).toBe('concrete-model-a');
+    expect(capturedModel).not.toMatch(/^tier::/);
+  });
+
+  it('resolves an explicit tier-ref model arg to a concrete model', async () => {
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    const { buildTierRef } = await import('@circuschief/shared');
+    const tierRef = buildTierRef(tier.id);
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+    // Pass the tier ref as an explicit model override — must still resolve to concrete
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
+      model: tierRef,
+    });
+
+    expect(capturedModel).toBe('concrete-model-a');
+    expect(capturedModel).not.toMatch(/^tier::/);
+  });
+});
