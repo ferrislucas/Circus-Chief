@@ -36,14 +36,20 @@ export function resolveSummaryModel(summarySettings = {}) {
     if (isTierRef(summaryModel)) {
       const resolved = resolveActiveModel(summaryModel, {});
       if (!resolved) {
-        throw new Error(
-          `Summary tier "${summaryModel}" has no healthy members available`
+        // All tier members are in cooldown or the tier is empty. Rather than
+        // throwing and breaking summary generation entirely, fall through to the
+        // default summary model selection (Fix 9 — graceful degradation).
+        console.warn(
+          `[summaryModelResolver] Summary tier "${summaryModel}" has no healthy members — falling back to default summary model`
         );
+        // Fall through to default resolution below
+      } else {
+        // Delegate to explicit resolution with the concrete values
+        return resolveExplicitSummaryModel(resolved.model, resolved.providerId);
       }
-      // Delegate to explicit resolution with the concrete values
-      return resolveExplicitSummaryModel(resolved.model, resolved.providerId);
+    } else {
+      return resolveExplicitSummaryModel(summaryModel, summaryProviderId);
     }
-    return resolveExplicitSummaryModel(summaryModel, summaryProviderId);
   }
   if (summaryProviderId) {
     throw new Error('summaryModel is required when summaryProviderId is set');

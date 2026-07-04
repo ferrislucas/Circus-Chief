@@ -103,6 +103,44 @@ export class AgentCallLogger {
   }
 
   /**
+   * Log a tier failover event as a completed agent-call entry (Fix 4 / F26).
+   * Creates a single-row "tierFailover" call-type log entry that appears in
+   * Settings → Logs alongside regular agent calls.
+   *
+   * @param {string} sessionId
+   * @param {{ fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, timestamp }} opts
+   */
+  _logFailoverEvent(sessionId, { fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, timestamp }) {
+    const callId = nanoid();
+    const metadata = {
+      fromModel: fromModel || null,
+      fromProviderId: fromProviderId || null,
+      toModel: toModel || null,
+      toProviderId: toProviderId || null,
+      tierRef: tierRef || null,
+      tierName: tierName || null,
+      reason: reason || null,
+    };
+
+    agentCallLogs.create({
+      id: callId,
+      sessionId,
+      conversationId: null,
+      agentType: 'claude-code',
+      model: fromModel || null,
+      callType: 'tierFailover',
+      promptLength: 0,
+      metadata,
+    });
+
+    // Immediately complete the log entry as a system event (no streaming)
+    agentCallLogs.complete(callId, {
+      success: false,
+      errorMessage: reason || 'Tier failover',
+    });
+  }
+
+  /**
    * Delete all logs from both the database and the in-memory active calls map.
    * @returns {number} Number of deleted rows
    */

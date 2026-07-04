@@ -335,6 +335,17 @@ function addMember() {
   if (!newMemberKey.value) return;
   const [providerId, ...rest] = newMemberKey.value.split('::');
   const modelId = rest.join('::');
+
+  // Prevent exact-duplicate (providerId, modelId) pairs (Fix 8)
+  const isDuplicate = form.value.members.some(
+    (m) => m.providerId === providerId && m.modelId === modelId
+  );
+  if (isDuplicate) {
+    modalError.value = `${modelId} from this provider is already in the tier.`;
+    return;
+  }
+
+  modalError.value = '';
   form.value.members.push({ providerId, modelId, position: form.value.members.length });
   newMemberKey.value = '';
 }

@@ -1,6 +1,6 @@
 import { sessions, modelTiers } from '../database.js';
 import { reconcileAgentTypeForRun, sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
-import { parseTierRef, WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { parseTierRef, WS_MESSAGE_TYPES, DEFAULT_MAX_FAILOVER_ATTEMPTS } from '@circuschief/shared';
 import {
   getTierMembersResolved,
   markUnhealthy,
@@ -16,6 +16,7 @@ import {
   resolveInitialSessionModelEnv,
   _executeSession,
 } from './sessionExecution.js';
+import { agentCallLogger } from './agentCallLogger.js';
 
 /**
  * Execute a single attempt with a concrete (model, providerId) pair.
@@ -93,8 +94,11 @@ async function attemptRunWithModel(
  * (without emitting a failover event — there is nothing to fail over *to*, so
  * the existing error/auto-reschedule handling, already applied upstream in
  * `_executeSession`, is the correct terminal behavior).
+ *
+ * @param {Error} error
+ * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, members: Array }} ctx
  */
-function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName }) {
+function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, members }) {
   const errMsg = error.message?.toLowerCase() || '';
   const isEligible = matchesServiceError(errMsg) || matchesTokenLimitError(errMsg);
   const isPreConversation = sessionHasNoAssistantMessages(sessionId);
@@ -119,19 +123,49 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName }
     throw error;
   }
 
+  // Identify the next healthy member for the payload (Fix 5)
+  const nextMember = members
+    ? members.find(
+        (m) =>
+          !(m.modelId === member.modelId && m.providerId === member.providerId) &&
+          !isUnhealthy(m.providerId, m.modelId)
+      )
+    : null;
+
   console.log(
-    `[SessionManager] Tier failover: member ${member.modelId} (provider ${member.providerId}) failed; marking unhealthy and advancing`
+    `[SessionManager] Tier failover: member ${member.modelId} (provider ${member.providerId}) failed; marking unhealthy and advancing to ${nextMember?.modelId || 'next member'}`
   );
 
-  // Emit failover event via WebSocket — only fires when we're actually advancing.
+  const now = Date.now();
+
+  // Emit failover event via WebSocket — only fires when we're actually advancing (Fix 2/Fix 5).
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.TIER_FAILOVER, {
     tierRef,
     tierName,
     fromModel: member.modelId,
     fromProviderId: member.providerId,
+    toModel: nextMember?.modelId || null,
+    toProviderId: nextMember?.providerId || null,
     reason: error.message,
-    timestamp: Date.now(),
+    timestamp: now,
   });
+
+  // Write the failover event to the agent log stream (Fix 4 — F26)
+  try {
+    agentCallLogger._logFailoverEvent(sessionId, {
+      fromModel: member.modelId,
+      fromProviderId: member.providerId,
+      toModel: nextMember?.modelId || null,
+      toProviderId: nextMember?.providerId || null,
+      tierRef,
+      tierName,
+      reason: error.message,
+      timestamp: now,
+    });
+  } catch (_logErr) {
+    // Non-fatal — failover proceeds even if logging fails
+  }
+
   // Return so the caller advances to the next member.
 }
 
@@ -162,9 +196,16 @@ export async function runSessionWithTierFailover(
   // Ensure the model stored on the session is the tier ref
   sessions.update(sessionId, { model: tierRef });
 
+  let attemptsUsed = 0;
+  const maxAttempts = Math.min(members.length, DEFAULT_MAX_FAILOVER_ATTEMPTS);
+
   for (const member of members) {
     // Skip members already in cooldown
     if (isUnhealthy(member.providerId, member.modelId)) continue;
+
+    // Hard cap on failover attempts (Fix 7)
+    if (attemptsUsed >= maxAttempts) break;
+    attemptsUsed++;
 
     const tierContext = {
       currentMemberId: member.modelId,
@@ -186,16 +227,23 @@ export async function runSessionWithTierFailover(
         tierContext,
       });
 
-      // Success — snapshot the resolved model (ID2) and restore tier ref as model
-      sessions.update(sessionId, {
-        model: tierRef,
-        resolvedModel: member.modelId,
-        resolvedProviderId: member.providerId,
-      });
+      // Success — but only snapshot if the session actually ran (not rescheduled).
+      // A rescheduled session has status 'scheduled', not 'waiting'. Snapshotting
+      // a member that was rescheduled (rather than completing successfully) would
+      // incorrectly record the failing member as the "active" model. (Fix 5)
+      const currentSession = sessions.getById(sessionId);
+      const wasRescheduled = currentSession?.status === 'scheduled';
+      if (!wasRescheduled) {
+        sessions.update(sessionId, {
+          model: tierRef,
+          resolvedModel: member.modelId,
+          resolvedProviderId: member.providerId,
+        });
+      }
       return; // done
     } catch (error) {
       // Advances to the next member (loop continue) or rethrows on terminal errors.
-      handleTierMemberFailure(error, { sessionId, member, tierRef, tierName });
+      handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, members });
     }
   }
 

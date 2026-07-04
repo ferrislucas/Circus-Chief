@@ -181,4 +181,63 @@ describe('summaryModelResolver', () => {
     });
     expect(resolved.provider).toMatchObject({ id: BUILT_IN_ANTHROPIC_PROVIDER_ID, isBuiltIn: true });
   });
+
+  // Fix 9: graceful degradation when a tier-bound summary model has all members in cooldown
+  describe('tier summary model degradation (Fix 9)', () => {
+    let tierProvider;
+
+    beforeEach(async () => {
+      const { modelProviders, modelTiers } = await import('../database.js');
+      const { markUnhealthy, clearUnhealthy } = await import('./tierResolutionService.js');
+
+      tierProvider = modelProviders.create({ name: 'Tier Provider', kind: 'anthropic' });
+      // Expose helpers on the suite for afterEach cleanup
+      suite.tierProvider = tierProvider;
+      suite.markUnhealthy = markUnhealthy;
+      suite.clearUnhealthy = clearUnhealthy;
+      suite.modelTiers = modelTiers;
+    });
+
+    // Use a plain object as a shared context for this nested describe block
+    const suite = {};
+
+    it('falls back to default summary model when all tier members are cooled down', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const tier = suite.modelTiers.create({
+        name: 'Summary Tier',
+        members: [{ providerId: suite.tierProvider.id, modelId: 'model-cooled', position: 0 }],
+      });
+      suite.markUnhealthy(suite.tierProvider.id, 'model-cooled', 60_000);
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      // Must NOT throw, must fall back to the default Anthropic model
+      expect(resolved).toBeDefined();
+      expect(resolved.model).toBe(DEFAULT_ANTHROPIC_SUMMARY_MODEL);
+      expect(resolved.isDefault).toBe(true);
+
+      // Cleanup
+      suite.clearUnhealthy(suite.tierProvider.id, 'model-cooled');
+    });
+
+    it('resolves normally when a tier member is healthy', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const tier = suite.modelTiers.create({
+        name: 'Healthy Tier',
+        members: [{ providerId: suite.tierProvider.id, modelId: 'claude-haiku-4-5-20251001', position: 0 }],
+      });
+      // The resolved model needs a valid provider — add it to the provider
+      const { modelProviders } = await import('../database.js');
+      modelProviders.addModel(suite.tierProvider.id, {
+        modelId: 'claude-haiku-4-5-20251001',
+        displayName: 'Haiku test',
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe('claude-haiku-4-5-20251001');
+      expect(resolved.providerId).toBe(suite.tierProvider.id);
+      expect(resolved.isDefault).toBe(false);
+    });
+  });
 });

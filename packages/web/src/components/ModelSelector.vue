@@ -4,6 +4,12 @@
     :data-model="effectiveSelectedModel"
     :data-provider-id="effectiveSelectedProviderId || ''"
   >
+    <!-- Tier badge: shown when a tier ref is currently selected (F11) -->
+    <span
+      v-if="isTierRef(effectiveSelectedModel)"
+      class="tier-chip"
+      :title="tierChipTitle"
+    >Tier: {{ tierChipName }}</span>
     <select
       id="model-select"
       :value="effectiveSelectedKey"
@@ -104,6 +110,24 @@ const tiersStore = useTiersStore();
 const tiersWithMembers = computed(() =>
   tiersStore.tiers.filter((t) => t.members && t.members.length > 0)
 );
+
+// Tier chip: name and tooltip for the selected tier (when a tier ref is active)
+const tierChipName = computed(() => {
+  if (!isTierRef(effectiveSelectedModel.value)) return '';
+  const tierId = effectiveSelectedModel.value.slice('tier::'.length);
+  const tier = tiersStore.getById(tierId);
+  return tier?.name || tierId;
+});
+
+const tierChipTitle = computed(() => {
+  if (!isTierRef(effectiveSelectedModel.value)) return '';
+  const tierId = effectiveSelectedModel.value.slice('tier::'.length);
+  const tier = tiersStore.getById(tierId);
+  const memberCount = tier?.members?.length ?? 0;
+  return tier
+    ? `Model tier "${tier.name}" — ${memberCount} member${memberCount !== 1 ? 's' : ''}`
+    : `Tier: ${tierId}`;
+});
 
 // Check if providers have models loaded
 // Providers may have been fetched without models (e.g., from ProvidersView)
@@ -521,5 +545,21 @@ function optionLabel(provider, model) {
 .model-select option {
   background-color: var(--color-background);
   color: var(--color-text);
+}
+
+/* Tier chip badge shown alongside the selector when a tier is selected (F11) */
+.tier-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background-color: rgba(6, 182, 212, 0.15);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.3);
+  border-radius: 0.25rem;
+  white-space: nowrap;
+  cursor: default;
 }
 </style>

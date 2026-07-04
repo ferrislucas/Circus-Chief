@@ -136,6 +136,8 @@ import SchedulingInfo from './SchedulingInfo.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import StaleBadge from './StaleBadge.vue';
 import { useProjectsStore } from '../stores/projects.js';
+import { isTierRef } from '../stores/tiers.js';
+import { useTiersStore } from '../stores/tiers.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },
@@ -161,6 +163,7 @@ const uiStore = useUiStore();
 const templatesStore = useTemplatesStore();
 const defaultsStore = useProjectDefaultsStore();
 const projectsStore = useProjectsStore();
+const tiersStore = useTiersStore();
 const { getModelDisplayName } = useModelInfo();
 const { isStale } = useConnectionStatus();
 const route = useRoute();
@@ -218,8 +221,27 @@ const isScheduledDraft = computed(() => {
 });
 
 const activeModelDisplayName = computed(() => {
-  const model = sessionsStore.currentSession?.model;
+  const session = sessionsStore.currentSession;
+  if (!session) return null;
+  const model = session.model;
   if (!model) return null;
+
+  // When the session is bound to a tier, display the resolved concrete model
+  // (the one actually running) with a tier annotation (F24).
+  if (isTierRef(model)) {
+    const tierId = model.slice('tier::'.length);
+    const tier = tiersStore.getById(tierId);
+    const tierLabel = tier ? `Tier: ${tier.name}` : 'Tier';
+
+    // Prefer the stored resolved model — it's what the agent is actually using
+    const resolvedModel = session.resolvedModel;
+    if (resolvedModel) {
+      return `${getModelDisplayName(resolvedModel)} (${tierLabel})`;
+    }
+    // Fallback: tier name only when no resolved model is available yet
+    return tierLabel;
+  }
+
   return getModelDisplayName(model);
 });
 
