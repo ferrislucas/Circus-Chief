@@ -54,6 +54,26 @@
  */
 
 /**
+ * @typedef {Object} TierMember
+ * @property {string} id
+ * @property {string} tierId
+ * @property {string} providerId
+ * @property {string} modelId
+ * @property {number} position
+ * @property {number} createdAt
+ */
+
+/**
+ * @typedef {Object} Tier
+ * @property {string} id
+ * @property {string} name
+ * @property {string|null} description
+ * @property {TierMember[]} members
+ * @property {number} createdAt
+ * @property {number} updatedAt
+ */
+
+/**
  * @typedef {Object} ConversationMessage
  * @property {string} id
  * @property {string} sessionId

@@ -73,6 +73,7 @@ describe('schema baseline', () => {
         'reschedule_at_token_count', 'pending_prompt', 'slash_commands',
         'pending_model', 'auto_send_pending_prompt', 'agent_type',
         'lane_trigger_depth', 'created_at', 'updated_at', 'pending_conversation_id',
+        'resolved_model', 'resolved_provider_id',
       ]);
     });
   });

@@ -50,6 +50,9 @@ export const WS_MESSAGE_TYPES = {
   KANBAN_CARD_MOVED: 'kanban:card_moved',
   KANBAN_CARD_ADDED: 'kanban:card_added',
   KANBAN_CARD_REMOVED: 'kanban:card_removed',
+
+  // Tier failover events
+  TIER_FAILOVER: 'tier:failover',
 };
 
 /**

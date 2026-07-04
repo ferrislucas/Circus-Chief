@@ -50,6 +50,10 @@ export class SessionRepository extends BaseRepository {
       slashCommands: row.slash_commands || null,
       // Agent runtime driving this session (fallback to 'claude-code' for legacy rows).
       agentType: row.agent_type || DEFAULT_AGENT_TYPE,
+      // Tier failover: concrete model/provider snapshot from last successful start
+      // (better-sqlite3 already returns null, not undefined, for unset TEXT columns)
+      resolvedModel: row.resolved_model,
+      resolvedProviderId: row.resolved_provider_id,
       ...mapTokenUsage(row),
       ...mapScheduling(row),
       // Kanban fields

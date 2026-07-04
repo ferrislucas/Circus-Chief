@@ -1,4 +1,6 @@
 import { modelProviders, sessions } from '../database.js';
+import { isTierRef } from '@circuschief/shared';
+import { resolveActiveModel } from './tierResolutionService.js';
 import { ACTIVITY_FIELDS_SQL } from '../db/session-helpers.js';
 
 export const DEFAULT_ANTHROPIC_SUMMARY_MODEL = 'claude-haiku-4-5-20251001';
@@ -30,6 +32,17 @@ export function resolveSummaryModel(summarySettings = {}) {
   const summaryProviderId = summarySettings?.summaryProviderId || null;
 
   if (summaryModel) {
+    // Tier ref: resolve to a concrete (model, providerId) before building the summary run
+    if (isTierRef(summaryModel)) {
+      const resolved = resolveActiveModel(summaryModel, {});
+      if (!resolved) {
+        throw new Error(
+          `Summary tier "${summaryModel}" has no healthy members available`
+        );
+      }
+      // Delegate to explicit resolution with the concrete values
+      return resolveExplicitSummaryModel(resolved.model, resolved.providerId);
+    }
     return resolveExplicitSummaryModel(summaryModel, summaryProviderId);
   }
   if (summaryProviderId) {

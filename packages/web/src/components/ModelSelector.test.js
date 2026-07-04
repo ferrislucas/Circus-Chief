@@ -4,6 +4,7 @@ import { nextTick } from 'vue';
 import { createPinia, setActivePinia } from 'pinia';
 import ModelSelector from './ModelSelector.vue';
 import { useProvidersStore } from '../stores/providers.js';
+import { useTiersStore } from '../stores/tiers.js';
 import { CLAUDE_MODELS, OPENAI_MODELS } from '@circuschief/shared';
 
 // Use actual model data from the shared package
@@ -43,6 +44,11 @@ describe('ModelSelector', () => {
 
     // Mock the fetch method to prevent API calls
     vi.spyOn(providersStore, 'fetchProviders').mockResolvedValue();
+
+    // Mock the tiers store fetch to prevent real API calls; individual tier
+    // tests below override `tiersStore.tiers` directly before mounting.
+    const tiersStore = useTiersStore();
+    vi.spyOn(tiersStore, 'fetchTiers').mockResolvedValue();
   });
 
   const mountComponent = (props = {}, attrs = {}) => mount(ModelSelector, {
@@ -996,6 +1002,127 @@ describe('ModelSelector', () => {
         providerId: 'custom-openai',
         kind: 'openai',
       });
+    });
+  });
+
+  describe('tier support', () => {
+    function seedTiers(tiers) {
+      const tiersStore = useTiersStore();
+      tiersStore.tiers = tiers;
+    }
+
+    it('renders a "Model Tiers" optgroup when tiers with members exist', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      const tierGroup = optgroups.find((g) => g.attributes('label') === 'Model Tiers');
+      expect(tierGroup).toBeTruthy();
+      expect(tierGroup.text()).toContain('High Priority');
+    });
+
+    it('does not render the tier optgroup when no tiers have members', async () => {
+      seedTiers([{ id: 'tier-1', name: 'Empty Tier', description: null, members: [] }]);
+
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      const tierGroup = optgroups.find((g) => g.attributes('label') === 'Model Tiers');
+      expect(tierGroup).toBeFalsy();
+    });
+
+    it('does not render the tier optgroup when there are no tiers at all', async () => {
+      seedTiers([]);
+
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
+
+      const optgroups = wrapper.findAll('optgroup');
+      const tierGroup = optgroups.find((g) => g.attributes('label') === 'Model Tiers');
+      expect(tierGroup).toBeFalsy();
+    });
+
+    it('shows the tier description alongside the name in the option label', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: 'top models', members: [{ id: 'm1' }] }]);
+
+      const wrapper = mountComponent({ modelValue: sonnet.id });
+      await flushAll(wrapper);
+
+      const option = wrapper.find('option[value="tier::tier-1"]');
+      expect(option.exists()).toBe(true);
+      expect(option.text()).toBe('High Priority — top models');
+    });
+
+    it('selects the tier option value directly (no provider::model encoding)', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+      await flushAll(wrapper);
+
+      const select = wrapper.find('select');
+      expect(select.element.value).toBe('tier::tier-1');
+    });
+
+    it('emits update:modelValue with the tier ref and clears providerId when a tier is selected', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const onUpdateModelValue = vi.fn();
+      const onUpdateProviderId = vi.fn();
+      const onModelSelected = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: sonnet.id },
+        { 'onUpdate:modelValue': onUpdateModelValue, 'onUpdate:providerId': onUpdateProviderId, onModelSelected }
+      );
+      await flushAll(wrapper);
+
+      await wrapper.find('select').setValue('tier::tier-1');
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).toHaveBeenCalledWith('tier::tier-1');
+      expect(onUpdateProviderId).toHaveBeenCalledWith(null);
+      expect(onModelSelected).toHaveBeenCalledWith({
+        modelId: 'tier::tier-1',
+        providerId: null,
+        kind: null,
+        tierId: 'tier-1',
+      });
+    });
+
+    it('emits a concrete model selection when switching away from a tier', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const onUpdateModelValue = vi.fn();
+      const onUpdateProviderId = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: 'tier::tier-1' },
+        { 'onUpdate:modelValue': onUpdateModelValue, 'onUpdate:providerId': onUpdateProviderId }
+      );
+      await flushAll(wrapper);
+
+      await wrapper.find('select').setValue(optionValue('anthropic', opus.id));
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).toHaveBeenCalledWith(opus.id);
+      expect(onUpdateProviderId).toHaveBeenCalledWith('anthropic');
+    });
+
+    it('does not emit again when re-selecting the same tier', async () => {
+      seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: 'tier::tier-1' },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
+      await flushAll(wrapper);
+
+      await wrapper.find('select').setValue('tier::tier-1');
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).not.toHaveBeenCalled();
     });
   });
 });

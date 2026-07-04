@@ -17,6 +17,20 @@
       >
         {{ emptyLabel }}
       </option>
+      <!-- Tiers optgroup (shown only when tiers with ≥1 member exist) -->
+      <optgroup
+        v-if="tiersWithMembers.length > 0"
+        label="Model Tiers"
+      >
+        <option
+          v-for="tier in tiersWithMembers"
+          :key="`tier::${tier.id}`"
+          :value="`tier::${tier.id}`"
+        >
+          {{ tier.name }}{{ tier.description ? ` — ${tier.description}` : '' }}
+        </option>
+      </optgroup>
+
       <optgroup
         v-for="provider in visibleProviders"
         :key="provider.id"
@@ -41,6 +55,7 @@
 <script setup>
 import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
+import { useTiersStore, isTierRef } from '../stores/tiers.js';
 
 const props = defineProps({
   modelValue: {
@@ -73,9 +88,22 @@ const props = defineProps({
   },
 });
 
+// defineEmits requires a literal array (Vue compiler macro constraint) — the
+// event name constants used by every emit() call below are declared after it.
 const emit = defineEmits(['update:modelValue', 'model-selected', 'update:providerId']);
 
+// Event name constants (avoid repeating the literal strings across every emit() call below)
+const EVT_UPDATE_MODEL_VALUE = 'update:modelValue';
+const EVT_UPDATE_PROVIDER_ID = 'update:providerId';
+const EVT_MODEL_SELECTED = 'model-selected';
+
 const providersStore = useProvidersStore();
+const tiersStore = useTiersStore();
+
+// Tiers with at least one member (shown in the optgroup)
+const tiersWithMembers = computed(() =>
+  tiersStore.tiers.filter((t) => t.members && t.members.length > 0)
+);
 
 // Check if providers have models loaded
 // Providers may have been fetched without models (e.g., from ProvidersView)
@@ -95,9 +123,15 @@ const validModelIds = computed(() => {
   return ids;
 });
 
-// Check if a model ID is valid (exists as an option)
+// Check if a model ID is valid (exists as an option, or is a valid tier ref)
 function isValidModelId(modelId) {
-  return modelId && validModelIds.value.has(modelId);
+  if (!modelId) return false;
+  if (isTierRef(modelId)) {
+    // Valid if the tier exists with ≥1 member (or tiers haven't loaded yet — be permissive)
+    const tierId = modelId.slice('tier::'.length);
+    return tiersStore.tiers.length === 0 || tiersWithMembers.value.some((t) => t.id === tierId);
+  }
+  return validModelIds.value.has(modelId);
 }
 
 // Map a provider kind to an agent type. Default to 'claude-code' when `kind`
@@ -197,9 +231,16 @@ const hasInitialized = ref(false);
 // Fetch providers with models on mount
 onMounted(async () => {
   // Fetch if no providers OR if providers exist but don't have models loaded
-  if (providersStore.providers.length === 0 || !providersHaveModels.value) {
-    await providersStore.fetchProviders();
-  }
+  const providersFetch = (providersStore.providers.length === 0 || !providersHaveModels.value)
+    ? providersStore.fetchProviders()
+    : Promise.resolve();
+
+  // Also fetch tiers if not yet loaded
+  const tiersFetch = tiersStore.tiers.length === 0
+    ? tiersStore.fetchTiers()
+    : Promise.resolve();
+
+  await Promise.all([providersFetch, tiersFetch]);
 
   // Don't emit default - let parent component control model selection
   // This prevents overriding project defaults with the component's internal default
@@ -210,6 +251,11 @@ onMounted(async () => {
 // This handles legacy/shorthand values that don't match actual option values
 function resolveModelId(modelValue) {
   if (!modelValue) return null;
+
+  // Tier refs are always valid as-is — no resolution needed
+  if (isTierRef(modelValue)) {
+    return modelValue;
+  }
 
   // If it's already a full model ID (contains 'claude-'), use as-is
   if (modelValue.includes('claude-')) {
@@ -257,6 +303,8 @@ const effectiveSelectedModel = computed(() => {
 
 const effectiveSelectedProviderId = computed(() => {
   if (!effectiveSelectedModel.value) return null;
+  // Tier refs have no concrete provider at selection time
+  if (isTierRef(effectiveSelectedModel.value)) return null;
   const option = findVisibleOption(effectiveSelectedModel.value, props.providerId || selectedProviderId.value);
   return option?.provider.id || null;
 });
@@ -266,6 +314,10 @@ const effectiveSelectedKey = computed(() => {
     return '';
   }
   if (!effectiveSelectedModel.value) return '';
+  // Tier refs map directly to the option value (no provider::model encoding needed)
+  if (isTierRef(effectiveSelectedModel.value)) {
+    return effectiveSelectedModel.value;
+  }
   const option = findVisibleOption(effectiveSelectedModel.value, props.providerId || selectedProviderId.value);
   return option ? optionKey(option.provider.id, option.model.modelId) : effectiveSelectedModel.value;
 });
@@ -296,6 +348,15 @@ function syncSelectionFromProviders() {
 
   const resolvedModel = props.modelValue ? resolveModelId(props.modelValue) : null;
 
+  // Tier refs don't need provider resolution — handle them directly
+  if (resolvedModel && isTierRef(resolvedModel)) {
+    if (selectedModel.value !== resolvedModel) {
+      selectedModel.value = resolvedModel;
+      selectedProviderId.value = null;
+    }
+    return;
+  }
+
   // Check if resolved model is valid (exists as an option)
   if (resolvedModel && isValidModelId(resolvedModel)) {
     applyResolvedModel(resolvedModel);
@@ -310,7 +371,7 @@ function applyResolvedModel(resolvedModel) {
   if (selectedModel.value === resolvedModel) {
     if (selectedProviderId.value !== resolvedProviderId) {
       selectedProviderId.value = resolvedProviderId;
-      emit('update:providerId', resolvedProviderId);
+      emit(EVT_UPDATE_PROVIDER_ID, resolvedProviderId);
     }
     return;
   }
@@ -318,10 +379,10 @@ function applyResolvedModel(resolvedModel) {
   selectedProviderId.value = resolvedProviderId;
   // Emit the resolved value back to parent if it changed
   if (resolvedModel !== props.modelValue) {
-    emit('update:modelValue', resolvedModel);
+    emit(EVT_UPDATE_MODEL_VALUE, resolvedModel);
   }
   if (resolvedProviderId !== props.providerId) {
-    emit('update:providerId', resolvedProviderId);
+    emit(EVT_UPDATE_PROVIDER_ID, resolvedProviderId);
   }
 }
 
@@ -329,7 +390,7 @@ function applyDefaultModel() {
   if (!defaultModel.value || selectedModel.value === defaultModel.value) return;
   selectedModel.value = defaultModel.value;
   selectedProviderId.value = findVisibleOption(defaultModel.value)?.provider.id || null;
-  emit('update:modelValue', defaultModel.value);
+  emit(EVT_UPDATE_MODEL_VALUE, defaultModel.value);
 }
 
 // NOTE: Removed defaultModel watcher - it should not override after initialization
@@ -337,6 +398,20 @@ function applyDefaultModel() {
 
 function handleModelChange(event) {
   const optionValue = event.target.value;
+
+  // Tier ref selected — option value IS the tier ref
+  if (optionValue && isTierRef(optionValue)) {
+    if (effectiveSelectedModel.value === optionValue) return;
+
+    selectedModel.value = optionValue;
+    selectedProviderId.value = null;
+
+    emit(EVT_UPDATE_MODEL_VALUE, optionValue);
+    emit(EVT_UPDATE_PROVIDER_ID, null);
+    emit(EVT_MODEL_SELECTED, { modelId: optionValue, providerId: null, kind: null, tierId: optionValue.slice('tier::'.length) });
+    return;
+  }
+
   const parsed = optionValue ? parseOptionKey(optionValue) : null;
   const metadata = parsed
     ? {
@@ -354,9 +429,9 @@ function handleModelChange(event) {
   selectedProviderId.value = metadata.providerId;
 
   // Emit for v-model (empty string when allowEmpty option is selected)
-  emit('update:modelValue', modelId);
-  emit('update:providerId', metadata.providerId);
-  emit('model-selected', metadata);
+  emit(EVT_UPDATE_MODEL_VALUE, modelId);
+  emit(EVT_UPDATE_PROVIDER_ID, metadata.providerId);
+  emit(EVT_MODEL_SELECTED, metadata);
 }
 
 function providerKindForId(providerId) {

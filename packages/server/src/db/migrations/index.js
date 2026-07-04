@@ -16,6 +16,7 @@ import { miscMigrations } from './miscMigrations.js';
 import { kanbanMigrations } from './kanbanMigrations.js';
 import { providerMigrations } from './providerMigrations.js';
 import { providerCommitAttributionMigrations } from './providerCommitAttributionMigrations.js';
+import { modelTiersMigrations } from './modelTiersMigrations.js';
 
 /**
  * Build a lookup map from a migrations array keyed by migration name.
@@ -38,6 +39,7 @@ const m = toLookup(miscMigrations);
 const k = toLookup(kanbanMigrations);
 const pr = toLookup(providerMigrations);
 const pca = toLookup(providerCommitAttributionMigrations);
+const mt = toLookup(modelTiersMigrations);
 
 /**
  * Repair sessions whose parent link was lost during schema consolidation.
@@ -298,4 +300,8 @@ export const allMigrations = validateMigrations([
   // --- Drop dormant per-session/per-template targetLaneId routing flag ---
   k.get('sessions-drop-target_lane_id'),
   k.get('session_templates-drop-target_lane_id'),
+
+  // --- Model tiers (cross-model failover v1) ---
+  mt.get('model_tiers-create-tables'),
+  mt.get('sessions-add-resolved_model'),
 ]);

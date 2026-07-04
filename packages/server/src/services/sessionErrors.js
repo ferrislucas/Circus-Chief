@@ -1,5 +1,8 @@
 import { sessions, messages } from '../database.js';
 import { schedulerService } from './schedulerService.js';
+import { isTierRef } from '@circuschief/shared';
+import { hasNextHealthyMember } from './tierResolutionService.js';
+import { sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
 
 /**
  * Check if error message matches token limit patterns
@@ -91,13 +94,61 @@ function logSkippedReschedule(setting) {
 }
 
 /**
+ * Determine whether an error occurring on a tier-bound session's start attempt
+ * should trigger failover to the next tier member, rather than the normal
+ * error/auto-reschedule handling.
+ *
+ * All of the following must hold:
+ *  - `session.model` is a tier ref (`tier::<id>`)
+ *  - `tierContext` was supplied (i.e. this attempt is part of the tier failover loop)
+ *  - the error matches a failover-eligible pattern (service error or token/limit error)
+ *  - the session has produced no assistant messages yet (start-only boundary)
+ *  - there is another healthy member to advance to
+ *
+ * @param {object} session - Session object
+ * @param {Error} error - Error that occurred
+ * @param {string|null} sessionId - Session ID
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string }|null} tierContext
+ * @returns {boolean}
+ */
+export function isTierFailoverEligibleError(session, error, sessionId = null, tierContext = null) {
+  if (!isTierRef(session.model) || !tierContext || tierContext.currentMemberId === undefined) {
+    return false;
+  }
+
+  const errorMessage = error.message.toLowerCase();
+  const isEligible = matchesServiceError(errorMessage) || matchesTokenLimitError(errorMessage);
+  if (!isEligible || !sessionId || !sessionHasNoAssistantMessages(sessionId)) {
+    return false;
+  }
+
+  return hasNextHealthyMember(session.model, {
+    excludeModelId: tierContext.currentMemberId,
+    excludeProviderId: tierContext.currentMemberProviderId,
+  });
+}
+
+/**
  * Check if an error should trigger automatic rescheduling
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string} sessionId - Session ID
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string }} [tierContext]
+ *   - When provided and session is tier-bound, used to determine failover eligibility.
  * @returns {boolean} True if should reschedule
  */
-export function shouldRescheduleOnError(session, error, sessionId = null) {
+export function shouldRescheduleOnError(session, error, sessionId = null, tierContext = null) {
+  // Tier failover interception:
+  // If the session is bound to a tier AND the error is failover-eligible AND
+  // the conversation has not started yet AND there's a next healthy member,
+  // suppress auto-reschedule so the failover loop can throw and advance.
+  if (isTierFailoverEligibleError(session, error, sessionId, tierContext)) {
+    console.log(
+      '[SessionManager] Tier failover eligible: suppressing auto-reschedule to advance to next member'
+    );
+    return false;
+  }
+
   // Check if auto-reschedule is enabled first (master switch)
   if (!session.autoRescheduleEnabled) {
     console.log('[SessionManager] autoRescheduleEnabled is false, skipping all rescheduling');
