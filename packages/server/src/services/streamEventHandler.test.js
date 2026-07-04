@@ -50,6 +50,10 @@ vi.mock('./diffService.js', () => ({
   getChanges: vi.fn(),
 }));
 
+vi.mock('./gitService.js', () => ({
+  isGitRepo: vi.fn().mockResolvedValue(true),
+}));
+
 vi.mock('./usageTracker.js', () => ({
   updateTurnUsage: vi.fn(),
   currentTurnUsage: new Map(),
@@ -65,6 +69,7 @@ import { sessions, messages, workLogs, conversations } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
 import * as summaryService from './summaryService.js';
 import * as diffService from './diffService.js';
+import * as gitService from './gitService.js';
 import * as kanbanService from './kanbanService.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import {
@@ -89,6 +94,7 @@ import {
 describe('streamEventHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    gitService.isGitRepo.mockResolvedValue(true);
     // Clear all module-level Maps
     lastMessageIds.clear();
     thinkingAccumulators.clear();
@@ -215,6 +221,7 @@ describe('streamEventHandler', () => {
 
   describe('broadcastChangesUpdate', () => {
     it('computes and broadcasts changes', async () => {
+      gitService.isGitRepo.mockResolvedValue(true);
       diffService.getChanges.mockResolvedValue({
         staged: 'diff --git a/file1.js b/file1.js\n+added',
         unstaged: null,
@@ -236,6 +243,7 @@ describe('streamEventHandler', () => {
     });
 
     it('broadcasts hasChanges false when no changes', async () => {
+      gitService.isGitRepo.mockResolvedValue(true);
       diffService.getChanges.mockResolvedValue({
         staged: null,
         unstaged: null,
@@ -256,6 +264,7 @@ describe('streamEventHandler', () => {
     });
 
     it('counts files from multiple diff sections', async () => {
+      gitService.isGitRepo.mockResolvedValue(true);
       diffService.getChanges.mockResolvedValue({
         staged: 'diff --git a/a.js b/a.js\ndiff --git a/b.js b/b.js\n',
         unstaged: 'diff --git a/c.js b/c.js\n',
@@ -276,10 +285,20 @@ describe('streamEventHandler', () => {
     });
 
     it('handles errors silently', async () => {
+      gitService.isGitRepo.mockResolvedValue(true);
       diffService.getChanges.mockRejectedValue(new Error('not a git repo'));
 
       // Should not throw
       await expect(broadcastChangesUpdate('sess-1', 'proj-1', '/workspace')).resolves.toBeUndefined();
+      expect(broadcastToSession).not.toHaveBeenCalled();
+    });
+
+    it('skips changes update for non-git directories', async () => {
+      gitService.isGitRepo.mockResolvedValue(false);
+
+      await broadcastChangesUpdate('sess-1', 'proj-1', '/workspace');
+
+      expect(diffService.getChanges).not.toHaveBeenCalled();
       expect(broadcastToSession).not.toHaveBeenCalled();
     });
   });
@@ -643,6 +662,230 @@ describe('streamEventHandler', () => {
       expect(mockAutoSend).not.toHaveBeenCalled();
       expect(mockHandleTemplate).not.toHaveBeenCalled();
       expect(finalErrorSessionIds.has('sess-1')).toBe(false);
+    });
+
+    // ── handleScheduledContinuationIfNeeded (mid-turn schedule hook) ──────
+
+    it('re-applies scheduled status while preserving successful completion side effects', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const futureScheduledAt = Date.now() + 3600000;
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Continue the analysis',
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(false);
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
+      expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
+      expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+
+      // Auto-send and template trigger must NOT fire for this turn
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('preserves explicit scheduled continuation instead of proactive rescheduling', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const futureScheduledAt = Date.now() + 3600000;
+      const session = {
+        id: 'sess-1',
+        projectId: 'proj-1',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Explicit continuation',
+        pendingConversationId: 'conv-explicit',
+        pendingModel: 'gpt-5.4',
+      };
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockImplementation((sessionId, updates) => {
+        if (sessionId === 'sess-1') {
+          Object.assign(session, updates);
+        }
+        return session;
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(false);
+      expect(mockCheckReschedule).not.toHaveBeenCalled();
+      expect(session).toMatchObject({
+        status: 'scheduled',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Explicit continuation',
+        pendingConversationId: 'conv-explicit',
+        pendingModel: 'gpt-5.4',
+      });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
+      expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
+      expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('re-applies scheduled status when scheduledAt became due before turn completion', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const pastScheduledAt = Date.now() - 1000;
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: pastScheduledAt,
+        pendingPrompt: 'Continue',
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(false);
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(broadcastToSession).toHaveBeenCalledWith(
+        'sess-1',
+        WS_MESSAGE_TYPES.SESSION_STATUS,
+        { sessionId: 'sess-1', status: 'scheduled' }
+      );
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('does not re-apply scheduled status when pendingPrompt is missing', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: Date.now() + 3600000,
+        pendingPrompt: null, // no prompt
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      // Normal waiting write should have happened
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('does not re-apply scheduled status when scheduledAt is 0', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: 0,
+        pendingPrompt: 'Some prompt',
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      // scheduledAt=0 should not flip to 'scheduled'; normal waiting write should have happened
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('does not re-apply scheduled status when scheduledAt is negative', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: -1000,
+        pendingPrompt: 'Some prompt',
+      });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', { status: 'scheduled' });
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('mid-turn schedule wins over autoSendPendingPrompt', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+
+      const futureScheduledAt = Date.now() + 3600000;
+      sessions.getById.mockReturnValue({
+        projectId: 'proj-1',
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Scheduled continuation',
+        autoSendPendingPrompt: true, // would normally trigger auto-send
+      });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(false);
+      // Auto-send must NOT fire — schedule wins
+      expect(mockAutoSend).not.toHaveBeenCalled();
     });
   });
 
@@ -1152,6 +1395,113 @@ describe('streamEventHandler', () => {
 
       expect(result).toBe(false);
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: error.message });
+    });
+
+    // ── Mid-turn scheduled continuation on error path ────────────────────
+
+    it('preserves explicit schedule on error path instead of marking error', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Some transient failure');
+      const futureScheduledAt = Date.now() + 3600000;
+      const session = {
+        id: 'sess-1',
+        autoRescheduleEnabled: false,
+        scheduledAt: futureScheduledAt,
+        pendingPrompt: 'Continue the analysis',
+      };
+      sessions.getById.mockReturnValue(session);
+      sessions.update.mockImplementation((sessionId, updates) => {
+        if (sessionId === 'sess-1') Object.assign(session, updates);
+        return session;
+      });
+
+      const mockShouldReschedule = vi.fn();
+      const mockScheduler = { rescheduleSession: vi.fn() };
+      const mockTemplateTrigger = vi.fn();
+
+      const result = await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+        handleTemplateTriggerIfNeeded: mockTemplateTrigger,
+      });
+
+      expect(result).toBe(true);
+      expect(session.status).toBe('scheduled');
+      // Error reschedule and normal error handling must NOT run
+      expect(mockShouldReschedule).not.toHaveBeenCalled();
+      expect(mockScheduler.rescheduleSession).not.toHaveBeenCalled();
+      expect(sessions.update).not.toHaveBeenCalledWith('sess-1', expect.objectContaining({ status: 'error' }));
+      expect(messages.create).not.toHaveBeenCalled();
+      expect(broadcastToSession.mock.calls.some((c) => c[1] === WS_MESSAGE_TYPES.SESSION_ERROR)).toBe(false);
+      expect(mockTemplateTrigger).not.toHaveBeenCalled();
+    });
+
+    it('still marks error on error path when session has no explicit schedule', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Unexpected failure');
+      sessions.getById.mockReturnValue({
+        autoRescheduleEnabled: false,
+        scheduledAt: null,
+        pendingPrompt: null,
+      });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      const result = await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+      });
+
+      expect(result).toBe(false);
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Unexpected failure' });
+    });
+
+    it('does not preserve schedule on error path when scheduledAt is 0', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Some failure');
+      sessions.getById.mockReturnValue({
+        autoRescheduleEnabled: false,
+        scheduledAt: 0,
+        pendingPrompt: 'Some prompt',
+      });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      const result = await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+      });
+
+      // scheduledAt=0 is not a valid explicit schedule
+      expect(result).toBe(false);
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Some failure' });
+    });
+
+    it('does not preserve schedule on error path when pendingPrompt is empty', async () => {
+      const controller = { signal: { aborted: false } };
+      const error = new Error('Some failure');
+      sessions.getById.mockReturnValue({
+        autoRescheduleEnabled: false,
+        scheduledAt: Date.now() + 3600000,
+        pendingPrompt: '',
+      });
+
+      const mockShouldReschedule = vi.fn().mockReturnValue(false);
+      const mockScheduler = { rescheduleSession: vi.fn() };
+
+      const result = await handleSessionError('sess-1', error, {
+        controller,
+        shouldRescheduleOnError: mockShouldReschedule,
+        schedulerService: mockScheduler,
+      });
+
+      expect(result).toBe(false);
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'error', error: 'Some failure' });
     });
 
     it('catches and logs errors from handleTemplateTriggerIfNeeded without rethrowing', async () => {

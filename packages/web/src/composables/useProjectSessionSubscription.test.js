@@ -731,4 +731,124 @@ describe('useProjectSessionSubscription', () => {
       expect(mockSessionsStore.updateSessionCommandRun).toHaveBeenCalled();
     });
   });
+
+  describe('stale navigation chain cancellation (run guard)', () => {
+    it('does not subscribe or call fetchSummariesBatch if the project changes while fetchProject is pending', async () => {
+      const projectId = ref('project-A');
+
+      // Defer fetchProject for A so we can navigate before it resolves
+      let resolveProjectA;
+      mockProjectsStore.fetchProject.mockImplementationOnce(
+        () => new Promise(r => { resolveProjectA = r; })
+      );
+      // fetchProject for B resolves immediately
+      mockProjectsStore.fetchProject.mockResolvedValue();
+
+      const component = {
+        template: '<div>Test</div>',
+        setup() {
+          useProjectSessionSubscription(projectId, summaryCallbacks);
+          return {};
+        },
+      };
+
+      mount(component, { global: { plugins: [createPinia()] } });
+      // Let the watcher fire and start A's chain (stuck at fetchProject)
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Navigate to B — increments subscriptionRunId; B's chain runs to completion
+      projectId.value = 'project-B';
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Resolve the stale A fetchProject — A's guard fires and returns early
+      resolveProjectA();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // A's stale chain must NOT have proceeded to subscribe or fetch summaries
+      expect(useProjectSubscription).not.toHaveBeenCalledWith('project-A');
+      expect(mockSubscribe).toHaveBeenCalledTimes(1); // only B subscribes
+      expect(summaryCallbacks.fetchSummariesBatch).toHaveBeenCalledTimes(1); // only B's summaries
+    });
+
+    it('does not subscribe or call fetchSummariesBatch if the project changes while fetchSessions is pending', async () => {
+      const projectId = ref('project-A');
+
+      // fetchProject resolves immediately for both projects
+      mockProjectsStore.fetchProject.mockResolvedValue();
+
+      // Defer fetchSessions for A; B resolves immediately
+      let resolveSessionsA;
+      mockSessionsStore.fetchSessions.mockImplementationOnce(
+        () => new Promise(r => { resolveSessionsA = r; })
+      );
+      mockSessionsStore.fetchSessions.mockResolvedValue();
+
+      const component = {
+        template: '<div>Test</div>',
+        setup() {
+          useProjectSessionSubscription(projectId, summaryCallbacks);
+          return {};
+        },
+      };
+
+      mount(component, { global: { plugins: [createPinia()] } });
+      // A's chain is now stuck at fetchSessions
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Navigate to B — B's chain runs to completion
+      projectId.value = 'project-B';
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Resolve the stale A fetchSessions — A's guard fires and returns early
+      resolveSessionsA();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // A's stale chain must NOT have proceeded to subscribe or fetch summaries
+      expect(useProjectSubscription).not.toHaveBeenCalledWith('project-A');
+      expect(mockSubscribe).toHaveBeenCalledTimes(1); // only B subscribes
+      expect(summaryCallbacks.fetchSummariesBatch).toHaveBeenCalledTimes(1); // only B's summaries
+    });
+
+    it('after switching to B, only B subscribes and only B\'s summaries are fetched', async () => {
+      const projectId = ref('project-A');
+
+      mockProjectsStore.fetchProject.mockResolvedValue();
+      mockSessionsStore.fetchSessions.mockResolvedValue();
+      mockCommandButtonsStore.fetchButtons.mockResolvedValue();
+
+      mockSessionsStore.sessions = [{ id: 'a-session' }];
+
+      const component = {
+        template: '<div>Test</div>',
+        setup() {
+          useProjectSessionSubscription(projectId, summaryCallbacks);
+          return {};
+        },
+      };
+
+      mount(component, { global: { plugins: [createPinia()] } });
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Reset call counts after A's initial setup
+      summaryCallbacks.fetchSummariesBatch.mockClear();
+      mockSubscribe.mockClear();
+      useProjectSubscription.mockClear();
+
+      // Update sessions to B's data
+      mockSessionsStore.sessions = [{ id: 'b-session' }];
+
+      // Navigate to B
+      projectId.value = 'project-B';
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      // Only B should have been subscribed
+      expect(useProjectSubscription).toHaveBeenCalledWith('project-B');
+      expect(useProjectSubscription).not.toHaveBeenCalledWith('project-A');
+      expect(mockSubscribe).toHaveBeenCalledTimes(1);
+
+      // fetchSummariesBatch should have been called exactly once (for B)
+      expect(summaryCallbacks.fetchSummariesBatch).toHaveBeenCalledTimes(1);
+      expect(summaryCallbacks.fetchSummariesBatch).toHaveBeenCalledWith(mockSessionsStore.sessions);
+    });
+  });
 });

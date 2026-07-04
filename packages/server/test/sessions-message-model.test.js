@@ -134,7 +134,7 @@ describe('Sessions API - Model Parameter', () => {
       const response = await request(server)
         .post(`/api/sessions/${session.id}/message`)
         .field('content', 'Test message')
-        .field('model', 'claude-sonnet-5')
+        .field('model', 'claude-opus-4-6')
         .attach('files', Buffer.from('test content'), {
           filename: 'test.txt',
           contentType: 'text/plain',
@@ -148,7 +148,7 @@ describe('Sessions API - Model Parameter', () => {
         session.id,
         'Test message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-sonnet-5' }
+        { systemPrompt: null, fileAttachments: expect.any(Array), model: 'claude-opus-4-6' }
       );
     });
 
@@ -211,17 +211,17 @@ describe('Sessions API - Model Parameter', () => {
         { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-6' }
       );
 
-      // Second message with sonnet
+      // Second message with another Claude model
       await request(server)
         .post(`/api/sessions/${session.id}/message`)
-        .send({ content: 'Second message', model: 'claude-sonnet-5' })
+        .send({ content: 'Second message', model: 'claude-opus-4-7' })
         .expect(200);
 
       expect(continueSession).toHaveBeenLastCalledWith(
         session.id,
         'Second message',
         testTempDir,
-        { systemPrompt: null, fileAttachments: [], model: 'claude-sonnet-5' }
+        { systemPrompt: null, fileAttachments: [], model: 'claude-opus-4-7' }
       );
     });
   });

@@ -5,6 +5,11 @@ import { useCommandButtonsStore } from '../stores/commandButtons.js';
 import { useKanbanStore } from '../stores/kanban.js';
 import { useProjectSubscription, useWebSocket } from './useWebSocket.js';
 
+// Module-level run counter. Each navigation to a new project increments this so
+// any still-in-flight chain for the previous project can detect it is stale and
+// bail out before subscribing, registering handlers, or fetching summaries.
+let subscriptionRunId = 0;
+
 /**
  * Composable that encapsulates the WebSocket subscription setup for a project's
  * session list view. Handles:
@@ -195,6 +200,10 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
     async (newProjectId) => {
       if (!newProjectId) return;
 
+      // Capture run ID. Any earlier run that is still awaiting a fetch will see
+      // its runId no longer matches subscriptionRunId and will bail out.
+      const runId = ++subscriptionRunId;
+
       // Reset archived sessions loaded flag when changing projects
       archivedLoaded.value = false;
 
@@ -208,10 +217,17 @@ export function useProjectSessionSubscription(projectId, summaryCallbacks) {
         currentUnsubscribe = null;
       }
 
-      // Fetch new project data
+      // Fetch new project data — check staleness after each await so a later
+      // navigation can cancel this chain before it subscribes or fetches summaries.
       await projectsStore.fetchProject(newProjectId);
+      if (runId !== subscriptionRunId || projectId.value !== newProjectId) return;
+
       await sessionsStore.fetchSessions(newProjectId);
+      if (runId !== subscriptionRunId || projectId.value !== newProjectId) return;
+
       await commandButtonsStore.fetchButtons(newProjectId);
+      if (runId !== subscriptionRunId || projectId.value !== newProjectId) return;
+
       fetchSummariesBatch(sessionsStore.sessions);
       lastFetchTime = Date.now();
 

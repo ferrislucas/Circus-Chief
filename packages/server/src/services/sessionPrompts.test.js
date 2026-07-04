@@ -23,7 +23,6 @@ vi.mock('../database.js', () => ({
 
 import { sessions, attachments, projects, kanbanBoards, kanbanLanes } from '../database.js';
 import {
-  getApiBaseUrl,
   buildPromptWithAttachments,
   getSessionAttachmentsContext,
   getGeminiApprovalModeForSession,
@@ -31,6 +30,7 @@ import {
   PLAN_MODE_PROMPT,
   buildSystemPromptConfig,
 } from './sessionPrompts.js';
+import { getApiBaseUrl } from './apiBaseUrl.js';
 import { DEFAULT_SERVER_PORT, DEFAULT_SYSTEM_PROMPT } from '@circuschief/shared';
 
 describe('sessionPrompts', () => {
@@ -301,11 +301,12 @@ describe('sessionPrompts', () => {
       sessions.getRootSessionId.mockReturnValue('root-123');
 
       const result = buildSystemPromptConfig('root-123', projectId, null, 'standard');
-      expect(result).toContain('/api/sessions/root-123/canvas');
+      // Canvas is workspace-addressed; root session IS its own workspace
+      expect(result).toContain('/api/workspaces/root-123/canvas');
       expect(result).toContain('POST');
     });
 
-    it('includes canvas write instructions for child session using current session ID', () => {
+    it('child session resolves to its workspace (root) ID for canvas URL', () => {
       sessions.getById.mockReturnValue({
         id: 'child-456',
         parentSessionId: 'parent-789',
@@ -315,7 +316,11 @@ describe('sessionPrompts', () => {
       sessions.getRootSessionId.mockReturnValue('root-123');
 
       const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
-      expect(result).toContain('/api/sessions/child-456/canvas');
+      // Canvas is addressed via workspace (root) ID, not the child's own ID
+      expect(result).toContain('/api/workspaces/root-123/canvas');
+      expect(result).not.toContain('/api/workspaces/child-456/canvas');
+      // Session-scoped canvas URLs must not appear at all
+      expect(result).not.toContain('/api/sessions/child-456/canvas');
       expect(result).not.toContain('/api/sessions/root-123/canvas');
     });
 
@@ -329,10 +334,12 @@ describe('sessionPrompts', () => {
       sessions.getById.mockReturnValue(null);
 
       const result = buildSystemPromptConfig('unknown-session', projectId, null, 'standard');
-      expect(result).toContain('/api/sessions/unknown-session/canvas');
+      // When session lookup returns null, workspace ID falls back to 'unknown-workspace'
+      expect(result).toContain('/api/workspaces/unknown-workspace/canvas');
+      expect(result).not.toContain('/api/workspaces/null/canvas');
     });
 
-    it('uses current session ID for all canvas endpoints including history', () => {
+    it('uses workspace (root) ID for all canvas endpoints including history', () => {
       sessions.getById.mockReturnValue({
         id: 'child-456',
         parentSessionId: 'parent-789',
@@ -342,12 +349,13 @@ describe('sessionPrompts', () => {
       sessions.getRootSessionId.mockReturnValue('root-123');
 
       const result = buildSystemPromptConfig('child-456', projectId, null, 'standard');
-      expect(result).toContain('/api/sessions/child-456/canvas/file/');
+      // All canvas URLs should use the workspace (root) ID
+      expect(result).toContain('/api/workspaces/root-123/canvas/file/');
       expect(result).toContain('/history/');
-      expect(result).not.toMatch(/\/api\/sessions\/root-123\/canvas\/file\/.*\/history\//);
+      expect(result).not.toContain('/api/workspaces/child-456/canvas/file/');
     });
 
-    it('uses session.id for canvas endpoints (getRootSessionId only used for workspace ID)', () => {
+    it('canvas URL falls back to session ID when getRootSessionId returns null', () => {
       sessions.getById.mockReturnValue({
         id: 'orphan-123',
         parentSessionId: 'nonexistent-parent',
@@ -358,9 +366,9 @@ describe('sessionPrompts', () => {
       sessions.getRootSessionId.mockReturnValue(null);
 
       const result = buildSystemPromptConfig('orphan-123', projectId, null, 'standard');
-      expect(result).toContain('/api/sessions/orphan-123/canvas');
+      expect(result).toContain('/api/workspaces/orphan-123/canvas');
       expect(result).toBeDefined();
-      expect(result).not.toContain('/api/sessions/null/canvas');
+      expect(result).not.toContain('/api/workspaces/null/canvas');
       // Workspace ID should fall back to the sessionId when root is null
       expect(result).toContain('**Current Workspace ID:** orphan-123');
     });
@@ -418,6 +426,15 @@ describe('sessionPrompts', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
       expect(result).toContain('afterSessionId');
       expect(result).toContain(sessionId); // current session ID as the example value
+    });
+
+    it('uses a future-safe placeholder in the session schedule example', () => {
+      const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
+      const scheduleSection = result.slice(result.indexOf('### Schedule Current Session to Continue Later'));
+
+      expect(scheduleSection).toContain('/schedule');
+      expect(scheduleSection).toContain('<future ISO 8601 timestamp>');
+      expect(scheduleSection).not.toContain('2026-06-27T14:30:00Z');
     });
 
     it('disambiguates workspace grouping from Codex workspace-write sandbox', () => {

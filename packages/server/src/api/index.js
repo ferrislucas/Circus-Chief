@@ -49,8 +49,14 @@ router.use('/tiers', modelTiersRouter);
 router.use('/agents', agentsRouter);
 router.use('/commands', commandsRouter)
 
-// Canvas routes are nested under sessions
+// Canvas routes are nested under sessions (used by the frontend)
 router.use('/sessions', canvasRouter);
+
+// Canvas routes also mounted under workspaces so agents can address
+// the canvas as a workspace-level resource. The canvasRouter's
+// requireRootSessionAndProject middleware resolves any workspaceId
+// (= root session ID) to its root, so the data layer is identical.
+router.use('/workspaces', canvasRouter);
 
 // Kanban routes are nested under projects
 router.use('/projects/:projectId/kanban', kanbanRouter);

@@ -17,8 +17,8 @@ import {
   getPermissionModeForSession,
   getSessionAttachmentsContext,
   buildPromptWithAttachments,
-  getApiBaseUrl,
 } from './sessionPrompts.js';
+import { getApiBaseUrl } from './apiBaseUrl.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForBranch, buildConversationContextForContinuation } from './conversationContext.js';
 import {
   activeSessions,
