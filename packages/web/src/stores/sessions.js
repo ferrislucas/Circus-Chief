@@ -16,10 +16,11 @@ export const useSessionsStore = defineStore('sessions', {
     // Used to guard fetchSession() against stale in-flight requests overwriting
     // currentSession after the user has navigated to a different session.
     viewedSessionId: null,
-    // Tracks which project owns the current sessions array.
-    // Used to guard fetchSessions() against stale in-flight requests overwriting
-    // the session list after the user has navigated to a different project.
-    sessionsProjectId: null,
+    // Monotonic fetch token. Incremented on every fetchSessions() call.
+    // A response is discarded when the token has advanced (a newer fetch
+    // superseded this one), covering cross-project (A→B) and same-project
+    // (A→B→A) races alike.
+    sessionsFetchSeq: 0,
     messages: [],
     conversations: [],
     activeConversationId: null,

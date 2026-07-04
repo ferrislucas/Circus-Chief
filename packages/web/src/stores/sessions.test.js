@@ -5556,27 +5556,31 @@ describe('Sessions Store', () => {
     });
   });
 
-  describe('fetchSessions sessionsProjectId guard', () => {
-    it('discards a stale fetchSessions(A) response after the store has moved to project B', async () => {
+  describe('fetchSessions sessionsFetchSeq guard', () => {
+    it('discards a stale fetchSessions(A) response after a newer fetch(B) has superseded it', async () => {
       const store = useSessionsStore();
 
-      const sessionsB = [{ id: 'b-1', projectId: 'project-B' }];
       const sessionsA = [{ id: 'a-1', projectId: 'project-A' }];
+      const sessionsB = [{ id: 'b-1', projectId: 'project-B' }];
 
-      // Simulate project-B fetch starting (and resolving) first
-      api.getProjectSessions.mockImplementation(async (projectId) => {
-        if (projectId === 'project-B') return sessionsB;
-        // project-A fetch: change sessionsProjectId to B mid-flight to simulate
-        // navigation happening while A is in-flight
-        store.sessionsProjectId = 'project-B';
-        return sessionsA;
-      });
+      let resolveA;
+      // First call (A): deferred
+      api.getProjectSessions.mockReturnValueOnce(new Promise(r => { resolveA = r; }));
+      // Second call (B): resolves immediately
+      api.getProjectSessions.mockResolvedValueOnce(sessionsB);
 
-      // Start fetch for A (which will internally update sessionsProjectId to B mid-flight)
-      store.sessionsProjectId = 'project-A';
-      await store.fetchSessions('project-A');
+      // Start A — seq becomes 1
+      const fetchAPromise = store.fetchSessions('project-A');
 
-      // A's results should have been discarded; sessions remain as set by the guard
+      // Start B — seq becomes 2, resolves right away
+      await store.fetchSessions('project-B');
+      expect(store.sessions).toEqual(sessionsB);
+
+      // Resolve the stale A response — seq is still 2, so A must be discarded
+      resolveA(sessionsA);
+      await fetchAPromise;
+
+      expect(store.sessions).toEqual(sessionsB);
       expect(store.sessions).not.toContainEqual(expect.objectContaining({ id: 'a-1' }));
     });
 
@@ -5616,43 +5620,88 @@ describe('Sessions Store', () => {
       expect(store.sessions.map(s => s.id)).toEqual(['good-1', 'good-2']);
     });
 
-    it('does not clear loading for the current request when a stale response arrives', async () => {
+    it('A→B→A: a late-resolving first-A response is discarded when the current project is A again', async () => {
       const store = useSessionsStore();
 
-      // Stale fetch for project-A: while it awaits, sessionsProjectId moves to project-B
+      const sessionsA1 = [{ id: 'a1-stale', projectId: 'project-A' }];
+      const sessionsB  = [{ id: 'b-1',      projectId: 'project-B' }];
+      const sessionsA2 = [{ id: 'a2-fresh', projectId: 'project-A' }];
+
+      let resolveFirstA;
+      // First call (A, seq=1): deferred
+      api.getProjectSessions.mockReturnValueOnce(new Promise(r => { resolveFirstA = r; }));
+      // Second call (B, seq=2): resolves immediately
+      api.getProjectSessions.mockResolvedValueOnce(sessionsB);
+      // Third call (A again, seq=3): resolves immediately
+      api.getProjectSessions.mockResolvedValueOnce(sessionsA2);
+
+      // Fetch A (seq=1), B (seq=2), A (seq=3) in that order
+      const fetchA1Promise = store.fetchSessions('project-A');
+      await store.fetchSessions('project-B');
+      await store.fetchSessions('project-A');
+
+      expect(store.sessions).toEqual(sessionsA2);
+
+      // Now the stale first-A response arrives (seq token=1, current=3) — must be discarded
+      resolveFirstA(sessionsA1);
+      await fetchA1Promise;
+
+      expect(store.sessions).toEqual(sessionsA2);
+      expect(store.sessions).not.toContainEqual(expect.objectContaining({ id: 'a1-stale' }));
+    });
+
+    it('a superseded fetch does not flip loading for the winning request', async () => {
+      const store = useSessionsStore();
+
+      const sessionsB = [{ id: 'b-1', projectId: 'project-B' }];
+
       let resolveA;
+      // Fetch A: deferred (seq=1)
       api.getProjectSessions.mockReturnValueOnce(new Promise(r => { resolveA = r; }));
+      // Fetch B: immediate (seq=2)
+      api.getProjectSessions.mockResolvedValueOnce(sessionsB);
 
-      // Start fetch for A (non-silent → sets loading=true, clears sessions)
+      // A sets loading=true and clears sessions
       const fetchAPromise = store.fetchSessions('project-A');
+      expect(store.loading).toBe(true);
 
-      // Simulate navigation: sessionsProjectId moves to B (e.g. B's fetch was faster)
-      store.sessionsProjectId = 'project-B';
-      store.loading = false; // B's fetch has already finished
+      // B wins: resolves immediately, clears loading
+      await store.fetchSessions('project-B');
+      expect(store.loading).toBe(false);
+      expect(store.sessions).toEqual(sessionsB);
 
-      // Now A's response comes in — it should be discarded
+      // A's response arrives: must not change loading or overwrite sessions
       resolveA([{ id: 'a-1', projectId: 'project-A' }]);
       await fetchAPromise;
 
-      // loading should remain false (B's fetch already cleared it)
       expect(store.loading).toBe(false);
-      // A's sessions should not have been written
-      expect(store.sessions).not.toContainEqual(expect.objectContaining({ id: 'a-1' }));
+      expect(store.sessions).toEqual(sessionsB);
     });
 
-    it('sets sessionsProjectId before starting the request', async () => {
+    it('increments sessionsFetchSeq before the API call so the guard is always in place', async () => {
       const store = useSessionsStore();
-      let capturedProjectId;
+      let capturedSeq;
 
-      api.getProjectSessions.mockImplementation(async (projectId) => {
-        capturedProjectId = store.sessionsProjectId;
+      api.getProjectSessions.mockImplementation(async () => {
+        capturedSeq = store.sessionsFetchSeq;
         return [];
       });
 
       await store.fetchSessions('project-X');
 
-      // sessionsProjectId must be set before the await so the guard works
-      expect(capturedProjectId).toBe('project-X');
+      // The seq seen inside the API call must equal the current seq (it was set before await)
+      expect(capturedSeq).toBeGreaterThan(0);
+      expect(capturedSeq).toBe(store.sessionsFetchSeq);
+    });
+
+    it('handles a non-array response without throwing and yields an empty sessions list', async () => {
+      const store = useSessionsStore();
+
+      api.getProjectSessions.mockResolvedValue(null);
+      await store.fetchSessions('project-A');
+
+      expect(store.sessions).toEqual([]);
+      expect(store.error).toBeNull();
     });
 
     it('silent fetch does not clear the session list', async () => {

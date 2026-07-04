@@ -85,9 +85,10 @@ async function fetchAncestorSessions(sessions, startParentId) {
  */
 export const sessionActions = {
   async fetchSessions(projectId, { silent = false } = {}) {
-    // Record which project owns this fetch. A late-resolving response for a
-    // different project will be discarded when it sees sessionsProjectId has moved on.
-    this.sessionsProjectId = projectId;
+    // Capture a unique token for this call. Any response that resolves after a
+    // newer fetch has started will be discarded — covering cross-project (A→B)
+    // and same-project (A→B→A) races alike.
+    const seq = ++this.sessionsFetchSeq;
     if (!silent) {
       this.loading = true;
       // Clear stale rows immediately so the previous project's list never
@@ -97,18 +98,20 @@ export const sessionActions = {
     this.error = null;
     try {
       const result = await api.getProjectSessions(projectId, false, null);
-      // Guard: discard this response if the user has navigated to another project.
-      if (this.sessionsProjectId !== projectId) return;
+      // Guard: discard if a newer fetch has superseded this one.
+      if (seq !== this.sessionsFetchSeq) return;
+      // Normalize: guard against non-array API responses (e.g. null).
+      const rows = Array.isArray(result) ? result : [];
       // Defensive filter: drop rows that explicitly belong to a different project.
       // Only applies when the row carries a projectId field (backward compat with
       // older API responses or test fixtures that omit the field).
-      this.sessions = result.filter(s => !projectId || !s.projectId || s.projectId === projectId);
+      this.sessions = rows.filter(s => !s.projectId || s.projectId === projectId);
     } catch (err) {
-      if (this.sessionsProjectId !== projectId) return;
+      if (seq !== this.sessionsFetchSeq) return;
       this.error = err.message;
     } finally {
-      // Only clear the loading flag if this fetch still owns the current project slot.
-      if (!silent && this.sessionsProjectId === projectId) this.loading = false;
+      // Only clear the loading flag if this fetch still owns the slot.
+      if (!silent && seq === this.sessionsFetchSeq) this.loading = false;
     }
   },
 

@@ -736,12 +736,12 @@ describe('useProjectSessionSubscription', () => {
     it('does not subscribe or call fetchSummariesBatch if the project changes while fetchProject is pending', async () => {
       const projectId = ref('project-A');
 
-      // Defer fetchProject so we can navigate before it resolves
+      // Defer fetchProject for A so we can navigate before it resolves
       let resolveProjectA;
       mockProjectsStore.fetchProject.mockImplementationOnce(
         () => new Promise(r => { resolveProjectA = r; })
       );
-      // fetchProject for project-B resolves immediately
+      // fetchProject for B resolves immediately
       mockProjectsStore.fetchProject.mockResolvedValue();
 
       const component = {
@@ -753,26 +753,21 @@ describe('useProjectSessionSubscription', () => {
       };
 
       mount(component, { global: { plugins: [createPinia()] } });
-      // Let the watcher fire and start the A chain
+      // Let the watcher fire and start A's chain (stuck at fetchProject)
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      // Navigate to project-B — this increments the run counter
+      // Navigate to B — increments subscriptionRunId; B's chain runs to completion
       projectId.value = 'project-B';
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      // Now resolve the stale A fetch
+      // Resolve the stale A fetchProject — A's guard fires and returns early
       resolveProjectA();
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      // B should have subscribed; A's chain should have been cancelled
-      const projectSubscriptionCalls = (await import('./useWebSocket.js')).useProjectSubscription.mock.calls;
-      const subscribedProjects = projectSubscriptionCalls.map(c => c[0]);
-      // A must NOT appear as a subscriber (or if it was called before B navigated, only B remains)
-      // The key assertion: fetchSummariesBatch was only called for B's sessions, not for A's stale chain
-      const summaryCallCount = summaryCallbacks.fetchSummariesBatch.mock.calls.length;
-      // We can't easily distinguish which call belongs to which project here, but we can verify
-      // that subscribe was not called for A after B took over (B's subscribe wins)
-      expect(mockSubscribe).toHaveBeenCalled();
+      // A's stale chain must NOT have proceeded to subscribe or fetch summaries
+      expect(useProjectSubscription).not.toHaveBeenCalledWith('project-A');
+      expect(mockSubscribe).toHaveBeenCalledTimes(1); // only B subscribes
+      expect(summaryCallbacks.fetchSummariesBatch).toHaveBeenCalledTimes(1); // only B's summaries
     });
 
     it('does not subscribe or call fetchSummariesBatch if the project changes while fetchSessions is pending', async () => {
@@ -781,7 +776,7 @@ describe('useProjectSessionSubscription', () => {
       // fetchProject resolves immediately for both projects
       mockProjectsStore.fetchProject.mockResolvedValue();
 
-      // Defer fetchSessions for project-A; project-B resolves immediately
+      // Defer fetchSessions for A; B resolves immediately
       let resolveSessionsA;
       mockSessionsStore.fetchSessions.mockImplementationOnce(
         () => new Promise(r => { resolveSessionsA = r; })
@@ -797,25 +792,21 @@ describe('useProjectSessionSubscription', () => {
       };
 
       mount(component, { global: { plugins: [createPinia()] } });
+      // A's chain is now stuck at fetchSessions
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      // Navigate to B while A's fetchSessions is still pending
+      // Navigate to B — B's chain runs to completion
       projectId.value = 'project-B';
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      // Resolve the stale A fetchSessions
+      // Resolve the stale A fetchSessions — A's guard fires and returns early
       resolveSessionsA();
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      // B's chain should have subscribed; A should not have triggered a second subscribe
-      // (A's chain was cancelled after its deferred fetchSessions resolved)
-      // useProjectSubscription should have been called for project-B
-      const subscribedProjects = useProjectSubscription.mock.calls.map(c => c[0]);
-      expect(subscribedProjects).toContain('project-B');
-      // A's stale chain must not call fetchSummariesBatch a second time after B won
-      // (B already called it once; A's late resolution should be silently dropped)
-      // We verify subscribe was called at most as many times as useProjectSubscription
-      expect(mockSubscribe.mock.calls.length).toBeLessThanOrEqual(useProjectSubscription.mock.calls.length);
+      // A's stale chain must NOT have proceeded to subscribe or fetch summaries
+      expect(useProjectSubscription).not.toHaveBeenCalledWith('project-A');
+      expect(mockSubscribe).toHaveBeenCalledTimes(1); // only B subscribes
+      expect(summaryCallbacks.fetchSummariesBatch).toHaveBeenCalledTimes(1); // only B's summaries
     });
 
     it('after switching to B, only B subscribes and only B\'s summaries are fetched', async () => {
