@@ -2430,4 +2430,102 @@ describe('Canvas API', () => {
       expect(updated.content).toBe('new');
     });
   });
+
+  describe('Workspace-scoped canvas routes (/api/workspaces/:id/canvas)', () => {
+    let app;
+    let projectId;
+    let rootSessionId;
+
+    beforeEach(() => {
+      app = express();
+      app.use(express.json());
+      // Mount canvasRouter under both prefixes, mirroring production index.js
+      app.use('/api/sessions', canvasRouter);
+      app.use('/api/workspaces', canvasRouter);
+
+      const project = projects.create('WS Test Project', '/tmp/ws-test');
+      projectId = project.id;
+
+      const now = Date.now();
+      const id = databaseManager.generateId();
+      databaseManager.get().prepare(
+        'INSERT INTO sessions (id, project_id, name, status, mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, projectId, 'Root Session', 'running', 'standard', now, now);
+      rootSessionId = id;
+    });
+
+    it('GET /api/workspaces/:id/canvas returns canvas items for the workspace', async () => {
+      canvasItems.create(rootSessionId, { type: 'text', content: 'hello', filename: 'ws.txt' });
+
+      const res = await request(app).get(`/api/workspaces/${rootSessionId}/canvas`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveLength(1);
+      expect(res.body[0].filename).toBe('ws.txt');
+    });
+
+    it('POST /api/workspaces/:id/canvas creates a canvas item on the workspace root', async () => {
+      const res = await request(app)
+        .post(`/api/workspaces/${rootSessionId}/canvas`)
+        .send({ type: 'text', content: 'workspace item', filename: 'shared.txt' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.filename).toBe('shared.txt');
+      expect(res.body.sessionId).toBe(rootSessionId);
+    });
+
+    it('GET /api/workspaces/:id/canvas/file/:filename returns file metadata', async () => {
+      canvasItems.create(rootSessionId, { type: 'text', content: 'file content', filename: 'doc.txt' });
+
+      const res = await request(app).get(`/api/workspaces/${rootSessionId}/canvas/file/doc.txt`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.type).toBe('text');
+    });
+
+    it('returns 404 for non-existent workspace ID', async () => {
+      const res = await request(app).get('/api/workspaces/nonexistent-workspace/canvas');
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toContain('Session not found');
+    });
+
+    it('cross-scope: POST to workspace URL is visible via session URL (child session)', async () => {
+      const child = sessions.create(projectId, 'Child Session', 'child prompt', {
+        mode: 'standard',
+        parentSessionId: rootSessionId,
+      });
+
+      // Post via workspace-scoped URL (as an agent would)
+      const postRes = await request(app)
+        .post(`/api/workspaces/${rootSessionId}/canvas`)
+        .send({ type: 'markdown', content: '# Shared', filename: 'shared.md' });
+
+      expect(postRes.status).toBe(201);
+
+      // Retrieve via session-scoped URL from child (as the frontend would)
+      const getRes = await request(app).get(`/api/sessions/${child.id}/canvas`);
+
+      expect(getRes.status).toBe(200);
+      expect(getRes.body).toHaveLength(1);
+      expect(getRes.body[0].filename).toBe('shared.md');
+      expect(getRes.body[0].sessionId).toBe(rootSessionId);
+    });
+
+    it('cross-scope: POST to session URL is visible via workspace URL', async () => {
+      // Post via session-scoped URL (as the frontend would)
+      const postRes = await request(app)
+        .post(`/api/sessions/${rootSessionId}/canvas`)
+        .send({ type: 'text', content: 'session post', filename: 'session.txt' });
+
+      expect(postRes.status).toBe(201);
+
+      // Retrieve via workspace-scoped URL (as an agent would)
+      const getRes = await request(app).get(`/api/workspaces/${rootSessionId}/canvas`);
+
+      expect(getRes.status).toBe(200);
+      expect(getRes.body).toHaveLength(1);
+      expect(getRes.body[0].filename).toBe('session.txt');
+    });
+  });
 });

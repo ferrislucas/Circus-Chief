@@ -43,6 +43,23 @@ describe('useSessionGitStatus', () => {
     expect(status.error.value.message).toBe('Git failed');
   });
 
+  it('surfaces unknown status errors returned by the API', async () => {
+    api.getSessionGitStatus.mockResolvedValue({
+      syncStatus: 'unknown',
+      localChangeCount: 0,
+      aheadCount: 0,
+      behindCount: 0,
+      error: 'Not a git repository',
+    });
+
+    const status = useSessionGitStatus({ getSessionId: () => 'sess-1' });
+    await status.refresh();
+
+    expect(status.summaryText.value).toBe('Git status unknown');
+    expect(status.error.value.message).toBe('Not a git repository');
+    expect(status.hasActionableGitStatus.value).toBe(true);
+  });
+
   it('ignores stale responses when the session changes', async () => {
     let resolveFirst;
     let currentSessionId = 'sess-1';

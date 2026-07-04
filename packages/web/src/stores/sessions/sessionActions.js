@@ -16,6 +16,26 @@ function updateSessionInList(listInput, sessionData, addIfMissing = false) {
   }
 }
 
+function getDescendantSessionIds(sessions, sessionId) {
+  const descendantIds = [];
+  const visited = new Set([sessionId]);
+  const stack = [sessionId];
+
+  while (stack.length > 0) {
+    const currentId = stack.pop();
+    const children = sessions.filter((session) => session.parentSessionId === currentId);
+
+    for (const child of children) {
+      if (visited.has(child.id)) continue;
+      visited.add(child.id);
+      descendantIds.push(child.id);
+      stack.push(child.id);
+    }
+  }
+
+  return descendantIds;
+}
+
 /**
  * Move a session between lists (e.g., archive/unarchive).
  * @param {Array} sourceList - The list to remove from
@@ -202,11 +222,27 @@ export const sessionActions = {
 
   async deleteSession(id) {
     this.error = null;
+    const deletedIds = new Set([
+      id,
+      ...getDescendantSessionIds([...this.sessions, ...this.archivedSessions], id),
+    ]);
     try {
       await api.deleteSession(id);
-      this.sessions = this.sessions.filter((s) => s.id !== id);
-      this.archivedSessions = this.archivedSessions.filter((s) => s.id !== id);
-      if (this.currentSession?.id === id) this.currentSession = null;
+      this.sessions = this.sessions.filter((s) => !deletedIds.has(s.id));
+      const prevArchivedCount = this.archivedSessions.length;
+      this.archivedSessions = this.archivedSessions.filter((s) => !deletedIds.has(s.id));
+      const removedArchivedCount = prevArchivedCount - this.archivedSessions.length;
+      if (removedArchivedCount > 0) {
+        const nextTotal = Math.max(0, this.archivedPagination.total - removedArchivedCount);
+        const nextOffset = Math.max(0, this.archivedPagination.offset - removedArchivedCount);
+        this.archivedPagination = {
+          ...this.archivedPagination,
+          total: nextTotal,
+          offset: nextOffset,
+          hasMore: nextOffset < nextTotal,
+        };
+      }
+      if (this.currentSession?.id && deletedIds.has(this.currentSession.id)) this.currentSession = null;
     } catch (err) { this.error = err.message; throw err; }
   },
 

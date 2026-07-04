@@ -50,12 +50,6 @@ vi.mock('../services/draftSessionService.js', () => ({
   DraftSessionError: class extends Error {},
 }));
 
-// Mock scheduleService
-vi.mock('../services/scheduleService.js', () => ({
-  configureSchedule: vi.fn(),
-  ScheduleError: class extends Error {},
-}));
-
 // Mock sessionDuplicator
 vi.mock('../services/sessionDuplicator.js', () => ({
   duplicateSession: vi.fn(),

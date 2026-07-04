@@ -4,6 +4,14 @@ import { join } from 'path';
 
 const MAX_FILE_SIZE = 100 * 1024; // 100KB
 
+function emptyOnGitFailure(promise) {
+  return promise.catch(() => '');
+}
+
+function emptyArrayOnGitFailure(promise) {
+  return promise.catch(() => []);
+}
+
 /**
  * Check if content is binary (contains null bytes)
  * @param {Buffer} buffer
@@ -138,9 +146,9 @@ export async function generateUntrackedDiffs(directory, filePaths) {
  */
 export async function getChanges(directory) {
   const [staged, unstaged, untrackedPaths] = await Promise.all([
-    gitService.getStagedDiff(directory),
-    gitService.getDiff(directory),
-    gitService.getUntrackedFiles(directory),
+    emptyOnGitFailure(gitService.getStagedDiff(directory)),
+    emptyOnGitFailure(gitService.getDiff(directory)),
+    emptyArrayOnGitFailure(gitService.getUntrackedFiles(directory)),
   ]);
 
   // Generate synthetic diffs for untracked files
@@ -158,10 +166,10 @@ export async function getChanges(directory) {
  */
 export async function getChangesBranch(directory, branch) {
   const [branchDiff, staged, unstaged, untrackedPaths] = await Promise.all([
-    gitService.getDiffBetweenRefs(directory, branch, 'HEAD'), // Committed changes vs branch
-    gitService.getStagedDiff(directory), // Actual staged changes (local)
-    gitService.getDiff(directory), // Actual unstaged changes (local)
-    gitService.getUntrackedFiles(directory),
+    emptyOnGitFailure(gitService.getDiffBetweenRefs(directory, branch, 'HEAD')), // Committed changes vs branch
+    emptyOnGitFailure(gitService.getStagedDiff(directory)), // Actual staged changes (local)
+    emptyOnGitFailure(gitService.getDiff(directory)), // Actual unstaged changes (local)
+    emptyArrayOnGitFailure(gitService.getUntrackedFiles(directory)),
   ]);
 
   // Generate synthetic diffs for untracked files
@@ -169,4 +177,3 @@ export async function getChangesBranch(directory, branch) {
 
   return { branchDiff, staged, unstaged, untracked };
 }
-

@@ -15,6 +15,8 @@ import {
   BASE_URL,
 } from './helpers';
 
+test.describe.configure({ mode: 'serial' });
+
 test.describe('Markdown Rendering', () => {
   let project: any;
 

@@ -582,7 +582,7 @@ describe('buildQueryParams agent-aware', () => {
       expect(result.options.model).toBe('gpt-4o');
       expect(typeof result.options.systemPrompt).toBe('string');
       expect(result.options.systemPrompt.length).toBeGreaterThan(0);
-      expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
+      expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
       // standard session.mode → workspace-write sandbox
       expect(result.options.sandboxMode).toBe('workspace-write');
 
@@ -643,8 +643,8 @@ describe('buildQueryParams agent-aware', () => {
     const result = buildQueryParams(args);
     // Should use DEFAULT_SYSTEM_PROMPT as the base, not null
     expect(result.options.systemPrompt).toContain('AI coding assistant');
-    // Should include canvas write instructions (with the session ID from mock)
-    expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
+    // Should include canvas write instructions (workspace-scoped, using the root session ID from mock)
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
     // Should include session API instructions
     expect(result.options.systemPrompt).toContain('Session Management API');
   });
@@ -653,7 +653,7 @@ describe('buildQueryParams agent-aware', () => {
     const args = { ...baseArgs(), agentType: 'codex', systemPrompt: 'be helpful' };
     const result = buildQueryParams(args);
     expect(result.options.systemPrompt).toContain('be helpful');
-    expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
   });
 
   it('codex: composed systemPrompt includes plan mode when session.mode is plan', () => {
@@ -675,7 +675,7 @@ describe('buildQueryParams agent-aware', () => {
     expect(result.options.env).toEqual({ OPENAI_API_KEY: 'sk-test' });
     expect(result.options.model).toBe('gemini-2.5-pro');
     expect(typeof result.options.systemPrompt).toBe('string');
-    expect(result.options.systemPrompt).toContain('/api/sessions/sess-1/canvas');
+    expect(result.options.systemPrompt).toContain('/api/workspaces/sess-1/canvas');
     expect(result.options.approvalMode).toBe('auto_edit');
 
     expect(result.options.permissionMode).toBeUndefined();

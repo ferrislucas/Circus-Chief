@@ -36,6 +36,12 @@
           <p class="form-help">
             The message you've typed will be sent at this time
           </p>
+          <p
+            v-if="!resolvedPrompt"
+            class="form-help form-help--warning"
+          >
+            No prompt to schedule — type a message before scheduling.
+          </p>
         </div>
       </div>
 
@@ -67,6 +73,9 @@ import { useInjectedSessionsStore } from '../composables/useOverlayStore.js';
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
   sessionId: { type: String, default: '' },
+  // The message to schedule. Falls back to the session's saved pendingPrompt
+  // when not provided (e.g. when the live textarea value isn't passed in).
+  prompt: { type: String, default: '' },
 });
 
 const emit = defineEmits(['close', 'update:isOpen']);
@@ -86,7 +95,15 @@ const minDateTime = computed(() => {
   return now.toISOString().slice(0, 16);
 });
 
+// Single source of truth for which prompt will be submitted.
+// Prefer the live input from the parent; fall back to the session's saved pendingPrompt.
+const resolvedPrompt = computed(() => {
+  const live = props.prompt && props.prompt.trim() ? props.prompt.trim() : '';
+  return live || sessionsStore.getSessionById(props.sessionId)?.pendingPrompt?.trim() || '';
+});
+
 const isValid = computed(() => {
+  if (!resolvedPrompt.value) return false;
   if (!form.scheduledAtLocal) return false;
   const scheduledTime = new Date(form.scheduledAtLocal).getTime();
   return scheduledTime > Date.now();
@@ -101,8 +118,9 @@ async function handleSchedule() {
   if (!isValid.value) return;
 
   const scheduledAt = new Date(form.scheduledAtLocal).getTime();
+  const prompt = resolvedPrompt.value;
 
-  const payload = { scheduledAt };
+  const payload = { prompt, scheduledAt };
 
   // Close modal immediately for better UX
   close();
@@ -230,6 +248,10 @@ textarea.form-input {
   margin-top: 0.25rem;
   font-size: 0.875rem;
   color: var(--color-text-soft);
+}
+
+.form-help--warning {
+  color: var(--color-warning, #f59e0b);
 }
 
 .btn {

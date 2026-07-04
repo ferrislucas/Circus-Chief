@@ -801,7 +801,7 @@ describe('DatabaseManager', () => {
     it('includes the built-in Fable catalog entry', () => {
       const db = manager.get();
 
-      expect(db.prepare("SELECT model_id, display_name, description, tier FROM provider_models WHERE id = 'anthropic-fable'").get()).toEqual({
+      expect(db.prepare("SELECT model_id, display_name, description, tier FROM provider_models WHERE model_id = 'claude-fable-5'").get()).toEqual({
         model_id: 'claude-fable-5',
         display_name: 'Fable 5',
         description: 'Next-generation intelligence',
@@ -811,7 +811,6 @@ describe('DatabaseManager', () => {
 
     it('widens older provider_models tier constraints before seeding Fable', () => {
       const db = new Database(':memory:');
-      const widenMigration = providerMigrations.find((entry) => entry.name === 'provider-models-widen-tier-check-fable');
       const seedMigration = providerMigrations.find((entry) => entry.name === 'providers-seed-built-in-fable-5');
 
       try {
@@ -844,11 +843,10 @@ describe('DatabaseManager', () => {
           ) VALUES ('anthropic-fable', 'anthropic-default', 'claude-fable-5', 'Fable 5', NULL, 'fable')`
         ).run()).toThrow();
 
-        widenMigration.up(db);
         seedMigration.up(db);
 
         expect(db.prepare("SELECT tier FROM provider_models WHERE id = 'anthropic-sonnet'").get().tier).toBe('sonnet');
-        expect(db.prepare("SELECT model_id, display_name, description, tier FROM provider_models WHERE id = 'anthropic-fable'").get()).toEqual({
+        expect(db.prepare("SELECT model_id, display_name, description, tier FROM provider_models WHERE model_id = 'claude-fable-5'").get()).toEqual({
           model_id: 'claude-fable-5',
           display_name: 'Fable 5',
           description: 'Next-generation intelligence',
@@ -862,7 +860,7 @@ describe('DatabaseManager', () => {
     it('updates the built-in Sonnet catalog entry without rewriting persisted model choices', () => {
       const db = manager.get();
       const now = Date.now();
-      const migration = providerMigrations.find((entry) => entry.name === 'providers-update-built-in-sonnet-5');
+      const migration = providerMigrations.find((entry) => entry.name === 'providers-update-built-in-models');
 
       db.prepare('INSERT INTO projects (id, name, working_directory, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run('proj-sonnet-5-migration', 'Project', '/tmp', now, now);
