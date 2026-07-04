@@ -136,8 +136,7 @@ import SchedulingInfo from './SchedulingInfo.vue';
 import SlashCommandWizard from './SlashCommandWizard.vue';
 import StaleBadge from './StaleBadge.vue';
 import { useProjectsStore } from '../stores/projects.js';
-import { isTierRef } from '../stores/tiers.js';
-import { useTiersStore } from '../stores/tiers.js';
+import { isTierRef, useTiersStore } from '../stores/tiers.js';
 
 const props = defineProps({
   sessionId: { type: String, required: true },

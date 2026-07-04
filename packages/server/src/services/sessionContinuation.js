@@ -49,31 +49,39 @@ async function buildPromptForContinue({ modelChanged, agent, conversationId, pro
  * @param {string|null} model - Requested model (null to keep current)
  * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
-function buildContinueModelAndEnv(session, sessionId, model) {
+function resolveConcreteContinueModel(session, model) {
   // --- Tier ref resolution (Fix 1) ---
   // When no explicit model override is requested and the stored model is a tier
   // ref, resolve to the concrete model that was used at start time (or the first
   // healthy tier member as a fallback). This prevents the raw `tier::<id>`
   // sentinel from being forwarded to the agent on follow-up turns.
-  let concreteResolvedModel = null;
-  let concreteResolvedProviderId = null;
-  if (!model && isTierRef(session.model)) {
-    if (session.resolvedModel) {
-      // Prefer the snapshot written by runSessionWithTierFailover on success
-      concreteResolvedModel = session.resolvedModel;
-      concreteResolvedProviderId = session.resolvedProviderId || null;
-    } else {
-      // Snapshot missing (e.g. legacy row) — re-resolve from live tier state
-      const live = resolveActiveModel(session.model, {});
-      if (!live) {
-        throw new Error(
-          `Tier "${session.model}" has no healthy members available to continue the session`
-        );
-      }
-      concreteResolvedModel = live.model;
-      concreteResolvedProviderId = live.providerId;
-    }
+  if (model || !isTierRef(session.model)) {
+    return { concreteResolvedModel: null, concreteResolvedProviderId: null };
   }
+
+  if (session.resolvedModel) {
+    // Prefer the snapshot written by runSessionWithTierFailover on success
+    return {
+      concreteResolvedModel: session.resolvedModel,
+      concreteResolvedProviderId: session.resolvedProviderId || null,
+    };
+  }
+
+  // Snapshot missing (e.g. legacy row) — re-resolve from live tier state
+  const live = resolveActiveModel(session.model, {});
+  if (!live) {
+    throw new Error(
+      `Tier "${session.model}" has no healthy members available to continue the session`
+    );
+  }
+  return { concreteResolvedModel: live.model, concreteResolvedProviderId: live.providerId };
+}
+
+function buildContinueModelAndEnv(session, sessionId, model) {
+  const { concreteResolvedModel, concreteResolvedProviderId } = resolveConcreteContinueModel(
+    session,
+    model
+  );
 
   // The model to actually use for this turn's provider env / agent dispatch.
   // Keep session.model pointing at the tier ref so the badge persists.

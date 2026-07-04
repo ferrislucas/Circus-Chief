@@ -108,9 +108,9 @@ export class AgentCallLogger {
    * Settings → Logs alongside regular agent calls.
    *
    * @param {string} sessionId
-   * @param {{ fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, timestamp }} opts
+   * @param {{ fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason }} opts
    */
-  _logFailoverEvent(sessionId, { fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason, timestamp }) {
+  _logFailoverEvent(sessionId, { fromModel, fromProviderId, toModel, toProviderId, tierRef, tierName, reason }) {
     const callId = nanoid();
     const metadata = {
       fromModel: fromModel || null,

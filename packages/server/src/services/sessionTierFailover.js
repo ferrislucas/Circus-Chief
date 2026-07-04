@@ -123,6 +123,19 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, 
     throw error;
   }
 
+  // Eligible failure with a healthy successor — emit the failover event and
+  // return so the caller advances to the next member.
+  emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, members });
+}
+
+/**
+ * Emit the tier-failover side effects (WebSocket broadcast + agent-call log entry)
+ * once a member has been confirmed as an eligible failure with a healthy successor.
+ *
+ * @param {Error} error
+ * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, members: Array }} ctx
+ */
+function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, members }) {
   // Identify the next healthy member for the payload (Fix 5)
   const nextMember = members
     ? members.find(
@@ -136,8 +149,6 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, 
     `[SessionManager] Tier failover: member ${member.modelId} (provider ${member.providerId}) failed; marking unhealthy and advancing to ${nextMember?.modelId || 'next member'}`
   );
 
-  const now = Date.now();
-
   // Emit failover event via WebSocket — only fires when we're actually advancing (Fix 2/Fix 5).
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.TIER_FAILOVER, {
     tierRef,
@@ -147,7 +158,7 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, 
     toModel: nextMember?.modelId || null,
     toProviderId: nextMember?.providerId || null,
     reason: error.message,
-    timestamp: now,
+    timestamp: Date.now(),
   });
 
   // Write the failover event to the agent log stream (Fix 4 — F26)
@@ -160,13 +171,10 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, 
       tierRef,
       tierName,
       reason: error.message,
-      timestamp: now,
     });
   } catch (_logErr) {
     // Non-fatal — failover proceeds even if logging fails
   }
-
-  // Return so the caller advances to the next member.
 }
 
 /**

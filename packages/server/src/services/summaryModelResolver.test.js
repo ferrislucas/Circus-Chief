@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { modelProviders, projects, sessions } from '../database.js';
 import {
   BUILT_IN_ANTHROPIC_PROVIDER_ID,
@@ -187,7 +187,7 @@ describe('summaryModelResolver', () => {
     let tierProvider;
 
     beforeEach(async () => {
-      const { modelProviders, modelTiers } = await import('../database.js');
+      const { modelTiers } = await import('../database.js');
       const { markUnhealthy, clearUnhealthy } = await import('./tierResolutionService.js');
 
       tierProvider = modelProviders.create({ name: 'Tier Provider', kind: 'anthropic' });
@@ -227,7 +227,6 @@ describe('summaryModelResolver', () => {
         members: [{ providerId: suite.tierProvider.id, modelId: 'claude-haiku-4-5-20251001', position: 0 }],
       });
       // The resolved model needs a valid provider — add it to the provider
-      const { modelProviders } = await import('../database.js');
       modelProviders.addModel(suite.tierProvider.id, {
         modelId: 'claude-haiku-4-5-20251001',
         displayName: 'Haiku test',
