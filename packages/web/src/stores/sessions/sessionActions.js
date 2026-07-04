@@ -85,11 +85,34 @@ async function fetchAncestorSessions(sessions, startParentId) {
  */
 export const sessionActions = {
   async fetchSessions(projectId, { silent = false } = {}) {
-    if (!silent) this.loading = true;
+    // Capture a unique token for this call. Any response that resolves after a
+    // newer fetch has started will be discarded — covering cross-project (A→B)
+    // and same-project (A→B→A) races alike.
+    const seq = ++this.sessionsFetchSeq;
+    if (!silent) {
+      this.loading = true;
+      // Clear stale rows immediately so the previous project's list never
+      // renders under the new project's heading.
+      this.sessions = [];
+    }
     this.error = null;
-    try { this.sessions = await api.getProjectSessions(projectId, false, null); }
-    catch (err) { this.error = err.message; }
-    finally { if (!silent) this.loading = false; }
+    try {
+      const result = await api.getProjectSessions(projectId, false, null);
+      // Guard: discard if a newer fetch has superseded this one.
+      if (seq !== this.sessionsFetchSeq) return;
+      // Normalize: guard against non-array API responses (e.g. null).
+      const rows = Array.isArray(result) ? result : [];
+      // Defensive filter: drop rows that explicitly belong to a different project.
+      // Only applies when the row carries a projectId field (backward compat with
+      // older API responses or test fixtures that omit the field).
+      this.sessions = rows.filter(s => !s.projectId || s.projectId === projectId);
+    } catch (err) {
+      if (seq !== this.sessionsFetchSeq) return;
+      this.error = err.message;
+    } finally {
+      // Only clear the loading flag if this fetch still owns the slot.
+      if (!silent && seq === this.sessionsFetchSeq) this.loading = false;
+    }
   },
 
   async fetchArchivedSessions(projectId, { reset = true } = {}) {
