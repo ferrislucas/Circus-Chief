@@ -47,6 +47,12 @@ export function matchesTokenLimitError(message) {
  * out of tokens / insufficient credit / billing — plus the matchesServiceError
  * patterns (service unavailability) which are already tight.
  *
+ * Prompt-size errors (context length / context window / max_tokens) are
+ * intentionally excluded: an oversized prompt is not an outage or quota
+ * exhaustion, so failing over to another provider won't fix it and can mask
+ * a real prompt-size bug by silently bouncing across providers. These stay
+ * covered by matchesTokenLimitError for the broader auto-reschedule decision.
+ *
  * @param {string} message - Error message to check (should be lowercased by caller)
  * @returns {boolean} True if the error should trigger start-time tier failover
  */
@@ -61,9 +67,6 @@ export function matchesStartFailoverEligibleError(message) {
     'out of tokens',
     'insufficient credit',
     'billing',
-    'context length',
-    'context window',
-    'max_tokens',
   ];
   return quotaPatterns.some(pattern => message.includes(pattern));
 }

@@ -352,9 +352,6 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
     // Quota / billing patterns specific to start-time failover
     'quota exhausted for this billing period',
     'rate limit reached',
-    'context length exceeded',
-    'max_tokens parameter exceeded',
-    'context window is full',
     'out of tokens for this account',
     'insufficient credit balance',
     'billing limit reached',
@@ -375,6 +372,13 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
     "you've hit your limit",      // matchesTokenLimitError catches "limit" — startFailover does NOT
     'usage cap reached',           // "cap" only in matchesTokenLimitError — NOT in startFailover
     'usage exceeded for this period', // "exceeded" only in matchesTokenLimitError — NOT in startFailover
+    // Issue 2: prompt-size errors are intentionally excluded from start-time
+    // failover — failing over won't fix an oversized prompt and can mask a
+    // real prompt-size bug. They remain covered by matchesTokenLimitError
+    // for the broader auto-reschedule decision (see tests above).
+    'context length exceeded',
+    'max_tokens parameter exceeded',
+    'context window is full',
   ];
 
   describe('errors that DO trigger start-time failover', () => {
