@@ -20,8 +20,11 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
 import { runSession } from './sessionManager.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
-import { modelProviders, modelTiers } from '../database.js';
+import { modelProviders, modelTiers, agentCallLogs } from '../database.js';
 import { isUnhealthy } from './tierResolutionService.js';
+import { agentGateway } from '../agents/AgentGateway.js';
+import { BaseAgent } from '../agents/BaseAgent.js';
+import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
 
 describe('runSessionCore tier failover (integration)', () => {
   let sessionRepo;
@@ -416,5 +419,92 @@ describe('runSessionWithTierFailover preserves resolvedModel on proactive resche
     // regardless of whether the session was proactively rescheduled afterwards.
     expect(updated.resolvedModel).toBe('fix3-model-a');
     expect(updated.resolvedProviderId).toBe(providerA.id);
+  });
+});
+
+// ── Issue 4: failover log entry reflects the source agent type ─────────────
+//
+// _logFailoverEvent previously hardcoded agentType: 'claude-code' and
+// success: false. When failing over *from* a Codex/Gemini member the logged
+// agent type was wrong, and success:false mapped the row to status 'error'
+// even though a failover that successfully advances is a benign system
+// event, not a call failure.
+
+describe('tier failover log entry reflects source agentType (Issue 4)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerCodex;
+  let providerClaude;
+  let tier;
+  let originalCodexAdapter;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'claude-model-b', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'issue4-agenttype-test-'));
+    const project = projectRepo.create('Issue4 Project', tempDir);
+
+    // First member resolves to a Codex ('openai' kind) provider — its
+    // adapter is swapped below for a fake that fails deterministically
+    // without spawning a real CLI process.
+    providerCodex = modelProviders.create({ name: 'Issue4 Codex Provider', kind: 'openai' });
+    providerClaude = modelProviders.create({ name: 'Issue4 Claude Provider', kind: 'anthropic' });
+    modelProviders.addModel(providerCodex.id, { modelId: 'codex-model-a', displayName: 'Codex Model A' });
+    modelProviders.addModel(providerClaude.id, { modelId: 'claude-model-b', displayName: 'Claude Model B' });
+
+    tier = modelTiers.create({
+      name: 'Issue4 Tier',
+      members: [
+        { providerId: providerCodex.id, modelId: 'codex-model-a', position: 0 },
+        { providerId: providerClaude.id, modelId: 'claude-model-b', position: 1 },
+      ],
+    });
+
+    session = sessionRepo.create(project.id, 'Issue4 Session', 'Test prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+
+    // Swap in a fake Codex adapter that fails at start with a failover-eligible
+    // error, without touching a real Codex CLI process.
+    originalCodexAdapter = agentGateway.adapters.get('codex');
+    class FailingCodexAdapter extends BaseAgent {
+      static capabilities = CodexAdapter.capabilities;
+      // eslint-disable-next-line require-yield -- always throws before yielding
+      async *execute() {
+        throw new Error('Error: 529 Service overloaded');
+      }
+    }
+    agentGateway.registerAdapter('codex', FailingCodexAdapter);
+  });
+
+  afterEach(() => {
+    agentGateway.registerAdapter('codex', originalCodexAdapter);
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('logs the failing member\'s agentType (codex) instead of hardcoding claude-code', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // Failed over from Codex to Claude
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe('claude-model-b');
+
+    const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agentType).toBe('codex');
+    // A failover that successfully advances is a neutral system event, not
+    // a call failure — status must not be 'error'.
+    expect(rows[0].status).not.toBe('error');
+    expect(rows[0].status).toBe('completed');
   });
 });

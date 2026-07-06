@@ -17,6 +17,7 @@ import {
   _executeSession,
 } from './sessionExecution.js';
 import { agentCallLogger } from './agentCallLogger.js';
+import { resolveAgentTypeFromModel } from './sessionProvider.js';
 
 /**
  * Execute a single attempt with a concrete (model, providerId) pair.
@@ -176,6 +177,10 @@ function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, me
       tierRef,
       tierName,
       reason: error.message,
+      // Issue 4: derive the source member's agent type instead of assuming
+      // 'claude-code' — a failover away from a Codex/Gemini member must log
+      // its own agent type.
+      agentType: resolveAgentTypeFromModel(member.modelId),
     });
   } catch (_logErr) {
     // Non-fatal — failover proceeds even if logging fails
