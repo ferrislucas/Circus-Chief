@@ -395,10 +395,10 @@ async function saveTier() {
   try {
     if (editingTier.value) {
       await tiersStore.updateTier(editingTier.value.id, payload);
-      uiStore.showSuccess('Tier updated');
+      uiStore.success('Tier updated');
     } else {
       await tiersStore.createTier(payload);
-      uiStore.showSuccess('Tier created');
+      uiStore.success('Tier created');
     }
     closeModal();
   } catch (err) {
@@ -418,10 +418,10 @@ async function doDelete() {
   deleting.value = true;
   try {
     await tiersStore.deleteTier(confirmingDelete.value.id);
-    uiStore.showSuccess('Tier deleted');
+    uiStore.success('Tier deleted');
     confirmingDelete.value = null;
   } catch (err) {
-    uiStore.showError(err.message || 'Failed to delete tier');
+    uiStore.error(err.message || 'Failed to delete tier');
   } finally {
     deleting.value = false;
   }
