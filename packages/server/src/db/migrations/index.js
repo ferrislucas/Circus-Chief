@@ -304,4 +304,8 @@ export const allMigrations = validateMigrations([
   // --- Model tiers (cross-model failover v1) ---
   mt.get('model_tiers-create-tables'),
   mt.get('sessions-add-resolved_model'),
+
+  // --- Normalize retired Claude model ids in CONFIG columns only ---
+  // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
+  m.get('normalize-stale-claude-model-ids'),
 ]);

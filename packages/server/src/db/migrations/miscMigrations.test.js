@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { DEFAULT_SESSION_TEMPLATE_PROMPTS } from './miscMigrations.js';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {
+  DEFAULT_SESSION_TEMPLATE_PROMPTS,
+  miscMigrations,
+  STALE_CLAUDE_MODEL_IDS,
+  CONFIG_MODEL_COLUMNS,
+} from './miscMigrations.js';
 import { providerMigrations } from './providerMigrations.js';
 import { getDatabase } from '../index.js';
 import { allMigrations } from './index.js';
@@ -202,5 +207,191 @@ describe('providers-backfill-built-in-openai-attribution migration', () => {
     const attributionBackfillIdx = names.indexOf('providers-backfill-built-in-openai-attribution');
 
     expect(attributionBackfillIdx).toBeGreaterThan(openAISeedIdx);
+  });
+});
+
+const normalizeMigration = miscMigrations.find(
+  (m) => m.name === 'normalize-stale-claude-model-ids'
+);
+
+describe('normalize-stale-claude-model-ids migration', () => {
+  const PID = 'test-norm-project';
+  const BOARD = 'test-norm-board';
+  const T_PREFIX = 'test-norm-';
+
+  // Test rows seeded with every stale id, plus current/NULL controls.
+  function seed(db) {
+    const now = Date.now();
+    db.prepare('INSERT INTO projects (id, name, working_directory) VALUES (?, ?, ?)')
+      .run(PID, 'Norm Test', '/tmp/norm-test');
+    db.prepare('INSERT INTO kanban_boards (id, project_id) VALUES (?, ?)').run(BOARD, PID);
+
+    const insertLane = db.prepare(
+      'INSERT INTO kanban_lanes (id, board_id, name, on_enter_model) VALUES (?, ?, ?, ?)'
+    );
+    insertLane.run(`${T_PREFIX}lane-sonnet46`, BOARD, 'L1', 'claude-sonnet-4-6');
+    insertLane.run(`${T_PREFIX}lane-alias`, BOARD, 'L2', 'sonnet');
+    insertLane.run(`${T_PREFIX}lane-null`, BOARD, 'L3', null);
+    insertLane.run(`${T_PREFIX}lane-current`, BOARD, 'L4', 'claude-sonnet-5');
+
+    const insertTpl = db.prepare(
+      'INSERT INTO session_templates (id, name, prompt, model) VALUES (?, ?, ?, ?)'
+    );
+    insertTpl.run(`${T_PREFIX}tpl-opus45`, 'T', 'p', 'claude-opus-4-5-20251101');
+    insertTpl.run(`${T_PREFIX}tpl-current`, 'T', 'p', 'claude-haiku-4-5-20251001');
+
+    db.prepare(
+      'INSERT INTO project_session_defaults (id, project_id, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(`${T_PREFIX}pd`, PID, 'claude-sonnet-4-5-20250929', now, now);
+
+    // RECORD row — must be preserved (sessions.model is historical/audit data).
+    db.prepare('INSERT INTO sessions (id, project_id, name, model) VALUES (?, ?, ?, ?)')
+      .run(`${T_PREFIX}session`, PID, 'S', 'claude-sonnet-4-6');
+  }
+
+  function cleanup(db) {
+    for (const table of [
+      'kanban_lanes',
+      'kanban_boards',
+      'session_templates',
+      'project_session_defaults',
+      'sessions',
+      'projects',
+    ]) {
+      db.prepare(`DELETE FROM ${table} WHERE id LIKE ?`).run(`${T_PREFIX}%`);
+      if (table === 'kanban_boards') {
+        db.prepare('DELETE FROM kanban_boards WHERE id = ?').run(BOARD);
+      }
+      if (table === 'projects') {
+        db.prepare('DELETE FROM projects WHERE id = ?').run(PID);
+      }
+    }
+  }
+
+  beforeEach(() => {
+    const db = getDatabase();
+    cleanup(db); // defensive: clear any leftovers from a failed prior run
+    seed(db);
+  });
+
+  afterEach(() => {
+    cleanup(getDatabase());
+  });
+
+  it('exists and is registered in allMigrations', () => {
+    expect(normalizeMigration).toBeDefined();
+    expect(typeof normalizeMigration.up).toBe('function');
+    const names = allMigrations.map((m) => m.name);
+    expect(names).toContain('normalize-stale-claude-model-ids');
+  });
+
+  it('rewrites stale Sonnet ids in kanban_lanes.on_enter_model', () => {
+    const db = getDatabase();
+    normalizeMigration.up(db);
+    const row = db
+      .prepare('SELECT on_enter_model FROM kanban_lanes WHERE id = ?')
+      .get(`${T_PREFIX}lane-sonnet46`);
+    expect(row.on_enter_model).toBe('claude-sonnet-5');
+  });
+
+  it('rewrites bare tier aliases (sonnet) in config columns', () => {
+    const db = getDatabase();
+    normalizeMigration.up(db);
+    const row = db
+      .prepare('SELECT on_enter_model FROM kanban_lanes WHERE id = ?')
+      .get(`${T_PREFIX}lane-alias`);
+    expect(row.on_enter_model).toBe('claude-sonnet-5');
+  });
+
+  it('rewrites stale Opus id in session_templates.model to the current default', () => {
+    const db = getDatabase();
+    normalizeMigration.up(db);
+    const row = db
+      .prepare('SELECT model FROM session_templates WHERE id = ?')
+      .get(`${T_PREFIX}tpl-opus45`);
+    expect(row.model).toBe('claude-opus-4-8');
+  });
+
+  it('rewrites stale ids in project_session_defaults.model', () => {
+    const db = getDatabase();
+    normalizeMigration.up(db);
+    const row = db
+      .prepare('SELECT model FROM project_session_defaults WHERE id = ?')
+      .get(`${T_PREFIX}pd`);
+    expect(row.model).toBe('claude-sonnet-5');
+  });
+
+  it('preserves already-current ids', () => {
+    const db = getDatabase();
+    normalizeMigration.up(db);
+    const lane = db
+      .prepare('SELECT on_enter_model FROM kanban_lanes WHERE id = ?')
+      .get(`${T_PREFIX}lane-current`);
+    const tpl = db
+      .prepare('SELECT model FROM session_templates WHERE id = ?')
+      .get(`${T_PREFIX}tpl-current`);
+    expect(lane.on_enter_model).toBe('claude-sonnet-5');
+    expect(tpl.model).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('preserves NULL config values', () => {
+    const db = getDatabase();
+    normalizeMigration.up(db);
+    const row = db
+      .prepare('SELECT on_enter_model FROM kanban_lanes WHERE id = ?')
+      .get(`${T_PREFIX}lane-null`);
+    expect(row.on_enter_model).toBeNull();
+  });
+
+  it('does NOT rewrite sessions.model — records are historical, not config', () => {
+    const db = getDatabase();
+    normalizeMigration.up(db);
+    const row = db
+      .prepare('SELECT model FROM sessions WHERE id = ?')
+      .get(`${T_PREFIX}session`);
+    // A session that actually ran on Sonnet 4.6 must keep recording Sonnet 4.6.
+    expect(row.model).toBe('claude-sonnet-4-6');
+  });
+
+  it('only touches config columns (never record/audit columns)', () => {
+    const db = getDatabase();
+    // Every column the migration touches must be a known config column.
+    const touched = CONFIG_MODEL_COLUMNS.map(([t, c]) => `${t}.${c}`);
+    expect(touched).toEqual(
+      expect.arrayContaining([
+        'kanban_lanes.on_enter_model',
+        'session_templates.model',
+        'project_session_defaults.model',
+      ])
+    );
+    // Guard against accidentally widening scope to record columns later.
+    expect(touched).not.toContain('sessions.model');
+    expect(touched).not.toContain('conversations.model');
+    expect(touched).not.toContain('conversation_messages.model');
+    expect(touched).not.toContain('agent_call_logs.model');
+    expect(Object.keys(STALE_CLAUDE_MODEL_IDS).length).toBeGreaterThan(0);
+    // Smoke-test: running it shouldn't throw on a freshly-seeded DB.
+    expect(() => normalizeMigration.up(db)).not.toThrow();
+  });
+
+  it('is idempotent — re-running changes nothing', () => {
+    const db = getDatabase();
+    normalizeMigration.up(db);
+    const afterFirst = db
+      .prepare('SELECT on_enter_model FROM kanban_lanes WHERE id = ?')
+      .get(`${T_PREFIX}lane-sonnet46`).on_enter_model;
+    normalizeMigration.up(db);
+    const afterSecond = db
+      .prepare('SELECT on_enter_model FROM kanban_lanes WHERE id = ?')
+      .get(`${T_PREFIX}lane-sonnet46`).on_enter_model;
+    expect(afterFirst).toBe('claude-sonnet-5');
+    expect(afterSecond).toBe('claude-sonnet-5');
+    // No stale id remains in any config column after the run.
+    for (const [table, col] of CONFIG_MODEL_COLUMNS) {
+      const count = db
+        .prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} IN (${Object.keys(STALE_CLAUDE_MODEL_IDS).map(() => '?').join(',')})`)
+        .get(...Object.keys(STALE_CLAUDE_MODEL_IDS)).n;
+      expect(count).toBe(0);
+    }
   });
 });
