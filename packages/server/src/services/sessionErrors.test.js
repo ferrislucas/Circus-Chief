@@ -23,6 +23,7 @@ import {
   matchesServiceError,
   shouldRescheduleOnError,
   _checkProactiveReschedule,
+  turnEndedDueToLimitOrOutage,
 } from './sessionErrors.js';
 
 describe('sessionErrors', () => {
@@ -328,6 +329,59 @@ describe('sessionErrors', () => {
 
       const result = await _checkProactiveReschedule('sess-1');
       expect(result).toBe(true);
+    });
+  });
+
+  // ── turnEndedDueToLimitOrOutage ───────────────────────────────────────
+
+  describe('turnEndedDueToLimitOrOutage', () => {
+    it('detects token-limit text in the result event', () => {
+      messages.getBySessionId.mockReturnValue([]);
+      const resultEvent = { resultText: "You've reached your usage limit" };
+      expect(turnEndedDueToLimitOrOutage('sess-1', resultEvent)).toBe(true);
+    });
+
+    it('detects service-error text (overloaded / 503 / 529 / unavailable) in the result event', () => {
+      messages.getBySessionId.mockReturnValue([]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'The server is overloaded' })).toBe(true);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'error code 503' })).toBe(true);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'error code 529' })).toBe(true);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'service unavailable' })).toBe(true);
+    });
+
+    it('detects token-limit / service-error text in the last assistant message when result text is empty', () => {
+      messages.getBySessionId.mockReturnValue([
+        { role: 'user', content: 'do something' },
+        { role: 'assistant', content: "You've hit your token limit" },
+      ]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: '' })).toBe(true);
+    });
+
+    it('detects from the last assistant message when no result event is provided', () => {
+      messages.getBySessionId.mockReturnValue([
+        { role: 'user', content: 'do something' },
+        { role: 'assistant', content: 'The service is unavailable right now' },
+      ]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', null)).toBe(true);
+    });
+
+    it('returns false for clean result text and clean assistant message', () => {
+      messages.getBySessionId.mockReturnValue([
+        { role: 'assistant', content: 'Here is the finished implementation.' },
+      ]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'Done, all tests pass.' })).toBe(false);
+    });
+
+    it('returns false with no throw when there is no result event and no assistant message', () => {
+      messages.getBySessionId.mockReturnValue([]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', null)).toBe(false);
+    });
+
+    it('prefers the result event text over the assistant message', () => {
+      messages.getBySessionId.mockReturnValue([
+        { role: 'assistant', content: 'Here is the finished implementation.' },
+      ]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'usage limit reached' })).toBe(true);
     });
   });
 });

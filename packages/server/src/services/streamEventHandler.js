@@ -42,6 +42,22 @@ export const loggedToolUseIds = new Map();
 /** @type {Set<string>} Track sessions that received a final result.error event */
 export const finalErrorSessionIds = new Set();
 
+/**
+ * @type {Map<string, { subtype: string, isError: boolean, resultText: string }>}
+ * Captures the CLI's authoritative turn-termination payload (the `result` event) per session,
+ * so the completion path can consult it to detect a graceful usage-limit/outage termination.
+ */
+export const finalResultEvents = new Map();
+
+/**
+ * Get the captured `result` event record for a session, if any.
+ * @param {string} sessionId
+ * @returns {{ subtype: string, isError: boolean, resultText: string } | null}
+ */
+export function getResultEvent(sessionId) {
+  return finalResultEvents.get(sessionId) || null;
+}
+
 // ── Helper functions ───────────────────────────────────────────────────────
 
 /**
@@ -401,6 +417,14 @@ function handleContentBlockStop(sessionId, _event) {
  * @param {Object} event
  */
 function handleResultEvent(sessionId, event) {
+  // Capture the authoritative turn-termination text regardless of subtype, so the
+  // completion path can later detect a graceful usage-limit/outage termination.
+  finalResultEvents.set(sessionId, {
+    subtype: event.subtype,
+    isError: Boolean(event.is_error),
+    resultText: typeof event.result === 'string' ? event.result : '',
+  });
+
   if (event.subtype === 'error') {
     handleResultError(sessionId, event);
   } else {
@@ -498,6 +522,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false) {
   currentModels.delete(sessionId);
   loggedToolUseIds.delete(sessionId);
   finalErrorSessionIds.delete(sessionId);
+  finalResultEvents.delete(sessionId);
   activeSessions.delete(sessionId);
   if (includeConversationId) {
     activeConversationIds.delete(sessionId);

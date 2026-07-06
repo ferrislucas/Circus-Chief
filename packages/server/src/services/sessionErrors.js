@@ -132,6 +132,40 @@ export function shouldRescheduleOnError(session, error, sessionId = null) {
 }
 
 /**
+ * Determine whether a turn ended due to a usage/token limit or provider outage,
+ * so the caller can skip advancing a kanban card on the completion path.
+ *
+ * Detection is unconditional (ignores reschedule flags) and purely pattern-based,
+ * reusing the existing matchers. Priority order: the captured `result` event's
+ * `resultText` (the CLI's authoritative end-of-turn text) is checked first; the
+ * last assistant message is checked as a fallback when the result text is empty
+ * or absent. Never throws — returns false when there's no signal to check.
+ *
+ * @param {string} sessionId - Session ID
+ * @param {{ resultText?: string } | null} [resultEvent] - Captured result event record (see streamEventHandler.getResultEvent)
+ * @returns {boolean} True if the turn ended due to a usage limit or service outage
+ */
+export function turnEndedDueToLimitOrOutage(sessionId, resultEvent = null) {
+  const resultText = resultEvent?.resultText;
+  if (typeof resultText === 'string' && resultText.trim() !== '') {
+    const haystack = resultText.toLowerCase();
+    if (matchesTokenLimitError(haystack) || matchesServiceError(haystack)) {
+      return true;
+    }
+  }
+
+  const lastAssistantMessage = getLastAssistantMessage(sessionId);
+  if (lastAssistantMessage?.content) {
+    const haystack = lastAssistantMessage.content.toLowerCase();
+    if (matchesTokenLimitError(haystack) || matchesServiceError(haystack)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * Check if session should be proactively rescheduled based on token count
  * Called after processing each message to check token thresholds
  * @param {string} sessionId - Session ID

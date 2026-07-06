@@ -89,6 +89,7 @@ import {
   currentModels,
   loggedToolUseIds,
   finalErrorSessionIds,
+  finalResultEvents,
 } from './streamEventHandler.js';
 
 describe('streamEventHandler', () => {
@@ -104,7 +105,9 @@ describe('streamEventHandler', () => {
     currentModels.clear();
     loggedToolUseIds.clear();
     finalErrorSessionIds.clear();
+    finalResultEvents.clear();
     messages.getByConversationId.mockReturnValue([]);
+    messages.getBySessionId.mockReturnValue([]);
     messages.create.mockImplementation((sessionId, role, content, options = {}) => ({
       id: `msg-${role}`,
       sessionId,
@@ -518,6 +521,59 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+    });
+
+    it('calls kanban completion hooks on natural completion (no usage-limit/outage signal)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: 'Done, all tests pass.' });
+      messages.getBySessionId.mockReturnValue([
+        { role: 'assistant', content: 'Here is the finished implementation.' },
+      ]);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('does not call kanban completion hooks when the result event carries usage-limit text, but still sets waiting', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: "You've reached your usage limit" });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
+      expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('does not call kanban completion hooks when the result event carries service-error text, but still sets waiting', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: 'The server is overloaded' });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
     it('skips template trigger when auto-send fires', async () => {
