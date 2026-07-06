@@ -298,4 +298,8 @@ export const allMigrations = validateMigrations([
   // --- Drop dormant per-session/per-template targetLaneId routing flag ---
   k.get('sessions-drop-target_lane_id'),
   k.get('session_templates-drop-target_lane_id'),
+
+  // --- Normalize retired Claude model ids in CONFIG columns only ---
+  // (lanes/templates/defaults. Record columns like sessions.model are preserved.)
+  m.get('normalize-stale-claude-model-ids'),
 ]);

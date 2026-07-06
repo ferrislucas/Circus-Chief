@@ -998,4 +998,82 @@ describe('ModelSelector', () => {
       });
     });
   });
+
+  describe('orphaned (unknown) model id', () => {
+    const ORPHAN = 'claude-sonnet-4-6';
+
+    beforeEach(() => {
+      // Catalog contains claude-sonnet-5 but NOT the retired claude-sonnet-4-6.
+      providersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          kind: 'anthropic',
+          models: [
+            { id: 'anthropic-haiku', modelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', tier: 'haiku' },
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
+            { id: 'anthropic-opus', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', tier: 'opus' },
+          ],
+        },
+      ];
+    });
+
+    it('renders the unknown-model badge when modelValue is not in the catalog', async () => {
+      const wrapper = mountComponent({ modelValue: ORPHAN });
+      await flushAll(wrapper);
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+    });
+
+    it('does not render the badge for a valid modelValue', async () => {
+      const wrapper = mountComponent({ modelValue: 'claude-sonnet-5' });
+      await flushAll(wrapper);
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+    });
+
+    it('does not render the badge for a null modelValue', async () => {
+      const wrapper = mountComponent({ modelValue: null });
+      await flushAll(wrapper);
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+    });
+
+    it('does not silently emit a substitution for the orphaned value on mount', async () => {
+      const onUpdateModelValue = vi.fn();
+      mountComponent(
+        { modelValue: ORPHAN },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
+      await flushAll();
+      // The parent's stored orphaned id must NOT be silently overwritten with
+      // the default; the user must choose a replacement explicitly.
+      expect(onUpdateModelValue).not.toHaveBeenCalled();
+    });
+
+    it('still falls back to the default model for display only', async () => {
+      const wrapper = mountComponent({ modelValue: ORPHAN });
+      await flushAll(wrapper);
+      const select = wrapper.find('select');
+      // Default (sonnet) is shown purely so the dropdown isn't empty; the badge
+      // flags that the stored value is actually an orphan.
+      expect(select.element.value).toBe(optionValue('anthropic-default', 'claude-sonnet-5'));
+    });
+
+    it('lets the user pick a replacement, which clears the badge once the parent accepts it', async () => {
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: ORPHAN },
+        { 'onUpdate:modelValue': onUpdateModelValue }
+      );
+      await flushAll(wrapper);
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+
+      await wrapper.find('select').setValue(optionValue('anthropic-default', 'claude-opus-4-8'));
+      // Simulate the parent accepting the emitted value (v-model round-trip).
+      await wrapper.setProps({ modelValue: 'claude-opus-4-8' });
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).toHaveBeenCalledWith('claude-opus-4-8');
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+    });
+  });
 });
