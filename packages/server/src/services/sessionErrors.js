@@ -132,34 +132,95 @@ export function shouldRescheduleOnError(session, error, sessionId = null) {
 }
 
 /**
+ * Terminal-sounding phrases that indicate a provider genuinely ended a turn due to
+ * a usage/token limit or an outage. Used to gate the broad, single-word matchers
+ * (`matchesTokenLimitError` / `matchesServiceError`) on the completion path only,
+ * so that ordinary successful-work prose (e.g. "increased the pagination limit to
+ * 100", "implemented a token bucket rate limiter") doesn't get misclassified.
+ *
+ * Intentionally NOT exported: this is a completion-path-only conservative filter.
+ * The error / auto-reschedule path continues to use the broad matchers directly
+ * via `checkRescheduleTrigger`, unchanged.
+ */
+const TERMINAL_LIMIT_OR_OUTAGE_PHRASES = [
+  'reached your usage limit',
+  'reached my usage limit',
+  'usage limit reached',
+  'hit your token limit',
+  'hit my token limit',
+  'token limit reached',
+  'quota exceeded',
+  'quota reached',
+  'rate limit reached',
+  'rate limited',
+  'too many requests',
+  'context length exceeded',
+  'context window exceeded',
+  'service unavailable',
+  'temporarily unavailable',
+  'currently unavailable',
+  'overloaded',
+  '503',
+  '529',
+];
+
+/**
+ * Conservative pre-filter for the completion-path limit/outage check. Returns true
+ * only when the text contains a terminal, provider-style phrase — never on bare
+ * substrings like "token", "limit", "cap", "exceeded", or "unavailable" alone,
+ * which appear naturally in ordinary descriptions of completed work.
+ * @param {string} message - Already-lowercased text to check
+ * @returns {boolean}
+ */
+function messageLooksLikeTerminalLimitOrOutage(message) {
+  if (typeof message !== 'string') return false;
+  const text = message.trim();
+  if (text === '') return false;
+  return TERMINAL_LIMIT_OR_OUTAGE_PHRASES.some(phrase => text.includes(phrase));
+}
+
+/**
+ * Determine whether a single piece of candidate text (result text or an assistant
+ * message) indicates a usage-limit/outage termination. Gates the existing, broader
+ * `matchesTokenLimitError` / `matchesServiceError` matchers behind the conservative
+ * terminal-phrase filter above, per FR-4: the source of truth for what counts as a
+ * limit/outage pattern still lives solely in those two functions.
+ * @param {string|undefined|null} text
+ * @returns {boolean}
+ */
+function isLimitOrOutageText(text) {
+  if (typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  if (trimmed === '') return false;
+  const haystack = trimmed.toLowerCase();
+  if (!messageLooksLikeTerminalLimitOrOutage(haystack)) return false;
+  return matchesTokenLimitError(haystack) || matchesServiceError(haystack);
+}
+
+/**
  * Determine whether a turn ended due to a usage/token limit or provider outage,
  * so the caller can skip advancing a kanban card on the completion path.
  *
  * Detection is unconditional (ignores reschedule flags) and purely pattern-based,
- * reusing the existing matchers. Priority order: the captured `result` event's
- * `resultText` (the CLI's authoritative end-of-turn text) is checked first; the
- * last assistant message is checked as a fallback when the result text is empty
- * or absent. Never throws — returns false when there's no signal to check.
+ * reusing the existing matchers behind a conservative terminal-phrase filter (see
+ * `messageLooksLikeTerminalLimitOrOutage`) so ordinary successful-work prose isn't
+ * misclassified. Priority order: the captured `result` event's `resultText` (the
+ * CLI's authoritative end-of-turn text) is checked first; the last assistant
+ * message is checked as a fallback when the result text is empty or absent.
+ * Never throws — returns false when there's no signal to check.
  *
  * @param {string} sessionId - Session ID
  * @param {{ resultText?: string } | null} [resultEvent] - Captured result event record (see streamEventHandler.getResultEvent)
  * @returns {boolean} True if the turn ended due to a usage limit or service outage
  */
 export function turnEndedDueToLimitOrOutage(sessionId, resultEvent = null) {
-  const resultText = resultEvent?.resultText;
-  if (typeof resultText === 'string' && resultText.trim() !== '') {
-    const haystack = resultText.toLowerCase();
-    if (matchesTokenLimitError(haystack) || matchesServiceError(haystack)) {
-      return true;
-    }
+  if (isLimitOrOutageText(resultEvent?.resultText)) {
+    return true;
   }
 
   const lastAssistantMessage = getLastAssistantMessage(sessionId);
-  if (lastAssistantMessage?.content) {
-    const haystack = lastAssistantMessage.content.toLowerCase();
-    if (matchesTokenLimitError(haystack) || matchesServiceError(haystack)) {
-      return true;
-    }
+  if (isLimitOrOutageText(lastAssistantMessage?.content)) {
+    return true;
   }
 
   return false;

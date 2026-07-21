@@ -50,12 +50,20 @@ export const finalErrorSessionIds = new Set();
 export const finalResultEvents = new Map();
 
 /**
- * Get the captured `result` event record for a session, if any.
+ * Get the captured `result` event record for a session, if any, and consume it
+ * (delete from the map) on read. This guarantees a later turn's completion check
+ * can never accidentally observe a previous turn's stale result-event payload —
+ * each captured result event is readable exactly once, by whichever completion
+ * check reads it first. `cleanupSessionState`'s deletion remains a final
+ * safeguard for paths that never call this getter (e.g. thrown-error turns).
  * @param {string} sessionId
  * @returns {{ subtype: string, isError: boolean, resultText: string } | null}
  */
 export function getResultEvent(sessionId) {
-  return finalResultEvents.get(sessionId) || null;
+  const entry = finalResultEvents.get(sessionId);
+  if (entry === undefined) return null;
+  finalResultEvents.delete(sessionId);
+  return entry;
 }
 
 // ── Helper functions ───────────────────────────────────────────────────────

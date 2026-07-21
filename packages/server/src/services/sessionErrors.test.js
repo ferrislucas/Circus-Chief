@@ -360,7 +360,7 @@ describe('sessionErrors', () => {
     it('detects from the last assistant message when no result event is provided', () => {
       messages.getBySessionId.mockReturnValue([
         { role: 'user', content: 'do something' },
-        { role: 'assistant', content: 'The service is unavailable right now' },
+        { role: 'assistant', content: 'Service temporarily unavailable — please try again shortly.' },
       ]);
       expect(turnEndedDueToLimitOrOutage('sess-1', null)).toBe(true);
     });
@@ -382,6 +382,51 @@ describe('sessionErrors', () => {
         { role: 'assistant', content: 'Here is the finished implementation.' },
       ]);
       expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'usage limit reached' })).toBe(true);
+    });
+
+    it('falls back to the last assistant message when the result event has empty resultText', () => {
+      messages.getBySessionId.mockReturnValue([
+        { role: 'assistant', content: 'Quota exceeded for this billing period.' },
+      ]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: '' })).toBe(true);
+    });
+
+    it('falls back to the last assistant message when the result event is missing', () => {
+      messages.getBySessionId.mockReturnValue([
+        { role: 'assistant', content: 'Too many requests — please slow down.' },
+      ]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', undefined)).toBe(true);
+    });
+
+    it('returns false when there is no result event and no assistant message', () => {
+      messages.getBySessionId.mockReturnValue([]);
+      expect(turnEndedDueToLimitOrOutage('sess-1')).toBe(false);
+    });
+
+    // Regression corpus: ordinary successful-work prose that incidentally contains
+    // bare words also matched by matchesTokenLimitError / matchesServiceError
+    // ("token", "limit", "cap", "exceeded", "unavailable") must NOT be classified
+    // as a usage-limit/outage termination. Guards against over-broad false holds.
+    describe('regression corpus (natural completion text, must return false)', () => {
+      const cleanCompletions = [
+        'implemented a token bucket rate limiter',
+        'escaped the special characters',
+        'increased the pagination limit to 100',
+        'added capacity checks',
+        'handled the case where the service is unavailable',
+      ];
+
+      it.each(cleanCompletions)('does not flag: %s', (text) => {
+        messages.getBySessionId.mockReturnValue([]);
+        expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: text })).toBe(false);
+      });
+
+      it.each(cleanCompletions)('does not flag in the assistant-message fallback: %s', (text) => {
+        messages.getBySessionId.mockReturnValue([
+          { role: 'assistant', content: text },
+        ]);
+        expect(turnEndedDueToLimitOrOutage('sess-1', null)).toBe(false);
+      });
     });
   });
 });
