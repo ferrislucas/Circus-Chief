@@ -36,7 +36,11 @@ export function buildTierRef(id) {
 // ── Zod schemas ─────────────────────────────────────────────────────────────
 
 export const TierMember = z.object({
-  providerId: z.string().uuid(),
+  // Provider ids are opaque identifiers, not guaranteed UUIDs — built-in
+  // providers are seeded with fixed ids ("anthropic-default", "openai-default",
+  // "google-default"; see seedBaselineData.js), while user-added providers get
+  // UUIDs. Only non-empty is required here.
+  providerId: z.string().min(1),
   modelId: z.string().min(1),
   position: z.number().int(),
 });
@@ -63,7 +67,8 @@ export const TierResponse = z.object({
     z.object({
       id: z.string().uuid(),
       tierId: z.string().uuid(),
-      providerId: z.string().uuid(),
+      // Same relaxation as TierMember.providerId above.
+      providerId: z.string().min(1),
       modelId: z.string(),
       position: z.number().int(),
       createdAt: z.number(),

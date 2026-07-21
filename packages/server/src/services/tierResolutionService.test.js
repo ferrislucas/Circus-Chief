@@ -17,6 +17,10 @@ describe('tierResolutionService', () => {
   beforeEach(() => {
     providerA = modelProviders.create({ name: 'Provider A', kind: 'anthropic' });
     providerB = modelProviders.create({ name: 'Provider B', kind: 'openai' });
+    // Register the model ids used throughout this suite so that the
+    // model-existence filter (Issue 3) doesn't treat them as orphans.
+    modelProviders.addModel(providerA.id, { modelId: 'model-a', displayName: 'Model A' });
+    modelProviders.addModel(providerB.id, { modelId: 'model-b', displayName: 'Model B' });
   });
 
   describe('resolveActiveModel', () => {
@@ -160,6 +164,48 @@ describe('tierResolutionService', () => {
 
     it('returns empty array for nonexistent tier', () => {
       expect(getTierMembersResolved('nonexistent')).toEqual([]);
+    });
+
+    it('excludes a member whose model was deleted from an otherwise-present provider (Issue 3)', () => {
+      // providerA has two real models; build a tier with both as members.
+      const extraModel = modelProviders.addModel(providerA.id, {
+        modelId: 'model-a-extra',
+        displayName: 'Model A Extra',
+      });
+
+      const tier = modelTiers.create({
+        name: 'Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a', position: 0 },
+          { providerId: providerA.id, modelId: 'model-a-extra', position: 1 },
+        ],
+      });
+
+      // Delete only the second model — the provider itself still exists.
+      modelProviders.removeModel(extraModel.id);
+
+      const members = getTierMembersResolved(tier.id);
+      expect(members.map((m) => m.modelId)).toEqual(['model-a']);
+    });
+
+    it('excluding a deleted model also affects resolveActiveModel', () => {
+      const extraModel = modelProviders.addModel(providerA.id, {
+        modelId: 'model-a-extra',
+        displayName: 'Model A Extra',
+      });
+
+      const tier = modelTiers.create({
+        name: 'Tier',
+        members: [
+          { providerId: providerA.id, modelId: 'model-a-extra', position: 0 },
+          { providerId: providerB.id, modelId: 'model-b', position: 1 },
+        ],
+      });
+
+      modelProviders.removeModel(extraModel.id);
+
+      const result = resolveActiveModel(buildTierRef(tier.id));
+      expect(result).toEqual({ model: 'model-b', providerId: providerB.id });
     });
   });
 

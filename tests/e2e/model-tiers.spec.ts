@@ -144,6 +144,51 @@ test.describe('Model Tiers', () => {
       // Deleted via the UI — no need for the afterEach API cleanup pass.
       createdTierIds.length = 0;
     });
+
+    test('creates a tier from built-in (non-uuid) providers via the UI', async ({ page }) => {
+      // Regression for Issue 1 of the review-remediation plan: built-in
+      // providers are seeded with fixed, non-UUID ids ("anthropic-default",
+      // "openai-default" — see seedBaselineData.js). Building the PRD's
+      // headline tier (Opus -> gpt-5.5) from these built-ins used to fail
+      // with a 400 "Invalid uuid" because CreateTierRequest required a UUID
+      // providerId. This exercises the real UI end-to-end with no custom
+      // createProvider() fixture involved.
+      await navigateAndWait(page, `${BASE_URL}/settings/tiers`);
+
+      await page.locator('.model-tiers-view button.btn-primary', { hasText: 'New Tier' }).click();
+      const createModal = page.locator('.modal-overlay .modal');
+      await expect(createModal).toBeVisible();
+
+      const tierName = `${TEST_PREFIX}Built-in Tier`;
+      await createModal.locator('#tier-name').fill(tierName);
+
+      await createModal.locator('.member-select').selectOption('anthropic-default::claude-opus-4-8');
+      await createModal.locator('button.btn-secondary', { hasText: 'Add' }).click();
+      await expect(createModal.locator('.member-edit-row')).toHaveCount(1);
+
+      await createModal.locator('.member-select').selectOption('openai-default::gpt-5.5');
+      await createModal.locator('button.btn-secondary', { hasText: 'Add' }).click();
+      await expect(createModal.locator('.member-edit-row')).toHaveCount(2);
+
+      await createModal.locator('button.btn-primary', { hasText: 'Create tier' }).click();
+      // A 400 from the API would leave the modal open with an error message —
+      // asserting it closes proves the built-in provider ids were accepted.
+      await expect(createModal).not.toBeVisible();
+
+      const tierCard = page.locator('.tier-card', { hasText: tierName });
+      await expect(tierCard).toBeVisible();
+      await expect(tierCard.locator('.member-row')).toHaveCount(2);
+      await expect(tierCard.locator('.member-provider').first()).toHaveText('Anthropic (Official)');
+
+      const createdTiers = await getTiersViaApi();
+      const created = createdTiers.find((t) => t.name === tierName);
+      expect(created).toBeTruthy();
+      expect(created.members.map((m: any) => m.providerId)).toEqual([
+        'anthropic-default',
+        'openai-default',
+      ]);
+      createdTierIds.push(created.id);
+    });
   });
 
   test.describe('Reorder members', () => {

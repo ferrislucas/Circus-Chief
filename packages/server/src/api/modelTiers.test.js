@@ -68,9 +68,30 @@ describe('Model Tiers API', () => {
     it('rejects a request with invalid member shape', async () => {
       const response = await request(app)
         .post('/api/tiers')
-        .send({ name: 'Bad', members: [{ providerId: 'not-a-uuid', modelId: 'x', position: 0 }] })
+        .send({ name: 'Bad', members: [{ providerId: '', modelId: 'x', position: 0 }] })
         .expect(400);
       expect(response.body.error).toBeDefined();
+    });
+
+    it('creates a tier from built-in (non-uuid) provider ids', async () => {
+      // Built-in providers are seeded with fixed ids ("anthropic-default",
+      // "openai-default") rather than UUIDs — see seedBaselineData.js.
+      const response = await request(app)
+        .post('/api/tiers')
+        .send({
+          name: 'High',
+          members: [
+            { providerId: 'anthropic-default', modelId: 'claude-opus-4-8', position: 0 },
+            { providerId: 'openai-default', modelId: 'gpt-5.5', position: 1 },
+          ],
+        })
+        .expect(201);
+
+      expect(response.body.members).toHaveLength(2);
+      expect(response.body.members.map((m) => m.providerId)).toEqual([
+        'anthropic-default',
+        'openai-default',
+      ]);
     });
 
     it('returns 409 on duplicate name', async () => {

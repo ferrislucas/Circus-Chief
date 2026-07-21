@@ -97,6 +97,12 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
 
     project = projects.create('Tier Test Project', '/tmp/tier-continue-test');
     providerA = modelProviders.create({ name: 'Provider A', kind: 'anthropic' });
+    // Register the model ids referenced by tier members below so the
+    // model-existence filter in getTierMembersResolved (Issue 3) doesn't
+    // treat them as orphaned/deleted models.
+    modelProviders.addModel(providerA.id, { modelId: 'claude-opus-4-6', displayName: 'Opus' });
+    modelProviders.addModel(providerA.id, { modelId: 'claude-sonnet-5', displayName: 'Sonnet' });
+    modelProviders.addModel(providerA.id, { modelId: 'model-x', displayName: 'Model X' });
   });
 
   it('uses resolvedModel snapshot when session.model is a tier ref and no model is passed', async () => {

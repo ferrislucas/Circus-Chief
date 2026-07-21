@@ -80,9 +80,18 @@ describe('Model Tier Contracts', () => {
       expect(result.success).toBe(true);
     });
 
-    it('rejects a non-uuid providerId', () => {
+    it('accepts a non-uuid providerId (built-in providers use fixed ids)', () => {
       const result = TierMember.safeParse({
-        providerId: 'not-a-uuid',
+        providerId: 'anthropic-default',
+        modelId: 'claude-sonnet-5',
+        position: 0,
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('rejects an empty providerId', () => {
+      const result = TierMember.safeParse({
+        providerId: '',
         modelId: 'claude-sonnet-5',
         position: 0,
       });
