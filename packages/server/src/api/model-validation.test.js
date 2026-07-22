@@ -4,7 +4,7 @@ import { validateModelId } from './model-validation.js';
 
 describe('validateModelId', () => {
   it('accepts a built-in model id', () => {
-    expect(validateModelId('gpt-5.5')).toEqual({ value: 'gpt-5.5' });
+    expect(validateModelId('gpt-5.6-sol')).toEqual({ value: 'gpt-5.6-sol' });
   });
 
   it('accepts tier aliases case-insensitively', () => {
@@ -27,8 +27,31 @@ describe('validateModelId', () => {
 
     expect(result.error).toContain('Invalid model id "not-a-real-model"');
     expect(result.error).toContain('Valid model ids are:');
-    expect(result.error).toContain('gpt-5.5');
+    expect(result.error).toContain('gpt-5.6-sol');
     expect(result.error).toContain('opus');
+  });
+
+  it('does not list the retired gpt-5.5 id on a fresh database', () => {
+    const result = validateModelId('not-a-real-model');
+    expect(result.error).not.toContain('gpt-5.5');
+  });
+
+  it('accepts a retained legacy gpt-5.5 compatibility row (upgraded DB)', () => {
+    // Fresh DBs no longer seed gpt-5.5, but upgraded installations retain the
+    // historical built-in row so existing gpt-5.5 sessions keep validating.
+    const now = Date.now();
+    modelProviders.db
+      .prepare(
+        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run('openai-gpt-5-5-validation-test', 'openai-default', 'gpt-5.5', 'GPT-5.5', 'Retired', 'custom', now);
+
+    try {
+      expect(validateModelId('gpt-5.5')).toEqual({ value: 'gpt-5.5' });
+    } finally {
+      modelProviders.db.prepare('DELETE FROM provider_models WHERE id = ?').run('openai-gpt-5-5-validation-test');
+    }
   });
 
   it('accepts user-registered custom model ids', () => {
