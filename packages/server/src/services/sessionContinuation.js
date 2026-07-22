@@ -4,12 +4,12 @@ import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import { buildConversationContextForModelSwitch, buildConversationContextForContinuation } from './conversationContext.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
-import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { buildQueryParams } from './queryParamBuilder.js';
 import { activeSessions, activeConversationIds, broadcastSessionStatus } from './streamEventHandler.js';
 import { buildPromptWithAttachments } from './sessionPrompts.js';
 import { createAgentForSession, buildAgentEnv, _executeSession } from './sessionExecution.js';
-import { resolveActiveModel } from './tierResolutionService.js';
+import { resolveTierRefForContinue } from './tierResolutionService.js';
 
 /**
  * Build prompt with conversation context for a continuation.
@@ -38,81 +38,48 @@ async function buildPromptForContinue({ modelChanged, agent, conversationId, pro
  * Resolve model/provider and build session environment for a continue operation.
  * Also detects model changes and updates the session record.
  *
- * Tier-ref handling: when no explicit model is passed and session.model is a tier
- * ref, we must NOT send the raw sentinel to the agent. Instead, resolve the
- * concrete model from the stored snapshot (session.resolvedModel), or fall back to
- * a live tier lookup. The tier ref is kept on session.model so the badge/binding
- * persists across turns.
+ * Tier-ref handling (Fix 2): delegates to the shared, provider-aware
+ * `resolveTierRefForContinue` helper (also used by `sessionManager.buildModelAndProvider`)
+ * so both continuation paths share ONE resolution/persistence contract instead
+ * of duplicating (and re-diverging) the tier-ref logic. That helper guarantees
+ * a raw `tier::<id>` sentinel is never forwarded to the agent — whether the
+ * session is continuing on its existing tier binding, switching to a
+ * different tier, or being pinned to an explicit concrete model.
  *
  * @param {Object} session - Current session object
  * @param {string} sessionId - Session ID
- * @param {string|null} model - Requested model (null to keep current)
+ * @param {string|null} model - Requested model override (null to keep current binding)
  * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
-function resolveConcreteContinueModel(session, model) {
-  // --- Tier ref resolution (Fix 1) ---
-  // When no explicit model override is requested and the stored model is a tier
-  // ref, resolve to the concrete model that was used at start time (or the first
-  // healthy tier member as a fallback). This prevents the raw `tier::<id>`
-  // sentinel from being forwarded to the agent on follow-up turns.
-  if (model || !isTierRef(session.model)) {
-    return { concreteResolvedModel: null, concreteResolvedProviderId: null };
-  }
-
-  if (session.resolvedModel) {
-    // Prefer the snapshot written by runSessionWithTierFailover on success
-    return {
-      concreteResolvedModel: session.resolvedModel,
-      concreteResolvedProviderId: session.resolvedProviderId || null,
-    };
-  }
-
-  // Snapshot missing (e.g. legacy row) — re-resolve from live tier state
-  const live = resolveActiveModel(session.model, {});
-  if (!live) {
-    throw new Error(
-      `Tier "${session.model}" has no healthy members available to continue the session`
-    );
-  }
-  return { concreteResolvedModel: live.model, concreteResolvedProviderId: live.providerId };
-}
-
 function buildContinueModelAndEnv(session, sessionId, model) {
-  const { concreteResolvedModel, concreteResolvedProviderId } = resolveConcreteContinueModel(
-    session,
-    model
-  );
+  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinue(session, model);
 
-  // The model to actually use for this turn's provider env / agent dispatch.
-  // Keep session.model pointing at the tier ref so the badge persists.
-  const effectiveModel = model || concreteResolvedModel || session.model;
-
-  // Derive provider from the effective model ID (returns null for Anthropic/SDK defaults)
-  const provider = resolveProviderFromModel(effectiveModel);
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
+  // Derive provider from the effective model ID + hint (Fix 1 — disambiguates
+  // duplicate model ids registered under two different providers).
+  const provider = resolveProviderFromModel(effectiveModel, providerIdHint);
+  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel, providerIdHint);
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
   const sessionEnv = buildAgentEnv(
     buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel),
     commitAttributionOverride
   );
 
-  // Check if model changed from the concrete model in use (not the tier ref).
-  // Compare the explicitly-requested model against whichever concrete model is
-  // currently active so resume logic isn't spuriously invalidated on tier sessions.
-  const activeConcreteModel = concreteResolvedModel || session.model;
-  const modelChanged = Boolean(model && activeConcreteModel && model !== activeConcreteModel);
+  // Model changed = the caller explicitly requested a different binding
+  // (concrete or tier) than what's currently stored on the session.
+  const modelChanged = Boolean(model) && model !== session.model;
 
-  // Update session.model to track the user-requested model (short format)
-  // This must happen AFTER modelChanged detection so we compare old vs new.
-  // Defense in depth: re-derive agentType using the effective model so that a
-  // stale stored agentType is corrected even when no explicit model is passed.
+  // Defense in depth: re-derive agentType using the effective model + provider
+  // hint so a stale stored agentType is corrected even when no explicit model
+  // is passed. Only reconcile agentType here — providerId persistence for
+  // non-tier sessions is managed by PATCH and SessionRepository.create.
+  const agentTypeUpdate = effectiveModel
+    ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: providerIdHint ?? session.providerId })
+    : {};
+
   let updatedSession = session;
-  // Only reconcile agentType here — providerId is managed by PATCH and SessionRepository.create.
-  const agentTypeUpdate = effectiveModel ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: concreteResolvedProviderId || session.providerId }) : {};
-  if (model || Object.keys(agentTypeUpdate).length > 0) {
-    // Only persist an explicit model change; never overwrite a tier ref with
-    // the resolved concrete model — the tier binding must stay on the session.
-    sessions.update(sessionId, { ...(model && { model }), ...agentTypeUpdate });
+  const updatePayload = { ...persist, ...agentTypeUpdate };
+  if (Object.keys(updatePayload).length > 0) {
+    sessions.update(sessionId, updatePayload);
     updatedSession = sessions.getById(sessionId);
   }
 

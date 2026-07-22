@@ -4,7 +4,7 @@ import { parseTierRef, WS_MESSAGE_TYPES, DEFAULT_MAX_FAILOVER_ATTEMPTS } from '@
 import {
   getTierMembersResolved,
   markUnhealthy,
-  hasNextHealthyMember,
+  findNextHealthyTierMember,
   isUnhealthy,
 } from './tierResolutionService.js';
 import { matchesStartFailoverEligibleError } from './sessionErrors.js';
@@ -32,18 +32,25 @@ async function attemptRunWithModel(
   // Re-derive session from DB in case a previous attempt updated it
   const currentSession = sessions.getById(sessionId);
 
+  // Fix 4: thread the exact member providerId through — never re-derive the
+  // agent type / env from modelId alone, which would be ambiguous whenever
+  // two tier members share the same modelId across different providers.
+  const memberModelId = tierContext ? tierContext.currentMemberId : null;
+  const memberProviderId = tierContext ? tierContext.currentMemberProviderId : null;
+
   // Reconcile agent type for this concrete model (supports cross-provider switches)
   const reconciledSession = reconcileAgentTypeForRun(
     currentSession,
     sessionId,
-    tierContext ? tierContext.currentMemberId : null
+    memberModelId,
+    memberProviderId
   );
 
   const agentType = reconciledSession.agentType || 'claude-code';
   const agent = createAgentForSession(agentType);
 
   const { effectiveModel, sessionEnv, commitAttributionOverride } =
-    await resolveInitialSessionModelEnv(reconciledSession, tierContext ? tierContext.currentMemberId : null);
+    await resolveInitialSessionModelEnv(reconciledSession, memberModelId, memberProviderId);
 
   const queryParams = buildQueryParams({
     prompt: promptWithAttachments,
@@ -97,9 +104,9 @@ async function attemptRunWithModel(
  * `_executeSession`, is the correct terminal behavior).
  *
  * @param {Error} error
- * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, members: Array }} ctx
+ * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, attemptsUsed: number, maxAttempts: number }} ctx
  */
-function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, members }) {
+function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, attemptsUsed, maxAttempts }) {
   const errMsg = error.message?.toLowerCase() || '';
   // Use the tighter failover-specific matcher (Fix 4) to avoid spurious failover
   // on non-quota errors (e.g. "Unexpected token in JSON" contains "token").
@@ -111,76 +118,67 @@ function handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, 
     throw error;
   }
 
-  // Check whether there is another healthy member to steer toward (Fix 2).
-  // Cooldown is only useful when it can redirect new sessions to a healthy
-  // alternative.  Cooling a terminal member (no successor) creates a dead-end:
-  // resolveActiveModel returns null, blocking both new starts and the
-  // reschedule-retry path until the cooldown expires.
-  const hasNext = hasNextHealthyMember(tierRef, {
-    excludeModelId: member.modelId,
-    excludeProviderId: member.providerId,
-  });
+  // Find the member that will actually be attempted next (Fix 5): a single
+  // ordered scan that only considers members after this one's position, skips
+  // cooldown, and respects the attempt cap — so the notice never names a
+  // member the loop won't really try.
+  const nextMember = findNextHealthyTierMember(tierRef, member, { attemptsUsed, maxAttempts });
 
-  if (!hasNext) {
-    // All members exhausted — rethrow WITHOUT cooling down so the terminal
-    // member stays resolvable for the reschedule-retry path (Fix 1 + Fix 2).
+  if (!nextMember) {
+    // Nothing will actually be attempted next — rethrow WITHOUT cooling down so
+    // the terminal member stays resolvable for the reschedule-retry path.
     // The existing error/auto-reschedule path already ran inside _executeSession.
     throw error;
   }
 
-  // There IS a next healthy member — cool down the failed one so new session
-  // starts are steered past it (F21), then emit the failover event.
+  // There IS a next healthy, attemptable member — cool down the failed one so
+  // new session starts are steered past it (F21), then emit the failover event.
   markUnhealthy(member.providerId, member.modelId);
-  emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, members });
+  emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember });
 }
 
 /**
  * Emit the tier-failover side effects (WebSocket broadcast + agent-call log entry)
  * once a member has been confirmed as an eligible failure with a healthy successor.
+ * Both the WebSocket payload and the agent-log entry are built from the SAME
+ * `nextMember` value computed once by `handleTierMemberFailure` (Fix 5) — they
+ * cannot disagree.
  *
  * @param {Error} error
- * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, members: Array }} ctx
+ * @param {{ sessionId: string, member: Object, tierRef: string, tierName: string, nextMember: Object }} ctx
  */
-function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, members }) {
-  // Identify the next healthy member for the payload (Fix 5)
-  const nextMember = members
-    ? members.find(
-        (m) =>
-          !(m.modelId === member.modelId && m.providerId === member.providerId) &&
-          !isUnhealthy(m.providerId, m.modelId)
-      )
-    : null;
-
+function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, nextMember }) {
   console.log(
-    `[SessionManager] Tier failover: member ${member.modelId} (provider ${member.providerId}) failed; marking unhealthy and advancing to ${nextMember?.modelId || 'next member'}`
+    `[SessionManager] Tier failover: member ${member.modelId} (provider ${member.providerId}) failed; marking unhealthy and advancing to ${nextMember.modelId}`
   );
 
-  // Emit failover event via WebSocket — only fires when we're actually advancing (Fix 2/Fix 5).
+  // Emit failover event via WebSocket — only fires when we're actually advancing.
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.TIER_FAILOVER, {
     tierRef,
     tierName,
     fromModel: member.modelId,
     fromProviderId: member.providerId,
-    toModel: nextMember?.modelId || null,
-    toProviderId: nextMember?.providerId || null,
+    toModel: nextMember.modelId,
+    toProviderId: nextMember.providerId,
     reason: error.message,
     timestamp: Date.now(),
   });
 
-  // Write the failover event to the agent log stream (Fix 4 — F26)
+  // Write the failover event to the agent log stream (F26)
   try {
     agentCallLogger._logFailoverEvent(sessionId, {
       fromModel: member.modelId,
       fromProviderId: member.providerId,
-      toModel: nextMember?.modelId || null,
-      toProviderId: nextMember?.providerId || null,
+      toModel: nextMember.modelId,
+      toProviderId: nextMember.providerId,
       tierRef,
       tierName,
       reason: error.message,
-      // Issue 4: derive the source member's agent type instead of assuming
-      // 'claude-code' — a failover away from a Codex/Gemini member must log
-      // its own agent type.
-      agentType: resolveAgentTypeFromModel(member.modelId),
+      // Derive the source member's agent type from its OWN providerId (Fix 1 /
+      // Issue 4) instead of assuming 'claude-code' or looking it up by modelId
+      // alone — a failover away from a Codex/Gemini member (possibly sharing a
+      // modelId with an Anthropic member) must log its own agent type.
+      agentType: resolveAgentTypeFromModel(member.modelId, member.providerId),
     });
   } catch (_logErr) {
     // Non-fatal — failover proceeds even if logging fails
@@ -280,7 +278,7 @@ export async function runSessionWithTierFailover(
       return; // done
     } catch (error) {
       // Advances to the next member (loop continue) or rethrows on terminal errors.
-      handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, members });
+      handleTierMemberFailure(error, { sessionId, member, tierRef, tierName, attemptsUsed, maxAttempts });
     }
   }
 
@@ -297,4 +295,91 @@ function _getTierName(tierId) {
   } catch {
     return tierId;
   }
+}
+
+/**
+ * Check whether a tier ref currently resolves to at least one attemptable
+ * member (tier exists, has ≥1 member whose provider/model is still enabled).
+ * Used at session start to distinguish a resolvable tier (proceed to
+ * {@link runSessionWithTierFailover}) from a stale/emptied/deleted tier ref
+ * (Fix 6 — degrade safely instead of failing outright).
+ * @param {string} tierRef
+ * @returns {boolean}
+ */
+export function hasResolvableTierMembers(tierRef) {
+  const tierId = parseTierRef(tierRef);
+  if (!tierId) return false;
+  return getTierMembersResolved(tierId).length > 0;
+}
+
+/**
+ * Fix 6 — safe degradation for a tier ref that no longer resolves to any
+ * member (the tier was deleted, emptied, or every member's provider/model was
+ * removed) at new/scheduled session start.
+ *
+ * Falls back to:
+ *   1. The session's last-resolved concrete snapshot (`resolvedModel` /
+ *      `resolvedProviderId`), when present — a session that has run before on
+ *      this tier keeps using the model it last succeeded on.
+ *   2. Otherwise, the same server default used elsewhere (a null model /
+ *      provider, i.e. whatever the agent adapter's own SDK default resolves
+ *      to — there is always a resolvable Anthropic default, so this branch
+ *      never itself fails to "resolve").
+ *
+ * Persists the concrete fallback onto the session — clearing the tier
+ * binding entirely, since there is nothing left to fail over to — so future
+ * turns are unambiguous, and surfaces a visible notice + log entry naming the
+ * stale tier ref and the concrete fallback that was used.
+ *
+ * @param {string} sessionId
+ * @param {Object} session
+ * @param {string} staleTierRef
+ * @returns {{ model: string|null, session: Object }}
+ */
+export function applyStaleTierFallback(sessionId, session, staleTierRef) {
+  const hasSnapshot = Boolean(session.resolvedModel);
+  const fallbackModel = hasSnapshot ? session.resolvedModel : null;
+  const fallbackProviderId = hasSnapshot ? session.resolvedProviderId || null : null;
+  const tierName = _getTierName(parseTierRef(staleTierRef) || staleTierRef);
+
+  sessions.update(sessionId, {
+    model: fallbackModel,
+    providerId: fallbackProviderId,
+    resolvedModel: null,
+    resolvedProviderId: null,
+  });
+  const updatedSession = sessions.getById(sessionId);
+
+  const reason = `Model tier "${tierName}" is no longer resolvable (deleted or has no enabled members)`;
+  console.warn(
+    `[SessionManager] ${reason} — falling back to ${fallbackModel || 'the server default'} model for session ${sessionId}`
+  );
+
+  broadcastToSession(sessionId, WS_MESSAGE_TYPES.TIER_FAILOVER, {
+    tierRef: staleTierRef,
+    tierName,
+    fromModel: staleTierRef,
+    fromProviderId: null,
+    toModel: fallbackModel,
+    toProviderId: fallbackProviderId,
+    reason,
+    timestamp: Date.now(),
+  });
+
+  try {
+    agentCallLogger._logFailoverEvent(sessionId, {
+      fromModel: staleTierRef,
+      fromProviderId: null,
+      toModel: fallbackModel,
+      toProviderId: fallbackProviderId,
+      tierRef: staleTierRef,
+      tierName,
+      reason,
+      agentType: updatedSession.agentType || 'claude-code',
+    });
+  } catch (_logErr) {
+    // Non-fatal — the fallback proceeds even if logging fails
+  }
+
+  return { model: fallbackModel, session: updatedSession };
 }

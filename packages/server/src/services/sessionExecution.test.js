@@ -386,8 +386,10 @@ describe('continueSessionCore model fallback', () => {
     await continueSession(session.id, 'Follow-up message', tempDir, { model: null });
 
     // resolveProviderFromModel should be called with session.model (the fallback),
-    // not null, so third-party provider env vars are correctly resolved.
-    expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514');
+    // not null, so third-party provider env vars are correctly resolved. The
+    // second arg is the Fix 1 provider-id disambiguation hint (null here since
+    // this session has no explicit providerId set).
+    expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514', null);
     spy.mockRestore();
   });
 
@@ -522,8 +524,10 @@ describe('continueSessionWithExistingMessage model fallback', () => {
     await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, { model: null });
 
     // resolveProviderFromModel should be called with session.model (the fallback),
-    // not null, so third-party provider env vars are correctly resolved.
-    expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514');
+    // not null, so third-party provider env vars are correctly resolved. The
+    // second arg is the Fix 1 provider-id disambiguation hint (null here since
+    // this session has no explicit providerId set).
+    expect(spy).toHaveBeenCalledWith('claude-sonnet-4-20250514', null);
     spy.mockRestore();
   });
 });

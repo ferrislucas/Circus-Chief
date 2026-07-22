@@ -1,10 +1,10 @@
 import { sessions, messages, conversations, projects } from '../database.js';
 import { broadcastToSession, broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import { checkAndTriggerNextTemplate } from './templateTriggerService.js';
 import { resolveProviderFromModel, buildSessionEnv } from './sessionProvider.js';
-import { resolveActiveModel } from './tierResolutionService.js';
+import { resolveTierRefForContinue } from './tierResolutionService.js';
 import { deriveAgentTypeUpdate } from './sessionAgentGuard.js';
 import {
   shouldRescheduleOnError,
@@ -229,11 +229,12 @@ function validateAndFetchContinueContext(sessionId, conversationId) {
  * one assistant message we MUST NOT mutate agent_type — that would corrupt
  * resume/context state across kinds.
  *
- * Tier-ref handling (Fix 1): when the effective model is a tier ref — whether it
- * arrives via the explicit `model` arg or `session.model` — resolve it to the
- * concrete member model before forwarding it to the agent.  The stored
- * `session.model` is never overwritten with the concrete model so the tier
- * binding persists for the badge and future turns.
+ * Tier-ref handling (Fix 2): delegates to the shared `resolveTierRefForContinue`
+ * helper (also used by `sessionContinuation.buildContinueModelAndEnv`) so both
+ * continuation paths share ONE tier-ref resolution/persistence contract.
+ * Switching from one bound tier to a different one always resolves the NEW
+ * tier live rather than reusing a snapshot captured for the old one, and an
+ * explicit concrete-model override always clears any stored tier snapshot.
  *
  * @param {Object} session - Current session object
  * @param {string} sessionId - Session ID
@@ -241,50 +242,28 @@ function validateAndFetchContinueContext(sessionId, conversationId) {
  * @returns {{ effectiveModel: string|null, sessionEnv: Object, modelChanged: boolean, session: Object }}
  */
 function buildModelAndProvider(session, sessionId, model) {
-  const rawEffectiveModel = model || session.model;
+  const { effectiveModel, providerIdHint, persist } = resolveTierRefForContinue(session, model);
 
-  // --- Tier-ref resolution (Fix 1) ---
-  // When the effective model is a tier ref, resolve to the concrete member model.
-  // Prefer the stored snapshot; fall back to a live tier lookup; surface a clear
-  // error if no healthy member is available.  Never write the concrete model back
-  // to session.model — the tier binding must stay on the session record.
-  let effectiveModel = rawEffectiveModel;
-  if (isTierRef(rawEffectiveModel)) {
-    if (session.resolvedModel) {
-      effectiveModel = session.resolvedModel;
-    } else {
-      const live = resolveActiveModel(rawEffectiveModel, {});
-      if (!live) {
-        throw new Error(
-          `Tier "${rawEffectiveModel}" has no healthy members available — cannot continue session`
-        );
-      }
-      effectiveModel = live.model;
-    }
-  }
-
-  const provider = resolveProviderFromModel(effectiveModel);
+  const provider = resolveProviderFromModel(effectiveModel, providerIdHint);
   const sessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
 
-  // Compare model changes against the concrete active model, not the tier sentinel,
-  // so resume logic isn't spuriously invalidated on tier-bound sessions.
-  const activeConcreteModel = isTierRef(session.model)
-    ? (session.resolvedModel || effectiveModel)
-    : session.model;
-  const modelChanged = Boolean(model && activeConcreteModel && model !== activeConcreteModel);
+  // Model changed = the caller explicitly requested a different binding
+  // (concrete or tier) than what's currently stored on the session.
+  const modelChanged = Boolean(model) && model !== session.model;
 
   let updatedSession = session;
-  if (model) {
-    // Defense in depth: if this is still a draft (no assistant messages),
-    // re-derive agentType so it stays in sync with the chosen model.
-    // After the first assistant turn this is locked.
-    // Only reconcile agentType here — providerId is managed by PATCH and
-    // SessionRepository.create. Suppress providerId auto-set by passing the
-    // current value as the explicit override (mirrors sessionExecution.js).
-    // NOTE: when model is a tier ref, we persist the tier ref (not the concrete
-    // resolved model) so the tier binding stays on the session.
-    const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: session.providerId });
-    sessions.update(sessionId, { model, ...agentTypeUpdate });
+  // Defense in depth: if this is still a draft (no assistant messages),
+  // re-derive agentType so it stays in sync with the chosen model. After the
+  // first assistant turn this is locked. Only reconcile agentType here —
+  // providerId is managed by PATCH and SessionRepository.create for non-tier
+  // sessions. Suppress providerId auto-set by passing the resolved hint (or
+  // the current value) as the explicit override (mirrors sessionExecution.js).
+  const agentTypeUpdate = model
+    ? deriveAgentTypeUpdate(session, sessionId, effectiveModel, { providerId: providerIdHint ?? session.providerId })
+    : {};
+  const updatePayload = { ...persist, ...agentTypeUpdate };
+  if (Object.keys(updatePayload).length > 0) {
+    sessions.update(sessionId, updatePayload);
     updatedSession = sessions.getById(sessionId);
   }
 

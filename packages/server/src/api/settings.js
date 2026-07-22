@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { modelProviders, settings } from '../db/index.js';
 import { DEFAULT_SESSION_TITLE_PROMPT } from '../services/summaryService.js';
+import { isTierRef } from '@circuschief/shared';
 
 const router = Router();
 const SUPPORTED_SUMMARY_PROVIDER_KINDS = new Set(['anthropic', 'openai']);
@@ -147,6 +148,17 @@ function validateSummaryModelSelection(summaryModel, summaryProviderId) {
   if (!summaryModel) {
     if (summaryProviderId !== null) {
       return 'summaryProviderId must be null when summaryModel is empty';
+    }
+    return null;
+  }
+
+  // Fix 7: a tier ref has no single owning provider — bypass provider
+  // ownership validation entirely and require summaryProviderId to be null
+  // (the concrete provider is resolved per-run from the tier's active
+  // member by summaryModelResolver.resolveSummaryModel).
+  if (isTierRef(summaryModel)) {
+    if (summaryProviderId !== null) {
+      return 'summaryProviderId must be null when summaryModel is a tier reference';
     }
     return null;
   }

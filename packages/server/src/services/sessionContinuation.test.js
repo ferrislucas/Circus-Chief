@@ -210,4 +210,77 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     const updated = sessions.getById(session.id);
     expect(updated.model).toBe(tierRef);
   });
+
+  // Fix 2: an explicit tier ref passed as the requested `model` (e.g. the live
+  // chat picker switching tiers mid-conversation) must resolve THAT tier live
+  // — never forward the raw `tier::<id>` sentinel to the adapter, and never
+  // reuse a snapshot captured for a different, previously-bound tier.
+  it('resolves an explicitly-requested tier switch live, never sending the raw tier:: sentinel', async () => {
+    const tierA = modelTiers.create({
+      name: 'Tier A',
+      members: [{ providerId: providerA.id, modelId: 'claude-opus-4-6', position: 0 }],
+    });
+    const tierB = modelTiers.create({
+      name: 'Tier B',
+      members: [{ providerId: providerA.id, modelId: 'claude-sonnet-5', position: 0 }],
+    });
+    const tierARef = buildTierRef(tierA.id);
+    const tierBRef = buildTierRef(tierB.id);
+
+    const session = createTestSession(project, {
+      model: tierARef,
+      resolvedModel: 'claude-opus-4-6',
+      resolvedProviderId: providerA.id,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(
+      session.id,
+      'Switch to tier B',
+      '/tmp/tier-continue-test',
+      { options: { model: tierBRef }, callbacks: mockCallbacks }
+    );
+
+    expect(capturedQueryParams.length).toBeGreaterThan(0);
+    const qp = capturedQueryParams[0];
+    // Must reach the adapter as tier B's concrete member, not tier A's stale
+    // snapshot and never the raw tier sentinel.
+    expect(qp.options?.model).toBe('claude-sonnet-5');
+    expect(qp.options?.model).not.toContain('tier::');
+
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe(tierBRef);
+    expect(updated.resolvedModel).toBe('claude-sonnet-5');
+    expect(updated.resolvedProviderId).toBe(providerA.id);
+  });
+
+  it('an explicit concrete-model override on a tier-bound session persists the concrete model and clears the resolved snapshot', async () => {
+    const tier = modelTiers.create({
+      name: 'High',
+      members: [{ providerId: providerA.id, modelId: 'claude-opus-4-6', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    const session = createTestSession(project, {
+      model: tierRef,
+      resolvedModel: 'claude-opus-4-6',
+      resolvedProviderId: providerA.id,
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(
+      session.id,
+      'Pin to a concrete model',
+      '/tmp/tier-continue-test',
+      { options: { model: 'model-x' }, callbacks: mockCallbacks }
+    );
+
+    expect(capturedQueryParams.length).toBeGreaterThan(0);
+    expect(capturedQueryParams[0].options?.model).toBe('model-x');
+
+    const updated = sessions.getById(session.id);
+    expect(updated.model).toBe('model-x');
+    expect(updated.resolvedModel).toBeNull();
+    expect(updated.resolvedProviderId).toBeNull();
+  });
 });

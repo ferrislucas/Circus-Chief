@@ -1124,6 +1124,60 @@ describe('ModelSelector', () => {
 
       expect(onUpdateModelValue).not.toHaveBeenCalled();
     });
+
+    // Fix 8: a deleted/emptied tier ref must remain visibly identifiable as a
+    // stale tier binding rather than silently presenting as an unrelated
+    // concrete default model in an editable form.
+    describe('stale tier ref', () => {
+      it('keeps showing the tier chip when the bound tier no longer exists', async () => {
+        seedTiers([]); // tier-1 was deleted
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        const chip = wrapper.find('.tier-chip');
+        expect(chip.exists()).toBe(true);
+        expect(chip.text()).toContain('tier-1');
+      });
+
+      it('marks the chip as stale and surfaces the unknown-model badge for a deleted tier', async () => {
+        // A non-empty tiers list that does NOT include tier-1 signals the
+        // tiers store has genuinely loaded (as opposed to an empty array,
+        // which is treated permissively as "not fetched yet") and tier-1 was
+        // deleted.
+        seedTiers([{ id: 'other-tier', name: 'Other Tier', description: null, members: [{ id: 'm1' }] }]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        expect(wrapper.find('.tier-chip').classes()).toContain('tier-chip--stale');
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+      });
+
+      it('keeps showing the tier chip when the bound tier still exists but was emptied of members', async () => {
+        seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [] }]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        const chip = wrapper.find('.tier-chip');
+        expect(chip.exists()).toBe(true);
+        expect(chip.text()).toContain('High Priority');
+        expect(chip.classes()).toContain('tier-chip--stale');
+      });
+
+      it('does not mark a healthy, resolvable tier as stale', async () => {
+        seedTiers([{ id: 'tier-1', name: 'High Priority', description: null, members: [{ id: 'm1' }] }]);
+
+        const wrapper = mountComponent({ modelValue: 'tier::tier-1' });
+        await flushAll(wrapper);
+
+        const chip = wrapper.find('.tier-chip');
+        expect(chip.exists()).toBe(true);
+        expect(chip.classes()).not.toContain('tier-chip--stale');
+        expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+      });
+    });
   });
 
   describe('orphaned (unknown) model id', () => {

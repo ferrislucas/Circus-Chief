@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import express from 'express';
 import request from 'supertest';
-import { DEFAULT_TOKEN_COST_WEIGHTS } from '@circuschief/shared';
-import { modelProviders, settings } from '../db/index.js';
+import { DEFAULT_TOKEN_COST_WEIGHTS, buildTierRef } from '@circuschief/shared';
+import { modelProviders, modelTiers, settings } from '../db/index.js';
 import settingsRouter from './settings.js';
 
 // Use a generous timeout to avoid flakiness during full-suite runs
@@ -171,6 +171,56 @@ describe('Settings API', { timeout: 30_000 }, () => {
           sessionTitlePrompt: '',
           summaryModel: '',
           summaryProviderId: 'openai-default',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('must be null');
+    });
+
+    // Fix 7: summary settings can store a tier ref (summaryProviderId must be
+    // null since a tier has no single owning provider — the concrete provider
+    // is resolved per-run from the tier's active member).
+    it('accepts a tier ref with a null provider', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+      const tier = modelTiers.create({
+        name: 'Summary Tier',
+        members: [{ providerId: provider.id, modelId: model, position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: tierRef,
+          summaryProviderId: null,
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({
+        summaryModel: tierRef,
+        summaryProviderId: null,
+      });
+    });
+
+    it('rejects a tier ref paired with a non-null provider', async () => {
+      const provider = modelProviders.getById('openai-default');
+      const model = provider.models[0].modelId;
+      const tier = modelTiers.create({
+        name: 'Summary Tier 2',
+        members: [{ providerId: provider.id, modelId: model, position: 0 }],
+      });
+      const tierRef = buildTierRef(tier.id);
+
+      const res = await request(server)
+        .put('/api/settings/summary')
+        .send({
+          disableSessionSummaries: false,
+          sessionTitlePrompt: '',
+          summaryModel: tierRef,
+          summaryProviderId: provider.id,
         });
 
       expect(res.status).toBe(400);

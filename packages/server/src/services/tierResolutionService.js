@@ -1,4 +1,4 @@
-import { isTierRef, parseTierRef, DEFAULT_TIER_COOLDOWN_MS } from '@circuschief/shared';
+import { isTierRef, parseTierRef, DEFAULT_TIER_COOLDOWN_MS, DEFAULT_MAX_FAILOVER_ATTEMPTS } from '@circuschief/shared';
 import { modelTiers, modelProviders } from '../database.js';
 
 /**
@@ -135,4 +135,128 @@ export function hasNextHealthyMember(tierRef, { excludeModelId, excludeProviderI
       !(m.providerId === excludeProviderId && m.modelId === excludeModelId) &&
       !isUnhealthy(m.providerId, m.modelId)
   );
+}
+
+/**
+ * Find the single next tier member that would actually be attempted after
+ * `failedMember`, for both (a) the failover-vs-terminal decision and (b) the
+ * failover notice/log payload — one ordered scan shared by both so they can
+ * never disagree (Fix 5).
+ *
+ * Unlike {@link hasNextHealthyMember} (a plain existence check over the whole
+ * member list), this:
+ *   - only considers members strictly AFTER `failedMember`'s position,
+ *   - skips members currently in cooldown,
+ *   - respects the failover attempt cap — once `attemptsUsed` has reached the
+ *     effective max, no further member will actually be tried, so this
+ *     returns `null` even if a healthy member technically exists later in
+ *     the list.
+ *
+ * @param {string} tierRef - Tier ref sentinel string.
+ * @param {{ modelId: string, providerId: string }} failedMember - The member that just failed.
+ * @param {{ attemptsUsed?: number, maxAttempts?: number }} [options]
+ * @returns {{ providerId: string, modelId: string, position: number }|null}
+ */
+export function findNextHealthyTierMember(tierRef, failedMember, options = {}) {
+  const { attemptsUsed = 0, maxAttempts = DEFAULT_MAX_FAILOVER_ATTEMPTS } = options;
+  const tierId = parseTierRef(tierRef);
+  if (!tierId) return null;
+
+  const members = getTierMembersResolved(tierId);
+  const failedIndex = members.findIndex(
+    (m) => m.providerId === failedMember.providerId && m.modelId === failedMember.modelId
+  );
+  if (failedIndex === -1) return null;
+
+  const effectiveMax = Math.min(members.length, maxAttempts);
+  if (attemptsUsed >= effectiveMax) return null;
+
+  for (let i = failedIndex + 1; i < members.length; i++) {
+    const candidate = members[i];
+    if (!isUnhealthy(candidate.providerId, candidate.modelId)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the concrete (model, providerId) to use for a continuation-style
+ * call (`continueSessionCore`, `continueSessionWithExistingMessage`), given
+ * the session's stored binding and an optional explicit request from the
+ * caller (Fix 2).
+ *
+ * A single, provider-aware resolver shared by both continuation paths so:
+ *   - an explicit tier-ref request (switching tiers mid-conversation, or via
+ *     the live picker) is always resolved LIVE against that requested tier —
+ *     never against a snapshot captured for a *different*, previously-bound
+ *     tier — and is never forwarded to an adapter as a raw `tier::<id>` value;
+ *   - an explicit concrete-model request always clears any previously stored
+ *     tier snapshot (`resolvedModel` / `resolvedProviderId`), since the
+ *     session is no longer tier-bound;
+ *   - a session with no explicit request reuses its own stored snapshot when
+ *     present, or re-resolves live and backfills the snapshot when absent
+ *     (e.g. a legacy row created before snapshots existed).
+ *
+ * @param {Object} session - Current session row (model, resolvedModel, resolvedProviderId).
+ * @param {string|null} [requestedModel] - Explicit model override from the caller, or null/undefined to keep the current binding.
+ * @returns {{
+ *   effectiveModel: string|null,
+ *   providerIdHint: string|null,
+ *   persist: { model?: string|null, resolvedModel?: string|null, resolvedProviderId?: string|null }
+ * }}
+ */
+export function resolveTierRefForContinue(session, requestedModel) {
+  // Explicit concrete-model override: always wins, always clears any tier snapshot.
+  if (requestedModel && !isTierRef(requestedModel)) {
+    return {
+      effectiveModel: requestedModel,
+      providerIdHint: null,
+      persist: { model: requestedModel, resolvedModel: null, resolvedProviderId: null },
+    };
+  }
+
+  // Explicit tier-ref override — resolve THIS tier live (switching tiers must
+  // never reuse a snapshot captured for a different, previously-bound tier).
+  if (requestedModel && isTierRef(requestedModel)) {
+    const resolved = resolveActiveModel(requestedModel, {});
+    if (!resolved) {
+      throw new Error(
+        `Tier "${requestedModel}" has no healthy members available — cannot continue session`
+      );
+    }
+    return {
+      effectiveModel: resolved.model,
+      providerIdHint: resolved.providerId,
+      persist: { model: requestedModel, resolvedModel: resolved.model, resolvedProviderId: resolved.providerId },
+    };
+  }
+
+  // No explicit override — use whatever is already bound to the session.
+  if (isTierRef(session.model)) {
+    if (session.resolvedModel) {
+      // Reuse the snapshot — it was captured for THIS same tier binding.
+      return {
+        effectiveModel: session.resolvedModel,
+        providerIdHint: session.resolvedProviderId || null,
+        persist: {},
+      };
+    }
+
+    // Snapshot missing (e.g. a legacy row) — re-resolve live and backfill it.
+    const live = resolveActiveModel(session.model, {});
+    if (!live) {
+      throw new Error(
+        `Tier "${session.model}" has no healthy members available to continue the session`
+      );
+    }
+    return {
+      effectiveModel: live.model,
+      providerIdHint: live.providerId,
+      persist: { resolvedModel: live.model, resolvedProviderId: live.providerId },
+    };
+  }
+
+  // Plain concrete session, nothing requested — passthrough, no persistence.
+  return { effectiveModel: session.model, providerIdHint: null, persist: {} };
 }

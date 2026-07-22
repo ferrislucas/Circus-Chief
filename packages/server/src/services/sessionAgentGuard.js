@@ -63,14 +63,21 @@ export function sessionHasNoAssistantMessages(sessionId) {
  * @param {Object} session - The current session row.
  * @param {string} sessionId - Session ID (used to query message history).
  * @param {string} newModel - The new model being applied.
- * @param {{ providerId?: string|null }} [opts] - Options.
+ * @param {{ providerId?: string|null }} [opts] - Options. When `providerId` is
+ *   explicitly provided (non-undefined), it both (a) suppresses auto-derivation
+ *   of a providerId update below, and (b) is used as the provider-aware
+ *   disambiguation hint (Fix 1) passed to `resolveAgentTypeFromModel` /
+ *   `resolveProviderFromModel` — required so a tier member's exact provider
+ *   (not just its `modelId`) determines the derived agent type when the same
+ *   `modelId` is registered under two different providers/agent kinds.
  * @returns {Object} Partial update to merge into the update payload.
  */
 export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
   if (!newModel) return {};
   if (!sessionHasNoAssistantMessages(sessionId)) return {};
 
-  const derivedAgentType = resolveAgentTypeFromModel(newModel);
+  const providerHint = opts.providerId ?? null;
+  const derivedAgentType = resolveAgentTypeFromModel(newModel, providerHint);
   const update = {};
 
   if (derivedAgentType && derivedAgentType !== session.agentType) {
@@ -79,7 +86,7 @@ export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
 
   // Auto-set providerId from model when the caller didn't pass one explicitly.
   if (opts.providerId === undefined) {
-    const derivedProvider = resolveProviderFromModel(newModel);
+    const derivedProvider = resolveProviderFromModel(newModel, providerHint);
     if (derivedProvider && derivedProvider.id !== session.providerId) {
       update.providerId = derivedProvider.id;
     }
@@ -95,16 +102,22 @@ export function deriveAgentTypeUpdate(session, sessionId, newModel, opts = {}) {
  * @param {Object} session - Current session object
  * @param {string} sessionId - Session ID
  * @param {string|null} model - Model override (null to use session.model)
+ * @param {string|null} [providerIdHint] - Explicit provider for `model` (Fix 1 /
+ *   Fix 4) — e.g. a tier member's own `providerId` during start-time failover.
+ *   Falls back to `session.providerId` when omitted, matching prior behavior.
  * @returns {Object} Possibly-updated session object
  */
-export function reconcileAgentTypeForRun(session, sessionId, model) {
+export function reconcileAgentTypeForRun(session, sessionId, model, providerIdHint = null) {
   const effectiveModelForKind = model || session.model;
   if (!effectiveModelForKind || !sessionHasNoAssistantMessages(sessionId)) {
     return session;
   }
   // Only reconcile agentType here — providerId is managed by PATCH and SessionRepository.create.
-  // Suppress providerId auto-set by passing the current value as the explicit override.
-  const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, effectiveModelForKind, { providerId: session.providerId });
+  // Suppress providerId auto-set by always passing a defined value as the explicit
+  // override, while still using it as the provider-aware disambiguation hint.
+  const agentTypeUpdate = deriveAgentTypeUpdate(session, sessionId, effectiveModelForKind, {
+    providerId: providerIdHint ?? session.providerId,
+  });
   if (Object.keys(agentTypeUpdate).length === 0) {
     return session;
   }

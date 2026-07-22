@@ -4,10 +4,19 @@
     :data-model="effectiveSelectedModel"
     :data-provider-id="effectiveSelectedProviderId || ''"
   >
-    <!-- Tier badge: shown when a tier ref is currently selected (F11) -->
+    <!--
+      Tier badge: shown whenever the BOUND value is a tier ref (F11), based on
+      the raw `modelValue` prop rather than `effectiveSelectedModel`. This
+      keeps the chip visible even when the tier has been deleted/emptied
+      (Fix 8) — `effectiveSelectedModel` falls back to a concrete default
+      model for the <select> in that case, but the chip must still surface
+      that the underlying binding is a (now-stale) tier reference rather than
+      silently presenting as an ordinary concrete-model selection.
+    -->
     <span
-      v-if="isTierRef(effectiveSelectedModel)"
+      v-if="isTierRef(props.modelValue)"
       class="tier-chip"
+      :class="{ 'tier-chip--stale': isStaleTierRef }"
       :title="tierChipTitle"
     >Tier: {{ tierChipName }}</span>
     <select
@@ -58,7 +67,7 @@
     <span
       v-if="isUnknownModel"
       class="unknown-model-badge"
-      :title="`Stored model '${model}' is no longer available. Choose a replacement to update it.`"
+      :title="unknownModelTitle"
     >unknown model</span>
   </div>
 </template>
@@ -116,22 +125,48 @@ const tiersWithMembers = computed(() =>
   tiersStore.tiers.filter((t) => t.members && t.members.length > 0)
 );
 
-// Tier chip: name and tooltip for the selected tier (when a tier ref is active)
+// Tier chip: name and tooltip for the BOUND tier (Fix 8 — based on the raw
+// `modelValue` prop, not `effectiveSelectedModel`, so the chip keeps
+// identifying a stale/deleted tier ref instead of disappearing the moment
+// the <select> falls back to a concrete default model).
 const tierChipName = computed(() => {
-  if (!isTierRef(effectiveSelectedModel.value)) return '';
-  const tierId = effectiveSelectedModel.value.slice('tier::'.length);
+  if (!isTierRef(props.modelValue)) return '';
+  const tierId = props.modelValue.slice('tier::'.length);
   const tier = tiersStore.getById(tierId);
   return tier?.name || tierId;
 });
 
+// True when the bound value is a tier ref whose tier no longer exists (or has
+// no members) — i.e. deleted/emptied since it was saved. Permissive (false)
+// while tiers haven't loaded yet, mirroring `isValidModelId`'s tier check.
+const isStaleTierRef = computed(() => {
+  if (!isTierRef(props.modelValue)) return false;
+  if (tiersStore.tiers.length === 0) return false;
+  const tierId = props.modelValue.slice('tier::'.length);
+  return !tiersWithMembers.value.some((t) => t.id === tierId);
+});
+
 const tierChipTitle = computed(() => {
-  if (!isTierRef(effectiveSelectedModel.value)) return '';
-  const tierId = effectiveSelectedModel.value.slice('tier::'.length);
+  if (!isTierRef(props.modelValue)) return '';
+  const tierId = props.modelValue.slice('tier::'.length);
   const tier = tiersStore.getById(tierId);
+  if (!tier) {
+    return isStaleTierRef.value
+      ? `Model tier "${tierId}" is no longer available — choose a replacement to update it.`
+      : `Tier: ${tierId}`;
+  }
   const memberCount = tier?.members?.length ?? 0;
-  return tier
-    ? `Model tier "${tier.name}" — ${memberCount} member${memberCount !== 1 ? 's' : ''}`
-    : `Tier: ${tierId}`;
+  return `Model tier "${tier.name}" — ${memberCount} member${memberCount !== 1 ? 's' : ''}`;
+});
+
+// Tooltip for the "unknown model" badge — tier-aware (Fix 8): a stale tier ref
+// gets a message naming the tier, while a stale concrete model id keeps the
+// original wording naming the model id.
+const unknownModelTitle = computed(() => {
+  if (isTierRef(props.modelValue)) {
+    return `Model tier "${tierChipName.value || props.modelValue}" is no longer available. Choose a replacement to update it.`;
+  }
+  return `Stored model '${props.modelValue}' is no longer available. Choose a replacement to update it.`;
 });
 
 // Check if providers have models loaded
@@ -587,7 +622,7 @@ function optionLabel(provider, model) {
   color: var(--color-text);
 }
 
-/* Tier chip badge shown alongside the selector when a tier is selected (F11) */
+/* Tier chip badge shown alongside the selector when a tier is bound (F11) */
 .tier-chip {
   display: inline-flex;
   align-items: center;
@@ -601,5 +636,13 @@ function optionLabel(provider, model) {
   border-radius: 0.25rem;
   white-space: nowrap;
   cursor: default;
+}
+
+/* Stale/deleted tier ref (Fix 8): reuse the warning palette so a tier that no
+   longer resolves reads distinctly from a healthy, active tier binding. */
+.tier-chip--stale {
+  background-color: rgba(251, 191, 36, 0.12);
+  color: var(--color-warning, #fbbf24);
+  border-color: rgba(251, 191, 36, 0.4);
 }
 </style>

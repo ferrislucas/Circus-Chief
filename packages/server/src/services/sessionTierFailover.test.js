@@ -17,6 +17,15 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: mockQuery,
 }));
 
+// Mock the WebSocket layer so Fix 6's stale-tier notice can be asserted
+// without needing a real connected socket. Every other test in this file
+// only relies on runSession completing — none inspect WS traffic — so this
+// is a behavior-neutral swap-in.
+vi.mock('../websocket.js', () => ({
+  broadcastToSession: vi.fn(),
+  broadcastToProject: vi.fn(),
+}));
+
 import { runSession } from './sessionManager.js';
 import { ProjectRepository } from '../db/ProjectRepository.js';
 import { SessionRepository } from '../db/SessionRepository.js';
@@ -25,6 +34,7 @@ import { isUnhealthy } from './tierResolutionService.js';
 import { agentGateway } from '../agents/AgentGateway.js';
 import { BaseAgent } from '../agents/BaseAgent.js';
 import { CodexAdapter } from '../agents/adapters/CodexAdapter.js';
+import { broadcastToSession } from '../websocket.js';
 
 describe('runSessionCore tier failover (integration)', () => {
   let sessionRepo;
@@ -506,5 +516,218 @@ describe('tier failover log entry reflects source agentType (Issue 4)', () => {
     // a call failure — status must not be 'error'.
     expect(rows[0].status).not.toBe('error');
     expect(rows[0].status).toBe('completed');
+  });
+});
+
+// ── Fix 1 / Fix 4: provider-aware failover across a duplicate modelId ───────
+//
+// Two tier members can legitimately share the same `modelId` string while
+// belonging to different providers/agent kinds. A plain model-id lookup
+// cannot disambiguate them; the exact member's own `providerId` must be
+// threaded through every step (agent-type derivation, env resolution, and
+// the failover log's source agentType) or the wrong adapter/env gets used.
+
+describe('cross-provider failover with a duplicate modelId (Fix 1 / Fix 4)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let session;
+  let tempDir;
+  let providerCodex;
+  let providerClaude;
+  let tier;
+  let originalCodexAdapter;
+  const sharedModelId = 'shared-model-id';
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: sharedModelId, slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'dup-model-id-test-'));
+    const project = projectRepo.create('DupModel Project', tempDir);
+
+    // Both providers register the SAME modelId string — only `providerId`
+    // can tell them apart.
+    providerCodex = modelProviders.create({ name: 'DupModel Codex Provider', kind: 'openai' });
+    providerClaude = modelProviders.create({ name: 'DupModel Claude Provider', kind: 'anthropic' });
+    modelProviders.addModel(providerCodex.id, { modelId: sharedModelId, displayName: 'Shared (Codex)' });
+    modelProviders.addModel(providerClaude.id, { modelId: sharedModelId, displayName: 'Shared (Claude)' });
+
+    tier = modelTiers.create({
+      name: 'DupModel Tier',
+      members: [
+        { providerId: providerCodex.id, modelId: sharedModelId, position: 0 },
+        { providerId: providerClaude.id, modelId: sharedModelId, position: 1 },
+      ],
+    });
+
+    session = sessionRepo.create(project.id, 'DupModel Session', 'Test prompt', 'standard');
+    sessionRepo.update(session.id, { model: buildTierRef(tier.id) });
+
+    // The first member resolves to a Codex provider — fail it deterministically
+    // without spawning a real CLI process.
+    originalCodexAdapter = agentGateway.adapters.get('codex');
+    class FailingCodexAdapter extends BaseAgent {
+      static capabilities = CodexAdapter.capabilities;
+      // eslint-disable-next-line require-yield -- always throws before yielding
+      async *execute() {
+        throw new Error('Error: 529 Service overloaded');
+      }
+    }
+    agentGateway.registerAdapter('codex', FailingCodexAdapter);
+  });
+
+  afterEach(() => {
+    agentGateway.registerAdapter('codex', originalCodexAdapter);
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves each attempt against its OWN providerId, not an ambiguous modelId lookup', async () => {
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    // Failed over from the Codex member to the Claude member — both share
+    // `sharedModelId`, so this only succeeds if providerId disambiguated them.
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.resolvedModel).toBe(sharedModelId);
+    expect(updated.resolvedProviderId).toBe(providerClaude.id);
+    // The session's agentType must reflect the member it actually SUCCEEDED
+    // on (Claude), not the Codex member it failed over from.
+    expect(updated.agentType).toBe('claude-code');
+
+    // The failover log's source agentType must reflect the FAILED member
+    // (Codex) — proving the codex attempt was correctly identified as codex
+    // despite sharing a modelId with the claude member it advanced to.
+    const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].agentType).toBe('codex');
+  });
+});
+
+// ── Fix 6: safe degradation for stale tier refs at session start ───────────
+//
+// A tier ref that no longer resolves to any member (deleted, emptied, or
+// every member's provider/model removed) at new/scheduled session start must
+// degrade to a concrete fallback model — NOT throw outright the way a live
+// "all members failed" exhaustion (S3) correctly does.
+
+describe('stale tier ref at session start (Fix 6)', () => {
+  let sessionRepo;
+  let projectRepo;
+  let tempDir;
+  let providerA;
+
+  beforeEach(() => {
+    mockQuery.mockReset();
+    broadcastToSession.mockClear();
+    mockQuery.mockImplementation(async function* () {
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'model-a', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    sessionRepo = new SessionRepository();
+    projectRepo = new ProjectRepository();
+    tempDir = mkdtempSync(join(tmpdir(), 'fix6-stale-tier-test-'));
+
+    providerA = modelProviders.create({ name: 'Fix6 Provider A', kind: 'anthropic' });
+    modelProviders.addModel(providerA.id, { modelId: 'model-a', displayName: 'Model A' });
+  });
+
+  afterEach(() => {
+    if (tempDir && existsSync(tempDir)) {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the server default when a deleted tier ref has no prior concrete snapshot', async () => {
+    const project = projectRepo.create('Fix6 Project 1', tempDir);
+    const tier = modelTiers.create({
+      name: 'Doomed Tier',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    const session = sessionRepo.create(project.id, 'Fix6 Session 1', 'prompt', 'standard');
+    sessionRepo.update(session.id, { model: tierRef, resolvedModel: null, resolvedProviderId: null });
+
+    // The tier is deleted before the session ever starts.
+    modelTiers.delete(tier.id);
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    const updated = sessionRepo.getById(session.id);
+    // Degraded to the server default (null model/provider) rather than failing outright.
+    expect(updated.model).toBeNull();
+    expect(updated.providerId).toBeNull();
+    expect(updated.resolvedModel).toBeNull();
+    expect(updated.resolvedProviderId).toBeNull();
+    expect(updated.status).not.toBe('error');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // A visible notice was broadcast naming the stale tier ref.
+    const failoverCalls = broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover');
+    expect(failoverCalls.length).toBeGreaterThan(0);
+    expect(failoverCalls[0][2].tierRef).toBe(tierRef);
+
+    // And logged.
+    const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].metadata.tierRef ?? tierRef).toBe(tierRef);
+  });
+
+  it('falls back to the server default when a scheduled session\'s tier was emptied of members', async () => {
+    const project = projectRepo.create('Fix6 Project 2', tempDir);
+    const tier = modelTiers.create({ name: 'Emptied Tier' }); // no members
+    const tierRef = buildTierRef(tier.id);
+
+    const session = sessionRepo.create(project.id, 'Fix6 Session 2', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      model: tierRef,
+      resolvedModel: null,
+      resolvedProviderId: null,
+      status: 'scheduled',
+    });
+
+    await runSession(session.id, 'Initial prompt', tempDir, { model: null });
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBeNull();
+    expect(updated.status).not.toBe('error');
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues using the last resolved concrete snapshot when the tier becomes stale after a prior successful run', async () => {
+    const project = projectRepo.create('Fix6 Project 3', tempDir);
+    const tier = modelTiers.create({
+      name: 'Later Doomed Tier',
+      members: [{ providerId: providerA.id, modelId: 'model-a', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    // Session already ran once and has a concrete snapshot from that run.
+    const session = sessionRepo.create(project.id, 'Fix6 Session 3', 'prompt', 'standard');
+    sessionRepo.update(session.id, {
+      model: tierRef,
+      resolvedModel: 'model-a',
+      resolvedProviderId: providerA.id,
+    });
+
+    // The tier is deleted before the NEXT start (e.g. a reschedule/new run).
+    modelTiers.delete(tier.id);
+
+    await runSession(session.id, 'Second run prompt', tempDir, { model: null });
+
+    const updated = sessionRepo.getById(session.id);
+    // Falls back to the session's OWN last-resolved snapshot, not the bare server default.
+    expect(updated.model).toBe('model-a');
+    expect(updated.providerId).toBe(providerA.id);
+    expect(updated.status).not.toBe('error');
   });
 });

@@ -2,16 +2,50 @@ import { modelProviders } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
 
 /**
+ * Resolve the explicit provider named by `providerId`, but only when it
+ * actually owns `modelId`. Used to disambiguate duplicate model ids across
+ * providers (e.g. a tier with two members that share the same `modelId` but
+ * belong to different providers/agent kinds). Returns null when `providerId`
+ * is absent, unknown, or doesn't own the model — callers should fall back to
+ * the plain model-id lookup in that case.
+ * @param {string} modelId
+ * @param {string|null|undefined} providerId
+ * @returns {Object|null}
+ */
+function resolveExplicitOwningProvider(modelId, providerId) {
+  if (!providerId) return null;
+  const provider = modelProviders.getById(providerId);
+  if (!provider) return null;
+  const ownsModel = provider.models?.some((model) => model.modelId === modelId);
+  return ownsModel ? provider : null;
+}
+
+/**
  * Resolve the provider for a given model ID
  * Looks up which provider owns the model, or returns null for Anthropic defaults
+ *
+ * Provider-aware (Fix 1): when `providerId` is supplied, resolve that provider
+ * explicitly and verify it owns `modelId` — this disambiguates the same
+ * `modelId` registered under two different providers (e.g. a tier member).
+ * When `providerId` is absent, or doesn't own the model, falls back to the
+ * existing model-id lookup for backward compatibility.
  * @param {string|null} modelId - The model ID to look up
+ * @param {string|null} [providerId] - Optional explicit provider hint
  * @returns {Object|null} Provider object or null if using Anthropic default
  */
-export function resolveProviderFromModel(modelId) {
+export function resolveProviderFromModel(modelId, providerId = null) {
+  const explicit = resolveExplicitOwningProvider(modelId, providerId);
+  if (explicit) {
+    // Preserve the built-in-Anthropic-falls-through-to-SDK-defaults convention.
+    if (explicit.isBuiltIn && explicit.kind === 'anthropic') return null;
+    return explicit;
+  }
   return modelProviders.getProviderByModelId(modelId);
 }
 
-export function resolveProviderMetadataFromModel(modelId) {
+export function resolveProviderMetadataFromModel(modelId, providerId = null) {
+  const explicit = resolveExplicitOwningProvider(modelId, providerId);
+  if (explicit) return explicit;
   if (!modelId) {
     return modelProviders.getById?.('anthropic-default') || null;
   }
@@ -22,17 +56,23 @@ export function resolveProviderMetadataFromModel(modelId) {
 }
 
 /**
- * Resolve the agent type (claude-code vs codex) for a given model ID.
+ * Resolve the agent type (claude-code vs codex vs gemini) for a given model ID.
  * Uses the owning provider's kind:
  *   - anthropic → claude-code
  *   - openai    → codex
+ *   - google    → gemini
  * Falls back to 'claude-code' for null / unknown / tier-name inputs.
+ *
+ * Provider-aware (Fix 1): when `providerId` is supplied and owns `modelId`,
+ * the agent type is derived from THAT provider — required whenever tier
+ * members can cross Anthropic/OpenAI/Google with a duplicate `modelId`.
  * @param {string|null} modelId
- * @returns {string} 'claude-code' | 'codex'
+ * @param {string|null} [providerId] - Optional explicit provider hint
+ * @returns {string} 'claude-code' | 'codex' | 'gemini'
  */
-export function resolveAgentTypeFromModel(modelId) {
+export function resolveAgentTypeFromModel(modelId, providerId = null) {
   if (!modelId) return 'claude-code';
-  const provider = modelProviders.getProviderByModelId(modelId);
+  const provider = resolveExplicitOwningProvider(modelId, providerId) || modelProviders.getProviderByModelId(modelId);
   if (!provider) return 'claude-code';
   if (typeof modelProviders.getAgentTypeForProvider === 'function') {
     const agentType = modelProviders.getAgentTypeForProvider(provider.id);

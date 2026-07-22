@@ -23,7 +23,7 @@ import {
 } from './streamEventHandler.js';
 import { shouldRescheduleOnError, isTierFailoverEligibleError, _checkProactiveReschedule } from './sessionErrors.js';
 import { isTierRef } from '@circuschief/shared';
-import { runSessionWithTierFailover } from './sessionTierFailover.js';
+import { runSessionWithTierFailover, hasResolvableTierMembers, applyStaleTierFallback } from './sessionTierFailover.js';
 import { schedulerService } from './schedulerService.js';
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 // continueSessionCore lives in sessionContinuation.js (extracted to keep this
@@ -58,10 +58,19 @@ export function buildAgentEnv(sessionEnv, commitAttributionOverride) {
   return env;
 }
 
-export async function resolveInitialSessionModelEnv(session, model) {
+/**
+ * @param {Object} session
+ * @param {string|null} model - Explicit model override (e.g. a tier member's modelId), or null to use session.model.
+ * @param {string|null} [providerId] - Explicit provider for `model` (Fix 1 / Fix 4), e.g. a tier
+ *   member's own providerId. When omitted and `model` is also omitted (using session.model),
+ *   falls back to `session.providerId` so non-tier sessions with a known provider still
+ *   disambiguate duplicate model ids correctly.
+ */
+export async function resolveInitialSessionModelEnv(session, model, providerId = null) {
   const effectiveModel = model || session.model;
-  const provider = resolveProviderFromModel(effectiveModel);
-  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel);
+  const providerHint = providerId ?? (model ? null : session.providerId ?? null);
+  const provider = resolveProviderFromModel(effectiveModel, providerHint);
+  const providerMetadata = resolveProviderMetadataFromModel(effectiveModel, providerHint);
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
 
   if (session.gitWorktree && commitAttributionOverride) {
@@ -222,12 +231,32 @@ export async function runSessionCore(sessionId, prompt, workingDirectory, config
   // ── Tier failover path ────────────────────────────────────────────────────
   const effectiveModelField = model || session.model;
   if (isTierRef(effectiveModelField)) {
-    await runSessionWithTierFailover(sessionId, promptWithAttachments, workingDirectory, {
+    if (hasResolvableTierMembers(effectiveModelField)) {
+      await runSessionWithTierFailover(sessionId, promptWithAttachments, workingDirectory, {
+        systemPrompt,
+        activeConversation,
+        controller,
+        callbacks,
+        tierRef: effectiveModelField,
+      });
+      return;
+    }
+
+    // Fix 6: the tier ref no longer resolves to any member (deleted / emptied /
+    // every member's provider or model was removed) — this is a stale binding,
+    // not a live "all members failed" exhaustion (that case is handled inside
+    // runSessionWithTierFailover and correctly falls through to normal error
+    // handling instead). Degrade to a concrete fallback so a new or scheduled
+    // session doesn't fail outright on a binding the user can no longer fix
+    // from within this session.
+    const fallback = applyStaleTierFallback(sessionId, session, effectiveModelField);
+    await _runStandardSession(sessionId, promptWithAttachments, workingDirectory, {
+      session: fallback.session,
+      model: fallback.model,
       systemPrompt,
       activeConversation,
       controller,
       callbacks,
-      tierRef: effectiveModelField,
     });
     return;
   }

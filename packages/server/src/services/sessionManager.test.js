@@ -1578,4 +1578,36 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     expect(capturedModel).toBe('concrete-model-a');
     expect(capturedModel).not.toMatch(/^tier::/);
   });
+
+  // Fix 2: switching from the session's currently-bound tier to a DIFFERENT
+  // tier must resolve the new tier live — reusing the old tier's
+  // `resolvedModel` snapshot here would silently keep dispatching to the
+  // wrong (stale) concrete model.
+  it('switching from tier A to tier B resolves tier B live, not tier A\'s stale snapshot', async () => {
+    const { modelProviders, modelTiers } = await import('../database.js');
+    const { buildTierRef } = await import('@circuschief/shared');
+
+    modelProviders.addModel(providerA.id, { modelId: 'concrete-model-b', displayName: 'Model B' });
+    const tierB = modelTiers.create({
+      name: 'Fix1 Tier B',
+      members: [{ providerId: providerA.id, modelId: 'concrete-model-b', position: 0 }],
+    });
+    const tierBRef = buildTierRef(tierB.id);
+
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir, {
+      model: tierBRef,
+    });
+
+    expect(capturedModel).toBe('concrete-model-b');
+    expect(capturedModel).not.toMatch(/^tier::/);
+
+    const updated = sessionRepo.getById(session.id);
+    expect(updated.model).toBe(tierBRef);
+    expect(updated.resolvedModel).toBe('concrete-model-b');
+    expect(updated.resolvedProviderId).toBe(providerA.id);
+  });
 });
