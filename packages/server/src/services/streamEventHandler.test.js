@@ -609,6 +609,61 @@ describe('streamEventHandler', () => {
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
+    it('held turns with proactive token-threshold rescheduling still preserve FRD-required side effects and do not advance the card', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: "You've reached your usage limit" });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      // Proactive reschedule still ran and fired.
+      expect(mockCheckReschedule).toHaveBeenCalledWith('sess-1');
+      expect(result).toBe(true);
+      // But the card must not advance...
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      // ...and every other FRD-required completion side effect must still run.
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
+      expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
+      expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
+      expect(mockAutoSend).toHaveBeenCalledWith('sess-1');
+      expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('non-held turns with proactive token-threshold rescheduling keep existing reschedule behavior (early return, no side effects)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      messages.getBySessionId.mockReturnValue([]);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(true);
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      // Unchanged legacy behavior: reschedule short-circuits before other side effects.
+      expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
+      expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
     it('does not reuse a stale held result event on a later natural completion (consume-on-read)', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
