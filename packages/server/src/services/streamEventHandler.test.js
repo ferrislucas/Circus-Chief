@@ -89,6 +89,8 @@ import {
   currentModels,
   loggedToolUseIds,
   finalErrorSessionIds,
+  finalResultEvents,
+  getResultEvent,
 } from './streamEventHandler.js';
 
 describe('streamEventHandler', () => {
@@ -104,7 +106,9 @@ describe('streamEventHandler', () => {
     currentModels.clear();
     loggedToolUseIds.clear();
     finalErrorSessionIds.clear();
+    finalResultEvents.clear();
     messages.getByConversationId.mockReturnValue([]);
+    messages.getBySessionId.mockReturnValue([]);
     messages.create.mockImplementation((sessionId, role, content, options = {}) => ({
       id: `msg-${role}`,
       sessionId,
@@ -300,6 +304,38 @@ describe('streamEventHandler', () => {
 
       expect(diffService.getChanges).not.toHaveBeenCalled();
       expect(broadcastToSession).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── getResultEvent ────────────────────────────────────────────────────
+
+  describe('getResultEvent', () => {
+    it('returns null when no result event was captured', () => {
+      expect(getResultEvent('sess-1')).toBeNull();
+    });
+
+    it('returns the captured result event record', () => {
+      const record = { subtype: 'success', isError: false, resultText: 'Done.' };
+      finalResultEvents.set('sess-1', record);
+      expect(getResultEvent('sess-1')).toEqual(record);
+    });
+
+    it('consumes the entry on read — a second read returns null', () => {
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: 'Done.' });
+
+      expect(getResultEvent('sess-1')).not.toBeNull();
+      expect(getResultEvent('sess-1')).toBeNull();
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+    });
+
+    it('does not affect other sessions when consuming one', () => {
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: 'A' });
+      finalResultEvents.set('sess-2', { subtype: 'success', isError: false, resultText: 'B' });
+
+      getResultEvent('sess-1');
+
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+      expect(finalResultEvents.has('sess-2')).toBe(true);
     });
   });
 
@@ -518,6 +554,174 @@ describe('streamEventHandler', () => {
       await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
 
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+    });
+
+    it('calls kanban completion hooks on natural completion (no usage-limit/outage signal)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: 'Done, all tests pass.' });
+      messages.getBySessionId.mockReturnValue([
+        { role: 'assistant', content: 'Here is the finished implementation.' },
+      ]);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('advances the card when a genuine completion summary merely mentions a limit/outage phrase in passing', async () => {
+      // Regression guard for Issue 1: the Claude Code `result` event's text IS the
+      // final assistant message, so a work summary that happens to contain a framed
+      // terminal phrase (e.g. "Fixed HTTP 503 Service Unavailable handling...") must
+      // still advance the card, not be misclassified as a graceful usage-limit/outage hold.
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: 'Fixed HTTP 503 Service Unavailable handling in the proxy' });
+      messages.getBySessionId.mockReturnValue([]);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('does not call kanban completion hooks when the result event carries usage-limit text, but still sets waiting', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: "You've reached your usage limit" });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+      expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
+      expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
+    });
+
+    it('does not call kanban completion hooks when the result event carries service-error text, but still sets waiting', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: 'The server is overloaded' });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('held + proactively-rescheduled turns early-return before any normal-completion side effect runs (Issue 3)', async () => {
+      // A proactively-rescheduled turn never advances the card, held or not — the
+      // session is about to be re-run automatically, so completion side effects
+      // (PR extraction, summary, changes broadcast, auto-send, template trigger)
+      // belong to the *continued* turn, not this one. Running them here would let
+      // handleTemplateTriggerIfNeeded double-drive the session while it's
+      // simultaneously scheduled to retry.
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: "You've reached your usage limit" });
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+      const mockAutoSend = vi.fn().mockResolvedValue(false);
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      // Proactive reschedule still ran and fired.
+      expect(mockCheckReschedule).toHaveBeenCalledWith('sess-1');
+      expect(result).toBe(true);
+      // The card must not advance...
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      // ...and the next-template trigger must not fire (the session was rescheduled)...
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+      // ...nor any other normal-completion side effect, deferred to the continued turn.
+      expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
+      expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
+      expect(diffService.getChanges).not.toHaveBeenCalled();
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      // The waiting-status transition (before the reschedule check) still occurs.
+      expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
+    });
+
+    it('non-held turns with proactive token-threshold rescheduling keep existing reschedule behavior (early return, no side effects)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      messages.getBySessionId.mockReturnValue([]);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(true);
+      const mockHandleTemplate = vi.fn();
+      const mockAutoSend = vi.fn();
+
+      const result = await handleTurnCompletion('sess-1', '/workspace', {
+        handleTemplateTriggerIfNeeded: mockHandleTemplate,
+        checkProactiveReschedule: mockCheckReschedule,
+        handleAutoSendIfNeeded: mockAutoSend,
+      });
+
+      expect(result).toBe(true);
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      // Unchanged legacy behavior: reschedule short-circuits before other side effects.
+      expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
+      expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+    });
+
+    it('does not reuse a stale held result event on a later natural completion (consume-on-read)', async () => {
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      messages.getBySessionId.mockReturnValue([]);
+
+      // First turn: a genuine usage-limit result event holds the completion move.
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: "You've reached your usage limit" });
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+      expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
+      // The held event must have been consumed (deleted) on read.
+      expect(finalResultEvents.has('sess-1')).toBe(false);
+
+      // Second turn: no new result event was captured for this turn (e.g. the
+      // handler ran before a fresh `result` event arrived). The stale held
+      // payload from the first turn must NOT be reused — completion should
+      // proceed normally since there's no signal for this turn.
+      vi.clearAllMocks();
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      messages.getBySessionId.mockReturnValue([]);
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
     });
 
     it('skips template trigger when auto-send fires', async () => {

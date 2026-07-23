@@ -4,6 +4,7 @@ import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import * as summaryService from './summaryService.js';
 import * as kanbanService from './kanbanService.js';
 import { createVisibleFinalErrorMessage } from './visibleFinalErrorMessage.js';
+import { turnEndedDueToLimitOrOutage } from './sessionErrors.js';
 import {
   lastMessageIds,
   activeSessions,
@@ -12,6 +13,7 @@ import {
   associateAndBroadcastWorkLogs,
   broadcastSessionStatus,
   broadcastChangesUpdate,
+  getResultEvent,
 } from './streamEventHandler.js';
 
 /**
@@ -78,10 +80,17 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
 
   // Check if session should be proactively rescheduled based on token threshold.
   // Explicit mid-turn continuations win over automatic token-management reschedules.
+  // A proactively-rescheduled turn — held or not — never advances the card and
+  // must not run any other normal-completion side effect either: the session is
+  // about to be re-run automatically, so PR extraction, summary activity, changes
+  // broadcast, auto-send, and the next-template trigger belong to the *continued*
+  // turn, not this one. Running them here would let the next-template trigger
+  // double-drive a session that's simultaneously scheduled to retry (Issue 3).
   const { checkProactiveReschedule } = callbacks;
+  let wasProactivelyRescheduled = false;
   if (!wasScheduledMidTurn && checkProactiveReschedule) {
-    const wasRescheduled = await checkProactiveReschedule(sessionId);
-    if (wasRescheduled) {
+    wasProactivelyRescheduled = await checkProactiveReschedule(sessionId);
+    if (wasProactivelyRescheduled) {
       return true; // Session was rescheduled, don't continue with normal completion
     }
   }
@@ -100,7 +109,19 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // Advance the card to its current lane's completion target now that the
   // session has finished a turn successfully. This is the only correct
   // trigger: work was actually done while parked in this lane.
-  await kanbanService.handleCompletionMove(sessionId);
+  // Exception: a turn that ended gracefully (success result) because the provider
+  // hit a usage/token limit or was unavailable did NOT actually complete any work,
+  // so the card must stay put. Skip only the completion move — all other side
+  // effects on this path (waiting status, summaries, auto-send, template trigger)
+  // still run as usual. Only reached for turns that were NOT proactively
+  // rescheduled, so getResultEvent() is only consumed here, not on the
+  // held+rescheduled early-return path above.
+  const shouldHoldKanbanCompletion = turnEndedDueToLimitOrOutage(sessionId, getResultEvent(sessionId));
+  if (shouldHoldKanbanCompletion) {
+    console.log(`[kanban] Session ${sessionId}: usage-limit/outage — completion move skipped`);
+  } else {
+    await kanbanService.handleCompletionMove(sessionId);
+  }
 
   // Auto-send queued prompt if enabled (runs BEFORE template trigger)
   const { handleAutoSendIfNeeded, handleTemplateTriggerIfNeeded } = callbacks;
@@ -115,7 +136,7 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
     await handleTemplateTriggerIfNeeded(sessionId);
   }
 
-  return false;
+  return wasProactivelyRescheduled;
 }
 
 /**

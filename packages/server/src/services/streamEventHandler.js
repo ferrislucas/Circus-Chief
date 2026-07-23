@@ -42,6 +42,35 @@ export const loggedToolUseIds = new Map();
 /** @type {Set<string>} Track sessions that received a final result.error event */
 export const finalErrorSessionIds = new Set();
 
+/**
+ * @type {Map<string, { subtype: string, isError: boolean, resultText: string }>}
+ * Captures the CLI's authoritative turn-termination payload (the `result` event) per session,
+ * so the completion path can consult it to detect a graceful usage-limit/outage termination.
+ */
+export const finalResultEvents = new Map();
+
+/**
+ * Get the captured `result` event record for a session, if any, and consume it
+ * (delete from the map) on read. This guarantees a later turn's completion check
+ * can never accidentally observe a previous turn's stale result-event payload —
+ * each captured result event is readable exactly once, by whichever completion
+ * check reads it first.
+ *
+ * Note (Issue 6): `cleanupSessionState`'s deletion in the `_executeSession`
+ * `finally` block is the primary mechanism that guarantees no stale payload
+ * survives across turns; this consume-on-read behavior is redundant
+ * defense-in-depth for the (normally unreachable) case of a path that reads this
+ * getter without going through that cleanup.
+ * @param {string} sessionId
+ * @returns {{ subtype: string, isError: boolean, resultText: string } | null}
+ */
+export function getResultEvent(sessionId) {
+  const entry = finalResultEvents.get(sessionId);
+  if (entry === undefined) return null;
+  finalResultEvents.delete(sessionId);
+  return entry;
+}
+
 // ── Helper functions ───────────────────────────────────────────────────────
 
 /**
@@ -401,6 +430,14 @@ function handleContentBlockStop(sessionId, _event) {
  * @param {Object} event
  */
 function handleResultEvent(sessionId, event) {
+  // Capture the authoritative turn-termination text regardless of subtype, so the
+  // completion path can later detect a graceful usage-limit/outage termination.
+  finalResultEvents.set(sessionId, {
+    subtype: event.subtype,
+    isError: Boolean(event.is_error),
+    resultText: typeof event.result === 'string' ? event.result : '',
+  });
+
   if (event.subtype === 'error') {
     handleResultError(sessionId, event);
   } else {
@@ -498,6 +535,7 @@ export function cleanupSessionState(sessionId, includeConversationId = false) {
   currentModels.delete(sessionId);
   loggedToolUseIds.delete(sessionId);
   finalErrorSessionIds.delete(sessionId);
+  finalResultEvents.delete(sessionId);
   activeSessions.delete(sessionId);
   if (includeConversationId) {
     activeConversationIds.delete(sessionId);
