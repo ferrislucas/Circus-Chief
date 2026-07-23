@@ -358,14 +358,30 @@ describe('sessionErrors', () => {
       expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'error code 529' })).toBe(false);
     });
 
-    it('does not require the assistant-message shape guard for captured result text', () => {
-      // The `result` event is the CLI's authoritative end-of-turn signal, so unlike
-      // the assistant-message fallback it is never subjected to the terminal-shape
-      // guard (length / implementation-verb check) — only the pattern prefilter applies.
+    it('applies the terminal-shape guard to captured result text too (Claude Code result text is assistant prose)', () => {
+      // For Claude Code, the SDK `result` event's text IS the final assistant message,
+      // so it must be subjected to the same terminal-shape guard (length /
+      // implementation-verb check) as the assistant-message fallback — otherwise a
+      // genuine completion summary that merely mentions a limit/outage phrase in
+      // passing is misclassified as a usage-limit/outage hold.
       messages.getBySessionId.mockReturnValue([]);
       expect(
+        turnEndedDueToLimitOrOutage('sess-1', { resultText: 'Added a rate limit to the endpoint' })
+      ).toBe(false);
+      expect(
         turnEndedDueToLimitOrOutage('sess-1', { resultText: 'Fixed HTTP 503 Service Unavailable handling in the proxy' })
-      ).toBe(true);
+      ).toBe(false);
+      expect(
+        turnEndedDueToLimitOrOutage('sess-1', { resultText: 'The API now returns 429 Too Many Requests when throttled' })
+      ).toBe(false);
+      expect(
+        turnEndedDueToLimitOrOutage('sess-1', { resultText: 'Added a test for too many requests handling' })
+      ).toBe(false);
+
+      // True-positive guards: short terminal messages must still pass the shape guard.
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: "You've reached your usage limit" })).toBe(true);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'usage limit reached' })).toBe(true);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'The server is overloaded' })).toBe(true);
     });
 
     it('detects token-limit / service-error text in the last assistant message when result text is empty', () => {
@@ -442,6 +458,34 @@ describe('sessionErrors', () => {
       });
     });
 
+    // Issue 4 / FR-4 invariant: the framed terminal patterns are a completion-path
+    // *shape gate*, not an independent classifier. Every canonical example that
+    // satisfies a framed pattern must ALSO satisfy the shared, broader matchers
+    // (`matchesTokenLimitError` / `matchesServiceError`), which remain the
+    // classifier of record. This locks the "framed set ⊆ broad matchers"
+    // relationship so future edits to either side can't silently drift apart.
+    describe('framed patterns are a subset of the shared matchers (FR-4 invariant)', () => {
+      const canonicalExamples = [
+        "you've reached your usage limit",
+        "you've hit your token limit",
+        'usage limit reached',
+        'token limit reached',
+        'quota exceeded',
+        'rate limited',
+        'too many requests',
+        'service unavailable',
+        'server overloaded',
+        'overloaded error',
+        '503 service unavailable',
+        '529 overloaded error',
+        '429 too many requests',
+      ];
+
+      it.each(canonicalExamples)('"%s" is also matched by the shared matchers', (text) => {
+        expect(matchesTokenLimitError(text) || matchesServiceError(text)).toBe(true);
+      });
+    });
+
     it('normalizes underscores when matching "overloaded_error"', () => {
       messages.getBySessionId.mockReturnValue([]);
       expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'overloaded_error' })).toBe(true);
@@ -474,6 +518,11 @@ describe('sessionErrors', () => {
         'The service is unavailable branch is now covered by a test',
         'Fixed service unavailable handling in the API client',
         'Added service-unavailable handling in the API client',
+        'Configured the rate limit at 100 rps',
+        'Created a rate limit middleware',
+        'Increased the rate limit to 100 rps',
+        'Set up rate limit handling for the API',
+        'Handled the service is unavailable case in the client',
       ];
 
       it.each(cleanCompletions)('does not flag: %s', (text) => {

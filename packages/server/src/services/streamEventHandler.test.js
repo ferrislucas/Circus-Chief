@@ -575,6 +575,26 @@ describe('streamEventHandler', () => {
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
+    it('advances the card when a genuine completion summary merely mentions a limit/outage phrase in passing', async () => {
+      // Regression guard for Issue 1: the Claude Code `result` event's text IS the
+      // final assistant message, so a work summary that happens to contain a framed
+      // terminal phrase (e.g. "Fixed HTTP 503 Service Unavailable handling...") must
+      // still advance the card, not be misclassified as a graceful usage-limit/outage hold.
+      activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
+      workLogs.associatePendingLogs.mockReturnValue(0);
+      sessions.getById.mockReturnValue({ projectId: 'proj-1' });
+      diffService.getChanges.mockResolvedValue({ staged: null, unstaged: null, untracked: null });
+      finalResultEvents.set('sess-1', { subtype: 'success', isError: false, resultText: 'Fixed HTTP 503 Service Unavailable handling in the proxy' });
+      messages.getBySessionId.mockReturnValue([]);
+
+      const mockCheckReschedule = vi.fn().mockResolvedValue(false);
+      const mockHandleTemplate = vi.fn().mockResolvedValue(undefined);
+
+      await handleTurnCompletion('sess-1', '/workspace', { handleTemplateTriggerIfNeeded: mockHandleTemplate, checkProactiveReschedule: mockCheckReschedule });
+
+      expect(kanbanService.handleCompletionMove).toHaveBeenCalledWith('sess-1');
+    });
+
     it('does not call kanban completion hooks when the result event carries usage-limit text, but still sets waiting', async () => {
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
@@ -609,7 +629,13 @@ describe('streamEventHandler', () => {
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
     });
 
-    it('held turns with proactive token-threshold rescheduling still preserve FRD-required side effects and do not advance the card', async () => {
+    it('held + proactively-rescheduled turns early-return before any normal-completion side effect runs (Issue 3)', async () => {
+      // A proactively-rescheduled turn never advances the card, held or not — the
+      // session is about to be re-run automatically, so completion side effects
+      // (PR extraction, summary, changes broadcast, auto-send, template trigger)
+      // belong to the *continued* turn, not this one. Running them here would let
+      // handleTemplateTriggerIfNeeded double-drive the session while it's
+      // simultaneously scheduled to retry.
       activeSessions.set('sess-1', { controller: { signal: { aborted: false } } });
       workLogs.associatePendingLogs.mockReturnValue(0);
       sessions.getById.mockReturnValue({ projectId: 'proj-1' });
@@ -629,15 +655,17 @@ describe('streamEventHandler', () => {
       // Proactive reschedule still ran and fired.
       expect(mockCheckReschedule).toHaveBeenCalledWith('sess-1');
       expect(result).toBe(true);
-      // But the card must not advance...
+      // The card must not advance...
       expect(kanbanService.handleCompletionMove).not.toHaveBeenCalled();
-      // ...and every other FRD-required completion side effect must still run.
+      // ...and the next-template trigger must not fire (the session was rescheduled)...
+      expect(mockHandleTemplate).not.toHaveBeenCalled();
+      // ...nor any other normal-completion side effect, deferred to the continued turn.
+      expect(summaryService.extractPrUrlIfNeeded).not.toHaveBeenCalled();
+      expect(summaryService.onSessionActivity).not.toHaveBeenCalled();
+      expect(diffService.getChanges).not.toHaveBeenCalled();
+      expect(mockAutoSend).not.toHaveBeenCalled();
+      // The waiting-status transition (before the reschedule check) still occurs.
       expect(sessions.update).toHaveBeenCalledWith('sess-1', { status: 'waiting', error: null });
-      expect(summaryService.extractPrUrlIfNeeded).toHaveBeenCalledWith('sess-1');
-      expect(summaryService.onSessionActivity).toHaveBeenCalledWith('sess-1');
-      expect(diffService.getChanges).toHaveBeenCalledWith('/workspace');
-      expect(mockAutoSend).toHaveBeenCalledWith('sess-1');
-      expect(mockHandleTemplate).toHaveBeenCalledWith('sess-1');
     });
 
     it('non-held turns with proactive token-threshold rescheduling keep existing reschedule behavior (early return, no side effects)', async () => {

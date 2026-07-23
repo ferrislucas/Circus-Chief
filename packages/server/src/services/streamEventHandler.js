@@ -54,8 +54,13 @@ export const finalResultEvents = new Map();
  * (delete from the map) on read. This guarantees a later turn's completion check
  * can never accidentally observe a previous turn's stale result-event payload —
  * each captured result event is readable exactly once, by whichever completion
- * check reads it first. `cleanupSessionState`'s deletion remains a final
- * safeguard for paths that never call this getter (e.g. thrown-error turns).
+ * check reads it first.
+ *
+ * Note (Issue 6): `cleanupSessionState`'s deletion in the `_executeSession`
+ * `finally` block is the primary mechanism that guarantees no stale payload
+ * survives across turns; this consume-on-read behavior is redundant
+ * defense-in-depth for the (normally unreachable) case of a path that reads this
+ * getter without going through that cleanup.
  * @param {string} sessionId
  * @returns {{ subtype: string, isError: boolean, resultText: string } | null}
  */

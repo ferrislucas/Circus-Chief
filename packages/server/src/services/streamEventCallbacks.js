@@ -78,26 +78,21 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // The waiting write above would otherwise overwrite the scheduled state.
   const wasScheduledMidTurn = await handleScheduledContinuationIfNeeded(sessionId);
 
-  // Determine once, up front, whether this turn ended gracefully because the
-  // provider hit a usage/token limit or was unavailable — not because the work
-  // actually finished. This MUST be computed before the proactive-reschedule
-  // branch below: otherwise a held turn that also crosses the proactive
-  // token-reschedule threshold would return early and skip the FRD-required
-  // side effects (PR extraction, summary activity, changes broadcast, auto-send,
-  // template trigger) that must still run for held turns.
-  const shouldHoldKanbanCompletion = turnEndedDueToLimitOrOutage(sessionId, getResultEvent(sessionId));
-
   // Check if session should be proactively rescheduled based on token threshold.
   // Explicit mid-turn continuations win over automatic token-management reschedules.
+  // A proactively-rescheduled turn — held or not — never advances the card and
+  // must not run any other normal-completion side effect either: the session is
+  // about to be re-run automatically, so PR extraction, summary activity, changes
+  // broadcast, auto-send, and the next-template trigger belong to the *continued*
+  // turn, not this one. Running them here would let the next-template trigger
+  // double-drive a session that's simultaneously scheduled to retry (Issue 3).
   const { checkProactiveReschedule } = callbacks;
   let wasProactivelyRescheduled = false;
   if (!wasScheduledMidTurn && checkProactiveReschedule) {
     wasProactivelyRescheduled = await checkProactiveReschedule(sessionId);
-    if (wasProactivelyRescheduled && !shouldHoldKanbanCompletion) {
+    if (wasProactivelyRescheduled) {
       return true; // Session was rescheduled, don't continue with normal completion
     }
-    // A held turn falls through even when proactively rescheduled, so the
-    // FRD-required side effects below still run for it.
   }
 
   // Extract PR URL immediately (lightweight, no API call)
@@ -118,7 +113,10 @@ async function handleActiveSessionCompletion(sessionId, workingDirectory, callba
   // hit a usage/token limit or was unavailable did NOT actually complete any work,
   // so the card must stay put. Skip only the completion move — all other side
   // effects on this path (waiting status, summaries, auto-send, template trigger)
-  // still run as usual.
+  // still run as usual. Only reached for turns that were NOT proactively
+  // rescheduled, so getResultEvent() is only consumed here, not on the
+  // held+rescheduled early-return path above.
+  const shouldHoldKanbanCompletion = turnEndedDueToLimitOrOutage(sessionId, getResultEvent(sessionId));
   if (shouldHoldKanbanCompletion) {
     console.log(`[kanban] Session ${sessionId}: usage-limit/outage — completion move skipped`);
   } else {
