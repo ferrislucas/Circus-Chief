@@ -46,6 +46,23 @@ export function seedBuiltInAnthropicProvider(db) {
   }
 }
 
+/**
+ * Seed (and backfill) the built-in OpenAI provider and its model rows.
+ *
+ * This runs as the `providers-seed-built-in-openai` migration, and migrations
+ * re-run unconditionally on every startup (see DatabaseManager#runMigrations).
+ * That re-run is the upgrade/backfill path: because the model inserts use
+ * `INSERT OR IGNORE` and iterate the *current* `OPENAI_MODELS` list, existing
+ * databases automatically gain newly added built-in models (e.g. the GPT-5.6
+ * family) on next startup without a dedicated migration. Models removed from
+ * `OPENAI_MODELS` (e.g. the retired `gpt-5.5`) are intentionally NOT deleted
+ * here — existing rows are left in place for runtime compatibility and hidden
+ * from new-selection UI instead.
+ *
+ * NOTE: this backfill relies on migrations running every startup. If that ever
+ * changes to run-once/versioned migrations, add an explicit backfill migration
+ * for newly added built-in models.
+ */
 export function seedBuiltInOpenAIProvider(db) {
   const now = Date.now();
 

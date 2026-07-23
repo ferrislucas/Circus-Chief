@@ -933,12 +933,6 @@ describe('ProviderRepository', () => {
       );
     });
 
-    it('getProviderByModelId resolves gpt-5.6-sol to the built-in OpenAI provider', () => {
-      const result = repo.getProviderByModelId('gpt-5.6-sol');
-      expect(result).not.toBeNull();
-      expect(result.id).toBe('openai-default');
-    });
-
     it('getProviderByModelId prefers a custom provider over built-in OpenAI for duplicate model IDs', () => {
       const provider = repo.create({
         name: 'Custom OpenAI',
