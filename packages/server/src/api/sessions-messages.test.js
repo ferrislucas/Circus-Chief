@@ -137,7 +137,7 @@ describe('Sessions Messages API — POST /:id/message cross-kind guard (Phase 7)
     expect(res.status).toBe(400);
     expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
     expect(res.body.error).toContain('Valid model ids are:');
-    expect(res.body.error).toContain('gpt-5.5');
+    expect(res.body.error).toContain('gpt-5.6-sol');
     expect(continueSession).not.toHaveBeenCalled();
   });
 

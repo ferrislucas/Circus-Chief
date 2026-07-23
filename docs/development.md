@@ -170,7 +170,7 @@ The CLI path also passes configured reasoning effort and commit attribution to C
 | Thinking | ❌ |
 | Resume | ❌ |
 
-Supported OpenAI models: GPT-5.5 (default), GPT-5.4, GPT-5.4 mini, GPT-5.3-Codex.
+Supported OpenAI models: GPT-5.6 Sol (default), GPT-5.6 Terra, GPT-5.6 Luna, GPT-5.4, GPT-5.4 mini, GPT-5.3-Codex. GPT-5.5 has been retired from the built-in model picker; existing sessions that already store `gpt-5.5` continue to run with it.
 
 ### Gemini Agent Details
 

@@ -284,6 +284,17 @@ describe('useModelInfo', () => {
               tier: 'custom',
             })),
             { id: 'o-gpt4o', modelId: 'gpt-4o', displayName: 'GPT-4o' },
+            // Retained compatibility row for an upgraded database: gpt-5.5 is
+            // no longer part of OPENAI_MODELS, but existing installations
+            // keep the built-in provider_models row so historical sessions
+            // resolve. It should NOT be found in OPENAI_MODELS.
+            {
+              id: 'openai-gpt-5-5',
+              modelId: 'gpt-5.5',
+              displayName: 'GPT-5.5 (legacy)',
+              description: 'Retired model retained for compatibility',
+              tier: 'custom',
+            },
           ],
         },
       ];
@@ -301,14 +312,32 @@ describe('useModelInfo', () => {
       // Prime the capability cache synchronously before reading.
       await fetchAgentCapabilities();
 
-      const info = getModelInfo('gpt-5.5');
+      const info = getModelInfo('gpt-5.6-sol');
       expect(info.agentType).toBe('codex');
       expect(info.capabilities.thinking).toBe(false);
       expect(info.capabilities.reasoningEffort).toBe(true);
       expect(info.providerId).toBe('openai-default');
       expect(info.providerName).toBe('OpenAI (Official)');
-      expect(info.name).toBe('GPT-5.5');
-      expect(info.description).toBe('Flagship coding and professional work');
+      expect(info.name).toBe('GPT-5.6 Sol');
+      expect(info.description).toBe('Frontier model for complex professional work');
+    });
+
+    it('does not resolve gpt-5.5 against OPENAI_MODELS (retired from the curated catalog)', () => {
+      expect(OPENAI_MODELS.find((model) => model.id === 'gpt-5.5')).toBeUndefined();
+    });
+
+    it('falls back to the retained provider-row metadata for a legacy gpt-5.5 compatibility row', async () => {
+      const { getModelInfo, fetchAgentCapabilities } = useModelInfo();
+      await fetchAgentCapabilities();
+
+      const info = getModelInfo('gpt-5.5');
+      expect(info.agentType).toBe('codex');
+      expect(info.providerId).toBe('openai-default');
+      expect(info.providerName).toBe('OpenAI (Official)');
+      // Name/description come from the persisted provider_models row, not
+      // from curated OPENAI_MODELS metadata (which no longer has an entry).
+      expect(info.name).toBe('GPT-5.5 (legacy)');
+      expect(info.description).toBe('Retired model retained for compatibility');
     });
 
     it('resolves every OPENAI_MODELS entry to curated metadata for OpenAI providers', async () => {

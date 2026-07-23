@@ -169,6 +169,105 @@ describe('providers-seed-built-in-openai migration', () => {
     expect(openAISeedIdx).toBeGreaterThan(kindIdx);
     expect(openAISeedIdx).toBeGreaterThan(historicalSeedIdx);
   });
+
+  it('does not seed a built-in gpt-5.5 row on a fresh DB', () => {
+    const db = getDatabase();
+    const row = db
+      .prepare('SELECT * FROM provider_models WHERE provider_id = ? AND model_id = ?')
+      .get('openai-default', 'gpt-5.5');
+
+    expect(row).toBeUndefined();
+  });
+
+  describe('upgraded database with a pre-GPT-5.6 built-in OpenAI catalog', () => {
+    // Simulate an existing installation whose `provider_models` rows were
+    // seeded before the GPT-5.6 family existed: it still has the retired
+    // `gpt-5.5` row and lacks the new GPT-5.6 rows. Every migration re-runs
+    // on every startup (see DatabaseManager#runMigrations), so re-running
+    // `providers-seed-built-in-openai` with the *current* `OPENAI_MODELS`
+    // list is what backfills the new rows for upgraded databases.
+    function simulateLegacyCatalog(db) {
+      db.prepare('DELETE FROM provider_models WHERE provider_id = ?').run('openai-default');
+      const now = Date.now();
+      const legacyModels = [
+        { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', description: 'Flagship coding and professional work' },
+        { id: 'openai-gpt-5-4', modelId: 'gpt-5.4', displayName: 'GPT-5.4', description: 'High capability professional work' },
+      ];
+      const insert = db.prepare(
+        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+         VALUES (?, ?, ?, ?, ?, 'custom', ?)`
+      );
+      for (const model of legacyModels) {
+        insert.run(model.id, 'openai-default', model.modelId, model.displayName, model.description, now);
+      }
+    }
+
+    it('backfills missing GPT-5.6 rows without touching the retained gpt-5.5 row', () => {
+      const db = getDatabase();
+      simulateLegacyCatalog(db);
+
+      seedOpenAIMigration.up(db);
+
+      const rows = db
+        .prepare('SELECT * FROM provider_models WHERE provider_id = ? ORDER BY model_id')
+        .all('openai-default');
+      const modelIds = rows.map((row) => row.model_id);
+
+      expect(modelIds).toContain('gpt-5.6-sol');
+      expect(modelIds).toContain('gpt-5.6-terra');
+      expect(modelIds).toContain('gpt-5.6-luna');
+
+      // The retired row is preserved untouched (not deleted, not modified).
+      const legacyRow = rows.find((row) => row.model_id === 'gpt-5.5');
+      expect(legacyRow).toMatchObject({
+        id: 'openai-gpt-5-5',
+        display_name: 'GPT-5.5',
+        description: 'Flagship coding and professional work',
+      });
+    });
+
+    it('is idempotent: re-running does not duplicate rows or touch the legacy row', () => {
+      const db = getDatabase();
+      simulateLegacyCatalog(db);
+
+      seedOpenAIMigration.up(db);
+      seedOpenAIMigration.up(db);
+
+      const rows = db
+        .prepare('SELECT * FROM provider_models WHERE provider_id = ?')
+        .all('openai-default');
+      const modelIds = rows.map((row) => row.model_id);
+
+      expect(new Set(modelIds).size).toBe(modelIds.length);
+      expect(rows.filter((row) => row.model_id === 'gpt-5.5')).toHaveLength(1);
+    });
+
+    it('does not modify custom-provider rows that also use gpt-5.5', () => {
+      const db = getDatabase();
+      simulateLegacyCatalog(db);
+
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO providers (id, name, kind, is_built_in, created_at, updated_at)
+         VALUES (?, ?, 'openai', 0, ?, ?)`
+      ).run('custom-openai-legacy-test', 'Custom OpenAI', now, now);
+      db.prepare(
+        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+         VALUES (?, ?, ?, ?, ?, 'custom', ?)`
+      ).run('custom-openai-legacy-test-gpt-5-5', 'custom-openai-legacy-test', 'gpt-5.5', 'Custom GPT-5.5', null, now);
+
+      seedOpenAIMigration.up(db);
+
+      const customRow = db
+        .prepare('SELECT * FROM provider_models WHERE id = ?')
+        .get('custom-openai-legacy-test-gpt-5-5');
+      expect(customRow).toMatchObject({
+        provider_id: 'custom-openai-legacy-test',
+        model_id: 'gpt-5.5',
+        display_name: 'Custom GPT-5.5',
+      });
+    });
+  });
 });
 
 describe('providers-backfill-built-in-openai-attribution migration', () => {
