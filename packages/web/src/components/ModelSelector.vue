@@ -46,6 +46,7 @@
 <script setup>
 import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
+import { isRetiredBuiltInOpenAIModelSelection } from '@circuschief/shared';
 
 const props = defineProps({
   modelValue: {
@@ -152,6 +153,7 @@ const visibleProviders = computed(() => {
   }
 
   return sortedProviders.value
+    .map((provider) => withRetiredModelsHidden(provider))
     .map((provider) => {
       if (!props.hideBuiltInDuplicates || !provider.isBuiltIn) return provider;
       return withCustomModelsHidden(provider, customModelIds);
@@ -173,6 +175,20 @@ function withCustomModelsHidden(provider, customModelIds) {
   return {
     ...provider,
     models: (provider.models || []).filter((model) => !customModelIds.has(model.modelId)),
+  };
+}
+
+// Retired built-in OpenAI model ids (e.g. the superseded 'gpt-5.5') remain
+// resolvable/executable for historical sessions but must not appear as a
+// selectable choice for new selections. This only ever filters the built-in
+// OpenAI provider's own model list — a custom provider that happens to expose
+// the same model id string is never affected.
+function withRetiredModelsHidden(provider) {
+  return {
+    ...provider,
+    models: (provider.models || []).filter(
+      (model) => !isRetiredBuiltInOpenAIModelSelection(provider, model.modelId)
+    ),
   };
 }
 
