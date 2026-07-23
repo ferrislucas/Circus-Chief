@@ -344,9 +344,28 @@ describe('sessionErrors', () => {
     it('detects service-error text (overloaded / 503 / 529 / unavailable) in the result event', () => {
       messages.getBySessionId.mockReturnValue([]);
       expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'The server is overloaded' })).toBe(true);
-      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'error code 503' })).toBe(true);
-      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'error code 529' })).toBe(true);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'HTTP 503 Service Unavailable' })).toBe(true);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'Error 529: overloaded_error' })).toBe(true);
       expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'service unavailable' })).toBe(true);
+    });
+
+    it('does not flag bare "503"/"529" without terminal framing (completion-path prefilter)', () => {
+      // The completion-path prefilter intentionally requires terminal, provider-style
+      // framing (e.g. "503 service unavailable") — a bare status code alone must not
+      // be classified as a usage-limit/outage termination.
+      messages.getBySessionId.mockReturnValue([]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'error code 503' })).toBe(false);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'error code 529' })).toBe(false);
+    });
+
+    it('does not require the assistant-message shape guard for captured result text', () => {
+      // The `result` event is the CLI's authoritative end-of-turn signal, so unlike
+      // the assistant-message fallback it is never subjected to the terminal-shape
+      // guard (length / implementation-verb check) — only the pattern prefilter applies.
+      messages.getBySessionId.mockReturnValue([]);
+      expect(
+        turnEndedDueToLimitOrOutage('sess-1', { resultText: 'Fixed HTTP 503 Service Unavailable handling in the proxy' })
+      ).toBe(true);
     });
 
     it('detects token-limit / service-error text in the last assistant message when result text is empty', () => {
@@ -403,30 +422,98 @@ describe('sessionErrors', () => {
       expect(turnEndedDueToLimitOrOutage('sess-1')).toBe(false);
     });
 
+    describe('framed terminal patterns (result event) — must return true', () => {
+      const terminalTexts = [
+        "You've reached your usage limit",
+        "You've hit your token limit",
+        'usage limit reached',
+        'quota exceeded',
+        'context window exceeded',
+        'HTTP 503 Service Unavailable',
+        'Error 529: overloaded_error',
+        'The API is overloaded, please try again later',
+        '429 Too Many Requests',
+        'Too many requests - please try again later',
+      ];
+
+      it.each(terminalTexts)('detects: %s', (text) => {
+        messages.getBySessionId.mockReturnValue([]);
+        expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: text })).toBe(true);
+      });
+    });
+
+    it('normalizes underscores when matching "overloaded_error"', () => {
+      messages.getBySessionId.mockReturnValue([]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'overloaded_error' })).toBe(true);
+    });
+
+    it('normalizes hyphens when matching "service-unavailable"', () => {
+      messages.getBySessionId.mockReturnValue([]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: 'service-unavailable' })).toBe(true);
+    });
+
     // Regression corpus: ordinary successful-work prose that incidentally contains
     // bare words also matched by matchesTokenLimitError / matchesServiceError
-    // ("token", "limit", "cap", "exceeded", "unavailable") must NOT be classified
-    // as a usage-limit/outage termination. Guards against over-broad false holds.
-    describe('regression corpus (natural completion text, must return false)', () => {
+    // ("token", "limit", "cap", "exceeded", "503", "529", "overload", "unavailable")
+    // — or even a fully-framed terminal phrase embedded inside an implementation
+    // summary — must NOT be classified as a usage-limit/outage termination when it
+    // arrives via the last-assistant-message fallback, where the
+    // `looksLikeTerminalAssistantMessage` shape guard applies. Guards against
+    // over-broad false holds.
+    describe('regression corpus (natural completion text via assistant fallback, must return false)', () => {
       const cleanCompletions = [
         'implemented a token bucket rate limiter',
-        'escaped the special characters',
         'increased the pagination limit to 100',
         'added capacity checks',
-        'handled the case where the service is unavailable',
+        'Added an overloaded constructor for the Point class',
+        'Refactored method overloading in the parser',
+        'Fixed the HTTP 503 error handling in the proxy',
+        'Fixed HTTP 503 Service Unavailable handling in the proxy',
+        'Implemented retry on 503 responses',
+        'Bumped max buffer to 529 bytes',
+        'The service is unavailable branch is now covered by a test',
+        'Fixed service unavailable handling in the API client',
+        'Added service-unavailable handling in the API client',
       ];
 
       it.each(cleanCompletions)('does not flag: %s', (text) => {
-        messages.getBySessionId.mockReturnValue([]);
-        expect(turnEndedDueToLimitOrOutage('sess-1', { resultText: text })).toBe(false);
-      });
-
-      it.each(cleanCompletions)('does not flag in the assistant-message fallback: %s', (text) => {
         messages.getBySessionId.mockReturnValue([
           { role: 'assistant', content: text },
         ]);
         expect(turnEndedDueToLimitOrOutage('sess-1', null)).toBe(false);
       });
+    });
+
+    it('rejects a multi-paragraph completion summary that mentions "usage limit reached" as a string literal', () => {
+      const longSummary = [
+        'Implemented the retry handler for the billing service.',
+        'This change adds a new RetryPolicy class that inspects the error string',
+        'returned by the provider. For example, when the provider responds with',
+        'the literal text "usage limit reached", the handler now schedules a retry',
+        'instead of failing the request immediately.',
+        'Added unit tests covering the new branch and updated the documentation to',
+        'describe the retry behavior in detail so future maintainers understand',
+        'why the string is checked, and covered the edge case where the response',
+        'body is empty.',
+      ].join(' ');
+      messages.getBySessionId.mockReturnValue([
+        { role: 'assistant', content: longSummary },
+      ]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', null)).toBe(false);
+    });
+
+    it('rejects a completion summary with bullets that includes "429 Too Many Requests" in test-fixture text', () => {
+      const bulletSummary = [
+        'Implemented rate limiting for the public API:',
+        '- Added a token bucket limiter in front of the router',
+        '- Added a regression test asserting the client receives "429 Too Many Requests"',
+        '  when the bucket is empty',
+        '- Updated the changelog',
+      ].join('\n');
+      messages.getBySessionId.mockReturnValue([
+        { role: 'assistant', content: bulletSummary },
+      ]);
+      expect(turnEndedDueToLimitOrOutage('sess-1', null)).toBe(false);
     });
   });
 });
