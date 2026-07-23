@@ -1610,4 +1610,46 @@ describe('buildModelAndProvider tier-ref resolution (Fix 1)', () => {
     expect(updated.resolvedModel).toBe('concrete-model-b');
     expect(updated.resolvedProviderId).toBe(providerA.id);
   });
+
+  // Work Item 4: the agent adapter must be created from the RECONCILED
+  // agentType, not the stale value on the session row read at the top of
+  // continueSessionWithExistingMessage. A tier-bound draft session whose
+  // stale agentType is 'claude-code' must still dispatch through the Codex
+  // adapter once the tier resolves to a Codex member.
+  it('creates the agent from the reconciled agentType, not the stale pre-reconciliation value (Work Item 4)', async () => {
+    const { modelProviders, modelTiers } = await import('../database.js');
+    const { buildTierRef } = await import('@circuschief/shared');
+
+    const codexProvider = modelProviders.create({ name: 'Codex Provider Fix4', kind: 'openai' });
+    modelProviders.addModel(codexProvider.id, { modelId: 'gpt-fix4-test', displayName: 'GPT Fix4' });
+    const codexTier = modelTiers.create({
+      name: 'Fix4 Codex Tier',
+      members: [{ providerId: codexProvider.id, modelId: 'gpt-fix4-test', position: 0 }],
+    });
+    const codexTierRef = buildTierRef(codexTier.id);
+
+    // Stale row: agentType left at 'claude-code' even though the bound tier's
+    // only member is a Codex model (mirrors a draft session whose agentType
+    // was never reconciled against the tier before this first continuation).
+    sessionRepo.update(session.id, {
+      model: codexTierRef,
+      resolvedModel: null,
+      resolvedProviderId: null,
+      agentType: 'claude-code',
+    });
+
+    const conversation = conversationRepo.create(session.id, 'Conv');
+    messageRepo.create(session.id, 'user', 'Hello', { conversationId: conversation.id });
+
+    const { continueSessionWithExistingMessage } = await import('./sessionManager.js');
+    await continueSessionWithExistingMessage(session.id, conversation.id, tempDir);
+
+    // The adapter must be created with 'codex' — never the stale 'claude-code'.
+    expect(agentGateway.createAgent).toHaveBeenCalled();
+    const agentTypesUsed = agentGateway.createAgent.mock.calls.map((call) => call[0]);
+    expect(agentTypesUsed).toContain('codex');
+    expect(agentTypesUsed).not.toContain('claude-code');
+
+    expect(sessionRepo.getById(session.id).agentType).toBe('codex');
+  });
 });

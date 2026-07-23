@@ -1,7 +1,7 @@
 import { sessions, projectDefaults } from '../database.js';
 import { ProjectDefaultsRepository } from '../db/ProjectDefaultsRepository.js';
 import { broadcastToProject } from '../websocket.js';
-import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { WS_MESSAGE_TYPES, isTierRef } from '@circuschief/shared';
 import {
   generateInitialName,
   prepareSessionConfig,
@@ -43,8 +43,16 @@ async function validatePreparedConfig(config, reqBody, projectId, project) {
     return { error: finalModelResult.error, status: 400 };
   }
 
+  // A tier binding has no single owning provider — the concrete provider is
+  // resolved per-run from the active tier member. Normalize away any stray
+  // concrete providerId (e.g. inherited from a project/system default) so it
+  // never shadows the tier's own resolution (Work Item 1).
+  const configForGit = isTierRef(config.model)
+    ? { ...config, providerId: null }
+    : config;
+
   // Validate git settings for git repos
-  const { config: updatedConfig, error: gitError } = await validateGitSettings(config, project);
+  const { config: updatedConfig, error: gitError } = await validateGitSettings(configForGit, project);
   if (gitError) {
     return { error: gitError, status: 400 };
   }

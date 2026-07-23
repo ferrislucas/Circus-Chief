@@ -3,24 +3,67 @@
  * config parsing, and update-clause builders.
  */
 
-import { DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief/shared';
+import { DEFAULT_RESCHEDULE_DELAY_MINUTES, isTierRef, parseTierRef } from '@circuschief/shared';
 // Imported only to resolve agent type from a model at call time (runtime), so the
 // ES-module cycle (index → SessionRepository → session-helpers → index) is safe.
-import { modelProviders } from './index.js';
+import { modelProviders, modelTiers } from './index.js';
 
 /** Fallback agent runtime when none can be derived from the model/provider. */
 export const DEFAULT_AGENT_TYPE = 'claude-code';
 
 /**
- * Resolve the agent type ('claude-code' or 'codex') from a model ID by looking
- * up which provider owns the model. Inlined here (rather than in sessionProvider)
- * to avoid a circular dependency:
+ * Find the first enabled tier member (by position) for a tier id — a minimal,
+ * cooldown-unaware lookup used only to derive an initial `agentType` at
+ * session-create time (Work Item 2). Deliberately duplicates a slice of
+ * `tierResolutionService.getTierMembersResolved` rather than importing that
+ * module: `services/tierResolutionService.js` imports `../database.js`,
+ * which would re-introduce the exact
+ * `index → SessionRepository → session-helpers → index` cycle this file was
+ * already structured to avoid (see the module-level comment above). The
+ * authoritative, cooldown-aware resolution still happens at actual session
+ * start via `reconcileAgentTypeForRun` / the tier-failover loop — this is
+ * defense-in-depth so a freshly-created session's persisted `agentType`
+ * isn't wrong in the window before that.
+ * @param {string} tierId
+ * @returns {{ providerId: string, modelId: string }|null}
+ */
+function findFirstEnabledTierMember(tierId) {
+  const tier = modelTiers.getByIdWithMembers?.(tierId);
+  if (!tier) return null;
+  const enabled = (tier.members || []).filter((m) => {
+    const provider = modelProviders.getById(m.providerId);
+    if (!provider || provider.enabled === false) return false;
+    return provider.models?.some((model) => model.modelId === m.modelId);
+  });
+  if (enabled.length === 0) return null;
+  enabled.sort((a, b) => a.position - b.position || a.createdAt - b.createdAt);
+  return enabled[0];
+}
+
+/**
+ * Resolve the agent type ('claude-code', 'codex', or 'gemini') from a model
+ * field by looking up which provider owns the model. Inlined here (rather
+ * than in sessionProvider) to avoid a circular dependency:
  *   database.js (index) → SessionRepository → sessionProvider → database.js
+ *
+ * Tier-aware (Work Item 2): `modelId` may be a `tier::<id>` reference. It is
+ * resolved to its first enabled member before the provider lookup, so a
+ * Codex/Gemini-first tier correctly derives that kind at session-create time
+ * instead of silently defaulting to 'claude-code'.
  * @param {string|null} modelId
- * @returns {'claude-code'|'codex'}
+ * @returns {'claude-code'|'codex'|'gemini'}
  */
 export function resolveAgentTypeFromModel(modelId) {
   if (!modelId) return DEFAULT_AGENT_TYPE;
+
+  if (isTierRef(modelId)) {
+    const tierId = parseTierRef(modelId);
+    const member = tierId ? findFirstEnabledTierMember(tierId) : null;
+    if (!member) return DEFAULT_AGENT_TYPE;
+    const agentType = modelProviders.getAgentTypeForProvider(member.providerId);
+    return agentType || DEFAULT_AGENT_TYPE;
+  }
+
   const provider = modelProviders.getProviderByModelId(modelId);
   if (!provider) return DEFAULT_AGENT_TYPE;
   // ProviderRepository.getAgentTypeForProvider maps kind → agent adapter

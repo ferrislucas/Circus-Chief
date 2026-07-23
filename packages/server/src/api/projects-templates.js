@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { projects, sessionTemplates } from '../database.js';
 import { CreateSessionTemplateRequest } from '@circuschief/shared/contracts/templates';
+import { validateModelId } from './model-validation.js';
 
 const ERR_PROJECT_NOT_FOUND = 'Project not found';
 const router = Router({ mergeParams: true });
@@ -26,6 +27,11 @@ router.post('/', (req, res) => {
   const result = CreateSessionTemplateRequest.safeParse(req.body);
   if (!result.success) {
     return res.status(400).json({ error: result.error.issues[0].message });
+  }
+
+  const modelResult = validateModelId(result.data.model);
+  if (modelResult.error) {
+    return res.status(400).json({ error: modelResult.error });
   }
 
   const template = sessionTemplates.create({

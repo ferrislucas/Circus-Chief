@@ -4,7 +4,8 @@ import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
-import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
+import { resolveCommitAttributionOverrideForModel } from './sessionProvider.js';
+import { deriveAgentTypeForModelOrTier } from './sessionAgentGuard.js';
 
 const liquid = new Liquid();
 
@@ -99,8 +100,7 @@ async function resolveWorkingDirectory(parentSession, project, settings, newSess
     gitBranch: settings.gitBranch,
     sessionId: newSessionId,
     worktreeBasePath: project.worktreePath || null,
-    commitAttributionOverride:
-      resolveProviderMetadataFromModel(settings.model)?.commitAttributionOverride ?? null,
+    commitAttributionOverride: resolveCommitAttributionOverrideForModel(settings.model),
   });
   return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
 }
@@ -159,7 +159,7 @@ function buildChildSessionOptions(template, parentSession, settings) {
     status: 'starting',
     model: settings.model,
     effortLevel: settings.effortLevel,
-    agentType: resolveAgentTypeFromModel(settings.model),
+    agentType: deriveAgentTypeForModelOrTier(settings.model),
   };
 
   const postCreateUpdate = {

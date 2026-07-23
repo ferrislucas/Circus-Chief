@@ -9,7 +9,8 @@ import { WS_MESSAGE_TYPES, DEFAULT_RESCHEDULE_DELAY_MINUTES } from '@circuschief
 import { renderTemplatePrompt, getRootSession } from './templateTriggerService.js';
 import { setupGitForSession } from './gitSessionSetup.js';
 import { runSession } from './sessionManager.js';
-import { resolveAgentTypeFromModel, resolveProviderMetadataFromModel } from './sessionProvider.js';
+import { resolveCommitAttributionOverrideForModel } from './sessionProvider.js';
+import { deriveAgentTypeForModelOrTier } from './sessionAgentGuard.js';
 
 // Maximum depth for recursive lane-entry template triggers
 export const MAX_LANE_TRIGGER_DEPTH = 5;
@@ -56,8 +57,7 @@ export async function determineWorkingDirectory(parentSession, project, gitOptio
       gitBranch: gitOptions.gitBranch || null,
       sessionId: gitOptions.sessionId,
       worktreeBasePath: project.worktreePath || null,
-      commitAttributionOverride:
-        resolveProviderMetadataFromModel(gitOptions.model)?.commitAttributionOverride ?? null,
+      commitAttributionOverride: resolveCommitAttributionOverrideForModel(gitOptions.model),
     });
     return { workingDirectory: gitSetup.workingDirectory, gitWorktree: gitSetup.gitWorktree };
   }
@@ -149,7 +149,7 @@ async function buildChildSessionFromTemplate(template, session, lane, depth) {
     gitBranch: settings.gitBranch,
     status: 'starting',
     model: settings.model,
-    agentType: resolveAgentTypeFromModel(settings.model),
+    agentType: deriveAgentTypeForModelOrTier(settings.model),
   });
 
   // Configure session
@@ -242,7 +242,7 @@ async function buildChildSessionFromPrompt(lane, session, depth) {
   const newSession = sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
     ...settings,
     status: 'starting',
-    agentType: resolveAgentTypeFromModel(settings.model),
+    agentType: deriveAgentTypeForModelOrTier(settings.model),
   });
 
   // Configure session

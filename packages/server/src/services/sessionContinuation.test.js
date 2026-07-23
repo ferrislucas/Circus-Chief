@@ -21,6 +21,10 @@ vi.mock('../websocket.js', () => ({
 // ── Agent execution mock ─────────────────────────────────────────────────────
 // Capture the queryParams that continueSessionCore passes to _executeSession.
 let capturedQueryParams = [];
+// Capture the agentType each call to createAgentForSession was made with, so
+// tests can assert the agent adapter is created from the RECONCILED agentType
+// (Work Item 4), not a stale pre-reconciliation value.
+let capturedAgentTypes = [];
 
 vi.mock('./sessionExecution.js', async (importOriginal) => {
   const original = await importOriginal();
@@ -29,10 +33,13 @@ vi.mock('./sessionExecution.js', async (importOriginal) => {
     _executeSession: vi.fn(async ({ queryParams }) => {
       capturedQueryParams.push(queryParams);
     }),
-    createAgentForSession: vi.fn(() => ({
-      needsConversationContext: () => false,
-      supportsResume: () => false,
-    })),
+    createAgentForSession: vi.fn((agentType) => {
+      capturedAgentTypes.push(agentType);
+      return {
+        needsConversationContext: () => false,
+        supportsResume: () => false,
+      };
+    }),
     buildAgentEnv: vi.fn((env) => env),
   };
 });
@@ -93,6 +100,7 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
 
   beforeEach(() => {
     capturedQueryParams = [];
+    capturedAgentTypes = [];
     vi.clearAllMocks();
 
     project = projects.create('Tier Test Project', '/tmp/tier-continue-test');
@@ -282,5 +290,44 @@ describe('sessionContinuation — tier ref resolution on continue (Fix 1)', () =
     expect(updated.model).toBe('model-x');
     expect(updated.resolvedModel).toBeNull();
     expect(updated.resolvedProviderId).toBeNull();
+  });
+
+  // Work Item 4: the agent adapter must be created from the RECONCILED
+  // agentType, not the stale value on the session row at the top of the
+  // function. A tier-bound draft session created with agentType left at its
+  // (wrong) default must still dispatch through the Codex adapter once the
+  // tier resolves to a Codex member.
+  it('creates the agent from the reconciled agentType, not the stale pre-reconciliation value (Work Item 4)', async () => {
+    const codexProvider = modelProviders.create({ name: 'Codex Provider', kind: 'openai' });
+    modelProviders.addModel(codexProvider.id, { modelId: 'gpt-continue-test', displayName: 'GPT Continue Test' });
+
+    const tier = modelTiers.create({
+      name: 'Codex Continue Tier',
+      members: [{ providerId: codexProvider.id, modelId: 'gpt-continue-test', position: 0 }],
+    });
+    const tierRef = buildTierRef(tier.id);
+
+    // Simulate a stale row: agentType still 'claude-code' even though the
+    // bound tier's only member is a Codex model (mirrors a draft session
+    // created before its agentType was ever reconciled against the tier).
+    const session = createTestSession(project, {
+      model: tierRef,
+      agentType: 'claude-code',
+    });
+    conversations.ensureActiveConversation(session.id);
+
+    await continueSessionCore(
+      session.id,
+      'First turn on a Codex-first tier',
+      '/tmp/tier-continue-test',
+      { options: {}, callbacks: mockCallbacks }
+    );
+
+    // The adapter must be created with 'codex' — never the stale 'claude-code'.
+    expect(capturedAgentTypes).toContain('codex');
+    expect(capturedAgentTypes).not.toContain('claude-code');
+
+    // And the persisted session row must reflect the reconciled kind.
+    expect(sessions.getById(session.id).agentType).toBe('codex');
   });
 });

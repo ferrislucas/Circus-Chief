@@ -1,5 +1,7 @@
 import { modelProviders } from '../database.js';
 import { createRobustEnv } from './nodeSpawnHelper.js';
+import { isTierRef } from '@circuschief/shared';
+import { resolveActiveModel } from './tierResolutionService.js';
 
 /**
  * Resolve the explicit provider named by `providerId`, but only when it
@@ -53,6 +55,31 @@ export function resolveProviderMetadataFromModel(modelId, providerId = null) {
     return modelProviders.getProviderMetadataByModelId(modelId);
   }
   return modelProviders.getProviderByModelId(modelId);
+}
+
+/**
+ * Resolve the commit-attribution override for a model field that may be a
+ * Model Tier reference (Work Item 5). A raw `tier::<id>` sentinel owns no
+ * provider itself — passing it straight to {@link resolveProviderMetadataFromModel}
+ * would silently fail to find an owning provider and fall through to the
+ * Anthropic default's metadata, which is wrong whenever the tier's actual
+ * active member belongs to a different provider (e.g. an OpenAI/Google tier
+ * member). This helper resolves the tier to its currently active member
+ * first — via the same resolver used by start/continue execution — before
+ * looking up commit-attribution metadata, so worktree setup for a
+ * tier-bound session/template/lane always uses the correct member's
+ * provider metadata.
+ *
+ * @param {string|null|undefined} modelOrRef - A concrete model id or a tier ref.
+ * @returns {string|null} The commit-attribution override, or null.
+ */
+export function resolveCommitAttributionOverrideForModel(modelOrRef) {
+  if (!isTierRef(modelOrRef)) {
+    return resolveProviderMetadataFromModel(modelOrRef)?.commitAttributionOverride ?? null;
+  }
+  const resolved = resolveActiveModel(modelOrRef, {});
+  if (!resolved) return null;
+  return resolveProviderMetadataFromModel(resolved.model, resolved.providerId)?.commitAttributionOverride ?? null;
 }
 
 /**

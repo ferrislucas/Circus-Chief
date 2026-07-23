@@ -202,16 +202,22 @@ export async function continueSessionCore(sessionId, content, workingDirectory, 
   sessions.update(sessionId, { status: 'running' });
   broadcastSessionStatus(sessionId, 'running');
 
-  // Create agent via gateway (or mock agent in mock mode)
-  const agentType = session.agentType || 'claude-code';
-  const agent = createAgentForSession(agentType);
-
-  // Resolve model/provider and detect model changes
+  // Resolve model/provider and detect model changes BEFORE creating the agent
+  // (Work Item 4): for a tier-bound draft, `buildContinueModelAndEnv` may
+  // reconcile and persist a new `session.agentType` (e.g. a tier's first
+  // member resolves to Codex although the row still says 'claude-code').
+  // Creating the agent from the stale pre-reconciliation agentType would
+  // dispatch the wrong adapter for the resolved model.
   const modelEnv = buildContinueModelAndEnv(session, sessionId, model);
   session = modelEnv.session;
   if (session.gitWorktree && modelEnv.commitAttributionOverride) {
     await ensureWorktreeCommitAttributionHook(session.gitWorktree);
   }
+
+  // Create agent via gateway (or mock agent in mock mode), using the
+  // reconciled agentType.
+  const agentType = session.agentType || 'claude-code';
+  const agent = createAgentForSession(agentType);
 
   // Build query params and agent call meta
   const { queryParams, agentCallMeta } = await buildContinueParams({
