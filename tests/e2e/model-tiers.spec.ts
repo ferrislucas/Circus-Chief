@@ -149,10 +149,12 @@ test.describe('Model Tiers', () => {
       // Regression for Issue 1 of the review-remediation plan: built-in
       // providers are seeded with fixed, non-UUID ids ("anthropic-default",
       // "openai-default" — see seedBaselineData.js). Building the PRD's
-      // headline tier (Opus -> gpt-5.5) from these built-ins used to fail
+      // headline tier (Opus -> OpenAI) from these built-ins used to fail
       // with a 400 "Invalid uuid" because CreateTierRequest required a UUID
-      // providerId. This exercises the real UI end-to-end with no custom
-      // createProvider() fixture involved.
+      // providerId. Use the current seeded OpenAI model because retired
+      // built-in OpenAI ids are intentionally hidden from new-selection UI.
+      // This exercises the real UI end-to-end with no custom createProvider()
+      // fixture involved.
       await navigateAndWait(page, `${BASE_URL}/settings/tiers`);
 
       await page.locator('.model-tiers-view button.btn-primary', { hasText: 'New Tier' }).click();
@@ -166,7 +168,7 @@ test.describe('Model Tiers', () => {
       await createModal.locator('button.btn-secondary', { hasText: 'Add' }).click();
       await expect(createModal.locator('.member-edit-row')).toHaveCount(1);
 
-      await createModal.locator('.member-select').selectOption('openai-default::gpt-5.5');
+      await createModal.locator('.member-select').selectOption('openai-default::gpt-5.6-sol');
       await createModal.locator('button.btn-secondary', { hasText: 'Add' }).click();
       await expect(createModal.locator('.member-edit-row')).toHaveCount(2);
 

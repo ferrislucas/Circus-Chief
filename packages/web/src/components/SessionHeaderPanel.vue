@@ -20,6 +20,7 @@
         @duplicate="emit('duplicate')"
         @copy-session-id="emit('copySessionId')"
         @archive="emit('archive')"
+        @unarchive="emit('unarchive')"
         @delete="emit('delete')"
       />
     </div>
@@ -117,7 +118,7 @@ const props = defineProps({
   hasActionableGitStatus: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(['duplicate', 'copySessionId', 'archive', 'delete', 'star', 'add-to-board']);
+const emit = defineEmits(['duplicate', 'copySessionId', 'archive', 'unarchive', 'delete', 'star', 'add-to-board']);
 
 const kanbanStore = useKanbanStore();
 const sessionNameEditor = ref(null);

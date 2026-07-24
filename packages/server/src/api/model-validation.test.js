@@ -155,8 +155,8 @@ describe('validateModelId', () => {
 
 describe('validateModelAndProvider', () => {
   it('passes through a concrete model with its providerId', () => {
-    expect(validateModelAndProvider('gpt-5.5', 'some-provider-id')).toEqual({
-      model: 'gpt-5.5',
+    expect(validateModelAndProvider('gpt-5.6-sol', 'some-provider-id')).toEqual({
+      model: 'gpt-5.6-sol',
       providerId: 'some-provider-id',
     });
   });
