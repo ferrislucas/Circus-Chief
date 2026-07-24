@@ -66,12 +66,19 @@ assert_output_not_includes() {
 
 # --- Setup: create a temp mock npm directory ---
 MOCK_DIR=$(mktemp -d)
+TEST_SCRIPT_DIR="$MOCK_DIR/scripts"
+TEST_SCRIPT="$TEST_SCRIPT_DIR/publish.sh"
 MISSING_ENV_PROD="$MOCK_DIR/env.production.missing"
 TEST_ENV_PROD="$MOCK_DIR/env.production"
 cleanup() {
   rm -rf "$MOCK_DIR"
 }
 trap cleanup EXIT
+
+mkdir -p "$TEST_SCRIPT_DIR"
+cp "$SCRIPT" "$TEST_SCRIPT"
+ln -s "$(dirname "$SCRIPT")/check-posthog-publish-config.js" "$TEST_SCRIPT_DIR/check-posthog-publish-config.js"
+ln -s "$(dirname "$SCRIPT")/posthog-publish-config.js" "$TEST_SCRIPT_DIR/posthog-publish-config.js"
 
 # Helper: write a mock npm script and run the publish script with it on PATH
 run_with_mock() {
@@ -95,8 +102,19 @@ else
 fi
 MOCK_EOF
   chmod +x "$MOCK_DIR/node"
+  cat > "$TEST_SCRIPT_DIR/pw.sh" <<MOCK_EOF
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${PUBLISH_MOCK_PACKAGE_TEST_FAIL:-0}" = "1" ]; then
+  echo "mock package tests failed"
+  exit 42
+fi
+echo "mock package tests \$* version=\${PACKAGE_VERSION:-}"
+mkdir -p "$MOCK_DIR/dist-package"
+MOCK_EOF
+  chmod +x "$TEST_SCRIPT_DIR/pw.sh"
   POSTHOG_ENV_PRODUCTION_PATH="${POSTHOG_ENV_PRODUCTION_PATH:-$MISSING_ENV_PROD}" \
-    PATH="$MOCK_DIR:$PATH" bash "$SCRIPT" "$@" 2>&1
+    PATH="$MOCK_DIR:$PATH" bash "$TEST_SCRIPT" "$@" 2>&1
 }
 
 # --- Syntax check first ---
@@ -272,6 +290,18 @@ OUTPUT=$(
 ) && RC=$? || RC=$?
 assert_exit 0 "$RC" ".env.production satisfies preflight"
 assert_output_includes "published" "$OUTPUT" ".env.production flow reaches npm publish"
+
+# --------------------------------------------------------------------------------
+# Test 14: Package artifact tests fail before npm publish
+# --------------------------------------------------------------------------------
+echo ""
+echo "Test 14: Package artifact tests fail → aborts before publish"
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key PUBLISH_MOCK_PACKAGE_TEST_FAIL=1 run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 000000 2>&1) && RC=$? || RC=$?
+assert_exit 42 "$RC" "package test failure exits with test status"
+assert_output_includes "Testing npm package artifact" "$OUTPUT" "package test step runs"
+assert_output_includes "mock package tests failed" "$OUTPUT" "package test failure is visible"
+assert_output_not_includes "Publishing to npm" "$OUTPUT" "package test failure aborts before publish step"
+assert_output_not_includes "published" "$OUTPUT" "package test failure does not call npm publish"
 
 # --- Summary ---
 echo ""

@@ -130,9 +130,9 @@ fi
 echo "Logged in as: $NPM_USER"
 echo ""
 
-# --- 3. Build the package ---
-echo "Building package..."
-node "$SCRIPT_DIR/build-package.js" --version="$VERSION"
+# --- 3. Build and test the npm artifact ---
+echo "Testing npm package artifact..."
+PACKAGE_VERSION="$VERSION" PACKAGE_TEST_USE_DEFAULT_POSTHOG_KEY=0 "$SCRIPT_DIR/pw.sh" test-package
 echo ""
 
 # --- 4. Publish ---
