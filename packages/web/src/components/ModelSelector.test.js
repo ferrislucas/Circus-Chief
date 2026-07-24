@@ -822,7 +822,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
           ],
         },
         {
@@ -831,19 +831,19 @@ describe('ModelSelector', () => {
           isBuiltIn: false,
           kind: 'openai',
           models: [
-            { id: 'custom-gpt-5-5', modelId: 'gpt-5.5', displayName: 'Custom GPT-5.5', tier: 'custom' },
+            { id: 'custom-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'Custom GPT-5.6 Sol', tier: 'custom' },
           ],
         },
       ];
 
-      const wrapper = mountComponent({ modelValue: 'gpt-5.5' });
+      const wrapper = mountComponent({ modelValue: 'gpt-5.6-sol' });
       await flushAll(wrapper);
 
       const optgroups = wrapper.findAll('optgroup');
       expect(optgroups).toHaveLength(1);
       expect(optgroups[0].attributes('label')).toBe('Codex · Custom OpenAI');
       expect(wrapper.findAll('option')).toHaveLength(1);
-      expect(wrapper.find('option').element.value).toBe(optionValue('custom-openai', 'gpt-5.5'));
+      expect(wrapper.find('option').element.value).toBe(optionValue('custom-openai', 'gpt-5.6-sol'));
     });
 
     it('falls back to a visible duplicate option when the requested provider is hidden', async () => {
@@ -855,7 +855,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
           ],
         },
         {
@@ -864,20 +864,20 @@ describe('ModelSelector', () => {
           isBuiltIn: false,
           kind: 'openai',
           models: [
-            { id: 'custom-gpt-5-5', modelId: 'gpt-5.5', displayName: 'Custom GPT-5.5', tier: 'custom' },
+            { id: 'custom-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'Custom GPT-5.6 Sol', tier: 'custom' },
           ],
         },
       ];
 
       const wrapper = mountComponent({
-        modelValue: 'gpt-5.5',
+        modelValue: 'gpt-5.6-sol',
         providerId: 'openai-default',
       });
       await flushAll(wrapper);
 
       const select = wrapper.find('select');
-      expect(select.element.value).toBe(optionValue('custom-openai', 'gpt-5.5'));
-      expect(wrapper.attributes('data-model')).toBe('gpt-5.5');
+      expect(select.element.value).toBe(optionValue('custom-openai', 'gpt-5.6-sol'));
+      expect(wrapper.attributes('data-model')).toBe('gpt-5.6-sol');
       expect(wrapper.attributes('data-provider-id')).toBe('custom-openai');
     });
 
@@ -890,7 +890,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
           ],
         },
       ];
@@ -898,7 +898,7 @@ describe('ModelSelector', () => {
       const onUpdateProviderId = vi.fn();
       const wrapper = mountComponent(
         {
-          modelValue: 'gpt-5.5',
+          modelValue: 'gpt-5.6-sol',
           providerId: null,
           allowEmpty: true,
         },
@@ -906,7 +906,7 @@ describe('ModelSelector', () => {
       );
       await flushAll(wrapper);
 
-      expect(wrapper.find('select').element.value).toBe(optionValue('openai-default', 'gpt-5.5'));
+      expect(wrapper.find('select').element.value).toBe(optionValue('openai-default', 'gpt-5.6-sol'));
       expect(onUpdateProviderId).toHaveBeenCalledWith('openai-default');
     });
 
@@ -919,7 +919,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
           ],
         },
         {
@@ -928,13 +928,13 @@ describe('ModelSelector', () => {
           isBuiltIn: false,
           kind: 'openai',
           models: [
-            { id: 'custom-gpt-5-5', modelId: 'gpt-5.5', displayName: 'Custom GPT-5.5', tier: 'custom' },
+            { id: 'custom-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'Custom GPT-5.6 Sol', tier: 'custom' },
           ],
         },
       ];
 
       const wrapper = mountComponent({
-        modelValue: 'gpt-5.5',
+        modelValue: 'gpt-5.6-sol',
         providerId: 'openai-default',
         hideBuiltInDuplicates: false,
       });
@@ -943,16 +943,93 @@ describe('ModelSelector', () => {
       const options = wrapper.findAll('option');
       expect(options).toHaveLength(2);
       expect(options.map((option) => option.element.value)).toEqual([
-        optionValue('openai-default', 'gpt-5.5'),
-        optionValue('custom-openai', 'gpt-5.5'),
+        optionValue('openai-default', 'gpt-5.6-sol'),
+        optionValue('custom-openai', 'gpt-5.6-sol'),
       ]);
       expect(options.map((option) => option.text())).toEqual([
-        'GPT-5.5 (OpenAI (Official))',
-        'gpt-5.5 (Custom OpenAI)',
+        'GPT-5.6 Sol (OpenAI (Official))',
+        'gpt-5.6-sol (Custom OpenAI)',
       ]);
     });
 
     it('selects and emits the requested provider for duplicate model ids', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
+          ],
+        },
+        {
+          id: 'custom-openai',
+          name: 'Custom OpenAI',
+          isBuiltIn: false,
+          kind: 'openai',
+          models: [
+            { id: 'custom-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'Custom GPT-5.6 Sol', tier: 'custom' },
+          ],
+        },
+      ];
+
+      const onUpdateModelValue = vi.fn();
+      const onUpdateProviderId = vi.fn();
+      const onModelSelected = vi.fn();
+      const wrapper = mountComponent(
+        {
+          modelValue: 'gpt-5.6-sol',
+          providerId: 'openai-default',
+          hideBuiltInDuplicates: false,
+        },
+        { 'onUpdate:modelValue': onUpdateModelValue, 'onUpdate:providerId': onUpdateProviderId, onModelSelected }
+      );
+      await flushAll(wrapper);
+
+      expect(wrapper.find('select').element.value).toBe(optionValue('openai-default', 'gpt-5.6-sol'));
+
+      const select = wrapper.find('select');
+      select.element.value = optionValue('custom-openai', 'gpt-5.6-sol');
+      await select.trigger('change');
+      await flushAll(wrapper);
+
+      expect(onUpdateModelValue).toHaveBeenCalledWith('gpt-5.6-sol');
+      expect(onUpdateProviderId).toHaveBeenCalledWith('custom-openai');
+      expect(onModelSelected).toHaveBeenCalledWith({
+        modelId: 'gpt-5.6-sol',
+        providerId: 'custom-openai',
+        kind: 'openai',
+      });
+    });
+  });
+
+  describe('retired built-in OpenAI model (gpt-5.5)', () => {
+    it('does not render the built-in OpenAI gpt-5.5 option', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
+          ],
+        },
+      ];
+
+      const wrapper = mountComponent({ modelValue: 'gpt-5.6-sol' });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).not.toContain(optionValue('openai-default', 'gpt-5.5'));
+      expect(values).toContain(optionValue('openai-default', 'gpt-5.6-sol'));
+    });
+
+    it('keeps a custom provider gpt-5.5 option selectable', async () => {
       const localProvidersStore = useProvidersStore();
       localProvidersStore.providers = [
         {
@@ -975,33 +1052,38 @@ describe('ModelSelector', () => {
         },
       ];
 
-      const onUpdateModelValue = vi.fn();
-      const onUpdateProviderId = vi.fn();
-      const onModelSelected = vi.fn();
-      const wrapper = mountComponent(
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5', providerId: 'custom-openai' });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).toContain(optionValue('custom-openai', 'gpt-5.5'));
+      expect(values).not.toContain(optionValue('openai-default', 'gpt-5.5'));
+    });
+
+    it('does not emit a replacement model value for a persisted gpt-5.5 + openai-default pairing', async () => {
+      const localProvidersStore = useProvidersStore();
+      localProvidersStore.providers = [
         {
-          modelValue: 'gpt-5.5',
-          providerId: 'openai-default',
-          hideBuiltInDuplicates: false,
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
+          ],
         },
-        { 'onUpdate:modelValue': onUpdateModelValue, 'onUpdate:providerId': onUpdateProviderId, onModelSelected }
+      ];
+
+      const onUpdateModelValue = vi.fn();
+      const wrapper = mountComponent(
+        { modelValue: 'gpt-5.5', providerId: 'openai-default' },
+        { 'onUpdate:modelValue': onUpdateModelValue }
       );
       await flushAll(wrapper);
 
-      expect(wrapper.find('select').element.value).toBe(optionValue('openai-default', 'gpt-5.5'));
-
-      const select = wrapper.find('select');
-      select.element.value = optionValue('custom-openai', 'gpt-5.5');
-      await select.trigger('change');
-      await flushAll(wrapper);
-
-      expect(onUpdateModelValue).toHaveBeenCalledWith('gpt-5.5');
-      expect(onUpdateProviderId).toHaveBeenCalledWith('custom-openai');
-      expect(onModelSelected).toHaveBeenCalledWith({
-        modelId: 'gpt-5.5',
-        providerId: 'custom-openai',
-        kind: 'openai',
-      });
+      expect(onUpdateModelValue).not.toHaveBeenCalled();
+      expect(wrapper.attributes('data-model')).toBe('gpt-5.5');
     });
   });
 

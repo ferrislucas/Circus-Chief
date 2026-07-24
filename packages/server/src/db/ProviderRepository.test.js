@@ -740,7 +740,7 @@ describe('ProviderRepository', () => {
 
         expect(ids).toEqual([...ids].sort());
         expect(ids).toContain('zz-enumerated-model');
-        expect(ids).toContain('gpt-5.5');
+        expect(ids).toContain('gpt-5.6-sol');
         for (const alias of MODEL_TIER_ALIASES) {
           expect(ids).toContain(alias);
           expect(repo.getProviderByModelId(alias)).toBeNull();
@@ -923,7 +923,7 @@ describe('ProviderRepository', () => {
     });
 
     it('getProviderByModelId returns built-in OpenAI for official seeded models', () => {
-      const result = repo.getProviderByModelId('gpt-5.5');
+      const result = repo.getProviderByModelId('gpt-5.6-sol');
       expect(result).not.toBeNull();
       expect(result.id).toBe('openai-default');
       expect(result.kind).toBe('openai');
@@ -941,17 +941,38 @@ describe('ProviderRepository', () => {
         authToken: 'custom-token',
       });
       repo.addModel(provider.id, {
-        modelId: 'gpt-5.5',
-        displayName: 'Custom GPT-5.5',
+        modelId: 'gpt-5.6-sol',
+        displayName: 'Custom GPT-5.6 Sol',
         tier: 'custom',
       });
 
-      const result = repo.getProviderByModelId('gpt-5.5');
+      const result = repo.getProviderByModelId('gpt-5.6-sol');
       expect(result.id).toBe(provider.id);
       expect(result.baseUrl).toBe('https://proxy.example.com/v1');
       expect(result.authToken).toBe('custom-token');
 
       repo.delete(provider.id);
+    });
+
+    it('getProviderByModelId still resolves a retained legacy gpt-5.5 compatibility row (upgraded DB)', () => {
+      // Fresh DBs no longer seed gpt-5.5, but upgraded installations retain
+      // the historical built-in row so existing sessions keep working.
+      // Simulate that retained row directly.
+      const now = Date.now();
+      repo.db
+        .prepare(
+          `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('openai-gpt-5-5', 'openai-default', 'gpt-5.5', 'GPT-5.5', 'Retired', 'custom', now);
+
+      try {
+        const result = repo.getProviderByModelId('gpt-5.5');
+        expect(result).not.toBeNull();
+        expect(result.id).toBe('openai-default');
+      } finally {
+        repo.db.prepare('DELETE FROM provider_models WHERE id = ?').run('openai-gpt-5-5');
+      }
     });
 
     it('getAgentTypeForProvider returns codex for built-in OpenAI', () => {

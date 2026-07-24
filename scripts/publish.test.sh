@@ -66,12 +66,19 @@ assert_output_not_includes() {
 
 # --- Setup: create a temp mock npm directory ---
 MOCK_DIR=$(mktemp -d)
+TEST_SCRIPT_DIR="$MOCK_DIR/scripts"
+TEST_SCRIPT="$TEST_SCRIPT_DIR/publish.sh"
 MISSING_ENV_PROD="$MOCK_DIR/env.production.missing"
 TEST_ENV_PROD="$MOCK_DIR/env.production"
 cleanup() {
   rm -rf "$MOCK_DIR"
 }
 trap cleanup EXIT
+
+mkdir -p "$TEST_SCRIPT_DIR"
+cp "$SCRIPT" "$TEST_SCRIPT"
+ln -s "$(dirname "$SCRIPT")/check-posthog-publish-config.js" "$TEST_SCRIPT_DIR/check-posthog-publish-config.js"
+ln -s "$(dirname "$SCRIPT")/posthog-publish-config.js" "$TEST_SCRIPT_DIR/posthog-publish-config.js"
 
 # Helper: write a mock npm script and run the publish script with it on PATH
 run_with_mock() {
@@ -95,8 +102,19 @@ else
 fi
 MOCK_EOF
   chmod +x "$MOCK_DIR/node"
-  POSTHOG_ENV_PRODUCTION_PATH="${POSTHOG_ENV_PRODUCTION_PATH:-$MISSING_ENV_PROD}" \
-    PATH="$MOCK_DIR:$PATH" bash "$SCRIPT" "$@" 2>&1
+  cat > "$TEST_SCRIPT_DIR/pw.sh" <<MOCK_EOF
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "\${PUBLISH_MOCK_PACKAGE_TEST_FAIL:-0}" = "1" ]; then
+  echo "mock package tests failed"
+  exit 42
+fi
+echo "mock package tests \$* version=\${PACKAGE_VERSION:-} posthog_default=\${PACKAGE_TEST_USE_DEFAULT_POSTHOG_KEY:-} vcr=\${VCR_MODE:-}"
+mkdir -p "$MOCK_DIR/dist-package"
+MOCK_EOF
+  chmod +x "$TEST_SCRIPT_DIR/pw.sh"
+  printf '%s\n' "${PUBLISH_TEST_OTP:-000000}" | POSTHOG_ENV_PRODUCTION_PATH="${POSTHOG_ENV_PRODUCTION_PATH:-$MISSING_ENV_PROD}" \
+    PATH="$MOCK_DIR:$PATH" bash "$TEST_SCRIPT" "$@" 2>&1
 }
 
 # --- Syntax check first ---
@@ -142,42 +160,45 @@ MOCK_LOGGED_IN_PRERELEASE='CMD="${1:-}"; shift || true; if [ "$CMD" = "whoami" ]
 MOCK_LOGGED_IN_GARBAGE='CMD="${1:-}"; shift || true; if [ "$CMD" = "whoami" ]; then echo "testuser"; elif [ "$CMD" = "view" ]; then echo "garbage"; fi'
 
 # --------------------------------------------------------------------------------
-# Test 1: Zero args — should print usage and exit 1
+# Test 1: Zero args — auto-bump, fails at npm whoami
 # --------------------------------------------------------------------------------
 echo ""
-echo "Test 1: Zero args → usage + exit 1"
-OUTPUT=$(run_with_mock "$MOCK_NOT_LOGGED_IN" 2>&1) && RC=$? || RC=$?
-assert_exit 1 "$RC" "zero args exits 1"
-assert_output_includes "Usage:" "$OUTPUT" "zero args prints usage"
+echo "Test 1: Zero args → auto-bump, then fails at npm whoami"
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_NOT_LOGGED_IN" 2>&1) && RC=$? || RC=$?
+assert_exit 1 "$RC" "zero args fails (expected: npm whoami)"
+assert_output_includes "Next: 1.5.0" "$OUTPUT" "zero args auto-bumps latest minor"
+assert_output_includes "Checking npm login" "$OUTPUT" "zero args reaches npm login"
+assert_output_not_includes "Usage:" "$OUTPUT" "zero args does not print usage"
 
 # --------------------------------------------------------------------------------
-# Test 2: Two args passthrough — version and OTP, fails at npm whoami
+# Test 2: Explicit version passthrough, fails at npm whoami
 # --------------------------------------------------------------------------------
 echo ""
-echo "Test 2: Two args (9.9.9 000000) → fails at npm whoami, not at parsing"
-OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_NOT_LOGGED_IN" 9.9.9 000000 2>&1) && RC=$? || RC=$?
-assert_exit 1 "$RC" "two args fails (expected: npm whoami)"
-assert_output_includes "Publishing circuschief v9.9.9" "$OUTPUT" "two args sets VERSION=9.9.9"
-assert_output_not_includes "Usage:" "$OUTPUT" "two args does not print usage"
+echo "Test 2: One arg (9.9.9) → fails at npm whoami, not at parsing"
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_NOT_LOGGED_IN" 9.9.9 2>&1) && RC=$? || RC=$?
+assert_exit 1 "$RC" "explicit version fails (expected: npm whoami)"
+assert_output_includes "Publishing circuschief v9.9.9" "$OUTPUT" "explicit version sets VERSION=9.9.9"
+assert_output_not_includes "Usage:" "$OUTPUT" "explicit version does not print usage"
 
 # --------------------------------------------------------------------------------
-# Test 3: One-arg version → error (OTP missing)
+# Test 3: Too many arguments → usage
 # --------------------------------------------------------------------------------
 echo ""
-echo "Test 3: One arg (1.2.3) → error: OTP required"
-OUTPUT=$(bash "$SCRIPT" 1.2.3 2>&1) && RC=$? || RC=$?
-assert_exit 1 "$RC" "one-arg version exits 1"
-assert_output_includes "OTP is required" "$OUTPUT" "one-arg version mentions missing OTP"
+echo "Test 3: Two args (1.2.3 000000) → usage"
+OUTPUT=$(bash "$SCRIPT" 1.2.3 000000 2>&1) && RC=$? || RC=$?
+assert_exit 1 "$RC" "two args exits 1"
+assert_output_includes "Usage:" "$OUTPUT" "two args prints usage"
 
 # --------------------------------------------------------------------------------
-# Test 4: One-arg OTP → auto-bump (mocked npm)
+# Test 4: Zero args → auto-bump (mocked npm)
 # --------------------------------------------------------------------------------
 echo ""
-echo "Test 4: One arg (OTP 123456) → auto-bump minor"
-OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_VIEW" 123456 2>&1) && RC=$? || RC=$?
+echo "Test 4: Zero args → auto-bump minor"
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_VIEW" 2>&1) && RC=$? || RC=$?
 assert_exit 0 "$RC" "auto-bump succeeds"
 assert_output_includes "Next: 1.5.0" "$OUTPUT" "auto-bump from 1.4.2 → 1.5.0"
 assert_output_includes "Publishing circuschief v1.5.0" "$OUTPUT" "VERSION set to 1.5.0"
+assert_output_includes "mock package tests test-package version=1.5.0 posthog_default=0 vcr=replay" "$OUTPUT" "release gate passes version and forced test env"
 
 # --------------------------------------------------------------------------------
 # Test 5: -y is not supported
@@ -186,14 +207,14 @@ echo ""
 echo "Test 5: -y 123456 → error"
 OUTPUT=$(bash "$SCRIPT" -y 123456 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "-y exits 1"
-assert_output_includes "version must be semver" "$OUTPUT" "-y rejected"
+assert_output_includes "Usage:" "$OUTPUT" "-y with extra arg rejected"
 
 # --------------------------------------------------------------------------------
 # Test 6: Pre-release latest → error
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 6: Pre-release latest → error"
-OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_PRERELEASE" 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_PRERELEASE" 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "pre-release latest exits 1"
 assert_output_includes "pre-release" "$OUTPUT" "pre-release error message"
 
@@ -202,7 +223,7 @@ assert_output_includes "pre-release" "$OUTPUT" "pre-release error message"
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 7: Never published → 0.1.0"
-OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_EMPTY" 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_EMPTY" 2>&1) && RC=$? || RC=$?
 assert_exit 0 "$RC" "never-published succeeds"
 assert_output_includes "Next: 0.1.0" "$OUTPUT" "never-published starts at 0.1.0"
 assert_output_includes "Publishing circuschief v0.1.0" "$OUTPUT" "VERSION set to 0.1.0"
@@ -212,18 +233,18 @@ assert_output_includes "Publishing circuschief v0.1.0" "$OUTPUT" "VERSION set to
 # --------------------------------------------------------------------------------
 echo ""
 echo "Test 8: Unparseable npm output → error"
-OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_GARBAGE" 123456 2>&1) && RC=$? || RC=$?
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_GARBAGE" 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "unparseable npm output exits 1"
 assert_output_includes "could not parse" "$OUTPUT" "unparseable error message"
 
 # --------------------------------------------------------------------------------
-# Test 9: Invalid OTP shape → error
+# Test 9: Invalid version shape → error
 # --------------------------------------------------------------------------------
 echo ""
-echo "Test 9: Invalid OTP (abcdef) → error"
+echo "Test 9: Invalid version (abcdef) → error"
 OUTPUT=$(bash "$SCRIPT" abcdef 2>&1) && RC=$? || RC=$?
-assert_exit 1 "$RC" "invalid OTP exits 1"
-assert_output_includes "Unrecognized" "$OUTPUT" "invalid OTP rejected"
+assert_exit 1 "$RC" "invalid version exits 1"
+assert_output_includes "version must be semver" "$OUTPUT" "invalid version rejected"
 
 # --------------------------------------------------------------------------------
 # Test 10: --yes is not supported
@@ -232,14 +253,14 @@ echo ""
 echo "Test 10: --yes 123456 → error"
 OUTPUT=$(bash "$SCRIPT" --yes 123456 2>&1) && RC=$? || RC=$?
 assert_exit 1 "$RC" "--yes exits 1"
-assert_output_includes "version must be semver" "$OUTPUT" "--yes rejected"
+assert_output_includes "Usage:" "$OUTPUT" "--yes with extra arg rejected"
 
 # --------------------------------------------------------------------------------
-# Test 11: Auto-bump does not prompt
+# Test 11: Auto-bump does not prompt before package tests
 # --------------------------------------------------------------------------------
 echo ""
-echo "Test 11: One arg (OTP 123456) → auto-bump without prompt"
-OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_VIEW" 123456 2>&1) && RC=$? || RC=$?
+echo "Test 11: Zero args → auto-bump without pre-test prompt"
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key run_with_mock "$MOCK_LOGGED_IN_VIEW" 2>&1) && RC=$? || RC=$?
 assert_exit 0 "$RC" "auto-bump succeeds"
 assert_output_includes "Next: 1.5.0" "$OUTPUT" "auto-bump still calculates next version"
 assert_output_not_includes "Proceed?" "$OUTPUT" "auto-bump does not prompt"
@@ -252,7 +273,7 @@ echo "Test 12: Missing PostHog key → aborts before publish"
 OUTPUT=$(
   unset POSTHOG_KEY VITE_POSTHOG_KEY POSTHOG_HOST VITE_POSTHOG_HOST
   export POSTHOG_ENV_PRODUCTION_PATH="$MISSING_ENV_PROD"
-  run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 000000 2>&1
+  run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 2>&1
 ) && RC=$? || RC=$?
 assert_exit 1 "$RC" "missing PostHog key exits 1"
 assert_output_includes "PostHog key is missing" "$OUTPUT" "missing key mentions PostHog configuration"
@@ -268,10 +289,35 @@ printf '%s\n' 'VITE_POSTHOG_KEY=phc_test_env_publish_key' > "$TEST_ENV_PROD"
 OUTPUT=$(
   unset POSTHOG_KEY VITE_POSTHOG_KEY
   export POSTHOG_ENV_PRODUCTION_PATH="$TEST_ENV_PROD"
-  run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 000000 2>&1
+  run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 2>&1
 ) && RC=$? || RC=$?
 assert_exit 0 "$RC" ".env.production satisfies preflight"
 assert_output_includes "published" "$OUTPUT" ".env.production flow reaches npm publish"
+
+# --------------------------------------------------------------------------------
+# Test 14: Package artifact tests fail before npm publish
+# --------------------------------------------------------------------------------
+echo ""
+echo "Test 14: Package artifact tests fail → aborts before publish"
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key PUBLISH_MOCK_PACKAGE_TEST_FAIL=1 run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 2>&1) && RC=$? || RC=$?
+assert_exit 42 "$RC" "package test failure exits with test status"
+assert_output_includes "Testing npm package artifact" "$OUTPUT" "package test step runs"
+assert_output_not_includes "Enter npm OTP" "$OUTPUT" "package test failure aborts before OTP prompt"
+assert_output_includes "mock package tests failed" "$OUTPUT" "package test failure is visible"
+assert_output_not_includes "Publishing to npm" "$OUTPUT" "package test failure aborts before publish step"
+assert_output_not_includes "published" "$OUTPUT" "package test failure does not call npm publish"
+
+# --------------------------------------------------------------------------------
+# Test 15: Invalid interactive OTP fails after package tests and before npm publish
+# --------------------------------------------------------------------------------
+echo ""
+echo "Test 15: Invalid interactive OTP → aborts after package tests"
+OUTPUT=$(POSTHOG_KEY=phc_test_publish_key PUBLISH_TEST_OTP=abcdef run_with_mock "$MOCK_LOGGED_IN_VIEW" 9.9.9 2>&1) && RC=$? || RC=$?
+assert_exit 1 "$RC" "invalid interactive OTP exits 1"
+assert_output_includes "mock package tests test-package version=9.9.9 posthog_default=0 vcr=replay" "$OUTPUT" "package tests complete before OTP validation"
+assert_output_includes "OTP must be exactly 6 digits" "$OUTPUT" "invalid interactive OTP rejected"
+assert_output_not_includes "Publishing to npm" "$OUTPUT" "invalid interactive OTP aborts before publish step"
+assert_output_not_includes "published" "$OUTPUT" "invalid interactive OTP does not call npm publish"
 
 # --- Summary ---
 echo ""

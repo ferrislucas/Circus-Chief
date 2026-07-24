@@ -1339,7 +1339,7 @@ describe('Projects API', () => {
       await request(app).post(`/api/projects/${projectId}/session-defaults`).send({
         mode: 'plan',
         thinkingEnabled: true,
-        model: 'gpt-5.5',
+        model: 'gpt-5.6-sol',
         providerId: provider.id,
         effortLevel: 'high',
         startImmediately: false,
@@ -1354,7 +1354,7 @@ describe('Projects API', () => {
       const session = sessions.getById(res.body.id);
       expect(session.mode).toBe('plan');
       expect(session.thinkingEnabled).toBe(true);
-      expect(session.model).toBe('gpt-5.5');
+      expect(session.model).toBe('gpt-5.6-sol');
       expect(session.providerId).toBe(provider.id);
       expect(session.effortLevel).toBe('high');
       expect(session.status).toBe('waiting');
@@ -1619,7 +1619,7 @@ describe('Projects API', () => {
       expect(res.status).toBe(400);
       expect(res.body.error).toContain('Invalid model id "not-a-real-model"');
       expect(res.body.error).toContain('Valid model ids are:');
-      expect(res.body.error).toContain('gpt-5.5');
+      expect(res.body.error).toContain('gpt-5.6-sol');
     });
 
     describe('Model Tier bindings (remediation Work Item 1)', () => {

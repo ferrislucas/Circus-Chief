@@ -138,10 +138,22 @@ export const DEFAULT_MODEL = 'claude-opus-4-8';
 
 export const OPENAI_MODELS = [
   {
-    id: 'gpt-5.5',
-    name: 'GPT-5.5',
-    description: 'Flagship coding and professional work',
-    seedId: 'openai-gpt-5-5',
+    id: 'gpt-5.6-sol',
+    name: 'GPT-5.6 Sol',
+    description: 'Frontier model for complex professional work',
+    seedId: 'openai-gpt-5-6-sol',
+  },
+  {
+    id: 'gpt-5.6-terra',
+    name: 'GPT-5.6 Terra',
+    description: 'Capable lower-cost GPT-5.6 model',
+    seedId: 'openai-gpt-5-6-terra',
+  },
+  {
+    id: 'gpt-5.6-luna',
+    name: 'GPT-5.6 Luna',
+    description: 'Fastest and most cost-efficient GPT-5.6 model',
+    seedId: 'openai-gpt-5-6-luna',
   },
   {
     id: 'gpt-5.4',
@@ -162,7 +174,32 @@ export const OPENAI_MODELS = [
     seedId: 'openai-gpt-5-3-codex',
   },
 ];
-export const DEFAULT_OPENAI_MODEL = 'gpt-5.5';
+export const DEFAULT_OPENAI_MODEL = 'gpt-5.6-sol';
+
+/**
+ * Built-in OpenAI model ids that have been retired from new selection
+ * workflows (model pickers, defaults) but must remain resolvable/executable
+ * for historical sessions, templates, and provider rows that already
+ * reference them. Retired ids are intentionally NOT removed from existing
+ * `provider_models` rows — only hidden from new-choice UI surfaces.
+ */
+export const RETIRED_BUILT_IN_OPENAI_MODEL_IDS = ['gpt-5.5'];
+
+/**
+ * Determine whether a (provider, modelId) pair should be excluded from
+ * built-in OpenAI new-selection surfaces (e.g. the model picker) because the
+ * model id has been retired. Only applies to the built-in OpenAI provider —
+ * custom/user-created providers that happen to expose the same model id
+ * string are never considered retired.
+ *
+ * @param {{ isBuiltIn?: boolean, kind?: string }|null|undefined} provider
+ * @param {string|null|undefined} modelId
+ * @returns {boolean}
+ */
+export function isRetiredBuiltInOpenAIModelSelection(provider, modelId) {
+  if (!provider?.isBuiltIn || provider.kind !== 'openai') return false;
+  return RETIRED_BUILT_IN_OPENAI_MODEL_IDS.includes(modelId);
+}
 
 export const GEMINI_MODELS = [
   { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', description: 'Most capable reasoning model', seedId: 'google-gemini-2-5-pro' },
