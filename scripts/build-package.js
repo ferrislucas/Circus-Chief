@@ -272,5 +272,6 @@ console.log('To test locally:');
 console.log('  cd dist-package && npm pack');
 console.log(`  npx ./dist-package/circuschief-${version}.tgz`);
 console.log('');
-console.log('To publish:');
-console.log('  cd dist-package && npm publish');
+console.log('To publish with package E2E gating:');
+console.log(`  ./scripts/publish.sh ${version}`);
+console.log('  # The publish script prompts for the npm OTP after tests pass.');

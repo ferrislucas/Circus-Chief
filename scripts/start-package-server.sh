@@ -69,8 +69,17 @@ else
     fi
 fi
 
+BUILD_PACKAGE_ARGS=()
+if [ -n "${PACKAGE_VERSION:-}" ]; then
+    BUILD_PACKAGE_ARGS+=(--version="$PACKAGE_VERSION")
+fi
+
 echo "=== Building package ==="
-POSTHOG_KEY="${POSTHOG_KEY:-phc_test_package_key}" node "$SCRIPT_DIR/build-package.js"
+if [ "${PACKAGE_TEST_USE_DEFAULT_POSTHOG_KEY:-1}" = "0" ]; then
+    node "$SCRIPT_DIR/build-package.js" "${BUILD_PACKAGE_ARGS[@]}"
+else
+    POSTHOG_KEY="${POSTHOG_KEY:-phc_test_package_key}" node "$SCRIPT_DIR/build-package.js" "${BUILD_PACKAGE_ARGS[@]}"
+fi
 
 echo ""
 echo "=== Packing tarball ==="
