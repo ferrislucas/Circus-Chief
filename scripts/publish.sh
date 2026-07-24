@@ -5,16 +5,18 @@ set -euo pipefail
 # Publish circuschief to npm.
 #
 # Usage:
-#   ./scripts/publish.sh [version] <otp>
+#   ./scripts/publish.sh [version]
 #
 # Arguments:
 #   version     Optional. Semver to publish (e.g. 0.2.0). If omitted,
 #               the script bumps the minor of the latest npm version.
-#   otp         Required. npm one-time password (6 digits).
 #
 # Examples:
-#   ./scripts/publish.sh 123456             # auto-bump minor, publish
-#   ./scripts/publish.sh 0.2.0 123456       # publish exactly 0.2.0
+#   ./scripts/publish.sh                   # auto-bump minor, publish
+#   ./scripts/publish.sh 0.2.0             # publish exactly 0.2.0
+#
+# The script prompts for the npm OTP immediately before publishing, after all
+# package tests have passed.
 ##
 
 # --- Guard for test harness sourcing ---
@@ -25,56 +27,33 @@ fi
 
 NUM_ARGS=$#
 
-if [ "$NUM_ARGS" -eq 0 ]; then
-  echo "Usage: $0 [version] <otp>"
+if [ "$NUM_ARGS" -gt 1 ]; then
+  echo "Usage: $0 [version]"
   echo ""
   echo "  version    Optional. Semver to publish (e.g. 0.2.0). If omitted,"
   echo "             the script bumps the minor of the latest npm version."
-  echo "  otp        Required. npm one-time password (6 digits)."
+  echo ""
+  echo "The script prompts for the npm OTP immediately before publishing."
   echo ""
   echo "Examples:"
-  echo "  $0 123456             # auto-bump minor, publish"
-  echo "  $0 0.2.0 123456       # publish exactly 0.2.0"
+  echo "  $0                    # auto-bump minor, publish"
+  echo "  $0 0.2.0              # publish exactly 0.2.0"
   exit 1
 fi
 
 VERSION=""
 OTP=""
-AUTO_BUMP=0
+AUTO_BUMP=1
 
-if [ "$NUM_ARGS" -eq 2 ]; then
-  # Two positional args: <version> <otp>
+if [ "$NUM_ARGS" -eq 1 ]; then
+  # One positional arg: <version>
   VERSION="$1"
-  OTP="$2"
-elif [ "$NUM_ARGS" -eq 1 ]; then
-  # Single arg: disambiguate by shape
-  SINGLE_ARG="$1"
-
-  if [[ "$SINGLE_ARG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
-    # Looks like a version — OTP is missing
-    echo "ERROR: OTP is required. Got version '$SINGLE_ARG' but no OTP."
-    echo "Usage: $0 [version] <otp>"
-    exit 1
-  elif [[ "$SINGLE_ARG" =~ ^[0-9]{6}$ ]]; then
-    # Looks like an OTP — auto-bump
-    OTP="$SINGLE_ARG"
-    AUTO_BUMP=1
-  else
-    echo "ERROR: Unrecognized argument '$SINGLE_ARG'."
-    echo "Expected a version (e.g. 0.2.0) or an OTP (6 digits)."
-    exit 1
-  fi
+  AUTO_BUMP=0
 fi
 
 # --- Validate explicit version shape ---
 if [ -n "$VERSION" ] && ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]; then
   echo "ERROR: version must be semver (e.g. 0.2.0), got '$VERSION'."
-  exit 1
-fi
-
-# --- Validate OTP shape ---
-if ! [[ "$OTP" =~ ^[0-9]{6}$ ]]; then
-  echo "ERROR: OTP must be exactly 6 digits, got '$OTP'."
   exit 1
 fi
 
@@ -132,10 +111,23 @@ echo ""
 
 # --- 3. Build and test the npm artifact ---
 echo "Testing npm package artifact..."
-PACKAGE_VERSION="$VERSION" PACKAGE_TEST_USE_DEFAULT_POSTHOG_KEY=0 "$SCRIPT_DIR/pw.sh" test-package
+PACKAGE_VERSION="$VERSION" PACKAGE_TEST_USE_DEFAULT_POSTHOG_KEY=0 VCR_MODE=replay "$SCRIPT_DIR/pw.sh" test-package
 echo ""
 
-# --- 4. Publish ---
+# --- 4. Read npm OTP after slow validation has passed ---
+if ! read -r -p "Enter npm OTP: " OTP; then
+  echo ""
+  echo "ERROR: npm OTP is required to publish."
+  exit 1
+fi
+echo ""
+
+if ! [[ "$OTP" =~ ^[0-9]{6}$ ]]; then
+  echo "ERROR: OTP must be exactly 6 digits."
+  exit 1
+fi
+
+# --- 5. Publish ---
 echo "Publishing to npm..."
 cd "$ROOT/dist-package"
 npm publish --otp="$OTP"

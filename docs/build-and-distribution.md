@@ -5,24 +5,31 @@
 Use the publish wrapper. Do **not** publish from `dist-package/` by hand.
 
 ```bash
-./scripts/publish.sh <otp>
+./scripts/publish.sh
 ```
 
 That is the normal publish command. It reads the latest published `circuschief`
 version from npm, bumps the minor version, builds the package, tests the built
-artifact, and publishes only if those tests pass.
+artifact, prompts interactively for the npm OTP, and publishes only if those
+tests pass.
 
 Example:
 
 ```bash
-./scripts/publish.sh 123456        # auto-bump the latest npm minor version
+./scripts/publish.sh        # auto-bump the latest npm minor version
 ```
 
-To publish a specific version instead of auto-bumping, pass it before the OTP:
+To publish a specific version instead of auto-bumping, pass it as the only
+argument:
 
 ```bash
-./scripts/publish.sh 0.2.0 123456
+./scripts/publish.sh 0.2.0
 ```
+
+The publish script is interactive: after the package E2E tests pass, it asks for
+the 6-digit npm OTP and immediately runs `npm publish`. The OTP is not accepted
+as a command-line argument because the package test gate can take long enough
+for an OTP generated at script startup to expire.
 
 The publish script is the release gate. It will not publish unless the npm artifact builds and passes the package E2E tests.
 
@@ -37,7 +44,8 @@ What `scripts/publish.sh` does:
 7. Starts Circus Chief from the installed package.
 8. Runs Playwright against that installed package.
 9. Stops immediately if any package test fails.
-10. Runs `npm publish --otp=<otp>` from the tested `dist-package/`.
+10. Prompts for the npm OTP.
+11. Runs `npm publish --otp=<otp>` from the tested `dist-package/`.
 
 Required before publishing:
 
