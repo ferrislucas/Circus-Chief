@@ -238,5 +238,53 @@ describe('summaryModelResolver', () => {
       expect(resolved.providerId).toBe(suite.tierProvider.id);
       expect(resolved.isDefault).toBe(false);
     });
+
+    // Work Item 1: resolve-time defense-in-depth. Even if a Google-kind tier
+    // ever slips past write-time validation (legacy row, cooldown-driven
+    // member change), resolveSummaryModel must never hand a Google model to
+    // callSummaryModel's Anthropic client — it should degrade the same way
+    // an exhausted tier does.
+    it('falls back to default summary model when the active tier member is an unsupported (Google) provider kind', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const googleProvider = modelProviders.create({ name: 'Summary Resolver Google Provider', kind: 'google' });
+      modelProviders.addModel(googleProvider.id, {
+        modelId: 'summary-resolver-gemini-model',
+        displayName: 'Gemini Model',
+      });
+      const tier = suite.modelTiers.create({
+        name: 'Google Summary Tier',
+        members: [{ providerId: googleProvider.id, modelId: 'summary-resolver-gemini-model', position: 0 }],
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe(DEFAULT_ANTHROPIC_SUMMARY_MODEL);
+      expect(resolved.kind).toBe('anthropic');
+      expect(resolved.isDefault).toBe(true);
+
+      modelProviders.delete(googleProvider.id);
+    });
+
+    it('routes to OpenAI when the active tier member is an OpenAI model', async () => {
+      const { buildTierRef } = await import('@circuschief/shared');
+      const openaiProvider = modelProviders.create({ name: 'Summary Resolver OpenAI Tier Provider', kind: 'openai' });
+      modelProviders.addModel(openaiProvider.id, {
+        modelId: 'summary-resolver-openai-tier-model',
+        displayName: 'OpenAI Tier Model',
+      });
+      const tier = suite.modelTiers.create({
+        name: 'OpenAI Summary Tier',
+        members: [{ providerId: openaiProvider.id, modelId: 'summary-resolver-openai-tier-model', position: 0 }],
+      });
+
+      const resolved = resolveSummaryModel({ summaryModel: buildTierRef(tier.id), summaryProviderId: null });
+
+      expect(resolved.model).toBe('summary-resolver-openai-tier-model');
+      expect(resolved.providerId).toBe(openaiProvider.id);
+      expect(resolved.kind).toBe('openai');
+      expect(resolved.isDefault).toBe(false);
+
+      modelProviders.delete(openaiProvider.id);
+    });
   });
 });

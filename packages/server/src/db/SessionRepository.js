@@ -10,7 +10,7 @@ import {
   parseCreateConfig,
   buildUpdateClauses,
   DEFAULT_AGENT_TYPE,
-  resolveAgentTypeFromModel,
+  resolveInitialAgentTypeFromModel,
 } from './session-helpers.js';
 
 /**
@@ -89,9 +89,9 @@ export class SessionRepository extends BaseRepository {
     const config = parseCreateConfig(options, Array.prototype.slice.call(arguments, 4));
 
     // Resolve agentType: explicit override → model-based derivation → fallback.
-    // resolveAgentTypeFromModel(null) returns DEFAULT_AGENT_TYPE, so the absent-model
-    // case is covered without a separate branch.
-    const agentType = config.agentType ?? resolveAgentTypeFromModel(config.model);
+    // resolveInitialAgentTypeFromModel(null) returns DEFAULT_AGENT_TYPE, so the
+    // absent-model case is covered without a separate branch.
+    const agentType = config.agentType ?? resolveInitialAgentTypeFromModel(config.model);
 
     const id = databaseManager.generateId();
     const now = Date.now();

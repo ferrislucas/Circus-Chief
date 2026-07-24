@@ -257,6 +257,13 @@ export async function runSessionWithTierFailover(
     const tierContext = {
       currentMemberId: member.modelId,
       currentMemberProviderId: member.providerId,
+      // Fix 5: carry the same cap-aware bookkeeping the loop uses to decide
+      // whether to advance, so the suppression check in sessionErrors.js
+      // (isTierFailoverEligibleError) can use the identical resolver and can
+      // never disagree with this loop about whether a next member will
+      // actually be attempted.
+      attemptsUsed,
+      maxAttempts,
     };
 
     // _executeSession's finally block removes sessionId from activeSessions after

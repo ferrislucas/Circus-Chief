@@ -41,10 +41,21 @@ function findFirstEnabledTierMember(tierId) {
 }
 
 /**
- * Resolve the agent type ('claude-code', 'codex', or 'gemini') from a model
- * field by looking up which provider owns the model. Inlined here (rather
- * than in sessionProvider) to avoid a circular dependency:
- *   database.js (index) → SessionRepository → sessionProvider → database.js
+ * Resolve the INITIAL agent type ('claude-code', 'codex', or 'gemini') for a
+ * newly-created session from its model field, by looking up which provider
+ * owns the model. Inlined here (rather than in sessionProvider) to avoid a
+ * circular dependency: database.js (index) → SessionRepository →
+ * session-helpers → database.js.
+ *
+ * Name note (Work Item 4 / nit): `services/sessionProvider.js` exports a
+ * DIFFERENT, provider-aware `resolveAgentTypeFromModel(modelId, providerId)`
+ * used everywhere agent type is re-derived at run time (failover logger,
+ * agent guard, draft/session provider paths) — that one disambiguates tier
+ * members that share a `modelId` across different providers. This variant is
+ * narrower and cooldown-unaware: it is a create-time-only, first-enabled-member
+ * lookup used solely to seed a freshly-created session's persisted `agentType`
+ * column (see `SessionRepository.create`). Always prefer
+ * `sessionProvider.resolveAgentTypeFromModel` outside of session creation.
  *
  * Tier-aware (Work Item 2): `modelId` may be a `tier::<id>` reference. It is
  * resolved to its first enabled member before the provider lookup, so a
@@ -53,7 +64,7 @@ function findFirstEnabledTierMember(tierId) {
  * @param {string|null} modelId
  * @returns {'claude-code'|'codex'|'gemini'}
  */
-export function resolveAgentTypeFromModel(modelId) {
+export function resolveInitialAgentTypeFromModel(modelId) {
   if (!modelId) return DEFAULT_AGENT_TYPE;
 
   if (isTierRef(modelId)) {

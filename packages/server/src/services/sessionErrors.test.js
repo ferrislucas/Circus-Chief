@@ -590,6 +590,7 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
     'out of tokens for this account',
     'insufficient credit balance',
     'billing limit reached',
+    'billing hard limit reached',
   ];
 
   const shouldNotTrigger = [
@@ -603,6 +604,13 @@ describe('start-time failover trigger set — matchesStartFailoverEligibleError 
     'syntax error on line 42',
     'permission denied',
     'null pointer exception',
+    // Work Item 3: the bare substring "billing" (without "limit") must NOT
+    // trigger start-time failover — only 'billing limit' / 'billing hard
+    // limit' do. This was broader than the other tightened patterns and
+    // could fire on unrelated text that merely mentions billing.
+    'billing',
+    'updated the billing dashboard copy for the invoices page',
+    'implemented the retry handler for the billing service',
     // broad token/limit phrases that are fine for reschedule but too broad for failover
     "you've hit your limit",      // matchesTokenLimitError catches "limit" — startFailover does NOT
     'usage cap reached',           // "cap" only in matchesTokenLimitError — NOT in startFailover

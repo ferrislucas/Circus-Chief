@@ -1,7 +1,7 @@
 import { sessions, messages } from '../database.js';
 import { schedulerService } from './schedulerService.js';
 import { isTierRef } from '@circuschief/shared';
-import { hasNextHealthyMember } from './tierResolutionService.js';
+import { findNextHealthyTierMember } from './tierResolutionService.js';
 import { sessionHasNoAssistantMessages } from './sessionAgentGuard.js';
 
 /**
@@ -60,13 +60,19 @@ export function matchesStartFailoverEligibleError(message) {
   // Delegate to matchesServiceError for service-level outage patterns
   if (matchesServiceError(message)) return true;
 
-  // Quota / billing patterns (tighter than matchesTokenLimitError)
+  // Quota / billing patterns (tighter than matchesTokenLimitError). 'billing'
+  // alone is intentionally excluded — too broad and can trigger a spurious
+  // cross-provider failover on unrelated text (e.g. a work-summary sentence
+  // that happens to mention "billing"). Use specific phrases that match real
+  // provider wording instead (still covers PRD F16's "spending/billing limit
+  // reached").
   const quotaPatterns = [
     'quota',
     'rate limit',
     'out of tokens',
     'insufficient credit',
-    'billing',
+    'billing limit',
+    'billing hard limit',
   ];
   return quotaPatterns.some(pattern => message.includes(pattern));
 }
@@ -154,7 +160,7 @@ function logSkippedReschedule(setting) {
  * @param {object} session - Session object
  * @param {Error} error - Error that occurred
  * @param {string|null} sessionId - Session ID
- * @param {{ currentMemberId?: string, currentMemberProviderId?: string }|null} tierContext
+ * @param {{ currentMemberId?: string, currentMemberProviderId?: string, attemptsUsed?: number, maxAttempts?: number }|null} tierContext
  * @returns {boolean}
  */
 export function isTierFailoverEligibleError(session, error, sessionId = null, tierContext = null) {
@@ -171,10 +177,18 @@ export function isTierFailoverEligibleError(session, error, sessionId = null, ti
     return false;
   }
 
-  return hasNextHealthyMember(session.model, {
-    excludeModelId: tierContext.currentMemberId,
-    excludeProviderId: tierContext.currentMemberProviderId,
-  });
+  // Fix 5: use the SAME cap-aware, forward-only resolver the failover loop
+  // (sessionTierFailover.js) uses to decide whether to advance, so this
+  // suppression check can never disagree with it. Previously this used
+  // hasNextHealthyMember, a whole-list existence check unaware of the
+  // DEFAULT_MAX_FAILOVER_ATTEMPTS cap — for a >10-member tier that could
+  // report a "next member" that the loop would never actually attempt,
+  // suppressing normal error handling with nothing left to fail over to.
+  return findNextHealthyTierMember(
+    session.model,
+    { modelId: tierContext.currentMemberId, providerId: tierContext.currentMemberProviderId },
+    { attemptsUsed: tierContext.attemptsUsed, maxAttempts: tierContext.maxAttempts }
+  ) !== null;
 }
 
 /**

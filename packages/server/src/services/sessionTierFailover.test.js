@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { buildTierRef } from '@circuschief/shared';
+import { buildTierRef, DEFAULT_MAX_FAILOVER_ATTEMPTS } from '@circuschief/shared';
 
 // Mock the SDK to prevent real API calls — capture queryParams for assertions
 const { mockQuery } = vi.hoisted(() => ({
@@ -251,6 +251,58 @@ describe('runSessionCore tier failover (integration)', () => {
 
     // With 2 members both failing, exactly 2 calls should be made (≤ DEFAULT_MAX_FAILOVER_ATTEMPTS)
     expect(mockQuery.mock.calls.length).toBeLessThanOrEqual(2);
+  });
+
+  // Work Item 2 (Fix 5): unify the failover suppression check with the
+  // loop's cap-aware advance check so they can never disagree.
+  it('reaches normal terminal error handling (not a silent hang) when a >10-member tier fails past the attempt cap', async () => {
+    // 12 members: the first 10 fail with an eligible service error; members
+    // 11-12 would succeed but must never actually be attempted because
+    // DEFAULT_MAX_FAILOVER_ATTEMPTS (10) caps the loop.
+    //
+    // Before Fix 5, the suppression check (isTierFailoverEligibleError) used
+    // an uncapped whole-list scan (hasNextHealthyMember) that saw members
+    // 11/12 as "a next member exists" and suppressed _executeSession's normal
+    // error handling (status='error', SESSION_ERROR broadcast) for the 10th
+    // attempt's failure — while the failover loop's own cap-aware check
+    // correctly refused to advance to member 11. The error then propagated
+    // with the session left in a non-terminal state: a silent hang,
+    // contradicting PRD AC #5. After the fix, both checks share
+    // findNextHealthyTierMember, so the 10th attempt's failure reaches the
+    // normal error path and the session ends up with status='error'.
+    const capMembers = [];
+    for (let i = 0; i < 12; i++) {
+      const provider = modelProviders.create({ name: `Cap Provider ${i}`, kind: 'anthropic' });
+      modelProviders.addModel(provider.id, { modelId: `cap-model-${i}`, displayName: `Cap Model ${i}` });
+      capMembers.push({ providerId: provider.id, modelId: `cap-model-${i}`, position: i });
+    }
+    const capTier = modelTiers.create({ name: 'Cap Tier', members: capMembers });
+    sessionRepo.update(session.id, { model: buildTierRef(capTier.id) });
+
+    let callCount = 0;
+    mockQuery.mockImplementation(async function* () {
+      callCount++;
+      if (callCount <= DEFAULT_MAX_FAILOVER_ATTEMPTS) {
+        throw new Error('Error: 529 Service overloaded');
+      }
+      // Never reached — members beyond the cap must not be attempted.
+      yield { type: 'system', subtype: 'init', session_id: 'mock-session-id', model: 'cap-model', slash_commands: [] };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'Test response' }] } };
+      yield { type: 'result', subtype: 'success' };
+    });
+
+    await expect(
+      runSession(session.id, 'Initial prompt', tempDir, { model: null })
+    ).rejects.toThrow(/529/);
+
+    // Exactly DEFAULT_MAX_FAILOVER_ATTEMPTS attempts were made — the cap stopped
+    // the loop before members 11/12 were ever tried.
+    expect(mockQuery).toHaveBeenCalledTimes(DEFAULT_MAX_FAILOVER_ATTEMPTS);
+
+    const updated = sessionRepo.getById(session.id);
+    // Terminal error handling ran for the final (capped) attempt.
+    expect(updated.status).toBe('error');
+    expect(updated.error).toContain('529');
   });
 });
 
