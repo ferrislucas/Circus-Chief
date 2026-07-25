@@ -1071,13 +1071,69 @@ describe('ModelSelector', () => {
 
       const onUpdateModelValue = vi.fn();
       const wrapper = mountComponent(
-        { modelValue: 'gpt-5.5', providerId: 'openai-default' },
+        // A picker showing an existing session's stored model must be
+        // sessionScoped to keep a disabled choice visible (FRD §0 / Plan
+        // Phase 7): the exception is not "any picker whose value happens to
+        // match", it's specifically the session that owns that value.
+        { modelValue: 'gpt-5.5', providerId: 'openai-default', sessionScoped: true },
         { 'onUpdate:modelValue': onUpdateModelValue }
       );
       await flushAll(wrapper);
 
       expect(onUpdateModelValue).not.toHaveBeenCalled();
       expect(wrapper.attributes('data-model')).toBe('gpt-5.5');
+    });
+  });
+
+  describe('disabled-model visibility is gated by sessionScoped + providerId (Issue 2)', () => {
+    beforeEach(() => {
+      providersStore.providers = [
+        {
+          id: 'openai-default',
+          name: 'OpenAI (Official)',
+          isBuiltIn: true,
+          kind: 'openai',
+          models: [
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom', enabled: false },
+            { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
+          ],
+        },
+      ];
+    });
+
+    it('hides a disabled model whose modelId matches modelValue when sessionScoped is false (e.g. a project-defaults/template/scheduling picker)', async () => {
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5', providerId: 'openai-default', sessionScoped: false });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).not.toContain(optionValue('openai-default', 'gpt-5.5'));
+    });
+
+    it('hides a disabled model whose modelId matches modelValue when sessionScoped is true but providerId does not match its owning provider', async () => {
+      providersStore.providers.push({
+        id: 'custom-openai',
+        name: 'Custom OpenAI',
+        isBuiltIn: false,
+        kind: 'openai',
+        models: [
+          { id: 'custom-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'Custom Sol', tier: 'custom' },
+        ],
+      });
+
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5', providerId: 'custom-openai', sessionScoped: true });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).not.toContain(optionValue('openai-default', 'gpt-5.5'));
+    });
+
+    it('shows and keeps selectable a disabled model whose modelId matches modelValue when sessionScoped is true and providerId matches', async () => {
+      const wrapper = mountComponent({ modelValue: 'gpt-5.5', providerId: 'openai-default', sessionScoped: true });
+      await flushAll(wrapper);
+
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).toContain(optionValue('openai-default', 'gpt-5.5'));
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
     });
   });
 

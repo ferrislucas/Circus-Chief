@@ -342,6 +342,56 @@ describe('Providers API', () => {
     });
   });
 
+  describe('PUT /api/providers/:id/models/order', () => {
+    let modelA;
+    let modelB;
+
+    beforeEach(() => {
+      const provider = modelProviders.create({
+        name: 'Reorder API Test Provider',
+        baseUrl: 'https://api.test.com',
+        authToken: 'test-token',
+      });
+      testProviderId = provider.id;
+      modelA = modelProviders.addModel(testProviderId, { modelId: 'reorder-a', displayName: 'A', tier: 'sonnet' });
+      modelB = modelProviders.addModel(testProviderId, { modelId: 'reorder-b', displayName: 'B', tier: 'sonnet' });
+    });
+
+    it('200: persists a valid reorder', async () => {
+      const response = await request(app)
+        .put(`/api/providers/${testProviderId}/models/order`)
+        .send({ order: [modelB.id, modelA.id] })
+        .expect(200);
+
+      expect(response.body.map((m) => m.id)).toEqual([modelB.id, modelA.id]);
+    });
+
+    it('404: provider not found', async () => {
+      await request(app)
+        .put('/api/providers/non-existent/models/order')
+        .send({ order: [] })
+        .expect(404);
+    });
+
+    it('400: rejects an id that does not belong to this provider', async () => {
+      const response = await request(app)
+        .put(`/api/providers/${testProviderId}/models/order`)
+        .send({ order: [modelA.id, 'not-a-real-model-row-id'] })
+        .expect(400);
+
+      expect(response.body.error).toBe('Model does not belong to this provider');
+    });
+
+    it('400: rejects a duplicate id in the order list', async () => {
+      const response = await request(app)
+        .put(`/api/providers/${testProviderId}/models/order`)
+        .send({ order: [modelA.id, modelA.id] })
+        .expect(400);
+
+      expect(response.body.error).toBe('Duplicate model ids in reorder request');
+    });
+  });
+
   describe('POST /api/providers/test (transient test)', () => {
     beforeEach(() => {
       testProviderConnection.mockReset();

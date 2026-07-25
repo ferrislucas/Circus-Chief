@@ -60,7 +60,7 @@ export function getModels(db, providerId, { includeRemoved = false } = {}) {
   const rows = db
     .prepare(
       `SELECT * FROM provider_models WHERE provider_id = ? ${removedClause}
-       ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC`
+       ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC, rowid ASC`
     )
     .all(providerId);
   return rows.map(mapProviderModel);
@@ -179,13 +179,32 @@ export function removeModel(db, modelId, model) {
   return getModelById(db, modelId);
 }
 
+/**
+ * Validate a requested reorder against a provider's existing model rows.
+ * Shared by `reorderModels` (below) and the `PUT /:id/models/order` API route
+ * (`api/providers.js`), so the rule -- no foreign ids, no duplicates -- is
+ * defined exactly once. A partial list (omitting some existing rows) is
+ * legitimate and NOT rejected here; omitted rows are simply appended by the
+ * caller.
+ * @throws {Error} 'Duplicate model ids in reorder request' or
+ *   'Model does not belong to this provider'.
+ */
+export function assertValidReorder(existing, orderedRowIds) {
+  const validIds = new Set(existing.map((model) => model.id));
+  if (orderedRowIds.some((id) => !validIds.has(id))) {
+    throw new Error('Model does not belong to this provider');
+  }
+  if (new Set(orderedRowIds).size !== orderedRowIds.length) {
+    throw new Error('Duplicate model ids in reorder request');
+  }
+}
+
 export function reorderModels(db, providerId, orderedRowIds) {
   const existing = getModels(db, providerId);
-  const validIds = new Set(existing.map((model) => model.id));
-  const requested = orderedRowIds.filter((id) => validIds.has(id));
-  const requestedIds = new Set(requested);
+  assertValidReorder(existing, orderedRowIds);
+  const requestedIds = new Set(orderedRowIds);
   // Preserve omitted rows and compact every row into one stable sequence.
-  const order = [...requested, ...existing.filter((model) => !requestedIds.has(model.id)).map((model) => model.id)];
+  const order = [...orderedRowIds, ...existing.filter((model) => !requestedIds.has(model.id)).map((model) => model.id)];
   const update = db.prepare('UPDATE provider_models SET sort_order = ? WHERE id = ? AND provider_id = ?');
   const transaction = db.transaction(() => {
     order.forEach((id, index) => update.run(index, id, providerId));

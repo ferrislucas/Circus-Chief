@@ -373,6 +373,81 @@ describe('ProviderRepository', () => {
     });
   });
 
+  describe('reorderModels', () => {
+    it('persists a valid full reorder', () => {
+      const provider = repo.create({
+        name: 'Reorder Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const opus = repo.addModel(provider.id, { modelId: 'model-opus', displayName: 'Opus', tier: 'opus' });
+      const sonnet = repo.addModel(provider.id, { modelId: 'model-sonnet', displayName: 'Sonnet', tier: 'sonnet' });
+
+      const reordered = repo.reorderModels(provider.id, [sonnet.id, opus.id]);
+      expect(reordered.map((m) => m.id)).toEqual([sonnet.id, opus.id]);
+
+      repo.delete(provider.id);
+    });
+
+    it('throws (rather than silently dropping) when the order list includes an id that does not belong to this provider', () => {
+      const provider = repo.create({
+        name: 'Reorder Foreign Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+      const other = repo.create({
+        name: 'Reorder Foreign Test (other provider)',
+        baseUrl: 'https://api2.test.com',
+        authToken: 'token',
+      });
+
+      const own = repo.addModel(provider.id, { modelId: 'model-own', displayName: 'Own', tier: 'sonnet' });
+      const foreign = repo.addModel(other.id, { modelId: 'model-foreign', displayName: 'Foreign', tier: 'sonnet' });
+
+      expect(() => repo.reorderModels(provider.id, [own.id, foreign.id])).toThrow();
+
+      // The foreign row's ordering (and the owning provider's rows) must be untouched.
+      const stillOwnedByOther = repo.getModels(other.id);
+      expect(stillOwnedByOther.map((m) => m.id)).toContain(foreign.id);
+
+      repo.delete(provider.id);
+      repo.delete(other.id);
+    });
+
+    it('throws (rather than silently deduping) when the order list contains a duplicate id', () => {
+      const provider = repo.create({
+        name: 'Reorder Duplicate Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const model = repo.addModel(provider.id, { modelId: 'model-dup', displayName: 'Dup', tier: 'sonnet' });
+
+      expect(() => repo.reorderModels(provider.id, [model.id, model.id])).toThrow();
+
+      repo.delete(provider.id);
+    });
+
+    it('still allows a legitimate partial reorder, appending any omitted active rows', () => {
+      const provider = repo.create({
+        name: 'Reorder Partial Test',
+        baseUrl: 'https://api.test.com',
+        authToken: 'token',
+      });
+
+      const opus = repo.addModel(provider.id, { modelId: 'model-opus', displayName: 'Opus', tier: 'opus' });
+      const sonnet = repo.addModel(provider.id, { modelId: 'model-sonnet', displayName: 'Sonnet', tier: 'sonnet' });
+      const haiku = repo.addModel(provider.id, { modelId: 'model-haiku', displayName: 'Haiku', tier: 'haiku' });
+
+      // Only reorder two of the three rows; the omitted row should be appended, not rejected.
+      const reordered = repo.reorderModels(provider.id, [haiku.id, sonnet.id]);
+      expect(reordered.map((m) => m.id)).toEqual([haiku.id, sonnet.id, opus.id]);
+
+      repo.delete(provider.id);
+    });
+  });
+
   describe('removeModel', () => {
     it('removes a model from a provider', () => {
       const provider = repo.create({

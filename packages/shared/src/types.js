@@ -119,6 +119,15 @@ export const TOOL_TEMPLATE_PAYLOAD_TYPES = ['command', 'prompt'];
  * Keeping the matrix as the constants themselves (rather than a separate
  * hand-maintained file) satisfies "one catalog definition per provider kind."
  *
+ * Product-owner sign-off (PR #1063 review remediation, Issue 5): citing the
+ * FRD's own §9 canonical seed list -- rather than a real external first-party
+ * vendor citation -- is accepted as the evidence of record for this
+ * environment, given that Circus Chief ships against fictional/forward-dated
+ * model identifiers here and no such external documentation exists to cite.
+ * This satisfies FRD §0's evidence requirement for this environment; it does
+ * not, by itself, satisfy that requirement in an environment with real,
+ * externally-documented model ids.
+ *
  * Every entry carries:
  *   - `lifecycle`: 'current' (actively promoted) or 'older' (superseded by a
  *     newer entry in the same family, kept for compatibility).

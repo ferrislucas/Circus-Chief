@@ -6,7 +6,7 @@
   >
     <div class="modal">
       <div class="modal-header">
-        <h2>{{ attributionOnly ? 'Commit Attribution' : (isBuiltInManage ? 'Built-in Provider Settings' : (isEditing ? 'Edit Provider' : 'Add Provider')) }}</h2>
+        <h2>{{ isBuiltInManage ? 'Built-in Provider Settings' : (isEditing ? 'Edit Provider' : 'Add Provider') }}</h2>
         <button
           type="button"
           class="close-btn"
@@ -131,7 +131,6 @@
           </div>
 
           <ProviderModelsList
-            v-if="!attributionOnly"
             :models="localModels"
             :read-only-model-id="isBuiltInManage"
             @add="addLocalModel"
@@ -281,7 +280,6 @@ import ProviderModelsList from './ProviderModelsList.vue';
 const props = defineProps({
   isOpen: { type: Boolean, default: false },
   provider: { type: Object, default: null },
-  attributionOnly: { type: Boolean, default: false },
   builtInManage: { type: Boolean, default: false },
 });
 
@@ -313,11 +311,11 @@ const {
   toRef(props, 'isOpen'),
   toRef(props, 'provider'),
   () => emit('saved'),
-  { attributionOnlyRef: toRef(props, 'attributionOnly'), builtInManageRef: computed(() => props.builtInManage && props.provider?.isBuiltIn) },
+  { builtInManageRef: computed(() => props.builtInManage && props.provider?.isBuiltIn) },
 );
 
 const isBuiltInManage = computed(() => props.builtInManage && Boolean(props.provider?.isBuiltIn));
-const showConnectionFields = computed(() => !props.attributionOnly && !isBuiltInManage.value);
+const showConnectionFields = computed(() => !isBuiltInManage.value);
 
 const baseUrlEnvName = computed(() => {
   if (form.value.kind === 'openai') return 'OPENAI_BASE_URL';

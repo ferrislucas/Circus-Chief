@@ -9,6 +9,7 @@ import {
   TestConnectionRequest,
 } from '@circuschief/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
+import { assertValidReorder } from '../db/providerModelOperations.js';
 
 // Error message constants
 const ERR_PROVIDER_NOT_FOUND = 'Provider not found';
@@ -244,15 +245,15 @@ router.put('/:id/models/order', (req, res) => {
     const result = ReorderProviderModelsRequest.safeParse(req.body);
     if (!result.success) return res.status(400).json({ error: result.error.issues[0].message });
 
-    if (new Set(result.data.order).size !== result.data.order.length) {
-      return res.status(400).json({ error: 'Duplicate model ids in reorder request' });
+    // Same validation `reorderModels` itself now enforces (assertValidReorder)
+    // -- checked here too so HTTP callers get a 400 instead of a 500.
+    const models = modelProviders.getModels(req.params.id);
+    try {
+      assertValidReorder(models, result.data.order);
+    } catch (validationError) {
+      return res.status(400).json({ error: validationError.message });
     }
 
-    const models = modelProviders.getModels(req.params.id);
-    const ownedIds = new Set(models.map((model) => model.id));
-    if (result.data.order.some((id) => !ownedIds.has(id))) {
-      return res.status(400).json({ error: 'Model does not belong to this provider' });
-    }
     res.json(modelProviders.reorderModels(req.params.id, result.data.order));
   } catch (error) {
     res.status(500).json({ error: error.message });

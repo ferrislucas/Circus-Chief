@@ -229,11 +229,17 @@ export const providerMigrations = [
   {
     name: 'provider-models-backfill-sort-order',
     up(db) {
+      // Tiebreak on `rowid` (true insertion order), not the lexical `id`
+      // column: rows sharing an identical `created_at` (e.g. an entire
+      // catalog seeded in one batch with one `Date.now()` call) must keep
+      // their insertion order, which is catalog order for built-in
+      // providers. Matches the tiebreak already used by
+      // `dedupeActiveProviderModelIdentities`.
       db.exec(`UPDATE provider_models
         SET sort_order = (SELECT COUNT(*) FROM provider_models pm2
           WHERE pm2.provider_id = provider_models.provider_id
             AND (pm2.created_at < provider_models.created_at
-              OR (pm2.created_at = provider_models.created_at AND pm2.id < provider_models.id)))
+              OR (pm2.created_at = provider_models.created_at AND pm2.rowid < provider_models.rowid)))
         WHERE sort_order IS NULL`);
     },
   },

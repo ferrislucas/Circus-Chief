@@ -164,7 +164,7 @@ const visibleProviders = computed(() => {
   }
 
   const providers = sortedProviders.value
-    .map((provider) => withDisabledModelsHidden(provider, new Set([resolveModelId(props.modelValue)].filter(Boolean))))
+    .map((provider) => withDisabledModelsHidden(provider, sessionScopedKeepModelIds(provider)))
     .map((provider) => {
       if (!props.hideBuiltInDuplicates || !provider.isBuiltIn) return provider;
       return withCustomModelsHidden(provider, customModelIds);
@@ -189,6 +189,31 @@ function hasActiveMatch(modelId, providerId) {
   });
 }
 
+// Which provider a session-scoped picker's current value belongs to. Falls
+// back to the built-in Anthropic provider for legacy sessions with no stored
+// providerId (mirrors resolveModelId's tier-alias fallback). Shared by both
+// the historical-fetch watcher below and the disabled-model exception in
+// `visibleProviders`, so there is exactly one session-scoped/provider-aware
+// mechanism (FRD-built-in-model-choices.md §0, Plan Phase 7).
+const sessionScopedProviderId = computed(() => {
+  if (props.providerId) return props.providerId;
+  return providersStore.providers.find(
+    (p) => p.isBuiltIn && agentTypeFor(p) === 'claude-code'
+  )?.id || null;
+});
+
+// Disabled (but not soft-removed) choices are hidden from every picker except
+// the one scoped to the session that actually owns the current value: only
+// when `sessionScoped` is true AND the given provider is the resolved
+// `sessionScopedProviderId` should its matching disabled row stay visible.
+// Any other picker whose bound value merely happens to equal a disabled
+// model's id (project defaults, templates, scheduling, unrelated sessions)
+// must not un-hide it.
+function sessionScopedKeepModelIds(provider) {
+  if (!props.sessionScoped || provider.id !== sessionScopedProviderId.value) return new Set();
+  return new Set([resolveModelId(props.modelValue)].filter(Boolean));
+}
+
 watch(
   () => [props.sessionScoped, props.modelValue, props.providerId, providersHaveModels.value],
   async () => {
@@ -196,11 +221,7 @@ watch(
     if (!props.sessionScoped || !props.modelValue || !providersHaveModels.value) return;
     if (hasActiveMatch(props.modelValue, props.providerId)) return;
 
-    // No providerId on legacy sessions -- fall back to the built-in
-    // Anthropic provider (mirrors resolveModelId's tier-alias fallback).
-    const targetProviderId = props.providerId || providersStore.providers.find(
-      (p) => p.isBuiltIn && agentTypeFor(p) === 'claude-code'
-    )?.id;
+    const targetProviderId = sessionScopedProviderId.value;
     if (!targetProviderId) return;
 
     const model = await providersStore.fetchHistoricalModel(targetProviderId, props.modelValue);

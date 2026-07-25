@@ -127,7 +127,6 @@
     <ProviderForm
       :is-open="isFormOpen"
       :provider="selectedProvider"
-      :attribution-only="attributionOnly"
       :built-in-manage="selectedProvider?.isBuiltIn === true"
       @close="closeFormModal"
       @saved="handleProviderSaved"
@@ -189,7 +188,6 @@ const uiStore = useUiStore();
 
 const isFormOpen = ref(false);
 const selectedProvider = ref(null);
-const attributionOnly = ref(false);
 const providerToDelete = ref(null);
 const deleting = ref(false);
 const testingProviderId = ref(null);
@@ -201,20 +199,17 @@ onMounted(() => {
 
 function openCreateModal() {
   selectedProvider.value = null;
-  attributionOnly.value = false;
   isFormOpen.value = true;
 }
 
 function openEditModal(provider) {
   selectedProvider.value = provider;
-  attributionOnly.value = false;
   isFormOpen.value = true;
 }
 
 function closeFormModal() {
   isFormOpen.value = false;
   selectedProvider.value = null;
-  attributionOnly.value = false;
 }
 
 function handleProviderSaved() {

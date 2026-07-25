@@ -103,7 +103,6 @@ function createFormState() {
 export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
   const providersStore = useProvidersStore();
   const uiStore = useUiStore();
-  const attributionOnlyRef = options.attributionOnlyRef;
   const builtInManageRef = options.builtInManageRef;
 
   // ── Form state ────────────────────────────────────────────────
@@ -118,7 +117,6 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
   });
   const isValid = computed(() => {
     if (attributionValidationError.value) return false;
-    if (attributionOnlyRef?.value) return true;
     if (form.value.name.trim().length === 0) return false;
     // `kind` is required on create; on edit the server enforces immutability
     // and we simply surface the existing value, so no extra validation needed.
@@ -277,14 +275,13 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
 
   // ── Save ──────────────────────────────────────────────────────
   function saveLimitedProvider(data) {
-    const attributionOnly = attributionOnlyRef?.value;
     const builtInManage = builtInManageRef?.value && providerRef.value?.isBuiltIn;
-    if (!attributionOnly && !builtInManage) return null;
+    if (!builtInManage) return null;
 
     return providersStore.updateProvider(providerRef.value.id, {
       commitAttributionOverride: data.commitAttributionOverride,
     }).then(async () => {
-      if (builtInManage) await reconcileModels(providerRef.value.id);
+      await reconcileModels(providerRef.value.id);
       uiStore.success('Provider updated successfully');
       onSaved();
     });

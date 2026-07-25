@@ -774,34 +774,6 @@ describe('useProviderForm', () => {
         );
       });
 
-      it('attribution-only update sends only commitAttributionOverride', async () => {
-        providerRef.value = {
-          id: 'p1',
-          name: 'Built In',
-          baseUrl: null,
-          authToken: null,
-          apiTimeoutMs: null,
-          additionalEnvVars: null,
-          commitAttributionOverride: null,
-          models: [],
-        };
-        isOpenRef.value = true;
-        const attributionOnlyRef = ref(true);
-
-        const { result } = createForm({ attributionOnlyRef });
-        await nextTick();
-
-        mockProvidersStore.updateProvider.mockResolvedValue({ id: 'p1' });
-        result.form.value.commitAttributionOverride = '  Codex <noreply@openai.com>  ';
-
-        await result.save();
-
-        expect(mockProvidersStore.updateProvider).toHaveBeenCalledWith('p1', {
-          commitAttributionOverride: 'Co-authored-by: Codex <noreply@openai.com>',
-        });
-        expect(mockProvidersStore.fetchProviders).not.toHaveBeenCalled();
-      });
-
       it('should show success toast on update', async () => {
         providerRef.value = {
           id: 'p1',
@@ -1243,9 +1215,9 @@ describe('useProviderForm', () => {
       );
     });
 
-    it('does not reconcile models on an attribution-only save', async () => {
-      const attributionOnlyRef = ref(true);
-      const { result } = createForm({ attributionOnlyRef });
+    it('reconciles models (even a no-op empty list) on every built-in-manage save, since attribution-only saves no longer exist', async () => {
+      const builtInManageRef = ref(true);
+      const { result } = createForm({ builtInManageRef });
 
       providerRef.value = {
         id: 'anthropic-default',
@@ -1271,7 +1243,10 @@ describe('useProviderForm', () => {
       });
       expect(mockProvidersStore.updateModel).not.toHaveBeenCalled();
       expect(mockProvidersStore.reorderModels).not.toHaveBeenCalled();
-      expect(mockProvidersStore.fetchProviders).not.toHaveBeenCalled();
+      // Reconciliation always runs for a built-in-manage save (there is no
+      // separate attribution-only path anymore); with an empty model list
+      // that reconciliation is a no-op except for the store refresh.
+      expect(mockProvidersStore.fetchProviders).toHaveBeenCalled();
     });
   });
 
