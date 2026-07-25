@@ -8,6 +8,29 @@ import {
 
 export const PROVIDER_KINDS = Object.freeze(['anthropic', 'openai']);
 
+function normalizeCommitAttributionOverride(value) {
+  const result = parseCommitAttributionOverride(value);
+  if (!result.success) {
+    throw new Error(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
+  }
+  return result.value;
+}
+
+function buildProviderData(form) {
+  return {
+    name: form.name.trim(),
+    baseUrl: form.baseUrl?.trim() || null,
+    apiTimeoutMs: form.apiTimeoutMs || null,
+    additionalEnvVars:
+      Object.keys(form.additionalEnvVars).length > 0
+        ? form.additionalEnvVars
+        : null,
+    commitAttributionOverride: normalizeCommitAttributionOverride(
+      form.commitAttributionOverride
+    ),
+  };
+}
+
 /**
  * Create the default (empty) form state for a new provider.
  * @returns {Object} Default form values
@@ -253,12 +276,18 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
   }
 
   // ── Save ──────────────────────────────────────────────────────
-  function normalizeCommitAttributionOverride(value) {
-    const result = parseCommitAttributionOverride(value);
-    if (!result.success) {
-      throw new Error(COMMIT_ATTRIBUTION_VALIDATION_MESSAGE);
-    }
-    return result.value;
+  function saveLimitedProvider(data) {
+    const attributionOnly = attributionOnlyRef?.value;
+    const builtInManage = builtInManageRef?.value && providerRef.value?.isBuiltIn;
+    if (!attributionOnly && !builtInManage) return null;
+
+    return providersStore.updateProvider(providerRef.value.id, {
+      commitAttributionOverride: data.commitAttributionOverride,
+    }).then(async () => {
+      if (builtInManage) await reconcileModels(providerRef.value.id);
+      uiStore.success('Provider updated successfully');
+      onSaved();
+    });
   }
 
   async function save() {
@@ -266,35 +295,10 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     error.value = null;
 
     try {
-      const data = {
-        name: form.value.name.trim(),
-        baseUrl: form.value.baseUrl?.trim() || null,
-        apiTimeoutMs: form.value.apiTimeoutMs || null,
-        additionalEnvVars:
-          Object.keys(form.value.additionalEnvVars).length > 0
-            ? form.value.additionalEnvVars
-            : null,
-        commitAttributionOverride: normalizeCommitAttributionOverride(
-          form.value.commitAttributionOverride
-        ),
-      };
-
-      if (attributionOnlyRef?.value) {
-        await providersStore.updateProvider(providerRef.value.id, {
-          commitAttributionOverride: data.commitAttributionOverride,
-        });
-        uiStore.success('Provider updated successfully');
-        onSaved();
-        return;
-      }
-
-      if (builtInManageRef?.value && providerRef.value?.isBuiltIn) {
-        await providersStore.updateProvider(providerRef.value.id, {
-          commitAttributionOverride: data.commitAttributionOverride,
-        });
-        await reconcileModels(providerRef.value.id);
-        uiStore.success('Provider updated successfully');
-        onSaved();
+      const data = buildProviderData(form.value);
+      const limitedSave = saveLimitedProvider(data);
+      if (limitedSave) {
+        await limitedSave;
         return;
       }
 

@@ -12,6 +12,7 @@ const mockProvidersStore = {
   addModel: vi.fn(),
   updateModel: vi.fn(),
   removeModel: vi.fn(),
+  reorderModels: vi.fn(),
 };
 
 const mockUiStore = {
@@ -388,6 +389,59 @@ describe('useProviderForm', () => {
       result.removeLocalModel(1);
 
       expect(result.localModels.value.map((m) => m.modelId)).toEqual(['a', 'c']);
+    });
+  });
+
+  // ── 6.5 moveLocalModel (reorder) ─────────────────────────────────
+  describe('moveLocalModel (reorder)', () => {
+    it('should move a model up (delta -1)', () => {
+      const { result } = createForm();
+      result.localModels.value = [
+        { modelId: 'a', displayName: 'A', tier: 'custom' },
+        { modelId: 'b', displayName: 'B', tier: 'custom' },
+        { modelId: 'c', displayName: 'C', tier: 'custom' },
+      ];
+
+      result.moveLocalModel(2, -1);
+
+      expect(result.localModels.value.map((m) => m.modelId)).toEqual(['a', 'c', 'b']);
+    });
+
+    it('should move a model down (delta +1)', () => {
+      const { result } = createForm();
+      result.localModels.value = [
+        { modelId: 'a', displayName: 'A', tier: 'custom' },
+        { modelId: 'b', displayName: 'B', tier: 'custom' },
+        { modelId: 'c', displayName: 'C', tier: 'custom' },
+      ];
+
+      result.moveLocalModel(0, 1);
+
+      expect(result.localModels.value.map((m) => m.modelId)).toEqual(['b', 'a', 'c']);
+    });
+
+    it('should be a no-op when moving the first model up', () => {
+      const { result } = createForm();
+      result.localModels.value = [
+        { modelId: 'a', displayName: 'A', tier: 'custom' },
+        { modelId: 'b', displayName: 'B', tier: 'custom' },
+      ];
+
+      result.moveLocalModel(0, -1);
+
+      expect(result.localModels.value.map((m) => m.modelId)).toEqual(['a', 'b']);
+    });
+
+    it('should be a no-op when moving the last model down', () => {
+      const { result } = createForm();
+      result.localModels.value = [
+        { modelId: 'a', displayName: 'A', tier: 'custom' },
+        { modelId: 'b', displayName: 'B', tier: 'custom' },
+      ];
+
+      result.moveLocalModel(1, 1);
+
+      expect(result.localModels.value.map((m) => m.modelId)).toEqual(['a', 'b']);
     });
   });
 
@@ -1098,6 +1152,126 @@ describe('useProviderForm', () => {
           enabled: true,
         });
       });
+    });
+  });
+
+  // ── 9.4 built-in model management (enable/disable + reorder) ────
+  describe('built-in model management (builtInManage)', () => {
+    it('saves attribution override, applies enable/disable, and persists reorder for a built-in provider', async () => {
+      const builtInManageRef = ref(true);
+      const { result } = createForm({ builtInManageRef });
+
+      providerRef.value = {
+        id: 'anthropic-default',
+        name: 'Anthropic',
+        isBuiltIn: true,
+        baseUrl: null,
+        authToken: null,
+        apiTimeoutMs: null,
+        additionalEnvVars: null,
+        commitAttributionOverride: null,
+        models: [
+          { id: 'm1', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', tier: 'opus', enabled: true, sortOrder: null },
+          { id: 'm2', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet', enabled: true, sortOrder: null },
+        ],
+      };
+      isOpenRef.value = true;
+      await nextTick();
+
+      mockProvidersStore.updateProvider.mockResolvedValue({ id: 'anthropic-default' });
+      mockProvidersStore.updateModel.mockResolvedValue();
+      mockProvidersStore.reorderModels.mockResolvedValue([]);
+      mockProvidersStore.fetchProviders.mockResolvedValue();
+
+      // Disable the first model (an enable/disable change) and move Sonnet up (reorder).
+      result.localModels.value[0].enabled = false;
+      result.moveLocalModel(1, -1);
+
+      await result.save();
+
+      // Built-in mutability guard: only the attribution override is forwarded.
+      expect(mockProvidersStore.updateProvider).toHaveBeenCalledWith('anthropic-default', {
+        commitAttributionOverride: null,
+      });
+      // The disabled model is reconciled with its new enabled state.
+      expect(mockProvidersStore.updateModel).toHaveBeenCalledWith(
+        'anthropic-default',
+        'm1',
+        expect.objectContaining({ modelId: 'claude-opus-4-8', enabled: false }),
+      );
+      // The new order (Sonnet before Opus) is persisted.
+      expect(mockProvidersStore.reorderModels).toHaveBeenCalledWith('anthropic-default', ['m2', 'm1']);
+      // The store is refreshed and the UI is notified.
+      expect(mockProvidersStore.fetchProviders).toHaveBeenCalled();
+      expect(mockUiStore.success).toHaveBeenCalledWith('Provider updated successfully');
+      expect(onSaved).toHaveBeenCalled();
+    });
+
+    it('detects an enabled-state change and reconciles the model', async () => {
+      const builtInManageRef = ref(true);
+      const { result } = createForm({ builtInManageRef });
+
+      providerRef.value = {
+        id: 'anthropic-default',
+        name: 'Anthropic',
+        isBuiltIn: true,
+        baseUrl: null,
+        authToken: null,
+        apiTimeoutMs: null,
+        additionalEnvVars: null,
+        commitAttributionOverride: null,
+        models: [
+          { id: 'm1', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', tier: 'opus', enabled: true, sortOrder: null },
+        ],
+      };
+      isOpenRef.value = true;
+      await nextTick();
+
+      mockProvidersStore.updateProvider.mockResolvedValue({ id: 'anthropic-default' });
+      mockProvidersStore.updateModel.mockResolvedValue();
+      mockProvidersStore.reorderModels.mockResolvedValue([]);
+      mockProvidersStore.fetchProviders.mockResolvedValue();
+
+      result.localModels.value[0].enabled = false;
+
+      await result.save();
+
+      expect(mockProvidersStore.updateModel).toHaveBeenCalledWith(
+        'anthropic-default',
+        'm1',
+        expect.objectContaining({ enabled: false }),
+      );
+    });
+
+    it('does not reconcile models on an attribution-only save', async () => {
+      const attributionOnlyRef = ref(true);
+      const { result } = createForm({ attributionOnlyRef });
+
+      providerRef.value = {
+        id: 'anthropic-default',
+        name: 'Anthropic',
+        isBuiltIn: true,
+        baseUrl: null,
+        authToken: null,
+        apiTimeoutMs: null,
+        additionalEnvVars: null,
+        commitAttributionOverride: null,
+        models: [],
+      };
+      isOpenRef.value = true;
+      await nextTick();
+
+      mockProvidersStore.updateProvider.mockResolvedValue({ id: 'anthropic-default' });
+      mockProvidersStore.fetchProviders.mockResolvedValue();
+
+      await result.save();
+
+      expect(mockProvidersStore.updateProvider).toHaveBeenCalledWith('anthropic-default', {
+        commitAttributionOverride: null,
+      });
+      expect(mockProvidersStore.updateModel).not.toHaveBeenCalled();
+      expect(mockProvidersStore.reorderModels).not.toHaveBeenCalled();
+      expect(mockProvidersStore.fetchProviders).not.toHaveBeenCalled();
     });
   });
 

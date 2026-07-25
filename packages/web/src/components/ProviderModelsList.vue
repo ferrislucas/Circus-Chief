@@ -60,27 +60,37 @@
             title="Move model up"
             :disabled="index === 0"
             @click="$emit('move-up', index)"
-          >↑</button>
+          >
+            ↑
+          </button>
           <button
             type="button"
             class="move-model-btn"
             title="Move model down"
             :disabled="index === models.length - 1"
             @click="$emit('move-down', index)"
-          >↓</button>
-          <label class="model-enabled" :title="model.enabled === false ? 'Enable model' : 'Disable model'">
-            <input v-model="model.enabled" type="checkbox">
+          >
+            ↓
+          </button>
+          <label
+            class="model-enabled"
+            :title="model.enabled === false ? 'Enable model' : 'Disable model'"
+          >
+            <input
+              v-model="model.enabled"
+              type="checkbox"
+            >
             <span>{{ model.enabled === false ? 'Off' : 'On' }}</span>
           </label>
           <button
             v-if="!noAddRemove"
-          type="button"
-          class="remove-model-btn"
-          title="Remove model"
-          @click="$emit('remove', index)"
-        >
-          ×
-        </button>
+            type="button"
+            class="remove-model-btn"
+            title="Remove model"
+            @click="$emit('remove', index)"
+          >
+            ×
+          </button>
         </div>
       </div>
     </div>
@@ -92,9 +102,9 @@
     </div>
 
     <button
+      v-if="!noAddRemove"
       type="button"
       class="btn btn-sm btn-secondary add-model-btn"
-      v-if="!noAddRemove"
       @click="$emit('add')"
     >
       + Add Model

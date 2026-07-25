@@ -46,6 +46,15 @@ const UPDATE_COLUMN_BUILDERS = Object.freeze({
   enabled: (value) => ['enabled = ?', value ? 1 : 0],
 });
 
+const MODEL_UPDATE_COLUMN_BUILDERS = Object.freeze({
+  modelId: (value) => ['model_id = ?', value],
+  displayName: (value) => ['display_name = ?', value],
+  description: (value) => ['description = ?', value],
+  tier: (value) => ['tier = ?', value],
+  enabled: (value) => ['enabled = ?', value ? 1 : 0],
+  sortOrder: (value) => ['sort_order = ?', value],
+});
+
 function validateBuiltInUpdate(provider, data) {
   if (!provider.isBuiltIn) return;
 
@@ -76,6 +85,20 @@ function buildUpdateColumns(data = {}) {
     result.values.push(value);
     return result;
   }, { updates: [], values: [] });
+}
+
+function buildModelUpdateColumns(data = {}) {
+  return Object.entries(MODEL_UPDATE_COLUMN_BUILDERS).reduce(
+    (result, [field, buildColumn]) => {
+      if (data[field] === undefined) return result;
+
+      const [update, value] = buildColumn(data[field]);
+      result.updates.push(update);
+      result.values.push(value);
+      return result;
+    },
+    { updates: [], values: [] }
+  );
 }
 
 /**
@@ -316,33 +339,7 @@ export class ProviderRepository extends BaseRepository {
     if (provider?.isBuiltIn && data.modelId !== undefined && data.modelId !== current.modelId) {
       throw new Error('Cannot change the model id of a built-in provider model');
     }
-    const updates = [];
-    const values = [];
-
-    if (data.modelId !== undefined) {
-      updates.push('model_id = ?');
-      values.push(data.modelId);
-    }
-    if (data.displayName !== undefined) {
-      updates.push('display_name = ?');
-      values.push(data.displayName);
-    }
-    if (data.description !== undefined) {
-      updates.push('description = ?');
-      values.push(data.description);
-    }
-    if (data.tier !== undefined) {
-      updates.push('tier = ?');
-      values.push(data.tier);
-    }
-    if (data.enabled !== undefined) {
-      updates.push('enabled = ?');
-      values.push(data.enabled ? 1 : 0);
-    }
-    if (data.sortOrder !== undefined) {
-      updates.push('sort_order = ?');
-      values.push(data.sortOrder);
-    }
+    const { updates, values } = buildModelUpdateColumns(data);
 
     if (updates.length > 0) {
       values.push(id);
