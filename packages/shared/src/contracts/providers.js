@@ -120,6 +120,11 @@ export const ProviderResponse = z.object({
       displayName: z.string(),
       description: z.string().nullable(),
       tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']),
+      enabled: z.boolean(),
+      sortOrder: z.number().nullable(),
+      lifecycle: z.enum(['current', 'older']),
+      catalogManaged: z.boolean(),
+      removedAt: z.number().nullable(),
       createdAt: z.number(),
     })
   ),
@@ -145,6 +150,9 @@ export const ProviderModelResponse = z.object({
   tier: z.string().nullable(),
   enabled: z.boolean(),
   sortOrder: z.number().nullable(),
+  lifecycle: z.enum(['current', 'older']),
+  catalogManaged: z.boolean(),
+  removedAt: z.number().nullable(),
   createdAt: z.number(),
 });
 

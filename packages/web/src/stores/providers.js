@@ -185,6 +185,22 @@ export const useProvidersStore = defineStore('providers', {
       }
     },
 
+    /**
+     * Resolve a model id that may be disabled or soft-removed, scoped to a
+     * single (provider, modelId) pair. Used only by session-scoped model
+     * pickers to keep an existing session's stored choice selectable without
+     * exposing it to unrelated new-selection surfaces. Does not touch store
+     * state -- callers merge the result locally.
+     */
+    async fetchHistoricalModel(providerId, modelId) {
+      if (!providerId || !modelId) return null;
+      try {
+        return await api.getHistoricalProviderModel(providerId, modelId);
+      } catch {
+        return null;
+      }
+    },
+
     async removeModel(providerId, modelId) {
       this.loading = true;
       this.error = null;

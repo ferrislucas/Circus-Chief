@@ -134,7 +134,6 @@
             v-if="!attributionOnly"
             :models="localModels"
             :read-only-model-id="isBuiltInManage"
-            :no-add-remove="isBuiltInManage"
             @add="addLocalModel"
             @remove="removeLocalModel"
             @move-up="moveLocalModel($event, -1)"

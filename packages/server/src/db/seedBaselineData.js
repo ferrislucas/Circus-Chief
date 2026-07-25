@@ -20,16 +20,8 @@ export const BUILT_IN_GOOGLE_PROVIDER = {
   kind: 'google',
 };
 
-const ANTHROPIC_SEED_IDS = {
-  'claude-fable-5': 'anthropic-fable',
-  'claude-haiku-4-5-20251001': 'anthropic-haiku',
-  'claude-sonnet-5': 'anthropic-sonnet',
-  'claude-opus-4-6': 'anthropic-opus',
-  'claude-opus-4-7': 'anthropic-opus-4-7',
-  'claude-opus-4-8': 'anthropic-opus-4-8',
-};
 export const BUILT_IN_ANTHROPIC_MODELS = CLAUDE_MODELS.map((model) => ({
-  id: ANTHROPIC_SEED_IDS[model.id], providerId: BUILT_IN_ANTHROPIC_PROVIDER.id,
+  id: model.seedId, providerId: BUILT_IN_ANTHROPIC_PROVIDER.id,
   modelId: model.id, displayName: model.name, description: model.description, tier: model.tier,
 }));
 

@@ -209,28 +209,109 @@ export function seedBuiltInFable5(db) {
   );
 }
 
+/**
+ * The provider/catalog pairs shared by every catalog-driven migration helper
+ * below (seeding, lifecycle sync, and the one-time older-lifecycle disable).
+ */
+const CATALOGS_BY_PROVIDER = [
+  [ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => model.tier],
+  [OPENAI_PROVIDER_ID, OPENAI_MODELS, () => 'custom'],
+  [GOOGLE_PROVIDER_ID, GEMINI_MODELS, () => 'custom'],
+];
+
 /** Seed current catalogs after enabled/sort_order columns have been added. */
 export function syncBuiltInModelCatalogs(db) {
   const now = Date.now();
-  const anthropicSeedIds = {
-    'claude-fable-5': 'anthropic-fable',
-    'claude-haiku-4-5-20251001': 'anthropic-haiku',
-    'claude-sonnet-5': 'anthropic-sonnet',
-    'claude-opus-4-6': 'anthropic-opus',
-    'claude-opus-4-7': 'anthropic-opus-4-7',
-    'claude-opus-4-8': 'anthropic-opus-4-8',
-  };
-  const catalogs = [
-    [ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => anthropicSeedIds[model.id], (model) => model.tier],
-    [OPENAI_PROVIDER_ID, OPENAI_MODELS, (model) => model.seedId, () => 'custom'],
-    [GOOGLE_PROVIDER_ID, GEMINI_MODELS, (model) => model.seedId, () => 'custom'],
-  ];
   const insert = db.prepare(`INSERT OR IGNORE INTO provider_models
     (id, provider_id, model_id, display_name, description, tier, enabled, sort_order, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM provider_models WHERE provider_id = ?), ?)`);
-  for (const [providerId, models, idFor, tierFor] of catalogs) {
+  for (const [providerId, models, tierFor] of CATALOGS_BY_PROVIDER) {
     for (const model of models) {
-      insert.run(idFor(model), providerId, model.id, model.name, model.description, tierFor(model), model.defaultEnabled === false ? 0 : 1, providerId, now);
+      insert.run(model.seedId, providerId, model.id, model.name, model.description, tierFor(model), model.defaultEnabled === false ? 0 : 1, providerId, now);
     }
   }
+}
+
+/**
+ * Keep `lifecycle` and `catalog_managed` in sync with the current catalog on
+ * every startup. Never touches `enabled`, `sort_order`, or `removed_at` --
+ * those are user-controlled once seeded (FRD §0 "Startup must never overwrite
+ * a user's later enable/disable decision").
+ */
+export function syncCatalogLifecycleMetadata(db) {
+  const updateLifecycle = db.prepare(
+    `UPDATE provider_models SET lifecycle = ?, catalog_managed = 1
+     WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL AND lifecycle IS NOT ?`
+  );
+  for (const [providerId, models] of CATALOGS_BY_PROVIDER) {
+    for (const model of models) {
+      const lifecycle = model.lifecycle || 'current';
+      updateLifecycle.run(lifecycle, providerId, model.id, lifecycle);
+    }
+  }
+}
+
+const OLDER_LIFECYCLE_MIGRATION_MARKER = 'provider_models_disable_older_lifecycle_v1';
+
+/**
+ * One-time, marker-guarded migration: disable every catalog entry classified
+ * as `lifecycle: 'older'` across all three built-in providers. Guarded by a
+ * row in `app_settings` (rather than the `sort_order IS NULL` trick used by
+ * the retired gpt-5.5-only migration) so it runs exactly once regardless of
+ * when each row was originally seeded, and never re-disables a model a user
+ * has since re-enabled.
+ */
+export function disableOlderLifecycleModelsOnce(db) {
+  const already = db.prepare('SELECT 1 FROM app_settings WHERE key = ?').get(OLDER_LIFECYCLE_MIGRATION_MARKER);
+  if (already) return;
+
+  const disable = db.prepare(
+    `UPDATE provider_models SET enabled = 0 WHERE provider_id = ? AND model_id = ? AND removed_at IS NULL`
+  );
+  const transaction = db.transaction(() => {
+    for (const [providerId, models] of CATALOGS_BY_PROVIDER) {
+      for (const model of models) {
+        if ((model.lifecycle || 'current') === 'older') {
+          disable.run(providerId, model.id);
+        }
+      }
+    }
+    db.prepare(
+      'INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)'
+    ).run(OLDER_LIFECYCLE_MIGRATION_MARKER, 'done', Date.now());
+  });
+  transaction();
+}
+
+/**
+ * Resolve any pre-existing duplicate (provider_id, model_id) pairs among
+ * *active* (non-removed) rows before the unique partial index is created.
+ * Keeps the earliest row (by created_at, then rowid as an insertion-order
+ * tiebreak) and soft-removes the rest so historical continuity is preserved
+ * rather than destroyed.
+ */
+export function dedupeActiveProviderModelIdentities(db) {
+  const duplicates = db.prepare(`
+    SELECT id FROM provider_models pm
+    WHERE removed_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM provider_models earlier
+        WHERE earlier.provider_id = pm.provider_id
+          AND earlier.model_id = pm.model_id
+          AND earlier.removed_at IS NULL
+          AND (earlier.created_at < pm.created_at
+            OR (earlier.created_at = pm.created_at AND earlier.rowid < pm.rowid))
+      )
+  `).all();
+
+  if (duplicates.length === 0) return;
+
+  const softRemove = db.prepare('UPDATE provider_models SET removed_at = ? WHERE id = ?');
+  const now = Date.now();
+  const transaction = db.transaction(() => {
+    for (const { id } of duplicates) {
+      softRemove.run(now, id);
+    }
+  });
+  transaction();
 }

@@ -7,6 +7,7 @@ import {
   API_URL,
   TEST_PREFIX,
   getProviders,
+  updateProviderModel,
   waitForSessionToExist,
   waitForSessionStatus,
 } from './helpers';
@@ -15,12 +16,18 @@ import { API_READY, PAGE_READY_TIMEOUT } from './timeouts';
 /**
  * E2E tests for Claude Opus 4.7 model availability.
  *
- * Verifies that the Opus 4.7 model appears in both:
- * 1. The providers API response (backend)
- * 2. The model selector dropdown (frontend)
- *
- * Also verifies that Opus 4.6 remains available for backward compatibility
- * (existing sessions may still reference it).
+ * Opus 4.6 and 4.7 are `lifecycle: 'older'` catalog entries (superseded by
+ * Opus 4.8) and are disabled by default (FRD-built-in-model-choices.md §0
+ * "Every model classified as older or legacy... is disabled by default").
+ * These tests verify:
+ * 1. All three Opus generations still exist in the providers API response
+ *    (disabled != removed -- they remain valid, resolvable model ids).
+ * 2. A fresh draft session's model selector only offers the current (Opus
+ *    4.8) generation by default.
+ * 3. An admin can re-enable an older generation via provider management,
+ *    after which it becomes selectable for new sessions too.
+ * 4. An existing session already using Opus 4.6 keeps showing/using it even
+ *    though it's disabled by default (historical continuity, US5).
  */
 test.describe('Opus 4.7 Model Availability', () => {
   let project: any;
@@ -64,12 +71,22 @@ test.describe('Opus 4.7 Model Availability', () => {
     const opus46 = builtIn.models.find((m: any) => m.modelId === 'claude-opus-4-6');
     expect(opus46.displayName).toBe('Opus 4.6');
     expect(opus46.description).toBe('Previous generation');
+
+    // Opus 4.8 is the current generation (enabled by default); Opus 4.6/4.7
+    // are older, superseded generations (disabled by default) -- valid and
+    // resolvable, but hidden from new-selection pickers until re-enabled.
+    expect(opus48.lifecycle).toBe('current');
+    expect(opus48.enabled).toBe(true);
+    expect(opus47.lifecycle).toBe('older');
+    expect(opus47.enabled).toBe(false);
+    expect(opus46.lifecycle).toBe('older');
+    expect(opus46.enabled).toBe(false);
   });
 
-  test('model selector dropdown includes both Opus 4.6 and 4.7 options', async ({ page }) => {
+  test('a fresh draft session model selector only offers the current Opus generation by default', async ({ page }) => {
     // Create a draft session so we can see the model selector
     const session = await seedSession(project.id, {
-      prompt: 'Test Opus 4.7 availability in model selector',
+      prompt: 'Test Opus generation defaults in model selector',
       startImmediately: false,
       gitMode: 'none',
       gitBranch: 'main',
@@ -93,7 +110,7 @@ test.describe('Opus 4.7 Model Availability', () => {
     // Wait for options to load (providers store fetch)
     await page.waitForFunction(() => {
       const select = document.querySelector('#model-select') as HTMLSelectElement;
-      return select && select.options.length >= 5;
+      return select && select.options.length >= 3;
     }, { timeout: 10000 });
 
     // Gather all option values from the dropdown
@@ -106,7 +123,6 @@ test.describe('Opus 4.7 Model Availability', () => {
     });
     console.log('Model selector options:', JSON.stringify(optionValues, null, 2));
 
-    // Assert that all Opus versions are available
     // Option values use providerId::modelId format (e.g. "anthropic-default::claude-opus-4-8")
     const opus48Option = optionValues.find(opt => opt.value.endsWith('::claude-opus-4-8'));
     expect(
@@ -115,67 +131,73 @@ test.describe('Opus 4.7 Model Availability', () => {
     ).toBeTruthy();
     expect(opus48Option!.text).toContain('Opus 4.8');
 
+    // Opus 4.6 and 4.7 are disabled-by-default older generations and this
+    // draft session has no historical usage of either -- neither should
+    // appear as a new-selection choice.
     const opus47Option = optionValues.find(opt => opt.value.endsWith('::claude-opus-4-7'));
-    expect(
-      opus47Option,
-      `Opus 4.7 should be in the model selector. Found: ${optionValues.map(o => o.value).join(', ')}`
-    ).toBeTruthy();
-    expect(opus47Option!.text).toContain('Opus 4.7');
+    expect(opus47Option, 'Disabled-by-default Opus 4.7 should not be offered to a fresh draft session').toBeFalsy();
 
     const opus46Option = optionValues.find(opt => opt.value.endsWith('::claude-opus-4-6'));
-    expect(
-      opus46Option,
-      `Opus 4.6 should still be in the model selector for backward compatibility. Found: ${optionValues.map(o => o.value).join(', ')}`
-    ).toBeTruthy();
-    expect(opus46Option!.text).toContain('Opus 4.6');
+    expect(opus46Option, 'Disabled-by-default Opus 4.6 should not be offered to a fresh draft session').toBeFalsy();
   });
 
-  test('can select Opus 4.7 model on a draft session', async ({ page }) => {
-    const session = await seedSession(project.id, {
-      prompt: 'Test selecting Opus 4.7',
-      startImmediately: false,
-      gitMode: 'none',
-      gitBranch: 'main',
-    });
+  test('re-enabling Opus 4.7 via provider management makes it selectable for new sessions', async ({ page }) => {
+    const providers = await getProviders();
+    const builtIn = providers.find((p: any) => p.isBuiltIn && p.kind === 'anthropic');
+    const opus47Row = builtIn.models.find((m: any) => m.modelId === 'claude-opus-4-7');
+    expect(opus47Row, 'Opus 4.7 row should exist on the built-in Anthropic provider').toBeTruthy();
 
-    // API-first preconditions (see comment in previous test).
-    await waitForSessionToExist(session.id, API_READY);
-    await waitForSessionStatus(session.id, 'waiting', API_READY);
+    await updateProviderModel(builtIn.id, opus47Row.id, { enabled: true });
 
-    await page.goto(`/sessions/${session.id}/summary`);
-    await page.waitForLoadState('domcontentloaded');
-    await openSessionOverlay(page);
+    try {
+      const session = await seedSession(project.id, {
+        prompt: 'Test selecting a re-enabled Opus 4.7',
+        startImmediately: false,
+        gitMode: 'none',
+        gitBranch: 'main',
+      });
 
-    const modelSelect = page.locator('#model-select');
-    await expect(modelSelect).toBeVisible({ timeout: 10000 });
+      await waitForSessionToExist(session.id, API_READY);
+      await waitForSessionStatus(session.id, 'waiting', API_READY);
 
-    // Wait for options to be populated (option values use providerId::modelId format)
-    await page.waitForFunction(() => {
-      const select = document.querySelector('#model-select') as HTMLSelectElement;
-      return select && Array.from(select.options).some(opt => opt.value.endsWith('::claude-opus-4-7'));
-    }, { timeout: 10000 });
+      await page.goto(`/sessions/${session.id}/summary`);
+      await page.waitForLoadState('domcontentloaded');
+      await openSessionOverlay(page);
 
-    // Find the full option value (providerId::claude-opus-4-7) to use with selectOption
-    const opus47OptionValue = await page.evaluate(() => {
-      const select = document.querySelector('#model-select') as HTMLSelectElement;
-      const opt = Array.from(select.options).find(o => o.value.endsWith('::claude-opus-4-7'));
-      return opt ? opt.value : null;
-    });
-    expect(opus47OptionValue).toBeTruthy();
+      const modelSelect = page.locator('#model-select');
+      await expect(modelSelect).toBeVisible({ timeout: 10000 });
 
-    // Select Opus 4.7 and wait for the PATCH request
-    const patchPromise = page.waitForResponse(
-      (resp) => resp.url().includes('/api/sessions/') && resp.request().method() === 'PATCH',
-      { timeout: 10000 }
-    );
-    await modelSelect.selectOption(opus47OptionValue!);
-    const patchResponse = await patchPromise;
-    expect(patchResponse.ok()).toBe(true);
+      // Wait for options to be populated (option values use providerId::modelId format)
+      await page.waitForFunction(() => {
+        const select = document.querySelector('#model-select') as HTMLSelectElement;
+        return select && Array.from(select.options).some(opt => opt.value.endsWith('::claude-opus-4-7'));
+      }, { timeout: 10000 });
 
-    // Verify the session was updated via API
-    const updatedRes = await fetch(`${API_URL}/api/sessions/${session.id}`);
-    const updated = await updatedRes.json();
-    expect(updated.model).toBe('claude-opus-4-7');
+      // Find the full option value (providerId::claude-opus-4-7) to use with selectOption
+      const opus47OptionValue = await page.evaluate(() => {
+        const select = document.querySelector('#model-select') as HTMLSelectElement;
+        const opt = Array.from(select.options).find(o => o.value.endsWith('::claude-opus-4-7'));
+        return opt ? opt.value : null;
+      });
+      expect(opus47OptionValue).toBeTruthy();
+
+      // Select Opus 4.7 and wait for the PATCH request
+      const patchPromise = page.waitForResponse(
+        (resp) => resp.url().includes('/api/sessions/') && resp.request().method() === 'PATCH',
+        { timeout: 10000 }
+      );
+      await modelSelect.selectOption(opus47OptionValue!);
+      const patchResponse = await patchPromise;
+      expect(patchResponse.ok()).toBe(true);
+
+      // Verify the session was updated via API
+      const updatedRes = await fetch(`${API_URL}/api/sessions/${session.id}`);
+      const updated = await updatedRes.json();
+      expect(updated.model).toBe('claude-opus-4-7');
+    } finally {
+      // Restore the catalog default so later tests see Opus 4.7 disabled again.
+      await updateProviderModel(builtIn.id, opus47Row.id, { enabled: false });
+    }
   });
 
   test('can select Opus 4.8 model on a draft session', async ({ page }) => {

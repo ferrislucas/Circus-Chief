@@ -1,11 +1,14 @@
 import { addColumnIfMissing, tableExists, getTableSql } from './migrationUtils.js';
 import {
   backfillBuiltInOpenAIAttribution,
+  dedupeActiveProviderModelIdentities,
+  disableOlderLifecycleModelsOnce,
   seedBuiltInFable5,
   seedBuiltInGoogleProvider,
   seedBuiltInOpenAIProvider,
   seedBuiltInProviders,
   syncBuiltInModelCatalogs,
+  syncCatalogLifecycleMetadata,
   updateBuiltInModels,
   updateBuiltInSonnet5,
   widenProviderModelsTierCheckForFable,
@@ -224,15 +227,6 @@ export const providerMigrations = [
     up(db) { addColumnIfMissing(db, 'provider_models', 'sort_order', 'INTEGER'); },
   },
   {
-    name: 'provider-models-migrate-retired-gpt-5-5',
-    up(db) {
-      // Existing installations have no explicit ordering yet at this point.
-      // Once backfilled, this condition prevents startup re-runs from
-      // overriding a user's later decision to re-enable the legacy model.
-      db.prepare("UPDATE provider_models SET enabled = 0 WHERE provider_id = 'openai-default' AND model_id = 'gpt-5.5' AND sort_order IS NULL").run();
-    },
-  },
-  {
     name: 'provider-models-backfill-sort-order',
     up(db) {
       db.exec(`UPDATE provider_models
@@ -246,5 +240,49 @@ export const providerMigrations = [
   {
     name: 'provider-models-sync-built-in-catalogs',
     up(db) { syncBuiltInModelCatalogs(db); },
+  },
+  {
+    name: 'provider-models-add-lifecycle',
+    up(db) { addColumnIfMissing(db, 'provider_models', 'lifecycle', "TEXT NOT NULL DEFAULT 'current'"); },
+  },
+  {
+    name: 'provider-models-add-catalog-managed',
+    up(db) { addColumnIfMissing(db, 'provider_models', 'catalog_managed', 'INTEGER NOT NULL DEFAULT 0'); },
+  },
+  {
+    name: 'provider-models-add-removed-at',
+    up(db) { addColumnIfMissing(db, 'provider_models', 'removed_at', 'INTEGER'); },
+  },
+  {
+    // Resolve any pre-existing duplicate (provider_id, model_id) pairs before
+    // the unique partial index below is created (see FRD §0 "removing a
+    // built-in choice must be durable"; Plan Phase 4 "resolving any legacy
+    // duplicates deterministically").
+    name: 'provider-models-dedupe-active-identity',
+    up(db) { dedupeActiveProviderModelIdentities(db); },
+  },
+  {
+    // A model id is unique per provider only among *active* rows -- a
+    // soft-removed row and its later restored replacement intentionally
+    // share (provider_id, model_id).
+    name: 'provider-models-unique-active-identity-index',
+    up(db) {
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_models_active_identity
+        ON provider_models(provider_id, model_id) WHERE removed_at IS NULL`);
+    },
+  },
+  {
+    // Keeps lifecycle/catalog_managed current every startup without ever
+    // touching enabled/sort_order/removed_at (user-controlled state).
+    name: 'provider-models-sync-catalog-lifecycle',
+    up(db) { syncCatalogLifecycleMetadata(db); },
+  },
+  {
+    // Supersedes the retired gpt-5.5-only special case: every catalog entry
+    // classified `lifecycle: 'older'` (across Anthropic, OpenAI, and Google)
+    // is disabled exactly once, guarded by an app_settings marker so a
+    // user's later re-enable decision is never overwritten.
+    name: 'provider-models-disable-older-lifecycle-once',
+    up(db) { disableOlderLifecycleModelsOnce(db); },
   },
 ];

@@ -1302,6 +1302,7 @@ export async function updateProviderModel(providerId: string, modelRowId: string
   modelId?: string;
   displayName?: string;
   tier?: string;
+  enabled?: boolean;
 }) {
   const response = await fetch(`${API_URL}/api/providers/${providerId}/models/${modelRowId}`, {
     method: 'PATCH',

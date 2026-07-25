@@ -76,6 +76,16 @@ const props = defineProps({
     type: Boolean,
     default: true,
   },
+  // Opt-in flag for pickers rendering an *existing session's* stored model
+  // (not drafts, templates, project defaults, or scheduling forms). When
+  // true, a disabled OR soft-removed choice matching modelValue/providerId
+  // is fetched and merged in so the session keeps showing/using it without
+  // an "unknown model" badge, while unrelated pickers never see it
+  // (FRD-built-in-model-choices.md §0 historical continuity, Plan Phase 7).
+  sessionScoped: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 const emit = defineEmits(['update:modelValue', 'model-selected', 'update:providerId']);
@@ -153,14 +163,75 @@ const visibleProviders = computed(() => {
     }
   }
 
-  return sortedProviders.value
+  const providers = sortedProviders.value
     .map((provider) => withDisabledModelsHidden(provider, new Set([resolveModelId(props.modelValue)].filter(Boolean))))
     .map((provider) => {
       if (!props.hideBuiltInDuplicates || !provider.isBuiltIn) return provider;
       return withCustomModelsHidden(provider, customModelIds);
-    })
-    .filter((provider) => provider.models?.length);
+    });
+
+  return withHistoricalEntryMerged(providers).filter((provider) => provider.models?.length);
 });
+
+// ── Session-scoped historical continuity (disabled OR soft-removed) ────
+// Disabled-but-not-removed choices are already present in provider.models
+// (just filtered by withDisabledModelsHidden above, and un-hidden there when
+// they match the current value). Soft-removed choices are excluded from the
+// bulk providers payload entirely, so a session-scoped picker fetches that
+// one historical row separately and merges it in here.
+const historicalEntry = ref(null); // { providerId, model } | null
+
+function hasActiveMatch(modelId, providerId) {
+  if (!modelId) return true;
+  return providersStore.providers.some((provider) => {
+    if (providerId && provider.id !== providerId) return false;
+    return (provider.models || []).some((model) => model.modelId === modelId);
+  });
+}
+
+watch(
+  () => [props.sessionScoped, props.modelValue, props.providerId, providersHaveModels.value],
+  async () => {
+    historicalEntry.value = null;
+    if (!props.sessionScoped || !props.modelValue || !providersHaveModels.value) return;
+    if (hasActiveMatch(props.modelValue, props.providerId)) return;
+
+    // No providerId on legacy sessions -- fall back to the built-in
+    // Anthropic provider (mirrors resolveModelId's tier-alias fallback).
+    const targetProviderId = props.providerId || providersStore.providers.find(
+      (p) => p.isBuiltIn && agentTypeFor(p) === 'claude-code'
+    )?.id;
+    if (!targetProviderId) return;
+
+    const model = await providersStore.fetchHistoricalModel(targetProviderId, props.modelValue);
+    if (model && model.modelId === props.modelValue) {
+      historicalEntry.value = { providerId: targetProviderId, model };
+    }
+  },
+  { immediate: true },
+);
+
+function withHistoricalEntryMerged(providers) {
+  const entry = historicalEntry.value;
+  if (!entry) return providers;
+
+  const alreadyPresent = providers.some(
+    (provider) => provider.id === entry.providerId && provider.models?.some((model) => model.modelId === entry.model.modelId),
+  );
+  if (alreadyPresent) return providers;
+
+  const targetIndex = providers.findIndex((provider) => provider.id === entry.providerId);
+  if (targetIndex !== -1) {
+    return providers.map((provider, index) => (
+      index === targetIndex
+        ? { ...provider, models: [...(provider.models || []), entry.model] }
+        : provider
+    ));
+  }
+
+  const sourceProvider = providersStore.providers.find((provider) => provider.id === entry.providerId);
+  return sourceProvider ? [...providers, { ...sourceProvider, models: [entry.model] }] : providers;
+}
 
 const duplicateModelIds = computed(() => {
   const counts = new Map();

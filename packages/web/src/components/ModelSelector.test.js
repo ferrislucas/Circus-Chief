@@ -1158,4 +1158,64 @@ describe('ModelSelector', () => {
       expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
     });
   });
+
+  describe('sessionScoped historical continuity for soft-removed models', () => {
+    const REMOVED_MODEL_ID = 'claude-opus-4-6';
+
+    beforeEach(() => {
+      // The removed model is NOT part of the bulk providers payload -- the
+      // server excludes soft-removed rows from GET /api/providers, same as a
+      // real removal would.
+      providersStore.providers = [
+        {
+          id: 'anthropic-default',
+          name: 'Anthropic (Official)',
+          isBuiltIn: true,
+          kind: 'anthropic',
+          models: [
+            { id: 'anthropic-sonnet', modelId: 'claude-sonnet-5', displayName: 'Sonnet 5', tier: 'sonnet' },
+            { id: 'anthropic-opus-4-8', modelId: 'claude-opus-4-8', displayName: 'Opus 4.8', tier: 'opus' },
+          ],
+        },
+      ];
+    });
+
+    it('does not fetch or show the removed model when sessionScoped is false', async () => {
+      const fetchHistoricalModel = vi.spyOn(providersStore, 'fetchHistoricalModel');
+      const wrapper = mountComponent({ modelValue: REMOVED_MODEL_ID, providerId: 'anthropic-default', sessionScoped: false });
+      await flushAll(wrapper);
+
+      expect(fetchHistoricalModel).not.toHaveBeenCalled();
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(true);
+    });
+
+    it('fetches and merges the removed model when sessionScoped is true, clearing the unknown badge', async () => {
+      vi.spyOn(providersStore, 'fetchHistoricalModel').mockResolvedValue({
+        id: 'anthropic-opus',
+        providerId: 'anthropic-default',
+        modelId: REMOVED_MODEL_ID,
+        displayName: 'Opus 4.6',
+        tier: 'opus',
+        enabled: false,
+        removedAt: Date.now(),
+      });
+
+      const wrapper = mountComponent({ modelValue: REMOVED_MODEL_ID, providerId: 'anthropic-default', sessionScoped: true });
+      await flushAll(wrapper);
+
+      expect(providersStore.fetchHistoricalModel).toHaveBeenCalledWith('anthropic-default', REMOVED_MODEL_ID);
+      expect(wrapper.find('.unknown-model-badge').exists()).toBe(false);
+      const values = wrapper.findAll('option').map((option) => option.element.value);
+      expect(values).toContain(optionValue('anthropic-default', REMOVED_MODEL_ID));
+      expect(wrapper.attributes('data-model')).toBe(REMOVED_MODEL_ID);
+    });
+
+    it('does not fetch when the value already resolves among active models', async () => {
+      const fetchHistoricalModel = vi.spyOn(providersStore, 'fetchHistoricalModel');
+      const wrapper = mountComponent({ modelValue: 'claude-opus-4-8', providerId: 'anthropic-default', sessionScoped: true });
+      await flushAll(wrapper);
+
+      expect(fetchHistoricalModel).not.toHaveBeenCalled();
+    });
+  });
 });

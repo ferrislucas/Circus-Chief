@@ -99,6 +99,7 @@
         <ModelSelector
           :model-value="selectedModel"
           :provider-id="selectedProviderId"
+          :session-scoped="true"
           @update:model-value="$emit('update:selectedModel', $event)"
           @update:provider-id="$emit('update:selectedProviderId', $event)"
         />

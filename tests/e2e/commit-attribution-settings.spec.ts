@@ -290,9 +290,11 @@ async function expectBuiltInAttributionModal(page: any, providerName: string, ex
   const modal = page.locator('.modal');
   await expect(modal).toBeVisible();
   // Built-in providers now open in a "Built-in Provider Settings" manage mode
-  // that exposes a congruent model manager (reorder + enable/disable) alongside
-  // commit attribution. Connection controls stay hidden and rows cannot be
-  // added/removed (FRD §7, FR-4.1/FR-4.2, US4).
+  // that exposes a congruent model manager alongside commit attribution.
+  // Connection controls stay hidden, but model choices can now be added and
+  // removed just like a custom provider's (FRD-built-in-model-choices.md §0
+  // "Requirements Correction" -- built-in add/remove parity supersedes the
+  // earlier reorder/enable-disable-only restriction).
   await expect(modal.locator('h2')).toHaveText('Built-in Provider Settings');
   await expect(modal.locator('#commit-attribution-override')).toHaveValue(expectedValue);
   await expect(modal.locator('.models-section')).toBeVisible();
@@ -300,7 +302,7 @@ async function expectBuiltInAttributionModal(page: any, providerName: string, ex
   await expect(modal.locator('#base-url')).toHaveCount(0);
   await expect(modal.locator('#auth-token')).toHaveCount(0);
   await expect(modal.locator('#api-timeout')).toHaveCount(0);
-  await expect(modal.locator('.add-model-btn')).toHaveCount(0);
+  await expect(modal.locator('.add-model-btn')).toHaveCount(1);
   await expect(modal.locator('.remove-env-btn')).toHaveCount(0);
   await expect(modal.locator('button:has-text("Test Connection")')).toHaveCount(0);
   await expect(modal.locator('button:has-text("Delete")')).toHaveCount(0);

@@ -25,7 +25,8 @@
           type="text"
           placeholder="anthropic.claude-3-sonnet-…"
           class="col-model-id model-input"
-          :readonly="readOnlyModelId"
+          :readonly="readOnlyModelId && Boolean(model._serverId)"
+          :title="readOnlyModelId && model._serverId ? 'Canonical model id cannot be changed after creation. Remove and re-add to use a different id.' : undefined"
         >
         <input
           v-model="model.displayName"
@@ -83,7 +84,6 @@
             <span>{{ model.enabled === false ? 'Off' : 'On' }}</span>
           </label>
           <button
-            v-if="!noAddRemove"
             type="button"
             class="remove-model-btn"
             title="Remove model"
@@ -102,7 +102,6 @@
     </div>
 
     <button
-      v-if="!noAddRemove"
       type="button"
       class="btn btn-sm btn-secondary add-model-btn"
       @click="$emit('add')"
@@ -116,7 +115,6 @@
 defineProps({
   models: { type: Array, required: true },
   readOnlyModelId: { type: Boolean, default: false },
-  noAddRemove: { type: Boolean, default: false },
 });
 
 defineEmits(['add', 'remove', 'move-up', 'move-down']);
