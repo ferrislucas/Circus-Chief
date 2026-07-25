@@ -46,7 +46,6 @@
 <script setup>
 import { ref, computed, watch, toRef, onMounted } from 'vue';
 import { useProvidersStore } from '../stores/providers.js';
-import { isRetiredBuiltInOpenAIModelSelection } from '@circuschief/shared';
 
 const props = defineProps({
   modelValue: {
@@ -148,12 +147,14 @@ const visibleProviders = computed(() => {
   for (const provider of providersStore.providers) {
     if (provider.isBuiltIn || !provider.models) continue;
     for (const model of provider.models) {
-      customModelIds.add(model.modelId);
+      if (model.enabled !== false || resolveModelId(props.modelValue) === model.modelId) {
+        customModelIds.add(model.modelId);
+      }
     }
   }
 
   return sortedProviders.value
-    .map((provider) => withRetiredModelsHidden(provider))
+    .map((provider) => withDisabledModelsHidden(provider, new Set([resolveModelId(props.modelValue)].filter(Boolean))))
     .map((provider) => {
       if (!props.hideBuiltInDuplicates || !provider.isBuiltIn) return provider;
       return withCustomModelsHidden(provider, customModelIds);
@@ -178,17 +179,13 @@ function withCustomModelsHidden(provider, customModelIds) {
   };
 }
 
-// Retired built-in OpenAI model ids (e.g. the superseded 'gpt-5.5') remain
-// resolvable/executable for historical sessions but must not appear as a
-// selectable choice for new selections. This only ever filters the built-in
-// OpenAI provider's own model list — a custom provider that happens to expose
-// the same model id string is never affected.
-function withRetiredModelsHidden(provider) {
+// Disabled choices stay valid for historical sessions, but are hidden from
+// new selections. Keep the current value visible so an existing session can
+// continue to display and use its disabled model without becoming "unknown".
+function withDisabledModelsHidden(provider, keepModelIds) {
   return {
     ...provider,
-    models: (provider.models || []).filter(
-      (model) => !isRetiredBuiltInOpenAIModelSelection(provider, model.modelId)
-    ),
+    models: (provider.models || []).filter((model) => model.enabled !== false || keepModelIds.has(model.modelId)),
   };
 }
 
@@ -205,9 +202,10 @@ const defaultModel = computed(() => {
   }
   const builtIn = anthropicProviders.find((p) => p.isBuiltIn);
   const candidate = builtIn || anthropicProviders[0];
-  if (candidate?.models?.length) {
-    const sonnet = candidate.models.find((m) => m.tier === 'sonnet');
-    return sonnet?.modelId || candidate.models[0].modelId;
+  const enabledModels = candidate?.models?.filter((model) => model.enabled !== false) || [];
+  if (enabledModels.length) {
+    const sonnet = enabledModels.find((m) => m.tier === 'sonnet');
+    return sonnet?.modelId || enabledModels[0].modelId;
   }
   return null;
 });

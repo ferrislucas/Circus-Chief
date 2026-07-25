@@ -31,9 +31,9 @@ describe('validateModelId', () => {
     expect(result.error).toContain('opus');
   });
 
-  it('does not list the retired gpt-5.5 id on a fresh database', () => {
+  it('lists disabled built-in gpt-5.5 as a valid historical model id', () => {
     const result = validateModelId('not-a-real-model');
-    expect(result.error).not.toContain('gpt-5.5');
+    expect(result.error).toContain('gpt-5.5');
   });
 
   it('accepts a retained legacy gpt-5.5 compatibility row (upgraded DB)', () => {

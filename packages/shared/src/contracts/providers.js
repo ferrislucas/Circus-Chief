@@ -124,6 +124,8 @@ export const CreateProviderModelRequest = z.object({
   displayName: z.string().min(1).max(100),
   description: z.string().nullable().optional(),
   tier: z.enum(['fable', 'opus', 'sonnet', 'haiku', 'custom']).nullable().optional(),
+  enabled: z.boolean().optional(),
+  sortOrder: z.number().int().nullable().optional(),
 });
 
 export const ProviderModelResponse = z.object({
@@ -133,7 +135,13 @@ export const ProviderModelResponse = z.object({
   displayName: z.string(),
   description: z.string().nullable(),
   tier: z.string().nullable(),
+  enabled: z.boolean(),
+  sortOrder: z.number().nullable(),
   createdAt: z.number(),
+});
+
+export const ReorderProviderModelsRequest = z.object({
+  order: z.array(z.string().uuid()),
 });
 
 export const ProviderModelListResponse = z.array(ProviderModelResponse);

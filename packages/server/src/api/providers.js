@@ -5,6 +5,7 @@ import {
   CreateProviderRequest,
   UpdateProviderRequest,
   CreateProviderModelRequest,
+  ReorderProviderModelsRequest,
   TestConnectionRequest,
 } from '@circuschief/shared/contracts/providers';
 import { testProviderConnection } from '../services/providerTestService.js';
@@ -200,6 +201,27 @@ router.post('/:id/models', (req, res) => {
     const model = modelProviders.addModel(req.params.id, result.data);
     res.status(201).json(model);
   } catch (error) {
+    if (error.message === 'Cannot add models to a built-in provider') {
+      return res.status(403).json({ error: error.message });
+    }
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/providers/:id/models/order - Persist a provider's model order
+router.put('/:id/models/order', (req, res) => {
+  try {
+    const provider = modelProviders.getById(req.params.id);
+    if (!provider) return res.status(404).json({ error: ERR_PROVIDER_NOT_FOUND });
+    const result = ReorderProviderModelsRequest.safeParse(req.body);
+    if (!result.success) return res.status(400).json({ error: result.error.issues[0].message });
+    const models = modelProviders.getModels(req.params.id);
+    const ownedIds = new Set(models.map((model) => model.id));
+    if (result.data.order.some((id) => !ownedIds.has(id))) {
+      return res.status(400).json({ error: 'Model does not belong to this provider' });
+    }
+    res.json(modelProviders.reorderModels(req.params.id, result.data.order));
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
@@ -229,6 +251,9 @@ router.patch('/:id/models/:modelId', (req, res) => {
     const updated = modelProviders.updateModel(req.params.modelId, result.data);
     res.json(updated);
   } catch (error) {
+    if (error.message === 'Cannot change the model id of a built-in provider model') {
+      return res.status(403).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });
@@ -253,6 +278,9 @@ router.delete('/:providerId/models/:modelId', (req, res) => {
     modelProviders.removeModel(req.params.modelId);
     res.status(204).send();
   } catch (error) {
+    if (error.message === 'Cannot remove built-in provider models; disable them instead') {
+      return res.status(403).json({ error: error.message });
+    }
     res.status(500).json({ error: error.message });
   }
 });

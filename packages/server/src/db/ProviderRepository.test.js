@@ -955,24 +955,10 @@ describe('ProviderRepository', () => {
     });
 
     it('getProviderByModelId still resolves a retained legacy gpt-5.5 compatibility row (upgraded DB)', () => {
-      // Fresh DBs no longer seed gpt-5.5, but upgraded installations retain
-      // the historical built-in row so existing sessions keep working.
-      // Simulate that retained row directly.
-      const now = Date.now();
-      repo.db
-        .prepare(
-          `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run('openai-gpt-5-5', 'openai-default', 'gpt-5.5', 'GPT-5.5', 'Retired', 'custom', now);
-
-      try {
-        const result = repo.getProviderByModelId('gpt-5.5');
-        expect(result).not.toBeNull();
-        expect(result.id).toBe('openai-default');
-      } finally {
-        repo.db.prepare('DELETE FROM provider_models WHERE id = ?').run('openai-gpt-5-5');
-      }
+      const result = repo.getProviderByModelId('gpt-5.5');
+      expect(result).not.toBeNull();
+      expect(result.id).toBe('openai-default');
+      expect(result.models.find((model) => model.modelId === 'gpt-5.5').enabled).toBe(false);
     });
 
     it('getAgentTypeForProvider returns codex for built-in OpenAI', () => {

@@ -158,8 +158,8 @@ describe('useProviderForm', () => {
       await nextTick();
 
       expect(result.localModels.value).toEqual([
-        { _serverId: 'm1', modelId: 'gpt-4', displayName: 'GPT-4', tier: 'sonnet' },
-        { _serverId: 'm2', modelId: 'gpt-3.5', displayName: 'GPT-3.5', tier: 'custom' },
+        { _serverId: 'm1', modelId: 'gpt-4', displayName: 'GPT-4', tier: 'sonnet', enabled: true, sortOrder: null },
+        { _serverId: 'm2', modelId: 'gpt-3.5', displayName: 'GPT-3.5', tier: 'custom', enabled: true, sortOrder: null },
       ]);
     });
 
@@ -343,7 +343,7 @@ describe('useProviderForm', () => {
       const { result } = createForm();
       result.addLocalModel();
       expect(result.localModels.value).toEqual([
-        { modelId: '', displayName: '', tier: 'custom' },
+        { modelId: '', displayName: '', tier: 'custom', enabled: true },
       ]);
     });
 
@@ -958,6 +958,7 @@ describe('useProviderForm', () => {
           modelId: 'new-model',
           displayName: 'New Model',
           tier: 'custom',
+          enabled: true,
         });
       });
 
@@ -1020,6 +1021,7 @@ describe('useProviderForm', () => {
           modelId: 'model-a',
           displayName: 'Model A Updated',
           tier: 'custom',
+          enabled: true,
         });
       });
 
@@ -1093,6 +1095,7 @@ describe('useProviderForm', () => {
           modelId: 'my-model',
           displayName: 'my-model',
           tier: 'custom',
+          enabled: true,
         });
       });
     });

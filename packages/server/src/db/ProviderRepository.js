@@ -121,6 +121,8 @@ export class ProviderRepository extends BaseRepository {
       displayName: row.display_name,
       description: row.description,
       tier: row.tier,
+      enabled: row.enabled === 1,
+      sortOrder: row.sort_order ?? null,
       createdAt: row.created_at,
     };
   }
@@ -250,7 +252,7 @@ export class ProviderRepository extends BaseRepository {
    */
   getModels(providerId) {
     const rows = this.db
-      .prepare('SELECT * FROM provider_models WHERE provider_id = ? ORDER BY created_at ASC')
+      .prepare('SELECT * FROM provider_models WHERE provider_id = ? ORDER BY (sort_order IS NULL), sort_order ASC, created_at ASC')
       .all(providerId);
     return rows.map(ProviderRepository.#mapProviderModel);
   }
@@ -266,17 +268,23 @@ export class ProviderRepository extends BaseRepository {
    * @returns {Object} Created model
    */
   addModel(providerId, data) {
+    const provider = this.getById(providerId);
+    if (!provider) throw new Error('Provider not found');
+    if (provider.isBuiltIn) throw new Error('Cannot add models to a built-in provider');
     const id = databaseManager.generateId();
     const now = Date.now();
 
-    const { modelId, displayName, description = null, tier = 'custom' } = data;
+    const { modelId, displayName, description = null, tier = 'custom', enabled = true } = data;
+    const sortOrder = data.sortOrder ?? this.db
+      .prepare('SELECT COALESCE(MAX(sort_order), -1) + 1 AS nextOrder FROM provider_models WHERE provider_id = ?')
+      .get(providerId).nextOrder;
 
     this.db
       .prepare(
-        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO provider_models (id, provider_id, model_id, display_name, description, tier, enabled, sort_order, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, providerId, modelId, displayName, description, tier, now);
+      .run(id, providerId, modelId, displayName, description, tier, enabled ? 1 : 0, sortOrder, now);
 
     return this.getModelById(id);
   }
@@ -302,6 +310,12 @@ export class ProviderRepository extends BaseRepository {
    * @returns {Object} Updated model
    */
   updateModel(id, data) {
+    const current = this.getModelById(id);
+    if (!current) throw new Error('Model not found');
+    const provider = this.getById(current.providerId);
+    if (provider?.isBuiltIn && data.modelId !== undefined && data.modelId !== current.modelId) {
+      throw new Error('Cannot change the model id of a built-in provider model');
+    }
     const updates = [];
     const values = [];
 
@@ -321,6 +335,14 @@ export class ProviderRepository extends BaseRepository {
       updates.push('tier = ?');
       values.push(data.tier);
     }
+    if (data.enabled !== undefined) {
+      updates.push('enabled = ?');
+      values.push(data.enabled ? 1 : 0);
+    }
+    if (data.sortOrder !== undefined) {
+      updates.push('sort_order = ?');
+      values.push(data.sortOrder);
+    }
 
     if (updates.length > 0) {
       values.push(id);
@@ -335,7 +357,25 @@ export class ProviderRepository extends BaseRepository {
    * @param {string} modelId - Model row ID (not the model string like "claude-opus-4-6")
    */
   removeModel(modelId) {
+    const model = this.getModelById(modelId);
+    const provider = model && this.getById(model.providerId);
+    if (provider?.isBuiltIn) throw new Error('Cannot remove built-in provider models; disable them instead');
     this.db.prepare('DELETE FROM provider_models WHERE id = ?').run(modelId);
+  }
+
+  reorderModels(providerId, orderedRowIds) {
+    const existing = this.getModels(providerId);
+    const validIds = new Set(existing.map((model) => model.id));
+    const requested = orderedRowIds.filter((id) => validIds.has(id));
+    const requestedIds = new Set(requested);
+    // Preserve omitted rows and compact every row into one stable sequence.
+    const order = [...requested, ...existing.filter((model) => !requestedIds.has(model.id)).map((model) => model.id)];
+    const update = this.db.prepare('UPDATE provider_models SET sort_order = ? WHERE id = ? AND provider_id = ?');
+    const transaction = this.db.transaction(() => {
+      order.forEach((id, index) => update.run(index, id, providerId));
+    });
+    transaction();
+    return this.getModels(providerId);
   }
 
   /**

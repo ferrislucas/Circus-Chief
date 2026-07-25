@@ -6,7 +6,7 @@
   >
     <div class="modal">
       <div class="modal-header">
-        <h2>{{ attributionOnly ? 'Commit Attribution' : (isEditing ? 'Edit Provider' : 'Add Provider') }}</h2>
+        <h2>{{ attributionOnly ? 'Commit Attribution' : (isBuiltInManage ? 'Built-in Provider Settings' : (isEditing ? 'Edit Provider' : 'Add Provider')) }}</h2>
         <button
           type="button"
           class="close-btn"
@@ -20,7 +20,7 @@
       <div class="modal-body">
         <form @submit.prevent="save">
           <div
-            v-if="!attributionOnly"
+            v-if="showConnectionFields"
             class="form-group"
           >
             <label for="provider-name">Provider Name*</label>
@@ -35,7 +35,7 @@
           </div>
 
           <div
-            v-if="!attributionOnly"
+            v-if="showConnectionFields"
             class="form-group"
           >
             <label for="provider-kind">
@@ -69,7 +69,7 @@
           </div>
 
           <div
-            v-if="!attributionOnly"
+            v-if="showConnectionFields"
             class="form-group"
           >
             <label for="base-url">
@@ -85,7 +85,7 @@
           </div>
 
           <div
-            v-if="!attributionOnly"
+            v-if="showConnectionFields"
             class="form-group"
           >
             <label for="auth-token">
@@ -133,13 +133,17 @@
           <ProviderModelsList
             v-if="!attributionOnly"
             :models="localModels"
+            :read-only-model-id="isBuiltInManage"
+            :no-add-remove="isBuiltInManage"
             @add="addLocalModel"
             @remove="removeLocalModel"
+            @move-up="moveLocalModel($event, -1)"
+            @move-down="moveLocalModel($event, 1)"
           />
 
           <!-- Advanced Settings Section -->
           <details
-            v-if="!attributionOnly"
+            v-if="showConnectionFields"
             class="expandable-section"
           >
             <summary class="section-header">
@@ -239,7 +243,7 @@
 
       <div class="modal-footer">
         <button
-          v-if="!attributionOnly"
+          v-if="showConnectionFields"
           type="button"
           class="btn btn-secondary"
           :disabled="saving || testing || !canTest"
@@ -279,6 +283,7 @@ const props = defineProps({
   isOpen: { type: Boolean, default: false },
   provider: { type: Object, default: null },
   attributionOnly: { type: Boolean, default: false },
+  builtInManage: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(['close', 'saved']);
@@ -299,6 +304,7 @@ const {
   canTest,
   addLocalModel,
   removeLocalModel,
+  moveLocalModel,
   addEnvVar,
   removeEnvVar,
   updateEnvVarKey,
@@ -308,8 +314,11 @@ const {
   toRef(props, 'isOpen'),
   toRef(props, 'provider'),
   () => emit('saved'),
-  { attributionOnlyRef: toRef(props, 'attributionOnly') },
+  { attributionOnlyRef: toRef(props, 'attributionOnly'), builtInManageRef: computed(() => props.builtInManage && props.provider?.isBuiltIn) },
 );
+
+const isBuiltInManage = computed(() => props.builtInManage && Boolean(props.provider?.isBuiltIn));
+const showConnectionFields = computed(() => !props.attributionOnly && !isBuiltInManage.value);
 
 const baseUrlEnvName = computed(() => {
   if (form.value.kind === 'openai') return 'OPENAI_BASE_URL';

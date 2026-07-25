@@ -45,6 +45,8 @@ function buildFormFromProvider(provider) {
     modelId: m.modelId,
     displayName: m.displayName,
     tier: m.tier || 'custom',
+    enabled: m.enabled !== false,
+    sortOrder: m.sortOrder ?? null,
   }));
   return { formData, envKeys, models, authModified: false };
 }
@@ -79,6 +81,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
   const providersStore = useProvidersStore();
   const uiStore = useUiStore();
   const attributionOnlyRef = options.attributionOnlyRef;
+  const builtInManageRef = options.builtInManageRef;
 
   // ── Form state ────────────────────────────────────────────────
   const state = createFormState();
@@ -129,11 +132,18 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
 
   // ── Model helpers ─────────────────────────────────────────────
   function addLocalModel() {
-    localModels.value.push({ modelId: '', displayName: '', tier: 'custom' });
+    localModels.value.push({ modelId: '', displayName: '', tier: 'custom', enabled: true });
   }
 
   function removeLocalModel(index) {
     localModels.value.splice(index, 1);
+  }
+
+  function moveLocalModel(index, delta) {
+    const destination = index + delta;
+    if (destination < 0 || destination >= localModels.value.length) return;
+    const [model] = localModels.value.splice(index, 1);
+    localModels.value.splice(destination, 0, model);
   }
 
   // ── Env-var helpers ───────────────────────────────────────────
@@ -187,6 +197,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
       model.modelId.trim() !== original.modelId ||
       model.displayName.trim() !== original.displayName ||
       model.tier !== original.tier
+      || model.enabled !== original.enabled
     );
   }
 
@@ -195,6 +206,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
       modelId: model.modelId.trim(),
       displayName: model.displayName.trim() || model.modelId.trim(),
       tier: model.tier || 'custom',
+      enabled: model.enabled !== false,
     };
   }
 
@@ -232,6 +244,11 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
       await processLocalModel(model, providerId, originalModelMap);
     }
 
+    const order = localModels.value.filter((model) => model._serverId).map((model) => model._serverId);
+    if (order.length && typeof providersStore.reorderModels === 'function') {
+      await providersStore.reorderModels(providerId, order);
+    }
+
     await providersStore.fetchProviders();
   }
 
@@ -266,6 +283,16 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
         await providersStore.updateProvider(providerRef.value.id, {
           commitAttributionOverride: data.commitAttributionOverride,
         });
+        uiStore.success('Provider updated successfully');
+        onSaved();
+        return;
+      }
+
+      if (builtInManageRef?.value && providerRef.value?.isBuiltIn) {
+        await providersStore.updateProvider(providerRef.value.id, {
+          commitAttributionOverride: data.commitAttributionOverride,
+        });
+        await reconcileModels(providerRef.value.id);
         uiStore.success('Provider updated successfully');
         onSaved();
         return;
@@ -314,6 +341,7 @@ export function useProviderForm(isOpenRef, providerRef, onSaved, options = {}) {
     canTest,
     addLocalModel,
     removeLocalModel,
+    moveLocalModel,
     addEnvVar,
     removeEnvVar,
     updateEnvVarKey,

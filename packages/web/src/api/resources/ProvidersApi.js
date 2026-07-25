@@ -98,6 +98,10 @@ export function ProvidersApi(ApiClient) {
       return this._patch(`/providers/${providerId}/models/${modelId}`, data);
     },
 
+    async reorderProviderModels(providerId, order) {
+      return this._put(`/providers/${providerId}/models/order`, { order });
+    },
+
     /**
      * Remove a model from a provider
      * @param {string} providerId - Provider ID

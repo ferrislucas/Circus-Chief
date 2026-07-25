@@ -1009,7 +1009,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom', enabled: false },
             { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
           ],
         },
@@ -1032,7 +1032,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom', enabled: false },
           ],
         },
         {
@@ -1063,7 +1063,7 @@ describe('ModelSelector', () => {
           isBuiltIn: true,
           kind: 'openai',
           models: [
-            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom' },
+            { id: 'openai-gpt-5-5', modelId: 'gpt-5.5', displayName: 'GPT-5.5', tier: 'custom', enabled: false },
             { id: 'openai-gpt-5-6-sol', modelId: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', tier: 'custom' },
           ],
         },

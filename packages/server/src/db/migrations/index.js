@@ -289,6 +289,13 @@ export const allMigrations = validateMigrations([
   pr.get('provider-models-widen-tier-check-fable'),
   pr.get('providers-seed-built-in-fable-5'),
 
+  // --- Per-model enabled state and user-controlled ordering ---
+  pr.get('provider-models-add-enabled'),
+  pr.get('provider-models-add-sort-order'),
+  pr.get('provider-models-migrate-retired-gpt-5-5'),
+  pr.get('provider-models-backfill-sort-order'),
+  pr.get('provider-models-sync-built-in-catalogs'),
+
   // --- Pending conversation ID for existing-message retry on reschedule ---
   s.get('sessions-add-pending_conversation_id'),
 

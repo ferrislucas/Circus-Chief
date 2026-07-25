@@ -198,6 +198,22 @@ export const useProvidersStore = defineStore('providers', {
       }
     },
 
+    async reorderModels(providerId, order) {
+      this.loading = true;
+      this.error = null;
+      try {
+        const models = await api.reorderProviderModels(providerId, order);
+        const provider = this.providers.find((entry) => entry.id === providerId);
+        if (provider) provider.models = models;
+        return models;
+      } catch (err) {
+        this.error = err.message;
+        throw err;
+      } finally {
+        this.loading = false;
+      }
+    },
+
     clearTestResult() {
       this.testResult = null;
     },

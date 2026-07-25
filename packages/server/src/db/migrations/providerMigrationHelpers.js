@@ -1,4 +1,4 @@
-import { OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
+import { CLAUDE_MODELS, OPENAI_MODELS, GEMINI_MODELS } from '@circuschief/shared';
 import { getTableSql } from './migrationUtils.js';
 import { BUILT_IN_OPENAI_COMMIT_ATTRIBUTION } from '../seedBaselineData.js';
 
@@ -207,4 +207,30 @@ export function seedBuiltInFable5(db) {
     ANTHROPIC_PROVIDER_ID,
     FABLE_MODEL.id
   );
+}
+
+/** Seed current catalogs after enabled/sort_order columns have been added. */
+export function syncBuiltInModelCatalogs(db) {
+  const now = Date.now();
+  const anthropicSeedIds = {
+    'claude-fable-5': 'anthropic-fable',
+    'claude-haiku-4-5-20251001': 'anthropic-haiku',
+    'claude-sonnet-5': 'anthropic-sonnet',
+    'claude-opus-4-6': 'anthropic-opus',
+    'claude-opus-4-7': 'anthropic-opus-4-7',
+    'claude-opus-4-8': 'anthropic-opus-4-8',
+  };
+  const catalogs = [
+    [ANTHROPIC_PROVIDER_ID, CLAUDE_MODELS, (model) => anthropicSeedIds[model.id], (model) => model.tier],
+    [OPENAI_PROVIDER_ID, OPENAI_MODELS, (model) => model.seedId, () => 'custom'],
+    [GOOGLE_PROVIDER_ID, GEMINI_MODELS, (model) => model.seedId, () => 'custom'],
+  ];
+  const insert = db.prepare(`INSERT OR IGNORE INTO provider_models
+    (id, provider_id, model_id, display_name, description, tier, enabled, sort_order, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM provider_models WHERE provider_id = ?), ?)`);
+  for (const [providerId, models, idFor, tierFor] of catalogs) {
+    for (const model of models) {
+      insert.run(idFor(model), providerId, model.id, model.name, model.description, tierFor(model), model.defaultEnabled === false ? 0 : 1, providerId, now);
+    }
+  }
 }

@@ -170,13 +170,13 @@ describe('providers-seed-built-in-openai migration', () => {
     expect(openAISeedIdx).toBeGreaterThan(historicalSeedIdx);
   });
 
-  it('does not seed a built-in gpt-5.5 row on a fresh DB', () => {
+  it('seeds gpt-5.5 disabled on a fresh DB', () => {
     const db = getDatabase();
     const row = db
       .prepare('SELECT * FROM provider_models WHERE provider_id = ? AND model_id = ?')
       .get('openai-default', 'gpt-5.5');
 
-    expect(row).toBeUndefined();
+    expect(row).toMatchObject({ enabled: 0 });
   });
 
   describe('upgraded database with a pre-GPT-5.6 built-in OpenAI catalog', () => {

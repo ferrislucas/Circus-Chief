@@ -5,6 +5,7 @@ import {
   seedBuiltInGoogleProvider,
   seedBuiltInOpenAIProvider,
   seedBuiltInProviders,
+  syncBuiltInModelCatalogs,
   updateBuiltInModels,
   updateBuiltInSonnet5,
   widenProviderModelsTierCheckForFable,
@@ -213,5 +214,37 @@ export const providerMigrations = [
   {
     name: 'providers-seed-built-in-fable-5',
     up(db) { seedBuiltInFable5(db); },
+  },
+  {
+    name: 'provider-models-add-enabled',
+    up(db) { addColumnIfMissing(db, 'provider_models', 'enabled', 'INTEGER NOT NULL DEFAULT 1'); },
+  },
+  {
+    name: 'provider-models-add-sort-order',
+    up(db) { addColumnIfMissing(db, 'provider_models', 'sort_order', 'INTEGER'); },
+  },
+  {
+    name: 'provider-models-migrate-retired-gpt-5-5',
+    up(db) {
+      // Existing installations have no explicit ordering yet at this point.
+      // Once backfilled, this condition prevents startup re-runs from
+      // overriding a user's later decision to re-enable the legacy model.
+      db.prepare("UPDATE provider_models SET enabled = 0 WHERE provider_id = 'openai-default' AND model_id = 'gpt-5.5' AND sort_order IS NULL").run();
+    },
+  },
+  {
+    name: 'provider-models-backfill-sort-order',
+    up(db) {
+      db.exec(`UPDATE provider_models
+        SET sort_order = (SELECT COUNT(*) FROM provider_models pm2
+          WHERE pm2.provider_id = provider_models.provider_id
+            AND (pm2.created_at < provider_models.created_at
+              OR (pm2.created_at = provider_models.created_at AND pm2.id < provider_models.id)))
+        WHERE sort_order IS NULL`);
+    },
+  },
+  {
+    name: 'provider-models-sync-built-in-catalogs',
+    up(db) { syncBuiltInModelCatalogs(db); },
   },
 ];

@@ -76,7 +76,7 @@
             </button>
             <button
               class="btn btn-sm"
-              @click="provider.isBuiltIn ? openAttributionModal(provider) : openEditModal(provider)"
+              @click="openEditModal(provider)"
             >
               {{ provider.isBuiltIn ? 'Settings' : 'Edit' }}
             </button>
@@ -128,6 +128,7 @@
       :is-open="isFormOpen"
       :provider="selectedProvider"
       :attribution-only="attributionOnly"
+      :built-in-manage="selectedProvider?.isBuiltIn === true"
       @close="closeFormModal"
       @saved="handleProviderSaved"
     />
@@ -207,12 +208,6 @@ function openCreateModal() {
 function openEditModal(provider) {
   selectedProvider.value = provider;
   attributionOnly.value = false;
-  isFormOpen.value = true;
-}
-
-function openAttributionModal(provider) {
-  selectedProvider.value = provider;
-  attributionOnly.value = true;
   isFormOpen.value = true;
 }
 
