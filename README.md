@@ -38,6 +38,9 @@
   ![Shared canvas](docs/screenshots/05-canvas-artifacts-desktop.png)
 - **Bring your own provider — per session.** Use subscription auth for Anthropic, OpenAI, or Google, or point sessions at third-party providers with Anthropic- or OpenAI-compatible endpoints. Claude Code, Codex, and Gemini CLI are all first-class paths.
   ![Bring your own provider settings, closest existing capture](docs/screenshots/08-provider-settings-desktop.png)
+- **Model tiers with automatic failover.** Group models across providers into an ordered fallback list (e.g. Opus → GPT-5.5) and bind it anywhere you'd normally pick a model — sessions, templates, kanban lanes, project defaults, summaries. If the first model can't start a new session (outage, rate limit, out of tokens), Circus Chief automatically starts on the next healthy model in the tier.
+  ![Model tiers settings](docs/screenshots/17-model-tiers-settings-list-desktop.png)
+  ![Edit a model tier](docs/screenshots/19-model-tiers-edit-tier-modal-desktop.png)
 - **Auto-linked GitHub PRs** with live CI and merge/conflict state (needs `gh`).
   ![Auto-linked GitHub PRs](docs/screenshots/14-github-pr-state-desktop.png)
 

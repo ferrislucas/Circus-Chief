@@ -48,7 +48,7 @@ yarn build
 - `src/index.js` - Entry point, starts HTTP server
 - `src/app.js` - Express app configuration
 - `src/websocket.js` - WebSocket server setup
-- `src/api/` - REST API routes (projects, sessions, canvas, git, providers)
+- `src/api/` - REST API routes (projects, sessions, canvas, git, providers, model tiers)
 - `src/agents/` - Agent adapter pattern for multi-backend support
   - `AgentGateway.js` - Factory/registry for agent adapters
   - `BaseAgent.js` - Abstract base class for agent adapters
@@ -58,15 +58,15 @@ yarn build
   - `adapters/cliUtils.js` - Shared CLI utilities (prompt composition) used by Codex and Gemini adapters
 - `src/db/` - SQLite repositories using better-sqlite3
   - `BaseRepository.js` - Abstract base with CRUD operations
-  - Repository pattern: `ProjectRepository`, `SessionRepository`, `MessageRepository`, `CanvasItemRepository`, `SessionNoteRepository`
-- `src/services/` - Business logic (sessionManager, canvasStore, gitService, diffService)
+  - Repository pattern: `ProjectRepository`, `SessionRepository`, `MessageRepository`, `CanvasItemRepository`, `SessionNoteRepository`, `ModelTierRepository`
+- `src/services/` - Business logic (sessionManager, canvasStore, gitService, diffService, tierResolutionService, sessionTierFailover)
 - `src/ws/` - WebSocket manager for real-time updates
 
 ### Web Package (`@circuschief/web`)
 
 - `src/router.js` - Vue Router configuration
-- `src/views/` - Page components (ProjectListView, SessionListView, SessionDetailView, etc.)
-- `src/components/` - Reusable components (CanvasTab, ConversationTab, NotesTab, ChangesTab, ToastContainer)
+- `src/views/` - Page components (ProjectListView, SessionListView, SessionDetailView, ModelTiersView, etc.)
+- `src/components/` - Reusable components (CanvasTab, ConversationTab, NotesTab, ChangesTab, ToastContainer, ModelSelector)
 - `src/stores/` - Pinia stores (projects, sessions, canvas, ui)
 
 ### Shared Package (`@circuschief/shared`)
@@ -74,7 +74,7 @@ yarn build
 - `src/types.js` - JSDoc type definitions and model lists (`CLAUDE_MODELS`, `OPENAI_MODELS`, `GEMINI_MODELS`)
 - `src/protocol.js` - WebSocket message type definitions
 - `src/constants.js` - Shared constants and enums
-- `src/contracts/` - Zod validation schemas for API contracts (including `providers.js` for provider kinds: `anthropic` | `openai` | `google`)
+- `src/contracts/` - Zod validation schemas for API contracts (including `providers.js` for provider kinds: `anthropic` | `openai` | `google`, and `modelTiers.js` for model tier requests)
 
 ### Communication Pattern
 
@@ -92,6 +92,7 @@ SQLite database with these main tables:
 - `canvas_items` - Images, markdown, text, JSON artifacts
 - `session_notes` - User notes per session
 - `global_tool_templates` / `project_tool_templates` - Reusable tool configurations
+- `model_tiers` / `model_tier_members` - User-defined, ordered model tiers for cross-provider start-time failover (see `docs/development.md` § Model Tiers)
 
 ## Styling
 
