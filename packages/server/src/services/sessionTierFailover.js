@@ -154,6 +154,7 @@ function emitTierFailoverEvent(error, { sessionId, member, tierRef, tierName, ne
 
   // Emit failover event via WebSocket — only fires when we're actually advancing.
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.TIER_FAILOVER, {
+    sessionId,
     tierRef,
     tierName,
     fromModel: member.modelId,
@@ -363,6 +364,7 @@ export function applyStaleTierFallback(sessionId, session, staleTierRef) {
   );
 
   broadcastToSession(sessionId, WS_MESSAGE_TYPES.TIER_FAILOVER, {
+    sessionId,
     tierRef: staleTierRef,
     tierName,
     fromModel: staleTierRef,

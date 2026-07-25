@@ -31,13 +31,34 @@ function sweepExpired() {
 }
 
 /**
+ * Resolve the cooldown duration to apply. An explicit `cooldownMs` argument
+ * always wins; otherwise honors `E2E_TIER_COOLDOWN_MS` (test-only — lets the
+ * Playwright failover suite exercise cooldown-skip and cooldown-expiry
+ * deterministically with a short, real cooldown instead of the 5-minute
+ * production default or a fixed sleep — see
+ * model-tiers-e2e-coverage-plan.md Phase 0/1); falls back to the shared
+ * production default.
+ * @param {number|undefined} explicitCooldownMs
+ * @returns {number}
+ */
+function resolveCooldownMs(explicitCooldownMs) {
+  if (explicitCooldownMs !== undefined) return explicitCooldownMs;
+  const override = process.env.E2E_TIER_COOLDOWN_MS;
+  if (override !== undefined && override !== '') {
+    const parsed = Number(override);
+    if (!Number.isNaN(parsed) && parsed >= 0) return parsed;
+  }
+  return DEFAULT_TIER_COOLDOWN_MS;
+}
+
+/**
  * Mark a (provider, model) pair as unhealthy for the cooldown period.
  * @param {string} providerId
  * @param {string} modelId
  * @param {number} [cooldownMs]
  */
-export function markUnhealthy(providerId, modelId, cooldownMs = DEFAULT_TIER_COOLDOWN_MS) {
-  cooldownMap.set(cooldownKey(providerId, modelId), Date.now() + cooldownMs);
+export function markUnhealthy(providerId, modelId, cooldownMs) {
+  cooldownMap.set(cooldownKey(providerId, modelId), Date.now() + resolveCooldownMs(cooldownMs));
 }
 
 /**

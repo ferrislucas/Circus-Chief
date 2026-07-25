@@ -112,6 +112,15 @@ describe('runSessionCore tier failover (integration)', () => {
 
     // First member should now be in cooldown
     expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+
+    // Regression: the broadcast payload must carry `sessionId` — the web
+    // client's onTierFailover handler filters every incoming message on
+    // `msg.sessionId === sessionId` (useSessionSubscription.js), so omitting
+    // it silently drops the notice client-side even though the server "sent"
+    // it (a real bug the scripted E2E failover suite caught — see
+    // model-tiers-e2e-coverage-plan.md Phase 2).
+    const failoverBroadcast = broadcastToSession.mock.calls.find((call) => call[1] === 'tier:failover');
+    expect(failoverBroadcast[2].sessionId).toBe(session.id);
   });
 
   it('marks the failed member unhealthy so a subsequent session start skips it', async () => {
@@ -727,6 +736,9 @@ describe('stale tier ref at session start (Fix 6)', () => {
     const failoverCalls = broadcastToSession.mock.calls.filter((call) => call[1] === 'tier:failover');
     expect(failoverCalls.length).toBeGreaterThan(0);
     expect(failoverCalls[0][2].tierRef).toBe(tierRef);
+    // Regression: see the sessionId assertion above — the client-side filter
+    // silently drops this notice without it.
+    expect(failoverCalls[0][2].sessionId).toBe(session.id);
 
     // And logged.
     const { rows } = agentCallLogs.getAll({ sessionId: session.id, callType: 'tierFailover' });

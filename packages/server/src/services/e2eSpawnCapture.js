@@ -1,29 +1,76 @@
 import { appendFileSync } from 'fs';
 import { EventEmitter } from 'events';
 import { PassThrough } from 'stream';
+import {
+  consumeScriptedOutcome,
+  OUTCOME_MESSAGES,
+  FAILOVER_ELIGIBLE_OUTCOME_TYPES,
+  TERMINAL_ERROR_OUTCOME_TYPES,
+} from './e2eSpawnOutcomes.js';
+import { writeCapturedAgentEvents, writePartialAgentOutput } from './e2eSpawnEvents.js';
+
+export { consumeScriptedOutcome } from './e2eSpawnOutcomes.js';
+
+// Env vars threaded through the session's spawn `env` (see
+// sessionExecution.js#buildAgentEnv / sessionContinuation.js) purely so this
+// E2E-only seam can recover which (provider, model, session) a given spawn
+// attempt belongs to — never read outside of E2E spawn-capture mode.
+const E2E_PROVIDER_ENV_KEY = 'CIRCUSCHIEF_E2E_PROVIDER_ID';
+const E2E_SESSION_ENV_KEY = 'CIRCUSCHIEF_E2E_SESSION_ID';
+
+let captureSequence = 0;
 
 export function isE2ESpawnCaptureEnabled() {
   return Boolean(process.env.E2E_AGENT_SPAWN_CAPTURE_FILE);
+}
+
+/** Test-only: reset the monotonic capture sequence counter between test cases. */
+export function resetE2ESpawnCaptureSequence() {
+  captureSequence = 0;
+}
+
+function providerIdFromSpawnOptions(spawnOptions) {
+  return spawnOptions?.env?.[E2E_PROVIDER_ENV_KEY] || null;
+}
+
+function sessionIdFromSpawnOptions(spawnOptions) {
+  return spawnOptions?.env?.[E2E_SESSION_ENV_KEY] || null;
+}
+
+function modelIdFromSpawnOptions(agentType, spawnOptions) {
+  const args = spawnOptions?.args || [];
+  const flag = agentType === 'claude-code' ? '--model' : '-m';
+  return valueAfter(args, flag);
 }
 
 export function captureSpawnAttempt(agentType, spawnOptions) {
   const filePath = process.env.E2E_AGENT_SPAWN_CAPTURE_FILE;
   if (!filePath) return;
 
+  captureSequence += 1;
+
   const record = {
+    sequence: captureSequence,
     agentType,
     command: spawnOptions.command,
     args: sanitizeSpawnArgs(agentType, spawnOptions.args || []),
     cwd: spawnOptions.cwd || null,
     env: summarizeSpawnEnv(spawnOptions.env),
     options: summarizeSpawnOptions(agentType, spawnOptions),
+    // Resolved identity of this attempt (Phase 1 — see
+    // model-tiers-e2e-coverage-plan.md): lets E2E assertions observe
+    // duplicate model IDs across providers and cross-provider routing
+    // without guessing from CLI args alone.
+    providerId: providerIdFromSpawnOptions(spawnOptions),
+    modelId: modelIdFromSpawnOptions(agentType, spawnOptions),
+    sessionId: sessionIdFromSpawnOptions(spawnOptions),
     capturedAt: new Date().toISOString(),
   };
 
   appendFileSync(filePath, `${JSON.stringify(record)}\n`, 'utf8');
 }
 
-export function createCapturedSpawnProcess(agentType) {
+function createProcessStub() {
   const processStub = new EventEmitter();
   const stdin = new PassThrough();
   const stdout = new PassThrough();
@@ -41,13 +88,46 @@ export function createCapturedSpawnProcess(agentType) {
     return true;
   };
 
-  const complete = () => {
-    setImmediate(() => {
-      if (processStub.killed || processStub.exitCode !== null) return;
-      writeCapturedAgentEvents(agentType, stdout);
-      finishProcess({ processStub, stdout, stderr, code: 0, signal: null });
-    });
+  return { processStub, stdin, stdout, stderr };
+}
+
+/**
+ * Schedule a scripted failure (quota / rate-limit / service-outage / auth /
+ * bad-request) after `outcome.delayMs`. See {@link failCapturedProcess}.
+ */
+function scheduleErrorOutcome(outcome, { processStub, stdout, stderr }) {
+  const message = outcome.message || OUTCOME_MESSAGES[outcome.type];
+  const delayMs = outcome.delayMs ?? 15;
+  setTimeout(() => {
+    if (processStub.killed || processStub.exitCode !== null) return;
+    failCapturedProcess({ processStub, stdout, stderr, message });
+  }, delayMs);
+}
+
+/**
+ * Schedule the 'output_then_error' outcome: partial assistant output, then a
+ * scripted failure after `outcome.failDelayMs`.
+ */
+function scheduleOutputThenErrorOutcome(agentType, outcome, { processStub, stdout, stderr }) {
+  const message = outcome.message || OUTCOME_MESSAGES.service_unavailable;
+  const outputDelayMs = outcome.delayMs ?? 15;
+  const failDelayMs = outcome.failDelayMs ?? 50;
+  setTimeout(() => {
+    if (processStub.killed || processStub.exitCode !== null) return;
+    writePartialAgentOutput(agentType, stdout);
+    setTimeout(() => failCapturedProcess({ processStub, stdout, stderr, message }), failDelayMs);
+  }, outputDelayMs);
+}
+
+/** Schedule a 'success' / 'delayed_success' completion. */
+function scheduleSuccessOutcome(agentType, outcome, { processStub, stdin, stdout, stderr }) {
+  const scriptedDelayMs = outcome.type === 'delayed_success' ? (outcome.delayMs ?? 300) : 0;
+  const runComplete = () => {
+    if (processStub.killed || processStub.exitCode !== null) return;
+    writeCapturedAgentEvents(agentType, stdout);
+    finishProcess({ processStub, stdout, stderr, code: 0, signal: null });
   };
+  const complete = () => setTimeout(runComplete, scriptedDelayMs);
 
   if (agentType === 'claude-code' || agentType === 'gemini') {
     // Claude Code and Gemini don't pass prompts via stdin (they use CLI args).
@@ -57,8 +137,56 @@ export function createCapturedSpawnProcess(agentType) {
     // Codex passes the prompt via stdin; complete when stdin is closed.
     stdin.once('finish', complete);
   }
+}
 
-  return processStub;
+export function createCapturedSpawnProcess(agentType, spawnOptions = {}) {
+  const providerId = providerIdFromSpawnOptions(spawnOptions);
+  const modelId = modelIdFromSpawnOptions(agentType, spawnOptions);
+  const outcome = consumeScriptedOutcome(providerId, modelId);
+  const ctx = createProcessStub();
+
+  // 'cancelled' — the scripted process never completes on its own; it only
+  // responds to an explicit kill() (mirrors a real hung/long-running CLI so
+  // tests can exercise the app's own cancel-session action deterministically).
+  if (outcome.type === 'cancelled') {
+    return ctx.processStub;
+  }
+
+  if (FAILOVER_ELIGIBLE_OUTCOME_TYPES.has(outcome.type) || TERMINAL_ERROR_OUTCOME_TYPES.has(outcome.type)) {
+    scheduleErrorOutcome(outcome, ctx);
+  } else if (outcome.type === 'output_then_error') {
+    scheduleOutputThenErrorOutcome(agentType, outcome, ctx);
+  } else {
+    scheduleSuccessOutcome(agentType, outcome, ctx);
+  }
+
+  return ctx.processStub;
+}
+
+/**
+ * Deliver a scripted failure to the captured process. A single `error`
+ * emission works uniformly across all three CLI runners:
+ *  - the Claude Agent SDK's ProcessTransport listens for `error` on the
+ *    process it was given via `spawnClaudeCodeProcess` and sets its internal
+ *    exitError from `error.message` (prefixed with "Failed to spawn Claude
+ *    Code process: ", which still contains our scripted substrings for
+ *    pattern matching in sessionErrors.js);
+ *  - the Codex/Gemini CLI runners' `child.on('error', ...)` handler calls
+ *    `state.failWith(error)` directly, using our message unmodified.
+ * `.code` is intentionally left unset on the Error so neither runner mistakes
+ * this for an ENOENT-style "CLI not installed" condition.
+ *
+ * Exits with code=null/signal=null: a no-op for the claude-code SDK's exit
+ * handler (`getProcessExitError` only overwrites `exitError` for a non-null
+ * code or a truthy signal), so it can never clobber the exitError set by the
+ * `error` emission above; for Codex/Gemini, `handleChildExit` is guarded by
+ * `!state.error`, which is already set by the time this runs.
+ */
+function failCapturedProcess({ processStub, stdout, stderr, message }) {
+  const error = new Error(message);
+  processStub.emit('error', error);
+  stderr.write(`${message}\n`);
+  finishProcess({ processStub, stdout, stderr, code: null, signal: null });
 }
 
 function sanitizeSpawnArgs(agentType, args) {
@@ -156,59 +284,6 @@ function summarizeMcpTransport(config) {
   if (config.type === 'sse' || config.type === 'http') return config.type;
   if (config.type === 'stdio' || config.type === undefined) return 'stdio';
   return String(config.type);
-}
-
-function writeCapturedAgentEvents(agentType, stdout) {
-  if (agentType === 'codex') {
-    writeJsonLine(stdout, { type: 'thread.started', thread_id: `e2e-codex-${Date.now()}` });
-    writeJsonLine(stdout, { type: 'turn.started' });
-    writeJsonLine(stdout, {
-      type: 'item.completed',
-      item: { type: 'agent_message', text: 'E2E spawn capture response.' },
-    });
-    writeJsonLine(stdout, {
-      type: 'turn.completed',
-      usage: { input_tokens: 0, cached_input_tokens: 0, output_tokens: 0 },
-    });
-    return;
-  }
-
-  if (agentType === 'gemini') {
-    // Gemini CLI stream-json format: init → message → result
-    writeJsonLine(stdout, {
-      type: 'init',
-      session_id: `e2e-gemini-${Date.now()}`,
-    });
-    writeJsonLine(stdout, {
-      type: 'message',
-      role: 'assistant',
-      content: 'E2E spawn capture response.',
-    });
-    writeJsonLine(stdout, {
-      type: 'result',
-      stats: { input_tokens: 0, output_tokens: 0 },
-    });
-    return;
-  }
-
-  writeJsonLine(stdout, {
-    type: 'system',
-    subtype: 'init',
-    session_id: `e2e-claude-${Date.now()}`,
-  });
-  writeJsonLine(stdout, {
-    type: 'assistant',
-    message: { content: [{ type: 'text', text: 'E2E spawn capture response.' }] },
-  });
-  writeJsonLine(stdout, {
-    type: 'result',
-    subtype: 'success',
-    usage: { input_tokens: 0, output_tokens: 0 },
-  });
-}
-
-function writeJsonLine(stream, value) {
-  stream.write(`${JSON.stringify(value)}\n`);
 }
 
 function finishProcess({ processStub, stdout, stderr, code, signal }) {

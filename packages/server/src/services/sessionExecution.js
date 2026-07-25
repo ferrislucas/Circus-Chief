@@ -48,12 +48,26 @@ function buildAgentConfig(agentType) {
   return {};
 }
 
-export function buildAgentEnv(sessionEnv, commitAttributionOverride) {
+/**
+ * @param {Object} sessionEnv
+ * @param {string|null} commitAttributionOverride
+ * @param {{ providerId?: string|null, sessionId?: string|null }} [e2eMeta] - Only
+ *   applied when {@link isE2ESpawnCaptureEnabled} is true; threads the
+ *   resolved providerId/sessionId through to the spawned CLI's `env` purely
+ *   so the E2E spawn-capture seam (e2eSpawnCapture.js) can recover which
+ *   (provider, model, session) a captured/scripted spawn attempt belongs to.
+ *   Never read outside of E2E spawn-capture mode.
+ */
+export function buildAgentEnv(sessionEnv, commitAttributionOverride, e2eMeta = null) {
   const env = { ...(sessionEnv || {}) };
   if (commitAttributionOverride) {
     env.CIRCUSCHIEF_COMMIT_ATTRIBUTION = commitAttributionOverride;
   } else {
     delete env.CIRCUSCHIEF_COMMIT_ATTRIBUTION;
+  }
+  if (e2eMeta && isE2ESpawnCaptureEnabled()) {
+    if (e2eMeta.providerId) env.CIRCUSCHIEF_E2E_PROVIDER_ID = e2eMeta.providerId;
+    if (e2eMeta.sessionId) env.CIRCUSCHIEF_E2E_SESSION_ID = e2eMeta.sessionId;
   }
   return env;
 }
@@ -80,7 +94,10 @@ export async function resolveInitialSessionModelEnv(session, model, providerId =
   const baseSessionEnv = buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel);
   return {
     effectiveModel,
-    sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride),
+    sessionEnv: buildAgentEnv(baseSessionEnv, commitAttributionOverride, {
+      providerId: provider?.id ?? null,
+      sessionId: session.id,
+    }),
     commitAttributionOverride,
   };
 }

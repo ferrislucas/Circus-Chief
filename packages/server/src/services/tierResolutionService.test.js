@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   resolveActiveModel,
   hasNextHealthyMember,
@@ -303,6 +303,62 @@ describe('tierResolutionService', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    describe('E2E_TIER_COOLDOWN_MS override', () => {
+      const originalOverride = process.env.E2E_TIER_COOLDOWN_MS;
+
+      afterEach(() => {
+        if (originalOverride === undefined) {
+          delete process.env.E2E_TIER_COOLDOWN_MS;
+        } else {
+          process.env.E2E_TIER_COOLDOWN_MS = originalOverride;
+        }
+      });
+
+      // Uses a direct Date.now() spy (rather than vi.useFakeTimers()) so these
+      // cases only ever touch the one function this module actually calls —
+      // no interaction with any other timer machinery.
+      it('an explicit cooldownMs argument always wins over the env override', () => {
+        process.env.E2E_TIER_COOLDOWN_MS = '999999';
+        const nowSpy = vi.spyOn(Date, 'now');
+        try {
+          nowSpy.mockReturnValue(1_000_000);
+          markUnhealthy(providerA.id, 'model-a', 500);
+          nowSpy.mockReturnValue(1_000_501);
+          expect(isUnhealthy(providerA.id, 'model-a')).toBe(false);
+        } finally {
+          nowSpy.mockRestore();
+        }
+      });
+
+      it('uses the E2E_TIER_COOLDOWN_MS override when no explicit cooldownMs is given', () => {
+        process.env.E2E_TIER_COOLDOWN_MS = '500';
+        const nowSpy = vi.spyOn(Date, 'now');
+        try {
+          nowSpy.mockReturnValue(2_000_000);
+          markUnhealthy(providerA.id, 'model-a');
+          expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+          nowSpy.mockReturnValue(2_000_501);
+          expect(isUnhealthy(providerA.id, 'model-a')).toBe(false);
+        } finally {
+          nowSpy.mockRestore();
+        }
+      });
+
+      it('ignores an invalid override and falls back to the production default', () => {
+        process.env.E2E_TIER_COOLDOWN_MS = 'not-a-number';
+        const nowSpy = vi.spyOn(Date, 'now');
+        try {
+          nowSpy.mockReturnValue(3_000_000);
+          markUnhealthy(providerA.id, 'model-a');
+          nowSpy.mockReturnValue(3_000_000 + 1000);
+          // Still well within the 5-minute production default.
+          expect(isUnhealthy(providerA.id, 'model-a')).toBe(true);
+        } finally {
+          nowSpy.mockRestore();
+        }
+      });
     });
   });
 

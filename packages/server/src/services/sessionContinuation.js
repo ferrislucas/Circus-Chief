@@ -61,7 +61,8 @@ function buildContinueModelAndEnv(session, sessionId, model) {
   const commitAttributionOverride = providerMetadata?.commitAttributionOverride ?? null;
   const sessionEnv = buildAgentEnv(
     buildSessionEnv(provider, session.thinkingEnabled, session.effortLevel),
-    commitAttributionOverride
+    commitAttributionOverride,
+    { providerId: provider?.id ?? providerIdHint ?? null, sessionId }
   );
 
   // Model changed = the caller explicitly requested a different binding
