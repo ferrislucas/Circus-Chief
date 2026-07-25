@@ -131,4 +131,24 @@ describe('SessionOverviewCard.vue', () => {
     });
   });
 
+  describe('Session count metric', () => {
+    it('renders the session count metric with a "Sessions" label', () => {
+      const wrapper = mountComponent({
+        hasMetrics: true,
+        sessionCount: 3,
+      });
+
+      const metrics = wrapper.findAll('.metric');
+      const sessionMetric = metrics.find(
+        (metric) => metric.find('.metric-label').text() === 'Sessions',
+      );
+
+      expect(sessionMetric).toBeTruthy();
+      expect(sessionMetric.find('.metric-value').text()).toBe('3');
+
+      const labels = metrics.map((metric) => metric.find('.metric-label').text());
+      expect(labels).not.toContain('Workspaces');
+    });
+  });
+
 });
