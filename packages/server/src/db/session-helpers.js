@@ -124,6 +124,14 @@ export function mapScheduling(row) {
   };
 }
 
+/** Map inert-by-default structured workflow fields. */
+export function mapWorkflow(row) {
+  return { laneRunId: row.lane_run_id || null, ownWorkState: row.own_work_state || 'open', workflowTurnToken: row.workflow_turn_token || null,
+    completionRequestedTurnToken: row.completion_requested_turn_token || null, completionRequestKey: row.completion_request_key || null,
+    completionRequestedAt: row.completion_requested_at || null, ownWorkClosedAt: row.own_work_closed_at || null,
+    workflowUpdatedAt: row.workflow_updated_at || null, workflowReason: row.workflow_reason || null };
+}
+
 /** Default values for session-create config fields */
 const CONFIG_DEFAULTS = {
   mode: 'yolo',
@@ -193,6 +201,15 @@ export const DIRECT_FIELD_MAP = {
   pendingConversationId: 'pending_conversation_id',
   effortLevel: 'effort_level',
   laneTriggerDepth: 'lane_trigger_depth',
+  laneRunId: 'lane_run_id',
+  ownWorkState: 'own_work_state',
+  workflowTurnToken: 'workflow_turn_token',
+  completionRequestedTurnToken: 'completion_requested_turn_token',
+  completionRequestKey: 'completion_request_key',
+  completionRequestedAt: 'completion_requested_at',
+  ownWorkClosedAt: 'own_work_closed_at',
+  workflowUpdatedAt: 'workflow_updated_at',
+  workflowReason: 'workflow_reason',
   agentType: 'agent_type',
 };
 

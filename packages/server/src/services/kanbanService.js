@@ -8,6 +8,7 @@ import {
 import { broadcastToProject } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
 import { triggerOnEnterTemplate, triggerOnEnterPrompt } from './kanbanTriggers.js';
+import { createLaneRunForEntry, supersedeRunForCard, getRun } from './workflowSessionService.js';
 
 /**
  * Helper to build full board response with lanes and cards
@@ -34,7 +35,7 @@ function buildFullBoardResponse(board) {
     projectId: board.projectId,
     lanes: lanes.map((lane) => ({
       ...lane,
-      cards: cardsByLane[lane.id] || [],
+      cards: (cardsByLane[lane.id] || []).map(card => ({ ...card, activeLaneRun: card.activeLaneRunId ? getRun(card.activeLaneRunId) : null })),
     })),
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
@@ -113,6 +114,10 @@ export async function addSessionToBoard(sessionId, laneId, options = {}) {
   // Get root session to find project ID for broadcast and lane entry automation.
   const rootSession = sessions.getById(workspaceId);
   if (rootSession) {
+    const lane = kanbanLanes.getById(laneId);
+    if (lane?.completionMode && lane.completionMode !== 'legacy') {
+      createLaneRunForEntry({ projectId: rootSession.projectId, workspaceId, cardId: card.id, lane });
+    }
     broadcastToProject(rootSession.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_ADDED, {
       projectId: rootSession.projectId,
       card,
@@ -152,6 +157,10 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
 
   const fromLaneId = card.laneId;
 
+  // A human/API move revokes an open run before changing lanes. Completion
+  // transitions use their own guarded SQL path and never call this service.
+  supersedeRunForCard(cardId, 'manual_move');
+
   // Move the card
   const movedCard = kanbanCards.moveToLane(cardId, targetLaneId, sortOrder);
 
@@ -160,6 +169,10 @@ export async function moveCard(cardId, targetLaneId, options = {}) {
   const session = sessionId ? sessions.getById(sessionId) : null;
 
   if (session) {
+    const lane = kanbanLanes.getById(targetLaneId);
+    if (lane?.completionMode && lane.completionMode !== 'legacy') {
+      createLaneRunForEntry({ projectId: session.projectId, workspaceId: resolveWorkspaceId(session.id), cardId, lane, cause: 'manual_move' });
+    }
     broadcastToProject(session.projectId, WS_MESSAGE_TYPES.KANBAN_CARD_MOVED, {
       projectId: session.projectId,
       cardId,
@@ -238,6 +251,10 @@ export async function handleCompletionMove(sessionId) {
     return;
   }
 
+  // Structured/shadow runs own completion. The legacy completion hook must
+  // never race a persisted run into moving a card.
+  if (card.activeLaneRunId) return;
+
   const currentLane = kanbanLanes.getById(card.laneId);
   if (!currentLane?.completionTargetLaneId) {
     return;
@@ -285,6 +302,7 @@ export function removeSessionFromBoard(sessionId) {
   const rootSession = sessions.getById(workspaceId);
   const projectId = rootSession?.projectId;
 
+  supersedeRunForCard(card.id, 'card_removed');
   kanbanCards.delete(card.id);
 
   if (projectId) {

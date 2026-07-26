@@ -111,6 +111,15 @@ CREATE TABLE IF NOT EXISTS sessions (
   -- of truth for kanban auto-advancement.
   target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
   lane_trigger_depth INTEGER NOT NULL DEFAULT 0,
+  lane_run_id TEXT,
+  own_work_state TEXT NOT NULL DEFAULT 'open',
+  workflow_turn_token TEXT,
+  completion_requested_turn_token TEXT,
+  completion_request_key TEXT,
+  completion_requested_at INTEGER,
+  own_work_closed_at INTEGER,
+  workflow_updated_at INTEGER,
+  workflow_reason TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -346,6 +355,7 @@ CREATE TABLE IF NOT EXISTS kanban_lanes (
   on_enter_max_total_tokens INTEGER,
   on_enter_reschedule_at_token_count INTEGER,
   completion_target_lane_id TEXT REFERENCES kanban_lanes(id) ON DELETE SET NULL,
+  completion_mode TEXT NOT NULL DEFAULT 'legacy',
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -354,6 +364,8 @@ CREATE TABLE IF NOT EXISTS kanban_cards (
   id TEXT PRIMARY KEY,
   lane_id TEXT NOT NULL REFERENCES kanban_lanes(id) ON DELETE CASCADE,
   sort_order INTEGER NOT NULL DEFAULT 0,
+  active_lane_run_id TEXT,
+  lane_entry_event_id TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
@@ -365,12 +377,39 @@ CREATE TABLE IF NOT EXISTS kanban_card_sessions (
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
+CREATE TABLE IF NOT EXISTS kanban_lane_entry_events (
+  id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL UNIQUE, project_id TEXT NOT NULL,
+  workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, lane_id TEXT NOT NULL, cause TEXT NOT NULL,
+  caused_by_run_id TEXT, status TEXT NOT NULL DEFAULT 'pending', claim_token TEXT, claimed_at INTEGER,
+  attempt_count INTEGER NOT NULL DEFAULT 0, last_error TEXT, created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL, completed_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_entry_completion_cause ON kanban_lane_entry_events(caused_by_run_id) WHERE caused_by_run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_lane_entry_recovery ON kanban_lane_entry_events(status, created_at);
+CREATE TABLE IF NOT EXISTS kanban_lane_runs (
+  id TEXT PRIMARY KEY, lane_entry_event_id TEXT NOT NULL UNIQUE, prior_lane_run_id TEXT,
+  project_id TEXT NOT NULL, workspace_id TEXT NOT NULL, card_id TEXT NOT NULL, source_lane_id TEXT NOT NULL,
+  completion_target_lane_id TEXT, completion_mode TEXT NOT NULL, root_session_id TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'open', failure_reason TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  succeeded_at INTEGER, failed_at INTEGER, cancelled_at INTEGER, superseded_at INTEGER, transition_applied_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_lane_runs_one_open_card ON kanban_lane_runs(card_id) WHERE status = 'open';
+CREATE INDEX IF NOT EXISTS idx_lane_runs_card_status ON kanban_lane_runs(card_id, status);
+CREATE INDEX IF NOT EXISTS idx_lane_runs_workspace ON kanban_lane_runs(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_lane_runs_root ON kanban_lane_runs(root_session_id);
+CREATE TABLE IF NOT EXISTS kanban_lane_run_audit_events (
+  id TEXT PRIMARY KEY, operation_key TEXT UNIQUE, lane_run_id TEXT NOT NULL, session_id TEXT,
+  event_type TEXT NOT NULL, details_json TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_lane_run_audit_run ON kanban_lane_run_audit_events(lane_run_id, created_at);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived);
 CREATE INDEX IF NOT EXISTS idx_sessions_starred ON sessions(archived, starred);
 CREATE INDEX IF NOT EXISTS idx_sessions_next_template ON sessions(next_template_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions(parent_session_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_lane_run ON sessions(lane_run_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_scheduled ON sessions(scheduled_at) WHERE scheduled_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id);

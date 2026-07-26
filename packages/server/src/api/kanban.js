@@ -15,6 +15,7 @@ import {
   moveCard as moveCardService,
 } from '../services/kanbanService.js';
 import { resolveBodyRootSessionForProject } from '../middleware/sessionLookup.js';
+import { getRun } from '../services/workflowSessionService.js';
 
 const router = Router({ mergeParams: true });
 const LANE_NOT_FOUND_ERROR = 'Lane not found';
@@ -44,7 +45,7 @@ function buildFullBoardResponse(board) {
     projectId: board.projectId,
     lanes: lanes.map(lane => ({
       ...lane,
-      cards: cardsByLane[lane.id] || [],
+      cards: (cardsByLane[lane.id] || []).map(card => ({ ...card, activeLaneRun: card.activeLaneRunId ? getRun(card.activeLaneRunId) : null })),
     })),
     createdAt: board.createdAt,
     updatedAt: board.updatedAt,
@@ -70,6 +71,12 @@ router.get('/', (req, res) => {
   const fullBoard = buildFullBoardResponse(board);
 
   res.json(fullBoard);
+});
+
+router.get('/lane-runs/:runId', (req, res) => {
+  const run = getRun(req.params.runId);
+  if (!run) return res.status(404).json({ error: 'Lane run not found' });
+  res.json(run);
 });
 
 /**

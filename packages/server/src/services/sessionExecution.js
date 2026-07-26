@@ -27,6 +27,7 @@ import { buildConversationContextForModelSwitch, buildConversationContextForCont
 import { ensureWorktreeCommitAttributionHook } from './gitService.js';
 import { broadcastToSession } from '../websocket.js';
 import { WS_MESSAGE_TYPES } from '@circuschief/shared';
+import { beginWorkflowTurn, finalizeOwnWorkCompletion } from './workflowSessionService.js';
 
 /**
  * Build the adapter-specific default config object for
@@ -127,6 +128,10 @@ export async function _executeSession({
   errorLabel = 'Session error',
 }) {
   const { handleTemplateTriggerIfNeeded, handleAutoSendIfNeeded } = callbacks;
+  // The token is opaque and scoped to this one successful agent execution.
+  // A retry/scheduled continuation starts a fresh token and cannot consume an
+  // old completion request.
+  const workflowTurnToken = beginWorkflowTurn(sessionId);
 
   try {
     // Run the query with the agent (SDK via gateway, or mock)
@@ -145,6 +150,7 @@ export async function _executeSession({
     if (wasRescheduled) {
       return;
     }
+    finalizeOwnWorkCompletion(sessionId, workflowTurnToken);
   } catch (error) {
     const rescheduled = await handleSessionError(sessionId, error, {
       controller,
