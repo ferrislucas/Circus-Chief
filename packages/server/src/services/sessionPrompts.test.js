@@ -352,6 +352,9 @@ describe('sessionPrompts', () => {
       // All canvas URLs should use the workspace (root) ID
       expect(result).toContain('/api/workspaces/root-123/canvas/file/');
       expect(result).toContain('/history/');
+      expect(result).toContain('curl -X DELETE');
+      expect(result).toContain('all active versions');
+      expect(result).toContain('quarterly%20report%20%231.md');
       expect(result).not.toContain('/api/workspaces/child-456/canvas/file/');
     });
 
