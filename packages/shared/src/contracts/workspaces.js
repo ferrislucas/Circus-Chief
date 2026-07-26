@@ -28,14 +28,17 @@ export const CreateWorkspaceRequest = WorkspaceSessionFields;
 /**
  * POST /api/workspaces/:workspaceId/sessions — add a session to an existing workspace.
  *
- * afterSessionId (optional, UUID): attach the new session after this session in the
- * workspace tree.
- *   - If the session belongs to this workspace, it becomes the direct parent.
- *   - If omitted, unknown, or from a different workspace, the workspace root is used
- *     as the parent (forgiving — never an error).
+ * parentSessionId (required, UUID): the direct parent for the new session.
+ *   - Must reference a session that belongs to this workspace (the workspace root
+ *     or any of its descendants). Callers that want a direct child of the
+ *     workspace pass the workspace root ID explicitly.
+ *   - Missing, unknown, or cross-workspace values are rejected by the server —
+ *     there is no fallback to the workspace root.
+ *
+ * This field replaces the former optional, forgiving `afterSessionId` field.
  */
 export const CreateWorkspaceSessionRequest = WorkspaceSessionFields.extend({
-  afterSessionId: z.string().uuid().optional(),
+  parentSessionId: z.string().uuid(),
 });
 
 /**

@@ -412,19 +412,20 @@ describe('sessionPrompts', () => {
       expect(result).toContain('Add a Session to this Workspace');
       expect(result).toContain('/api/workspaces/');
       expect(result).toContain('/sessions');
-      // Prompt is still the only required field
+      // Prompt is the only required field for workspace creation
       expect(result).toContain('-d \'{"prompt": "Your task description here"}\'');
       expect(result).toContain('Only `prompt` is required');
-      // parentSessionId is NOT exposed as an agent-facing field
-      expect(result).not.toContain('`parentSessionId`');
+      // parentSessionId IS exposed and required for adding a session to a workspace
+      expect(result).toContain('`parentSessionId`');
       // Model and other optional fields still documented
       expect(result).toContain('`model`');
       expect(result).toContain('`startImmediately`');
     });
 
-    it('instructs agent to pass afterSessionId to chain sessions', () => {
+    it('instructs agent to pass a required parentSessionId to chain sessions', () => {
       const result = buildSystemPromptConfig(sessionId, projectId, null, 'standard');
-      expect(result).toContain('afterSessionId');
+      expect(result).toContain('parentSessionId');
+      expect(result).not.toContain('afterSessionId');
       expect(result).toContain(sessionId); // current session ID as the example value
     });
 

@@ -141,7 +141,8 @@ async function buildChildSessionFromTemplate(template, session, lane, depth) {
     { rootSession, rootSummary }
   );
 
-  // Get settings and create session
+  // Get settings and create session with its direct parent set atomically at
+  // creation time — avoids a window where the new row briefly has no parent.
   const settings = getTemplateSessionSettings(template, session);
   const newSession = sessions.create(session.projectId, `${template.name} (lane: ${lane.name})`, renderedPrompt, {
     mode: settings.mode,
@@ -150,11 +151,11 @@ async function buildChildSessionFromTemplate(template, session, lane, depth) {
     status: 'starting',
     model: settings.model,
     agentType: resolveAgentTypeFromModel(settings.model),
+    parentSessionId: session.id,
   });
 
-  // Configure session
+  // Configure remaining fields not supported by create()
   sessions.update(newSession.id, {
-    parentSessionId: session.id,
     nextTemplateId: template.nextTemplateId || null,
     laneTriggerDepth: depth + 1,
   });
@@ -237,16 +238,18 @@ async function buildChildSessionFromPrompt(lane, session, depth) {
     { rootSession, rootSummary }
   );
 
-  // Get settings and create session
+  // Get settings and create session with its direct parent set atomically at
+  // creation time — avoids a window where the new row briefly has no parent.
   const settings = getLaneSessionSettings(lane, session);
   const newSession = sessions.create(session.projectId, `Lane prompt (lane: ${lane.name})`, renderedPrompt, {
     ...settings,
     status: 'starting',
     agentType: resolveAgentTypeFromModel(settings.model),
+    parentSessionId: session.id,
   });
 
-  // Configure session
-  const sessionUpdates = { parentSessionId: session.id, laneTriggerDepth: depth + 1 };
+  // Configure remaining fields not supported by create()
+  const sessionUpdates = { laneTriggerDepth: depth + 1 };
   if (lane.onEnterAutoRescheduleEnabled) {
     Object.assign(sessionUpdates, {
       autoRescheduleEnabled: true,

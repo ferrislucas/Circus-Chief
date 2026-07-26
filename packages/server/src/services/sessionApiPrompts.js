@@ -16,11 +16,10 @@ Optional fields: \`name\`, \`mode\`, \`thinkingEnabled\` (boolean), \`effortLeve
 \`\`\`bash
 curl -X POST ${apiUrl}/api/workspaces/${workspaceId}/sessions \\
   -H "Content-Type: application/json" \\
-  -d '{"prompt": "Your task description here"}'
+  -d '{"prompt": "Your task description here", "parentSessionId": "${sessionId}"}'
 \`\`\`
-Use this to **continue work inside the current workspace**. The new session is attached at the workspace root by default.
-Pass \`"afterSessionId": "${sessionId}"\` to chain the new session directly after the current one (useful when you want the follow-on to be contextually linked to this session rather than the workspace root).
-Optional fields: same as creating a workspace plus \`afterSessionId\`. Add \`scheduledAt\` to schedule the new session without starting it immediately. Only schedule a new *workspace* when starting genuinely independent work; for continuations, schedule a *session within this workspace* instead.
+Use this to **continue work inside the current workspace**. \`parentSessionId\` is required — pass \`"parentSessionId": "${sessionId}"\` to chain the new session directly after the current one, or \`"parentSessionId": "${workspaceId}"\` to attach it directly to the workspace root instead.
+Optional fields: same as creating a workspace. Add \`scheduledAt\` to schedule the new session without starting it immediately. Only schedule a new *workspace* when starting genuinely independent work; for continuations, schedule a *session within this workspace* instead.
 
 **Note:** "workspace" here refers to a group of related sessions. This is distinct from the Codex \`workspace-write\` sandbox mode — those are separate concepts.
 

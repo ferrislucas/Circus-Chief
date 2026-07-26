@@ -74,24 +74,28 @@ function resolveWorkspace(res, rawWorkspaceId, expectedProjectId = null) {
 }
 
 /**
- * Resolve the parent attach point for a session being added to a workspace.
+ * Validate the required parentSessionId for a session being added to a workspace.
  *
- * Forgiving behaviour (by design): if afterSessionId is provided but does not
- * resolve to a session within this workspace (unknown ID or a session that
- * belongs to a different workspace), the new session silently attaches at the
- * workspace root. Clients that need strict validation should verify the ID
- * themselves before calling this endpoint.
+ * Strict behaviour (by design): parentSessionId must reference a session that
+ * exists and belongs to this workspace (the root or one of its descendants).
+ * An unknown parent or a parent from a different workspace is rejected — the
+ * server never silently falls back to attaching the session at the workspace
+ * root.
  *
  * @param {object} workspace - The resolved workspace root session.
- * @param {string|undefined} afterSessionId - Optional UUID of the preceding session.
- * @returns {string} The parent session ID to use.
+ * @param {string} parentSessionId - Required UUID of the direct parent session.
+ * @returns {{ parentSessionId: string }|{ error: string, status: number }}
  */
-function resolveParentAttachPoint(workspace, afterSessionId) {
-  if (!afterSessionId) return workspace.id;
-  const afterSession = sessions.getById(afterSessionId);
-  if (!afterSession) return workspace.id;
-  const afterRoot = sessions.getRootSessionId(afterSession.id) || afterSession.id;
-  return afterRoot === workspace.id ? afterSession.id : workspace.id;
+function validateWorkspaceParent(workspace, parentSessionId) {
+  const parentSession = sessions.getById(parentSessionId);
+  if (!parentSession) {
+    return { error: 'Parent session not found', status: 404 };
+  }
+  const parentRoot = sessions.getRootSessionId(parentSession.id) || parentSession.id;
+  if (parentRoot !== workspace.id) {
+    return { error: 'Parent session does not belong to this workspace', status: 400 };
+  }
+  return { parentSessionId: parentSession.id };
 }
 
 /**
@@ -228,8 +232,12 @@ workspacesRouter.post('/:workspaceId/sessions', async (req, res) => {
 
     const { workspace, project } = resolved;
 
-    const parentSessionId = resolveParentAttachPoint(workspace, req.body.afterSessionId);
-    const body = { ...req.body, parentSessionId, afterSessionId: undefined };
+    const parentValidation = validateWorkspaceParent(workspace, req.body.parentSessionId);
+    if (parentValidation.error) {
+      return res.status(parentValidation.status).json({ error: parentValidation.error });
+    }
+
+    const body = { ...req.body, parentSessionId: parentValidation.parentSessionId };
 
     const prepared = await validateAndPrepareSessionConfig(body, req.files, workspace.projectId, project);
     if (prepared.error) {

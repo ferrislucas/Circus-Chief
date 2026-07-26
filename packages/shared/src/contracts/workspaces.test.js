@@ -135,36 +135,44 @@ describe('CreateWorkspaceRequest', () => {
 });
 
 describe('CreateWorkspaceSessionRequest', () => {
-  it('validates a minimal request without afterSessionId', () => {
+  it('rejects a request missing parentSessionId', () => {
     const result = CreateWorkspaceSessionRequest.safeParse({ prompt: 'Continue the work' });
-    expect(result.success).toBe(true);
-    expect(result.data.afterSessionId).toBeUndefined();
+    expect(result.success).toBe(false);
   });
 
-  it('accepts a valid UUID afterSessionId', () => {
+  it('accepts a valid UUID parentSessionId', () => {
+    const result = CreateWorkspaceSessionRequest.safeParse({
+      prompt: 'Continue',
+      parentSessionId: '550e8400-e29b-41d4-a716-446655440000',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data.parentSessionId).toBe('550e8400-e29b-41d4-a716-446655440000');
+  });
+
+  it('rejects a non-UUID parentSessionId', () => {
+    expect(CreateWorkspaceSessionRequest.safeParse({
+      prompt: 'Continue', parentSessionId: 'not-a-uuid',
+    }).success).toBe(false);
+  });
+
+  it('rejects the retired afterSessionId field name', () => {
     const result = CreateWorkspaceSessionRequest.safeParse({
       prompt: 'Continue',
       afterSessionId: '550e8400-e29b-41d4-a716-446655440000',
     });
-    expect(result.success).toBe(true);
-    expect(result.data.afterSessionId).toBe('550e8400-e29b-41d4-a716-446655440000');
-  });
-
-  it('rejects a non-UUID afterSessionId', () => {
-    expect(CreateWorkspaceSessionRequest.safeParse({
-      prompt: 'Continue', afterSessionId: 'not-a-uuid',
-    }).success).toBe(false);
+    expect(result.success).toBe(false);
   });
 
   it('inherits scheduledAt validation from the shared workspace fields', () => {
+    const parentSessionId = '550e8400-e29b-41d4-a716-446655440001';
     expect(CreateWorkspaceSessionRequest.safeParse({
-      prompt: 'Continue', scheduledAt: '2026-06-12T14:00:00Z',
+      prompt: 'Continue', parentSessionId, scheduledAt: '2026-06-12T14:00:00Z',
     }).success).toBe(true);
     expect(CreateWorkspaceSessionRequest.safeParse({
-      prompt: 'Continue', scheduledAt: '2026-02-30T14:00:00Z',
+      prompt: 'Continue', parentSessionId, scheduledAt: '2026-02-30T14:00:00Z',
     }).success).toBe(false);
     expect(CreateWorkspaceSessionRequest.safeParse({
-      prompt: 'Continue', scheduledAt: '2026-06-12T14:00:00',
+      prompt: 'Continue', parentSessionId, scheduledAt: '2026-06-12T14:00:00',
     }).success).toBe(false);
   });
 
@@ -174,7 +182,7 @@ describe('CreateWorkspaceSessionRequest', () => {
       mode: 'yolo',
       thinkingEnabled: false,
       gitBranch: 'follow-up',
-      afterSessionId: '550e8400-e29b-41d4-a716-446655440002',
+      parentSessionId: '550e8400-e29b-41d4-a716-446655440002',
     });
     expect(result.success).toBe(true);
   });
